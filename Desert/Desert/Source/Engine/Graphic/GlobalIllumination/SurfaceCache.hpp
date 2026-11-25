@@ -188,8 +188,7 @@ namespace Desert::Graphic::SurfaceCache
         bool operator==( const SurfaceCacheBudget& ) const = default;
     };
 
-    // PURE. The budget of the machine's quality. The rows are Scalability placeholders until GI-SURFACE-CACHE
-    // gives them this reader's pass (Scalability.hpp, "GlobalIllumination: the budgets ...").
+    // PURE. The budget of the machine's quality (Scalability.hpp, "GlobalIllumination: the budgets ...").
     [[nodiscard]] inline SurfaceCacheBudget
     MakeSurfaceCacheBudget( const Common::Scalability::ResolvedQuality& quality )
     {

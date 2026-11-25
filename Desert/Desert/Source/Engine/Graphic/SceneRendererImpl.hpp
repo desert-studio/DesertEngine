@@ -1688,9 +1688,9 @@ namespace Desert::Graphic
         std::shared_ptr<Framebuffer> m_GBuffer;                    // deferred G-buffer (MRT)
         Core::RenderPath m_RenderPath = Core::RenderPath::Forward; // refreshed from SceneSettings each BeginScene
         // The volumetric cloud layer's cost ceiling, taken from m_Quality each BeginScene and handed to
-        // the cloud renderer with the layer itself. HIGH is the calibrated reference, so a renderer
-        // nobody pushes to renders correctly rather than cheaply.
-        Common::Settings::CloudQuality m_CloudQuality = Common::Settings::CloudQuality::High;
+        // the cloud renderer with the layer itself. The default scale is the calibrated reference, so a
+        // renderer nobody pushes to renders correctly rather than cheaply.
+        CloudQualityScale m_CloudQuality;
         // Scalability Effects.CloudFootprintSteps, refreshed with m_CloudQuality and handed with it.
         bool m_CloudFootprintSteps = true;
         // Scalability Effects.CloudLightLocalSamples, refreshed with m_CloudQuality and handed with it: the

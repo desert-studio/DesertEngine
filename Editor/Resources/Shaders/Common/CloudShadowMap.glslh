@@ -49,7 +49,7 @@
 // ::ShadowStrength.
 //
 // THEY ARE THE REFERENCE TIER'S VALUES, and a quality tier scales the first three of them TOGETHER by one
-// factor (Core::CloudQuality, Graphic::CloudQualityScale). Together, because the texel is
+// factor (Scalability Effects.CloudShadowMapScalePercent, Graphic::CloudQualityScale). Together, because the texel is
 // 2 x extent / resolution and the whole derivation below turns on that texel: scale them independently
 // and the map stops resolving what the march can find, which is the one thing about this file that is not
 // free to choose. The producer is therefore handed its extent-derived numbers on the push constant rather

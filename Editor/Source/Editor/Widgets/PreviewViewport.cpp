@@ -1307,8 +1307,10 @@ namespace Desert::Editor
         // one. Pushed every frame, like EditorLayer pushes the viewport's, so the pane follows a change
         // made in Scene Settings instead of holding whatever the machine said when the panel opened.
         Common::Scalability::ResolvedQuality quality = Common::Scalability::QualityState::Resolved();
-        quality.Values[static_cast<std::size_t>( Common::Scalability::Parameter::CloudQuality )] =
-             static_cast<Common::Scalability::ParameterValue>( Common::Settings::CloudQuality::Low );
+        using Common::Scalability::Parameter;
+        quality.Values[static_cast<std::size_t>( Parameter::EffectsCloudLightMarchSamples )]      = 16;
+        quality.Values[static_cast<std::size_t>( Parameter::EffectsCloudShadowMapScalePercent )]  = 50;
+        quality.Values[static_cast<std::size_t>( Parameter::EffectsCloudStopTransmittanceMilli )] = 50;
         m_Renderer->SetQuality( quality );
 
         ApplyCamera( m_Width, m_Height );

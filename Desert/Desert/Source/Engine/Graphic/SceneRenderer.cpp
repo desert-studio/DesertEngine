@@ -1284,7 +1284,7 @@ namespace Desert::Graphic
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
         // rather than read from a global at the point of use: several SceneRenderers are live at once
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
-        m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
+        m_CloudQuality        = CloudQualityOf( quality );
         m_CloudFootprintSteps = quality.As<int>( Parameter::CloudFootprintSteps ) != 0;
         m_CloudLightLocalSamples = quality.As<int>( Parameter::CloudLightLocalSamples );
         if ( m_Systems.Water )

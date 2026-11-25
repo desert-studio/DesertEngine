@@ -201,8 +201,6 @@ namespace Desert::Editor
     // the Basic parameters with their curated controls, then every Advanced one, drawn from its spec, under a
     // closed "Internal parameters" tree. Every list a combo offers is the device's CapabilityCatalog list, and
     // every value that does not run as asked shows the resolver's own "requested -> effective (reason)" line.
-    // Placeholder parameters and groups with only placeholders are not shown (IsGroupListed): a control that
-    // moves nothing is a dead setting.
     // Starts CLOSED, like the other tools in Window -> Tools (Localization).
     ScalabilityPanel::ScalabilityPanel( const std::shared_ptr<Desert::Core::Scene>& scene )
          : IPanel( "Scalability", /*showPanel=*/false ), m_Scene( scene )
@@ -443,19 +441,6 @@ namespace Desert::Editor
                                  state.PeakNits, state.Headroom );
         }
 
-        if ( Utils::ImGuiUtilities::SectionHeader( "Clouds" ) )
-        {
-            static constexpr const char* kCloud[] = { "Low", "Medium", "High" };
-            const auto cloud = static_cast<std::size_t>( Requested( SC::Parameter::CloudQuality ) );
-            if ( const auto picked = ValueCombo( "Cloud Quality", cloud, std::size( kCloud ),
-                                                 []( std::size_t i ) { return std::string( kCloud[i] ); } ) )
-                SC::QualityState::SetOverride( SC::Parameter::CloudQuality,
-                                               static_cast<SC::ParameterValue>( *picked ) );
-            ImGui::TextDisabled( "High is the calibrated reference. Medium halves the cloud shadow map's\n"
-                                 "reach on the ground (~15 km); Low also caps the sun-ray at 16 samples,\n"
-                                 "which runs the sunward highlights bright." );
-        }
-
         if ( Utils::ImGuiUtilities::SectionHeader( "Path Tracing" ) )
         {
             // The path tracer's budget (Group::PathTracing): read only while a view runs GI / reflections
@@ -534,11 +519,10 @@ namespace Desert::Editor
                 m_DraggedParameter.reset();
             }
         }
-        if ( spec.Reader )
-            Utils::ImGuiUtilities::Tooltip(
-                 std::format( "Read by {}. The level's value unless overridden; a slider applies on release.",
-                              *spec.Reader )
-                      .c_str() );
+        Utils::ImGuiUtilities::Tooltip(
+             std::format( "Read by {}. The level's value unless overridden; a slider applies on release.",
+                          spec.Reader )
+                  .c_str() );
         if ( resolved.Overridden[static_cast<std::size_t>( parameter )] )
         {
             ImGui::SameLine();

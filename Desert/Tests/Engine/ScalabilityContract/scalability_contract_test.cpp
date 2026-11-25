@@ -31,7 +31,7 @@ namespace Vk = Desert::Graphic::API::Vulkan;
 
 namespace
 {
-    // Every group has parameters (real or placeholder), so every group is given all five levels.
+    // Every group has parameters , so every group is given all five levels.
     constexpr std::string_view kTable = R"({
   "Version": 1,
   "Groups": {
@@ -64,11 +64,11 @@ namespace
       "Cinematic": { "ViewDistance.MeshLOD": 1, "ViewDistance.LODDistanceScalePercent": 50 }
     },
     "Effects": {
-      "Low":       { "Effects.CloudQuality": 0, "Effects.VolumetricFog": 0, "Effects.VolumetricFogGridPixelSize": 16, "Effects.VolumetricFogGridSizeZ": 64 },
-      "Medium":    { "Effects.CloudQuality": 1, "Effects.VolumetricFog": 0, "Effects.VolumetricFogGridPixelSize": 16, "Effects.VolumetricFogGridSizeZ": 64 },
-      "High":      { "Effects.CloudQuality": 2, "Effects.VolumetricFog": 1, "Effects.VolumetricFogGridPixelSize": 16, "Effects.VolumetricFogGridSizeZ": 64 },
-      "Epic":      { "Effects.CloudQuality": 2, "Effects.VolumetricFog": 1, "Effects.VolumetricFogGridPixelSize": 8, "Effects.VolumetricFogGridSizeZ": 128 },
-      "Cinematic": { "Effects.CloudQuality": 2, "Effects.VolumetricFog": 1, "Effects.VolumetricFogGridPixelSize": 4, "Effects.VolumetricFogGridSizeZ": 128 }
+      "Low":       { "Effects.CloudLightMarchSamples": 16, "Effects.VolumetricFog": 0, "Effects.VolumetricFogGridPixelSize": 16, "Effects.VolumetricFogGridSizeZ": 64 },
+      "Medium":    { "Effects.CloudLightMarchSamples": 32, "Effects.VolumetricFog": 0, "Effects.VolumetricFogGridPixelSize": 16, "Effects.VolumetricFogGridSizeZ": 64 },
+      "High":      { "Effects.VolumetricFog": 1, "Effects.VolumetricFogGridPixelSize": 16, "Effects.VolumetricFogGridSizeZ": 64 },
+      "Epic":      { "Effects.VolumetricFog": 1, "Effects.VolumetricFogGridPixelSize": 8, "Effects.VolumetricFogGridSizeZ": 128 },
+      "Cinematic": { "Effects.VolumetricFog": 1, "Effects.VolumetricFogGridPixelSize": 4, "Effects.VolumetricFogGridSizeZ": 128 }
     },
     "Textures": {
       "Low":       { "Textures.MipBias": 100, "Textures.StreamingPoolMiB": 512 },
@@ -243,7 +243,7 @@ TEST( ScalabilityContract, TheRetiredMachineSettingsFieldsAreGroupParameters )
     EXPECT_EQ( SpecOf( Parameter::TextureFilter ).Owner, Group::Filtering );
     EXPECT_EQ( SpecOf( Parameter::Anisotropy ).Owner, Group::Filtering );
     EXPECT_EQ( SpecOf( Parameter::MeshLOD ).Owner, Group::ViewDistance );
-    EXPECT_EQ( SpecOf( Parameter::CloudQuality ).Owner, Group::Effects );
+    EXPECT_EQ( SpecOf( Parameter::EffectsCloudLightMarchSamples ).Owner, Group::Effects );
     EXPECT_EQ( SpecOf( Parameter::RenderScalePercent ).Owner, Group::ResolutionScale );
 }
 
@@ -267,16 +267,17 @@ TEST( ScalabilityContract, TheTableRefusesEveryErrorNotTheFirst )
 {
     std::string bad( kTable );
     bad.replace( bad.find( "\"Filtering.Anisotropy\": 4" ), 25, "\"Filtering.Anisotrophy\": 4" ); // unknown key
-    bad.replace( bad.find( "\"Effects.CloudQuality\": 1" ), 25, "\"Effects.CloudQuality\": 9" );  // out of range
+    const std::string cloud = "\"Effects.CloudLightMarchSamples\": 32";
+    bad.replace( bad.find( cloud ), cloud.size(), "\"Effects.CloudLightMarchSamples\": 65" ); // out of range
     const auto parsed = ScalabilityTable::Parse( bad );
     ASSERT_FALSE( parsed.IsSuccess() );
     EXPECT_NE( parsed.GetError().find( "Filtering.Anisotrophy" ), std::string::npos );
-    EXPECT_NE( parsed.GetError().find( "Effects.CloudQuality" ), std::string::npos );
+    EXPECT_NE( parsed.GetError().find( "Effects.CloudLightMarchSamples" ), std::string::npos );
     // Each error names where it sits in the file.
     EXPECT_NE( parsed.GetError().find( "Groups.Effects.Medium" ), std::string::npos ) << parsed.GetError();
 }
 
-// AntiAliasing.Samples is the MSAA count only; TAA's quality is its own (placeholder) row, 0..2.
+// AntiAliasing.Samples is the MSAA count only; TAA's quality is its own row, 0..2.
 TEST( ScalabilityContract, SamplesAboveOneUnderANonMsaaMethodIsRefused )
 {
     std::string       bad( kTable );
@@ -288,7 +289,7 @@ TEST( ScalabilityContract, SamplesAboveOneUnderANonMsaaMethodIsRefused )
     EXPECT_NE( parsed.GetError().find( "MSAA sample count" ), std::string::npos ) << parsed.GetError();
 }
 
-TEST( ScalabilityContract, TemporalQualityIsAHiddenPlaceholderOfThreeLevels )
+TEST( ScalabilityContract, TemporalQualityHasThreeLevels )
 {
     const ParameterSpec& spec = SpecOf( Parameter::TemporalAAQuality );
     EXPECT_EQ( spec.Owner, Group::AntiAliasing );
@@ -296,7 +297,7 @@ TEST( ScalabilityContract, TemporalQualityIsAHiddenPlaceholderOfThreeLevels )
     EXPECT_EQ( spec.Min, 0 );
     EXPECT_EQ( spec.Max, 2 );
     EXPECT_EQ( spec.NarrowedBy, CatalogList::None );
-    EXPECT_TRUE( IsPlaceholder( spec ) );
+    EXPECT_FALSE( spec.Reader.empty() );
     std::string       bad( kTable );
     const std::string epic = R"("AntiAliasing.TemporalQuality": 2 },
       "Cinematic")";
@@ -308,7 +309,7 @@ TEST( ScalabilityContract, TemporalQualityIsAHiddenPlaceholderOfThreeLevels )
 TEST( ScalabilityContract, AParameterUnderAGroupThatDoesNotOwnItIsRefused )
 {
     std::string bad( kTable );
-    bad.replace( bad.find( "\"ViewDistance.MeshLOD\": 0" ), 25, "\"Effects.CloudQuality\": 0" );
+    bad.replace( bad.find( "\"ViewDistance.MeshLOD\": 0" ), 25, "\"Effects.CloudLightMarchSamples\": 16" );
     EXPECT_FALSE( ScalabilityTable::Parse( bad ).IsSuccess() );
 }
 
@@ -333,32 +334,18 @@ TEST( ScalabilityContract, AnEnumValueIsWrittenByNameNotByNumber )
     EXPECT_NE( parsed.GetError().find( "AntiAliasing.Method" ), std::string::npos ) << parsed.GetError();
 }
 
-// ---- Placeholders: reserved rows nobody may see or set ---------------------------------------------------
+// ---- Every row is listed and names its reader --------------------------------------------------------------
 
-TEST( ScalabilityContract, EveryPlaceholderIsHiddenAndEveryListedRowNamesAReader )
+TEST( ScalabilityContract, EveryRowIsListedAndNamesAReader )
 {
     const std::vector<Parameter> listed = ListedParameters();
     for ( const ParameterSpec& spec : ParameterSpecs() )
     {
-        const bool isListed = std::find( listed.begin(), listed.end(), spec.Id ) != listed.end();
-        if ( IsPlaceholder( spec ) )
-            EXPECT_FALSE( isListed ) << spec.Key << " is a placeholder and must not be listed";
-        else
-        {
-            EXPECT_TRUE( isListed ) << spec.Key;
-            const auto& reader = spec.Reader;
-            if ( !reader.has_value() )
-                FAIL() << spec.Key << " has no reader";
-            EXPECT_FALSE( reader->empty() ) << spec.Key << " names no reader";
-        }
+        EXPECT_NE( std::find( listed.begin(), listed.end(), spec.Id ), listed.end() ) << spec.Key;
+        EXPECT_FALSE( spec.Reader.empty() ) << spec.Key << " names no reader";
     }
-    // Textures has only placeholders today: no slider for it. Every other group has a real row.
-    EXPECT_FALSE( IsGroupListed( Group::Textures ) );
-    for ( const Group g :
-          { Group::AntiAliasing, Group::ResolutionScale, Group::Filtering, Group::ViewDistance, Group::Effects,
-            Group::Shadows, Group::GlobalIllumination, Group::Reflections, Group::PostProcess,
-            Group::Shading, Group::PathTracing, Group::Foliage } )
-        EXPECT_TRUE( IsGroupListed( g ) ) << GroupKey( g );
+    for ( std::size_t g = 0; g < kGroupCount; ++g )
+        EXPECT_TRUE( IsGroupListed( static_cast<Group>( g ) ) ) << GroupKey( static_cast<Group>( g ) );
 }
 
 namespace
@@ -381,17 +368,6 @@ namespace
                                   &MockSave );
     }
 } // namespace
-
-TEST( ScalabilityContract, SetOverrideRefusesAPlaceholderAndSavesNothing )
-{
-    InitializeQualityState();
-    const QualitySelection before = QualityState::Selection();
-    const auto             report = QualityState::SetOverride( Parameter::TextureMipBias, 100 );
-    EXPECT_FALSE( report.Refused.empty() );
-    EXPECT_FALSE( report.Saved );
-    EXPECT_EQ( g_SaveCalls, 0 );
-    EXPECT_EQ( QualityState::Selection(), before );
-}
 
 TEST( ScalabilityContract, ApplySavesTheSelectionThroughTheSaver )
 {
@@ -717,7 +693,6 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     constexpr ParameterValue kOldMeshLOD      = 1;
     constexpr auto kOldFilter = static_cast<ParameterValue>( Common::Settings::TextureFilter::Trilinear );
     constexpr ParameterValue kOldAnisotropy = 8;
-    constexpr auto kOldCloudQuality         = static_cast<ParameterValue>( Common::Settings::CloudQuality::High );
     // Graphic::kSceneShadowQuality (ShadowCascades.hpp): 4 cascades of 2048 over 150 m.
     constexpr ParameterValue kOldShadowCascades = 4;
     constexpr ParameterValue kOldShadowMapSize  = 2048;
@@ -749,7 +724,10 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     EXPECT_EQ( high( Parameter::MeshLOD ), kOldMeshLOD );
     EXPECT_EQ( high( Parameter::TextureFilter ), kOldFilter );
     EXPECT_EQ( high( Parameter::Anisotropy ), kOldAnisotropy );
-    EXPECT_EQ( high( Parameter::CloudQuality ), kOldCloudQuality );
+    // The clouds' reference: no ceiling, the whole map, the whole layer marched.
+    EXPECT_EQ( high( Parameter::EffectsCloudLightMarchSamples ), 64 );
+    EXPECT_EQ( high( Parameter::EffectsCloudShadowMapScalePercent ), 100 );
+    EXPECT_EQ( high( Parameter::EffectsCloudStopTransmittanceMilli ), 0 );
     EXPECT_EQ( high( Parameter::ShadowCascades ), kOldShadowCascades );
     EXPECT_EQ( high( Parameter::ShadowMapSize ), kOldShadowMapSize );
     EXPECT_EQ( high( Parameter::ShadowDistance ), kOldShadowDistance );
