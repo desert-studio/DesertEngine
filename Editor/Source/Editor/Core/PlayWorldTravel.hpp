@@ -8,13 +8,12 @@
 // Ours plays IN the document's scene and keeps the authored level as the Play snapshot, so the same contract
 // reads: a travel replaces the PLAYED world, never the snapshot; Stop restores the snapshot whatever map Play
 // ended on; neither touches the authored document -- not its file (SceneFiles' open path) and not its dirty
-// star (the CommandHistory revision: the undo stack of the world being left is dropped, which moves no revision).
+// star (the CommandHistory revision: the load drops the records of the world being left, which moves no revision).
 //
 // This object owns that state and those decisions; the host (PlaySession) supplies the two world operations:
 // load a map into the played scene, and restore the snapshot into it.
 
 #include <Engine/Core/LevelTravel.hpp>
-#include "Editor/Core/CommandHistory.hpp"
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -73,10 +72,7 @@ namespace Desert::Editor
             return travel.TickTravel(
                  [this, &load]( const std::string& path ) -> Common::BoolResultStr
                  {
-                     // The undo stack recorded in the world being left targets entities about to be destroyed.
-                     // Clear() drops the stacks and keeps the revision: the authored document stays as clean
-                     // or as dirty as it was when Play began.
-                     CommandHistory::Get().Clear();
+                     // The undo records of the world being left are dropped by the load; the edit history stays parked.
                      auto loaded = load( path );
                      // Even a failed load has torn the old played world down: whatever is there now is not
                      // the authored level, and Stop restores the snapshot either way.

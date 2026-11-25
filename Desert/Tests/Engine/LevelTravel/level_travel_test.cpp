@@ -11,6 +11,7 @@
 
 #include <Engine/Core/LevelTravel.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/PlayWorldTravel.hpp>
 #include <Projects/ProjectContext.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
