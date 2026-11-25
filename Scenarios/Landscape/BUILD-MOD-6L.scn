@@ -1,3 +1,8 @@
+# BUILD-MOD-6L pass 9: the World Partition rules name no landscape key. Core/Serialize/WorldPartitionRules lists no
+# landscape loading row, entity reference or component name; LandscapeCore::StartupModule registers them, its HLOD
+# builder components and its activation kind (UE: the Landscape module owns FLandscapeActorDesc). A record whose
+# component no started module registers is an Issue and is placed nowhere (WorldPartitionPlan::UnregisteredRecords).
+# The pass 8 lines below are rerun unchanged.
 # BUILD-MOD-6L pass 8: Core stops knowing the landscape. World Partition's rules (Core/Serialize/WorldPartitionRules)
 # place a landscape tile and spline through a descriptor hook LandscapeCore registers (UE: FLandscapeActorDesc, the
 # Landscape module's FWorldPartitionActorDesc subclass); LandscapeCore sits ABOVE Core and the dedicated server names it.
@@ -31,3 +36,7 @@
 # [B-C01] server_collision (run_server7.sh, not a DesertCtl step): server.log residency-union lines carry
 # "collision N body(ies) (N landscape tile(s))" with N > 0 and no "[Server] landscape" error; the bot's pawn,
 # spawned 20 m over the terrain at (2500, 2000, 650), lands and then stands at one height (no fall through).
+# [unregistered_issue] (WorldGen, not a DesertCtl step): WorldGen built with its LandscapeCore::StartupModule() call
+# commented out plans a landscape world once: stderr carries one "no module started in this process registers" Issue
+# per tile record and the partition summary "N record(s) of a component no started module registers"; no tile gets a
+# point footprint. With the call restored the same run prints no such Issue.
