@@ -39,12 +39,12 @@ TURN_FINISH = 20  # owner 10-23: p2 of SLICE-01c hit 80 two steps from the end a
 # TURN_LIMIT only the FINAL step may run (scenario replay, frames, commit, REMAINDER) for TURN_FINISH more calls — no edits,
 # no code search — and the same command three times in a row there is a loop and is refused
 TURN_HARD_CAP = 100  # owner 10-23: soft 80 + 20 finishing; owner 10-22: 40 → 80; owner 2026-10-20 (150 on 10-10, 60 on 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
-# Owner 10-15 «давай»: three of six agents that day ran out at 150 mid-build and handed over unchecked code, each
-# costing a fresh agent 1.5-3 h. So 300 through Monday 2026-10-19, then 150 again by itself; and a blocking wait on a
-# build or background job (build_wait.sh / wait_bg.sh) is not counted — waiting is not work.
-import datetime as _dtc
-if _dtc.date.today() <= _dtc.date( 2026, 10, 19 ):
-    TURN_WARN, TURN_LIMIT, TURN_HARD_CAP = 285, 300, 300
+# Owner 11-25 («настрой всё как в идеале ААА студии», «надоело, что месяцами делаем фичу»): the FEATURE lane. The small
+# limits above stay for a one-defect fix; a whole feature goes to `subagent_type: "engineer"` with an accepted design
+# file and one long run. Measured 11-25: 106 features took >= 3 passes (median 5), each re-reading the same code.
+FEATURE_TURNS = (270, 300, 320)  # warn, soft limit, hard cap
+FEATURE_ITEMS, FEATURE_CHARS, FEATURE_READ_LINES = 10, 5000, 400
+READ_ONLY_AGENTS = ("explore", "board", "architect", "reviewer", "acceptance")  # no code edits: no work brief needed
 UNCOUNTED_WAIT = re.compile(r"^\s*(\S*/)?(build_wait|wait_bg)\.sh\b")
 MAX_SLEEP = 270
 MAX_EDITOR_BUILDS = 4  # owner 10-10: one agent carries a feature to a live frame; 2 forced lead-side rebuilds
@@ -59,7 +59,7 @@ FIND = re.compile(r"(^|[;&|(]\s*|\s)find\s")
 # grep -r over a build log directory or the scratch is reading logs, not searching the tree (09-29: L10b refused)
 LOG_SEARCH = re.compile(r"grep\s+-[A-Za-z]*[rR][A-Za-z]*\s+(\S+\s+)?[\"']?(\S*build/DevLogs|/private/tmp/|/tmp/)")
 SLEEP = re.compile(r"\bsleep\s+(\d+)")
-BRIEF_PATH = re.compile(r"/[^\s'\";|&]*BRIEF[A-Za-z0-9_-]*\.md")
+BRIEF_PATH = re.compile(r"(?:[A-Za-z]:)?/[^\s'\";|&]*BRIEF[A-Za-z0-9_-]*\.md")
 # the body of a heredoc (python/C++ written to a file) is data, not shell: `str.find(` is not a tree search
 HEREDOC_BODY = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\1\b", re.S)
 EDITOR_BUILD = re.compile(r"((^|[;&|(]\s*|\s)make\s|build_quiet\.sh\s)[^;&|]*\bEditor\b")  # make as a COMMAND: `ls Desert.make Editor.make` counted as a build
@@ -95,11 +95,20 @@ CI_WAIT = re.compile(r"\bgh\s+(run\s+watch|pr\s+checks\b[^;&|]*--watch)|"
 
 
 MAX_BRIEF_ITEMS = 2
+DESIGN_KEYS = ("Эталон", "Отличия", "Архитектура", "Приёмка")
 ARCH_KEYS = ("Эталон", "Варианты", "Выбор")  # «## Архитектура»: reference followed / alternatives weighed / why this one
 MAX_BRIEF_DO_CHARS = 900  # calibrated 10-05: done = M18f 749, ANIM-AUDIT 839; wip = MEDIA-2 1106, MEDIA-3 1083, VIDEO-1 2100, VIDEO-2a 1017
 
 
-def brief_size_denial(prompt):
+def enter_lane(agent_type):
+    """The feature lane's budgets, for this hook process only (one process = one call of one agent)."""
+    global TURN_WARN, TURN_LIMIT, TURN_HARD_CAP, MAX_READ_LINES
+    if agent_type in ("engineer", "architect", "reviewer"):
+        TURN_WARN, TURN_LIMIT, TURN_HARD_CAP = FEATURE_TURNS
+        MAX_READ_LINES = FEATURE_READ_LINES
+
+
+def brief_size_denial(prompt, feature=False):
     """None when the prompt points at a brief whose «## Сделать» fits one agent (60 calls), else the refusal text."""
     found = BRIEF_PATH.search(prompt)
     if not found:
@@ -133,10 +142,23 @@ def brief_size_denial(prompt):
                 f"{', '.join(k + ':' for k in ARCH_KEYS)} (не хватает: {', '.join(missing)}). Владелец 10-30: решение — "
                 "лучшее по архитектуре, не первая идея: как это сделано у UE/AAA, какие варианты отброшены, почему этот.")
     items = re.findall(r"^\s*\d+[.)]\s", body, re.M)
-    if len(items) > MAX_BRIEF_ITEMS or len(body) > MAX_BRIEF_DO_CHARS:
+    if feature:
+        # The whole feature in one run needs a design that names every difference and its proven cause (DEV_CONTRACT 00e).
+        design = re.search(r"^## Дизайн[^\n]*\n\s*(\S+\.md)", text, re.M)
+        if not design or not os.path.isfile(design.group(1)):
+            return (f"[agent_guard] Тимлид: бриф {found.group(0)} для engineer без «## Дизайн» с путём к готовому файлу "
+                    "дизайна (агент architect, DEV_CONTRACT 00e): эталон, все отличия с доказанной причиной, одна архитектура.")
+        dtext = open(design.group(1), encoding="utf-8", errors="replace").read()
+        lost = [k for k in DESIGN_KEYS if not re.search(rf"^## {k}", dtext, re.M)]
+        if lost:
+            return f"[agent_guard] Тимлид: дизайн {design.group(1)} без разделов: {', '.join(lost)} (DEV_CONTRACT 00e)."
+        if len(items) > FEATURE_ITEMS or len(body) > FEATURE_CHARS:
+            return (f"[agent_guard] Тимлид: «## Сделать» {len(items)} пунктов / {len(body)} знаков (предел engineer "
+                    f"{FEATURE_ITEMS} / {FEATURE_CHARS}) — подробности живут в файле дизайна.")
+    elif len(items) > MAX_BRIEF_ITEMS or len(body) > MAX_BRIEF_DO_CHARS:
         return (f"[agent_guard] Тимлид: задача крупнее одного агента — «## Сделать» {len(items)} пунктов / {len(body)} знаков "
                 f"(предел {MAX_BRIEF_ITEMS} / {MAX_BRIEF_DO_CHARS}). 10-05: 3 из 4 агентов с 4–6 пунктами упёрлись в 60 вызовов. "
-                "Режь на задачи с ОДНИМ результатом, остальное — отдельными брифами в очередь.")
+                "Это одна фича — запускай её целиком через subagent_type: \"engineer\" с файлом дизайна (DEV_CONTRACT 00e).")
     # Owner 10-10: «опять пишет тесты не проверив, что работает фича — тесты в самом конце, чтобы 100 раз им не уделять
     # внимание». A code brief asks for code + build only; tests/suites/mutations are their own brief, written once the
     # feature was seen working, and that brief names the proof in a «Фича принята:» line.
@@ -175,11 +197,11 @@ CHEAT_SHEET = """[agent_guard] ДВА ПАРАМЕТРА ВСЕГДА — АРХ
 - чтение кода: grep -n <шаблон> <известный файл> → sed -n 'A,Bp' <файл> (≤150 строк) или Read(offset, limit≤150). НЕ cat / Read целиком.
 - новые тесты НЕ пишешь (владелец 10-10: тесты после фич); затронутые существующие сюиты гоняешь сам: scripts/Dev/suite.sh в фоне; tidy/склейки/handoff — тимлид. Сдача: последний коммит с темой «wip: …» → git push (полный handoff_check гоняет тимлид; не-wip без .cache/handoff/<HEAD>.ok хук откажет).
 - dev вливается только scripts/Dev/merge_dev.sh; сцены — scripts/Dev/migrate.sh; редактор — через run_capped.
-- сборка: ОДИН раз в конце — build_quiet.sh в фоне + build_wait.sh (общий пул сборок машины, очереди нет); sleep ≤ 270 с.
-- формат диффа: /opt/homebrew/opt/llvm@18/bin/git-clang-format --binary /opt/homebrew/opt/llvm@18/bin/clang-format <база> (git-clang-format из PATH — v22, падает на -list-ignored; clang-format -i по файлу целиком НЕ запускать).
+- сборки агент НЕ запускает: одну сборку пачки делает тимлид (build_land.sh); sleep ≤ 270 с.
+- формат: хук format_on_edit сам; clang-format -i по файлу целиком НЕ запускать.
 - долгое (> 4 мин: мигратор, сборка) — run_in_background + ~/.claude/tools/wait_bg.sh <output-файл> (≤ 4 мин за вызов); timeout > 280 с — отказ, ход в ожидании уведомления не заканчивать.
-- конец работы: код готов → «wip: <КОД> код готов» + push → потом ОДНА компиляция (конвейер, 09-30); стартовал от чужого CODE-READY — перед компиляцией git merge origin/<ветка предшественника>.
-- CI не ждёшь: push → id прогона в отчёт → конец. Лимит 150 вызовов без продлений: остаток — REMAINDER.md в скретче."""
+- конец работы: «wip: <КОД> код готов» + push; сборка и приёмка — тимлид. Перед сдачей: python scripts/Dev/arch_census.py (рост = исправь).
+- CI не ждёшь: push → id прогона в отчёт → конец. Лимит вызовов — в подсказке хука (починка 80, фича engineer 300): остаток — REMAINDER.md в скретче."""
 
 
 
@@ -457,6 +479,23 @@ def self_check():
                                    capture_output=True, text=True)
             if legal.returncode or '"deny"' in legal.stdout:
                 failed.append("REFUSED a legal call: " + name)
+        # Owner 11-25: the feature lane refuses a brief without a design and takes a fat one with it.
+        design_md = os.path.join(STATE_DIR, "selfcheck-DESIGN.md")
+        with open(design_md, "w", encoding="utf-8") as f:
+            f.write("".join(f"## {k}\nx\n" for k in DESIGN_KEYS))
+        feat = fat.replace("selfcheck-BRIEF", "selfcheck-FEAT-BRIEF")
+        rest = ("## Архитектура\nЭталон: a\nВарианты: b\nВыбор: c\n## Сделать\n1. a\n2. b\n3. c\n4. d\n"
+                "## Сценарий\nТогда [f]: x\n")
+        for name, head, refused in (("feature brief without a design", "", True),
+                                    ("feature brief with a design", f"## Дизайн\n{design_md}\n", False)):
+            with open(feat, "w", encoding="utf-8") as f:
+                f.write(head + rest)
+            got = brief_size_denial("brief " + feat.replace(os.sep, "/"), True)
+            cases[name] = None
+            if bool(got) != refused:
+                failed.append(name)
+        os.remove(feat)
+        os.remove(design_md)
         cases["lead launches a fat brief"] = None
         if '"deny"' not in fat_out.stdout:
             failed.append("lead launches a fat brief")
@@ -485,7 +524,7 @@ def self_check():
             pass
     rules = ", ".join(cases)
     msg = (f"[agent_guard] ДВА ПАРАМЕТРА ВСЕГДА: АРХИТЕКТУРА И NEXTGEN; вид — из ассетов, не кодом (владелец 10-29). А Р Х И Т Е К Т У Р А ПЕРВОЙ: решение = как правильно устроено (UE или лучше; где UE архитектурно хуже — сказать владельцу ДО кода, владелец 10-12), не замер/бюджет/урезанный охват "
-           f"(LEAD_PROTOCOL, DEV_CONTRACT §00). ПАУЗЫ НЕТ (владелец 10-05: «кончились токены»): незаконченные задачи обязательны, игра — параллельно; граф рендера не трогать. Бриф = ОДИН результат (хук: ≤ 2 пункта / 900 знаков в «## Сделать»). Доска — только агент board (DEV_CONTRACT §00c); запуск (process_event.py launch на запуск); приём — одним ~/.claude/tools/accept.sh. self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
+           f"(LEAD_PROTOCOL, DEV_CONTRACT §00). ПАУЗЫ НЕТ (владелец 10-05: «кончились токены»): незаконченные задачи обязательны, игра — параллельно; граф рендера не трогать. Фича = ОДИН заход engineer по дизайну architect (DEV_CONTRACT 00e); починка = ≤ 2 пункта / 900 знаков. Доска — только агент board (DEV_CONTRACT §00c); запуск (process_event.py launch на запуск); приём — одним ~/.claude/tools/accept.sh. self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
            f"[agent_guard] SELF-CHECK FAILED — these rules no longer bite: {', '.join(failed)}. "
            f"Restore .claude/tools/agent_guard.py from git history BEFORE launching any agent.")
     emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}})
@@ -626,8 +665,9 @@ def main():
     # So a working agent is launched ONLY from a brief file whose «## Сделать» is ONE result: ≤ MAX_BRIEF_ITEMS numbered
     # items and ≤ MAX_BRIEF_DO_CHARS characters (packing items into one paragraph is caught by the length).
     if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
-            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() not in ("explore", "board"):
-        denial = brief_size_denial(str((data.get("tool_input") or {}).get("prompt") or ""))
+            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() not in READ_ONLY_AGENTS:
+        denial = brief_size_denial(str((data.get("tool_input") or {}).get("prompt") or ""),
+                                   (data.get("tool_input") or {}).get("subagent_type") == "engineer")
         if denial:
             deny(denial, data, "lead")
     # Owner 10-19 («2 и 3 ок»): no further weather agent until WTH-STATE and WTH-OCCL are on dev — weather tasks cost
@@ -672,6 +712,7 @@ def main():
     if not agent or agent_type == "explore":
         sys.exit(0)  # the lead's own session, or a discovery agent: unrestricted
 
+    enter_lane(agent_type)
     event = data.get("hook_event_name", "PreToolUse")
     state, path = load_state(agent)
 

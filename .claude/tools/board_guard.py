@@ -423,7 +423,7 @@ def main():
         save(s)
         sys.exit(0)
 
-    if event == "SubagentStop" and (data.get("agent_type") or "").lower() == "board":
+    if event == "SubagentStop" and (data.get("agent_type") or "").lower() in ("board", "architect", "reviewer", "acceptance"):
         sys.exit(0)  # nothing to accept
     if event == "SubagentStop":
         # A worker's nested child (an Explore it spawned) stops with the worker's agent_id; its own id is only in the
@@ -552,7 +552,7 @@ def main():
         sys.exit(0)
 
     if event == "PreToolUse" and tool in ("Agent", "SendMessage"):
-        if tool == "Agent" and (tin.get("subagent_type") or "").lower() in ("explore", "board"):
+        if tool == "Agent" and (tin.get("subagent_type") or "").lower() in ("explore", "board", "architect", "reviewer", "acceptance"):
             sys.exit(0)
         late = unaccepted(s)
         if late:
