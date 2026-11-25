@@ -90,7 +90,7 @@ namespace Desert::Graphic::System
         // WaterTiles' leading members (the header rows and every wave set of the frame) - and every body that
         // draws this frame (its footprint and still level) with its wave lane (WaterTileRow.Body.z: 1 + its set in
         // WaterWaveSets, 0 = flat; parallel to GetFrameBodies), after PrepareFrame; all empty when no water draws.
-        static constexpr std::size_t kWavesBlockBytes = ( 5 + 4 * ( 1 + 2 * 32 ) ) * 4 * sizeof( float );
+        static constexpr std::size_t kWavesBlockBytes = ( 6 + 4 * ( 1 + 2 * 32 ) ) * 4 * sizeof( float );
         [[nodiscard]] std::span<const std::byte> GetFrameWavesBlock() const
         {
             if ( m_Walk.Programs.empty() || m_Upload.size() < kWavesBlockBytes )
@@ -133,9 +133,9 @@ namespace Desert::Graphic::System
         {
             return m_FFTInitial;
         }
-        // The persistent two-frame waves atlas (Mesh/Surface/WaterMeshTiles.glslh WaterFFTTexture): N x 14 N
+        // The persistent two-frame waves atlas (Mesh/Surface/WaterMeshTiles.glslh WaterFFTTexture): N x 22 N
         // RGBA16F, this frame's half written by AddWavePasses, the other half the previous frame's (the velocity,
-        // and the foam history the new half's foam band decays from).
+        // and the foam histories the new half's decay from).
         [[nodiscard]] const std::shared_ptr<Image2D>& GetFFTWaves() const override
         {
             return m_FFTWaves;
@@ -148,9 +148,11 @@ namespace Desert::Graphic::System
         // THE OCEAN AT THE VIEW'S TIME (Programs/Water/WaterFFTSpectrum, WaterFFT x2, WaterFFTFinalize): the
         // cascades' spectra from @p initial (the imported GetFFTInitialSpectrum) advanced to @p timeSeconds
         // (cameraUB.Time), inverse-transformed along rows then columns, and unpacked into this frame's half of
-        // @p waves (the imported GetFFTWaves). Returns @p waves; invalid when the frame draws no FFT ocean.
+        // @p waves (the imported GetFFTWaves); then the surf foam over the ground of @p waterInfo (the imported
+        // GetWaterInfo, or black when there is none: no surf) into the same half (Programs/Water/WaterSurfFoam).
+        // Returns @p waves; invalid when the frame draws no FFT ocean.
         RDG::TextureRef AddWavePasses( RDG::Builder& graph, RDG::TextureRef initial, RDG::TextureRef waves,
-                                       float timeSeconds ) override;
+                                       RDG::TextureRef waterInfo, float timeSeconds ) override;
 
         // SETUP of the water node: its one binding block - the material route (frame block, tile rows, material
         // values and ripple maps), the opaque scene's copy @p sceneCopy the surface refracts, and the scene/view
@@ -398,13 +400,13 @@ namespace Desert::Graphic::System
         std::vector<std::shared_ptr<const Water::RiverFlowField>> m_FlowsBaked;
         std::shared_ptr<Image2D>                      m_WaterInfo;
 
-        // THE FFT OCEAN'S STATE (WATER-RIVERS-FFT). The three compute programs, built on the first FFT frame (a
+        // THE FFT OCEAN'S STATE (WATER-RIVERS-FFT). The four compute programs, built on the first FFT frame (a
         // failure is said once and the water draws its Gerstner generator); one layout cache per program.
         [[nodiscard]] bool EnsureFFTPipelines();
         // The frame's spectrum and its waves lane, or null/false: the Gerstner rows (PrepareFrame).
         [[nodiscard]] bool PrepareFFTFrame( const Assets::AssetHandle& material, const MaterialStamp& stamp,
-                                            const Assets::AssetHandle& waves, glm::vec4& header, glm::vec4& fft,
-                                            float& verticalExtent );
+                                            const Assets::AssetHandle& waves, const glm::vec3& eye, glm::vec4& header,
+                                            glm::vec4& fft, float& verticalExtent );
         // THE WHITECAPS' LIFETIME of the FFT ocean's body material (WATER-UNDERWATER pass 4: one truth, the
         // material's FoamDecaySeconds - UE's material-driven foam; the `.dwaves` FFT block no longer states one).
         // Re-read only when that material or the material stamp moved; a material that cannot be read keeps the
@@ -415,10 +417,12 @@ namespace Desert::Graphic::System
             MaterialStamp Stamp;
             bool          Readable = false;
             float         Seconds  = 0.0f;
+            float         Breaker  = 0.0f; // FoamBreakerIndex, the surf foam's; 0 = the template has none (no surf)
         };
         FoamDecayRead                    m_FFTFoamDecay;
-        std::shared_ptr<ComputePipeline> m_FFTSpectrum, m_FFTTransform, m_FFTFinalize;
-        ShaderBindingLayoutCache         m_FFTSpectrumLayout, m_FFTTransformLayout, m_FFTFinalizeLayout;
+        std::shared_ptr<ComputePipeline> m_FFTSpectrum, m_FFTTransform, m_FFTFinalize, m_FFTSurf;
+        ShaderBindingLayoutCache         m_FFTSpectrumLayout, m_FFTTransformLayout, m_FFTFinalizeLayout,
+             m_FFTSurfLayout;
         bool                             m_FFTTried = false;
         // This frame's spectrum (null: Gerstner), the one whose h0 is uploaded, its h0 image and the atlas.
         std::shared_ptr<const Water::FFTOceanSpectrum> m_FFTFrame;
@@ -439,6 +443,15 @@ namespace Desert::Graphic::System
         // whether there is a previous half to keep it from (false on the first frame of a sea).
         float m_FFTFoamKeep    = 0.0f;
         bool  m_FFTFoamHistory = false;
+        // THE SURF FOAM's windows (Water/WaterSurfFoam.glslh), one set per flip: the eye they stand around (a second
+        // view of the same time reads the first one's, and no surf outside them), and the eye and the view time the
+        // written half was recorded with, with the previous half's of this flip (a flip no graph recorded wrote no
+        // half).
+        glm::vec3 m_SurfEye{ 0.0f };
+        glm::vec2 m_SurfPreviousEye{ 0.0f };
+        glm::vec2 m_SurfWrittenEye{ 0.0f };
+        double    m_SurfWrittenTime = 0.0;
+        float     m_SurfDeltaTime   = 0.0f;
         // THE CPU MIRROR's read-back (WATER-RIVERS-FFT pass 7; Water::FFTSurfaceMirror): one host-readable buffer
         // per frame in flight the finalize pass fills with every kFFTReadbackStride-th displacement texel, read
         // when its slot comes round again (the frame start waited that slot's fence: no GPU wait), with the wave

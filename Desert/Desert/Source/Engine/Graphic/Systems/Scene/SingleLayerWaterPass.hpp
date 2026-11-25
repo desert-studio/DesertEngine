@@ -72,7 +72,7 @@ namespace Desert::Graphic::System
         [[nodiscard]] virtual const std::shared_ptr<Image2D>& GetFFTWaves() const           = 0;
         [[nodiscard]] virtual RDG::TextureRef                RecordedWaves( const RDG::Builder& graph ) const = 0;
         virtual RDG::TextureRef AddWavePasses( RDG::Builder& graph, RDG::TextureRef initial, RDG::TextureRef waves,
-                                               float timeSeconds ) = 0;
+                                               RDG::TextureRef waterInfo, float timeSeconds ) = 0;
 
         // THE UNDERWATER VOLUME (WATER-UNDERWATER; UE Water: the body's underwater post process): whether the
         // camera is under a body this frame (after PrepareFrame), and "Deferred: Underwater" on the scene target

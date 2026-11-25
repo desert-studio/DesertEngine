@@ -1204,10 +1204,16 @@ namespace Desert::Graphic
              textures.Import( water->GetFFTInitialSpectrum(), "WaterFFT.H0", RDG::Access::SampledCompute );
         const RDG::TextureRef atlas =
              textures.Import( water->GetFFTWaves(), "WaterFFT.Waves", RDG::Access::SampledGraphics );
+        // The ground the surf foam breaks on; none composed yet: black, no surf.
+        const RDG::TextureRef waterInfo =
+             water->GetWaterInfo() != nullptr
+                   ? textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics )
+                   : black;
         const ViewFrame* const frame = GetViewFrame();
         const RDG::TextureRef  waves =
              initial.IsValid() && atlas.IsValid() && frame != nullptr
-                   ? water->AddWavePasses( graph, initial, atlas, static_cast<float>( frame->TimeSeconds ) )
+                   ? water->AddWavePasses( graph, initial, atlas, waterInfo,
+                                          static_cast<float>( frame->TimeSeconds ) )
                    : RDG::TextureRef{};
         if ( waves.IsValid() )
             return waves;

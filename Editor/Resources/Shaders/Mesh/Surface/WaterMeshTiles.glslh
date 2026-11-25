@@ -59,11 +59,13 @@ layout( std430, binding = 24 ) readonly buffer WaterTiles
     vec4         WaterFFTFrame;   // the FFT ocean: xyz = 1 / patch side of cascades 0..2 (1/cm), w = 1 + the atlas's first band of the PREVIOUS frame when a set of this frame IS the FFT ocean (WaterFFTTexture), 0 = no FFT ocean
     vec4         WaterFlowFrame;  // a river's flow (WATER-RIVERS-FFT): x = 1 when a river is in the frame (WaterInfoTexture's river region carries it), y unused (each river's period: WaterTileRow.Medium.y), zw = the river region's size in texels (columns, rows)
     vec4         WaterRiverFrame; // the WaterInfo atlas's river region: xy = lower world (X, Z), zw = 1 / texel along X and Z (1/cm)
+    vec4         WaterSurfFrame;  // the FFT ocean's surf foam (WaterFFTSurfFoam): xy = the eye (world X, Z) its windows stand around, zw unused
     WaterWaveSet WaterWaveSets[WATER_MAX_WAVE_SETS];
     WaterTileRow WaterTileRows[];
 };
 
 #include <Common/GerstnerWave.glslh>
+#include <Water/WaterSurfFoam.glslh>
 
 // A RIVER'S FALL (Water::RiverFall; C++ WaterRenderer::PrepareTiles' fall rows): the row draws one stretch of the
 // sheet the river pours over a lip (Vertex_WaterMesh.glslh WaterFallVertex), not a quadtree tile.
@@ -93,19 +95,20 @@ int WaterWaveSetOf( float bodyWaves )
 }
 
 // THE FFT OCEAN'S CASCADES (WATER-RIVERS-FFT; Programs/Water/WaterFFTFinalize.shader writes it each frame): one
-// persistent rgba16f atlas of 256 x 3584 texels in two halves of seven bands, written in turn (WaterRenderer's
+// persistent rgba16f atlas of 256 x 5632 texels in two halves of eleven bands, written in turn (WaterRenderer's
 // ping-pong): this frame's half starts at band WaterWaveHeader.y, the previous frame's at WaterFFTFrame.w - 1, so the
 // velocity reads the surface one frame earlier with no copy. Within a half: band c the displacement of cascade c
 // (xyz, cm) and its lambda dDx/dz (w), band 3 + c its slopes (xy) and lambda dDx/dx, lambda dDz/dz (zw), band 6
-// THE FOAM HISTORY (xyz = cascades 0..2's decayed compression, w unused; WaterFFTFoamHistory). Binding 23: free in
-// every surface cell (the list below). Fetched by texel and filtered here with a wrapping bilinear (the patch
+// THE FOAM HISTORY (xyz = cascades 0..2's decayed compression, w unused; WaterFFTFoamHistory), bands 7-10 THE
+// SURF FOAM (Programs/Water/WaterSurfFoam.shader; WaterFFTSurfFoam). Binding 23: free in every surface cell (the list below). Fetched by texel and filtered here with a wrapping bilinear (the patch
 // tiles), so it brings no sampler. When WaterFFTFrame.w is 0 the graph's black texture is bound and never read.
 // Both WaterMesh cells (SingleLayerWater, FrontLayer) bind it (WaterRenderer::DeclareDraws /
 // DeclareFrontLayerDraws).
 #define WATER_FFT_SIZE_TILES 256
 #define WATER_FFT_CASCADES_TILES 3
-#define WATER_FFT_BANDS_PER_FRAME 7
+#define WATER_FFT_BANDS_PER_FRAME 11
 #define WATER_FFT_FOAM_BAND 6
+#define WATER_FFT_SURF_BAND 7
 layout( binding = 23 ) uniform texture2D WaterFFTTexture;
 
 // One atlas band (0..13) at a plane point, `invPatch` = 1 / its cascade's side: wrapped bilinear.
@@ -189,6 +192,35 @@ float WaterFFTFoamHistory( vec2 plane, vec3 weight )
                             WaterFFTSample( band, plane, WaterFFTFrame.y ).y,
                             WaterFFTSample( band, plane, WaterFFTFrame.z ).z );
     return dot( max( h, vec3( 0.0 ) ), weight );
+}
+
+// THE SURF FOAM a particle of the FFT ocean carries, at its still world (X, Z) (Programs/Water/WaterSurfFoam.shader:
+// made at the breaking front, fading behind it): the finest window that holds it, blended into the next before its
+// edge and to none at the last one's.
+float WaterFFTSurfFoam( vec2 stillXZ )
+{
+    const int row  = ( WaterFFTCurrentBase() + WATER_FFT_SURF_BAND ) * WATER_FFT_SIZE_TILES;
+    float     foam = 0.0;
+    float     left = 1.0;
+    for ( int level = 0; level < WATER_SURF_LEVELS && left > 0.0; ++level )
+    {
+        const vec2  at    = stillXZ / WaterSurfCell( level );
+        const vec2  off   = abs( at - vec2( WaterSurfOrigin( WaterSurfFrame.xy, level ) + WATER_SURF_HALF ) );
+        const float share = left * ( 1.0 - smoothstep( 200.0, 250.0, max( off.x, off.y ) ) );
+        if ( share <= 0.0 )
+            continue;
+        const vec2  p   = at - 0.5;
+        const ivec2 i0  = ivec2( floor( p ) ) & ( WATER_SURF_SIZE - 1 );
+        const ivec2 i1  = ( i0 + 1 ) & ( WATER_SURF_SIZE - 1 );
+        const vec2  f   = p - floor( p );
+        const float f00 = texelFetch( WaterFFTTexture, WaterSurfAtlasTexel( row, i0 ), 0 )[level];
+        const float f10 = texelFetch( WaterFFTTexture, WaterSurfAtlasTexel( row, ivec2( i1.x, i0.y ) ), 0 )[level];
+        const float f01 = texelFetch( WaterFFTTexture, WaterSurfAtlasTexel( row, ivec2( i0.x, i1.y ) ), 0 )[level];
+        const float f11 = texelFetch( WaterFFTTexture, WaterSurfAtlasTexel( row, i1 ), 0 )[level];
+        foam += share * mix( mix( f00, f10, f.x ), mix( f01, f11, f.x ), f.y );
+        left -= share;
+    }
+    return foam;
 }
 
 // The plane point of a world (X, Z): relative to the set's WaveOrigin, as every Gerstner query takes it.

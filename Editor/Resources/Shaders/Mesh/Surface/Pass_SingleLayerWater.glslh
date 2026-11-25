@@ -166,8 +166,8 @@ float WaterHenyeyGreenstein( float cosTheta, float g )
 // `depth` <= 0: nothing behind the water (open sea), no bottom for a wave to break on.
 // THE FFT OCEAN keeps no past of its own (each frame is a fresh transform), so its whitecaps read the foam history
 // band instead (WaterFFTFinalize accumulates each cascade's compression and decays it by the body material's
-// FoamDecaySeconds, the same value as below; WaterFFTFoamHistory): the foam trails behind the crest that folded. Its surf is judged on the
-// current surface (the history band is per cascade, periodic; the depth is not).
+// FoamDecaySeconds, the same value as below; WaterFFTFoamHistory): the foam trails behind the crest that folded. Its surf has a
+// history of its own, in the world and over the ground (WaterFFTSurfFoam; Programs/Water/WaterSurfFoam.shader).
 float WaterFoamAmount( int waveSet, vec2 label, float time, float jitter, float depth, float atten, float viewDist,
                        SingleLayerWaterOutput w )
 {
@@ -178,12 +178,8 @@ float WaterFoamAmount( int waveSet, vec2 label, float time, float jitter, float 
         const vec3  weight   = WaterFFTCascadeWeights( viewDist );
         const float J        = mix( 1.0, 1.0 - WaterFFTFoamHistory( label, weight ), atten );
         const float whitecap = clamp( ( w.FoamJacobianThreshold - J ) / max( w.FoamJacobianSoftness, 1e-3 ), 0.0, 1.0 );
-        float       surf     = 0.0;
-        if ( depth > 0.0 )
-        {
-            const float eta = atten * WaterFFTDisplacementSum( label, weight ).y;
-            surf = smoothstep( 0.7 * w.FoamBreakerIndex, w.FoamBreakerIndex, 2.0 * eta / max( depth, 1.0 ) );
-        }
+        // The still (X, Z) is the label plus the set's origin (WaterWavePlane).
+        const float surf = depth > 0.0 ? WaterFFTSurfFoam( label + WaterWaveSets[waveSet].Header.zw ) : 0.0;
         return max( whitecap, surf );
     }
     const int   kAges = 12;
@@ -327,8 +323,9 @@ void main()
     const vec3 ownLight   = inscat * exposure * through + ( direct + reflected ) * exposure;
     const vec3 water      = behind * seenBehind + ownLight * fog.a + fog.rgb * ( vec3( 1.0 ) - trans * through );
 
-    // --- The foam: where the waves make it (physics, above), how it looks (the material). A thin sheet shows only
-    // the texture's densest cells, a thick one covers; it is a rough diffuse layer on top, lit by the sun and sky. It
+    // --- The foam: where the waves make it (physics, above), how it looks (the material). A fading amount
+    // eats the texture's structure from its edges (a lace of its densest cells, its border softer the thinner it is; a
+    // full amount covers) and its last quarter fades out whole, so a sheet's own border is no cut; it is a rough diffuse layer on top, lit by the sun and sky. It
     // is opaque, so the fog in front of it is the full fog (its light attenuated, the fog's inscattering added).
     const float jitter    = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) +
                                    fract( i.Time * 7.31 ) );
@@ -343,7 +340,9 @@ void main()
                                                          atten, viewDist, w ),
                                         max( bankBand, WaterFallFoam( i.UV0, i.VertexColor ) ) ),
                                    0.0, 1.0 );
-    const float foam      = amount * smoothstep( 0.85 - amount, 1.25 - amount, w.FoamCoverage );
+    const float soft      = mix( 0.25, 0.1, amount );
+    const float foam      = smoothstep( 0.0, 0.25, amount ) *
+                       smoothstep( 1.0 - amount - 2.0 * soft * amount, 1.0 - amount + soft, w.FoamCoverage );
     const vec3  foamN     = normalize( i.Normal );
     const vec3  foamLit   = w.FoamAlbedo * ( sun * max( dot( foamN, L ), 0.0 ) / kWaterPi + DesertAmbientIrradiance( foamN ) );
 
