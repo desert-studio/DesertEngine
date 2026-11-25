@@ -6,10 +6,11 @@
 // SampleRemote/SampleOwn per frame; a headless bot (DesertNetProbe --bot) drives the same object.
 //
 // Input: RecordInput(move, yaw) once per client fixed step - the step is numbered and pushed into the InputRing;
-// FlushInputs() once per frame sends every step not acked yet (the newest kInputRedundancy) under a new sequence
-// id, so a lost packet's steps go again with the next frame (UE: the client's moves batched per net update, the
-// old unacked move resent). SendInput = one step recorded and flushed (a headless bot's frame is one step). The
-// server's ack (Snapshot::AckInputStep) drops the ring up to it; the engine's driver replays from it (NET-4).
+// FlushInputs() once per frame sends every step not acked yet (all of them, up to kMaxUnackedInputSteps) under a
+// new sequence id, so a lost packet's steps go again with every later frame until the ack (UE: the client's moves
+// batched per net update, each unacked move resent until ClientAckGoodMove). SendInput = one step recorded and
+// flushed (a headless bot's frame is one step). The server's ack (Snapshot::AckInputStep) drops the ring up to it;
+// the engine's driver replays from it (NET-4).
 
 #include <Net/NetTransport.hpp>
 #include <Net/Replication.hpp>
@@ -54,7 +55,7 @@ namespace Desert::Net
         // intent and the pawn's declared action set, InputStep), numbered here - the step as recorded is the input
         // the client's prediction runs - or nullopt outside the session. It goes out at FlushInputs.
         std::optional<InputStep> RecordInput( InputStep input );
-        // Sends every unacked step (the newest kInputRedundancy) in one Input message; nothing when none is
+        // Sends every unacked step (all of them, never only the newest) in one Input message; nothing when none is
         // unacked.
         void FlushInputs();
         // RecordInput + FlushInputs: a frame of one step.

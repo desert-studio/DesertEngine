@@ -4,8 +4,9 @@
 //
 // After the handshake (NetHandshake.hpp) a session speaks four messages:
 //   Input    client -> server, State lane (unreliable): every fixed step of input the server has not acked yet
-//            (the newest kInputRedundancy of them), each with the client's fixed-step number, under a sequence id
-//            - a lost packet loses no input: its steps ride in the next one (§2; Overwatch-style full resend).
+//            (all of them, up to kMaxUnackedInputSteps), each with the client's fixed-step number, under a
+//            sequence id - a lost packet loses no input: its steps ride in every later one until the ack (§2; UE
+//            ServerMove resent until ClientAckGoodMove, Overwatch-style full resend).
 //   Snapshot server -> client, State lane (unreliable): the server step, the last input step the server has
 //            PROCESSED for this connection (the ack the client's prediction replays from, NET-4 §5.1), and the
 //            transform of every replicated pawn relevant to the connection.
@@ -38,10 +39,14 @@ namespace Desert::Net
     using NetId                              = std::uint32_t;
     inline constexpr NetId  kInvalidNetId    = 0;
     inline constexpr double kNetStepHz       = 60.0; // the server's fixed step (§2); the net frame number
-    // At most this many unacked input steps per Input message (§2). The server moves a pawn by every step in order
-    // and waits for a missing one, so a lost packet's steps must come again: the window covers the round trip plus
-    // one slow frame's burst of steps (0.53 s at 60 Hz). A step older than the window is given up by the server.
-    inline constexpr int kInputRedundancy = 32;
+    // The unacked input steps the client keeps and resends (§2): the InputRing's capacity, 2.1 s at 60 Hz, and so
+    // the most one Input message carries. The server moves a pawn by every step in order and waits for a missing
+    // one, so every Input message carries EVERY unacked step - never only the newest few: a slow client frame
+    // records a burst of steps (20-30 at 3 fps), and a newest-32 window pushed the older steps of the burst
+    // before it out after one send, so one lost packet lost them for good (NET-4 run 1125-061130: steps
+    // 742..754). An unacked step older than this is a lost session's; the server gives it up when a message
+    // no longer starts at or before it (MeshOfOne.cpp PawnSimulation::StepPawn).
+    inline constexpr std::size_t kMaxUnackedInputSteps = 128;
     // One input step's length - the move both the server and the predicting client simulate (the game's
     // Net::IPawnMover, MovePrediction.hpp).
     inline constexpr float kNetStepSeconds = static_cast<float>( 1.0 / kNetStepHz );
@@ -100,7 +105,8 @@ namespace Desert::Net
     struct InputMessage
     {
         std::uint32_t          Sequence = 0;
-        std::vector<InputStep> Steps; // oldest first, the unacked steps, at most kInputRedundancy
+        std::vector<InputStep>
+             Steps; // oldest first, every unacked step (consecutive), at most kMaxUnackedInputSteps
     };
 
     // The movement mode bits of a pawn's state (UE: the simulated proxy's replicated MovementMode).
@@ -190,17 +196,17 @@ namespace Desert::Net
     std::optional<DestroyMessage>  DecodeDestroy( std::span<const std::byte> data );
 
     // THE CLIENT'S SENT INPUTS (NET-4's replay buffer): every step's input is pushed; the server's ack drops the
-    // ones it processed; Latest(n) is what the next Input message carries.
+    // ones it processed; Unacked() - all of the rest - is what the next Input message carries.
     class InputRing
     {
     public:
-        static constexpr std::size_t kCapacity = 128; // 2.1 s at 60 Hz: an ack older than that is a lost session
+        static constexpr std::size_t kCapacity = kMaxUnackedInputSteps; // an ack older than that: a lost session
 
         void Push( const InputStep& step );
         // Drops every input with Step <= @p ackStep (wrap-safe step comparison).
         void DropUpTo( std::uint32_t ackStep );
-        // The newest @p count inputs, oldest first.
-        [[nodiscard]] std::vector<InputStep> Latest( std::size_t count ) const;
+        // Every input not acked yet, oldest first: what each Input message carries.
+        [[nodiscard]] std::vector<InputStep> Unacked() const;
         [[nodiscard]] std::size_t            Size() const
         {
             return m_Steps.size();
