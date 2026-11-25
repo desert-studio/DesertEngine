@@ -51,6 +51,7 @@
 #include <Engine/Runtime/SelectionContext.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityLock.hpp>
+#include <Engine/ECS/FoliageEditing.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
@@ -2129,6 +2130,7 @@ namespace Desert::Editor
         }
 
         const bool foliageMode  = Core::ViewportMode::Get() == Core::EditorMode::Foliage;
+        m_Scene->GetRegistry().ctx_or_set<::Desert::ECS::FoliageEditing>().Active = foliageMode;
         const bool modelingMode = Core::ViewportMode::Get() == Core::EditorMode::Modeling;
         const bool landscapeMode = Core::ViewportMode::Get() == Core::EditorMode::Landscape;
 

@@ -66,6 +66,13 @@ namespace Desert::Graphic
         return static_cast<float>( word >> 8u ) * ( 1.0f / 16777216.0f );
     }
 
+    /// Whether instance @p index is drawn when only @p density of a field is
+    /// (Foliage.InstanceDensityScalePercent). A second hash than the fade's, so a thinned field still fades over its whole band.
+    [[nodiscard]] inline bool KeepsInstanceAtDensity( const uint32_t index, const float density )
+    {
+        return density >= 1.0f || InstanceFadeThreshold( index ^ 0x9E3779B9u ) < density;
+    }
+
     /// Whether instance @p index at @p instancePosition is drawn from @p viewPosition. Nearer than Min: always.
     /// From Max on: never. Between: the fade t = (d - Min) / (Max - Min) drops every instance whose threshold
     /// lies below t, so the share drawn falls linearly from all to none across the band.

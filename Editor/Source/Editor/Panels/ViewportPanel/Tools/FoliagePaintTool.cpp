@@ -641,6 +641,18 @@ namespace Desert::Editor::Tools
                 ImGui::SetTooltip( "%s", Assets::Serialization::kFoliagePrefabMeshOnlyReason );
             Row::EndPropertyRow();
         }
+        // UE's Details put bEnableDensityScaling under Scalability.
+        if ( Row::SectionHeader( "Scalability" ) )
+        {
+            Row::BeginPropertyRow( "Enable Density Scaling",
+                                   "The Foliage quality may draw fewer instances; collision keeps all" );
+            ImGui::BeginDisabled( prefabType );
+            commit = ImGui::Checkbox( "##EnableDensityScaling", &f.EnableDensityScaling ) || commit;
+            ImGui::EndDisabled();
+            if ( prefabType && ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                ImGui::SetTooltip( "%s", Assets::Serialization::kFoliagePrefabMeshOnlyReason );
+            Row::EndPropertyRow();
+        }
         // UE's Details put the BodyInstance under Collision (FOLIAGE-COLLISION): the bodies are built per cell in
         // Play (ECS::FoliageCollision), from this type's mesh, under this profile.
         if ( Row::SectionHeader( "Collision" ) )

@@ -698,7 +698,7 @@ namespace Desert::Graphic::System
         // one keeps the fields' proxies (GpuSceneProxies::KeepsFields).
         if ( data.Entity != row.Entity || data.Mesh != row.Mesh || data.Material != row.Material ||
              data.DisplacedMaterial != row.DisplacedMaterial || data.Transforms != row.Transforms ||
-             data.InstanceIds || data.HiddenSubmeshes != row.HiddenSubmeshes ||
+             data.InstanceIds != row.InstanceIds || data.HiddenSubmeshes != row.HiddenSubmeshes ||
              data.CastShadows != row.CastShadows || data.CastContactShadow != row.CastContactShadow )
             m_InstancedQueueChanged = true;
         data.Entity                   = row.Entity;
@@ -706,8 +706,7 @@ namespace Desert::Graphic::System
         AssignInstancedHandle( data.Material, row.Material );
         AssignInstancedHandle( data.DisplacedMaterial, row.DisplacedMaterial );
         AssignInstancedHandle( data.Transforms, row.Transforms );
-        if ( data.InstanceIds )
-            data.InstanceIds.reset(); // set only on a record ApplyDisplacement split; the row is the whole field
+        AssignInstancedHandle( data.InstanceIds, row.InstanceIds ); // a split record is the row's again
         data.HiddenSubmeshes   = row.HiddenSubmeshes;
         data.CastShadows       = row.CastShadows;
         data.CastContactShadow = row.CastContactShadow;
