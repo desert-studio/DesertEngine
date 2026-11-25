@@ -124,14 +124,19 @@ GITraceResult GIHardwareTrace( GITraceInput ray, float tMin, float tMax )
 
     result.surface.distance     = rayQueryGetIntersectionTEXT( query, true );
     result.surface.position     = ray.origin + ray.direction * result.surface.distance;
-    result.surface.normal       = normalize( objectNormal * mat3( worldToObject ) );
+    // The normal of the side the ray met, as UE's hit shaders and this engine's hit groups (Mesh/Surface/
+    // Pass_RayHit.glslh, so the path tracer): left as stored, a back face read the lit cards of its far side.
+    // By the triangle's facing, not dot( normal, direction ): a smooth normal may lean past a grazing front face.
+    const bool frontFace        = rayQueryGetIntersectionFrontFaceEXT( query, true );
+    const vec3 normal           = normalize( objectNormal * mat3( worldToObject ) );
+    result.surface.normal       = frontFace ? normal : -normal;
     // The row carries the cards (SurfaceCacheSampleRow reads them from the instance table), as for every tracer.
     result.surface.instance     = GISurfaceCacheRowForInstance(
         uint( rayQueryGetIntersectionInstanceCustomIndexEXT( query, true ) ) );
     result.surface.meshCards    = GI_NO_MESH_CARDS;
     result.surface.primitive    = primitive;
     result.surface.barycentrics = barycentrics;
-    result.surface.frontFace    = rayQueryGetIntersectionFrontFaceEXT( query, true );
+    result.surface.frontFace    = frontFace;
     // No previous transform reaches the ray query (the TLAS instance carries none): the hit is not known to move.
     result.surface.velocity     = vec3( 0.0 );
     result.surface.motionKnown  = false;
