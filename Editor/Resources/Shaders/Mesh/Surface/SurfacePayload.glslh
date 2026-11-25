@@ -1,0 +1,31 @@
+#ifndef DESERT_SURFACE_PAYLOAD_GLSLH
+#define DESERT_SURFACE_PAYLOAD_GLSLH
+
+// WHAT A SURFACE STORES OF ITS MATERIAL: the one place a surface pass turns the surface function's outputs into the
+// payload it stores (the G-buffer word, the forward lighting, the ray payload). A model that lights its far side
+// (DesertHasBackfaceDiffuse) scatters its albedo ONCE: whatever wrote the surface - a template, a shader graph, the
+// weather, a decal - states the whole albedo in BaseColor and the far side's tint in CustomData0..2 (square root);
+// what is stored is the reflected part and the transmitted part (UE keeps them in BaseColor and SubsurfaceColor and
+// does not conserve between the two).
+// Needs SurfaceOutput (SurfaceTypes.glslh) and DESERT_SHADING_MODEL_INDEX (the parser).
+#include <Generated/ShadingModels.glslh>
+#include <Common/FoliageEnergy.glslh>
+
+// @p baseColor: the surface's base colour after everything laid over it on entry, the stored one on return.
+DesertPayload DesertEncodeSurfacePayload( const SurfaceOutput s, inout vec3 baseColor )
+{
+    DesertPayload stored = DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 );
+    if ( DesertHasBackfaceDiffuse( DESERT_SHADING_MODEL_INDEX ) )
+    {
+        const vec3 root = vec3( s.CustomData0, s.CustomData1, s.CustomData2 );
+        vec3       transmitted;
+        FoliageSplitAlbedo( baseColor, root * root, transmitted );
+        const vec3 encoded = sqrt( clamp( transmitted, 0.0, 1.0 ) ); // UE EncodeSubsurfaceColor
+        stored.CustomData0 = encoded.r;
+        stored.CustomData1 = encoded.g;
+        stored.CustomData2 = encoded.b;
+    }
+    return stored;
+}
+
+#endif // DESERT_SURFACE_PAYLOAD_GLSLH
