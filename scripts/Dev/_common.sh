@@ -72,6 +72,21 @@ dev_up_to_date() {
     ! grep -E '^\[[0-9]+/[0-9]+\] ' <<<"$out" | grep -vqE '\] (Re-checking globbed directories|Re-running CMake)\.\.\.$'
 }
 
+# dev_drop_foreign_pch — deletes every DEV_CONFIG precompiled header of this tree that another tree compiled, so the
+# build compiles it again. A PCH holds the absolute paths of the tree that compiled it; before ccache_launcher.sh kept
+# PCH compiles out of base_dir, the shared cache could hand a tree another tree's Release PCH (S1's in LAND, 11-25:
+# "redefinition of 'UUID'" -- the PCH's headers were S1's files). This tree's PCH names this tree about 30 KB
+# in; another tree's never does. Only where ccache_launcher.sh compiles (not Windows).
+dev_drop_foreign_pch() {
+    [ "$DEV_HOST" = Windows ] && return 0
+    local pch
+    while IFS= read -r pch; do
+        LC_ALL=C grep -q -a -F "$DEV_ROOT/" "$pch" && continue
+        echo "dev: ${pch#"$DEV_BUILD"/} was compiled by another tree -- deleted, it is compiled again"
+        rm -f "$pch" "$pch.sum"
+    done < <(find "$DEV_BUILD" -path "*/$DEV_CONFIG/*" -name '*.pch' 2>/dev/null)
+}
+
 # dev_build <log> <target...> — build the DEV_CONFIG targets (and what they link) with the compiler cache, after any other
 # build on this machine finished: two parallel builds share the CPU and both slow down by more than they gain.
 dev_build() {
@@ -82,5 +97,6 @@ dev_build() {
         while pgrep -x ninja >/dev/null; do sleep 10; done
     fi
     # The compile cache's settings (base_dir, PCH digests) are the build's own: scripts/Dev/ccache_launcher.sh.
+    dev_drop_foreign_pch >>"$log"
     cmake --build "$DEV_BUILD" --config "$DEV_CONFIG" -j "${DEV_JOBS:-4}" "${args[@]}" >>"$log" 2>&1
 }

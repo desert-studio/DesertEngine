@@ -8,6 +8,7 @@ desert_add_executable(WorldGen FOLDER Tools SOURCES ${_sources} ${_generated}
     "${DESERT_ROOT}/Tools/SceneMigrator/Source/SettingsCanonical.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/Core/Serialize/ExternalEntities.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/Core/Serialize/EntityDescriptorIndex.cpp"
+    "${DESERT_ROOT}/Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionRules.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/Reflection/FieldValue.cpp"
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/Reflection/FunctionInfo.cpp"
