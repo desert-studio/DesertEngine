@@ -666,10 +666,12 @@ namespace Desert::Graphic::System
             m_LocalRefusedLogged = refused;
             if ( refused > 0 )
                 LOG_WARN(
-                     "[Shadows] {} shadow-casting point/spot light(s) are drawn UNSHADOWED this frame: the "
-                     "scene's local shadow atlas ({}x{}) has no room left even for {}x{} tiles. The smallest on "
-                     "screen go first.",
-                     refused, atlasSide, atlasSide, kMinLocalShadowTile, kMinLocalShadowTile );
+                     "[Shadows] {} shadow-casting point/spot light(s) got no shadow map this frame: the scene's "
+                     "local shadow atlas ({}x{}) has no room left even for {}x{} tiles. The smallest on screen go "
+                     "first; {}.",
+                     refused, atlasSide, atlasSide, kMinLocalShadowTile, kMinLocalShadowTile,
+                     onlyLights != nullptr ? "they are ray traced with one hard ray"
+                                           : "whatever reads the maps draws them UNSHADOWED" );
         }
     }
 

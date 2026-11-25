@@ -3819,15 +3819,19 @@ namespace Desert::Graphic
                 slotted                = effective == StochasticVisibility::VirtualMapsAndScreen;
             }
             const uint32_t sourceId = i < m_PointLightShadows.size() ? m_PointLightShadows[i].SourceId : 0u;
-            if ( !slotted || m_LocalShadowMapLights.contains( sourceId ) )
+            // A light without a denoiser history reads its map; one the atlas had no room for either is traced hard,
+            // one ray from its centre, which needs no history - it never goes unshadowed.
+            const bool mapLight = m_LocalShadowMapLights.contains( sourceId );
+            if ( !slotted || ( mapLight && point.ShadowView >= 0 ) )
                 continue;
             point.ShadowMaskSlot = slot++;
             m_LocalShadowMaskLights.push_back( System::RayTracedLocalShadowLight{
                  .Position          = point.Position,
                  .AttenuationRadius = point.Radius,
-                 .SourceRadius      = point.SourceRadius,
+                 .SourceRadius      = mapLight ? 0.0f : point.SourceRadius,
                  // Mesh/LightSources.glslh LightSourceHalfAxis: a point light's tube along cross(AxisX, AxisY).
-                 .SourceHalfAxis = glm::cross( point.AxisX, point.AxisY ) * ( 0.5f * point.SourceLength ),
+                 .SourceHalfAxis = glm::cross( point.AxisX, point.AxisY ) *
+                                   ( mapLight ? 0.0f : 0.5f * point.SourceLength ),
                  .SourceId       = sourceId } );
         }
         uint32_t spotsIn = 0u;
@@ -3849,15 +3853,18 @@ namespace Desert::Graphic
                 slotted               = effective == StochasticVisibility::VirtualMapsAndScreen;
             }
             const uint32_t sourceId = i < m_SpotLightShadows.size() ? m_SpotLightShadows[i].SourceId : 0u;
-            if ( !slotted || m_LocalShadowMapLights.contains( sourceId ) )
+            // A light without a denoiser history reads its map; one the atlas had no room for either is traced hard,
+            // one ray from its centre, which needs no history - it never goes unshadowed.
+            const bool mapLight = m_LocalShadowMapLights.contains( sourceId );
+            if ( !slotted || ( mapLight && spot.ShadowView >= 0 ) )
                 continue;
             spot.ShadowMaskSlot = slot++;
             m_LocalShadowMaskLights.push_back( System::RayTracedLocalShadowLight{
                  .Position          = spot.Position,
                  .AttenuationRadius = spot.Range,
-                 .SourceRadius      = spot.SourceRadius,
+                 .SourceRadius      = mapLight ? 0.0f : spot.SourceRadius,
                  // Mesh/LightSources.glslh LightSourceHalfAxis: a spot's tube along its cone axis.
-                 .SourceHalfAxis = spot.Direction * ( 0.5f * spot.SourceLength ),
+                 .SourceHalfAxis = spot.Direction * ( mapLight ? 0.0f : 0.5f * spot.SourceLength ),
                  .SpotDirection  = spot.Direction,
                  .CosOuter       = spot.CosOuter,
                  .SourceId       = sourceId } );
