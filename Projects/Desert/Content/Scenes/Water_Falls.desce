@@ -626,18 +626,9 @@
                 "RiverWidth": 800.0,
                 "RiverFlowSpeed": 200.0,
                 "RiverFlowPeriod": 1.0,
-                "FallFoam": {
-                    "Guid": "b8d47d86f4c2452cb46af076e682368b",
-                    "Path": "assets:VFX/Water/FallFoam.dfx"
-                },
-                "FallSpray": {
-                    "Guid": "04da1260a1004ee3892601d1e8d34153",
-                    "Path": "assets:VFX/Water/FallSpray.dfx"
-                },
-                "FallMist": {
-                    "Guid": "75f3d199ad6c44c3acd9d50988339f63",
-                    "Path": "assets:VFX/Water/FallMist.dfx"
-                },
+                "FallFoam": "assets:VFX/Water/FallFoam.dfx",
+                "FallSpray": "assets:VFX/Water/FallSpray.dfx",
+                "FallMist": "assets:VFX/Water/FallMist.dfx",
                 "Density": 1000.0,
                 "Drag": 1.5
             }
@@ -741,18 +732,9 @@
                 "RiverWidth": 800.0,
                 "RiverFlowSpeed": 200.0,
                 "RiverFlowPeriod": 1.0,
-                "FallFoam": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "FallSpray": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "FallMist": {
-                    "Guid": "",
-                    "Path": ""
-                },
+                "FallFoam": "",
+                "FallSpray": "",
+                "FallMist": "",
                 "Density": 1000.0,
                 "Drag": 1.5
             }
