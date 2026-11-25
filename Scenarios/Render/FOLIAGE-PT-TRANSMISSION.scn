@@ -100,4 +100,5 @@
 Когда run Quality "Quality: Shadows.Method Level"
 Когда run Quality "Quality: Resolution.Percent Level"
 Когда set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure true
-Тогда z the levels are restored
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ManualExposureEV100 0.5260688662528992
+Тогда z the levels and the exposure are restored
