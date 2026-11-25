@@ -66,7 +66,7 @@ namespace Desert::Gameplay::PrefabMovement
         settings.BrakingFrictionFactor      = controller.BrakingFrictionFactor;
         settings.JumpZVelocity              = controller.JumpZVelocity;
         settings.AirControl                 = controller.AirControl;
-        settings.Gravity                    = PawnMoveSettings{}.Gravity * controller.GravityScale;
+        settings.GravityScale = controller.GravityScale;
         settings.MaxWalkSpeedCrouched       = controller.MaxWalkSpeedCrouched;
         settings.MaxSwimSpeed               = controller.MaxSwimSpeed;
         settings.CapsuleRadius              = controller.Radius;

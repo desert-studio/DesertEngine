@@ -79,11 +79,22 @@ namespace Desert::Editor::Control
          { "f12", 301, 0 },
          // GLFW_KEY_GRAVE_ACCENT: the gameplay debugger's toggle (`) in Play, so a scenario can open it.
          { "grave", 96, 0 },
+         // The modifier keys as keys (GLFW_KEY_LEFT_SHIFT..RIGHT_SUPER), as Enhanced Input binds them (EKeys::
+         // LeftShift): held by keydown, released by keyup; the event carries the key's own modifier bit.
+         { "leftshift", 340, kModShift },
+         { "leftctrl", 341, kModControl },
+         { "leftalt", 342, kModAlt },
+         { "leftsuper", 343, kModSuper },
+         { "rightshift", 344, kModShift },
+         { "rightctrl", 345, kModControl },
+         { "rightalt", 346, kModAlt },
+         { "rightsuper", 347, kModSuper },
     };
 
     struct InputChord
     {
         int32_t                   Key = 0;
+        int32_t                   KeyModBit = 0; // a modifier pressed as the key (leftshift): its own bit
         std::vector<InputKeyName> Modifiers;
     };
 
@@ -131,11 +142,15 @@ namespace Desert::Editor::Control
             else
                 for ( const InputKeyName& candidate : kInputNamedKeys )
                     if ( candidate.Name == part )
-                        chord.Key = candidate.Code;
+                    {
+                        chord.Key       = candidate.Code;
+                        chord.KeyModBit = candidate.ModBit;
+                    }
             if ( chord.Key == 0 )
                 return Common::MakeFormattedError<InputChord>(
                      "'{}' is not a key this channel can press: a letter, a digit, space, escape, enter, tab, "
-                     "backspace, delete, the arrows, f1..f12 or grave (`).",
+                     "backspace, delete, the arrows, f1..f12, grave (`) or a modifier key (leftshift, leftctrl, leftalt, "
+                     "leftsuper, rightshift, rightctrl, rightalt, rightsuper).",
                      part );
             break;
         }
@@ -228,7 +243,8 @@ namespace Desert::Editor::Control
                 mods |= modifier.ModBit;
                 down.push_back( MakeInputStep( InputAction::KeyDown, x, y, modifier.Code, mods ) );
             }
-            down.push_back( MakeInputStep( InputAction::KeyDown, x, y, chord.GetValue().Key, mods ) );
+            down.push_back(
+                 MakeInputStep( InputAction::KeyDown, x, y, chord.GetValue().Key, mods | chord.GetValue().KeyModBit ) );
             InputFrame up{ MakeInputStep( InputAction::KeyUp, x, y, chord.GetValue().Key, mods ) };
             for ( const InputKeyName& modifier : std::views::reverse( chord.GetValue().Modifiers ) )
             {

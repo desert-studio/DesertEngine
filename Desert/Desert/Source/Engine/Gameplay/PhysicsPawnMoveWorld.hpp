@@ -95,6 +95,8 @@ namespace Desert::Gameplay
             return outcome;
         }
 
+        float Gravity() const override { return m_World.GetGravity(); }
+
         // A probe 1 cm smaller (radius and half height) than @p capsule, so the floor it stands on does not count
         // as an obstacle; a character's own capsule body is never found by the query.
         bool Fits( const NetVec3& feet, const PawnCapsule& capsule ) const override

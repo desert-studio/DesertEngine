@@ -51,7 +51,7 @@ namespace Desert::Gameplay
         float BrakingFrictionFactor      = 2.0f;
         float JumpZVelocity              = 700.0f;
         float AirControl                 = 0.35f;
-        float Gravity                    = 980.0f;
+        float GravityScale               = 1.0f; // UE GravityScale: times the world's (IPawnMoveWorld::Gravity)
         float MaxWalkSpeedCrouched       = 300.0f; // UE MaxWalkSpeedCrouched
         float MaxSwimSpeed               = 300.0f; // UE MaxSwimSpeed, horizontal and vertical
         // UE ACharacter's CapsuleComponent (34 cm radius, 88 cm half height = 54 cm cylinder + the cap).
@@ -121,6 +121,9 @@ namespace Desert::Gameplay
         [[nodiscard]] virtual Outcome Move( const PawnMoveState& from, const NetVec3& velocity,
                                             const PawnCapsule& capsule, float gravity, float dtSeconds ) = 0;
         [[nodiscard]] virtual bool    Fits( const NetVec3& feet, const PawnCapsule& capsule ) const      = 0;
+        // The world's gravity (cm/s^2, down; UE AWorldSettings::GetGravityZ): the level's Scene Settings, the same
+        // value on the server (its cooked world), the prediction and standalone Play (the scene's physics world).
+        [[nodiscard]] virtual float Gravity() const = 0;
     };
 
     // One fixed step of the pawn under one input step: crouch / stand up (UE UpdateCharacterStateBeforeMovement),

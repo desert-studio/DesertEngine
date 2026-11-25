@@ -42,6 +42,11 @@ namespace Desert::Server
         if ( !alwaysLoaded )
             return Common::MakeError<Result>( "server world '" + server->m_World.Index->SceneName +
                                               "': its always-loaded records: " + alwaysLoaded.GetError() );
+        // THE WORLD'S GRAVITY (UE AWorldSettings::GlobalGravityZ): the level's Scene Settings, as the client's scene
+        // reads them, so the server's step and the prediction fall alike (Gameplay::IPawnMoveWorld::Gravity).
+        physics.SetGravity( alwaysLoaded.GetValue().Settings.Gravity );
+        LOG_INFO( "[Server] world gravity {:.1f} cm/s^2 (the level's Scene Settings)",
+                  alwaysLoaded.GetValue().Settings.Gravity );
         const std::vector<Assets::EntityData>& always = alwaysLoaded.GetValue().Entities;
         for ( std::size_t i = 0; i < always.size(); ++i )
             server->m_Collision->Add( recordCount + i, always[i], always );

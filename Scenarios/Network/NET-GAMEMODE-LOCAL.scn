@@ -1,10 +1,15 @@
 # NET-GAMEMODE-LOCAL (pass 2, catalogue N-D): local Play moves the pawn by the same gameplay step as the server and the prediction (Gameplay::StepPawnMove).
-# WP_Protocol names no Default Pawn, so Play spawns the project's Pawn_Player (Character Controller + Enhanced Input IMC_Default + PlayerController.lua).
+# WP_Protocol names no Default Pawn (WP_Protocol.desce Settings.DefaultPawn empty -> PlayerStart.cpp SpawnDefaultPawn spawns
+# nothing, GetPlayerPawn() null, no "[Gameplay] local pawn" line) and has no PlayerStart: the run names Pawn_Player as the
+# level's Default Pawn through World Settings (as Details would) and plays from the editor camera (UE Play from Here).
 # IMC_Default maps LeftShift -> IA_Sprint; the pawn's CharacterController names IA_Sprint as its Sprint Action, so the held key reaches the step as the Sprint bit.
 # editor.log prints "[Gameplay] local pawn (Gameplay::StepPawnMove): speed N cm/s, actions ..." once a second: about 600 walking, about 1000 sprinting, 300 crouched.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
-Когда run Action "Play"
+Дано set world SceneSettings.DefaultPawn assets:Prefabs/Pawn_Player.deprefab
+Дано --subject viewport set Camera.Position 0,-150,650
+Дано --subject viewport set Camera.Direction -1,-0.2,0
+Когда run Action "Play from Here"
 Когда advance 1.0
 # [netgm_local_sprint] W for 3 s (walk), then W + LeftShift for 3 s (sprint).
 Когда input keydown - - w
