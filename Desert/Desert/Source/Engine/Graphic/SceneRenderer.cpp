@@ -24,6 +24,7 @@
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Graphic/SceneRendererImpl.hpp>
+#include <Engine/Graphic/LocalShadows.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/PixelPack.hpp>
 #include <Engine/Graphic/DisplayOutput.hpp>
@@ -41,6 +42,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
+#include <unordered_map>
 #include <unordered_set>
 #include <mutex>
 #include <Common/Core/Algorithms/ScopeExit.hpp>
@@ -2536,18 +2538,22 @@ namespace Desert::Graphic
             // Under HardwareTraced the deferred composite reads "Shadows: Ray Traced Local" (ShadowMaskSlot), and
             // the maps are drawn only while a queued forward draw in view samples them
             // (LocalShadowMapsRead: meshes, forward terrain, particles, the water, the volumetric fog's froxels) -
-            // no reader the masks cannot serve loses its shadows.
+            // no reader the masks cannot serve loses its shadows - and for the lights whose denoiser history the
+            // video memory does not hold (SelectLocalShadowHistories): the composite reads their map.
             // Under VirtualMaps no atlas is drawn: every reader (the forward and translucent cells, the forward
             // terrain, the water, the composite, the surface cache) reads DESERT_LOCAL_SHADOW_VSM
             // (ForwardShadowMaskVariant).
             {
                 DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
                 System::MeshRenderer* const localShadowMeshes = m_Systems.Mesh.get();
+                SelectLocalShadowHistories( frame );
+                const bool tracedLocal = LocalShadowsAreRayTraced();
+                const bool allMapsRead = tracedLocal && LocalShadowMapsRead();
                 localShadowMeshes->UpdateLocalShadows(
                      m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights, m_SpotLightShadows,
                      !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) &&
-                          ( !LocalShadowsAreScreenMask() ||
-                            ( LocalShadowsAreRayTraced() && LocalShadowMapsRead() ) ) );
+                          ( !LocalShadowsAreScreenMask() || allMapsRead || !m_LocalShadowMapLights.empty() ),
+                     tracedLocal && !allMapsRead ? &m_LocalShadowMapLights : nullptr );
                 // The terrain's draws into those views, at the LOD each light asks for (not the camera's, so a
                 // cached local shadow survives a camera move), and its cache key, before LocalShadowPasses asks
                 // for it (PlanLocalShadowCache). Before this ran, GetLocalShadowCasterLights was empty and every
@@ -3662,6 +3668,79 @@ namespace Desert::Graphic
         return ShadowMapReadersOutsideMeshes( m_Systems, kSceneViewShadowCascadesName );
     }
 
+    void SceneRendererImpl::SelectLocalShadowHistories( const ViewFrame& frame )
+    {
+        m_LocalShadowMapLights.clear();
+        const uint32_t height  = frame.Split.Render.Height;
+        const uint64_t history = System::ScreenSpaceDenoiser::HistoryBytes( frame.Split.Render.Width, height );
+        // The parked ones too: they stay on the device until the frames in flight that read them complete.
+        const uint64_t held =
+             static_cast<uint64_t>( m_LocalShadowDenoisers.size() + m_RetiredLocalShadowDenoisers.Size() ) * history;
+        if ( !LocalShadowsAreRayTraced() || history == 0 )
+        {
+            m_LocalShadowHistoryBudget.Declare( 0, 0, held );
+            return;
+        }
+
+        // The lights AddFrameRayTracedLocalShadows would denoise: in view, casting, with a penumbra and an identity.
+        // The others are traced with one hard ray and keep no history.
+        struct Candidate
+        {
+            uint32_t SourceId = 0;
+            float    Rank     = 0.0f;
+            float    Distance = 0.0f;
+        };
+        const Core::Frustum view( frame.Projection, frame.View );
+        const glm::vec3     eye( frame.InvView[3] );
+        const float         focal      = std::abs( frame.Projection[1][1] );
+        const float         tanHalfFov = focal > 0.0f ? 1.0f / focal : 0.0f;
+        // A light that owns a history keeps it until another is a quarter larger on screen: a history handed over
+        // restarts its accumulation, and two lamps of one size would trade it every frame.
+        constexpr float                           kOwnerBias = 1.25f;
+        std::vector<Candidate>                    candidates;
+        std::unordered_map<uint32_t, std::size_t> byId; // an entity's point and spot share one history
+        const auto consider = [&]( const LocalLightShadowSettings& shadow, const glm::vec3& position,
+                                   const float range, const float sourceRadius, const float sourceLength )
+        {
+            if ( !shadow.CastShadows || shadow.SourceId == 0 || range <= 0.0f ||
+                 ( sourceRadius <= 0.0f && sourceLength <= 0.0f ) || !view.IntersectsSphere( position, range ) )
+                return;
+            const float bias = m_LocalShadowDenoisers.contains( shadow.SourceId ) ? kOwnerBias : 1.0f;
+            const float radius =
+                 SphereScreenRadiusPx( position, range, eye, tanHalfFov, static_cast<float>( height ) );
+            const Candidate made{ shadow.SourceId, bias * radius, glm::length( position - eye ) };
+            const auto [it, added] = byId.try_emplace( shadow.SourceId, candidates.size() );
+            if ( added )
+                candidates.push_back( made );
+            else if ( made.Rank > candidates[it->second].Rank )
+                candidates[it->second] = made;
+        };
+        for ( std::size_t i = 0; i < m_PointLight.PointLights.size() && i < m_PointLightShadows.size(); ++i )
+        {
+            const auto& point = m_PointLight.PointLights[i];
+            consider( m_PointLightShadows[i], point.Position, point.Radius, point.SourceRadius, point.SourceLength );
+        }
+        for ( std::size_t i = 0; i < m_SpotLight.SpotLights.size() && i < m_SpotLightShadows.size(); ++i )
+        {
+            const auto& spot = m_SpotLight.SpotLights[i];
+            consider( m_SpotLightShadows[i], spot.Position, spot.Range, spot.SourceRadius, spot.SourceLength );
+        }
+
+        m_LocalShadowHistoryBudget.Declare( 0, candidates.size() * history, held );
+        const uint64_t granted = m_LocalShadowHistoryBudget.Grant() / history;
+        if ( granted >= candidates.size() )
+            return;
+        std::sort( candidates.begin(), candidates.end(),
+                   []( const Candidate& a, const Candidate& b )
+                   {
+                       if ( a.Rank != b.Rank )
+                           return a.Rank > b.Rank;
+                       return a.Distance != b.Distance ? a.Distance < b.Distance : a.SourceId < b.SourceId;
+                   } );
+        for ( std::size_t i = static_cast<std::size_t>( granted ); i < candidates.size(); ++i )
+            m_LocalShadowMapLights.insert( candidates[i].SourceId );
+    }
+
     void SceneRendererImpl::AssignLocalShadowMaskSlots( const Core::Frustum& view )
     {
         // ShadowCaster is UpdateLocalShadows' answer "this light casts in this view" (CastShadows, and the view
@@ -3739,7 +3818,8 @@ namespace Desert::Graphic
                 point.ShadowVisibility = static_cast<int32_t>( effective );
                 slotted                = effective == StochasticVisibility::VirtualMapsAndScreen;
             }
-            if ( !slotted )
+            const uint32_t sourceId = i < m_PointLightShadows.size() ? m_PointLightShadows[i].SourceId : 0u;
+            if ( !slotted || m_LocalShadowMapLights.contains( sourceId ) )
                 continue;
             point.ShadowMaskSlot = slot++;
             m_LocalShadowMaskLights.push_back( System::RayTracedLocalShadowLight{
@@ -3748,7 +3828,7 @@ namespace Desert::Graphic
                  .SourceRadius      = point.SourceRadius,
                  // Mesh/LightSources.glslh LightSourceHalfAxis: a point light's tube along cross(AxisX, AxisY).
                  .SourceHalfAxis = glm::cross( point.AxisX, point.AxisY ) * ( 0.5f * point.SourceLength ),
-                 .SourceId       = i < m_PointLightShadows.size() ? m_PointLightShadows[i].SourceId : 0u } );
+                 .SourceId       = sourceId } );
         }
         uint32_t spotsIn = 0u;
         for ( std::size_t i = 0; i < m_SpotLight.SpotLights.size(); ++i )
@@ -3768,7 +3848,8 @@ namespace Desert::Graphic
                 spot.ShadowVisibility = static_cast<int32_t>( effective );
                 slotted               = effective == StochasticVisibility::VirtualMapsAndScreen;
             }
-            if ( !slotted )
+            const uint32_t sourceId = i < m_SpotLightShadows.size() ? m_SpotLightShadows[i].SourceId : 0u;
+            if ( !slotted || m_LocalShadowMapLights.contains( sourceId ) )
                 continue;
             spot.ShadowMaskSlot = slot++;
             m_LocalShadowMaskLights.push_back( System::RayTracedLocalShadowLight{
@@ -3779,7 +3860,7 @@ namespace Desert::Graphic
                  .SourceHalfAxis = spot.Direction * ( 0.5f * spot.SourceLength ),
                  .SpotDirection  = spot.Direction,
                  .CosOuter       = spot.CosOuter,
-                 .SourceId       = i < m_SpotLightShadows.size() ? m_SpotLightShadows[i].SourceId : 0u } );
+                 .SourceId       = sourceId } );
         }
         // The frame's one answer to "the local lights have virtual pages" (RenderMethods' rule over this view's
         // lights): every page reader of the frame - the page passes, MegaLights, the surface cache's cards - reads

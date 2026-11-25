@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Profiler.hpp>
+#include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
@@ -472,6 +473,16 @@ namespace Desert::Graphic::System
         // The formats of the denoiser's images (ViewMemory counts them).
         static constexpr Core::Formats::ImageFormat kSignalFormat      = ViewTargetFormats::kDenoiserSignal;
         static constexpr Core::Formats::ImageFormat kSampleCountFormat = ViewTargetFormats::kDenoiserSampleCount;
+
+        // The bytes one denoiser keeps between frames at this size: both slots of the signal's history and of its
+        // sample count. What a light's history costs the video memory
+        // (SceneRendererImpl::SelectLocalShadowHistories).
+        [[nodiscard]] static uint64_t HistoryBytes( const uint32_t width, const uint32_t height )
+        {
+            return 2ull * width * height *
+                   ( Core::Formats::GetBytesPerPixel( kSignalFormat ) +
+                     Core::Formats::GetBytesPerPixel( kSampleCountFormat ) );
+        }
 
         // The DenoiserViewUB block every pass declares (std140: three mat4), from the ViewFrame once per frame.
         struct ViewUniforms

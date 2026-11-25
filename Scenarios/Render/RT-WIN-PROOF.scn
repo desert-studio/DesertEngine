@@ -1,6 +1,6 @@
 # RT-WIN-PROOF: the hardware ray-tracing cards on the Windows RTX box, one editor session in F:/BistroFoliageProj.
 # Cards: RT-LOCAL-SHADOWS, RT-SECTION-MATS, RT-SCENE-2, MR6, RT-LEDGER, VIEW-CLOSE-LEAK, SC-CAPTURE-SHARE,
-# SC-FRAME-GUARD. RT-TRANSLUCENT-REFL has its own scenario. VG-RASTER.scn [vg_vsm], VOLFOG-SHOWCASE.scn and FPS-CPU-LOAD.scn are the
+# SC-FRAME-GUARD, RT-WIN-PROOF-MEM. RT-TRANSLUCENT-REFL has its own scenario. VG-RASTER.scn [vg_vsm], VOLFOG-SHOWCASE.scn and FPS-CPU-LOAD.scn are the
 # group's other three sessions (SHOTS-RUN.md).
 # Frame wait: the zero-length drag at 600,40 (sky / upper facade) as in REFL-RECAPTURE.scn - DesertCtl has no
 # frame-wait verb outside Play. Log checks read the run's editor.log (play_scenario keeps only the last reply line
@@ -20,6 +20,8 @@
 Когда run Quality "Quality: Shadows.Method HardwareTraced"
 Когда --subject viewport drag 600,40 600,40 32
 Тогда-вид rt_local_shadows_hw RT-LOCAL-SHADOWS: the same street under HardwareTraced shadows - every local-light shadow of rt_local_shadows_maps present (chairs, lamp posts, awnings on the cobbles), sharper at the contact, no light through walls, no lamp without a shadow; 0 VUID
+Когда --subject viewport drag 600,40 600,40 64
+Тогда-вид rt_shadow_budget RT-WIN-PROOF-MEM: the same street - a shadow on every lamp (denoised or from its shadow map), no light through walls; editor.log: "[GpuMemoryBudget]" lines, no OOM
 # --- RT-SECTION-MATS: a multi-section Bistro facade mesh, each section's own material in the BLAS hit shading
 Когда run Quality "Quality: Reflections.Method HardwareTraced"
 Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"

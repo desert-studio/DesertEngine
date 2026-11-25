@@ -434,7 +434,8 @@ namespace Desert::Graphic::System
                                            const std::vector<LocalLightShadowSettings>&     pointShadows,
                                            std::vector<ShaderProtocols::SpotLightPayload>&  spots,
                                            const std::vector<LocalLightShadowSettings>&     spotShadows,
-                                           const bool                                       shadowMaps )
+                                           const bool                                       shadowMaps,
+                                           const std::unordered_set<uint32_t>* const        onlyLights )
     {
         // Every path out of here leaves the frame's table and every payload saying the truth: no view unless one
         // was given below.
@@ -453,17 +454,17 @@ namespace Desert::Graphic::System
         }
 
         // MegaLights (Shadows Stochastic) traces every local light's visibility (System::MegaLightsRenderer): each
-        // light that casts in a view with shadows is a caster, and no map is drawn for any.
-        if ( !shadowMaps )
+        // light that casts in a view with shadows is a caster, and no map is drawn for any. So is every light
+        // outside @p onlyLights: its visibility is traced, whatever the atlas below holds.
+        if ( m_ShadowsEnabled && ( !shadowMaps || onlyLights != nullptr ) )
         {
-            if ( !m_ShadowsEnabled )
-                return;
             for ( std::size_t i = 0; i < points.size() && i < pointShadows.size(); ++i )
                 points[i].ShadowCaster = pointShadows[i].CastShadows ? 1 : 0;
             for ( std::size_t i = 0; i < spots.size() && i < spotShadows.size(); ++i )
                 spots[i].ShadowCaster = spotShadows[i].CastShadows ? 1 : 0;
-            return;
         }
+        if ( !shadowMaps )
+            return;
 
         // A renderer with no shadow budget has no caster pipeline (SetupShadowPass), and a view with shadows off
         // draws none: the lights are then unshadowed, exactly as the sun is.
@@ -516,6 +517,8 @@ namespace Desert::Graphic::System
             const LocalLightShadowSettings& s = pointShadows[i];
             if ( !s.CastShadows || s.SourceId == 0 || points[i].Radius <= 0.0f || points[i].Intensity <= 0.0f )
                 continue;
+            if ( onlyLights != nullptr && !onlyLights->contains( s.SourceId ) )
+                continue;
             // It casts in this view: a view refused below leaves it a caster the maps do not cover.
             points[i].ShadowCaster = 1;
             const float r = screenRadius( points[i].Position, points[i].Radius );
@@ -528,6 +531,8 @@ namespace Desert::Graphic::System
         {
             const LocalLightShadowSettings& s = spotShadows[i];
             if ( !s.CastShadows || s.SourceId == 0 || spots[i].Range <= 0.0f || spots[i].Intensity <= 0.0f )
+                continue;
+            if ( onlyLights != nullptr && !onlyLights->contains( s.SourceId ) )
                 continue;
             spots[i].ShadowCaster = 1;
             const float r = screenRadius( spots[i].Position, spots[i].Range );

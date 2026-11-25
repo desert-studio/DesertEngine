@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/GpuBatch.hpp>
+#include <Engine/Graphic/GpuMemoryBudget.hpp>
 
 #include <Engine/Assets/AssetBase.hpp>
 #include <Engine/Assets/AssetRef.hpp>
@@ -317,6 +318,9 @@ namespace Desert::Runtime
         TextureUploadSettings           m_UploadSettings;
         TextureStreamingSettings        m_StreamingSettings;
         uint64_t m_StreamingFrame = 0;
+        // The pool's share of the video memory. Weighs twice a view's shadow histories: a texture below its size
+        // blurs the whole picture, a light past its history reads its shadow map.
+        Graphic::GpuMemoryBudget::Client m_PoolBudget{ "Texture streaming", 2.0f };
         uint64_t m_LoggedResident = 0, m_LoggedWanted = 0;
         /// Main thread: which asked-for cooks may run now; the rest wait as keys (SHOT-SETTLE-c).
         mutable CookAdmission<Assets::AssetHandle> m_CookAdmission{ m_UploadSettings.CooksInFlight };
