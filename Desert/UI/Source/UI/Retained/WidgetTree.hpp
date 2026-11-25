@@ -6,11 +6,13 @@
 #include <UI/UICursor.hpp>
 #include <UI/UIPaint.hpp>
 #include <UI/UITree.hpp>
+#include <UI/UIWorld.hpp>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -232,6 +234,10 @@ namespace Desert::UI
         [[nodiscard]] void*                        FindState( NodeId n, ArgKind kind ) override;
         void                                       Roots( ArgKind kind, std::vector<NodeId>& out ) const override;
         [[nodiscard]] const void*                  Storage() const override;
+        [[nodiscard]] UIWorld&                     World() const override
+        {
+            return *m_World;
+        }
         [[nodiscard]] std::optional<glm::vec3>     WorldOrigin( NodeId n ) const override;
         [[nodiscard]] std::optional<UICursorShape> CursorOf( NodeId n ) const override;
         [[nodiscard]] bool                         CapturesPointer( NodeId n ) const override;
@@ -338,5 +344,7 @@ namespace Desert::UI
         std::vector<std::uint32_t> m_Free;
         std::uint64_t              m_NextSerial = 0;
         std::optional<NodeId>      m_FocusRequest;
+        // The tree is its own screen: no level is behind it.
+        std::unique_ptr<UIWorld> m_World = std::make_unique<UIWorld>();
     };
 } // namespace Desert::UI

@@ -19,7 +19,7 @@ namespace Desert::UI
     // every element bound to that key follows on the next frame — no element lookups, no per-widget glue,
     // and the writer never needs to know a UI exists.
     //
-    // Deliberately global and flat: a UI binding is a name, and a scene has one screen. Values are copied
+    // One per WORLD (UIWorld) and flat: a UI binding is a name, and a world has one screen. Values are copied
     // out on read, so a binding can never dangle.
     class UICollection;
 
@@ -27,8 +27,6 @@ namespace Desert::UI
     {
     public:
         using Value = std::variant<double, bool, std::string, glm::vec3>;
-
-        static UIDataStore& Get();
 
         // Copying copies the collections too (a record is itself a store, and Locals are copied with their
         // cell): declared here, defined where UICollection is complete.
@@ -41,7 +39,7 @@ namespace Desert::UI
 
         void Set( const std::string& key, Value value );
         void Erase( const std::string& key );
-        void Clear(); // scene change / play-stop: bindings must not survive into another world
+        void Clear();
 
         bool Has( const std::string& key ) const;
 
@@ -64,9 +62,8 @@ namespace Desert::UI
         // a list bound to it must not cost. A collection is read in place, by index, and only the rows a
         // UIListView's window covers are ever asked for.
         //
-        // Lives in the same store because it has the same lifetime question (Clear() on scene change) and
-        // the same writer (gameplay via ui.list_*), and a second singleton would be a second place to
-        // forget to clear.
+        // Lives in the same store because it has the same lifetime question (Clear() with its world) and
+        // the same writer (gameplay via ui.list_*).
         UICollection&                     Collection( const std::string& key ); // created empty on first use
         [[nodiscard]] const UICollection* FindCollection( const std::string& key ) const;
         void                              EraseCollection( const std::string& key );
@@ -182,13 +179,11 @@ namespace Desert::UI
     };
 
     // The other half of the bridge: messages the canvas raised this frame (button actions, pointer
-    // events, drops) queued for gameplay to consume. ScriptSystem drains it and calls OnUIMessage on
+    // events, drops) queued for gameplay to consume. One per world (UIWorld): its ScriptSystem drains it and calls OnUIMessage on
     // every loaded script, so a button reaches Lua without the UI knowing scripting exists.
     class UIMessageQueue
     {
     public:
-        static UIMessageQueue& Get();
-
         void Push( std::string message );
         // Takes everything queued and clears it — a message is delivered exactly once.
         std::vector<std::string> Drain();

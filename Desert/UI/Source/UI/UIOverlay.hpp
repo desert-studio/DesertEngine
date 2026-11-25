@@ -46,36 +46,6 @@ namespace Desert::UI
     // wrong menu opens" months later.
     [[nodiscard]] Common::ResultStr<NodeId> OverlayByName( IUITree& tree, const std::string& name );
 
-    // A notification raised from OUTSIDE the UI — gameplay, a Lua script, a tool. Kept here rather than
-    // pushed straight into a view because the raiser has no view: it knows the overlay's authored name and
-    // a line of text, and nothing else.
-    //
-    // WHICH VIEW SHOWS IT: the one with UIViewContext::DrivesSceneAnimation, which is the flag that already
-    // means "this view is the one that owns the scene's shared clocks" (the viewport / the game, never the
-    // authoring preview). Draining it into every view instead would show one notification N times in the
-    // editor, and draining it into whichever view happens to run first would make it depend on panel order.
-    class UIOverlayRequests
-    {
-    public:
-        struct Request
-        {
-            std::string Overlay; // UIOverlayData::Name
-            std::string Text;
-        };
-
-        static UIOverlayRequests& Get();
-
-        void Raise( std::string overlay, std::string text );
-
-        // Takes everything queued and clears it — a notification is delivered exactly once.
-        [[nodiscard]] std::vector<Request> Drain();
-
-        void Clear(); // scene change / play-stop: a notification must not survive into another world
-
-    private:
-        std::vector<Request> m_Pending;
-    };
-
     // The keys the overlay update publishes into a canvas's per-view locals, and the ONLY contract between
     // the runtime and an authored overlay's chrome. A Text element inside a tooltip carries a UIBinding to
     // kOverlayTextKey; a toast slot binds kOverlayToastText( i ) and kOverlayToastVisible( i ).

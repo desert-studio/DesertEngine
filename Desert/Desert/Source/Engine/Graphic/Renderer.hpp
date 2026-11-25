@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <span>
 #include <string_view>
 #include <Common/Core/Memory/CommandBuffer.hpp>
@@ -27,6 +28,7 @@ namespace Desert::ShaderResources
 namespace Desert::Graphic
 {
     class RendererAPI;
+    class EnvironmentCacheWriter; // Environment/EnvironmentBake.hpp
     struct BinDraw; // RendererAPI.hpp: a caller of RenderMeshIndirectCountBins includes it
     class RayTracingPipeline;
     class GraphicsPipeline; // Pipeline.hpp: callers that build/bind pipelines include it
@@ -54,6 +56,9 @@ namespace Desert::Graphic
     class Renderer : public Common::Singleton<Renderer>
     {
     public:
+        Renderer();
+        ~Renderer() override;
+
         Common::BoolResultStr Init();
         void                  Shutdown();
 
@@ -290,6 +295,12 @@ namespace Desert::Graphic
 
         RendererAPI* GetRendererAPI() const;
 
+        // The writes of baked environments in flight: pumped in WaitFrameSlot, drained in Shutdown.
+        [[nodiscard]] EnvironmentCacheWriter& GetEnvironmentCache()
+        {
+            return *m_EnvironmentCache;
+        }
+
         const std::shared_ptr<Graphic::Texture2D>& GetBRDFTexture() const;
 
         std::shared_ptr<Framebuffer> GetCompositeFramebuffer();
@@ -308,6 +319,7 @@ namespace Desert::Graphic
         static Common::Memory::CommandBuffer& GetRenderCommandQueue();
 
     private:
-        std::shared_ptr<Texture2D> m_BRDFTexture;
+        std::shared_ptr<Texture2D>              m_BRDFTexture;
+        std::unique_ptr<EnvironmentCacheWriter> m_EnvironmentCache;
     };
 } // namespace Desert::Graphic

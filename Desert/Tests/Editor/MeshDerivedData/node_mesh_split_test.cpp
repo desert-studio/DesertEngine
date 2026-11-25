@@ -524,7 +524,7 @@ TEST( NodeMeshSplit, APlacedSplitSourceStandsEveryNodeWhereTheFilePutIt )
     for ( const auto& node : recorded )
         placed.push_back( { node.Name, Assets::AssetHandle( Common::UUID() ),
                             glm::vec3( node.Placement[0], node.Placement[1], node.Placement[2] ) } );
-    Core::Scene       scene( "Placed", nullptr );
+    Core::Scene       scene( "Placed", nullptr, Core::WorldKind::Game );
     const ECS::Entity root     = scene.CreateNewEntity( "Grass" );
     const auto        children = Editor::PlaceNodeActors( scene, root, placed );
     ASSERT_EQ( children.size(), recorded.size() ) << "one entity per node mesh";

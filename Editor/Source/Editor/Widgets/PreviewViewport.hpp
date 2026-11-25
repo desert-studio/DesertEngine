@@ -3,6 +3,7 @@
 #include <Engine/Assets/Common.hpp>
 #include <VFX/Public/VFXSystem.hpp>
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Core/WorldSystems.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
@@ -283,14 +284,14 @@ namespace Desert::Editor
         void                               SetPoseOverride( bool posed );
 
         // THE ANIM GRAPH EDITOR'S PREVIEW CHARACTER (UE: the Animation Blueprint Editor's preview mesh and its
-        // preview AnimInstance). EnableAnimationSystem adds the scene's AnimationECSSystem once — the same
-        // system a level runs, so the preview plays the graph exactly as a level would. SetGraphCharacter puts
+        // preview AnimInstance). RunAnimationGraphs, called before the scene is made, makes it a
+        // WorldKind::AnimationPreview world — the same animation systems a level runs, so the preview plays the graph exactly as a level would. SetGraphCharacter puts
         // `mesh` (null = no character yet: the target carries only the AnimationComponent, so the document
         // still has an instance to edit) on the target with an AnimationComponent naming `graph`; the system
         // resolves the graph, builds the animator and evaluates it — this pane neither sets a clip nor a time
         // (ApplyAnimationTime stands aside). SetGraphPlaying is ▶ Preview: the component's
         // UpdateAnimationInEditor (the editor clock advances it) and a realtime pane; off, the pose holds.
-        void EnableAnimationSystem( Animation::AnimationLibrary* library, Assets::AssetManager* assets );
+        void RunAnimationGraphs( const ::Desert::Core::WorldServices& services );
         void SetGraphCharacter( const Assets::AssetHandle& mesh, const std::vector<Assets::AssetHandle>& materials,
                                 const Assets::AssetHandle& graph );
         void SetGraphPlaying( bool playing );
@@ -520,7 +521,8 @@ namespace Desert::Editor
         Assets::Asset<Assets::AnimationAsset>           m_Clip; // the skinned preview's clip, null otherwise
         double                                          m_AnimationTime = 0.0;
         bool m_GraphDriven       = false; // SetGraphCharacter: the AnimationECSSystem poses the target
-        bool m_AnimationSystemOn = false; // EnableAnimationSystem ran (the system is added once)
+        ::Desert::Core::WorldKind     m_WorldKind = ::Desert::Core::WorldKind::Preview; // see RunAnimationGraphs
+        ::Desert::Core::WorldServices m_Services;
         bool m_PoseOverride = false; // the authoring pose replaces the clip's (SetPoseOverride)
         // The three entities the SceneSetup drives. Created once with the scene and then only written to
         // — a floor that is switched off is an entity with no mesh in its slot, not an entity destroyed

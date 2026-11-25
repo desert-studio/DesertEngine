@@ -11,6 +11,7 @@
 #include "CrashHandler.hpp"
 
 #include <Common/Core/Core.hpp>
+#include <Common/Core/CrashWorlds.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/EngineThread.hpp>
 #include <Common/Core/JobSystem.hpp>
@@ -87,7 +88,9 @@ extern char** environ;
 //   [build]     config=<Debug|Release|Shipping>   the configuration the WRITER was compiled in; the
 //                                     reporter picks its view from this key (Shipping ⇒ the player view)
 //               version=…  sha=…  branch=…  dirty=<0|1>      (sha, branch, dirty: NOT in Shipping)
-//   [context]   machine=<host name>  scene=<path or "none">  (machine, scene: NOT in Shipping)
+//   [context]   machine=<host name>   (machine, world, worlds_not_listed: NOT in Shipping)
+//               world=<kind> <state> <path>   one line per live world (CrashWorlds.hpp)
+//               worlds_not_listed=<dec>       only when a live world found no slot
 //               os=…  gpu=<device name or "unknown">
 //               gpu_vendor=<0x… PCI id>  gpu_device=<0x…>  gpu_driver=<vendor's own spelling>
 //               gpu_api=<major.minor.patch>   all "unknown" until the host created its device
@@ -164,7 +167,6 @@ namespace Common::Crash::Detail
     char g_GpuDriver[kSmallField] = "unknown";
     char g_GpuApi[kSmallField]    = "unknown";
     char g_Game[kSmallField]      = "unread";
-    char g_Scene[kPathField]    = "none";
     char g_Started[kSmallField] = "unknown";
 
     // The per-crash paths, all built at Install() time. The handler does no path arithmetic:
@@ -558,7 +560,17 @@ namespace Common::Crash::Detail
         if constexpr ( !kPlayerReport )
         {
             writer.Field( "machine", g_Machine );
-            writer.Field( "scene", g_Scene );
+            for ( std::size_t i = 0; i < kCrashWorldSlots; ++i )
+            {
+                if ( const char* world = PublishedCrashWorld( i ) )
+                    writer.Field( "world", world );
+            }
+            if ( const std::int32_t unlisted = UnlistedCrashWorlds(); unlisted > 0 )
+            {
+                writer.Str( "worlds_not_listed=" );
+                writer.Dec( static_cast<std::uint64_t>( unlisted ) );
+                writer.Char( '\n' );
+            }
         }
         writer.Field( "os", g_Os );
         writer.Field( "gpu", g_Gpu );
@@ -1776,11 +1788,6 @@ namespace Common::Crash
     const std::filesystem::path& ReportRootDirectory()
     {
         return Detail::g_ReportRoot;
-    }
-
-    void SetScenePath( std::string_view inScenePath )
-    {
-        Detail::CopyIntoFixed( Detail::g_Scene, Detail::kPathField, inScenePath.empty() ? "none" : inScenePath );
     }
 
     std::string DescribeDriverVersion( std::uint32_t inVendorId, std::uint32_t inPacked )

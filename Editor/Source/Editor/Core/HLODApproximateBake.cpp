@@ -6,7 +6,7 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/SceneRenderCollectors.hpp>
+#include <Engine/Core/WorldSystems.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/StoredAssetForm.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
@@ -214,8 +214,10 @@ namespace Desert::Editor
 
     Common::BoolResultStr HLODApproximateBake::StartScene()
     {
-        m_Scene = std::make_shared<::Desert::Core::Scene>( "HLODApproximateBake", m_Renderer.get() );
-        ::Desert::Core::AddSceneRenderCollectors( *m_Scene );
+        m_Scene = std::make_shared<::Desert::Core::Scene>( "HLODApproximateBake", m_Renderer.get(),
+                                                           ::Desert::Core::WorldKind::Capture );
+        if ( auto made = ::Desert::Core::CreateWorldSystems( *m_Scene, {} ); !made )
+            return Common::MakeError( made.GetError() );
         if ( auto inited = m_Scene->Init( ::Desert::Core::Scene::InitPurpose::Offscreen ); !inited )
             return Common::MakeError( "the bake scene failed to initialise: " + inited.GetError() );
         auto loaded = ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets )

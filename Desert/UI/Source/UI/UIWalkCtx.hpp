@@ -154,7 +154,8 @@ namespace Desert::UI::Walk
     UIDropAnswer  DropAnswerAt( const IUITree& tree, NodeId n, const UIDragPayload& payload );
     std::optional<UIDragPayload> DragSourceAt( const IUITree& tree, NodeId n, glm::vec2 sourceSize );
     std::vector<std::string> SplitOptions( IUITextSource& text, const std::string& s );
-    std::vector<std::string> DropdownOptions( IUITextSource& text, const UIDropdownData& d );
+    std::vector<std::string> DropdownOptions( IUITextSource& text, const UIDataStore& data,
+                                              const UIDropdownData& d );
     bool                     IsFocusable( IUITree& tree, NodeId e );
     TextureRef               ResolveSpriteImage( IUICanvasResources& res, const Common::AssetHandle& handle );
     const void*              ResolveUIMaterial( WalkCtx& ctx, NodeId e, const Common::AssetHandle& handle );

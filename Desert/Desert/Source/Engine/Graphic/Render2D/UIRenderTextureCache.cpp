@@ -4,7 +4,7 @@
 #include <Engine/Graphic/Render2D/UIRenderTextureView.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/SceneRenderCollectors.hpp>
+#include <Engine/Core/WorldSystems.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
@@ -132,13 +132,22 @@ namespace Desert::Graphic::Render2D
         // shadow budget would make six of them cost 2 GB of shadow maps alone. Passed to the CONSTRUCTOR
         // because MeshRenderer allocates from it inside Init() — a value arriving later is read by nothing.
         capture.Renderer = SceneRenderer::Create( request.Extent, request.Profile );
-        capture.Scene    = std::make_shared<Core::Scene>( "UIRenderTexture", capture.Renderer.get() );
+        capture.Scene    = std::make_shared<Core::Scene>( "UIRenderTexture", capture.Renderer.get(),
+                                                          Core::WorldKind::Capture );
 
         // THE WORLD NEEDS SOMETHING TO COLLECT IT. A Core::Scene adds no ECS systems of its own, so
         // without this line the capture's render graph runs every pass it has, into the right
         // framebuffer, with empty queues — and the element shows one flat colour that is identical for
-        // every scene it names. Measured before this line existed; see SceneRenderCollectors.hpp.
-        Core::AddSceneRenderCollectors( *capture.Scene );
+        // every scene it names. Measured before this line existed; see WorldSystems.hpp.
+        if ( const auto made = Core::CreateWorldSystems( *capture.Scene, {} ); !made )
+        {
+            if ( ShouldSay( m_Refused, element, "systems:" + demand.ScenePath ) )
+            {
+                LOG_WARN( "[UI] render-texture element {} draws the magenta error fill: {}",
+                          static_cast<uint32_t>( element ), made.GetError() );
+            }
+            return nullptr;
+        }
 
         const Core::SceneSerializer serializer( capture.Scene.get(), &assetManager );
         if ( const auto loaded = serializer.Deserialize( loadable.ExtractValue(), sceneFile ); !loaded )

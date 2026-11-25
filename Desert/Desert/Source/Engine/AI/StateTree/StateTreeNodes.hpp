@@ -157,8 +157,6 @@ namespace Desert::AI::StateTree
             std::function<std::unique_ptr<IStateTreeEvaluator>()> MakeEvaluator; // Kind == Evaluator
         };
 
-        static NodeRegistry& Get();
-
         /// Refused when the name is taken (a second registration would silently replace a node in every tree).
         Common::BoolResultStr                Register( Entry entry );
         [[nodiscard]] const Entry*           Find( std::string_view name ) const;

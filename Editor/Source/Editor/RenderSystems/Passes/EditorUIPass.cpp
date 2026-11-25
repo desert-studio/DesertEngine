@@ -9,7 +9,7 @@
 #include <Engine/UI/Ecs/LoadingOverlay.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
-#include <UI/UIDataStore.hpp>
+#include <UI/UIWorld.hpp>
 #include <Engine/UI/Ecs/UIWindowClipboard.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
@@ -302,7 +302,7 @@ namespace Desert::Editor::Render
                  wait != nullptr && wait->Assessment.Blocks() )
                 UI::DrawStreamingWaitOverlay( m_Render2D.GetDrawList(), w, h, wait->FramesWaiting );
             // A button fired in preview: report it; quit / open-URL are NOT executed here — they would close
-            // the editor or leave it. Scene-load is, in Play, through Core::OpenLevel (below). Interactive
+            // the editor or leave it. Scene-load is, in Play, through the world's travel (below). Interactive
             // toggles/sliders/inputs already mutated in the walk. Everything that is NOT one of those three
             // process-level encodings is a gameplay message and goes on the same queue as the pointer events
             // below, because a preview whose buttons are heard by scripts and whose pointer events are heard by
@@ -311,24 +311,30 @@ namespace Desert::Editor::Render
             {
                 LOG_INFO( "[UI Preview] button action: {}", clicked );
                 constexpr std::string_view kScene = "scene:";
-                // LoadScene is Core::OpenLevel, the call the game's own button makes: in Play the editor's
+                // LoadScene is the world's travel, the call the game's own button makes: in Play the editor's
                 // boundary loads the level into the PLAYED world (PlayWorldTravel) and Stop returns to the
                 // authored one. A preview of the authored level (Edit) has no game world to travel.
-                if ( clicked.starts_with( kScene ) && m_UIView.GameWorld )
+                if ( clicked.starts_with( kScene ) )
                 {
-                    if ( const auto queued = ::Desert::Core::OpenLevel( clicked.substr( kScene.size() ) );
-                         !queued )
+                    if ( !m_UIView.GameWorld )
+                    {
+                        LOG_WARN( "[UI Preview] '{}' needs a game world -- press Play; the level being authored is "
+                                  "not replaced",
+                                  clicked );
+                    }
+                    else if ( const auto queued = scene->Travel().Open( clicked.substr( kScene.size() ) );
+                              !queued )
                         LOG_ERROR( "[UI Preview] {}", queued.GetError() );
                 }
                 const bool processLevel =
                      clicked == "quit" || clicked.starts_with( kScene ) || clicked.starts_with( "url:" );
                 if ( !processLevel )
-                    UI::UIMessageQueue::Get().Push( clicked );
+                    scene->GetUIWorld().Messages.Push( clicked );
             }
             for ( const std::string& msg : uiMessages ) // pointer enter/exit, press/release, drops
             {
                 LOG_INFO( "[UI Preview] {}", msg );
-                UI::UIMessageQueue::Get().Push( msg ); // scripts hear preview messages too, if any run
+                scene->GetUIWorld().Messages.Push( msg ); // scripts hear preview messages too, if any run
             }
             m_Gathered = true;
         };

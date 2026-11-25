@@ -223,8 +223,8 @@ namespace Desert::UI
     // Does a UIBinding with target Visible currently say NO for @p e? The runtime walk asks the same
     // question through the same store and skips the element's whole sub-tree when the answer is yes.
     //
-    // @p ctx is the (canvas x view) cell, because a binding reads that cell's locals before the process-wide
-    // store (UI::BindingStore). Passing nullptr asks the global store alone, which is the honest answer for a
+    // @p ctx is the (canvas x view) cell, because a binding reads that cell's locals before the world's
+    // store (UI::BindingStore). Passing nullptr asks the world's store alone, which is the honest answer for a
     // caller that has no view — and the same nullptr that already means "no view" everywhere else here.
     //
     // @p row is the record of the collection-bound list row @p e is walked for (UIL1), asked before both.

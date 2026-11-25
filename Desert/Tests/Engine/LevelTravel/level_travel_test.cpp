@@ -1,7 +1,7 @@
-// ENG-LEVEL: Core::OpenLevel is the one way a game changes level, and it changes it AT THE FRAME BOUNDARY.
+// ENG-LEVEL: a world's travel (Scene::Travel) is the one way a game changes level, and it changes it AT THE FRAME BOUNDARY.
 //
 // What is pinned, against the real resolver (a temp .deproj opened through ProjectContext) and the real Lua
-// binding (Scripting::RegisterLevelBindings on the Luau runtime):
+// binding (Libraries::LevelLibrary on the Luau runtime):
 //   * a request from C++ or from Lua only QUEUES -- nothing is loaded until the host's TickTravel;
 //   * the boundary applies exactly once, and a travel asked for DURING the load waits for the next one;
 //   * the last request of a frame wins (UEngine::SetClientTravel overwrites TravelURL);
@@ -10,6 +10,8 @@
 //   * an empty name is the project's default map (an empty FURL map is GameDefaultMap in UE).
 
 #include <Engine/Core/LevelTravel.hpp>
+#include <Engine/Core/Scene.hpp>
+#include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/PlayWorldTravel.hpp>
 #include <Projects/ProjectContext.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
@@ -27,6 +29,8 @@ namespace
     namespace fs   = std::filesystem;
     using Travel   = Desert::Core::LevelTravel;
     using Project_ = Desert::Project::ProjectContext;
+
+    Travel travel; // the world's; OpenProject empties it
 
     void Touch( const fs::path& p, const std::string& text = "{}" )
     {
@@ -46,7 +50,7 @@ namespace
                             R"("Description":"","EngineVersion":""}})",
                             defaultScene ) );
         EXPECT_TRUE( Project_::Open( ( dir / "Game.deproj" ).string(), Project_::RecordInRecent::No ) );
-        Travel::Get().Cancel();
+        travel.Cancel();
         return dir;
     }
 
@@ -58,11 +62,12 @@ namespace
     // The host's boundary, recording what it was handed.
     struct Host
     {
+        Travel*                  From = &travel;
         std::vector<std::string> Loaded;
 
         bool Tick()
         {
-            const auto r = Travel::Get().TickTravel(
+            const auto r = From->TickTravel(
                  [this]( const std::string& path )
                  {
                      Loaded.push_back( path );
@@ -77,7 +82,8 @@ namespace
     // back as an expression.
     struct Lua
     {
-        Desert::Scripting::ScriptEngine Engine{ nullptr };
+        Desert::Core::Scene             World{ "level-travel", nullptr, Desert::Core::WorldKind::Game };
+        Desert::Scripting::ScriptEngine Engine{ &World };
 
         void Run( const std::string& code )
         {
@@ -103,9 +109,9 @@ TEST( LevelTravel, ACppRequestIsAppliedAtTheNextBoundaryAndOnlyThere )
     const fs::path dir = OpenProject( "Content/Scenes/Menu.desce" );
     Host           host;
 
-    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
-    EXPECT_TRUE( Travel::Get().HasPending() );
-    EXPECT_TRUE( host.Loaded.empty() ) << "OpenLevel loaded mid-frame instead of queueing";
+    ASSERT_TRUE( travel.Open( "Content/Scenes/Arena.desce" ) );
+    EXPECT_TRUE( travel.Pending().has_value() );
+    EXPECT_TRUE( host.Loaded.empty() ) << "the request loaded mid-frame instead of queueing";
 
     EXPECT_TRUE( host.Tick() );
     ASSERT_EQ( host.Loaded.size(), 1u );
@@ -119,8 +125,8 @@ TEST( LevelTravel, TheLastRequestOfAFrameWins )
 {
     const fs::path dir = OpenProject( "Content/Scenes/Menu.desce" );
     Host           host;
-    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
-    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Menu.desce" ) );
+    ASSERT_TRUE( travel.Open( "Content/Scenes/Arena.desce" ) );
+    ASSERT_TRUE( travel.Open( "Content/Scenes/Menu.desce" ) );
     EXPECT_TRUE( host.Tick() );
     ASSERT_EQ( host.Loaded.size(), 1u );
     EXPECT_EQ( host.Loaded[0], Abs( dir, "Content/Scenes/Menu.desce" ) );
@@ -130,19 +136,19 @@ TEST( LevelTravel, ATravelAskedForDuringTheLoadWaitsForTheNextBoundary )
 {
     const fs::path           dir = OpenProject( "Content/Scenes/Menu.desce" );
     std::vector<std::string> loaded;
-    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    ASSERT_TRUE( travel.Open( "Content/Scenes/Arena.desce" ) );
 
     // The new level's BeginPlay opens another one while it is being loaded.
-    const auto first = Travel::Get().TickTravel(
+    const auto first = travel.TickTravel(
          [&]( const std::string& path )
          {
              loaded.push_back( path );
-             EXPECT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Menu.desce" ) );
+             EXPECT_TRUE( travel.Open( "Content/Scenes/Menu.desce" ) );
              return Common::MakeSuccess( true );
          } );
     ASSERT_TRUE( first );
     ASSERT_EQ( loaded.size(), 1u ) << "the travel requested during the load was applied inside it";
-    EXPECT_TRUE( Travel::Get().HasPending() ) << "the travel requested during the load was lost";
+    EXPECT_TRUE( travel.Pending().has_value() ) << "the travel requested during the load was lost";
 
     Host host;
     EXPECT_TRUE( host.Tick() );
@@ -153,15 +159,15 @@ TEST( LevelTravel, ATravelAskedForDuringTheLoadWaitsForTheNextBoundary )
 TEST( LevelTravel, AMissingLevelIsRefusedWithItsPathAndNothingIsQueued )
 {
     const fs::path dir = OpenProject( "Content/Scenes/Menu.desce" );
-    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    ASSERT_TRUE( travel.Open( "Content/Scenes/Arena.desce" ) );
 
-    const auto refused = Desert::Core::OpenLevel( "Content/Scenes/Nowhere.desce" );
+    const auto refused = travel.Open( "Content/Scenes/Nowhere.desce" );
     ASSERT_FALSE( refused );
     EXPECT_NE( refused.GetError().find( Abs( dir, "Content/Scenes/Nowhere.desce" ) ), std::string::npos )
          << refused.GetError();
 
     // The travel already queued is the one still queued: a refusal is not a fallback.
-    const auto pending = Travel::Get().Pending();
+    const auto pending = travel.Pending();
     if ( !pending.has_value() )
         FAIL() << "the queued travel is gone";
     EXPECT_EQ( *pending, Abs( dir, "Content/Scenes/Arena.desce" ) );
@@ -171,7 +177,7 @@ TEST( LevelTravel, AnEmptyNameIsTheProjectsDefaultMap )
 {
     const fs::path dir = OpenProject( "Content/Scenes/Menu.desce" );
     Host           host;
-    ASSERT_TRUE( Desert::Core::OpenLevel( "" ) );
+    ASSERT_TRUE( travel.Open( "" ) );
     EXPECT_TRUE( host.Tick() );
     ASSERT_EQ( host.Loaded.size(), 1u );
     EXPECT_EQ( host.Loaded[0], Abs( dir, "Content/Scenes/Menu.desce" ) );
@@ -180,17 +186,17 @@ TEST( LevelTravel, AnEmptyNameIsTheProjectsDefaultMap )
 TEST( LevelTravel, NoDefaultMapIsARefusalNotAGuess )
 {
     (void)OpenProject( "" );
-    const auto refused = Desert::Core::OpenLevel( "" );
+    const auto refused = travel.Open( "" );
     ASSERT_FALSE( refused );
     EXPECT_NE( refused.GetError().find( "default map" ), std::string::npos ) << refused.GetError();
-    EXPECT_FALSE( Travel::Get().HasPending() );
+    EXPECT_FALSE( travel.Pending().has_value() );
 }
 
 TEST( LevelTravel, ALoadFailureAtTheBoundaryIsReturnedToTheHost )
 {
     (void)OpenProject( "Content/Scenes/Menu.desce" );
-    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
-    const auto r = Travel::Get().TickTravel( []( const std::string& )
+    ASSERT_TRUE( travel.Open( "Content/Scenes/Arena.desce" ) );
+    const auto r = travel.TickTravel( []( const std::string& )
                                              { return Common::MakeError<bool>( "teardown refused" ); } );
     ASSERT_FALSE( r );
     EXPECT_EQ( r.GetError(), "teardown refused" );
@@ -200,7 +206,7 @@ TEST( LevelTravel, LuaLevelOpenQueuesTheSameTravel )
 {
     const fs::path dir = OpenProject( "Content/Scenes/Menu.desce" );
     Lua            lua;
-    Host           host;
+    Host           host{ &lua.World.Travel() };
     lua.Run( R"(ok = level.open( "Content/Scenes/Arena.desce" ))" );
     EXPECT_EQ( lua.Get( "ok" ), "true" );
     EXPECT_TRUE( host.Loaded.empty() ) << "level.open loaded inside the script call";
@@ -223,10 +229,10 @@ TEST( LevelTravel, LuaHearsTheRefusalWithThePath )
     EXPECT_EQ( lua.Get( "ok" ), "false" );
     const std::string why = lua.Get( "why" );
     EXPECT_NE( why.find( Abs( dir, "Content/Scenes/Nowhere.desce" ) ), std::string::npos ) << why;
-    EXPECT_FALSE( Travel::Get().HasPending() );
+    EXPECT_FALSE( lua.World.Travel().Pending().has_value() );
 }
 
-// ── LEVEL-PIE: OpenLevel in Play-in-editor ─────────────────────────────────────────────────────────────
+// ── LEVEL-PIE: a travel in Play-in-editor ─────────────────────────────────────────────────────────────
 // The editor's boundary (PlaySession::ServiceTravel) is PlayWorldTravel over the editor's scene. The world here is
 // the two strings that matter: what the document holds and what Play shows.
 namespace
@@ -240,7 +246,7 @@ namespace
         Common::BoolResultStr Tick()
         {
             return Pie.Tick(
-                 [this]( const std::string& path )
+                 travel, [this]( const std::string& path )
                  {
                      Loads.push_back( path );
                      Played = path;
@@ -250,7 +256,7 @@ namespace
         Common::BoolResultStr Stop()
         {
             return Pie.End(
-                 [this]( const std::string& snapshot )
+                 travel, [this]( const std::string& snapshot )
                  {
                      Played = snapshot;
                      return Common::MakeSuccess( true );
@@ -276,7 +282,7 @@ TEST( PlayInEditorTravel, ATravelInPlayLoadsTheLevelIntoThePlayedWorldAtTheBound
     const fs::path dir = OpenProject( "Content/Scenes/Menu.desce" );
     PieWorld       w;
     w.Pie.Begin( "authored" );
-    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    ASSERT_TRUE( travel.Open( "Content/Scenes/Arena.desce" ) );
     EXPECT_TRUE( w.Loads.empty() ) << "applied inside the frame that asked";
     const auto r = w.Tick();
     ASSERT_TRUE( r ) << r.GetError();
@@ -292,17 +298,17 @@ TEST( PlayInEditorTravel, StopReturnsTheAuthoredLevelWhicheverMapWasPlayedLast )
     OpenProject( "Content/Scenes/Menu.desce" );
     PieWorld w;
     w.Pie.Begin( "authored" );
-    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    ASSERT_TRUE( travel.Open( "Content/Scenes/Arena.desce" ) );
     ASSERT_TRUE( w.Tick() );
-    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Menu.desce" ) );
+    ASSERT_TRUE( travel.Open( "Content/Scenes/Menu.desce" ) );
     ASSERT_TRUE( w.Tick() );
     ASSERT_EQ( w.Loads.size(), 2u );
     // A travel queued in the last frame of Play dies with it.
-    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    ASSERT_TRUE( travel.Open( "Content/Scenes/Arena.desce" ) );
     const auto stopped = w.Stop();
     ASSERT_TRUE( stopped ) << stopped.GetError();
     EXPECT_EQ( w.Played, "authored" );
-    EXPECT_FALSE( Travel::Get().HasPending() );
+    EXPECT_FALSE( travel.Pending().has_value() );
     EXPECT_FALSE( w.Pie.Active() );
     EXPECT_TRUE( w.Pie.CurrentMap().empty() );
 }
@@ -315,7 +321,7 @@ TEST( PlayInEditorTravel, ATravelDoesNotRaiseTheAuthoredDocumentsDirtyStar )
     const uint64_t saved = history.Revision();              // ...and saved: the star is out
     PieWorld       w;
     w.Pie.Begin( "authored" );
-    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    ASSERT_TRUE( travel.Open( "Content/Scenes/Arena.desce" ) );
     ASSERT_TRUE( w.Tick() );
     EXPECT_TRUE( history.UndoStack().empty() ) << "the left world's undo stack would fire into the new one";
     ASSERT_TRUE( w.Stop() );
@@ -327,9 +333,9 @@ TEST( PlayInEditorTravel, AFailedTravelKeepsPlayAndStopStillRestores )
     OpenProject( "Content/Scenes/Menu.desce" );
     PieWorld w;
     w.Pie.Begin( "authored" );
-    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    ASSERT_TRUE( travel.Open( "Content/Scenes/Arena.desce" ) );
     const auto r =
-         w.Pie.Tick( []( const std::string& ) { return Common::MakeFormattedError<bool>( "broken level" ); } );
+         w.Pie.Tick( travel, []( const std::string& ) { return Common::MakeFormattedError<bool>( "broken level" ); } );
     ASSERT_FALSE( r );
     EXPECT_NE( r.GetError().find( "broken level" ), std::string::npos );
     EXPECT_TRUE( w.Pie.Active() );
@@ -342,11 +348,11 @@ TEST( PlayInEditorTravel, OutsidePlayATravelIsRefusedWithItsTargetAndNothingIsLo
 {
     const fs::path dir = OpenProject( "Content/Scenes/Menu.desce" );
     PieWorld       w; // never began: the editor is authoring
-    ASSERT_TRUE( Desert::Core::OpenLevel( "Content/Scenes/Arena.desce" ) );
+    ASSERT_TRUE( travel.Open( "Content/Scenes/Arena.desce" ) );
     const auto r = w.Tick();
     ASSERT_FALSE( r );
     EXPECT_NE( r.GetError().find( Abs( dir, "Content/Scenes/Arena.desce" ) ), std::string::npos ) << r.GetError();
     EXPECT_TRUE( w.Loads.empty() );
     EXPECT_EQ( w.Played, "authored" );
-    EXPECT_FALSE( Travel::Get().HasPending() );
+    EXPECT_FALSE( travel.Pending().has_value() );
 }

@@ -237,7 +237,7 @@ namespace Desert::Editor
             // The scene now IS this file, whether it already was or was just given one. Without this a
             // new scene would re-derive its path on every save and a rename between two saves would
             // leave the user's work split across two files.
-            m_OpenScenePath = destination;
+            SetOpenPath( destination );
 
             // MAP CHECK ON SAVE (WP-MAP-CHECK): a partitioned world just written is checked from its files - the
             // one list Tools > Check World Partition and `WorldCook --check` read - and its StreamingGeneration
@@ -304,6 +304,12 @@ namespace Desert::Editor
     {
         return Common::Constants::Path::ENGINE_CONTENT_PATH / "Maps" / "Templates" /
                Common::Filepath( "Basic" ).replace_extension( Common::Constants::Extensions::SCENE_EXTENSION );
+    }
+
+    void SceneFiles::SetOpenPath( const Common::Filepath& path )
+    {
+        m_OpenScenePath = path;
+        m_Workspace.ActiveScene()->SetFilePath( path.string() );
     }
 
     void SceneFiles::NewSceneInternal()
@@ -462,7 +468,7 @@ namespace Desert::Editor
         {
             m_Workspace.ActiveScene()->SetAssetHeader( std::nullopt );
             m_Workspace.ActiveScene()->SetSceneName( "New Scene" );
-            m_OpenScenePath.clear();
+            SetOpenPath( {} );
             Editor::ToastManager::Push( "New scene", Editor::ToastLevel::Success );
             LOG_INFO( "[Scene] New scene from the level template '{}'", path.string() );
             return;
@@ -470,13 +476,13 @@ namespace Desert::Editor
 
         if ( const auto original = Autosave::SceneFor( path ) )
         {
-            m_OpenScenePath = *original;
+            SetOpenPath( *original );
             m_SavedRevision = ~CommandHistory::Get().DocumentRevision();
             LOG_INFO( "[Recovery] '{}' opened as '{}' (unsaved)", path.string(),
                       original->empty() ? std::string( "an untitled scene" ) : original->string() );
             return;
         }
-        m_OpenScenePath = path;
+        SetOpenPath( path );
         // The files at `path` now hold every entity as it is: the next save to it writes only what differs (WP17).
         Desert::Core::SceneSerializer( m_Workspace.ActiveScene().get(), m_Assets.get() )
              .AdoptAsSaved( Common::Filepath( path ) );

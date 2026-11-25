@@ -5,7 +5,7 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/SceneRenderCollectors.hpp>
+#include <Engine/Core/WorldSystems.hpp>
 #include <Engine/Core/Serialize/EditorRegions.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
@@ -180,9 +180,11 @@ namespace Desert::Editor
         if ( !parsed )
             return Common::MakeError( parsed.GetError() );
 
-        m_Scene = std::make_shared<::Desert::Core::Scene>( "MiniMapBuilder", m_Renderer.get() );
+        m_Scene = std::make_shared<::Desert::Core::Scene>( "MiniMapBuilder", m_Renderer.get(),
+                                                           ::Desert::Core::WorldKind::Capture );
         // A Scene has no systems of its own: without the render collectors nothing reaches the renderer's queues.
-        ::Desert::Core::AddSceneRenderCollectors( *m_Scene );
+        if ( auto made = ::Desert::Core::CreateWorldSystems( *m_Scene, {} ); !made )
+            return Common::MakeError( made.GetError() );
         if ( auto inited = m_Scene->Init( ::Desert::Core::Scene::InitPurpose::Offscreen ); !inited )
             return Common::MakeError( "the capture scene failed to initialise: " + inited.GetError() );
         auto loaded = ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets )

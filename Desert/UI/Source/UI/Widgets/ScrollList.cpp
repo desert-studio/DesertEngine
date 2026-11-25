@@ -338,7 +338,7 @@ namespace Desert::UI::Walk
             const auto resolveRows = [&]
             {
                 if ( tv != nullptr && !lv.Collection.empty() )
-                    RefreshTreeRows( *listState, UIDataStore::Get(), lv.Collection, tv->ChildrenField );
+                    RefreshTreeRows( *listState, tree.World().Data, lv.Collection, tv->ChildrenField );
                 shape = ResolveListShape( tree, e, rect.W, scale, listState );
             };
             resolveRows();

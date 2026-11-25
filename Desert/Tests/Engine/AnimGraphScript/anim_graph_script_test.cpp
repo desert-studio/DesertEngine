@@ -240,12 +240,9 @@ TEST( AnimGraphScript, TheSystemOrderTheOneFrameLatencyIsDocumentedAgainstStillH
 {
     ASSERT_FALSE( RepoRoot().empty() ) << "could not locate the repository root from the working directory";
 
-    // Both hosts that build a gameplay scene. A claim about frame ordering that is true in the editor and
-    // false in the packaged runtime is worse than no claim.
-    for ( const char* host :
-          { "Editor/Source/Editor/LevelEditor/SceneWorkspace.cpp", "Runtime/Source/RuntimeLayer.cpp" } )
+    // The one registry every host makes its world from. The rows are written in their (Stage, Order).
     {
-        SCOPED_TRACE( host );
+        const std::string host = "Desert/Desert/Source/Engine/Core/WorldSystems.cpp";
         const std::string code = ReadFile( RepoRoot() + host );
         ASSERT_FALSE( code.empty() ) << "could not read " << host;
 

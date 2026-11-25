@@ -13,16 +13,7 @@
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/SceneRenderCollectors.hpp>
-#include <Engine/ECS/System/AnimationECSSystem.hpp>
-#include <Engine/ECS/System/AttachmentSystem.hpp>
-#include <Engine/ECS/System/AudioECSSystem.hpp>
-#include <Engine/ECS/System/LevelSequenceSystem.hpp>
-#include <Engine/ECS/System/LocomotionSystem.hpp>
-#include <Engine/ECS/System/PhysicsECSSystem.hpp>
-#include <Engine/ECS/System/ComponentEventSystem.hpp>
-#include <Engine/ECS/System/ScriptSystem.hpp>
-#include <Engine/ECS/System/GameModeSystem.hpp>
+#include <Engine/Core/WorldSystems.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -62,7 +53,8 @@ namespace Desert::Editor
         // The viewport panel is laid out on the first frame, after Scene::Init builds this renderer; the
         // panel's resize brings it to size then (see Graphic::kUnsizedViewExtent).
         m_SceneRenderer = Graphic::SceneRenderer::Create( Graphic::kUnsizedViewExtent );
-        m_ActiveScene   = std::make_shared<Desert::Core::Scene>( "New Scene", m_SceneRenderer.get() );
+        m_ActiveScene   = std::make_shared<Desert::Core::Scene>( "New Scene", m_SceneRenderer.get(),
+                                                             Desert::Core::WorldKind::Document );
         m_PrimaryScene  = m_ActiveScene; // the always-present document #-1 (see SetActiveScene)
     }
 
@@ -100,8 +92,17 @@ namespace Desert::Editor
 
     void SceneWorkspace::RebuildRenderRegistry()
     {
-        m_RenderRegistry.reset();
-        m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_ActiveScene );
+        RebuildRenderRegistry( m_ActiveScene );
+    }
+
+    void SceneWorkspace::RebuildRenderRegistry( const std::shared_ptr<Desert::Core::Scene>& scene )
+    {
+        std::unique_ptr<Render::RenderRegistry>* registry = &m_RenderRegistry;
+        for ( const auto& doc : m_ExtraScenes )
+            if ( doc->Scene == scene )
+                registry = &doc->Registry;
+        registry->reset();
+        *registry = std::make_unique<Render::RenderRegistry>( scene );
     }
 
     namespace
@@ -126,22 +127,22 @@ namespace Desert::Editor
             allocator->SampleSceneOpen();
     }
 
-    void SceneWorkspace::ReleaseActiveWorld()
+    void SceneWorkspace::ReleaseWorld( const std::shared_ptr<Desert::Core::Scene>& scene )
     {
         std::size_t views = 0;
-        if ( m_ActiveScene == m_PrimaryScene && m_SceneRenderer )
+        if ( scene == m_PrimaryScene && m_SceneRenderer )
         {
             m_SceneRenderer->ReleaseWorldResources();
             ++views;
         }
         for ( const auto& doc : m_ExtraScenes )
-            if ( doc->Scene == m_ActiveScene && doc->Renderer )
+            if ( doc->Scene == scene && doc->Renderer )
             {
                 doc->Renderer->ReleaseWorldResources();
                 ++views;
             }
         for ( const auto& viewport : m_ExtraViewports )
-            if ( viewport->Scene.lock() == m_ActiveScene && viewport->Renderer )
+            if ( viewport->Scene.lock() == scene && viewport->Renderer )
             {
                 viewport->Renderer->ReleaseWorldResources();
                 ++views;
@@ -153,7 +154,7 @@ namespace Desert::Editor
         // The surface cache Clear parked (five 49 MB atlases on FIELD_Barn) would otherwise live on until the
         // frame ring comes round, beside the one the next world builds (FOLIAGE-LOOK-8: SurfaceCache.* x2 at
         // Stop).
-        m_ActiveScene->ReleaseParkedRenderers();
+        scene->ReleaseParkedRenderers();
         const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
              EngineContext::GetInstance().GetRendererContext() );
         const std::size_t drained =
@@ -163,33 +164,16 @@ namespace Desert::Editor
                   views, drained );
     }
 
-    void SceneWorkspace::ActiveSceneReplaced()
+    void SceneWorkspace::SceneReplaced( const std::shared_ptr<Desert::Core::Scene>& scene )
     {
-        RebuildRenderRegistry();
-        Core::SelectionManager::ClearSelection();
+        RebuildRenderRegistry( scene );
+        if ( scene == m_ActiveScene ) // the selection is the active document's (SetActiveScene)
+            Core::SelectionManager::ClearSelection();
     }
 
-    void SceneWorkspace::BuildSceneSystems( Desert::Core::Scene& scene )
+    Common::BoolResultStr SceneWorkspace::CreateSystems( Desert::Core::Scene& scene ) const
     {
-        // The nine collectors that turn components into render data, and their order, live in ONE place
-        // (Engine/Core/SceneRenderCollectors.hpp). The gameplay systems below belong to the host: each needs a
-        // service only the host owns.
-        Desert::Core::AddSceneRenderCollectors( scene );
-        scene.AddSystem<ECS::AnimationECSSystem>( m_Animations.get(), m_Assets.get() );
-        // AttachmentSystem runs right AFTER animation: weapons-in-hand follow the freshly-posed bone this frame.
-        scene.AddSystem<ECS::AttachmentSystem>( &scene );
-        // ScriptSystem runs BEFORE physics: scripts set the character's move intent (+ look) which
-        // PhysicsECSSystem then executes the same frame.
-        scene.AddSystem<ECS::ScriptSystem>( &scene, m_Assets.get() );
-        scene.AddSystem<ECS::GameModeSystem>( &scene, m_Assets.get() );
-        scene.AddSystem<ECS::PhysicsECSSystem>( &scene );
-        scene.AddSystem<ECS::ComponentEventSystem>(); // the physics/destruction facts -> component events
-        // Maps character movement state (speed/onGround from physics) -> locomotion clip; after physics.
-        scene.AddSystem<ECS::LocomotionSystem>( &scene );
-        scene.AddSystem<ECS::AudioECSSystem>( &scene );
-        // Level sequences play last: a keyed Transform wins over this frame's physics and locomotion (UE
-        // evaluates sequences after the actors' own tick).
-        scene.AddSystem<ECS::LevelSequenceSystem>( &scene, m_Assets.get() );
+        return Desert::Core::CreateWorldSystems( scene, { m_Assets.get(), m_Animations.get() } );
     }
 
     void SceneWorkspace::SetActiveScene( uint64_t id )
@@ -271,9 +255,12 @@ namespace Desert::Editor
         doc->Name = std::format( "Scene {}", id + 1 ); // the main scene reads as "Scene 1"
 
         doc->Renderer = Graphic::SceneRenderer::Create( Graphic::kUnsizedViewExtent );
-        doc->Scene    = std::make_shared<Desert::Core::Scene>( std::string( doc->Name ), doc->Renderer.get() );
-        BuildSceneSystems( *doc->Scene );
-        if ( const auto inited = doc->Scene->Init(); !inited.IsSuccess() )
+        doc->Scene    = std::make_shared<Desert::Core::Scene>( doc->Name, doc->Renderer.get(),
+                                                          Desert::Core::WorldKind::Document );
+        auto inited = CreateSystems( *doc->Scene );
+        if ( inited.IsSuccess() )
+            inited = doc->Scene->Init();
+        if ( !inited.IsSuccess() )
             LOG_ERROR( "[EditorLayer] scene view '{}' failed to initialise: {}", doc->Name, inited.GetError() );
         doc->Registry = std::make_unique<Render::RenderRegistry>( doc->Scene );
 

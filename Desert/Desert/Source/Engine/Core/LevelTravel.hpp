@@ -15,7 +15,8 @@ namespace Desert::Core
     // middle of a frame (a level change tears down every entity, GPU resources included, so doing it from a
     // script callback, a UI walk or a physics contact would free what the frame being built still points
     // at). Everything that wants another level -- C++ gameplay, Lua `level.open(...)`, a UI button whose
-    // action is LoadScene -- calls OpenLevel; the host applies the request with TickTravel between frames.
+    // action is LoadScene -- calls Open on ITS world's travel
+    // (Scene::Travel); the host applies the request with TickTravel between frames.
     //
     // The level is named the way the project names its DefaultScene: a path RELATIVE TO THE PROJECT FOLDER
     // (Content/Scenes/Arena.desce), or an absolute path. An EMPTY name is the project's default map, as an
@@ -24,11 +25,11 @@ namespace Desert::Core
     // and nothing is queued; there is no fallback map.
     [[nodiscard]] Common::ResultStr<std::string> ResolveLevelPath( std::string_view level );
 
+    // FWorldContext::TravelURL: ONE world's queued travel. A member of Scene and not a world subsystem: a travel the
+    // new level's BeginPlay queues must survive Scene::SetState's recreation of the subsystems.
     class LevelTravel
     {
     public:
-        static LevelTravel& Get();
-
         // Resolve and queue. A second request before the boundary REPLACES the first (SetClientTravel
         // overwrites TravelURL): the last thing the game asked for in a frame is where it goes.
         [[nodiscard]] Common::BoolResultStr Open( std::string_view level );
@@ -40,10 +41,6 @@ namespace Desert::Core
         [[nodiscard]] Common::BoolResultStr
         TickTravel( const std::function<Common::BoolResultStr( const std::string& )>& load );
 
-        [[nodiscard]] bool HasPending() const
-        {
-            return m_Pending.has_value();
-        }
         [[nodiscard]] const std::optional<std::string>& Pending() const
         {
             return m_Pending;
@@ -59,10 +56,4 @@ namespace Desert::Core
     private:
         std::optional<std::string> m_Pending; // resolved path
     };
-
-    // UGameplayStatics::OpenLevel.
-    [[nodiscard]] inline Common::BoolResultStr OpenLevel( std::string_view level )
-    {
-        return LevelTravel::Get().Open( level );
-    }
 } // namespace Desert::Core

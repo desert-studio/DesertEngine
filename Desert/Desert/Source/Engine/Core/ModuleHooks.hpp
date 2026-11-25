@@ -6,6 +6,7 @@
 
 #include <Common/Core/UUID.hpp>
 #include <Common/Core/Math/Ray.hpp>
+#include <Engine/Core/WorldSystems.hpp>
 
 #include <entt/entt.hpp>
 #include <glm/vec3.hpp>
@@ -98,10 +99,6 @@ namespace Desert::Core
         const std::string* ( *Label )( std::uint64_t handle ) = nullptr;
     };
 
-    /// A module's render-data collectors (ECS systems emitting render commands), added to every scene after the
-    /// engine's own (Core/SceneRenderCollectors.cpp).
-    using RenderCollectorAdder = void ( * )( Scene& scene );
-
     /// A surface a scene raycast meets beside the entities' meshes (Scene::Raycast / RaycastComplex; UE: a
     /// landscape's collision answering the scene query): the hit names the entity the surface belongs to.
     struct RaySurfaceHit
@@ -140,7 +137,7 @@ namespace Desert::Core
         std::vector<AssetRootWalker> AssetRoots;
         std::vector<RegistryPrepare> Prepares;
         std::vector<AssetAnnouncer>       AssetTypes;
-        std::vector<RenderCollectorAdder> RenderCollectors;
+        std::vector<WorldSystemRegistration> WorldSystems; // Core/WorldSystems.hpp
         std::vector<SceneModuleStateMaker> SceneStates;
         std::vector<HotReloadPoller>       HotReloads;
         std::vector<AssetReferenceVisitor> AssetReferences;

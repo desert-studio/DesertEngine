@@ -242,7 +242,8 @@ namespace Desert::Water
         hooks.SceneStates.push_back( []() -> std::unique_ptr<Core::ISceneModuleState>
                                      { return std::make_unique<WaterFallEffects>(); } );
         // The water zones and the bodies inside them (WATER-W6): one command per zone.
-        hooks.RenderCollectors.push_back( []( Core::Scene& scene )
-                                          { scene.AddSystem<ECS::WaterZoneECSSystem>( scene.GetSettings() ); } );
+        hooks.WorldSystems.push_back( { "WaterZone", Core::WorldStage::ModuleDraw, 20, Core::kDrawnWorlds, false, false,
+                                        []( Core::Scene& scene, const Core::WorldServices& /*services*/ )
+                                        { scene.AddSystem<ECS::WaterZoneECSSystem>( scene.GetSettings() ); } } );
     }
 } // namespace Desert::Water

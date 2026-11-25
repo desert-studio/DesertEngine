@@ -16,6 +16,7 @@
 #include <UI/UIRenderTextureSource.hpp>
 #include <UI/UIScreenMachine.hpp>
 #include <UI/UITextEditState.hpp>
+#include <UI/UIWorld.hpp>
 
 #include <glm/glm.hpp>
 
@@ -201,12 +202,12 @@ namespace Desert::UI
         bool OverlayToastOverflowReported = false;
 
         // --- Per-(canvas x view) binding overrides ---------------------------------------------------
-        // A UIBinding reads this FIRST and the process-wide UIDataStore second, so a value that belongs to
+        // A UIBinding reads this FIRST and its world's UIDataStore second, so a value that belongs to
         // one view's own state can reach an authored Text/Visible binding without being written anywhere a
         // second view can see it. It is what carries `overlay.text` into a tooltip and
         // `overlay.toast.N.text` / `.visible` into a toast slot.
         //
-        // WHY NOT JUST WRITE THE GLOBAL STORE. Because the store is one per process and an open tooltip is
+        // WHY NOT JUST WRITE THE WORLD'S STORE. Because the store is one per world and an open tooltip is
         // one per (canvas x view): two viewports of one scene would show each other's tooltip text, and the
         // editor's preview would overwrite the viewport's. That is the exact defect this whole file was
         // written to undo, and reintroducing it for a string is not a saving.
@@ -261,12 +262,12 @@ namespace Desert::UI
     // is one authored element drawn once per record, and "which record" is the only thing that tells its
     // rows apart. Passed explicitly rather than read off @p ctx because the layout queries run without a
     // cell and still have to agree with the draw about a row's Visible binding.
-    [[nodiscard]] inline const UIDataStore& BindingStore( const UICanvasContext* ctx, const std::string& key,
-                                                          const UIDataStore* row )
+    [[nodiscard]] inline const UIDataStore& BindingStore( const UIWorld& world, const UICanvasContext* ctx,
+                                                          const std::string& key, const UIDataStore* row )
     {
         if ( row != nullptr && row->Has( key ) )
             return *row;
-        return ( ctx != nullptr && ctx->Locals.Has( key ) ) ? ctx->Locals : UIDataStore::Get();
+        return ( ctx != nullptr && ctx->Locals.Has( key ) ) ? ctx->Locals : world.Data;
     }
 
     // WHERE A BOUND LIST'S SCROLL GOES WHEN ITS COLLECTION CHANGED, in design px (SolveListWindow clamps).

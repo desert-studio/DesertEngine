@@ -57,6 +57,7 @@ namespace Desert::UI
         {
             return m_Reg;
         }
+        [[nodiscard]] UIWorld&                 World() const override;
         [[nodiscard]] std::optional<glm::vec3> WorldOrigin( NodeId n ) const override;
 
         [[nodiscard]] entt::registry& Registry() const

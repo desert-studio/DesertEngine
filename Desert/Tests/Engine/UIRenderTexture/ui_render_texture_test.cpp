@@ -34,6 +34,7 @@
 #include <Engine/Graphic/Render2D/UIRenderTextureView.hpp>
 
 #include <TestSupport/ui_canvas_resources_mock.hpp>
+#include <TestSupport/ui_registry.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -116,7 +117,7 @@ namespace
         // DECLARATION ORDER IS THE CONSTRUCTION ORDER, and both entities come out of the registry, so the
         // registry has to be the first member. Initialised in the list rather than in the body because
         // `entt::null` followed by an assignment is two values for one identity.
-        entt::registry Registry;
+        entt::registry Registry = ::TestSupport::UIRegistry();
         entt::entity   Canvas  = Registry.create();
         entt::entity   Element = Registry.create();
 
