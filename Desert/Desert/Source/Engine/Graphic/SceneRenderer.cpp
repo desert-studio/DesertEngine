@@ -3994,6 +3994,8 @@ namespace Desert::Graphic
                            .Lights   = refs.Transients.Lights,
                            .PointLights = pointCount,
                            .SpotLights  = spotCount,
+                           .PointSources = m_PointLightShadows,
+                           .SpotSources  = m_SpotLightShadows,
                            .Width       = frame.Split.Render.Width,
                            .Height      = frame.Split.Render.Height,
              // The G-buffer depth is the opaque scene: the march has

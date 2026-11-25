@@ -4,6 +4,8 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Settings/RenderMethods.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
+#include <Engine/Graphic/FrameKeptBuffer.hpp>
+#include <Engine/Graphic/LightRowHistory.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -143,9 +145,12 @@ namespace Desert::Graphic::System
         RayTracing::RayTracingMetadataFrame Metadata;
         RDG::TextureRef                     Hzb;
         VirtualShadowMapReadRefs            Vsm;
-        ViewLightBuffers                    Lights; // the rows, their previous rows, the light grid
+        ViewLightBuffers                    Lights; // the rows, the light grid
         uint32_t                            PointLights = 0;
         uint32_t                            SpotLights  = 0;
+        // The sources of the rows (LocalLightShadowSettings::SourceId), points and spots.
+        std::span<const LocalLightShadowSettings> PointSources;
+        std::span<const LocalLightShadowSettings> SpotSources;
         uint32_t                            Width       = 0; // render resolution
         uint32_t                            Height      = 0;
         glm::vec4 ContactShadowView{ 0.0f }; // SceneResources ShadowUBData::ContactShadowView (PackContactShadow)
@@ -220,10 +225,18 @@ namespace Desert::Graphic::System
             if ( !in.Emissive.Valid )
                 return Common::MakeError<MegaLightsLighting>(
                      "MegaLights: the frame has no scene-lighting emissive list (AddFrameSceneEmissiveLights)" );
-            if ( !in.Lights.GridCells.IsValid() || !in.Lights.PreviousRow.IsValid() || !in.Velocity.IsValid() )
+            if ( !in.Lights.GridCells.IsValid() || !in.Velocity.IsValid() )
                 return Common::MakeError<MegaLightsLighting>( std::format(
                      "MegaLights: the frame has no {}",
-                     in.Velocity.IsValid() ? "light grid or light rows" : "velocity to reproject the hash with" ) );
+                     in.Velocity.IsValid() ? "light grid" : "velocity to reproject the hash with" ) );
+            // Read only where the hash is (Counts.w): the frame before it advanced these rows as well.
+            const std::span<const int32_t> previousRows =
+                 m_LightRows.Advance( in.PointSources, in.PointLights, in.SpotSources, in.SpotLights );
+            const auto previousRowBuffer =
+                 m_KeptPreviousRows.Register( graph, previousRows.size_bytes(), "MegaLights.PreviousRow" );
+            if ( !previousRowBuffer )
+                return Common::MakeError<MegaLightsLighting>( previousRowBuffer.GetError() );
+            graph.QueueBufferUpload( previousRowBuffer.GetValue(), std::as_bytes( previousRows ) );
             const uint32_t samples = std::clamp( quality.SamplesPerPixel, 1u, kMegaLightsMaxSamplesPerPixel );
             const uint32_t factor  = std::clamp( quality.DownsampleFactor, 1u, kMegaLightsMaxDownsampleFactor );
             const uint32_t width   = in.Width; // render: the shading and the denoiser
@@ -348,8 +361,8 @@ namespace Desert::Graphic::System
                                 diffuseHistory.SampleCount );
                           block.Storage( kLightGridParamsBlock, in.Lights.GridParams, RDG::Access::StorageRead )
                                .Storage( kLightGridCellsBlock, in.Lights.GridCells, RDG::Access::StorageRead )
-                               .Storage( MegaLightsShaderParameters::PreviousLightRowsUB, in.Lights.PreviousRow,
-                                         RDG::Access::StorageRead )
+                               .Storage( MegaLightsShaderParameters::PreviousLightRowsUB,
+                                         previousRowBuffer.GetValue(), RDG::Access::StorageRead )
                                .Storage( MegaLightsShaderParameters::HistoryVisibleLightsUB, historyHash,
                                          RDG::Access::StorageRead )
                                .Storage( MegaLightsShaderParameters::OutSamplesTexture, generated,
@@ -539,6 +552,8 @@ namespace Desert::Graphic::System
         std::array<std::string, kTraceProgramCount> m_TraceErrors;
         std::array<HistorySlot, 2>     m_Slots;
         uint32_t                       m_Parity = 0;
+        LightRowHistory                m_LightRows; // of this view's frames that ran MegaLights
+        FrameKeptBuffer                m_KeptPreviousRows;
         ScreenSpaceDenoiser            m_DiffuseDenoiser{ DenoiserSignal::DiffuseIndirect };
         ScreenSpaceDenoiser            m_SpecularDenoiser{ DenoiserSignal::DirectSpecular };
     };

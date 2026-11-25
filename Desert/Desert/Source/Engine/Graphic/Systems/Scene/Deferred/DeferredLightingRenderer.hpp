@@ -149,7 +149,6 @@ namespace Desert::Graphic::System
         FrameKeptBuffer Point;
         FrameKeptBuffer Spot;
         FrameKeptBuffer ShadowViews;
-        FrameKeptBuffer PreviousRow;
         FrameKeptBuffer GridParams;
         FrameKeptBuffer GridCells;
     };
@@ -465,16 +464,14 @@ namespace Desert::Graphic::System
 
         // GRAPH BUILD (before the Composite node): the lights as graph buffers, each uploaded by the graph's
         // upload command. No light is one zeroed entry (a storage buffer is never empty); the counts are the
-        // material's LightsMetadata. @p previousRows = the
-        // rows' previous rows (LightRowHistory::Advance, never empty). @p grid = MakeLightGridParams of this view: its parameters are uploaded too
-        // and its cell buffer created, which "LightGrid" fills.
+        // material's LightsMetadata. @p grid = MakeLightGridParams of this view: its
+        // parameters are uploaded too and its cell buffer created, which "LightGrid" fills.
         // FPS-SET-MEMO4: every buffer is the view's kept one (@p kept, a stable VkBuffer per frame slot), not a
         // graph transient; refused when one cannot be made or imported.
         static Common::ResultStr<DeferredCompositeLights>
         UploadLights( RDG::Builder& graph, const ShaderProtocols::PointLight& points,
                       const ShaderProtocols::SpotLight& spots, const std::vector<LocalShadowViewPayload>& shadowViews,
-                      const std::span<const int32_t> previousRows, const LightGridParamsPayload& grid,
-                      DeferredLightBufferStore& kept )
+                      const LightGridParamsPayload& grid, DeferredLightBufferStore& kept )
         {
             using Made        = Common::ResultStr<RDG::BufferRef>;
             const auto upload = [&graph]( FrameKeptBuffer& into, const std::span<const std::byte> bytes,
@@ -491,19 +488,17 @@ namespace Desert::Graphic::System
                                         "Lights.Spot" );
             const Made shadow = upload( kept.ShadowViews, ShaderProtocols::LightPayloadBytes( shadowViews ),
                                         "Lights.ShadowViews" );
-            const Made previous = upload( kept.PreviousRow, std::as_bytes( previousRows ), "Lights.PreviousRow" );
             const Made params =
                  upload( kept.GridParams, std::as_bytes( std::span<const LightGridParamsPayload>( &grid, 1 ) ),
                          "Lights.GridParams" );
             const Made cells = kept.GridCells.Register( graph, LightGridCellBufferBytes( grid ), "Lights.GridCells" );
-            for ( const Made* made : { &point, &spot, &shadow, &previous, &params, &cells } )
+            for ( const Made* made : { &point, &spot, &shadow, &params, &cells } )
                 if ( !*made )
                     return Common::MakeError<DeferredCompositeLights>( made->GetError() );
             DeferredCompositeLights lights;
             lights.Point       = point.GetValue();
             lights.Spot        = spot.GetValue();
             lights.ShadowViews = shadow.GetValue();
-            lights.PreviousRow = previous.GetValue();
             lights.GridParams  = params.GetValue();
             lights.GridCells   = cells.GetValue();
             lights.Grid        = grid;

@@ -80,7 +80,6 @@
 #include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Graphic/LightGrid.hpp>
-#include <Engine/Graphic/LightRowHistory.hpp>
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/Deformation/DeformationFieldRenderer.hpp>
 
@@ -2016,7 +2015,6 @@ namespace Desert::Graphic
         // FPS-SET-MEMO4: the view's per-frame light buffers (AddFrameLightGrid -> UploadLights) and tile lists
         // (AddFrameTileClassify -> CreateTileLists), kept with a stable VkBuffer per frame slot.
         System::DeferredLightBufferStore m_KeptLights;
-        LightRowHistory                  m_LightRows; // ViewLightBuffers::PreviousRow
         FrameKeptBuffer                  m_KeptDeferredTiles;
         // This frame graph's import of the GPU scene's tables (AddFrameDrawBins), reset before it each frame.
         std::optional<GpuDriven::GpuSceneBuffers> m_FrameGpuSceneTables;
