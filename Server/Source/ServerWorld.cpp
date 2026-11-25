@@ -44,9 +44,29 @@ namespace Desert::Server
                                               "': its always-loaded records: " + alwaysLoaded.GetError() );
         // THE WORLD'S GRAVITY (UE AWorldSettings::GlobalGravityZ): the level's Scene Settings, as the client's scene
         // reads them, so the server's step and the prediction fall alike (Gameplay::IPawnMoveWorld::Gravity).
-        physics.SetGravity( alwaysLoaded.GetValue().Settings.Gravity );
-        LOG_INFO( "[Server] world gravity {:.1f} cm/s^2 (the level's Scene Settings)",
-                  alwaysLoaded.GetValue().Settings.Gravity );
+        // A world whose Settings state no Gravity is refused, not given a default.
+        float gravity = 0.0f;
+        bool  stated  = false;
+        if ( const auto& sceneSettings = alwaysLoaded.GetValue().Settings )
+            if ( const auto object = sceneSettings->to_object() )
+                if ( const auto field = object.value().get( "Gravity" ) )
+                {
+                    if ( const auto real = field.value().to_double() )
+                    {
+                        gravity = static_cast<float>( real.value() );
+                        stated  = true;
+                    }
+                    else if ( const auto whole = field.value().to_int() )
+                    {
+                        gravity = static_cast<float>( whole.value() );
+                        stated  = true;
+                    }
+                }
+        if ( !stated )
+            return Common::MakeError<Result>( "server world '" + server->m_World.Index->SceneName +
+                                              "': its Scene Settings state no Gravity" );
+        physics.SetGravity( gravity );
+        LOG_INFO( "[Server] world gravity {:.1f} cm/s^2 (the level's Scene Settings)", gravity );
         const std::vector<Assets::EntityData>& always = alwaysLoaded.GetValue().Entities;
         for ( std::size_t i = 0; i < always.size(); ++i )
             server->m_Collision->Add( recordCount + i, always[i], always );
