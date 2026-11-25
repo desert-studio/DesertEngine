@@ -39,10 +39,6 @@ namespace Desert::Graphic::System
         constexpr float kFadeDepthCm  = 600.0f;
         constexpr float kStrength     = 1.0f;
 
-        // The floor's depth where the body has no WaterInfo ground baked (open sea over no landscape): the plane
-        // the beams are followed to. A floor deeper than ~2 m shows the pattern washed out by the fade anyway.
-        constexpr float kNoGroundFloorDepthCm = 200.0f;
-
         // The sun's travel must point down by at least this much: a sun at the horizon refracts at the critical
         // angle and lights no floor.
         constexpr float kMinSunDescent = 0.01f;
@@ -153,14 +149,14 @@ namespace Desert::Graphic::System
             ReportState( false, "the caustics programs did not build" );
             return std::nullopt;
         }
-        if ( inputs.Waves.empty() || inputs.Bodies.empty() )
+        if ( inputs.Waves.empty() || inputs.Bodies.empty() || !inputs.Water.IsValid() )
         {
             ReportState( false, "no water body draws" );
             return std::nullopt;
         }
-        if ( inputs.BodyWaveLanes.size() != inputs.Bodies.size() || inputs.BodyWaveMaskDepths.size() != inputs.Bodies.size() )
+        if ( inputs.BodyWaveLanes.size() != inputs.Bodies.size() )
         {
-            // WaterRenderer fills both in one step (one lane per body drawn): a mismatch is a caller's bug.
+            // WaterRenderer fills them in one step (one lane per body drawn): a mismatch is a caller's bug.
             ReportState( false, "the bodies' wave lanes do not match the bodies" );
             return std::nullopt;
         }
@@ -188,7 +184,7 @@ namespace Desert::Graphic::System
                  body.FootprintMin.y <= upper.y )
                 rows.push_back(
                      WaterCausticsBodyRow{ .Footprint = glm::vec4( body.FootprintMin, body.FootprintMax ),
-                                           .Level = glm::vec4( body.SurfaceY, inputs.BodyWaveLanes[i], inputs.BodyWaveMaskDepths[i], 0.0f ) } );
+                                           .Level = glm::vec4( body.SurfaceY, inputs.BodyWaveLanes[i], 0.0f, 0.0f ) } );
         }
         if ( rows.empty() )
         {
@@ -223,25 +219,22 @@ namespace Desert::Graphic::System
              graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = kMapSize, .Height = kMapSize },
                                                     .Format = Core::Formats::ImageFormat::R32F },
                                   "Water.Caustics" );
-        const RDG::TextureRef ground = inputs.WaterInfo.IsValid() ? inputs.WaterInfo : inputs.Black;
-        const RDG::TextureRef fft    = inputs.FFTWaves.IsValid() ? inputs.FFTWaves : inputs.Black;
-
         const ShaderPush::WaterCausticsSplat push{
-             .Window = glm::vec4( lower, kTexelCm, kNoGroundFloorDepthCm ),
+             .Window = glm::vec4( lower, kTexelCm, 0.0f ),
              .Sun    = glm::vec4( sun, inputs.TimeSeconds ),
-             .Camera = glm::vec4( inputs.Camera, 0.0f ),
         };
         graph.AddPass(
              "Water: Caustics Splat", RDG::PassFlags::Compute,
-             [this, waves, ground, fft, energy, frame]( RDG::PassBuilder& pass )
+             [this, waves, water = inputs.Water, energy, frame]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( m_SplatLayout.Get( m_SplatPipeline->GetSpecification().Shader ),
                                 Renderer::GetPipelineRouteFill( *m_SplatPipeline ) )
                       .Storage( WaterCausticsSplatShaderParameters::WaterTiles, waves, RDG::Access::StorageRead )
-                      .Texture( WaterCausticsSplatShaderParameters::WaterInfoTexture, ground,
+                      .Texture( WaterCausticsSplatShaderParameters::WaterShoreTexture, water.Shore,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                      .Texture( WaterCausticsSplatShaderParameters::WaterFFTTexture, fft, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
+                      .Texture( WaterCausticsSplatShaderParameters::WaterWavesTexture, water.Waves,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( WaterCausticsSplatShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
                       .Storage( WaterCausticsSplatShaderParameters::WaterCausticsEnergy, energy,
                                 RDG::Access::StorageWrite )
                       .Storage( WaterCausticsSplatShaderParameters::WaterCausticsFrameUB, frame,

@@ -14,6 +14,8 @@
 #include <Water/Public/WaterCaustics.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Water/Public/WaterZoneDraw.hpp>
+#include <Water/Public/WaterShoreField.hpp>
+#include <Water/Public/WaterFoamClipmap.hpp>
 #include <Engine/Assets/Common.hpp>
 
 #include <glm/glm.hpp>
@@ -32,7 +34,7 @@
 
 namespace Desert::Graphic::RDG
 {
-    class Builder; // Engine/Graphic/RDG/RDGBuilder.hpp: AddWavePasses records into it
+    class Builder; // Engine/Graphic/RDG/RDGBuilder.hpp: AddFramePasses records into it
 } // namespace Desert::Graphic::RDG
 
 namespace Desert::Graphic::System
@@ -64,7 +66,7 @@ namespace Desert::Graphic::System
         // PrepareFrame took, its tiles appended to the upload as rows and grouped into the frame's draws. Touches
         // only the zone trees, the traversal scratch, the upload's rows and the draws - no service, no GPU object.
         void PrepareTiles() noexcept override;
-        // FinishPrepare (render thread, after the task joined): the material's fold, the WaterInfo ground and the
+        // FinishPrepare (render thread, after the task joined): the material's fold, the shore's image and the
         // rows' upload; the frame's program is set only here.
         void FinishPrepare() override;
 
@@ -79,18 +81,21 @@ namespace Desert::Graphic::System
         // screen shadow mask could serve it from.
         [[nodiscard]] bool FrameSamples( std::string_view textureName ) const override;
 
-        // The WaterInfo ground (UE WaterInfo texture) FinishPrepare keeps: a persistent image the frame graph
-        // imports and the water pass samples as WaterInfoTexture - a pass input, not a material property.
-        [[nodiscard]] const std::shared_ptr<Image2D>& GetWaterInfo() const override
+        // The frame's images FinishPrepare keeps: the shore field (Water/WaterDepthField.glslh) and the rivers.
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetShoreField() const override
         {
-            return m_WaterInfo;
+            return m_ShoreImage;
+        }
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetRiverFlow() const override
+        {
+            return m_RiverImage;
         }
 
         // WATER-CAUSTICS (WaterCaustics.hpp): this frame's waves block - the upload's head, WaterMeshTiles.glslh
         // WaterTiles' leading members (the header rows and every wave set of the frame) - and every body that
         // draws this frame (its footprint and still level) with its wave lane (WaterTileRow.Body.z: 1 + its set in
         // WaterWaveSets, 0 = flat; parallel to GetFrameBodies), after PrepareFrame; all empty when no water draws.
-        static constexpr std::size_t kWavesBlockBytes = ( 6 + 4 * ( 1 + 2 * 32 ) ) * 4 * sizeof( float );
+        static constexpr std::size_t kWavesBlockBytes = ( 17 + 4 * ( 2 + 2 * 32 ) ) * 4 * sizeof( float );
         [[nodiscard]] std::span<const std::byte> GetFrameWavesBlock() const
         {
             if ( m_Walk.Programs.empty() || m_Upload.size() < kWavesBlockBytes )
@@ -109,63 +114,48 @@ namespace Desert::Graphic::System
                 return {};
             return m_FrameBodyWaveLanes;
         }
-        // Each frame body's TargetWaveMaskDepth (cm, >= 1; the tiles' WaterTileRow.Medium.x), one per
-        // GetFrameBodies row.
-        [[nodiscard]] std::span<const float> GetFrameBodyWaveMaskDepths() const
-        {
-            if ( m_Walk.Programs.empty() )
-                return {};
-            return m_FrameBodyWaveMaskDepths;
-        }
-
-        // THE FFT OCEAN (WATER-RIVERS-FFT; Tessendorf 2001, the UE Water plugin's FFT wave source): when the
-        // frame's body names a wave set authored as an FFT ocean and Effects.WaterWaveMethod resolves to FFT,
-        // PrepareFrame sets the frame's spectrum (uploading its h0 cascades once per set) and the waves block's
-        // FFT lane; the frame graph then records AddWavePasses once (SceneRenderer::FrameWaterWaves) before the
-        // first water draw, and both WaterMesh cells sample the result as WaterFFTTexture.
+        // THE FFT OCEAN (Tessendorf 2001): when a body of the frame names a wave set authored as an FFT ocean and
+        // Effects.WaterWaveMethod resolves to FFT, PrepareFrame sets the frame's spectrum, uploading its h0 cascades
+        // once per set.
         [[nodiscard]] bool FrameWavesAreFFT() const override
         {
             return m_FFTFrame != nullptr && !m_Walk.Programs.empty();
         }
-        // The h0 cascades of the frame's spectrum: kFFTOceanResolution x 3 kFFTOceanResolution RGBA32F, cascade c
-        // in rows [N c, N c + N) (Programs/Water/WaterFFTSpectrum.shader).
+        // The h0 cascades of the frame's spectrum: kFFTOceanResolution wide RGBA32F, cascade c in rows
+        // [N c, N c + N) (Programs/Water/WaterFFTSpectrum.shader).
         [[nodiscard]] const std::shared_ptr<Image2D>& GetFFTInitialSpectrum() const override
         {
             return m_FFTInitial;
         }
-        // The persistent two-frame waves atlas (Mesh/Surface/WaterMeshTiles.glslh WaterFFTTexture): N x 22 N
-        // RGBA16F, this frame's half written by AddWavePasses, the other half the previous frame's (the velocity,
-        // and the foam histories the new half's decay from).
-        [[nodiscard]] const std::shared_ptr<Image2D>& GetFFTWaves() const override
+        // The foam atlases (WaterFoamClipmap.hpp): the one this frame reads and the one it writes; null: no foam.
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetFoamHistory() const override
         {
-            return m_FFTWaves;
+            return m_Foam[m_FoamWritten];
         }
-        // The waves this frame's water samples, once AddWavePasses recorded them into @p graph; invalid otherwise.
-        [[nodiscard]] RDG::TextureRef RecordedWaves( const RDG::Builder& graph ) const override
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetFoamTarget() const override
         {
-            return m_FrameWavesGraph == &graph ? m_FrameWavesTexture : RDG::TextureRef{};
+            return m_Foam[m_FoamWritten ^ 1u];
         }
-        // THE OCEAN AT THE VIEW'S TIME (Programs/Water/WaterFFTSpectrum, WaterFFT x2, WaterFFTFinalize): the
-        // cascades' spectra from @p initial (the imported GetFFTInitialSpectrum) advanced to @p timeSeconds
-        // (cameraUB.Time), inverse-transformed along rows then columns, and unpacked into this frame's half of
-        // @p waves (the imported GetFFTWaves); then the surf foam over the ground of @p waterInfo (the imported
-        // GetWaterInfo, or black when there is none: no surf) into the same half (Programs/Water/WaterSurfFoam).
-        // Returns @p waves; invalid when the frame draws no FFT ocean.
-        RDG::TextureRef AddWavePasses( RDG::Builder& graph, RDG::TextureRef initial, RDG::TextureRef waves,
-                                       RDG::TextureRef waterInfo, float timeSeconds ) override;
+        // The frame's water, once AddFramePasses recorded it into @p graph; invalid otherwise.
+        [[nodiscard]] WaterFrameRefs RecordedFrame( const RDG::Builder& graph ) const override
+        {
+            return m_FrameWaterGraph == &graph ? m_FrameWaterRefs : WaterFrameRefs{};
+        }
+        // The ocean at the view's time, its mips and the foam (WaterWaveSimulation.cpp, WaterFoamSimulation.cpp).
+        // Recorded once per graph; invalid when a program or an import is missing (said once).
+        WaterFrameRefs AddFramePasses( RDG::Builder& graph, const WaterFrameImports& imports,
+                                       float timeSeconds ) override;
 
         // SETUP of the water node: its one binding block - the material route (frame block, tile rows, material
         // values and ripple maps), the opaque scene's copy @p sceneCopy the surface refracts, and the scene/view
         // inputs of @p view its program has slots for (the opaque depth = the water's bottom, the sky cubes, the
-        // view's fog), and the imported WaterInfo ground @p waterInfo (GetWaterInfo) the surf reads its depth
-        // from.
+        // view's fog), and the frame's water @p water (AddFramePasses).
         // @p frontReflection / @p frontDepth: this frame's front layer reflection and the depth it belongs to
         // (SceneRenderer::FrameFrontLayer; the graph's black texture for both when no front layer was traced),
         // bound as FrontLayerReflectionTexture / FrontLayerDepthTexture where the cell has the slots
         // (Mesh/Surface/FrontLayerReflection.glslh: the water's traced reflection where it IS the front layer).
-        // @p waves: this frame's FFT atlas (SceneRenderer::FrameWaterWaves), the graph's black without one.
-        void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, RDG::TextureRef waterInfo,
-                           RDG::TextureRef waves, RDG::TextureRef frontReflection, RDG::TextureRef frontDepth,
+        void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const WaterFrameRefs& water,
+                           RDG::TextureRef frontReflection, RDG::TextureRef frontDepth,
                            const SceneViewInputs& view, const SceneFrameBinding& frame ) override;
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context ) override;
 
@@ -179,9 +169,8 @@ namespace Desert::Graphic::System
             return !m_FrameDraws.empty() && m_FrameFrontLayers > 0u;
         }
         // SETUP of the front layer node: the cell's material route (frame block, tile rows, material row and
-        // ripple maps), the scene/view inputs it has slots for and the WaterInfo ground @p waterInfo its waves
-        // damp by.
-        void DeclareFrontLayerDraws( RDG::PassBuilder& pass, RDG::TextureRef waterInfo, RDG::TextureRef waves,
+        // ripple maps), the scene/view inputs it has slots for and the frame's water.
+        void DeclareFrontLayerDraws( RDG::PassBuilder& pass, const WaterFrameRefs& water,
                                      const SceneViewInputs& view, const SceneFrameBinding& frame ) override;
         [[nodiscard]] Common::BoolResultStr RenderFrontLayerManual( const RDG::PassContext& context ) override;
 
@@ -324,11 +313,10 @@ namespace Desert::Graphic::System
         // DeclareDraws' / DeclareFrontLayerDraws' binding block of one template's @p program (one per
         // TileWalk::Programs entry; the front layer's only for entries with a front layer cell).
         void DeclareProgramDraws( RDG::PassBuilder& pass, WaterProgram& program, RDG::TextureRef sceneCopy,
-                                  RDG::TextureRef waterInfo, RDG::TextureRef waves,
-                                  RDG::TextureRef frontReflection, RDG::TextureRef frontDepth,
+                                  const WaterFrameRefs& water, RDG::TextureRef frontReflection, RDG::TextureRef frontDepth,
                                   const SceneViewInputs& view, const SceneFrameBinding& frame );
-        void DeclareFrontLayerProgramDraws( RDG::PassBuilder& pass, WaterProgram& front, RDG::TextureRef waterInfo,
-                                            RDG::TextureRef waves, const SceneViewInputs& view,
+        void DeclareFrontLayerProgramDraws( RDG::PassBuilder& pass, WaterProgram& front, const WaterFrameRefs& water,
+                                            const SceneViewInputs& view,
                                             const SceneFrameBinding& frame );
         // The draws of m_FrameDraws of template @p programSlot with @p program, through the pass's binding block
         // @p blockIndex (DeclareDraws declares one block per template), inside the node's open render pass.
@@ -394,64 +382,70 @@ namespace Desert::Graphic::System
         };
         std::vector<ResolvedProgram> m_Resolved;
 
-        // The WaterInfo ground uploaded last (WaterZoneDraw::Ground) and its texture.
-        std::shared_ptr<const Water::WaterInfoGround> m_GroundBaked;
-        // The rivers whose flow the uploaded WaterInfo texture carries (TileWalk::Flows when it was composed).
+        // The shore field uploaded last (WaterZoneDraw::Shore) and its image.
+        std::shared_ptr<const Water::WaterShoreField> m_ShoreBaked;
+        std::shared_ptr<Image2D>                      m_ShoreImage;
+        // The rivers whose flow the river image carries (TileWalk::Flows when it was composed), and the image.
         std::vector<std::shared_ptr<const Water::RiverFlowField>> m_FlowsBaked;
-        std::shared_ptr<Image2D>                      m_WaterInfo;
+        std::shared_ptr<Image2D>                                  m_RiverImage;
 
-        // THE FFT OCEAN'S STATE (WATER-RIVERS-FFT). The four compute programs, built on the first FFT frame (a
-        // failure is said once and the water draws its Gerstner generator); one layout cache per program.
+        // THE FFT OCEAN'S STATE. The compute programs, built on the first FFT frame (a failure is said once and the
+        // water draws its Gerstner generator); one layout cache per program.
+        [[nodiscard]] std::shared_ptr<ComputePipeline>
+             BuildWavePipeline( const char* name, ShaderBindingLayoutCache& layout,
+                                std::span<const RDG::ShaderParameter> parameters );
         [[nodiscard]] bool EnsureFFTPipelines();
-        // The frame's spectrum and its waves lane, or null/false: the Gerstner rows (PrepareFrame).
-        [[nodiscard]] bool PrepareFFTFrame( const Assets::AssetHandle& material, const MaterialStamp& stamp,
-                                            const Assets::AssetHandle& waves, const glm::vec3& eye, glm::vec4& header,
-                                            glm::vec4& fft, float& verticalExtent );
-        // THE WHITECAPS' LIFETIME of the FFT ocean's body material (WATER-UNDERWATER pass 4: one truth, the
-        // material's FoamDecaySeconds - UE's material-driven foam; the `.dwaves` FFT block no longer states one).
-        // Re-read only when that material or the material stamp moved; a material that cannot be read keeps the
-        // history off (FoamKeep 0) rather than inventing a lifetime.
-        struct FoamDecayRead
+        // Sets m_FFTFrame when @p waves is an FFT ocean this view draws; false: its Gerstner rows.
+        [[nodiscard]] bool PrepareFFTFrame( const Assets::AssetHandle& material, const Assets::AssetHandle& waves );
+        [[nodiscard]] RDG::TextureRef AddWavePasses( RDG::Builder& graph, RDG::TextureRef initial, float timeSeconds );
+        [[nodiscard]] RDG::TextureRef AddStillWaves( RDG::Builder& graph );
+        std::shared_ptr<ComputePipeline> m_FFTSpectrum, m_FFTTransform, m_FFTFinalize, m_FFTMips, m_WavesStill;
+        ShaderBindingLayoutCache         m_FFTSpectrumLayout, m_FFTTransformLayout, m_FFTFinalizeLayout,
+             m_FFTMipsLayout, m_WavesStillLayout;
+        bool m_FFTTried        = false;
+        bool m_WavesStillTried = false;
+        // This frame's spectrum (null: Gerstner), the one whose h0 is uploaded and its h0 image.
+        std::shared_ptr<const Water::FFTOceanSpectrum> m_FFTFrame;
+        std::shared_ptr<const Water::FFTOceanSpectrum> m_FFTUploaded;
+        std::shared_ptr<Image2D>                       m_FFTInitial;
+        // The waves' array (Water/WaterFFT.glslh), whether it holds a frame of the uploaded sea, and its time.
+        RDG::ExternalTexture m_WavesImage;
+        bool                 m_WavesHold = false;
+        float                m_WavesTime = 0.0f;
+
+        // THE FOAM (WaterFoamSimulation.cpp). The frame's parameters, set by PrepareFoam when the foam runs.
+        struct FoamFrame
+        {
+            Water::WaterFoamParams Params;
+            float                  StillY  = 0.0f;
+            int32_t                WaveSet = -1;
+            glm::vec2              Wind{ 0.0f }; // cm/s
+        };
+        // Places the windows around @p eye, reads @p material's foam values and writes the waves block's foam lanes.
+        void PrepareFoam( const Assets::AssetHandle& material, const MaterialStamp& stamp, const glm::vec3& eye,
+                          int32_t waveSet, const std::shared_ptr<const Water::WaterShoreField>& shore,
+                          std::array<glm::vec4, 3>& origin, glm::vec4& shape );
+        [[nodiscard]] bool EnsureFoam( uint32_t side );
+        [[nodiscard]] RDG::TextureRef AddFoamPass( RDG::Builder& graph, const WaterFrameRefs& water,
+                                                   const WaterFrameImports& imports, float timeSeconds );
+        [[nodiscard]] Common::BoolResultStr RenderFoam( const RDG::PassContext& context ) const;
+        std::optional<FoamFrame>                 m_FoamFrame;
+        Water::WaterFoamClipmapState             m_FoamState;
+        std::array<std::shared_ptr<Image2D>, 2>  m_Foam;
+        uint32_t                                 m_FoamWritten = 0;
+        uint32_t                                 m_FoamSide    = 0;
+        DeferredReleaseQueue<std::shared_ptr<Image2D>> m_RetiredFoam;
+        std::shared_ptr<GraphicsPipeline>        m_FoamPipeline;
+        bool                                     m_FoamTried = false;
+        // The foam values of the material read last, re-read only when it or the stamp moved.
+        struct FoamMaterial
         {
             uint64_t      Material = 0;
             MaterialStamp Stamp;
             bool          Readable = false;
-            float         Seconds  = 0.0f;
-            float         Breaker  = 0.0f; // FoamBreakerIndex, the surf foam's; 0 = the template has none (no surf)
+            Water::WaterFoamParams Params;
         };
-        FoamDecayRead                    m_FFTFoamDecay;
-        std::shared_ptr<ComputePipeline> m_FFTSpectrum, m_FFTTransform, m_FFTFinalize, m_FFTSurf;
-        ShaderBindingLayoutCache         m_FFTSpectrumLayout, m_FFTTransformLayout, m_FFTFinalizeLayout,
-             m_FFTSurfLayout;
-        bool                             m_FFTTried = false;
-        // This frame's spectrum (null: Gerstner), the one whose h0 is uploaded, its h0 image and the atlas.
-        std::shared_ptr<const Water::FFTOceanSpectrum> m_FFTFrame;
-        std::shared_ptr<const Water::FFTOceanSpectrum> m_FFTUploaded;
-        std::shared_ptr<Image2D>                       m_FFTInitial;
-        std::shared_ptr<Image2D>                       m_FFTWaves;
-        // The atlas half (0 or 1) this frame writes, and the one the last recorded frame wrote (-1: none since the
-        // spectrum changed - the previous frame is then this frame's own half, a zero velocity for one frame).
-        int32_t m_FFTHalf        = 0;
-        int32_t m_FFTWrittenHalf = -1;
-        // The last flip (PrepareFFTFrame): the view time it was taken at and the half it named as the previous
-        // frame's - a second view of the same time keeps both (R3 step 6: one flip per frame, not per view).
-        int32_t m_FFTPreviousHalf = 0;
-        double  m_FFTFlipTime     = 0.0;
-        bool    m_FFTFlipped      = false;
-        // THE FOAM HISTORY's lane of this flip (WaterFFTParams::Foam, AddWavePasses): the share of the previous
-        // half's foam kept, exp(-dt / the material's FoamDecaySeconds) over the time since the last flip, and
-        // whether there is a previous half to keep it from (false on the first frame of a sea).
-        float m_FFTFoamKeep    = 0.0f;
-        bool  m_FFTFoamHistory = false;
-        // THE SURF FOAM's windows (Water/WaterSurfFoam.glslh), one set per flip: the eye they stand around (a second
-        // view of the same time reads the first one's, and no surf outside them), and the eye and the view time the
-        // written half was recorded with, with the previous half's of this flip (a flip no graph recorded wrote no
-        // half).
-        glm::vec3 m_SurfEye{ 0.0f };
-        glm::vec2 m_SurfPreviousEye{ 0.0f };
-        glm::vec2 m_SurfWrittenEye{ 0.0f };
-        double    m_SurfWrittenTime = 0.0;
-        float     m_SurfDeltaTime   = 0.0f;
+        FoamMaterial m_FoamMaterial;
         // THE CPU MIRROR's read-back (WATER-RIVERS-FFT pass 7; Water::FFTSurfaceMirror): one host-readable buffer
         // per frame in flight the finalize pass fills with every kFFTReadbackStride-th displacement texel, read
         // when its slot comes round again (the frame start waited that slot's fence: no GPU wait), with the wave
@@ -465,9 +459,9 @@ namespace Desert::Graphic::System
         std::vector<FFTReadbackSlot> m_FFTReadback;
         // Reads the slot this frame reuses and publishes it (AddWavePasses, before the slot is extracted into).
         void PublishFFTReadback( uint32_t slot );
-        // The waves recorded into a graph this frame (RecordedWaves), reset by PrepareFrame.
-        RDG::TextureRef     m_FrameWavesTexture;
-        const RDG::Builder* m_FrameWavesGraph = nullptr;
+        // The frame's water recorded into a graph (RecordedFrame), reset by PrepareFrame.
+        WaterFrameRefs      m_FrameWaterRefs;
+        const RDG::Builder* m_FrameWaterGraph = nullptr;
         // The wave source last said in the log ([Water] waves=...), -1: nothing said yet.
         int32_t m_LoggedWaveSource = -1;
 
@@ -547,15 +541,15 @@ namespace Desert::Graphic::System
         {
             // x = its material's row (-1 = not drawn), y = 1 for a river, z = 1 + its wave set, w = its index
             glm::vec4 Body{ -1.0f, 0.0f, 0.0f, 0.0f };
-            // x = its TargetWaveMaskDepth (cm, >= 1), y = its river's two-phase flow period (s; 0 off a river)
+            // y = its river's two-phase flow period (s; 0 off a river), zw = a fall's speeds
             glm::vec4 Medium{ 0.0f };
         };
         struct TileWalk
         {
             std::vector<FrameProgram>                     Programs; // empty: no water, the task walks nothing
             MaterialStamp                                 Stamp;
-            std::shared_ptr<const Water::WaterInfoGround> Ground;
-            // The frame's rivers (the WaterInfo atlas's river region is laid out from them: WaterInfoLayoutOf).
+            std::shared_ptr<const Water::WaterShoreField> Shore;
+            // The frame's rivers (the river image is laid out from them).
             std::vector<std::shared_ptr<const Water::RiverFlowField>> Flows;
             std::vector<std::vector<WaterBodyLane>>                   Bodies; // per zone, per body lane
             std::vector<std::vector<uint32_t>>            BodyPrograms;       // per zone, per body: Programs slot
@@ -575,6 +569,5 @@ namespace Desert::Graphic::System
         std::vector<glm::vec4>                m_Rows;        // material rows of every body material, one upload
         std::vector<Water::WaterQuadTreeBody> m_FrameBodies; // every body drawn this frame (GetFrameBodies)
         std::vector<float>                    m_FrameBodyWaveLanes; // its wave lane (GetFrameBodyWaveLanes)
-        std::vector<float> m_FrameBodyWaveMaskDepths; // its TargetWaveMaskDepth (GetFrameBodyWaveMaskDepths)
     };
 } // namespace Desert::Graphic::System
