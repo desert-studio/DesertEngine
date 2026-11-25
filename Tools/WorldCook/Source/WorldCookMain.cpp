@@ -30,6 +30,7 @@ namespace Desert::WorldCook
         {
             return "usage: WorldCook <source.desce> --out <directory> (--project <file.deproj> | --no-project) "
                    "(--registry <file.dreg>... | --project-registry | --no-registry) [--verify] [--check]\n"
+                   "  [--disable-module LandscapeCore]\n"
                    "  --check        check the world's partition (WP-MAP-CHECK) and cook nothing: every finding is\n"
                    "                 printed, the StreamingGeneration log written; exit 0 = none, 8 = findings; --out\n"
                    "                 is not needed\n"
@@ -37,7 +38,9 @@ namespace Desert::WorldCook
                    "                 (landscape tiles, meshes) resolve under its folder, and the cook's log goes "
                    "to\n"
                    "                 its Saved/Logs\n"
-                   "  --no-project   cook a world that names no project content (primitives only)";
+                   "  --no-project   cook a world that names no project content (primitives only)\n"
+                   "  --disable-module  the process's, taken out by main before this cook: the module is not started,\n"
+                   "                 so its components' records are Issues placed nowhere (Tools/Shared/ToolModules.hpp)";
         }
 
         struct Options

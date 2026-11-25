@@ -8,7 +8,8 @@
 // and answer a tile's rectangle (its root's frame, LandscapeLayout.hpp) and a spline's box, and what the HLOD and
 // the activation cost make of a tile and a spline. Every executable that plans, describes or cooks a world calls
 // it (Engine's StartupEngineModules, DesertServer, WorldGen, WorldCook); a process that does not reports every
-// landscape record as an Issue and places none (WorldPartitionPlan::UnregisteredRecords).
+// landscape record as an Issue and places none (WorldPartitionPlan::UnregisteredRecords) - WorldCook and WorldGen
+// run so with `--disable-module LandscapeCore` (Tools/Shared/ToolModules.hpp).
 
 #include <string_view>
 
