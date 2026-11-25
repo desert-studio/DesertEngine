@@ -1396,6 +1396,9 @@ namespace Desert::Graphic
         // forward path's single-sample prepass depth) or, invalid, of the G-buffer depth. Invalid when it was not
         // built.
         RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef depth = {} );
+        // Whether a casting point or spot light of this frame has no shadow map (no atlas room, or no virtual
+        // map): its shadow is the screen trace over the HZB (Mesh/LocalLightShadow.glslh).
+        [[nodiscard]] bool LocalLightsNeedScreenTrace() const;
         // SSR's trace + denoiser over @p screenTrace, before the lighting. Resolved: the reflection the lighting
         // composes (SsrTexture); invalid when SSR did not run.
         // Reflections.TranslucentFrontLayer of the resolved quality.

@@ -177,6 +177,9 @@ namespace Common::Scalability
         // search. 4..64 and 4..32.
         ShadowFilterTaps,
         ShadowBlockerSearchTaps,
+        // Iterations of the closest-HZB walk that shadows a casting local light with no shadow map, per pixel
+        // (Mesh/LocalLightShadow.glslh; UE r.MegaLights.ScreenTraces.MaxIterations). 8..128
+        ShadowLocalScreenTraceIterations,
         // HardwareTraced sun: the ShadowVisibility denoiser's reconstruction kernel, in taps from the centre per
         // side (2 = 5x5; UE r.Shadow.Denoiser.ReconstructionSamples). 1..3
         ShadowRayTracedDenoiserRadius,

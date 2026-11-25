@@ -1043,6 +1043,11 @@ namespace Desert::Graphic
         const RDG::ImportedFramebuffer& target = *targets;
         const auto                      loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
 
+        // Before the refs the composite's scene view inputs are read from. A hierarchy that did not build is said by
+        // its maker, and the trace reads unoccluded.
+        if ( LocalLightsNeedScreenTrace() && EnsureScreenTraceResources() )
+            AddFrameHZB( graph, textures );
+
         // Every input by name; an input not produced this frame is the system texture neutral for it (UE
         // GSystemTextures), so the lighting is drawn in every mode (SSAO off, GI not traced, fewer cascades).
         const FrameGraphRefs            refs = textures.GraphRefs();
@@ -1869,6 +1874,16 @@ namespace Desert::Graphic
                  return result;
              } );
         return sceneCopy;
+    }
+
+    bool SceneRendererImpl::LocalLightsNeedScreenTrace() const
+    {
+        const bool virtualMaps =
+             m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::VirtualMaps;
+        const auto unmapped = [virtualMaps]( const auto& light )
+        { return light.ShadowCaster != 0 && ( virtualMaps ? light.ShadowMaskSlot : light.ShadowView ) < 0; };
+        return std::ranges::any_of( GetPointLights().PointLights, unmapped ) ||
+               std::ranges::any_of( GetSpotLights().SpotLights, unmapped );
     }
 
     RDG::TextureRef SceneRendererImpl::AddFrameHZB( RDG::Builder& graph, FrameTextures& textures,

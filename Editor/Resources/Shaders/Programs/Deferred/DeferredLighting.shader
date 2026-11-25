@@ -405,6 +405,9 @@ Shader "DeferredLighting"
         Uniform(32) texture2DArray LocalShadowMasksTexture;
         #define DesertLocalShadowScreenMask(slot) texelFetch(sampler2DArray(LocalShadowMasksTexture, PointClampSampler), ivec3(ivec2(gl_FragCoord.xy), slot), 0).r
         #endif
+        // The closest-depth HZB, walked for the shadow of a casting light without a map (Mesh/LocalLightShadow.glslh).
+        layout(set = 1, binding = 13) uniform texture2D ClosestHzbTexture;
+        #define ClosestHzbTexture sampler2D(ClosestHzbTexture, PointClampSampler)
         #include <Mesh/LocalLightShadow.glslh>
         #else
         // MegaLights' local lighting (System::MegaLightsRenderer: ReSTIR DI over the light grid, ray-query visibility,

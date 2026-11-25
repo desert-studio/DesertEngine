@@ -184,7 +184,10 @@ namespace Desert::Core
     // The ground's world height (`LandscapeVirtualHeightAtlas`; UE's WorldHeight RVT): what a mesh measures its
     // height above the ground and the ground's world normal from (Mesh/Surface/SurfaceLandscapeBlend.glslh).
     inline constexpr uint32_t kLandscapeVirtualHeightBinding     = kSceneReadBindingFirst + 43u;
-    inline constexpr uint32_t kSceneReadBindingCount             = 44u;
+    // The closest-depth HZB (`ClosestHzbTexture`, all mips; SceneViewSlot::ClosestHzb): the shadow trace of a local
+    // light no map was left for (Mesh/LocalLightShadow.glslh, declared by Mesh/ForwardLocalLights.glslh).
+    inline constexpr uint32_t kClosestHzbBinding                 = kSceneReadBindingFirst + 44u;
+    inline constexpr uint32_t kSceneReadBindingCount             = 45u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
@@ -256,7 +259,8 @@ namespace Desert::Core
     // distance-field sun's mask joined it (DF-SHADOWS). Then from 67: the translucency lighting volume joined it
     // (PARTICLES-LIT-TLV). Then from 68: the deformation field's four levels' images and its block joined it
     // (DEFORM-GRASS). Then from 73: the landscape RVT's page table, atlases and feedback joined it, and from 78 its world-height atlas (RVT-MESH-BLEND).
-    static_assert( kGraphOwnedBindingFirst == 79u,
+    // Then from 79: the closest HZB joined it.
+    static_assert( kGraphOwnedBindingFirst == 80u,
                    "the graph's window opens right above the virtual geometry raster's range" );
 
     /**
@@ -349,6 +353,7 @@ namespace Desert::Core
          DESERT_SCENE_BINDING_ROW( kLandscapeVirtualOcclusionBinding ),
          DESERT_SCENE_BINDING_ROW( kLandscapeVirtualFeedbackBinding ),
          DESERT_SCENE_BINDING_ROW( kLandscapeVirtualHeightBinding ),
+         DESERT_SCENE_BINDING_ROW( kClosestHzbBinding ),
          DESERT_SCENE_BINDING_ROW( kSceneReadBindingCount ),
          DESERT_SCENE_BINDING_ROW( kVirtualShadowRasterBindingFirst ),
          DESERT_SCENE_BINDING_ROW( kVsmFrameDataBinding ),

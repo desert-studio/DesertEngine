@@ -16,7 +16,7 @@
 
 #include <Common/ReconstructPosition.glslh>
 
-// The walk's bound; an includer whose hierarchy has one mip (Mesh/LocalLightShadow.glslh) names its own.
+// The walk's bound; an includer with a scalability limit of its own (Mesh/LocalLightShadow.glslh) names it.
 #ifndef MEGALIGHTS_SCREEN_TRACE_ITERATIONS
 #define MEGALIGHTS_SCREEN_TRACE_ITERATIONS          64
 #endif

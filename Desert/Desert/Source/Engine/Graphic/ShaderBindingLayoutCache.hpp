@@ -3,6 +3,8 @@
 #include <Engine/Graphic/RDG/RDGLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <initializer_list>
 #include <memory>
@@ -37,6 +39,7 @@ namespace Desert::Graphic
         SunDistanceFieldShadow,
         TranslucencyLightingVolume,
         LocalShadowMasks,
+        ClosestHzb, // FrameTransients::ClosestHzb, every mip
         SceneShadingWord,
         MegaLightsVolumeR,
         MegaLightsVolumeG,
@@ -98,31 +101,51 @@ namespace Desert::Graphic
         VsmPhysicalPool,
         Count
     };
-    static_assert( static_cast<uint32_t>( SceneViewSlot::Count ) <= 64, "SceneViewSlots is one 64-bit mask" );
+    static_assert( static_cast<uint32_t>( SceneViewSlot::Count ) <= 128,
+                   "SceneViewSlots is two 64-bit words" );
 
     // The slots of SceneViewSlot a layout declares (with the kind the table names), as a mask.
     struct SceneViewSlots
     {
-        uint64_t Bits = 0;
+        std::array<uint64_t, 2> Words{};
 
         [[nodiscard]] constexpr bool Has( SceneViewSlot slot ) const
         {
-            return ( ( Bits >> static_cast<uint32_t>( slot ) ) & 1u ) != 0;
+            return ( Words[Word( slot )] & Bit( slot ) ) != 0;
         }
         [[nodiscard]] constexpr bool HasAny( SceneViewSlots others ) const
         {
-            return ( Bits & others.Bits ) != 0;
+            return ( ( Words[0] & others.Words[0] ) | ( Words[1] & others.Words[1] ) ) != 0;
         }
         constexpr void Clear( SceneViewSlot slot )
         {
-            Bits &= ~( uint64_t( 1 ) << static_cast<uint32_t>( slot ) );
+            Words[Word( slot )] &= ~Bit( slot );
+        }
+        constexpr void Clear( SceneViewSlots others )
+        {
+            Words[0] &= ~others.Words[0];
+            Words[1] &= ~others.Words[1];
+        }
+        constexpr void Set( SceneViewSlot slot )
+        {
+            Words[Word( slot )] |= Bit( slot );
         }
         [[nodiscard]] static constexpr SceneViewSlots Of( std::initializer_list<SceneViewSlot> slots )
         {
             SceneViewSlots mask;
             for ( const SceneViewSlot slot : slots )
-                mask.Bits |= uint64_t( 1 ) << static_cast<uint32_t>( slot );
+                mask.Set( slot );
             return mask;
+        }
+
+    private:
+        [[nodiscard]] static constexpr size_t Word( SceneViewSlot slot )
+        {
+            return static_cast<size_t>( slot ) / 64u;
+        }
+        [[nodiscard]] static constexpr uint64_t Bit( SceneViewSlot slot )
+        {
+            return uint64_t( 1 ) << ( static_cast<uint32_t>( slot ) % 64u );
         }
     };
 

@@ -1395,7 +1395,8 @@ namespace Desert::Graphic
         }
         m_ShadowFilter = SceneResources::ShadowFilterSettings{
              .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
-             .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };
+             .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ),
+             .LocalScreenTraceIterations = quality.As<int>( Parameter::ShadowLocalScreenTraceIterations ) };
         if ( const auto& mesh = m_Systems.Mesh )
         {
             mesh->SetRainOcclusionQuality( RainOcclusionQuality{

@@ -84,7 +84,7 @@ namespace Desert::Graphic::SceneResources
         glm::vec4 SunContactShadow;
         // The PCSS cost (Mesh/CascadedShadow.glslh): x = blocker search taps, y = filter taps; z = 1 when the
         // directional lights' cascades hand over to this frame's distance-field shadow
-        // (ShadowFilterSettings::DistanceField), w unused. Packed by PackShadowFilter.
+        // (ShadowFilterSettings::DistanceField), w = the local lights' screen-trace iterations. Packed by PackShadowFilter.
         glm::vec4 ShadowFilter;
         // THE FAR SHADOW per slot (DirectionalShadowView::Far*), appended so every receiver's block keeps its
         // offsets above: its matrix, and x = world size of one texel, y = world length of [0,1] depth, z = its
@@ -127,6 +127,8 @@ namespace Desert::Graphic::SceneResources
     {
         int BlockerSearchTaps = 16;
         int FilterTaps        = 32;
+        // HZB iterations a casting local light without a shadow map walks per pixel (Mesh/LocalLightShadow.glslh).
+        int LocalScreenTraceIterations = 64;
         // "Shadows: Distance Field Sun" / "... Light 1" run this frame (SceneRenderer::DistanceFieldShadowRuns:
         // a directional slot casts; each casting slot's own trace, Common/DistanceFieldShadow.glslh): every lit
         // surface that samples the sun's cascades cross-fades them into the distance-field mask at the last
@@ -142,7 +144,8 @@ namespace Desert::Graphic::SceneResources
         if ( filter.DistanceField )
             distanceField = 1.0f;
         data.ShadowFilter = glm::vec4( static_cast<float>( filter.BlockerSearchTaps ),
-                                       static_cast<float>( filter.FilterTaps ), distanceField, 0.0f );
+                                       static_cast<float>( filter.FilterTaps ), distanceField,
+                                       static_cast<float>( filter.LocalScreenTraceIterations ) );
     }
 
     // THE CONTACT SHADOWS OF A VIEW (UE: the light's ContactShadowLength, marched by ShadowRayCast): the

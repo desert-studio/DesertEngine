@@ -8,7 +8,8 @@
 // and the view's ShadowUB with ShadowFilter (y = Scalability Shadows.FilterTaps, the PCF's taps),
 // (the row struct is Mesh/LocalLightShadowView.glslh, included BEFORE the buffer) and includes this AFTER
 // them, the way Mesh/CascadedShadow.glslh is included. The lights' contact shadows (their ContactShadowLength)
-// are applied here too: Common/ContactShadow.glslh, which the includer has included with its inputs.
+// are applied here too: Common/ContactShadow.glslh, which the includer has included with its inputs - and with it declares
+//     ClosestHzbTexture (a texture2D + #define over a shared point-clamped state; the closest-depth HZB, all mips).
 //
 // UNDER Shadows.Method VirtualMaps (DESERT_LOCAL_SHADOW_VSM) the atlas does not exist for this reader: a light reads
 // its virtual map (UE: every receiver of a local light samples its VSM), through the reader the G-buffer's
@@ -29,9 +30,12 @@
 // depth (the surface cache's card lighting) reads PointLightShadow / SpotLightShadow above instead.
 #ifdef CONTACT_SHADOW_GLSLH
 // THE SHADOW OF A CASTING LIGHT WITHOUT A MAP (no room left for it in the shadow atlas this frame, or its mask alone is
-// traced): the screen trace MegaLights' Screen source marches, over the depth the contact shadows read - a hierarchy of
-// one mip, so the walk is bounded in texels. 1 past what the screen holds. An orthographic view has no eye: unoccluded.
-#define HzbTexture CONTACT_SHADOW_DEPTH
+// traced): the screen trace MegaLights' Screen source marches (UE 5.8 MegaLights.ScreenTraces: TraceHZB over the closest
+// HZB), over the view's one HZB, which the frame builds when it has such a light
+// (SceneRenderer::LocalLightsNeedScreenTrace). Its iterations are Scalability Shadows.LocalScreenTraceIterations
+// (ShadowFilter.w; UE r.MegaLights.ScreenTraces.MaxIterations). 1 past what the screen holds. An orthographic view has
+// no eye: unoccluded.
+#define HzbTexture ClosestHzbTexture
 #include <Common/HZBTrace.glslh>
 #define MEGALIGHTS_SCREEN_TRACE_WORLD_TO_CLIP CONTACT_SHADOW_VP
 #define MEGALIGHTS_SCREEN_TRACE_CLIP_TO_WORLD CONTACT_SHADOW_INV_VP
@@ -42,7 +46,7 @@ vec3 LocalLightScreenTraceEye()
     return eye.xyz / eye.w;
 }
 #define MEGALIGHTS_SCREEN_TRACE_EYE        LocalLightScreenTraceEye()
-#define MEGALIGHTS_SCREEN_TRACE_ITERATIONS 256
+#define MEGALIGHTS_SCREEN_TRACE_ITERATIONS int(ShadowFilter.w + 0.5)
 #include <Common/MegaLightsScreenTrace.glslh>
 
 float LocalLightScreenShadow(vec3 worldPosition, vec3 N, vec3 lightPosition, float sourceRadius)

@@ -153,6 +153,10 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB ShadowFilter.x: "
                "Mesh/CascadedShadow.glslh PCSS blocker search taps)",
                16, Vis::Advanced },
+             { P::ShadowLocalScreenTraceIterations, G::Shadows, "Shadows.LocalScreenTraceIterations", 8, 128, CL::None,
+               "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB ShadowFilter.w: "
+               "Mesh/LocalLightShadow.glslh HZB walk)",
+               64, Vis::Advanced },
              { P::ShadowRayTracedDenoiserRadius, G::Shadows, "Shadows.RayTracedDenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseShadowVisibility (reconstruction "
                "kernel)",
