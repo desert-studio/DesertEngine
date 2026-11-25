@@ -5,7 +5,7 @@ Shader "WaterCausticsSplat"
     {
         // THE CAUSTICS' FIRST HALF (WATER-CAUSTICS, Common/WaterCaustics.glslh; Wallace / GPU Gems 1 ch. 2): one
         // thread per map texel shoots a 2x2 grid of sun rays at the water surface the water mesh draws (the
-        // body's Gerstner waves of this frame, transformed by the depth as the vertex path's are),
+        // body's waves of this frame, transformed by the depth as the vertex path's are),
         // refracts each into the water and follows it to the floor below; the light it carries - the flux the
         // displaced surface patch intercepts - is splatted bilinearly where it lands, by integer atomics into
         // WaterCausticsEnergy (cleared by the graph before this pass). Where the waves focus the beams, many
@@ -96,7 +96,7 @@ Shader "WaterCausticsSplat"
                 const vec2  source      = target - stillShift * targetDepth;
                 // A map texel's half is the finest light the map can hold.
                 const WaterSurface water = WaterSurfaceAt( waveSet, source, stillY, time, time, 0.5 * Window.z,
-                                                           WaterShoreShape.y );
+                                                           WaterShoreShape.y * WaterCausticsBodyBeachSlope( body ) );
                 const vec3  position = vec3( source.x, stillY, source.y ) + water.Displacement;
                 const vec3  normal   = WaterSurfaceNormal( water.Slope );
                 const vec3 ray = refract( sun, normal, eta );

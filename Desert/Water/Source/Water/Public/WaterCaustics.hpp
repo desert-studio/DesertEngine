@@ -60,7 +60,9 @@ namespace Desert::Graphic::System
     {
         glm::vec4 Footprint{ 0.0f }; // xy = min (X, Z), zw = max (cm)
         glm::vec4 Level{ 0.0f };     // x = the still surface Y (cm), y = its wave lane (WaterRenderer's: 1 + the
-                                     // frame's wave set, 0 = flat; WaterMeshTiles.glslh WaterWaveSetOf)
+                                     // frame's wave set, 0 = flat; WaterMeshTiles.glslh WaterWaveSetOf),
+                                     // z = its share of the
+                                     // beach slope (1 = an ocean, 0 = a river)
     };
     static_assert( sizeof( WaterCausticsBodyRow ) == 2 * sizeof( glm::vec4 ), "std430 body of two vec4" );
 

@@ -184,7 +184,8 @@ namespace Desert::Graphic::System
                  body.FootprintMin.y <= upper.y )
                 rows.push_back(
                      WaterCausticsBodyRow{ .Footprint = glm::vec4( body.FootprintMin, body.FootprintMax ),
-                                           .Level = glm::vec4( body.SurfaceY, inputs.BodyWaveLanes[i], 0.0f, 0.0f ) } );
+                                           .Level = glm::vec4( body.SurfaceY, inputs.BodyWaveLanes[i],
+                                                              body.Ribbon ? 0.0f : 1.0f, 0.0f ) } );
         }
         if ( rows.empty() )
         {
