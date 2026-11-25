@@ -18,7 +18,7 @@
 #include <Editor/Core/ToastManager.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Common/Core/Constants.hpp>
-#include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Landscape/Public/LandscapeEditTarget.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>

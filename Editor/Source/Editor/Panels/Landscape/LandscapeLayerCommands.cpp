@@ -9,7 +9,7 @@
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Landscape/Public/LandscapeEditTarget.hpp>
 #include <Landscape/Public/LandscapeLayerRules.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>

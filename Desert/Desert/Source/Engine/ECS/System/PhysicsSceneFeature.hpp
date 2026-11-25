@@ -5,7 +5,8 @@
 // instance of every registered feature per Play, over its PhysicsWorld, and calls it at the fixed points of its
 // frame; a feature's bodies live in that world and are released by the feature, which is destroyed before the
 // world. Destruction (Destruction/Private/DestructionModule.cpp) and Water (Water/Private/WaterModule.cpp: the
-// water subsystem buoyancy and scripts query); landscape and foliage are next.
+// water subsystem buoyancy and scripts query) and Landscape (Landscape/Private/LandscapeModule.cpp: a body per
+// drawn tile); foliage is next.
 
 #include <entt/entt.hpp>
 

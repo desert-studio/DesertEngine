@@ -1,11 +1,17 @@
+#include <Landscape/Public/LandscapeCollision.hpp>
 #include <Landscape/Public/LandscapeECSSystem.hpp>
 #include <Landscape/Public/LandscapeGrassTypeService.hpp>
 #include <Landscape/Public/LandscapeLayerInfoService.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AssetRootSet.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Engine/ECS/System/PhysicsSceneFeature.hpp>
+#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <filesystem>
@@ -74,6 +80,47 @@ namespace Desert::Landscape
             const auto* info = Runtime::GetLandscapeLayerInfoService()->Get( Assets::AssetHandle( handle ) );
             return info ? &info->LayerName : nullptr;
         }
+
+        // The assets a landscape names are roots of the loaded scene (Core/SceneAssetRoots.cpp walks the hooks):
+        // its surface material and its paint layers.
+        void MarkLandscapeAssetRoots( entt::registry& registry, Assets::AssetRootSet& roots )
+        {
+            for ( const auto entity : registry.view<ECS::LandscapeMaterialComponent>() )
+                roots.Mark( registry.get<ECS::LandscapeMaterialComponent>( entity ).Data.Material,
+                            "a landscape is surfaced with it" );
+            for ( const auto entity : registry.view<ECS::LandscapeComponent>() )
+                for ( const Assets::AssetHandle& layer : registry.get<ECS::LandscapeComponent>( entity ).Layers )
+                    roots.Mark( layer, "a landscape paints with it" );
+        }
+
+        // The landscape's part of the physics scene (UE: ULandscapeHeightfieldCollisionComponent's bodies in the
+        // Chaos scene): one height-field body per drawn tile, made per Play over PhysicsECSSystem's world.
+        class LandscapePhysicsFeature final : public ECS::IPhysicsSceneFeature
+        {
+        public:
+            explicit LandscapePhysicsFeature( Physics::PhysicsWorld& world ) : m_Collision( world )
+            {
+            }
+
+            void BeginFrame() override
+            {
+            }
+            void Sync( entt::registry& registry ) override
+            {
+                m_Collision.Attach( registry );
+                // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
+                m_Collision.Sync( ECS::DrawableLandscapeTiles( registry ).Tiles );
+            }
+            void AfterStep( entt::registry& /*registry*/ ) override
+            {
+            }
+            void PublishEvents( entt::registry& /*registry*/ ) override
+            {
+            }
+
+        private:
+            ECS::LandscapeCollision m_Collision;
+        };
     } // namespace
 
     void StartupModule()
@@ -85,6 +132,9 @@ namespace Desert::Landscape
         hooks.Services.push_back( { []( const std::weak_ptr<Assets::AssetManager>& assets )
                                     { Runtime::GetLandscapeGrassTypeService()->BindAssetManager( assets ); },
                                     []() { Runtime::GetLandscapeGrassTypeService()->Clear(); } } );
+        hooks.AssetRoots.push_back( &MarkLandscapeAssetRoots );
+        ECS::RegisterPhysicsSceneFeature( []( Physics::PhysicsWorld& world ) -> std::unique_ptr<ECS::IPhysicsSceneFeature>
+                                          { return std::make_unique<LandscapePhysicsFeature>( world ); } );
         hooks.HotReloads.push_back( { &WatchLayerInfos, &PollLayerInfos } );
         hooks.AssetReferences.push_back( { &VisitLayerInfoReferences } );
         hooks.AssetParamLabels.push_back( { "LandscapeLayerInfoAsset", &LayerNameOf } );

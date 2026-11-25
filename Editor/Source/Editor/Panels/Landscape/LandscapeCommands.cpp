@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 #include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Landscape/Public/LandscapeEditTarget.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Panels/Landscape/LandscapeLayerCommands.hpp>
