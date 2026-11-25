@@ -11,6 +11,7 @@
 
 #include <Common/Utilities/CameraCapture.hpp>
 
+#include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
