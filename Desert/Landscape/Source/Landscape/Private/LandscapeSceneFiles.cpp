@@ -5,8 +5,8 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
-#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeTileFiles.hpp>
 #include <Landscape/Public/LandscapeComponent.hpp>
 #include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Landscape/Public/LandscapeTileComponent.hpp>

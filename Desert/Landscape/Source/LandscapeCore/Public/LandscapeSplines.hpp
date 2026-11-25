@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Engine/World/Landscape/LandscapeFrame.hpp>
-#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
+#include <LandscapeCore/Public/LandscapeFrame.hpp>
+#include <LandscapeCore/Public/LandscapeEditLayers.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/ResultStr.hpp>

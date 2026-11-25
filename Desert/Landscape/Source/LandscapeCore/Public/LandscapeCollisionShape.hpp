@@ -5,8 +5,8 @@
 // (ECS::LandscapeCollision) and the dedicated server's cells (Server/ServerCellCollision) - so a pawn stands on
 // the same ground on both sides of a connection. Render-free (module Core).
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/World/Landscape/LandscapeFrame.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeFrame.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 
 #include <vector>

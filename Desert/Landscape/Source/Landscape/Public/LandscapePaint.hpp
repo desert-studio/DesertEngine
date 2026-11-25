@@ -4,9 +4,9 @@
 // no allow-list mode, pressure 1, normalisation on the CPU after every write (see LandscapeNormalizeWeights).
 #pragma once
 
-#include <Engine/World/Landscape/LandscapeBrush.hpp>
-#include <Engine/World/Landscape/LandscapeEditCache.hpp>
-#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
+#include <Landscape/Public/LandscapeBrush.hpp>
+#include <Landscape/Public/LandscapeEditCache.hpp>
+#include <LandscapeCore/Public/LandscapeEditLayers.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

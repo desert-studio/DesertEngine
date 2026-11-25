@@ -15,7 +15,7 @@
 // EDITS. Each tile's own Physics list of dirty rectangles (LandscapeDirtyConsumer) is patched into the
 // existing shape; the body is created once per tile and kept, so a brush stroke never re-creates it.
 
-#include <Engine/World/Landscape/LandscapeFrame.hpp>
+#include <LandscapeCore/Public/LandscapeFrame.hpp>
 #include <PhysicsCore/PhysicsTypes.hpp>
 
 #include <entt/entt.hpp>

@@ -11,7 +11,7 @@
 
 #include <Common/Json/Document.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
-#include <Engine/World/Landscape/LandscapeSplines.hpp>
+#include <LandscapeCore/Public/LandscapeSplines.hpp>
 
 #include <cstddef>
 #include <string>

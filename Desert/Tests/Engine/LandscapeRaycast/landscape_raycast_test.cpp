@@ -11,8 +11,8 @@
 #include <Landscape/Public/LandscapeCollision.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 #include <Landscape/Public/LandscapeRaycast.hpp>
 
 #include "../PhysicsFixture.hpp"

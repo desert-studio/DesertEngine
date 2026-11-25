@@ -13,7 +13,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Landscape/Public/LandscapeRaycast.hpp>
-#include <Engine/World/Landscape/LandscapeSplines.hpp>
+#include <LandscapeCore/Public/LandscapeSplines.hpp>
 
 #include <ImGui/imgui.h>
 

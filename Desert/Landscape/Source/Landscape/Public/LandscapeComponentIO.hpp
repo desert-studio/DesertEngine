@@ -6,7 +6,7 @@
 // through these; Engine names none of them (UE: the Landscape module serializes its own actors' components).
 
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
-#include <Engine/World/Landscape/LandscapeSplinesJson.hpp>
+#include <LandscapeCore/Public/LandscapeSplinesJson.hpp>
 #include <Landscape/Public/LandscapeComponent.hpp>
 #include <Landscape/Public/LandscapeSplineComponent.hpp>
 #include <Landscape/Public/LandscapeTileComponent.hpp>

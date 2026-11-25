@@ -9,7 +9,7 @@
 #include <functional>
 #include <string>
 #include <vector>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Landscape/Public/LandscapeEditTarget.hpp>
 #include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>

@@ -16,7 +16,7 @@
 // patch bilerp order — is restated below (TileHeightCm, TileGradient, TesHeight, TesNormal); it mirrors
 // Programs/Terrain/TerrainTessEval.glslh line for line.
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Common/Core/GlslAsCpp.hpp>
 
 #include <glm/glm.hpp>
