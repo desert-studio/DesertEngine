@@ -597,6 +597,9 @@ namespace Common::Scalability
         // ceiling of the water's wave source - an FFT wave set draws its Tessendorf cascades at FFT (Epic,
         // Cinematic) and its Gerstner generator below. Read by WaterRenderer::PrepareFrame. Values: WaterWaveMethod
         EffectsWaterWaveMethod,
+        // The side of one level of the water's foam map, texels (System::WaterRenderer::PrepareFoam, three levels
+        // of 128 m / 512 m / 2 km). Key "Effects.WaterFoamSize": 512 below Epic's 1024.
+        EffectsWaterFoamSize,
         // The impact decal pool's capacity (NG-DECALS-MESH; UE: the spawned decals SpawnDecalAtLocation keeps,
         // r.Decal.FadeDurationScale's quality twin): the ring of records World.spawnDecal writes; a spawn into a full
         // ring replaces the oldest record. Read by ECS::DecalECSSystem::Update -> World::DecalImpactPool::

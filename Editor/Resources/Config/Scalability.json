@@ -108,6 +108,7 @@
                 "Effects.VolumetricFog": 0,
                 "Effects.VolumetricFogGridPixelSize": 16,
                 "Effects.VolumetricFogGridSizeZ": 64,
+                "Effects.WaterFoamSize": 512,
                 "Effects.WaterWaveMethod": "Gerstner"
             },
             "Medium": {
@@ -121,6 +122,7 @@
                 "Effects.VolumetricFog": 0,
                 "Effects.VolumetricFogGridPixelSize": 16,
                 "Effects.VolumetricFogGridSizeZ": 64,
+                "Effects.WaterFoamSize": 512,
                 "Effects.WaterWaveMethod": "Gerstner"
             },
             "High": {
@@ -129,6 +131,7 @@
                 "Effects.MaxWorldParticles": 65536,
                 "Effects.VolumetricFogGridPixelSize": 16,
                 "Effects.VolumetricFogGridSizeZ": 64,
+                "Effects.WaterFoamSize": 512,
                 "Effects.WaterWaveMethod": "Gerstner"
             },
             "Epic": {},

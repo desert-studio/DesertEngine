@@ -1,0 +1,14 @@
+{
+    "Header": {
+        "Kind": "LandscapeLayerInfo",
+        "Guid": "d089dc3418fc244bcd555eaa7f265819",
+        "Versions": {
+            "LLYI": 4
+        },
+        "Dependencies": []
+    },
+    "LayerName": "ShoreRock",
+    "Hardness": 0.5,
+    "NoWeightBlend": false,
+    "LayerUsageDebugColor": [0.1, 0.1, 0.1]
+}

@@ -1,0 +1,154 @@
+#ifndef DESERT_WATER_SURFACE_FIELD_GLSLH
+#define DESERT_WATER_SURFACE_FIELD_GLSLH
+
+// THE ONE WATER SURFACE OF THE GPU: what a particle of still water does at an instant. The vertex path, the
+// water's fragments, the caustics and the foam all ask it, and Water::QueryWaterBody is its CPU twin: the body's
+// waves, each band transformed by the depth under the particle, then the wave that runs up the beach.
+// Included by Mesh/Surface/WaterMeshTiles.glslh, which declares the WaterTiles block this reads.
+#include <Common/GerstnerWave.glslh>
+#include <Water/WaterFFT.glslh>
+#include <Water/WaterDepthTransform.glslh>
+#include <Water/WaterDepthField.glslh>
+
+// The FFT ocean's cascades: rgba16f, WATER_WAVES_LAYERS layers (WaterFFT.glslh) of WATER_WAVES_MIPS mips. Binding
+// 23 is free in every surface cell. A frame with no FFT ocean binds a black array and never reads it.
+layout( binding = 23 ) uniform texture2DArray WaterWavesTexture;
+
+#ifndef DESERT_LINEAR_REPEAT_SAMPLER
+#define DESERT_LINEAR_REPEAT_SAMPLER
+Uniform sampler LinearRepeatSampler;
+#endif
+
+struct WaterSurface
+{
+    vec3  Displacement; // cm, from the still particle
+    vec3  Previous;     // the same one frame earlier
+    vec2  Slope;        // dHeight / d( world X, world Z )
+    float Jacobian;     // of the displaced plane: 1 = still, <= 0 = folded over
+    float Variance;     // of the slopes finer than the footprint, one axis
+    float Front;        // the shore wave's breaking front, 0..1
+    float RunUp;        // the level the shore wave's tongue reaches up the beach now, cm over still water
+    float Depth;        // the still water over the floor, cm; < 0 on land
+    float ShoreDistance; // cm, > 0 water
+};
+
+// The set draws the FFT ocean (the frame has one and this set is it).
+bool WaterWavesAreFFT( int waveSet )
+{
+    return waveSet >= 0 && WaterWaveHeader.y > 0.5 && WaterWaveSets[waveSet].Header.y > 0.5;
+}
+
+// The plane point of a world (X, Z): relative to the set's WaveOrigin, as every wave query takes it.
+vec2 WaterWavePlane( int waveSet, vec2 worldXZ )
+{
+    return waveSet >= 0 ? worldXZ - WaterWaveSets[waveSet].Header.zw : worldXZ;
+}
+
+vec4 WaterWavesSample( int layer, vec2 uv, float lod )
+{
+    return textureLod( sampler2DArray( WaterWavesTexture, LinearRepeatSampler ), vec3( uv, float( layer ) ), lod );
+}
+
+// The surface over the still particle at @p worldXZ. @p footprintCm: the width of the plane one sample stands for;
+// what is finer is in Variance, never in the shape. @p beachSlope 0: a body with no still shore (a river).
+WaterSurface WaterSurfaceAt( int waveSet, vec2 worldXZ, float stillY, float time, float prevTime, float footprintCm,
+                             float beachSlope )
+{
+    const WaterShoreSample shore = WaterShoreAt( worldXZ );
+    WaterSurface           w;
+    w.Displacement  = vec3( 0.0 );
+    w.Previous      = vec3( 0.0 );
+    w.Slope         = vec2( 0.0 );
+    w.Jacobian      = 1.0;
+    w.Variance      = 0.0;
+    w.Front         = 0.0;
+    w.RunUp         = 0.0;
+    w.Depth         = stillY - shore.GroundCm;
+    w.ShoreDistance = shore.ShoreDistanceCm;
+    if ( waveSet < 0 )
+        return w;
+
+    const vec4  swell   = WaterWaveSets[waveSet].Swell;
+    const vec2  plane   = WaterWavePlane( waveSet, worldXZ );
+    const float byShore = beachSlope > 0.0 ? WaterShoreWeight( swell.y, w.Depth, shore.ShoreDistanceCm ) : 0.0;
+    if ( WaterWavesAreFFT( waveSet ) )
+    {
+        vec3  tensor = vec3( 0.0 ); // the choppy displacement's derivatives: xx, zz, xz
+        for ( int c = 0; c < WATER_FFT_CASCADES; ++c )
+        {
+            const vec4  cascade = WaterFFTCascade[c];
+            const float k       = WaterTransformBand( cascade.y, cascade.z, w.Depth, GERSTNER_GRAVITY ).x *
+                                  ( c < 2 ? 1.0 - byShore : 1.0 );
+            if ( k <= 0.0 )
+                continue;
+            // Each cascade's lattice is turned (Water::kFFTOceanLatticeDegrees), so its tiling never lines up.
+            const vec2  turn = WaterFFTTurn[c].xy;
+            const vec2  uv   = vec2( turn.x * plane.x + turn.y * plane.y, turn.x * plane.y - turn.y * plane.x ) * cascade.x;
+            const float lod  = clamp( log2( max( footprintCm * float( WATER_FFT_SIZE ) * cascade.x, 1.0 ) ), 0.0,
+                                      float( WATER_WAVES_MIPS - 1 ) );
+            const vec4  d    = WaterWavesSample( WATER_WAVES_DISPLACEMENT + c, uv, lod );
+            const vec4  s    = WaterWavesSample( WATER_WAVES_SLOPES + c, uv, lod );
+            const vec3  p    = WaterWavesSample( WATER_WAVES_PREVIOUS + c, uv, lod ).xyz;
+            const vec2  m    = WaterWavesSample( WATER_WAVES_MOMENTS + c, uv, lod ).xy;
+            w.Displacement += k * vec3( turn.x * d.x - turn.y * d.z, d.y, turn.y * d.x + turn.x * d.z );
+            w.Previous     += k * vec3( turn.x * p.x - turn.y * p.z, p.y, turn.y * p.x + turn.x * p.z );
+            w.Slope        += k * vec2( turn.x * s.x - turn.y * s.y, turn.y * s.x + turn.x * s.y );
+            // The tensor in world axes: R M R^T.
+            const float cc = turn.x * turn.x;
+            const float ss = turn.y * turn.y;
+            const float cs = turn.x * turn.y;
+            tensor += k * vec3( cc * s.z - 2.0 * cs * d.w + ss * s.w, ss * s.z + 2.0 * cs * d.w + cc * s.w,
+                                cs * ( s.z - s.w ) + ( cc - ss ) * d.w );
+            // The mean square of what the footprint holds, less the square of its mean: the lost waves.
+            w.Variance += k * k * 0.5 * max( m.x + m.y - dot( s.xy, s.xy ), 0.0 );
+        }
+        w.Jacobian = ( 1.0 + tensor.x ) * ( 1.0 + tensor.y ) - tensor.z * tensor.z;
+        // Tessendorf 3.4: the height's slope over the choppy-squeezed plane.
+        w.Slope /= max( vec2( 1.0 ) + tensor.xy, vec2( 0.05 ) );
+    }
+    else
+    {
+        const float k = WaterTransformBand( swell.y, swell.x, w.Depth, GERSTNER_GRAVITY ).x * ( 1.0 - byShore );
+        vec3        n = vec3( 0.0 );
+        vec3        j = vec3( 0.0 );
+        for ( int i = 0; i < int( WaterWaveSets[waveSet].Header.x ); ++i )
+        {
+            const WaterWaveRow row = WaterWaveSets[waveSet].Rows[i];
+            // A wave shorter than two footprints is not resolved: its slope is variance.
+            const float seen = smoothstep( 1.0, 2.0, row.Wave.z / max( footprintCm, 1e-3 ) );
+            w.Displacement += seen * GerstnerWaveOffset( plane, row.Wave.xy, row.Wave.z, row.Wave.w, row.Form.x, time );
+            w.Previous     += seen * GerstnerWaveOffset( plane, row.Wave.xy, row.Wave.z, row.Wave.w, row.Form.x, prevTime );
+            n += seen * GerstnerWaveNormalTerm( plane, row.Wave.xy, row.Wave.z, row.Wave.w, row.Form.x, time );
+            j += seen * GerstnerWaveJacobianTerm( plane, row.Wave.xy, row.Wave.z, row.Wave.w, row.Form.x, time );
+            const float steep = WATER_FFT_TWO_PI * row.Wave.w / max( row.Wave.z, 1e-3 );
+            w.Variance += 0.25 * steep * steep * ( 1.0 - seen * seen ) * k * k;
+        }
+        w.Displacement *= k;
+        w.Previous     *= k;
+        const vec3 normal = GerstnerFinalizeNormal( n );
+        w.Slope    = -k * normal.xz / max( normal.y, 0.05 );
+        w.Jacobian = mix( 1.0, GerstnerJacobian( j ), k );
+    }
+
+    if ( beachSlope > 0.0 )
+    {
+        const WaterShoreWave now  = WaterEvaluateShoreWave( swell.x, swell.y, beachSlope, shore.ShoreDistanceCm,
+                                                            shore.ShoreDirection, w.Depth, worldXZ, time, GERSTNER_GRAVITY );
+        const WaterShoreWave last = WaterEvaluateShoreWave( swell.x, swell.y, beachSlope, shore.ShoreDistanceCm,
+                                                            shore.ShoreDirection, w.Depth, worldXZ, prevTime,
+                                                            GERSTNER_GRAVITY );
+        w.Displacement.y += now.Height;
+        w.Previous.y     += last.Height;
+        w.Slope          += now.Slope;
+        w.Front           = now.Front;
+        w.RunUp           = now.RunUp;
+    }
+    return w;
+}
+
+vec3 WaterSurfaceNormal( vec2 slope )
+{
+    return normalize( vec3( -slope.x, 1.0, -slope.y ) );
+}
+
+#endif

@@ -2050,6 +2050,9 @@ namespace Desert::Graphic
             DESERT_PROFILE_PASS( "Water: PrepareFrame" );
             if ( m_Systems.Water )
                 m_Systems.Water->PrepareFrame();
+            if ( m_Systems.Mesh )
+                m_Systems.Mesh->SetShoreFoam( m_Systems.Water ? m_Systems.Water->GetShoreFoamUniforms()
+                                                              : ShoreFoamUniforms{} );
         }
 
         // The terrain's frame data, once, before any of its three passes records (the cascades in
@@ -4347,6 +4350,7 @@ namespace Desert::Graphic
             graph.QueueBufferUpload( reads.WorldParameters, std::span<const std::byte>( m_WorldParameterBytes ) );
         // The map the raster binds (System.White without one) and its block (Params.y = 0: no map).
         reads.RainOcclusionMap = SceneViewInputsOf( textures.GraphRefs() ).RainOcclusionMap;
+        reads.ShoreFoam        = textures.Transients.ShoreFoam;
         RainOcclusionUniforms rain{};
         if ( const auto* mesh = m_Systems.Mesh.get() )
             rain = mesh->GetRainOcclusionUniforms();
@@ -4368,7 +4372,9 @@ namespace Desert::Graphic
         mixIn( std::span<const std::byte>( m_WorldParameterBytes ) );
         if ( const auto* mesh = m_Systems.Mesh.get() )
         {
-            const RainOcclusionUniforms rain = mesh->GetRainOcclusionUniforms();
+            // Without the foam map's lanes: the water moves every frame, and an accumulation must not restart.
+            RainOcclusionUniforms rain = mesh->GetRainOcclusionUniforms();
+            rain.Shore                 = {};
             mixIn( std::as_bytes( std::span<const RainOcclusionUniforms>( &rain, 1 ) ) );
         }
         return hash;

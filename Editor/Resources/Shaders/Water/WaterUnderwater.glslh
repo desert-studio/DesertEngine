@@ -46,7 +46,8 @@ vec3 UnderwaterInscatterRadiance( vec3 sigmaS, vec3 sigmaT, float phaseG, vec3 r
     const vec3  sunDown = exp( -sigmaT * ( d / max( cosSea, 0.05 ) ) );
     const vec3  skyDown = exp( -sigmaT * d );
     const float phase   = UnderwaterPhaseHG( dot( rayDir, sunSea ), phaseG );
-    return albedo * ( sun * sunUp * phase * sunDown + skyIrradiance / ( 4.0 * kUnderwaterPi ) * skyDown );
+    // The cube holds E / PI: E through the isotropic phase 1 / (4 PI) is a quarter of it.
+    return albedo * ( sun * sunUp * phase * sunDown + skyIrradiance * 0.25 * skyDown );
 }
 
 // The segment of an eye ray that runs under the water, from @p origin (depth @p originDepthCm under the surface)

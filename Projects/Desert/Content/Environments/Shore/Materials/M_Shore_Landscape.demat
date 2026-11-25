@@ -5,7 +5,7 @@
         "Versions": {
             "MATL": 7
         },
-        "Dependencies": ["9d6d6db70d7f0b397eac782bfb709efd", "27b8f83777d6944d37e9eb7144613193", "3c399950503552aea9de995d6eb42ee5", "2a7a6e8f860d050ebec8e10b29c7b89f", "0afdff21dd650e8e6ea63bb25b7feeea", "c730e67be3da4598b852ba1021a94692"]
+        "Dependencies": ["9d6d6db70d7f0b397eac782bfb709efd", "27219878c4b8d3b4a13520852cf1f271", "5f3bdc35fbdae7c4dc7c44e2d41d3364", "e997fd90ddc98e0e85ec61c07d56dddc", "31e7017d7728986b1d2eb5c5eb229893", "072839c7d1aff3711792e0e427293d5f", "15fcdebc924227c1508d831de81fb616", "9560c2757042c63566eabdcef92c7883", "a1aac88f8e4adb808a232e2a46054b24", "973dc26ab231e6f58185c42a09382723", "e000a963edd74db536dbdbdf69775120", "5af8f0f28caa74693d6fd69527bd1e3d", "8ab48747f64bfac9235731c4c9e75a29", "33b6863a530bf3ee3e6d3872f0e274c4", "9c9508792d1152accc02514dee6710da", "b3d04d60b8a0a9eb0a235519444dc864", "829b0d8304ac69fe95fe7c4f1e314c5b", "c730e67be3da4598b852ba1021a94692", "853d75729dcb37575ce458e83648b657", "d089dc3418fc244bcd555eaa7f265819", "187c2731ad67c094f076a4af077341bd"]
     },
     "Shader": {
         "Guid": "9d6d6db70d7f0b397eac782bfb709efd",
@@ -46,7 +46,7 @@
         },
         {
             "Name": "DisplacementMagnitude",
-            "Value": [20.0, 0.0, 0.0, 0.0]
+            "Value": [6.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "DisplacementCenter",
@@ -66,37 +66,145 @@
         },
         {
             "Name": "Layer0TileSize",
-            "Value": [400.0, 0, 0, 0]
+            "Value": [200.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "Layer0Tint",
-            "Value": [1.0, 1.0, 1.0, 1.0]
+            "Value": [2.9, 3.15, 3.6, 1.0]
         },
         {
             "Name": "Layer0NormalStrength",
-            "Value": [1.0, 0, 0, 0]
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer1Blend",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer1TileSize",
+            "Value": [300.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer1Tint",
+            "Value": [1.2, 1.25, 1.35, 1.0]
+        },
+        {
+            "Name": "Layer1NormalStrength",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer2Blend",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer2TileSize",
+            "Value": [250.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer2Tint",
+            "Value": [2.0, 2.0, 2.1, 1.0]
+        },
+        {
+            "Name": "Layer2NormalStrength",
+            "Value": [1.2, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer3Blend",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer3TileSize",
+            "Value": [250.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer3Tint",
+            "Value": [0.45, 0.52, 0.4, 1.0]
+        },
+        {
+            "Name": "Layer3NormalStrength",
+            "Value": [1.4, 0.0, 0.0, 0.0]
         }
     ],
     "Textures": [
         {
             "Name": "Layer0AlbedoTexture",
-            "Guid": "27b8f83777d6944d37e9eb7144613193",
-            "Path": "assets:Environments/Shore/Textures/coast_sand_rocks_02/coast_sand_rocks_02_diff_2k.detex"
+            "Guid": "27219878c4b8d3b4a13520852cf1f271",
+            "Path": "assets:Environments/Shore/Textures/sand_03/sand_03_diff_2k.detex"
         },
         {
             "Name": "Layer0NormalTexture",
-            "Guid": "3c399950503552aea9de995d6eb42ee5",
-            "Path": "assets:Environments/Shore/Textures/coast_sand_rocks_02/coast_sand_rocks_02_nor_gl_2k.detex"
+            "Guid": "5f3bdc35fbdae7c4dc7c44e2d41d3364",
+            "Path": "assets:Environments/Shore/Textures/sand_03/sand_03_nor_gl_2k.detex"
         },
         {
             "Name": "Layer0ArmTexture",
-            "Guid": "2a7a6e8f860d050ebec8e10b29c7b89f",
-            "Path": "assets:Environments/Shore/Textures/coast_sand_rocks_02/coast_sand_rocks_02_arm_2k.detex"
+            "Guid": "e997fd90ddc98e0e85ec61c07d56dddc",
+            "Path": "assets:Environments/Shore/Textures/sand_03/sand_03_arm_2k.detex"
         },
         {
             "Name": "Layer0HeightTexture",
-            "Guid": "0afdff21dd650e8e6ea63bb25b7feeea",
-            "Path": "assets:Environments/Shore/Textures/coast_sand_rocks_02/coast_sand_rocks_02_disp_2k.detex"
+            "Guid": "31e7017d7728986b1d2eb5c5eb229893",
+            "Path": "assets:Environments/Shore/Textures/sand_03/sand_03_disp_2k.detex"
+        },
+        {
+            "Name": "Layer1AlbedoTexture",
+            "Guid": "072839c7d1aff3711792e0e427293d5f",
+            "Path": "assets:Environments/Shore/Textures/coast_sand_03/coast_sand_03_diff_2k.detex"
+        },
+        {
+            "Name": "Layer1NormalTexture",
+            "Guid": "15fcdebc924227c1508d831de81fb616",
+            "Path": "assets:Environments/Shore/Textures/coast_sand_03/coast_sand_03_nor_gl_2k.detex"
+        },
+        {
+            "Name": "Layer1ArmTexture",
+            "Guid": "9560c2757042c63566eabdcef92c7883",
+            "Path": "assets:Environments/Shore/Textures/coast_sand_03/coast_sand_03_arm_2k.detex"
+        },
+        {
+            "Name": "Layer1HeightTexture",
+            "Guid": "a1aac88f8e4adb808a232e2a46054b24",
+            "Path": "assets:Environments/Shore/Textures/coast_sand_03/coast_sand_03_disp_2k.detex"
+        },
+        {
+            "Name": "Layer2AlbedoTexture",
+            "Guid": "973dc26ab231e6f58185c42a09382723",
+            "Path": "assets:Environments/Shore/Textures/seaside_rock/seaside_rock_diff_2k.detex"
+        },
+        {
+            "Name": "Layer2NormalTexture",
+            "Guid": "e000a963edd74db536dbdbdf69775120",
+            "Path": "assets:Environments/Shore/Textures/seaside_rock/seaside_rock_nor_gl_2k.detex"
+        },
+        {
+            "Name": "Layer2ArmTexture",
+            "Guid": "5af8f0f28caa74693d6fd69527bd1e3d",
+            "Path": "assets:Environments/Shore/Textures/seaside_rock/seaside_rock_arm_2k.detex"
+        },
+        {
+            "Name": "Layer2HeightTexture",
+            "Guid": "8ab48747f64bfac9235731c4c9e75a29",
+            "Path": "assets:Environments/Shore/Textures/seaside_rock/seaside_rock_disp_2k.detex"
+        },
+        {
+            "Name": "Layer3AlbedoTexture",
+            "Guid": "33b6863a530bf3ee3e6d3872f0e274c4",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_Diffuse_2k.detex"
+        },
+        {
+            "Name": "Layer3NormalTexture",
+            "Guid": "9c9508792d1152accc02514dee6710da",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_nor_gl_2k.detex"
+        },
+        {
+            "Name": "Layer3ArmTexture",
+            "Guid": "b3d04d60b8a0a9eb0a235519444dc864",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_arm_2k.detex"
+        },
+        {
+            "Name": "Layer3HeightTexture",
+            "Guid": "829b0d8304ac69fe95fe7c4f1e314c5b",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_disp_2k.detex"
         }
     ],
     "CloudAssets": [
@@ -104,6 +212,21 @@
             "Name": "Layer0Layer",
             "Guid": "c730e67be3da4598b852ba1021a94692",
             "Path": "assets:Landscape/Layers/Shore/ShoreSand.delayerinfo"
+        },
+        {
+            "Name": "Layer1Layer",
+            "Guid": "853d75729dcb37575ce458e83648b657",
+            "Path": "assets:Landscape/Layers/Shore/ShorePebble.delayerinfo"
+        },
+        {
+            "Name": "Layer2Layer",
+            "Guid": "d089dc3418fc244bcd555eaa7f265819",
+            "Path": "assets:Landscape/Layers/Shore/ShoreRock.delayerinfo"
+        },
+        {
+            "Name": "Layer3Layer",
+            "Guid": "187c2731ad67c094f076a4af077341bd",
+            "Path": "assets:Landscape/Layers/Shore/ShoreGrass.delayerinfo"
         }
     ]
 }

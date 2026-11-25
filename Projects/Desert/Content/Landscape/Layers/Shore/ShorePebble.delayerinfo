@@ -1,0 +1,14 @@
+{
+    "Header": {
+        "Kind": "LandscapeLayerInfo",
+        "Guid": "853d75729dcb37575ce458e83648b657",
+        "Versions": {
+            "LLYI": 4
+        },
+        "Dependencies": []
+    },
+    "LayerName": "ShorePebble",
+    "Hardness": 0.5,
+    "NoWeightBlend": false,
+    "LayerUsageDebugColor": [0.3, 0.27, 0.22]
+}

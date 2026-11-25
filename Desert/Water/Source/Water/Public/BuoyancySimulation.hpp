@@ -9,6 +9,7 @@
 
 #include <PhysicsCore/PhysicsTypes.hpp>
 
+#include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
 #include <span>
@@ -39,13 +40,25 @@ namespace Desert::Water
     [[nodiscard]] bool CutColliderPontoons( const ECS::ColliderData& collider, int cellsPerAxis,
                                             std::vector<glm::vec4>& out, std::string& error );
 
+    /// A pontoon's last answer from a surface that was ready: what it floats on while the surface is not (the body's
+    /// wave set is being read, or its ocean's first read-back has not landed), instead of dropping to the still plane.
+    struct PontoonHold
+    {
+        bool      Valid    = false;
+        float     SurfaceY = 0.0f; // cm
+        float     Density  = 0.0f; // the water's, kg/m^3
+        float     Drag     = 0.0f; // 1/s
+        glm::vec3 Velocity{ 0.0f };
+    };
+
     /// Adds to @p world the forces the @p pontoons of @p body take in the water this step (call from the
     /// pre-step: a force added there acts on that step only), each at its pontoon's centre, kg*cm/s^2:
     ///  - up, the weight of the water its submerged part displaces (Archimedes), rho the Density of the water body
     ///    the pontoon is in (WaterBodyState::Density), g the world's gravity;
     ///  - that water's drag towards its own velocity (a river's current): -Drag * displaced mass * (v_point -
     ///    v_water).
+    /// @p holds: one per pontoon, kept by the caller across steps; a ready answer fills it, an unready one reads it.
     /// Returns the submerged share of the pontoons' volume, [0, 1].
     float ApplyBuoyancy( Physics::PhysicsWorld& world, Physics::BodyHandle body, std::span<const glm::vec4> pontoons,
-                         const WaterSubsystem& water );
+                         std::span<PontoonHold> holds, const WaterSubsystem& water );
 } // namespace Desert::Water

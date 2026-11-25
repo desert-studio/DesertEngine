@@ -4,7 +4,7 @@ Shader "WaterFFTSpectrum"
     Compute
     {
         // THE OCEAN AT THIS INSTANT, IN WAVE-NUMBER SPACE (Tessendorf 2001 eq. 26, 29-30, 36): every cascade's
-        // initial spectrum h0 (Engine/Water/FFTOceanSpectrum.cpp, uploaded once per wave set as a 256 x 768 atlas,
+        // initial spectrum h0 (Engine/Water/FFTOceanSpectrum.cpp, uploaded once per wave set as a 256 x 1024 atlas,
         // cascade c in rows [256 c, 256 c + 256)) advanced to the view's time by the deep-water dispersion
         // omega = sqrt(g |k|), and the seven spectra the surface needs derived from it: the choppy displacement
         // (Dx, Dz), the height (Dy), the height's slopes and the choppy map's three derivatives (the Jacobian).
@@ -33,7 +33,7 @@ Shader "WaterFFTSpectrum"
                 return;
 
             const vec4  h0    = texelFetch(WaterFFTInitialSpectrum, ivec2(id.x, id.y + id.z * WATER_FFT_SIZE), 0);
-            const float patchSize = id.z == 0 ? Params.Cascade.x : (id.z == 1 ? Params.Cascade.y : Params.Cascade.z);
+            const float patchSize = Params.Cascade[id.z];
             const vec2  k     = (vec2(id.xy) - float(WATER_FFT_SIZE / 2)) * (WATER_FFT_TWO_PI / patchSize);
             const float kl    = length(k);
 
@@ -43,7 +43,7 @@ Shader "WaterFFTSpectrum"
             {
                 // h(k, t) = h0(k) e^(i w t) + conj(h0(-k)) e^(-i w t): Hermitian in k, so the field is real.
                 const float omega = sqrt(WATER_FFT_GRAVITY * kl);
-                const float phase = omega * Params.Cascade.w;
+                const float phase = omega * Params.Shape.z;
                 const vec2  e     = vec2(cos(phase), sin(phase));
                 const vec2  h     = WaterFFTMul(h0.xy, e) + WaterFFTMul(h0.zw, vec2(e.x, -e.y));
                 const vec2  n     = k / kl;

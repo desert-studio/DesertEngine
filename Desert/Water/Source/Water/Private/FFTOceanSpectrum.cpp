@@ -147,7 +147,14 @@ namespace Desert::Water
                                     ? static_cast<float>( 6.0 * kTwoPi / p.CascadeSizes[c + 1] )
                                     : static_cast<float>( kTwoPi / p.ShortestWavelength );
 
-            const double           dk = kTwoPi / static_cast<double>( cascade.PatchSize );
+            const double dk = kTwoPi / static_cast<double>( cascade.PatchSize );
+            // The lattice's axes on the plane: lattice wave vector l stands for the world's R( degrees ) l.
+            const double turn = static_cast<double>( kFFTOceanLatticeDegrees[c] ) * std::numbers::pi / 180.0;
+            const double cosT = std::cos( turn );
+            const double sinT = std::sin( turn );
+            double       bandVariance = 0.0;
+            double       bandSlope    = 0.0;
+            double       bandOmega    = 0.0;
             std::vector<glm::vec2> h0( static_cast<size_t>( N ) * N, glm::vec2( 0.0f ) );
             for ( uint32_t y = 0; y < N; ++y )
             {
@@ -159,7 +166,8 @@ namespace Desert::Water
                     if ( k < cascade.BandLow || k >= cascade.BandHigh || k == 0.0 )
                         continue;
                     const double E =
-                         FFTOceanSpectrumDensity( p, wind, static_cast<float>( kx ), static_cast<float>( kz ) );
+                         FFTOceanSpectrumDensity( p, wind, static_cast<float>( cosT * kx - sinT * kz ),
+                                                  static_cast<float>( sinT * kx + cosT * kz ) );
                     // E|h0|^2 = E dk^2 / 2 per mode: the pair (k, -k) of the real field then carries E dk^2, and
                     // the whole grid the spectrum's m0.
                     const double amplitude =
@@ -171,9 +179,16 @@ namespace Desert::Water
                     GaussianPair( key, g0, g1 );
                     h0[static_cast<size_t>( y ) * N + x] =
                          glm::vec2( static_cast<float>( g0 * amplitude ), static_cast<float>( g1 * amplitude ) );
-                    variance += E * dk * dk * static_cast<double>( p.HeightScale ) * p.HeightScale;
+                    const double mode = E * dk * dk * static_cast<double>( p.HeightScale ) * p.HeightScale;
+                    bandVariance += mode;
+                    bandSlope += mode * k * k;
+                    bandOmega += mode * std::sqrt( static_cast<double>( kWaveGravityCm ) * k );
                 }
             }
+            variance += bandVariance;
+            cascade.SignificantHeight = static_cast<float>( 4.0 * std::sqrt( bandVariance ) );
+            cascade.SlopeVariance     = static_cast<float>( bandSlope );
+            cascade.PeakOmega = bandVariance > 0.0 ? static_cast<float>( bandOmega / bandVariance ) : 0.0f;
 
             // Pair every texel with conj(h0(-k)): the texel mirrored through the centre (index N - i, wrapped).
             cascade.H0.resize( static_cast<size_t>( N ) * N );
@@ -189,5 +204,21 @@ namespace Desert::Water
         }
         out.MaxWaveHeight = static_cast<float>( 3.0 * std::sqrt( variance ) );
         return out;
+    }
+
+    ShoreWaveParams FFTOceanSwell( const FFTOceanSpectrum& spectrum, const float beachSlope ) noexcept
+    {
+        float squares = 0.0f;
+        float omega   = 0.0f;
+        for ( uint32_t c = 0; c < kShoreSwellBands; ++c )
+        {
+            const FFTOceanCascade& cascade = spectrum.Cascades[c];
+            const float            energy  = cascade.SignificantHeight * cascade.SignificantHeight;
+            squares += energy;
+            omega += energy * cascade.PeakOmega;
+        }
+        return ShoreWaveParams{ .Omega             = squares > 0.0f ? omega / squares : 0.0f,
+                                .SignificantHeight = std::sqrt( squares ),
+                                .BeachSlope        = beachSlope };
     }
 } // namespace Desert::Water

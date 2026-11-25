@@ -11,9 +11,12 @@
 // fields (WaveVector, WaveSpeed, WKA, Q) are not stored but computed by the shared header from the four authored
 // ones, so CPU and GPU cannot hold different copies of them.
 
+#include <Water/Public/WaterDepthTransform.hpp>
+
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -61,6 +64,9 @@ namespace Desert::Water
     [[nodiscard]] std::vector<GerstnerWave> GenerateGerstnerWaves( const GerstnerWaveGenerator& generator,
                                                                    float                        windAngleDeg );
 
+    /// The waves of a set the surface draws (WaterMeshTiles.glslh WATER_MAX_WAVES); the queries read no more.
+    inline constexpr std::size_t kMaxDrawnWaves = 32;
+
     /// The sum of the amplitudes: no point of the surface rises higher or sinks lower (UE MaxWaveHeight).
     [[nodiscard]] float MaxWaveHeight( std::span<const GerstnerWave> waves );
 
@@ -68,23 +74,7 @@ namespace Desert::Water
     /// moves the surface vertex at `plane` by.
     [[nodiscard]] glm::vec3 WaveDisplacement( std::span<const GerstnerWave> waves, glm::vec2 plane, float time );
 
-    struct WaveHeightSample
-    {
-        /// Above the still water level, cm.
-        float Height = 0.0f;
-        /// Unit, world axes.
-        glm::vec3 Normal{ 0.0f, 1.0f, 0.0f };
-    };
-
-    /// The surface height and normal straight above the FIXED plane point (UE GetWaveHeightAtPosition): what a
-    /// floating object or a swimmer at that point meets.
-    [[nodiscard]] WaveHeightSample WaveHeightAt( std::span<const GerstnerWave> waves, glm::vec2 plane,
-                                                 float time );
-
-    /// The sum of A cos(phase) at the plane point, without the sideways correction (UE
-    /// GetSimpleWaveHeightAtPosition).
-    [[nodiscard]] float WaveSimpleHeightAt( std::span<const GerstnerWave> waves, glm::vec2 plane, float time );
-
-    /// The share of the waves that survives over water `depth` cm deep (UE GetWaveAttenuationFactor).
-    [[nodiscard]] float WaveDepthAttenuation( float depth, float targetWaveMaskDepth );
+    /// The one band a Gerstner set is to the shore: its significant height (4 sqrt of the sum's variance) at the
+    /// frequency of its highest wave.
+    [[nodiscard]] ShoreWaveParams GerstnerSwell( std::span<const GerstnerWave> waves, float beachSlope );
 } // namespace Desert::Water

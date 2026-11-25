@@ -615,6 +615,9 @@ namespace Common::Scalability
                LastOf( kWaterWaveMethodNames.size() ), CL::None,
                "WaterRenderer::PrepareFrame (an FFT wave set's Tessendorf cascades, or its Gerstner generator)",
                Of( WaterWaveMethod::FFT ), Vis::Basic },
+             { P::EffectsWaterFoamSize, G::Effects, "Effects.WaterFoamSize", 256, 2048, CL::None,
+               "WaterRenderer::PrepareFoam (the side of one level of the foam clipmap, texels)", 1024, Vis::Advanced,
+               /*PowersOfTwo*/ true },
              { P::EffectsDecalImpactPoolSize, G::Effects, "Effects.DecalImpactPoolSize", 0, 4096, CL::None,
                "DecalECSSystem::Update -> DecalImpactPool::SetCapacity (the impact decals World.spawnDecal keeps; "
                "a spawn into a full ring replaces the oldest; 0 = none)",

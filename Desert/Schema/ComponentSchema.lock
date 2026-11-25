@@ -901,10 +901,9 @@ VolumeResolution: int32_t
 WindOffset: vec3
 Drift: bool
 
-[WaterBody] Version 1
+[WaterBody] Version 2
 WaterWaves: AssetHandle
 OceanExtents: vec2
-TargetWaveMaskDepth: float
 WaterMaterial: AssetHandle
 Type: enum WaterBodyType {Ocean=0, River=1}
 RiverSpline: vector<float>
