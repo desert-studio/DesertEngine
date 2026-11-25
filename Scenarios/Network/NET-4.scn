@@ -39,3 +39,14 @@
 # Тогда [net4_fence] net4/clientA_fence_after.png: A over the fence (first shot at A x >= 2500); HUD/log "corrections 0" over 30 s; clock x0.98-1.02.
 # Когда: A stands 10 s on a slope; then the server teleports A onto the landscape 200 m away.
 # Тогда [net4_teleport_ground] net4/clientA_teleport_ground.png: server drift < 1 cm over 10 s; one correction (snap beyond 384 cm, as UE); A stands on the terrain, camera above ground.
+# Pass 11 (brief 11-25): the "post-teleport slide y 1524 -> -192" was a FALL - Net coordinates are Y-up (X, Y, Z),
+# and the destination (old height + 5 m) stands ~17 m above the terrain 200 m back; the one-step log (correction 1,
+# run 12): server v (0, -229, 0) falling, input move (0, 0) buttons 0; the client's drawn Y 1495 -> 846 -> -192 in
+# ~1.9 s = free fall of 1716 cm at 980 cm/s2 (UE TeleportTo: the pawn falls to the floor there). Engine unchanged;
+# the runner measures the 10 s no-input stand from the landing. Fence proof: every frame shot near the fence, motion
+# blur off for the run by a run flag (not a renderer default).
+# Дано: Editor + DesertServer from task/NET-PREDICT, `--role all`, WP_Protocol, clients A and B, link 150 ms / 2 % loss.
+# Когда: A sprints and jumps the fence for 30 s.
+# Тогда [net4_fence] net4/clientA_fence_before.png, net4/clientA_fence_after.png: frames at A x 2400-2600 show the fence and A clearing it (motion blur off); HUD/log "corrections 0" over 30 s; clock x0.98-1.02.
+# Когда: A stands 10 s on a slope; then the server teleports A onto the landscape 200 m away; A gets no input.
+# Тогда [net4_teleport_ground] net4/clientA_teleport_ground.png: A falls and lands; from the landing server and client move < 1 cm over 10 s; one correction (snap beyond 384 cm, as UE); A stands on the terrain, camera above ground.
