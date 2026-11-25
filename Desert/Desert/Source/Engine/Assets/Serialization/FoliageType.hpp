@@ -333,7 +333,8 @@ namespace Desert::Assets::Serialization
     };
 
     /// Why a Prefab type has no CullDistance, Wind, IncludeInHLOD or density scaling: each is a property of an
-    /// instanced mesh draw (UE shows them on UFoliageType_InstancedStaticMesh only). The validator refuses a Prefab type that
+    /// instanced mesh draw (UE shows them on UFoliageType_InstancedStaticMesh only). The validator refuses a Prefab type
+    /// that
     /// sets them, and the Details panel greys them out with this text.
     inline constexpr const char* kFoliagePrefabMeshOnlyReason =
          "a Prefab type places entities, which draw, cull, collide and stream as themselves; cull distance, wind, "

@@ -67,7 +67,8 @@ namespace Desert::Graphic
     }
 
     /// Whether instance @p index is drawn when only @p density of a field is
-    /// (Foliage.InstanceDensityScalePercent). A second hash than the fade's, so a thinned field still fades over its whole band.
+    /// (Foliage.InstanceDensityScalePercent). A second hash than the fade's, so a thinned field
+    /// still fades over its whole band.
     [[nodiscard]] inline bool KeepsInstanceAtDensity( const uint32_t index, const float density )
     {
         return density >= 1.0f || InstanceFadeThreshold( index ^ 0x9E3779B9u ) < density;
