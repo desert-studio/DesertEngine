@@ -21,6 +21,7 @@
 
 namespace Desert::Editor
 {
+    class PlaySession;
     class SceneWorkspace;
     class ViewportCapture;
 
@@ -28,7 +29,7 @@ namespace Desert::Editor
     {
     public:
         SceneFiles( SceneWorkspace& workspace, const std::shared_ptr<Assets::AssetManager>& assets,
-                    ViewportCapture& capture );
+                    ViewportCapture& capture, PlaySession& play );
 
         // Replaces the world WITHOUT asking about unsaved edits — only for callers that are not a user
         // choosing a scene, or that come after the ask (Desert/Tests/Editor/AssetOpenRoute holds the list).
@@ -131,6 +132,7 @@ namespace Desert::Editor
         SceneWorkspace&                              m_Workspace;
         const std::shared_ptr<Assets::AssetManager>& m_Assets;
         ViewportCapture&                             m_Capture;
+        PlaySession&                                 m_Play; // ended before its level is replaced
 
         // The CommandHistory revision at the last save/load.
         uint64_t                        m_SavedRevision = 0;

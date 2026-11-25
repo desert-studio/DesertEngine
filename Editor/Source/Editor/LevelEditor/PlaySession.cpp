@@ -505,20 +505,22 @@ namespace Desert::Editor
         const auto scene = m_PlayScene.lock();
         if ( m_State != State::Play || !scene || m_PlayViewId != sceneViewId )
             return;
-        LOG_INFO( "[Editor] Scene view #{} was playing when it was closed — play mode ends with it and "
-                  "its snapshot is discarded.",
+        LOG_INFO( "[Editor] Scene view #{} was playing when it was closed or its level replaced — play mode "
+                  "ends and its snapshot is discarded.",
                   sceneViewId );
         m_State       = State::Paused;
         m_PendingStop = false;
         m_PlayWorld.Discard( scene->Travel() );
         m_EditPackages.reset();
-        EndNetClient(); // the closed view's world still exists here and goes after this returns
+        EndNetClient(); // the ended world still exists here and goes after this returns
         m_WorldStreamer.reset();
+        // A replaced level loads into this same Scene: it is an edit world again.
+        scene->SetState( ::Desert::Core::Scene::SceneState::Edit );
         m_PlayScene.reset();
-        // The session ends here, not in Stop: its records go with the closed view's world, the parked history
+        // The session ends here, not in Stop: its records go with the ended world, the parked history
         // comes back.
         if ( !CommandHistory::Get().RemoveUndoBarrier() )
-            LOG_ERROR( "[Play] the closed view's Play session found no undo barrier: it never fenced the history" );
+            LOG_ERROR( "[Play] the ended Play session found no undo barrier: it never fenced the history" );
     }
 
     void PlaySession::EndNetClient()

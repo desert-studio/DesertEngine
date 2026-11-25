@@ -154,7 +154,7 @@ namespace Desert::Editor
         // Pictures out of the viewport and the window, and the project tile (UE: FScreenshotRequest).
         ViewportCapture m_Capture{ m_Workspace };
         // New / Open / Save of the level file, its dialogs and the Scenes menu (UE: FEditorFileUtils).
-        SceneFiles m_SceneFiles{ m_Workspace, m_AssetManager, m_Capture };
+        SceneFiles m_SceneFiles{ m_Workspace, m_AssetManager, m_Capture, m_Play };
         // A builder run (`--run WorldPartitionBuilder`, Editor/Builders/WorldPartitionBuilder.hpp); idle otherwise.
         WorldPartitionBuilderRun m_BuilderRun{ m_Workspace, m_SceneFiles, m_AssetManager };
 
