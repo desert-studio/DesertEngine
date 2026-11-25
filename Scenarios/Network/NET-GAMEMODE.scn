@@ -1,0 +1,13 @@
+# NET-GAMEMODE: the player's input and movement belong to the game, Net only carries them (owner 11-23; COUPLING-AUDIT
+# findings 2, 3, 15). Net::InputStep carries an opaque action set (bits + axes by index) - the pawn's declared actions
+# from its prefab's CharacterController (Jump Action, Sprint Action) - and calls the game's Net::IPawnMover; the one
+# movement step (Gameplay::StepPawnMove, Engine/Gameplay in the render-free module Core) is linked by the Editor and by
+# DesertServer. The bot walker is a scripted input source (Gameplay::ScriptedPawnInput) pressing declared actions.
+# Runner: DesertEngine-scratch/NET-GAMEMODE/run.sh (base NET-PREDICT/run_all.sh): DesertServer --role all + Editor client
+# A (--net-walk), WP_Protocol cooked copy, pawn prefab Pawn_Player (CharacterController: MaxWalkSpeed 600, MaxSprintSpeed
+# 1000, SprintAction IA_Sprint, JumpAction IA_Jump).
+# Дано: DesertServer --role all + Editor client A on WP_Protocol, pawn prefab Pawn_Player with a Sprint action declared.
+# Когда: A walks 60 m along +X with Sprint held (--net-walk-mode sprint), then a second run without it (--net-walk-mode walk).
+# Тогда [netgm_sprint] (N-C07, server log): "[Server] pawn movement: ... declared actions [IA_Jump, IA_Sprint]"; "pawn net id N: input step S actions IA_Sprint#1 (bits 0x2, ...), speed ~1000 cm/s" with Sprint held and "actions none ..., speed ~600 cm/s" without; Net has no kInputSprint/kInputJump (sym.sh --refs: no uses).
+# Когда: MaxWalkSpeed is edited to 300 in the pawn prefab (Pawn_Player.deprefab, CharacterController), the scene cooked again, the walk run repeats.
+# Тогда [netgm_prefab_speed] (N-D01, both logs): server "[Server] pawn movement: walk 300 ..." and "speed ~300 cm/s"; client A's per-second line "corrections 0" over the run (prediction steps the same prefab's 300).

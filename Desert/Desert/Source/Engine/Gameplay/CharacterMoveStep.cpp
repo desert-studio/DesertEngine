@@ -1,9 +1,11 @@
-#include <Net/PawnMovement.hpp>
+#include <Engine/Gameplay/CharacterMoveStep.hpp>
+
+#include <format>
 
 #include <algorithm>
 #include <cmath>
 
-namespace Desert::Net
+namespace Desert::Gameplay
 {
     namespace
     {
@@ -81,15 +83,59 @@ namespace Desert::Net
         }
     } // namespace
 
-    PawnMoveState StepPawnMove( const PawnMoveState& from, const InputStep& input,
-                                const PawnMoveSettings& settings, IPawnMoveWorld& world, float dtSeconds )
+    std::optional<std::size_t> PawnActions::IndexOf( std::string_view name ) const
     {
+        for ( std::size_t i = 0; i < Names.size(); ++i )
+            if ( Names[i] == name )
+                return i;
+        return std::nullopt;
+    }
+
+    std::uint32_t PawnActions::Bit( std::string_view name ) const
+    {
+        const auto index = IndexOf( name );
+        return index ? 1u << *index : 0u;
+    }
+
+    bool PawnActions::Held( const InputStep& input, std::string_view name ) const
+    {
+        return ( input.Actions & Bit( name ) ) != 0;
+    }
+
+    std::string PawnActions::Describe( const InputStep& input ) const
+    {
+        std::string text;
+        for ( std::size_t i = 0; i < Names.size(); ++i )
+            if ( ( input.Actions >> i ) & 1u )
+                text += std::format( "{}{}#{}", text.empty() ? "" : " ", Names[i], i );
+        for ( std::size_t i = Names.size(); i < Net::kMaxInputActions; ++i )
+            if ( ( input.Actions >> i ) & 1u )
+                text += std::format( "{}undeclared#{}", text.empty() ? "" : " ", i );
+        return text.empty() ? std::string( "none" ) : text;
+    }
+
+    PawnActions PawnActionsOf( const ECS::CharacterControllerData& controller )
+    {
+        PawnActions actions;
+        for ( const std::string* name : { &controller.JumpAction, &controller.SprintAction } )
+            if ( !name->empty() && !actions.IndexOf( *name ) )
+                actions.Names.push_back( *name );
+        actions.Jump   = controller.JumpAction;
+        actions.Sprint = controller.SprintAction;
+        return actions;
+    }
+
+    PawnMoveState StepPawnMove( const PawnMoveState& from, const InputStep& input, const PawnMovement& movement,
+                                IPawnMoveWorld& world, float dtSeconds )
+    {
+        const PawnMoveSettings& settings = movement.Settings;
         PawnMoveState state = from;
         Planar        wish{ input.Move.X, input.Move.Z };
         if ( const float length = Length( wish ); length > 1.0f )
             wish = Scaled( wish, 1.0f / length );
+        // The game's reading of the step's action set: the pawn's declared Sprint / Jump actions (PawnActions).
         const float maxSpeed =
-             ( input.Buttons & kInputSprint ) != 0 ? settings.MaxSprintSpeed : settings.MaxWalkSpeed;
+             movement.Actions.Held( input, movement.Actions.Sprint ) ? settings.MaxSprintSpeed : settings.MaxWalkSpeed;
         Planar velocity{ state.Velocity.X, state.Velocity.Z };
         if ( state.Grounded )
         {
@@ -97,7 +143,7 @@ namespace Desert::Net
                                      settings.GroundFriction, settings.BrakingFrictionFactor,
                                      settings.BrakingDecelerationWalking );
             state.Velocity.Y = 0.f;
-            if ( ( input.Buttons & kInputJump ) != 0 )
+            if ( movement.Actions.Held( input, movement.Actions.Jump ) )
             {
                 state.Velocity.Y = settings.JumpZVelocity; // UE ACharacter::Jump -> DoJump
                 state.Grounded   = false;
@@ -146,64 +192,5 @@ namespace Desert::Net
         return state;
     }
 
-    bool MoveStatesDiffer( const PawnMoveState& a, const PawnMoveState& b )
-    {
-        const auto distanceSquared = []( const NetVec3& p, const NetVec3& q )
-        {
-            const float x = p.X - q.X, y = p.Y - q.Y, z = p.Z - q.Z;
-            return x * x + y * y + z * z;
-        };
-        constexpr float kMaxPositionErrorSquared = 3.0f * 3.0f; // UE MAXPOSITIONERRORSQUARED: 3 cm
-        constexpr float kMaxVelocityErrorSquared = 10.0f * 10.0f;
-        return distanceSquared( a.Position, b.Position ) > kMaxPositionErrorSquared ||
-               distanceSquared( a.Velocity, b.Velocity ) > kMaxVelocityErrorSquared || a.Grounded != b.Grounded;
-    }
+} // namespace Desert::Gameplay
 
-    void MovePredictor::Reset( const PawnMoveState& state )
-    {
-        m_Moves.clear();
-        m_Current = m_Previous = state;
-        m_Started              = true;
-    }
-
-    void MovePredictor::Predict( const InputStep& input, const PawnMoveSettings& settings, IPawnMoveWorld& world,
-                                 float dtSeconds )
-    {
-        m_Previous = m_Current;
-        m_Current  = StepPawnMove( m_Current, input, settings, world, dtSeconds );
-        m_Moves.push_back( { input, m_Current } );
-        while ( m_Moves.size() > InputRing::kCapacity )
-            m_Moves.pop_front();
-    }
-
-    MovePredictor::EReconcile MovePredictor::Reconcile( std::uint32_t ackStep, const PawnMoveState& server,
-                                                        const PawnMoveSettings& settings, IPawnMoveWorld& world,
-                                                        float dtSeconds )
-    {
-        const auto acked = std::find_if( m_Moves.begin(), m_Moves.end(),
-                                         [&]( const SavedMove& move ) { return move.Input.Step == ackStep; } );
-        if ( acked == m_Moves.end() )
-            return EReconcile::Unknown;
-        const bool differ = MoveStatesDiffer( acked->After, server );
-        if ( differ )
-        {
-            m_LastMispredicted      = acked->After;
-            m_LastMispredictedInput = acked->Input;
-        }
-        m_Moves.erase( m_Moves.begin(), std::next( acked ) );
-        if ( !differ )
-            return EReconcile::Matched;
-        // UE ClientAdjustPosition + ClientUpdatePositionAfterServerUpdate: take the server's state, replay.
-        PawnMoveState state = server, previous = server;
-        for ( SavedMove& move : m_Moves )
-        {
-            previous   = state;
-            state      = StepPawnMove( state, move.Input, settings, world, dtSeconds );
-            move.After = state;
-        }
-        m_Previous = m_Moves.empty() ? server : previous;
-        m_Current  = state;
-        ++m_Corrections;
-        return EReconcile::Corrected;
-    }
-} // namespace Desert::Net

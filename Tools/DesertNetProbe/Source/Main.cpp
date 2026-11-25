@@ -1018,7 +1018,7 @@ namespace
             // Facing the walk (the editor's convention: yaw 0 faces -Z).
             const bool  moving = walking && ( dir.X != 0.f || dir.Z != 0.f );
             const float yaw    = moving ? std::atan2( -dir.X, -dir.Z ) : 0.f;
-            client.SendInput( walking ? dir : NetVec3{}, yaw );
+            client.SendInput( InputStep{ .Move = walking ? dir : NetVec3{}, .Yaw = yaw } );
             // The cells around the SERVER's position of the own pawn, reported when they change.
             if ( client.OwnPawn() != kInvalidNetId && client.Pawns().contains( client.OwnPawn() ) )
             {

@@ -50,14 +50,15 @@ namespace Desert::Net
         bool Connect( std::string_view address, std::string& error );
         // Pumps the transport and advances the remote pawns' render clock (call every frame).
         void Poll();
-        // One client fixed step of input (call at kNetStepHz while InSession): the step as recorded (numbered) -
-        // the input the client's prediction runs - or nullopt outside the session. It goes out at FlushInputs.
-        std::optional<InputStep> RecordInput( const NetVec3& move, float yaw, std::uint8_t buttons = 0 );
+        // One client fixed step of input (call at kNetStepHz while InSession): @p input as the game filled it (move
+        // intent and the pawn's declared action set, InputStep), numbered here - the step as recorded is the input
+        // the client's prediction runs - or nullopt outside the session. It goes out at FlushInputs.
+        std::optional<InputStep> RecordInput( InputStep input );
         // Sends every unacked step (the newest kInputRedundancy) in one Input message; nothing when none is
         // unacked.
         void FlushInputs();
         // RecordInput + FlushInputs: a frame of one step.
-        std::optional<InputStep> SendInput( const NetVec3& move, float yaw, std::uint8_t buttons = 0 );
+        std::optional<InputStep> SendInput( InputStep input );
         // THE OWN PAWN'S AUTHORITY (§5.1): the newest ack with the server's state after that step, once per new
         // ack (UE ClientAdjustPosition / ClientAckGoodMove), and the server's input queue length with it.
         struct OwnAuthority

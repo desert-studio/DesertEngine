@@ -172,7 +172,12 @@ namespace Desert::Net
             out.U32( message.Steps[i].Step );
             out.Vec( message.Steps[i].Move );
             out.F32( message.Steps[i].Yaw );
-            out.U8( message.Steps[i].Buttons );
+            // The pawn's declared action set, opaque (Replication.hpp InputStep): the bits, then the axes.
+            out.U32( message.Steps[i].Actions );
+            const std::size_t axes = std::min( message.Steps[i].Axes.size(), kMaxInputAxes );
+            out.U8( static_cast<std::uint8_t>( axes ) );
+            for ( std::size_t a = 0; a < axes; ++a )
+                out.F32( message.Steps[i].Axes[a] );
         }
         return out.Take();
     }
@@ -230,8 +235,16 @@ namespace Desert::Net
             return std::nullopt;
         message.Steps.resize( count );
         for ( InputStep& step : message.Steps )
-            if ( !in.U32( step.Step ) || !in.Vec( step.Move ) || !in.F32( step.Yaw ) || !in.U8( step.Buttons ) )
+        {
+            std::uint8_t axes = 0;
+            if ( !in.U32( step.Step ) || !in.Vec( step.Move ) || !in.F32( step.Yaw ) || !in.U32( step.Actions ) ||
+                 !in.U8( axes ) || axes > kMaxInputAxes )
                 return std::nullopt;
+            step.Axes.resize( axes );
+            for ( float& axis : step.Axes )
+                if ( !in.F32( axis ) )
+                    return std::nullopt;
+        }
         if ( !in.Done() )
             return std::nullopt;
         return message;
