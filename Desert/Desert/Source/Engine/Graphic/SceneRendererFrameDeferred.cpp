@@ -1044,8 +1044,11 @@ namespace Desert::Graphic
         const auto                      loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
 
         // Before the refs the composite's scene view inputs are read from. A hierarchy that did not build is said by
-        // its maker, and the trace reads unoccluded.
-        if ( LocalLightsNeedScreenTrace() && EnsureScreenTraceResources() )
+        // its maker, and the trace reads unoccluded. Its readers are the per-light loops: the composite's under any
+        // method but Stochastic (whose direct program has none) and the forward cells' while the MegaLights volume
+        // is off. The screen traces and MegaLights ask for the hierarchy themselves.
+        const bool lightsLooped = !LocalLightsAreStochastic() || !textures.Transients.MegaLightsVolume.Lit;
+        if ( lightsLooped && LocalLightsNeedScreenTrace() && EnsureScreenTraceResources() )
             AddFrameHZB( graph, textures );
 
         // Every input by name; an input not produced this frame is the system texture neutral for it (UE

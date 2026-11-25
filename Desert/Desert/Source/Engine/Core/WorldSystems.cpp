@@ -34,44 +34,61 @@ namespace Desert::Core
     void RegisterEngineWorldSystems()
     {
         static constexpr WorldSystemRegistration kRows[] = {
-            { "Mesh", WorldStage::Geometry, 10, kDrawnWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::MeshECSSystem>(); } },
-            { "Text", WorldStage::Geometry, 20, kDrawnWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::TextECSSystem>(); } },
-            { "TimeOfDay", WorldStage::Environment, 10, kDrawnWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::TimeOfDayECSSystem>(); } },
-            { "Skybox", WorldStage::Environment, 20, kDrawnWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::SkyboxECSSystem>(); } },
-            { "HeightFog", WorldStage::Environment, 30, kDrawnWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::HeightFogECSSystem>(); } },
-            { "Decal", WorldStage::Environment, 40, kDrawnWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::DecalECSSystem>( scene.GetDecalImpacts() ); } },
-            { "VolumetricCloud", WorldStage::Environment, 50, kDrawnWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::VolumetricCloudECSSystem>(); } },
-            { "PointLight", WorldStage::Lights, 10, kDrawnWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::PointLightECSSystem>(); } },
-            { "SpotLight", WorldStage::Lights, 20, kDrawnWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::SpotLightECSSystem>(); } },
-            { "RectLight", WorldStage::Lights, 30, kDrawnWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::RectLightECSSystem>(); } },
-            { "Animation", WorldStage::Pose, 10, kAnimatedWorlds, true, true,
-              []( Scene& scene, const WorldServices& services ) { scene.AddSystem<ECS::AnimationECSSystem>( services.Animations, services.Assets ); } },
-            { "Attachment", WorldStage::Pose, 20, kAnimatedWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::AttachmentSystem>( &scene ); } },
-            { "Script", WorldStage::Think, 10, kPlayedWorlds, true, false,
-              []( Scene& scene, const WorldServices& services ) { scene.AddSystem<ECS::ScriptSystem>( &scene, services.Assets ); } },
-            { "GameMode", WorldStage::Think, 20, kPlayedWorlds, true, false,
-              []( Scene& scene, const WorldServices& services ) { scene.AddSystem<ECS::GameModeSystem>( &scene, services.Assets ); } },
-            { "Physics", WorldStage::Simulate, 10, kPlayedWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::PhysicsECSSystem>( &scene ); } },
-            { "ComponentEvent", WorldStage::Simulate, 20, kPlayedWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::ComponentEventSystem>(); } },
-            { "Locomotion", WorldStage::Simulate, 30, kPlayedWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::LocomotionSystem>( &scene ); } },
-            { "Audio", WorldStage::Present, 10, kPlayedWorlds, false, false,
-              []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::AudioECSSystem>( &scene ); } },
-            { "LevelSequence", WorldStage::Sequence, 10, kPlayedWorlds, true, false,
-              []( Scene& scene, const WorldServices& services ) { scene.AddSystem<ECS::LevelSequenceSystem>( &scene, services.Assets ); } },
+             { "Mesh", WorldStage::Geometry, 10, kDrawnWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::MeshECSSystem>(); } },
+             { "Text", WorldStage::Geometry, 20, kDrawnWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ ) { scene.AddSystem<ECS::TextECSSystem>(); } },
+             { "TimeOfDay", WorldStage::Environment, 10, kDrawnWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::TimeOfDayECSSystem>(); } },
+             { "Skybox", WorldStage::Environment, 20, kDrawnWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::SkyboxECSSystem>(); } },
+             { "HeightFog", WorldStage::Environment, 30, kDrawnWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::HeightFogECSSystem>(); } },
+             { "Decal", WorldStage::Environment, 40, kDrawnWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::DecalECSSystem>( scene.GetDecalImpacts() ); } },
+             { "VolumetricCloud", WorldStage::Environment, 50, kDrawnWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::VolumetricCloudECSSystem>(); } },
+             { "PointLight", WorldStage::Lights, 10, kDrawnWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::PointLightECSSystem>(); } },
+             { "SpotLight", WorldStage::Lights, 20, kDrawnWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::SpotLightECSSystem>(); } },
+             { "RectLight", WorldStage::Lights, 30, kDrawnWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::RectLightECSSystem>(); } },
+             { "Animation", WorldStage::Pose, 10, kAnimatedWorlds, true, true,
+               []( Scene& scene, const WorldServices& services )
+               { scene.AddSystem<ECS::AnimationECSSystem>( services.Animations, services.Assets ); } },
+             { "Attachment", WorldStage::Pose, 20, kAnimatedWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::AttachmentSystem>( &scene ); } },
+             { "Script", WorldStage::Think, 10, kPlayedWorlds, true, false,
+               []( Scene& scene, const WorldServices& services )
+               { scene.AddSystem<ECS::ScriptSystem>( &scene, services.Assets ); } },
+             { "GameMode", WorldStage::Think, 20, kPlayedWorlds, true, false,
+               []( Scene& scene, const WorldServices& services )
+               { scene.AddSystem<ECS::GameModeSystem>( &scene, services.Assets ); } },
+             { "Physics", WorldStage::Simulate, 10, kPlayedWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::PhysicsECSSystem>( &scene ); } },
+             { "ComponentEvent", WorldStage::Simulate, 20, kPlayedWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::ComponentEventSystem>(); } },
+             { "Locomotion", WorldStage::Simulate, 30, kPlayedWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::LocomotionSystem>( &scene ); } },
+             { "Audio", WorldStage::Present, 10, kPlayedWorlds, false, false,
+               []( Scene& scene, const WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::AudioECSSystem>( &scene ); } },
+             { "LevelSequence", WorldStage::Sequence, 10, kPlayedWorlds, true, false,
+               []( Scene& scene, const WorldServices& services )
+               { scene.AddSystem<ECS::LevelSequenceSystem>( &scene, services.Assets ); } },
         };
         auto& systems = ModuleHooks().WorldSystems;
         systems.insert( systems.end(), std::begin( kRows ), std::end( kRows ) );

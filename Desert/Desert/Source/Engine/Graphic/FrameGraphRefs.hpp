@@ -86,8 +86,9 @@ namespace Desert::Graphic
     // once its visibility source is drawn; invalid refs before the grid, as the grid's.
     struct MegaLightsVolumeRefs
     {
-        RDG::BufferRef                 Params;   // "MegaLights.Volume.Params", MegaLightsVolumeReadParams
-        std::array<RDG::TextureRef, 3> Lighting; // R, G, B
+        RDG::BufferRef                 Params;      // "MegaLights.Volume.Params", MegaLightsVolumeReadParams
+        std::array<RDG::TextureRef, 3> Lighting;    // R, G, B
+        bool                           Lit = false; // on: the forward cells read it, they loop no light
     };
 
     // THE VIEW'S LANDSCAPE RUNTIME VIRTUAL TEXTURE (LANDSCAPE-RVT, System::LandscapeVirtualTexture; UE Runtime Virtual

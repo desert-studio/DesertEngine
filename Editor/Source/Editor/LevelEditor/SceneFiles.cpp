@@ -3,6 +3,7 @@
 #include <Editor/Core/CommandLine.hpp>
 #include <Editor/Core/Control/ControlChannelOptions.hpp>
 #include "Editor/LevelEditor/SceneFiles.hpp"
+#include "Editor/LevelEditor/PlaySession.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/ViewportCapture.hpp"
 #include <Engine/Core/PlayerStart.hpp>
@@ -58,8 +59,8 @@
 namespace Desert::Editor
 {
     SceneFiles::SceneFiles( SceneWorkspace& workspace, const std::shared_ptr<Assets::AssetManager>& assets,
-                            ViewportCapture& capture )
-         : m_Workspace( workspace ), m_Assets( assets ), m_Capture( capture )
+                            ViewportCapture& capture, PlaySession& play )
+         : m_Workspace( workspace ), m_Assets( assets ), m_Capture( capture ), m_Play( play )
     {
     }
 
@@ -403,6 +404,10 @@ namespace Desert::Editor
 
         // Wait for GPU to be idle before destroying resources mid-frame
         EngineContext::GetInstance().GetDevice()->WaitIdle();
+
+        // Play in this document ends before its level is replaced (UE: the PIE session ends before a map load): the
+        // new level opens in edit mode. Past the refusals above, so a refused open leaves Play running.
+        m_Play.EndIfBoundTo( m_Workspace.ActiveSceneId() );
 
         // The undo history refers to entities of the OLD scene — none of it applies anymore.
         CommandHistory::Get().Clear();

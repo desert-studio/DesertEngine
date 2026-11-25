@@ -271,7 +271,7 @@ namespace Desert::Graphic::System
                          stamped->Stamp.Stamp( index );
                      return dispatched;
                  } );
-            return Common::MakeSuccess( MegaLightsVolumeRefs{ .Params = params, .Lighting = written } );
+            return Common::MakeSuccess( MegaLightsVolumeRefs{ .Params = params, .Lighting = written, .Lit = true } );
         }
 
     private:

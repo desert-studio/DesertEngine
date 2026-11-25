@@ -66,7 +66,8 @@ namespace Desert::Editor
         // Every document has its own queue; one that is not playing refuses its request. False: nothing was pending.
         [[nodiscard]] Common::BoolResultStr ServiceTravel();
 
-        // The document about to close is the one playing: Play ends with it and its snapshot is discarded.
+        // The document about to close, or to have its level replaced, is the one playing: Play ends with it, its
+        // snapshot is discarded and the world is back in edit mode.
         void EndIfBoundTo( uint64_t sceneViewId );
 
         [[nodiscard]] bool InPlayMode() const
