@@ -493,16 +493,16 @@ namespace Desert::Graphic::API::Vulkan
 
     VkPipeline VulkanPipeline::GetVkPipelineFor( const RdgRenderPassKey& openPass )
     {
-        return GetVkPipelineFor( Current(), openPass );
+        const BuiltPipeline* built = GetBuiltForDraw();
+        return built != nullptr ? GetVkPipelineFor( *built, openPass ) : VK_NULL_HANDLE;
     }
 
     VkPipeline VulkanPipeline::GetVkPipelineFor( const BuiltPipeline& record, const RdgRenderPassKey& openPass )
     {
         // ONE RECORD for the whole lookup: the base, its sample count, the create-info a variant is made
-        // from and the variant map all belong to the build the caller read.
-        if ( GetBuildState() != BuildState::Built )
-            return VK_NULL_HANDLE;
-        VkPipeline           base    = record.Pipeline;
+        // from and the variant map all belong to the build the caller read (GetBuiltForDraw). The state is not
+        // asked again: a rebuild that started since leaves this record's objects live (deferred deletion).
+        VkPipeline     base    = record.Pipeline;
         const uint32_t samples = std::max( 1u, openPass.Samples );
         if ( base == VK_NULL_HANDLE || samples == record.BuiltSamples )
             return base;

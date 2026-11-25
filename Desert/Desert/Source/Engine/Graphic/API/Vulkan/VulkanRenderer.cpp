@@ -484,7 +484,7 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     bool VulkanRendererAPI::BindGraphicsPipeline( const GraphicsPipeline*    pipeline,
-                                                  const VulkanBuiltPipeline* record )
+                                                  const VulkanBuiltPipeline& built )
     {
         if ( !pipeline )
             return false;
@@ -512,8 +512,7 @@ namespace Desert::Graphic::API::Vulkan
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast,cppcoreguidelines-pro-type-static-cast-downcast):
         // only the Vulkan API makes pipelines; binding builds the per-pass variant into the pipeline's own cache
         auto* vulkanPipeline = const_cast<VulkanPipeline*>( static_cast<const VulkanPipeline*>( pipeline ) );
-        // ONE RECORD: the caller's (its layout and push range are then the bound pipeline's), else the current.
-        const VulkanBuiltPipeline& built = record != nullptr ? *record : vulkanPipeline->GetBuilt();
+        // ONE RECORD, the caller's: its layout and push range are then the bound pipeline's.
         if ( VkPipeline bound = vulkanPipeline->GetVkPipelineFor( built, *openPass ); bound != VK_NULL_HANDLE )
         {
             // CPU-FRAME-6: recorded only when the command buffer holds another pipeline (m_BoundGraphics).
@@ -525,23 +524,33 @@ namespace Desert::Graphic::API::Vulkan
             }
             return true;
         }
+        // The base was Built (BuiltForDraw) and the variant for this pass was refused: GetVkPipelineFor names why.
+        return false;
+    }
+
+    const VulkanBuiltPipeline* VulkanRendererAPI::BuiltForDraw( const VulkanPipeline& pipeline )
+    {
+        if ( const VulkanBuiltPipeline* built = pipeline.GetBuiltForDraw(); built != nullptr )
+            return built;
         // Still in the driver (PSO1): not an error, and not drawn. An ENGINE pipeline is counted by
         // PipelineBuilds and the content gate waits for it, so no gated frame is shown with this draw missing;
         // a MATERIAL draw never gets here compiling — MeshRenderer draws the default surface instead (AL1-12).
-        if ( vulkanPipeline->GetBuildState() == VulkanPipeline::BuildState::Compiling )
-            return false;
+        // Built: the build finished between the two reads; the next draw takes it.
+        const VulkanPipeline::BuildState state = pipeline.GetBuildState();
+        if ( state == VulkanPipeline::BuildState::Compiling || state == VulkanPipeline::BuildState::Built )
+            return nullptr;
 
-        // See the declaration: this is where "a shader that will not compile will not draw" stops being
-        // a sentence in a log message and starts being what happens. The name is the pipeline's, because
-        // that is what a reader can look up; the shader's own error was already written once, at compile.
-        const std::string& name = vulkanPipeline->GetSpecification().DebugName;
+        // See BindGraphicsPipeline's declaration: this is where "a shader that will not compile will not draw"
+        // stops being a sentence in a log message and starts being what happens. The name is the pipeline's,
+        // because that is what a reader can look up; the shader's own error was already written once, at compile.
+        const std::string& name = pipeline.GetSpecification().DebugName;
         if ( WarnOnce( name ) )
         {
             LOG_ERROR( "[Renderer] pipeline '{}' was never built (its shader has no compiled stages) — "
                        "everything drawn through it is skipped until the shader compiles.",
                        name.empty() ? "<unnamed>" : name );
         }
-        return false;
+        return nullptr;
     }
 
     VkBuffer VulkanRendererAPI::DefaultVertexStreams( const uint32_t capacity )
@@ -605,8 +614,11 @@ namespace Desert::Graphic::API::Vulkan
             return;
         const auto vulkanPipeline = static_cast<const VulkanPipeline*>( pipeline );
         // One read of the published build: the bind and the descriptor sets below use the same layout.
-        const VulkanBuiltPipeline& built = vulkanPipeline->GetBuilt();
-        if ( !BindGraphicsPipeline( pipeline, &built ) )
+        const VulkanBuiltPipeline* ready = BuiltForDraw( *vulkanPipeline );
+        if ( ready == nullptr )
+            return;
+        const VulkanBuiltPipeline& built = *ready;
+        if ( !BindGraphicsPipeline( pipeline, built ) )
             return;
 
         if ( materialExecutor )
@@ -2023,9 +2035,6 @@ namespace Desert::Graphic::API::Vulkan
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
         const auto* graphics = static_cast<const VulkanPipeline*>( &pipeline );
-        // The same test as BindGraphicsPassState, and before the record below is read for the same reason.
-        if ( graphics->GetBuildState() == VulkanPipeline::BuildState::Compiling )
-            return Common::MakeSuccess( false );
         const auto& submeshes = mesh.GetSubmeshes();
         // CPU-FRAME-6: the loop below pushes the layout's whole range (same stages, offset and size as the bind's
         // push, which is never larger) before each submesh's draw, so when one is drawn at all the bind's push of
@@ -2033,7 +2042,10 @@ namespace Desert::Graphic::API::Vulkan
         // drawn and the bind pushes as before.
         // One read of the published build for the bind, the sets and every submesh's push (deferred deletion
         // keeps it live for the frames in flight even when a rebuild publishes a newer one meanwhile).
-        const VulkanBuiltPipeline& built         = graphics->GetBuilt();
+        const VulkanBuiltPipeline* ready = BuiltForDraw( *graphics );
+        if ( ready == nullptr )
+            return Common::MakeSuccess( false );
+        const VulkanBuiltPipeline& built         = *ready;
         const auto&                pushConstant  = built.PushConstantRange;
         bool                       drawsAnything = false;
         for ( size_t si = 0; si < submeshes.size() && !drawsAnything; ++si )
@@ -2598,7 +2610,12 @@ namespace Desert::Graphic::API::Vulkan
             if ( !rows )
                 return Common::MakeFormattedError( "{}: cluster group rows: {}", pass, rows.GetError() );
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
-            if ( !static_cast<const VulkanPipeline*>( &pipeline )->ReadsVisibleRow() )
+            const auto* graphics = static_cast<const VulkanPipeline*>( &pipeline );
+            // Before ReadsVisibleRow: what a pipeline reads is known once it is built.
+            const VulkanBuiltPipeline* ready = BuiltForDraw( *graphics );
+            if ( ready == nullptr )
+                return Common::MakeSuccess( false );
+            if ( !graphics->ReadsVisibleRow() )
                 return Common::MakeFormattedError( "{}: pipeline '{}' does not read the instance id stream: not a "
                                                    "`.VirtualGeometry` cell",
                                                    pass, pipeline.GetSpecification().DebugName );
@@ -2649,15 +2666,14 @@ namespace Desert::Graphic::API::Vulkan
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
         const auto* graphics = static_cast<const VulkanPipeline*>( &pipeline );
-        // A pipeline still in the driver (PSO1) is not drawn this frame and is not an error: the content gate waits
-        // for engine pipelines (BindGraphicsPipeline). Success(false) tells the draw to skip.
-        if ( graphics->GetBuildState() == VulkanPipeline::BuildState::Compiling )
+        // A pipeline that is not Built is not drawn (BuiltForDraw, which names a refused one): Success(false)
+        // tells the draw to skip whole, before any set is written from it. ONE RECORD for the layouts the sets are
+        // written for, the layout they and the push are recorded with and the pipeline bound: the caller's read,
+        // else one read here.
+        const VulkanBuiltPipeline* ready = record != nullptr ? record : BuiltForDraw( *graphics );
+        if ( ready == nullptr )
             return Common::MakeSuccess( false );
-        // Asked BEFORE the record is read: the build publishes its record and only then leaves Compiling, so a
-        // record read after this test is the finished one.
-        // ONE RECORD for the layouts the sets are written for, the layout they and the push are recorded with
-        // and the pipeline bound: the caller's read, else one read here.
-        const VulkanBuiltPipeline& built = record != nullptr ? *record : graphics->GetBuilt();
+        const VulkanBuiltPipeline& built = *ready;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
         auto* shader = static_cast<VulkanShader*>( pipeline.GetSpecification().Shader.get() );
         if ( shader == nullptr )
@@ -2827,7 +2843,7 @@ namespace Desert::Graphic::API::Vulkan
         }
         const std::span<const VkDescriptorSet> sets = WithLiveBindlessSet( layouts, *kept );
 
-        if ( !BindGraphicsPipeline( &pipeline, &built ) )
+        if ( !BindGraphicsPipeline( &pipeline, built ) )
             return Common::MakeFormattedError( "{}: pipeline '{}' could not be bound in the open render pass",
                                                pass, pipeline.GetSpecification().DebugName );
         // CPU-FRAME-6: the sets are recorded only when the command buffer does not hold exactly these, bound with
