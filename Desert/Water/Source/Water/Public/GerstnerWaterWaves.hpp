@@ -11,6 +11,8 @@
 // fields (WaveVector, WaveSpeed, WKA, Q) are not stored but computed by the shared header from the four authored
 // ones, so CPU and GPU cannot hold different copies of them.
 
+#include <Water/Public/WaterDepthTransform.hpp>
+
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
@@ -84,4 +86,8 @@ namespace Desert::Water
     /// The sum of A cos(phase) at the plane point, without the sideways correction (UE
     /// GetSimpleWaveHeightAtPosition).
     [[nodiscard]] float WaveSimpleHeightAt( std::span<const GerstnerWave> waves, glm::vec2 plane, float time );
+
+    /// The one band a Gerstner set is to the shore: its significant height (4 sqrt of the sum's variance) at the
+    /// frequency of its highest wave.
+    [[nodiscard]] ShoreWaveParams GerstnerSwell( std::span<const GerstnerWave> waves, float beachSlope );
 } // namespace Desert::Water

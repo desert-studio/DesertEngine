@@ -124,4 +124,21 @@ namespace Desert::Water
             height += GerstnerWaveSimpleHeight( plane, w.Direction, w.WaveLength, w.Amplitude, time );
         return height;
     }
+
+    ShoreWaveParams GerstnerSwell( std::span<const GerstnerWave> waves, const float beachSlope )
+    {
+        float variance = 0.0f;
+        float highest  = 0.0f;
+        float omega    = 0.0f;
+        for ( const GerstnerWave& w : waves )
+        {
+            variance += 0.5f * w.Amplitude * w.Amplitude;
+            if ( w.Amplitude > highest && w.WaveLength > 0.0f )
+            {
+                highest = w.Amplitude;
+                omega   = std::sqrt( 980.0f * 2.0f * std::numbers::pi_v<float> / w.WaveLength );
+            }
+        }
+        return { .Omega = omega, .SignificantHeight = 4.0f * std::sqrt( variance ), .BeachSlope = beachSlope };
+    }
 } // namespace Desert::Water
