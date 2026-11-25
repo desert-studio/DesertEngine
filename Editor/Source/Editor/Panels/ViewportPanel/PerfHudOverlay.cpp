@@ -54,7 +54,8 @@ namespace Desert::Editor
         // exists or when the dev instruments do not sample (Renderer::BeginFrame).
         const std::optional<Graphic::BindlessOccupancy> bindless = Graphic::MemoryWatch::LastBindless();
         // The own pawn's prediction while Play runs as a network client (NET-4): no row offline.
-        const std::optional<Core::NetPredictionStats> net = Core::ClientNetDriver::LastStats();
+        const std::optional<Desert::Core::NetPredictionStats> net =
+             Desert::Core::ClientNetDriver::LastStats();
 
         constexpr float kPad    = 8.0f;
         constexpr float kWidth  = 240.0f;
