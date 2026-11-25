@@ -30,3 +30,12 @@
 # Тогда [net4_fence] net4/clientA_fence_after.png: A over the fence; HUD/log "corrections 0" over 30 s; clock x0.98-1.02.
 # Когда: A stands 10 s on a slope; then the server teleports A onto the landscape 200 m away.
 # Тогда [net4_teleport_ground] net4/clientA_teleport_ground.png: server drift < 1 cm over 10 s; exactly one correction; A stands on the terrain, camera above ground.
+# Pass 10 (brief 11-25): the one spawn correction (run 11: 8.5 cm at input step 15) was the start state, not the
+# probe: the server's pawn began GROUNDED (Net::PawnMoveState's default) while the client began falling - server vx
+# +22 = one ground-acceleration step, vy +16 = one gravity step. Both now start from the spawned state's movement
+# mode (falling; the snapshot carries it). Fence frames are picked after the run from A's own drawn x (shot_x.txt).
+# Дано: Editor + DesertServer from task/NET-PREDICT, `--role all`, WP_Protocol, clients A and B, link 150 ms / 2 % loss.
+# Когда: A sprints and jumps the fence for 30 s.
+# Тогда [net4_fence] net4/clientA_fence_after.png: A over the fence (first shot at A x >= 2500); HUD/log "corrections 0" over 30 s; clock x0.98-1.02.
+# Когда: A stands 10 s on a slope; then the server teleports A onto the landscape 200 m away.
+# Тогда [net4_teleport_ground] net4/clientA_teleport_ground.png: server drift < 1 cm over 10 s; one correction (snap beyond 384 cm, as UE); A stands on the terrain, camera above ground.

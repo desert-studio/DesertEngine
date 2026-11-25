@@ -854,20 +854,24 @@ namespace Desert::Core
         Net::MovePredictor& predictor = m_Prediction->Predictor;
         if ( !predictor.Started() )
         {
-            // The prediction starts where the server spawned the pawn, standing (the server's own start).
+            // The prediction starts from the server's spawned state (where, and in which movement mode).
             // Not before the first snapshot of it (UE: an autonomous proxy moves once its replicated movement
             // arrived), and not before this client's collision world exists to move it in.
             const auto own = m_Client->Pawns().find( m_Client->OwnPawn() );
             if ( own == m_Client->Pawns().end() || own->second.History.Empty() ||
                  PredictionWorld( scene ) == nullptr )
                 return;
-            Net::PawnMoveState start;
-            start.Position = own->second.History.Sample( 1e12 ).Position;
-            start.Grounded = false; // it falls to the floor under it on the first move (FindFloor)
+            // The whole replicated state, the movement mode with it: the server's first move starts from it.
+            const Net::PawnState spawned = own->second.History.Sample( 1e12 );
+            Net::PawnMoveState   start;
+            start.Position = spawned.Position;
+            start.Yaw      = spawned.Yaw;
+            start.Grounded = ( spawned.Movement & Net::kPawnGrounded ) != 0;
             predictor.Reset( start );
             m_NextJump = m_Clock + m_Options.WalkJumpEverySeconds;
-            LOG_INFO( "[Net] predicting own pawn net id {} from ({:.0f}, {:.0f}, {:.0f}) cm", own->first,
-                      start.Position.X, start.Position.Y, start.Position.Z );
+            LOG_INFO( "[Net] predicting own pawn net id {} from ({:.0f}, {:.0f}, {:.0f}) cm, {}", own->first,
+                      start.Position.X, start.Position.Y, start.Position.Z,
+                      start.Grounded ? "grounded" : "falling" );
         }
         const auto authority = m_Client->TakeOwnAuthority();
         if ( !authority )
