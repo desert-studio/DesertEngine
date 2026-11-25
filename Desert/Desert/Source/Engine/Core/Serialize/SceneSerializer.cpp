@@ -504,6 +504,15 @@ namespace Desert::Core
                           scene.SceneName, partition.UnplacedFramedRecords.size() );
             }
 
+            if ( !partition.UnregisteredRecords.empty() )
+            {
+                // A record of a component no started module registers: its module's StartupModule did not run in
+                // this process. Named in the plan's Issues; in no cell, never a point at its position.
+                LOG_ERROR( "[WorldPartition] '{0}': {1} record(s) carry a component no started module registers, "
+                           "so they have no place in the partition.",
+                           scene.SceneName, partition.UnregisteredRecords.size() );
+            }
+
             LOG_INFO( "[WorldPartition] '{0}': {1}.", scene.SceneName,
                       Rules::SummarisePartition( partition, *scene.WorldPartition ) );
             if ( partition.MaxLevelComposite != Rules::kNoRecord && partition.MaxLevel > 0 )

@@ -1,3 +1,11 @@
+# BUILD-MOD-6L pass 10: a world cooked without LandscapeCore reports every tile record as an Issue - WorldCook and
+# WorldGen take `--disable-module LandscapeCore` (Tools/Shared/ToolModules.hpp; UE -DisablePlugins=). The DesertCtl
+# lines below are rerun unchanged; [unregistered_issue] at the end is the pass 10 proof.
+# BUILD-MOD-6L pass 9: the World Partition rules name no landscape key. Core/Serialize/WorldPartitionRules lists no
+# landscape loading row, entity reference or component name; LandscapeCore::StartupModule registers them, its HLOD
+# builder components and its activation kind (UE: the Landscape module owns FLandscapeActorDesc). A record whose
+# component no started module registers is an Issue and is placed nowhere (WorldPartitionPlan::UnregisteredRecords).
+# The pass 8 lines below are rerun unchanged.
 # BUILD-MOD-6L pass 8: Core stops knowing the landscape. World Partition's rules (Core/Serialize/WorldPartitionRules)
 # place a landscape tile and spline through a descriptor hook LandscapeCore registers (UE: FLandscapeActorDesc, the
 # Landscape module's FWorldPartitionActorDesc subclass); LandscapeCore sits ABOVE Core and the dedicated server names it.
@@ -31,3 +39,13 @@
 # [B-C01] server_collision (run_server7.sh, not a DesertCtl step): server.log residency-union lines carry
 # "collision N body(ies) (N landscape tile(s))" with N > 0 and no "[Server] landscape" error; the bot's pawn,
 # spawned 20 m over the terrain at (2500, 2000, 650), lands and then stands at one height (no fall through).
+# [unregistered_issue] pass 10 (WorldCook, not a DesertCtl step; G3_TwoTerrains is not a partitioned world - WorldCook
+# refuses it, "lists no ExternalEntities" - so the tiled world is WP_Protocol, 16 landscape tiles): from Projects/Desert,
+#   WorldCook Content/Scenes/WP_Protocol.desce --out <scratch>/wc10/on --project Desert.deproj --project-registry
+#   WorldCook Content/Scenes/WP_Protocol.desce --out <scratch>/wc10/off --project Desert.deproj --project-registry \
+#             --disable-module LandscapeCore
+# Without the module (no code edited, no other build) stdout says "module LandscapeCore not started" and carries one
+# Issue per landscape tile record naming its component ("'LandscapeTile', which no module started in this process
+# registers"), the StreamingGeneration log's summary "N record(s) of a component no started module registers" and no
+# "composite of Landscape Tile" footprint; with it the cook prints 0 World Partition issue(s) and the log places the
+# 16 tiles as on dev.
