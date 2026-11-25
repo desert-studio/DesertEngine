@@ -1,0 +1,76 @@
+# WP-LWC (11-25): Large World Coordinates witness - the same set at the origin and at X = 2,000,000 cm (20 km).
+# Pass 1 (baseline): world positions are float today (TransformComponent.hpp:30 glm::vec3); 1 unit = 1 cm, so at 20 km
+# a float step is 0.125 cm and the view/shadow/TAA maths cancels two ~2e6 numbers. The origin set must be still
+# between frames; the 20 km set records today's defect per catalogue row (L-A01 vertex jitter, L-A02 shadow swim,
+# L-A03 TAA smear). The pose is frozen (CesiumMan PlaybackSpeed 0): a still camera + a still pose must give
+# identical frames - any difference between N and N+1 is precision, not animation. Catalogue: scratch/WP-LWC/CATALOGUE.md.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/LWC_Witness.desce
+Дано run View "View mode: Lit"
+Когда --subject viewport set Camera.Position 0,140,430
+Когда --subject viewport set Camera.Direction 0.00000,-0.13820,-0.99040
+Когда frames 90
+Тогда-вид o_n origin set, still camera 4.3 m out, frame N: CesiumMan (frozen pose), white block, thin blade, flat landscape, sun shadows of all three
+Когда frames 1
+Тогда-вид o_n1 origin frame N+1: identical to o_n - no vertex, shadow or TAA motion (L-A01..L-A03 clean)
+Когда frames 1
+Тогда-вид o_s1 origin frame N+2 (strip 1/3): identical to o_n - no vertex, shadow or TAA motion (L-A01..L-A03 clean)
+Когда frames 1
+Тогда-вид o_s2 origin frame N+3 (strip 2/3): identical to o_n - no vertex, shadow or TAA motion (L-A01..L-A03 clean)
+Когда frames 1
+Тогда-вид o_s3 origin frame N+4 (strip 3/3): identical to o_n - no vertex, shadow or TAA motion (L-A01..L-A03 clean)
+Когда --subject viewport set Camera.Position -60,120,110
+Когда --subject viewport set Camera.Direction -0.47673,-0.19069,-0.85812
+Когда frames 60
+Тогда-вид o_close origin close-up ~1 m from the blade edge and its shadow on the landscape: straight edge, clean shadow
+Когда frames 1
+Тогда-вид o_close1 origin close-up next frame: identical to o_close
+Когда --subject viewport set Camera.Position 0,140,430
+Когда --subject viewport set Camera.Direction 0.00000,-0.13820,-0.99040
+Когда frames 2
+Тогда-вид o_orb0 origin slow orbit 0.0 deg around the set: the set turns smoothly, step for step
+Когда --subject viewport set Camera.Position 3.752,140,429.984
+Когда --subject viewport set Camera.Direction -0.00864,-0.13820,-0.99037
+Когда frames 2
+Тогда-вид o_orb1 origin slow orbit 0.5 deg around the set: the set turns smoothly, step for step
+Когда --subject viewport set Camera.Position 7.505,140,429.935
+Когда --subject viewport set Camera.Direction -0.01728,-0.13820,-0.99025
+Когда frames 2
+Тогда-вид o_orb2 origin slow orbit 1.0 deg around the set: the set turns smoothly, step for step
+Когда --subject viewport set Camera.Position 11.256,140,429.853
+Когда --subject viewport set Camera.Direction -0.02593,-0.13820,-0.99007
+Когда frames 2
+Тогда-вид o_orb3 origin slow orbit 1.5 deg around the set: the set turns smoothly, step for step
+Когда --subject viewport set Camera.Position 2000000,140,430
+Когда --subject viewport set Camera.Direction 0.00000,-0.13820,-0.99040
+Когда frames 90
+Тогда-вид f_n 20 km set, still camera 4.3 m out, frame N: CesiumMan (frozen pose), white block, thin blade, flat landscape, sun shadows of all three
+Когда frames 1
+Тогда-вид f_n1 20 km frame N+1: vs f_n: vertex jitter on blade/block edges and skin (L-A01), shadow-edge swim (L-A02), TAA smear/shimmer (L-A03)
+Когда frames 1
+Тогда-вид f_s1 20 km frame N+2 (strip 1/3): vs f_n: vertex jitter on blade/block edges and skin (L-A01), shadow-edge swim (L-A02), TAA smear/shimmer (L-A03)
+Когда frames 1
+Тогда-вид f_s2 20 km frame N+3 (strip 2/3): vs f_n: vertex jitter on blade/block edges and skin (L-A01), shadow-edge swim (L-A02), TAA smear/shimmer (L-A03)
+Когда frames 1
+Тогда-вид f_s3 20 km frame N+4 (strip 3/3): vs f_n: vertex jitter on blade/block edges and skin (L-A01), shadow-edge swim (L-A02), TAA smear/shimmer (L-A03)
+Когда --subject viewport set Camera.Position 1999940,120,110
+Когда --subject viewport set Camera.Direction -0.47673,-0.19069,-0.85812
+Когда frames 60
+Тогда-вид f_close 20 km close-up ~1 m from the blade edge and its shadow on the landscape: stair-stepped/wobbling edge, blocky or acne shadow = float world position at 20 km
+Когда frames 1
+Тогда-вид f_close1 20 km close-up next frame: vs f_close: edge or shadow pixels that changed at a still camera
+Когда --subject viewport set Camera.Position 2000000,140,430
+Когда --subject viewport set Camera.Direction 0.00000,-0.13820,-0.99040
+Когда frames 2
+Тогда-вид f_orb0 20 km slow orbit 0.0 deg around the set: vs o_orb0: uneven steps of edges/skin (L-A01), shadow swim (L-A02), TAA smear (L-A03)
+Когда --subject viewport set Camera.Position 2000003.752,140,429.984
+Когда --subject viewport set Camera.Direction -0.00864,-0.13820,-0.99037
+Когда frames 2
+Тогда-вид f_orb1 20 km slow orbit 0.5 deg around the set: vs o_orb1: uneven steps of edges/skin (L-A01), shadow swim (L-A02), TAA smear (L-A03)
+Когда --subject viewport set Camera.Position 2000007.505,140,429.935
+Когда --subject viewport set Camera.Direction -0.01728,-0.13820,-0.99025
+Когда frames 2
+Тогда-вид f_orb2 20 km slow orbit 1.0 deg around the set: vs o_orb2: uneven steps of edges/skin (L-A01), shadow swim (L-A02), TAA smear (L-A03)
+Когда --subject viewport set Camera.Position 2000011.256,140,429.853
+Когда --subject viewport set Camera.Direction -0.02593,-0.13820,-0.99007
+Когда frames 2
+Тогда-вид f_orb3 20 km slow orbit 1.5 deg around the set: vs o_orb3: uneven steps of edges/skin (L-A01), shadow swim (L-A02), TAA smear (L-A03)
