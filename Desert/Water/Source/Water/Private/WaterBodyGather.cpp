@@ -4,6 +4,7 @@
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Water/Public/WaterBodyComponent.hpp>
 
+#include <algorithm>
 #include <utility>
 
 namespace Desert::ECS
@@ -33,7 +34,8 @@ namespace Desert::ECS
 
     std::span<const Water::WaterBodyState> WaterBodyGather::Gather( entt::registry&    registry,
                                                                     const WavesLookup& lookup,
-                                                                    const SurfaceLookup& surfaces )
+                                                                    const SurfaceLookup& surfaces,
+                                                                    const std::span<const entt::entity> refused )
     {
         const uint64_t revision = WaterBodyRevisionOf( registry );
         if ( m_BuiltFor != &registry || m_BuiltRevision != revision )
@@ -49,6 +51,8 @@ namespace Desert::ECS
         for ( const entt::entity entity : m_Members )
         {
             if ( m_Refused.contains( entity ) )
+                continue;
+            if ( std::find( refused.begin(), refused.end(), entity ) != refused.end() )
                 continue;
             // A body whose TransformComponent went (no signal of this list's) is no water until it has one.
             const auto* transform = registry.try_get<TransformComponent>( entity );

@@ -58,6 +58,10 @@ namespace Desert::Runtime
         /// set's error when it failed.
         Common::ResultStr<Spectrum> GetSpectrum( const Assets::AssetHandle& handle );
 
+        /// Whether the set's Source is FFT, as far as it has been read (false while pending). Asked from parallel
+        /// systems (ECS::WaterOceanRule); starts no read.
+        [[nodiscard]] bool IsFFTSet( const Assets::AssetHandle& handle );
+
         /// WATER-UNDERWATER: THE WIND a set's ocean is raised by - the scene's ECS::WindAt at the first visible
         /// body naming the set (WaterZoneECSSystem, every frame), horizontal, cm/s. Quantised (10 cm/s, 0.5 deg)
         /// so a steady wind never rebuilds; a set no body states a wind for is a flat sea. GetSpectrum rebuilds
@@ -103,7 +107,8 @@ namespace Desert::Runtime
         std::unordered_map<Assets::AssetHandle, BuiltWaves>                                          m_Ready;
         uint64_t m_SeenWrites = 0; // ContentRegistry::WriteSerial at the last FollowWrites
         std::unordered_map<Assets::AssetHandle, Spectrum>            m_Spectra; // FFT sets only
-        std::unordered_map<Assets::AssetHandle, Water::FFTOceanSpectrumParams> m_Shapes;  // FFT sets only
+        // FFT sets only; changed under m_WindMutex (IsFFTSet reads it from parallel systems).
+        std::unordered_map<Assets::AssetHandle, Water::FFTOceanSpectrumParams> m_Shapes;
         // Written by the (parallel) zone collector, read wherever GetSpectrum is asked: its own lock.
         std::mutex                                                   m_WindMutex;
         std::unordered_map<Assets::AssetHandle, Water::FFTOceanWind> m_Winds;

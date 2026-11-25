@@ -702,8 +702,8 @@ namespace Desert::Graphic::System
 
         // THE BODIES' WAVES (UE: each water body's wave buffer the water vertex factory reads): each set generated
         // once per asset (Runtime::WaterWavesService), packed ahead of the tiles. Still loading = flat this frame.
-        // THE FFT OCEAN replaces a set's Gerstner rows where the set is one and the tier asks for it: the first such
-        // set is the frame's FFT ocean (one array); another FFT set draws its Gerstner generator.
+        // THE FFT OCEAN replaces a set's Gerstner rows where the set is one and the tier asks for it: the world's one
+        // ocean (ECS::WaterOceanRule), under every WaveOrigin its bodies have.
         WaterWavesBlock waves;
         const glm::vec3 observer = glm::vec3( glm::inverse( camera->GetViewMatrix() )[3] );
         // The floor and its shore (Water/WaterDepthField.glslh), before the waves: the swell's shore form reads its slope.
@@ -716,6 +716,7 @@ namespace Desert::Graphic::System
         waves.Header.x       = static_cast<float>( waveSets.size() );
         float verticalExtent = kFlatSurfaceVerticalExtentCm;
         bool  fft            = false;
+        Assets::AssetHandle ocean = Assets::AssetHandle::Null(); // the FFT set, once fft
         auto* const service  = Runtime::GetWaterWavesService();
         for ( size_t index = 0; index < waveSets.size(); ++index )
         {
@@ -756,9 +757,10 @@ namespace Desert::Graphic::System
                 verticalExtent = std::max( { verticalExtent, Water::MaxWaveHeight( rows ),
                                              kShoreWaveReach * swell.SignificantHeight } );
             }
-            if ( !fft && PrepareFFTFrame( frameSet.Material, frameSet.Asset ) )
+            if ( fft ? frameSet.Asset == ocean : PrepareFFTFrame( frameSet.Material, frameSet.Asset ) )
             {
                 fft                                   = true;
+                ocean                                 = frameSet.Asset;
                 service->SetDrawnFFT( frameSet.Asset );
                 const Water::FFTOceanSpectrum& spectrum = *m_FFTFrame;
                 waves.Header.y                        = 1.0f;

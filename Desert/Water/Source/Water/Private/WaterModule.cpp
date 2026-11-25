@@ -2,6 +2,7 @@
 #include <Water/Public/BuoyancySimulation.hpp>
 #include <Water/Public/WaterBodyComponent.hpp>
 #include <Water/Public/WaterBodyGather.hpp>
+#include <Water/Public/WaterOceanRule.hpp>
 #include <Water/Public/WaterBodyQuery.hpp>
 #include <Water/Public/WaterFallEffects.hpp>
 #include <Water/Public/WaterRenderer.hpp>
@@ -73,13 +74,17 @@ namespace Desert::Water
                 // The scene's gravity (the physics world's, SceneSettings::Gravity): a river's fall accelerates
                 // by it (WaterBodyState::Gravity).
                 m_Water.SetGravity( m_World.GetGravity() );
+                m_NoOcean.clear();
+                if ( const auto* const rule = registry.try_ctx<std::shared_ptr<ECS::WaterOceanRule>>() )
+                    ( *rule )->Refused( registry, []( const Assets::AssetHandle& waves )
+                                        { return Runtime::GetWaterWavesService()->IsFFTSet( waves ); }, m_NoOcean );
                 m_Water.SetWorld(
                      m_Gather.Gather(
                           registry, []( const Assets::AssetHandle& waves )
                           { return Runtime::GetWaterWavesService()->Get( waves ); },
                           // Bodies float on the surface the GPU drew.
                           []( const Assets::AssetHandle& waves )
-                          { return Runtime::GetWaterWavesService()->SurfaceOf( waves ); } ),
+                          { return Runtime::GetWaterWavesService()->SurfaceOf( waves ); }, m_NoOcean ),
                      ShoreField( registry ) );
                 SyncBuoyant( registry );
             }
@@ -182,6 +187,7 @@ namespace Desert::Water
             WaterSubsystem         m_Water;
             // Refuses a body whose wave set cannot be read, once per entity per Play.
             ECS::WaterBodyGather   m_Gather;
+            std::vector<entt::entity> m_NoOcean; // WaterOceanRule's refusals, storage reused
             std::vector<Buoyant>   m_Buoyant;
             std::vector<glm::vec4> m_Pontoons;
             // Buoyant bodies whose collider cannot be cut into pontoons, refused once per entity per Play.
@@ -241,6 +247,8 @@ namespace Desert::Water
                  if ( r.try_ctx<std::shared_ptr<ECS::WaterShoreFieldSource>>() == nullptr )
                      r.set<std::shared_ptr<ECS::WaterShoreFieldSource>>(
                           std::make_shared<ECS::WaterShoreFieldSource>() );
+                 if ( r.try_ctx<std::shared_ptr<ECS::WaterOceanRule>>() == nullptr )
+                     r.set<std::shared_ptr<ECS::WaterOceanRule>>( std::make_shared<ECS::WaterOceanRule>() );
              } );
         // The foam, spray and mist at the foot of every river's falls.
         hooks.SceneStates.push_back( []() -> std::unique_ptr<Core::ISceneModuleState>

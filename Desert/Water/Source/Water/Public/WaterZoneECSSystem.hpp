@@ -6,6 +6,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Water/Public/WaterWavesService.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
+#include <Water/Public/WaterOceanRule.hpp>
 #include <Water/Public/WaterShoreFieldSource.hpp>
 #include <Water/Public/WaterZoneCommand.hpp>
 
@@ -81,6 +82,19 @@ namespace Desert::ECS
             if ( zones.begin() == zones.end() )
                 return;
 
+            m_NoOcean.clear();
+            auto* const service = Runtime::GetWaterWavesService();
+            if ( const auto* const rule = registry.try_ctx<std::shared_ptr<WaterOceanRule>>();
+                 rule != nullptr && service != nullptr )
+                ( *rule )->Refused( registry, [service]( const Assets::AssetHandle& waves )
+                                    { return service->IsFFTSet( waves ); }, m_NoOcean );
+            // A hidden body, and a second ocean (WaterOceanRule), is no water.
+            const auto absent = [this, &registry]( const entt::entity entity )
+            {
+                return ECS::IsHidden( registry, entity ) ||
+                       std::find( m_NoOcean.begin(), m_NoOcean.end(), entity ) != m_NoOcean.end();
+            };
+
             // A hidden body is no water, as a hidden mesh is no geometry. The visible bodies are compared with the
             // rows the zones drew last frame; only a change builds new rows (immutable and shared by every zone's
             // draw, so the renderer may still hold the old ones). A steady frame allocates nothing here.
@@ -115,7 +129,7 @@ namespace Desert::ECS
             {
                 if ( !same )
                     break;
-                if ( ECS::IsHidden( registry, entity ) )
+                if ( absent( entity ) )
                     continue;
                 const size_t                            i    = visible++;
                 const Graphic::System::WaterZoneBodies& rows = *m_Bodies;
@@ -144,7 +158,7 @@ namespace Desert::ECS
                 auto rows = std::make_shared<Graphic::System::WaterZoneBodies>();
                 for ( const entt::entity entity : view )
                 {
-                    if ( ECS::IsHidden( registry, entity ) )
+                    if ( absent( entity ) )
                         continue;
                     const WaterBodyData& data     = view.get<WaterBodyComponent>( entity ).Data;
                     const glm::vec3&     location = view.get<TransformComponent>( entity ).GetTranslation();
@@ -211,5 +225,6 @@ namespace Desert::ECS
         // The visible bodies the zones drew last frame (rebuilt only on a change).
         std::shared_ptr<const Graphic::System::WaterZoneBodies> m_Bodies;
         std::vector<Assets::AssetHandle>                        m_WindStated; // StateWaveWinds' frame rows
+        std::vector<entt::entity>                               m_NoOcean;    // WaterOceanRule's refusals
     };
 } // namespace Desert::ECS

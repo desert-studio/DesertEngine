@@ -67,7 +67,7 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include "ImportRecordSourceHash.hpp"
 #include "MaterialAOParam.hpp"
-#include "WaterWavesWind.hpp"
+#include "WaterWavesUpgrade.hpp"
 #include "MaterialMaskClipParam.hpp"
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
@@ -1789,21 +1789,21 @@ namespace Desert::Migration
                     continue;
                 }
             }
-            // WAVS 1 -> 2 (WATER-UNDERWATER, WaterWavesWind.hpp): Generator.WindAngleDeg is dropped; the waves run
-            // with the scene's wind.
+            // WAVS 1, 2 -> 3 (WaterWavesUpgrade.hpp): no Generator.WindAngleDeg, four FFT cascades.
             if ( path.extension() == ".dwaves" )
             {
                 const auto stated = ReadStatedVersion( path, text, "WAVS" );
-                if ( stated && stated.GetValue() == 1u )
+                if ( stated && stated.GetValue() >= 1u &&
+                     stated.GetValue() < Desert::Assets::kWaterWavesSchemaVersion )
                 {
-                    const auto raised = Desert::Migration::MigrateWaterWavesV1ToV2( text );
+                    const auto raised = Desert::Migration::MigrateWaterWavesToV3( text );
                     if ( !raised )
                     {
-                        err << "FAIL   " << path.string() << " — WAVS 1 -> 2: " << raised.GetError() << "\n";
+                        err << "FAIL   " << path.string() << " — WAVS: " << raised.GetError() << "\n";
                         ++failed;
                         continue;
                     }
-                    out << ( check ? "would raise " : "raised " ) << path.string() << " WAVS 1 -> "
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " WAVS " << stated.GetValue() << " -> "
                         << Desert::Assets::kWaterWavesSchemaVersion << "\n";
                     if ( !check && !WriteText( path, raised.GetValue(), err ) )
                         ++failed;

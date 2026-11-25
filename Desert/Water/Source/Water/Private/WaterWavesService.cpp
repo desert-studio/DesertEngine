@@ -55,10 +55,13 @@ namespace Desert::Runtime
         m_Generators[handle] = std::make_shared<const Water::GerstnerWaveGenerator>( generator );
 
         // An FFT set's ocean: its h0 cascades are a pure function of the FFT block, its seed and the scene's wind
-        // (SetWind), built by GetSpectrum (3 x 256^2 texels) when the wind changes and uploaded by the water
+        // (SetWind), built by GetSpectrum (4 x 256^2 texels) when the wind changes and uploaded by the water
         // renderer when the pointer does; the parse already refused a block the spectrum cannot honour.
         if ( asset->GetData().Source == Water::WaterWaveSource::FFT )
+        {
+            const std::lock_guard<std::mutex> lock( m_WindMutex );
             m_Shapes[handle] = asset->GetData().FFT;
+        }
     }
 
     void WaterWavesService::SetWind( const Assets::AssetHandle& handle, const glm::vec2& velocityXZ )
@@ -94,7 +97,10 @@ namespace Desert::Runtime
             m_Generators.erase( handle );
             m_Ready.erase( handle );
             m_Spectra.erase( handle );
-            m_Shapes.erase( handle );
+            {
+                const std::lock_guard<std::mutex> lock( m_WindMutex );
+                m_Shapes.erase( handle );
+            }
             m_Failed.erase( handle );
 
             Assets::Asset<Assets::WaterWavesAsset> asset;
@@ -112,6 +118,12 @@ namespace Desert::Runtime
             LOG_INFO( "[Water] Wave set {} was saved: its waves are rebuilt.", static_cast<uint64_t>( handle ) );
             Adopt( handle, asset );
         }
+    }
+
+    bool WaterWavesService::IsFFTSet( const Assets::AssetHandle& handle )
+    {
+        const std::lock_guard<std::mutex> lock( m_WindMutex );
+        return m_Shapes.contains( handle );
     }
 
     float WaterWavesService::WindAngleOf( const Assets::AssetHandle& handle )
@@ -227,9 +239,9 @@ namespace Desert::Runtime
         m_Generators.clear();
         m_Ready.clear();
         m_Spectra.clear();
-        m_Shapes.clear();
         {
             const std::lock_guard<std::mutex> lock( m_WindMutex );
+            m_Shapes.clear();
             m_Winds.clear();
         }
         m_Failed.clear();

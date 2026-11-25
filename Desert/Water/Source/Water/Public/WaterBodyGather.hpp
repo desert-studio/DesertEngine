@@ -43,9 +43,10 @@ namespace Desert::ECS
 
         /// Every water body of the registry that is ready, in entity order. The span is the gather's own
         /// storage: valid until the next Gather or Reset.
-        [[nodiscard]] std::span<const Water::WaterBodyState> Gather( entt::registry&    registry,
-                                                                     const WavesLookup& lookup,
-                                                                     const SurfaceLookup& surfaces = {} );
+        /// @p refused: the bodies WaterOceanRule holds to be no water.
+        [[nodiscard]] std::span<const Water::WaterBodyState>
+        Gather( entt::registry& registry, const WavesLookup& lookup, const SurfaceLookup& surfaces = {},
+                std::span<const entt::entity> refused = {} );
 
         /// Forgets the refusals and the retained bodies: a new Play reports them again.
         void Reset();
