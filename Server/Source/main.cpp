@@ -23,6 +23,7 @@
 #endif
 
 #include "ServerWorld.hpp"
+#include <LandscapeCore/Public/LandscapeWorldPartition.hpp>
 
 #include <Engine/Gameplay/PawnPrefabMovement.hpp>
 #include <Engine/Gameplay/PhysicsPawnMoveWorld.hpp>
@@ -1302,6 +1303,7 @@ namespace Desert::Server
 
 int main( int argc, char** argv )
 {
+    Desert::LandscapeCore::StartupModule(); // the landscape world-partition descriptor hooks (BUILD-MOD-6L)
     return Desert::Tools::RunMain(
          "DesertServer", argc, argv, []( int count, char** values )
          { return Desert::Server::Run( std::vector<std::string>( values + 1, values + count ) ); } );

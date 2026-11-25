@@ -164,8 +164,11 @@ namespace Desert::Net
     std::vector<std::byte> EncodeInput( const InputMessage& message )
     {
         Writer out( EReplicationMessage::Input );
+        static_assert( kMaxUnackedInputSteps <= 255, "the step count is one byte" );
         out.U32( message.Sequence );
-        const std::size_t count = std::min<std::size_t>( message.Steps.size(), kInputRedundancy );
+        // Every step the message holds - the client's ring (Replication.hpp kMaxUnackedInputSteps) never holds
+        // more; past it only a lost session's oldest steps go, as the ring itself drops them.
+        const std::size_t count = std::min( message.Steps.size(), kMaxUnackedInputSteps );
         out.U8( static_cast<std::uint8_t>( count ) );
         for ( std::size_t i = message.Steps.size() - count; i < message.Steps.size(); ++i )
         {
@@ -231,7 +234,7 @@ namespace Desert::Net
         Reader       in( data, EReplicationMessage::Input );
         InputMessage message;
         std::uint8_t count = 0;
-        if ( !in.U32( message.Sequence ) || !in.U8( count ) || count == 0 || count > kInputRedundancy )
+        if ( !in.U32( message.Sequence ) || !in.U8( count ) || count == 0 || count > kMaxUnackedInputSteps )
             return std::nullopt;
         message.Steps.resize( count );
         for ( InputStep& step : message.Steps )
@@ -384,10 +387,9 @@ namespace Desert::Net
             m_Steps.pop_front();
     }
 
-    std::vector<InputStep> InputRing::Latest( std::size_t count ) const
+    std::vector<InputStep> InputRing::Unacked() const
     {
-        const std::size_t n = std::min( count, m_Steps.size() );
-        return { m_Steps.end() - static_cast<std::ptrdiff_t>( n ), m_Steps.end() };
+        return { m_Steps.begin(), m_Steps.end() };
     }
 
     void InterpolationBuffer::Push( double serverSeconds, const PawnState& state )

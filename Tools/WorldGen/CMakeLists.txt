@@ -16,6 +16,7 @@ desert_add_executable(WorldGen FOLDER Tools SOURCES ${_sources} ${_generated}
     "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"
     "${DESERT_ROOT}/Desert/Landscape/Source/LandscapeCore/Private/LandscapeData.cpp"
     "${DESERT_ROOT}/Desert/Landscape/Source/LandscapeCore/Private/LandscapeLayout.cpp"
+    "${DESERT_ROOT}/Desert/Landscape/Source/LandscapeCore/Private/LandscapeWorldPartition.cpp"
     "${DESERT_ROOT}/Desert/Landscape/Source/Landscape/Private/LandscapeGenerator.cpp"
     "${DESERT_ROOT}/Desert/Landscape/Source/Landscape/Private/LandscapeSculpt.cpp"
     "${DESERT_ROOT}/Desert/Landscape/Source/Landscape/Private/LandscapeBrush.cpp"

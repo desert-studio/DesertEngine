@@ -112,6 +112,9 @@ namespace Desert::Net
         if ( it == m_Pawns.end() )
             return;
         Pawn& pawn = it->second;
+        if ( !input.Steps.empty() &&
+             ( !pawn.ResendFloor || StepAfter( input.Steps.front().Step, *pawn.ResendFloor ) ) )
+            pawn.ResendFloor = input.Steps.front().Step;
         for ( const InputStep& step : input.Steps )
         {
             // Already processed (a redundant copy) or already queued: the first arrival wins.
@@ -135,11 +138,12 @@ namespace Desert::Net
     // The server moves a pawn only by its player's input steps, every one, in step order (UE ServerMove: the
     // server simulates the client's moves, never moves of its own) - so its state after step N is the client's
     // prediction of N. A step that has not arrived holds the pawn, the steps after it wait: every Input message
-    // carries each unacked step (kInputRedundancy), so a lost packet's steps come with the next one. Moving on
-    // past a hole would leave the server a step's move short of the client - the periodic sprint corrections of
-    // NET-4 run 9 (33-183 cm, whole steps of 16.7 cm). Only a step the client no longer sends (the queue already
-    // runs a window past it) is given up. A starved pawn holds; a queue above the sync's target drains two per
-    // step.
+    // carries EVERY unacked step (Replication.hpp kMaxUnackedInputSteps), so a lost packet's steps come with the
+    // next one. Moving on past a hole would leave the server a step's move short of the client - the periodic
+    // sprint corrections of NET-4 run 9 (33-183 cm, whole steps of 16.7 cm). Only a step the client no longer
+    // sends is given up: a message that starts past it (the client's ring overflowed - never a guess from how
+    // far the queue runs ahead, which a slow client frame's burst of steps exceeds while the hole is still
+    // being resent). A starved pawn holds; a queue above the sync's target drains two per step.
     void PawnSimulation::StepPawn( Pawn& pawn ) const
     {
         constexpr std::size_t kDrainAbove = 4;
@@ -151,12 +155,13 @@ namespace Desert::Net
             if ( pawn.LastProcessed && next->first != *pawn.LastProcessed + 1 )
             {
                 const std::uint32_t missing = *pawn.LastProcessed + 1;
-                if ( !StepAfter( pawn.Pending.rbegin()->first,
-                                 missing + static_cast<std::uint32_t>( kInputRedundancy ) - 1 ) )
-                    break; // still in flight: the next Input message repeats it
-                m_Log( std::format( "pawn net id {}: input steps {}..{} never arrived within the resend window; "
-                                    "moving on (the client is corrected)",
-                                    pawn.State.Id, missing, next->first - 1 ) );
+                if ( !pawn.ResendFloor || !StepAfter( *pawn.ResendFloor, missing ) )
+                    break; // still in flight: every Input message repeats it until the ack
+                m_Log( std::format(
+                     "pawn net id {}: input steps {}..{} never arrived and the client no longer resends "
+                     "them (its unacked ring of {} steps overflowed); moving on (the client is "
+                     "corrected)",
+                     pawn.State.Id, missing, next->first - 1, kMaxUnackedInputSteps ) );
             }
             // A move is one CLIENT step long, whatever the server's frame took (UE FSavedMove's DeltaTime).
             // The step's action set is the game's to read (IPawnMover); the log names it in the game's words when

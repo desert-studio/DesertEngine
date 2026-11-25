@@ -198,7 +198,11 @@ namespace Desert::Net
             PawnMoveState                      Move;    // the movement state State is the replicated part of
             std::map<std::uint32_t, InputStep> Pending; // by client step (wrap: a session is < 2^31 steps)
             std::optional<std::uint32_t>       LastProcessed;
-            std::uint32_t                      LastActions = 0; // the last applied step's action set (for the log)
+            // The newest first step of any Input message: the client resends from its oldest unacked step, so a
+            // step before this floor is one the client no longer has (its ring overflowed) - the only hole given
+            // up.
+            std::optional<std::uint32_t> ResendFloor;
+            std::uint32_t                LastActions = 0; // the last applied step's action set (for the log)
             // The queue as the last Step found it, BEFORE it consumed: the clock sync's measure (one waiting step
             // each server step = the client exactly on time; after consumption a punctual client reads 0).
             std::uint8_t QueuedAtStep = 0;

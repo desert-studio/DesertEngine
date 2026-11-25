@@ -11,7 +11,7 @@
 Мир Content/Scenes/WP_Protocol.desce
 Роль server server lag=75 jitter=30 loss=2 --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Character.deprefab --spawn 0,92,650 --spawn 0,92,150 --steps 1000000
 Ждать server 60 \[Server\] listening on port
-Роль B editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --shot-player-view
+Роль B editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --shot-player-view --quality PostProcess.MotionBlurQuality=0
 Ждать B 1800 \[Net\] in session
 Ждать B 600 drawn own \(-?0,-4\d\d,650\)
 # Когда: A walks the shuttle across B's view (B's pawn camera faces -Z at the segment's middle).

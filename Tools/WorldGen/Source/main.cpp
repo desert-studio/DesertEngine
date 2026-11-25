@@ -1,6 +1,7 @@
 // Thin entry point. Everything the tool does lives in RunWorldGen so the suite can drive the same path.
 
 #include <ToolMain.hpp>
+#include <LandscapeCore/Public/LandscapeWorldPartition.hpp>
 #include <ToolEngineDir.hpp>
 
 #include "WorldGenMain.hpp"
@@ -43,5 +44,6 @@ static int RunTool( int argc, char** argv )
 
 int main( int argc, char** argv )
 {
+    Desert::LandscapeCore::StartupModule(); // the landscape world-partition descriptor hooks (BUILD-MOD-6L)
     return Desert::Tools::RunMain( "WorldGen", argc, argv, &RunTool );
 }
