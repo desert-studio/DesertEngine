@@ -241,16 +241,17 @@ namespace Desert::Net
 
     // ---- gateway -----------------------------------------------------------------------------------------------
 
-    Gateway::Gateway( INetTransport& transport, IReplicationStore& store, HelloPolicy policy,
+    Gateway::Gateway( INetTransport& transport, IReplicationStore& store, GatewayAdmission admission,
                       std::uint64_t pawnPrefab, NetRelevancyGrid grid, NetLogSink log )
-         : m_Transport( transport ), m_Store( store ), m_Policy( policy ), m_PawnPrefab( pawnPrefab ),
-           m_Grid( std::move( grid ) ), m_Log( std::move( log ) )
+         : m_Transport( transport ), m_Store( store ), m_Admission( std::move( admission ) ),
+           m_PawnPrefab( pawnPrefab ), m_Grid( std::move( grid ) ), m_Log( std::move( log ) )
     {
     }
 
     void Gateway::OnConnected( ConnectionId connection, std::string_view address )
     {
-        m_Peers[connection] = {};
+        m_Peers[connection]         = {};
+        m_Peers[connection].Address = std::string( address );
         m_Log( std::format( "connection {} from {}: awaiting its Hello", connection, address ) );
     }
 
@@ -272,38 +273,51 @@ namespace Desert::Net
 
     void Gateway::Admit( ConnectionId connection, Peer& peer, std::span<const std::byte> hello )
     {
-        HelloPolicy policy         = m_Policy;
-        policy.NowUnixSeconds      = UnixSecondsNow();
-        const HelloVerdict verdict = EvaluateHello( hello, policy );
+        const HelloPolicy policy{ m_Admission.CookHash, UnixSecondsNow() };
+        HelloVerdict      verdict = EvaluateHello( hello, policy, m_Admission.Tokens );
+        // Net's checks passed: the game decides on the claims (UE AGameModeBase::PreLogin).
+        PreLoginResult login;
+        if ( verdict.Accepted )
+        {
+            login = m_Admission.Game.PreLogin(
+                 { verdict.Token.Claims, verdict.Token.Issuer, verdict.Hello.JoinOptions, peer.Address } );
+            if ( !login.Refusal.empty() )
+            {
+                verdict.Accepted = false;
+                verdict.Reason   = ERefuseReason::PreLogin;
+            }
+        }
         if ( !verdict.Accepted )
         {
             // UE PreLogin's ErrorMessage: the reason is logged here and sent to the client, which shows it.
+            const std::string text = verdict.Reason == ERefuseReason::PreLogin
+                                          ? login.Refusal
+                                          : std::string( RefuseReasonText( verdict.Reason ) );
             m_Log( std::format(
-                 "connection {}: refused - {} (client protocol {}, cook hash {:016x}, token {} bytes, "
-                 "account {}, server id {}, expiry {}; server protocol {}, cook hash {:016x}, id {}, "
-                 "now {})",
-                 connection, RefuseReasonText( verdict.Reason ), verdict.Hello.ProtocolVersion,
-                 verdict.Hello.CookHash, verdict.Hello.Token.size(), verdict.Token.Account, verdict.Token.Server,
-                 verdict.Token.ExpiresUnixSeconds, kProtocolVersion, policy.CookHash, policy.ServerId,
-                 policy.NowUnixSeconds ) );
-            m_Transport.Send( connection, EncodeRefuse( verdict.Reason ), ENetLane::Control );
-            m_Transport.Close( connection, RefuseCloseCode( verdict.Reason ), RefuseReasonText( verdict.Reason ),
-                               true );
+                 "connection {}: refused - {} (client protocol {}, cook hash {:016x}, token {} bytes, issuer {} "
+                 "key {}, audience {}, expiry {}, claims {} bytes; server protocol {}, cook hash {:016x}, "
+                 "audience {}, now {})",
+                 connection, text, verdict.Hello.ProtocolVersion, verdict.Hello.CookHash,
+                 verdict.Hello.Token.size(), verdict.Token.Issuer, verdict.Token.KeyId, verdict.Token.Audience,
+                 verdict.Token.ExpiresUnixSeconds, verdict.Token.Claims.size(), kProtocolVersion, policy.CookHash,
+                 m_Admission.Tokens.Audience(), policy.NowUnixSeconds ) );
+            m_Transport.Send( connection, EncodeRefuse( verdict.Reason, text ), ENetLane::Control );
+            m_Transport.Close( connection, RefuseCloseCode( verdict.Reason ), text, true );
             m_Peers.erase( connection );
             return;
         }
         peer.Admitted              = true;
         peer.Player                = m_NextPlayer++;
         m_Connections[peer.Player] = connection;
-        m_Transport.Send( connection, EncodeWelcome( m_Policy.CookHash, m_PawnPrefab ), ENetLane::Control );
-        m_Log( std::format( "connection {}: admitted as player {} (account {}), pawn prefab {:016x}", connection,
-                            peer.Player, verdict.Token.Account, m_PawnPrefab ) );
+        m_Transport.Send( connection, EncodeWelcome( m_Admission.CookHash, m_PawnPrefab ), ENetLane::Control );
+        m_Log( std::format( "connection {}: admitted as player {} (account {}, issuer {}), pawn prefab {:016x}",
+                            connection, peer.Player, login.Account, verdict.Token.Issuer, m_PawnPrefab ) );
         // Nothing else is relevant yet: the other pawns and the cells' stable objects follow the client's first
         // residency report (UE: actors replicate once the client has made their level visible).
         // Stable objects are NOT spawned: the new connection's baselines are empty, so the next state send carries
         // every changed field of every stable object in full (§3.4).
         if ( m_Sim != nullptr )
-            m_Sim->PlayerJoined( peer.Player, verdict.Token.Account );
+            m_Sim->PlayerJoined( peer.Player, login.Account );
     }
 
     void Gateway::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,

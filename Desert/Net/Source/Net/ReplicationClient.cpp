@@ -150,7 +150,7 @@ namespace Desert::Net
             {
                 m_State       = EState::Closed;
                 m_CloseReason = answer.Kind == HandshakeAnswer::EKind::Refuse
-                                     ? std::string( RefuseReasonText( answer.Reason ) )
+                                     ? answer.ReasonText
                                      : std::string( "malformed handshake answer" );
                 m_Log( std::format( "refused: {}", m_CloseReason ) );
             }

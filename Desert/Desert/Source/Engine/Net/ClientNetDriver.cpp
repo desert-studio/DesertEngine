@@ -192,7 +192,8 @@ namespace Desert::Core
         if ( !driver->m_Transport->SetSimulator( { options.LagMs, options.LossPercent, 0.f }, error ) )
             return Common::MakeFormattedError<Result>( "network simulator: {}", error );
         driver->m_Client = std::make_unique<Net::ReplicationClient>(
-             *driver->m_Transport, Net::HelloMessage{ Net::kProtocolVersion, CookHashOf( bytes ), *token }, log );
+             *driver->m_Transport, Net::HelloMessage{ Net::kProtocolVersion, CookHashOf( bytes ), *token, {} },
+             log );
         if ( !driver->m_Client->Connect( options.Address, error ) )
             return Common::MakeFormattedError<Result>( "connect {}: {}", options.Address, error );
         driver->m_Walking = options.WalkCm > 0.0f;

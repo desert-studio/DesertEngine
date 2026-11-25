@@ -46,7 +46,7 @@ namespace Desert::Core
     struct ClientNetOptions
     {
         std::string Address;  // --connect ip:port
-        std::string TokenHex; // --net-token: the login backend's connect token (DesertNetProbe --issue-token)
+        std::string TokenHex; // --net-token: the login backend's connect token (DesertNetProbe --mint-token)
         std::string Cooked;   // --net-cooked: the cooked world folder whose World.dwindex hash the server checks
         // --net-walk-cm D --net-walk-dir x,y,z: the scripted input of a headless run - walk until the SERVER's
         // position of the own pawn has moved D cm, then stand (DesertNetProbe --bot's walk).

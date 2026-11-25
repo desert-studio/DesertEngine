@@ -1,0 +1,12 @@
+# NET-AUTH-SPLIT pass 1: the connect token is a signed envelope (version, key id, issuer, audience, expiry, nonce,
+# claims, Ed25519 signature) verified in Net with the issuer's PUBLIC key; admission rules live in the game's
+# PreLogin (the server's game layer), which reads the opaque claims and returns accept / refuse(reason).
+# Runner: <scratch>/NET-AUTH-SPLIT/run_auth.sh (tokens minted by DesertNetProbe --mint-token with the issuer's
+# private key; DesertServer holds only the public key).
+Дано DesertServer --role all on WP_Protocol with --issuer-key <public key file> --audience <world id> + PreLogin rule "refuse account 666" from server config; DesertNetProbe clients with tokens minted by the tool, from task/NET-AUTH-SPLIT
+Когда a probe joins with a valid token
+Тогда [N-A01] auth_valid Welcome and pawn within 2 s; one Editor client frame shows its pawn in the world
+Когда probes join with an expired, a wrong-audience and a tampered-signature token, then one replays the valid token's nonce
+Тогда [N-A04] auth_refusals each one is refused with its own reason in the server log (token expired / token audience / token signature / token replayed); no pawn spawned
+Когда a probe with a valid token whose claims hit the PreLogin rule joins; then a probe of an old protocol version
+Тогда [N-A05,N-A02] auth_prelogin refused with the game's reason string; the old protocol refused with the version reason; Net holds no account rule

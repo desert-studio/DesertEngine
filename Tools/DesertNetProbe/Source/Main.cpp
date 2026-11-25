@@ -1,10 +1,14 @@
 // DesertNetProbe: the transport, its lanes and the connect handshake on loopback, without the engine.
-//   --issue-token --secret-file F --account A --server-id S --expires-in SECONDS     (prints the token as hex)
-//   --server --port P --cooked DIR --server-id S --secret-file F --clients K --refusals R
+//   --gen-issuer-keys --issuer I --key-id K --out-private F --out-public F     (a new Ed25519 issuer key pair)
+//   --mint-token --issuer-key PRIVATE_F --audience W --claims TEXT --expires-in SECONDS  (prints the token as hex;
+//            a negative expiry mints an already expired token)
+//   --server --port P --cooked DIR --audience W --issuer-key PUBLIC_F --clients K --refusals R
 //            --bulk-mb B --rpcs N [--lag-ms L --loss PCT --rate-kbps KB]
-//   --client --connect IP:P --cooked DIR --token HEX --name N [--lag-ms L --loss PCT --rate-kbps KB]
+//   --client --connect IP:P --cooked DIR --token HEX --name N [--join-options TEXT --lag-ms L --loss PCT
+//            --rate-kbps KB]
 // The cook hash is Core::CookHashOf of DIR's index (a cooked world directory, WorldCells::kIndexFileName), never a
-// literal. The issuer stands in for the login backend (NET-ARCH §8): the server checks the token offline.
+// literal. The issuer stands in for the login backend (NET-ARCH §8): it alone holds the private key; servers check
+// the token offline with the public one. This probe's server applies no game rule: it logs the claims as text.
 // After the handshake the server sends each admitted client B MB on the Bulk lane and, spread over that transfer,
 // N stamped messages on the Rpc lane and a snapshot every 50 ms on the State lane; the client measures each RPC's
 // one-way latency (both processes read the same machine's steady clock) and reports p50/p95/max back on Rpc.
@@ -129,23 +133,13 @@ namespace
         return bytes;
     }
 
-    // The server secret: a text file holding the key as hex (the login backend holds the same one).
-    std::optional<std::vector<std::byte>> ReadSecret( const std::string& path )
+    std::optional<IssuerKeyRecord> ReadKey( const std::string& path )
     {
-        std::ifstream file( path );
-        std::string   text;
-        if ( !file || !( file >> text ) )
-        {
-            Log( "secret file '{}' cannot be read", path );
-            return std::nullopt;
-        }
-        auto bytes = FromHex( text );
-        if ( !bytes || bytes->size() < kMinTokenSecretSize )
-        {
-            Log( "secret file '{}' must hold at least {} bytes as hex", path, kMinTokenSecretSize );
-            return std::nullopt;
-        }
-        return bytes;
+        std::string                    error;
+        std::optional<IssuerKeyRecord> key = ReadIssuerKeyFile( path, error );
+        if ( !key )
+            Log( "{}", error );
+        return key;
     }
 
     // The cook hash of a cooked world directory: CookHashOf its index file's bytes, as the server's CookedWorld
@@ -265,18 +259,23 @@ namespace
 
     struct Options
     {
-        bool          IssueToken = false;
+        bool          GenKeys    = false;
+        bool          MintToken  = false;
         bool          Server     = false;
         bool          Client     = false;
         std::uint16_t Port       = 27020;
         std::string   Connect;
         std::string   Name = "client";
         std::string   Cooked;
-        std::string   SecretFile;
+        std::string   IssuerKeyFile; // --mint-token: the private key; --server: the public key
         std::string   TokenHex;
-        std::uint64_t Account   = 0;
-        std::uint64_t ServerId  = 0;
-        bool          HasServer = false;
+        std::string   Claims;      // --mint-token: the game's claims, signed as they are
+        std::string   JoinOptions; // --client: the game's join options sent in the Hello
+        std::uint64_t Issuer = 0;
+        std::uint32_t KeyId  = 0;
+        std::string   OutPrivate, OutPublic;
+        std::uint64_t Audience    = 0;
+        bool          HasAudience = false;
         std::uint64_t PawnPrefab = 0; // --server: the pawn its Welcome names (an AssetHandle; no game runs here)
         std::int64_t  ExpiresIn = 0;
         bool          HasExpiry = false;
@@ -296,8 +295,10 @@ namespace
         {
             const std::string arg      = argv[i];
             const bool        hasValue = i + 1 < argc;
-            if ( arg == "--issue-token" )
-                options.IssueToken = true;
+            if ( arg == "--gen-issuer-keys" )
+                options.GenKeys = true;
+            else if ( arg == "--mint-token" )
+                options.MintToken = true;
             else if ( arg == "--server" )
                 options.Server = true;
             else if ( arg == "--client" )
@@ -310,18 +311,28 @@ namespace
                 options.Name = argv[++i];
             else if ( arg == "--cooked" && hasValue )
                 options.Cooked = argv[++i];
-            else if ( arg == "--secret-file" && hasValue )
-                options.SecretFile = argv[++i];
+            else if ( arg == "--issuer-key" && hasValue )
+                options.IssuerKeyFile = argv[++i];
+            else if ( arg == "--claims" && hasValue )
+                options.Claims = argv[++i];
+            else if ( arg == "--join-options" && hasValue )
+                options.JoinOptions = argv[++i];
+            else if ( arg == "--issuer" && hasValue )
+                options.Issuer = std::strtoull( argv[++i], nullptr, 0 );
+            else if ( arg == "--key-id" && hasValue )
+                options.KeyId = static_cast<std::uint32_t>( std::strtoul( argv[++i], nullptr, 0 ) );
+            else if ( arg == "--out-private" && hasValue )
+                options.OutPrivate = argv[++i];
+            else if ( arg == "--out-public" && hasValue )
+                options.OutPublic = argv[++i];
             else if ( arg == "--token" && hasValue )
                 options.TokenHex = argv[++i];
-            else if ( arg == "--account" && hasValue )
-                options.Account = std::strtoull( argv[++i], nullptr, 0 );
             else if ( arg == "--pawn-prefab" && hasValue )
                 options.PawnPrefab = std::strtoull( argv[++i], nullptr, 0 );
-            else if ( arg == "--server-id" && hasValue )
+            else if ( arg == "--audience" && hasValue )
             {
-                options.ServerId  = std::strtoull( argv[++i], nullptr, 0 );
-                options.HasServer = true;
+                options.Audience    = std::strtoull( argv[++i], nullptr, 0 );
+                options.HasAudience = true;
             }
             else if ( arg == "--expires-in" && hasValue )
             {
@@ -348,23 +359,28 @@ namespace
                 return std::nullopt;
             }
         }
-        const int  modes = int( options.IssueToken ) + int( options.Server ) + int( options.Client );
-        const bool ok =
-             modes == 1 &&
-             ( !options.IssueToken ||
-               ( !options.SecretFile.empty() && options.HasServer && options.HasExpiry ) ) &&
-             ( !options.Server || ( !options.Cooked.empty() && !options.SecretFile.empty() && options.HasServer &&
-                                    options.PawnPrefab != 0 && options.Rpcs > 0 && options.BulkBytes > 0 ) ) &&
-             ( !options.Client ||
-               ( !options.Cooked.empty() && !options.Connect.empty() && !options.TokenHex.empty() ) );
+        const int modes =
+             int( options.GenKeys ) + int( options.MintToken ) + int( options.Server ) + int( options.Client );
+        const bool ok = modes == 1 &&
+                        ( !options.GenKeys || ( !options.OutPrivate.empty() && !options.OutPublic.empty() ) ) &&
+                        ( !options.MintToken ||
+                          ( !options.IssuerKeyFile.empty() && options.HasAudience && options.HasExpiry ) ) &&
+                        ( !options.Server ||
+                          ( !options.Cooked.empty() && !options.IssuerKeyFile.empty() && options.HasAudience &&
+                            options.PawnPrefab != 0 && options.Rpcs > 0 && options.BulkBytes > 0 ) ) &&
+                        ( !options.Client ||
+                          ( !options.Cooked.empty() && !options.Connect.empty() && !options.TokenHex.empty() ) );
         if ( !ok )
         {
-            Log( "usage: --issue-token --secret-file F --account A --server-id S --expires-in SECONDS | "
-                 "--server --port P --cooked DIR --server-id S --secret-file F --pawn-prefab H --clients K "
+            Log( "usage: --gen-issuer-keys --issuer I --key-id K --out-private F --out-public F | "
+                 "--mint-token --issuer-key PRIVATE_F --audience W --claims TEXT --expires-in SECONDS | "
+                 "--server --port P --cooked DIR --audience W --issuer-key PUBLIC_F --pawn-prefab H --clients K "
                  "--refusals R --bulk-mb "
                  "B "
                  "--rpcs N [--lag-ms L --loss PCT --rate-kbps KB] | "
-                 "--client --connect IP:P --cooked DIR --token HEX --name N [--lag-ms L --loss PCT --rate-kbps "
+                 "--client --connect IP:P --cooked DIR --token HEX --name N [--join-options TEXT --lag-ms L "
+                 "--loss "
+                 "PCT --rate-kbps "
                  "KB]" );
             return std::nullopt;
         }
@@ -376,8 +392,8 @@ namespace
     class ProbeServer final : public INetTransportEvents
     {
     public:
-        ProbeServer( INetTransport& transport, const Options& options, std::span<const std::byte> secret )
-             : m_Transport( transport ), m_Options( options ), m_Secret( secret )
+        ProbeServer( INetTransport& transport, const Options& options, ConnectTokenVerifier tokens )
+             : m_Transport( transport ), m_Options( options ), m_Tokens( std::move( tokens ) )
         {
         }
 
@@ -421,9 +437,9 @@ namespace
             {
                 case ESessionMessage::Name:
                     peer.Name.assign( reinterpret_cast<const char*>( data.data() + 1 ), data.size() - 1 );
-                    Log( "connection {} is client {} (account {}): sending {} bytes on Bulk, {} messages on Rpc, "
+                    Log( "connection {} is client {} (claims '{}'): sending {} bytes on Bulk, {} messages on Rpc, "
                          "snapshots on State",
-                         connection, peer.Name, peer.Account, m_Options.BulkBytes, m_Options.Rpcs );
+                         connection, peer.Name, peer.Claims, m_Options.BulkBytes, m_Options.Rpcs );
                     peer.Streaming = true;
                     break;
                 case ESessionMessage::Report:
@@ -529,7 +545,7 @@ namespace
         {
             std::string                           Address;
             std::string                           Name;
-            std::uint64_t                         Account    = 0;
+            std::string                           Claims; // logged as text: this probe applies no game rule
             bool                                  Accepted   = false;
             bool                                  Streaming  = false;
             bool                                  Reported   = false;
@@ -542,37 +558,40 @@ namespace
 
         void Admit( ConnectionId connection, Peer& peer, ENetLane lane, std::span<const std::byte> data )
         {
-            const HelloPolicy  policy{ m_Options.CookHash, m_Options.ServerId, m_Secret, UnixSecondsNow() };
+            const HelloPolicy  policy{ m_Options.CookHash, UnixSecondsNow() };
             const HelloVerdict verdict =
-                 lane == ENetLane::Control ? EvaluateHello( data, policy ) : HelloVerdict{};
+                 lane == ENetLane::Control ? EvaluateHello( data, policy, m_Tokens ) : HelloVerdict{};
             if ( !verdict.Accepted )
             {
                 Log( "refused connection {} from {}: {} (client protocol {}, cook hash {:016x}, token {} bytes, "
-                     "account {}, expiry {}; server protocol {}, cook hash {:016x}, id {}, now {})",
+                     "issuer {}, audience {}, expiry {}; server protocol {}, cook hash {:016x}, audience {}, now "
+                     "{})",
                      connection, peer.Address, RefuseReasonText( verdict.Reason ), verdict.Hello.ProtocolVersion,
-                     verdict.Hello.CookHash, verdict.Hello.Token.size(), verdict.Token.Account,
-                     verdict.Token.ExpiresUnixSeconds, kProtocolVersion, m_Options.CookHash, m_Options.ServerId,
-                     policy.NowUnixSeconds );
+                     verdict.Hello.CookHash, verdict.Hello.Token.size(), verdict.Token.Issuer,
+                     verdict.Token.Audience, verdict.Token.ExpiresUnixSeconds, kProtocolVersion,
+                     m_Options.CookHash, m_Options.Audience, policy.NowUnixSeconds );
                 ++m_Refused;
-                m_Transport.Send( connection, EncodeRefuse( verdict.Reason ), ENetLane::Control );
+                m_Transport.Send( connection, EncodeRefuse( verdict.Reason, RefuseReasonText( verdict.Reason ) ),
+                                  ENetLane::Control );
                 m_Transport.Close( connection, RefuseCloseCode( verdict.Reason ),
                                    RefuseReasonText( verdict.Reason ), true );
                 m_Peers.erase( connection );
                 return;
             }
             peer.Accepted = true;
-            peer.Account  = verdict.Token.Account;
-            Log( "accepted connection {} from {}: protocol {}, cook hash {:016x}, account {} (token valid for {} "
-                 "s)",
-                 connection, peer.Address, verdict.Hello.ProtocolVersion, verdict.Hello.CookHash,
-                 verdict.Token.Account, verdict.Token.ExpiresUnixSeconds - policy.NowUnixSeconds );
+            peer.Claims.assign( reinterpret_cast<const char*>( verdict.Token.Claims.data() ),
+                                verdict.Token.Claims.size() );
+            Log( "accepted connection {} from {}: protocol {}, cook hash {:016x}, claims '{}', join options '{}' "
+                 "(token valid for {} s)",
+                 connection, peer.Address, verdict.Hello.ProtocolVersion, verdict.Hello.CookHash, peer.Claims,
+                 verdict.Hello.JoinOptions, verdict.Token.ExpiresUnixSeconds - policy.NowUnixSeconds );
             m_Transport.Send( connection, EncodeWelcome( m_Options.CookHash, m_Options.PawnPrefab ),
                               ENetLane::Control );
         }
 
         INetTransport&               m_Transport;
         const Options&               m_Options;
-        std::span<const std::byte>   m_Secret;
+        ConnectTokenVerifier         m_Tokens;
         std::map<ConnectionId, Peer> m_Peers;
         int                          m_Completed = 0;
         int                          m_Refused   = 0;
@@ -593,8 +612,10 @@ namespace
         {
             Log( "connected to {} (connection {}): sending hello, protocol {}, cook hash {:016x}, token {} bytes",
                  address, connection, kProtocolVersion, m_Options.CookHash, m_Token.size() );
-            m_Transport.Send( connection, EncodeHello( { kProtocolVersion, m_Options.CookHash, m_Token } ),
-                              ENetLane::Control );
+            m_Transport.Send(
+                 connection,
+                 EncodeHello( { kProtocolVersion, m_Options.CookHash, m_Token, m_Options.JoinOptions } ),
+                 ENetLane::Control );
         }
 
         void OnClosed( ConnectionId, const DisconnectInfo& info ) override
@@ -691,12 +712,11 @@ namespace
             }
             else if ( answer.Kind == HandshakeAnswer::EKind::Refuse )
             {
-                Log( "refused by server: {}", RefuseReasonText( answer.Reason ) );
+                Log( "refused by server: {}", answer.ReasonText );
                 m_Refused = true;
                 m_Result  = 2;
                 // The server closes too; closing here ends the attempt now instead of at the transport timeout.
-                m_Transport.Close( connection, RefuseCloseCode( answer.Reason ), RefuseReasonText( answer.Reason ),
-                                   false );
+                m_Transport.Close( connection, RefuseCloseCode( answer.Reason ), answer.ReasonText, false );
                 m_Closed = true;
             }
             else
@@ -762,19 +782,39 @@ namespace
         std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
     }
 
-    int IssueToken( const Options& options )
+    int GenerateKeys( const Options& options )
     {
-        const auto secret = ReadSecret( options.SecretFile );
-        if ( !secret )
+        IssuerKeyRecord privateKey, publicKey;
+        std::string     error;
+        if ( !GenerateIssuerKeys( options.Issuer, options.KeyId, privateKey, publicKey, error ) ||
+             !WriteIssuerKeyFile( options.OutPrivate, privateKey, error ) ||
+             !WriteIssuerKeyFile( options.OutPublic, publicKey, error ) )
+        {
+            Log( "issuer keys: {}", error );
             return 1;
-        const ConnectToken token{
-             options.Account, options.ServerId,
-             static_cast<std::uint64_t>( static_cast<std::int64_t>( UnixSecondsNow() ) + options.ExpiresIn ) };
+        }
+        Log( "issuer {} key {}: private key '{}' (the issuer only), public key '{}' (the servers)", options.Issuer,
+             options.KeyId, options.OutPrivate, options.OutPublic );
+        return 0;
+    }
+
+    int MintToken( const Options& options )
+    {
+        const std::optional<IssuerKeyRecord> key = ReadKey( options.IssuerKeyFile );
+        if ( !key )
+            return 1;
+        ConnectToken token;
+        token.Audience           = options.Audience;
+        token.IssuedUnixSeconds  = UnixSecondsNow();
+        token.ExpiresUnixSeconds = static_cast<std::uint64_t>(
+             static_cast<std::int64_t>( token.IssuedUnixSeconds ) + options.ExpiresIn );
+        token.Claims.assign( reinterpret_cast<const std::byte*>( options.Claims.data() ),
+                             reinterpret_cast<const std::byte*>( options.Claims.data() ) + options.Claims.size() );
         std::string            error;
-        std::vector<std::byte> bytes = IssueConnectToken( token, *secret, error );
+        std::vector<std::byte> bytes = MintConnectToken( token, *key, error );
         if ( bytes.empty() )
         {
-            Log( "issue token: {}", error );
+            Log( "mint token: {}", error );
             return 1;
         }
         std::printf( "%s\n", ToHex( bytes ).c_str() );
@@ -796,7 +836,9 @@ namespace
     // a final line per pawn with its displacement from where this client first saw it.
     int RunBot( int argc, char** argv )
     {
-        std::string connect, cooked, tokenHex, name = "bot";
+        std::string connect, cooked, tokenHex, name = "bot", joinOptions;
+        // --protocol: a client of another protocol version (NET-AUTH-SPLIT N-A02: the server refuses it first).
+        std::uint32_t        protocol = kProtocolVersion;
         double      seconds = 10.0, walkCm = 0.0, turnDegPerSecond = 0.0;
         NetVec3     dir{ 1.f, 0.f, 0.f };
         std::vector<NetVec3> waypoints;
@@ -819,6 +861,10 @@ namespace
                 cooked = value;
             else if ( arg == "--token" )
                 tokenHex = value;
+            else if ( arg == "--join-options" )
+                joinOptions = value;
+            else if ( arg == "--protocol" )
+                protocol = static_cast<std::uint32_t>( std::strtoul( value.c_str(), nullptr, 10 ) );
             else if ( arg == "--name" )
                 name = value;
             else if ( arg == "--seconds" )
@@ -870,7 +916,8 @@ namespace
         if ( connect.empty() || cooked.empty() || !token || seconds <= 0.0 )
         {
             Log( "usage: --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir "
-                 "x,y,z --turn-deg-s R] [--waypoints x,y,z;x,y,z...] [--lag-ms L --loss P]" );
+                 "x,y,z --turn-deg-s R] [--waypoints x,y,z;x,y,z...] [--lag-ms L --loss P] [--join-options TEXT] "
+                 "[--protocol V]" );
             return 1;
         }
         const std::optional<std::uint64_t> cookHash = ReadCookHash( cooked );
@@ -888,7 +935,7 @@ namespace
             Log( "[{}] transport: {}", name, error );
             return 1;
         }
-        ReplicationClient client( *transport, { kProtocolVersion, *cookHash, *token }, log );
+        ReplicationClient client( *transport, { protocol, *cookHash, *token, joinOptions }, log );
         if ( !client.Connect( connect, error ) )
         {
             Log( "[{}] connect {}: {}", name, connect, error );
@@ -1019,8 +1066,10 @@ int main( int argc, char** argv )
     std::optional<Options> options = ParseOptions( argc, argv );
     if ( !options )
         return 1;
-    if ( options->IssueToken )
-        return IssueToken( *options );
+    if ( options->GenKeys )
+        return GenerateKeys( *options );
+    if ( options->MintToken )
+        return MintToken( *options );
 
     const std::optional<std::uint64_t> cookHash = ReadCookHash( options->Cooked );
     if ( !cookHash )
@@ -1051,8 +1100,8 @@ int main( int argc, char** argv )
 
     if ( options->Server )
     {
-        const auto secret = ReadSecret( options->SecretFile );
-        if ( !secret )
+        const std::optional<IssuerKeyRecord> issuerKey = ReadKey( options->IssuerKeyFile );
+        if ( !issuerKey )
             return 1;
         if ( !transport->Listen( options->Port, error ) )
         {
@@ -1061,9 +1110,9 @@ int main( int argc, char** argv )
         }
         Log( "server {} listening on UDP {}: protocol {}, cooked world '{}' cook hash {:016x}; expecting {} "
              "client(s) and {} refusal(s)",
-             options->ServerId, options->Port, kProtocolVersion, options->Cooked, options->CookHash,
+             options->Audience, options->Port, kProtocolVersion, options->Cooked, options->CookHash,
              options->Clients, options->Refusals );
-        ProbeServer server( *transport, *options, *secret );
+        ProbeServer server( *transport, *options, ConnectTokenVerifier( { *issuerKey }, options->Audience ) );
         while ( !server.Done() && std::chrono::steady_clock::now() < deadline )
             Pump( *transport, server );
         if ( !server.Done() )
