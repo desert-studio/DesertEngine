@@ -24,8 +24,8 @@
 
 #include "ServerWorld.hpp"
 
-#include <Engine/Net/PawnPrefabMovement.hpp>
-#include <Net/PhysicsPawnMoveWorld.hpp>
+#include <Engine/Gameplay/PawnPrefabMovement.hpp>
+#include <Engine/Gameplay/PhysicsPawnMoveWorld.hpp>
 #include <PhysicsCore/CollisionProfiles.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <Common/Core/Constants.hpp>
@@ -74,15 +74,25 @@ namespace Desert::Server
 {
     namespace
     {
+        std::string JoinActionNames( const Gameplay::PawnActions& actions )
+        {
+            std::string text;
+            for ( std::size_t i = 0; i < actions.Names.size(); ++i )
+                text += std::format( "{}{}#{}", i == 0 ? "" : " ", actions.Names[i], i );
+            return text;
+        }
+
         // THE SERVER'S COLLISION WORLD (UE dedicated server: the same collision as the client): a PhysicsWorld on
         // the project's collision profiles, with the probe capsule the pawns move through (PhysicsPawnMoveWorld).
         struct ServerCollision
         {
             std::unique_ptr<Physics::PhysicsWorld>     Physics;
-            std::unique_ptr<Net::PhysicsPawnMoveWorld> PawnMove;
-            Net::PawnMoveSettings                      Movement; // the pawn's, the capsule PawnMove sweeps
+            std::unique_ptr<Gameplay::PhysicsPawnMoveWorld> PawnMove;
+            // THE GAME'S MOVEMENT the simulation calls (Net::IPawnMover): the pawn prefab's settings and declared
+            // actions over PawnMove - the same step the clients predict with.
+            std::unique_ptr<Gameplay::CharacterPawnMover> Mover;
         };
-        Common::ResultStr<ServerCollision> MakeServerCollision( const Net::PawnMoveSettings& movement )
+        Common::ResultStr<ServerCollision> MakeServerCollision( const Gameplay::PawnMovement& pawn )
         {
             auto profiles = Physics::CollisionProfiles::Read( Common::Constants::Path::PROJECT_CONFIG_PATH /
                                                               Physics::kCollisionProfilesFileName );
@@ -91,24 +101,29 @@ namespace Desert::Server
                      std::format( "collision profiles: {}", profiles.GetError() ) );
             ServerCollision collision;
             collision.Physics = std::make_unique<Physics::PhysicsWorld>();
+            const Gameplay::PawnMoveSettings& movement = pawn.Settings;
             if ( !collision.Physics->Init( movement.Gravity, std::move( profiles.GetValue() ) ) )
                 return Common::MakeError<ServerCollision>( std::string( "the physics world did not initialise" ) );
-            auto pawnMove = Net::PhysicsPawnMoveWorld::Create( *collision.Physics, movement );
+            auto pawnMove = Gameplay::PhysicsPawnMoveWorld::Create( *collision.Physics, movement );
             if ( !pawnMove )
                 return Common::MakeError<ServerCollision>( pawnMove.GetError() );
             collision.PawnMove = pawnMove.ExtractValue();
-            collision.Movement = movement;
+            collision.Mover    = std::make_unique<Gameplay::CharacterPawnMover>( pawn, *collision.PawnMove );
+            LOG_INFO( "[Server] pawn movement: walk {:.0f} cm/s, sprint {:.0f} cm/s; declared actions {}",
+                      movement.MaxWalkSpeed, movement.MaxSprintSpeed,
+                      pawn.Actions.Names.empty() ? std::string( "none" )
+                                                 : std::format( "[{}]", JoinActionNames( pawn.Actions ) ) );
             return Common::MakeSuccess( std::move( collision ) );
         }
 
         // THE PAWN'S MOVEMENT (UE: the DefaultPawnClass's CharacterMovement): the --pawn prefab's CharacterController,
-        // read as every client reads it (Engine/Net/PawnPrefabMovement.hpp). No --pawn (a server without players):
+        // read as every client reads it (Engine/Gameplay/PawnPrefabMovement.hpp). No --pawn (a server without players):
         // no pawn moves, and the collision world takes the default gravity only.
-        Common::ResultStr<Net::PawnMoveSettings> PawnMovementOf( const std::string& pawn )
+        Common::ResultStr<Gameplay::PawnMovement> PawnMovementOf( const std::string& pawn )
         {
             if ( pawn.empty() )
-                return Common::MakeSuccess( Net::PawnMoveSettings{} );
-            return Net::PrefabMovement::ReadPawnPrefabMovement( Common::AssetHandle::PathForStableKey( pawn ) );
+                return Common::MakeSuccess( Gameplay::PawnMovement{} );
+            return Gameplay::PrefabMovement::ReadPawnPrefabMovement( Common::AssetHandle::PathForStableKey( pawn ) );
         }
 
         // The collision world of a sim: the pawn's movement and the project's profiles (MakeServerCollision).
@@ -925,10 +940,9 @@ namespace Desert::Server
             std::unique_ptr<ServerWorld>  server = begun.ExtractValue();
             Net::RemoteGatewayLink        gatewayLink( endpoint, netLog );
             Net::PawnSimulation::Settings simSettings;
-            simSettings.Movement = pawnCollision.Movement;
             for ( const glm::vec3& spawn : options.spawns )
                 simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
-            Net::PawnSimulation sim( replica, gatewayLink, *pawnCollision.PawnMove, std::move( simSettings ), netLog );
+            Net::PawnSimulation sim( replica, gatewayLink, *pawnCollision.Mover, std::move( simSettings ), netLog );
             Net::SimHandover    handover( endpoint, options.index, netLog );
             replica.TrackProxies();
             std::uint32_t lastStep = 0;
@@ -1167,8 +1181,7 @@ namespace Desert::Server
                 Net::PawnSimulation::Settings simSettings;
                 for ( const glm::vec3& spawn : options.spawns )
                     simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
-                simSettings.Movement = collision.Movement;
-                sim       = std::make_unique<Net::PawnSimulation>( *store, *gateway, *collision.PawnMove,
+                sim       = std::make_unique<Net::PawnSimulation>( *store, *gateway, *collision.Mover,
                                                                    std::move( simSettings ), netLog );
                 gateway->Bind( *sim );
                 LOG_INFO(

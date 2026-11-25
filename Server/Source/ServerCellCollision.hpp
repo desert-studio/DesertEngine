@@ -6,7 +6,7 @@
 //   - Collider + RigidBody (static): ECS::PhysicsECSSystem's body, at the record's world pose;
 //   - LandscapeTile: ECS::LandscapeCollision's heightfield (World/Landscape/LandscapeCollisionShape), framed by
 //     the tile's Landscape root record (LandscapeTileFrame).
-// The pawns move through this world (Net::PhysicsPawnMoveWorld). Bodies leave with their records (Destroy).
+// The pawns move through this world (Gameplay::PhysicsPawnMoveWorld). Bodies leave with their records (Destroy).
 
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>

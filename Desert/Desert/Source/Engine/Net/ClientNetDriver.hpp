@@ -13,7 +13,7 @@
 // send this client's input on the fixed 60 Hz net step - the own pawn's CharacterControllerComponent::MoveInput
 // resolved against the view (the same basis PhysicsECSSystem uses), or the scripted walk (--net-walk-cm, the
 // headless proof). NET-4: the own pawn is PREDICTED - every input step is simulated here as it is sent (Net::
-// MovePredictor, the server runs the same Net::StepPawnMove) and reconciled against the server's acked state.
+// MovePredictor over the game's Gameplay::CharacterPawnMover, the one the server runs) and reconciled against the server's acked state.
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
@@ -36,8 +36,15 @@ namespace Desert::Net
     class INetTransport;
     class ReplicationClient;
     struct PawnState;
-    class IPawnMoveWorld;
+    struct InputStep;
+    class IPawnMover;
 } // namespace Desert::Net
+
+namespace Desert::Gameplay
+{
+    class ScriptedPawnInput; // Engine/Gameplay/ScriptedPawnInput.hpp: the header stays free of Net's (the editor's
+                             // modules include it without Desert/Net's include path)
+} // namespace Desert::Gameplay
 
 namespace Desert::Core
 {
@@ -122,14 +129,15 @@ namespace Desert::Core
         // the streamer, which destroys them and never makes them again.
         void      ReportResidency( Scene& scene );
         void      ApplyStableDestroyed( Scene& scene );
-        glm::vec3 InputMove( Scene& scene );
-        std::uint8_t InputButtons( Scene& scene );
+        // This step's input: the move intent and the pawn's declared action set (Gameplay::PawnActions) - from the
+        // scripted source when the options give one, else from the local player's pawn.
+        Net::InputStep NextInput( Scene& scene );
         // NET-4 (§5.1): the server's newest state for the own pawn against the saved moves; a correction moves the
         // simulation at once and the drawn pawn by a decaying offset (UE smoothed ClientAdjustPosition).
         void ReconcileOwnPawn( Scene& scene );
         // The collision world the own pawn is predicted in: the physics world of the scene this driver ticks
         // (UE: the CharacterMovement of the pawn's own UWorld). Null, said once, while that scene runs none.
-        Net::IPawnMoveWorld*    PredictionWorld( Scene& scene );
+        Net::IPawnMover*        PredictionMover( Scene& scene );
         [[nodiscard]] glm::vec3 OwnDrawnPosition() const;
 
         ClientNetOptions                        m_Options;
@@ -142,7 +150,8 @@ namespace Desert::Core
         std::vector<std::uint64_t>              m_StableDestroyed; // waiting for the streamer to exist
         std::vector<std::uint32_t> m_AcknowledgedUnits;            // the server's cell acknowledgements, likewise
         std::optional<glm::vec3>                m_OwnFirstServerPosition;
-        bool                                    m_Walking   = false;
+        // The scripted input source (--net-walk*: a test client's hands), or none: the local player's input.
+        std::unique_ptr<Gameplay::ScriptedPawnInput> m_Script;
         bool                                    m_InSession = false;
         // The server's pawn prefab as THIS client's AssetManager knows it (LoadPawnPrefab); null until it loaded.
         Assets::AssetHandle                     m_PawnPrefab = Assets::AssetHandle::Null();
@@ -165,7 +174,7 @@ namespace Desert::Core
         struct Prediction;
         std::shared_ptr<Prediction> m_Prediction;
         glm::vec3                   m_SmoothOffset{ 0.0f };
-        double                      m_ServerQueue = 1.0, m_Dilation = 1.0, m_NextJump = 0.0;
+        double                      m_ServerQueue = 1.0, m_Dilation = 1.0;
         // The clock sync's window: the fewest input steps the server held over it, and when it closes.
         double m_QueueWindowMin = 1e9, m_QueueWindowEnd = 0.0;
     };

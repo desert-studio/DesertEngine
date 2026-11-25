@@ -123,8 +123,9 @@ function(_desert_engine_module_library name)
         target_link_libraries(${target} PRIVATE ${DESERT_OPTICK} ${_thirdparty_default})
     endif()
 
-    # Engine's client net driver (Engine/Net/ClientNetDriver: Play as a network client) runs Desert/Net's session.
-    if(name STREQUAL "Engine")
+    # Engine's client net driver (Engine/Net/ClientNetDriver: Play as a network client) runs Desert/Net's session;
+    # Core's Gameplay (Engine/Gameplay: the pawn's movement step) is the Net::IPawnMover the session calls.
+    if(name STREQUAL "Engine" OR name STREQUAL "Core")
         target_link_libraries(${target} PRIVATE DesertNet)
     endif()
     desert_config_platform_defines(${target})

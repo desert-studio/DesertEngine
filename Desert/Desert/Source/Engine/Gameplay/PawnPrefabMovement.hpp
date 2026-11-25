@@ -3,12 +3,12 @@
 // THE PAWN'S MOVEMENT SETTINGS FROM ITS PREFAB (UE: ACharacter's UCharacterMovementComponent + CapsuleComponent,
 // read from the DefaultPawnClass on the server and on every client). The prefab's root CharacterController block
 // is the one source: the dedicated server (which links no Engine library) and the client's prediction both read
-// the .deprefab through this header, so both sides step the same capsule with the same numbers. Header-only for
-// that reason: the server compiles it against Core, the client against Engine.
+// the .deprefab through this header, so both sides step the same capsule with the same numbers and read the same
+// declared action set (CharacterMoveStep.hpp PawnActions). Gameplay, module Core: the server and Engine link it.
 
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Physics/CharacterControllerComponent.hpp>
-#include <Net/PawnMovement.hpp>
+#include <Engine/Gameplay/CharacterMoveStep.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Json/Json.hpp>
@@ -19,7 +19,7 @@
 #include <optional>
 #include <vector>
 
-namespace Desert::Net::PrefabMovement
+namespace Desert::Gameplay::PrefabMovement
 {
     // The keys of a CharacterController block the movement reads. The block states only what differs from
     // ECS::CharacterControllerData's defaults, so an absent key is that default (not a second copy of it here).
@@ -28,6 +28,7 @@ namespace Desert::Net::PrefabMovement
         std::optional<float> Radius;
         std::optional<float> Height;
         std::optional<float> MaxWalkSpeed;
+        std::optional<float> MaxSprintSpeed;
         std::optional<float> MaxAcceleration;
         std::optional<float> BrakingDecelerationWalking;
         std::optional<float> GroundFriction;
@@ -35,6 +36,8 @@ namespace Desert::Net::PrefabMovement
         std::optional<float> JumpZVelocity;
         std::optional<float> AirControl;
         std::optional<float> GravityScale;
+        std::optional<std::string> JumpAction;
+        std::optional<std::string> SprintAction;
     };
     DESERT_JSON_PARTIAL( CharacterControllerRecord,
                          "a .deprefab record's CharacterController block (ECS::CharacterControllerData)" );
@@ -50,6 +53,7 @@ namespace Desert::Net::PrefabMovement
     {
         PawnMoveSettings settings;
         settings.MaxWalkSpeed               = controller.MaxWalkSpeed;
+        settings.MaxSprintSpeed             = controller.MaxSprintSpeed;
         settings.MaxAcceleration            = controller.MaxAcceleration;
         settings.BrakingDecelerationWalking = controller.BrakingDecelerationWalking;
         settings.GroundFriction             = controller.GroundFriction;
@@ -62,13 +66,18 @@ namespace Desert::Net::PrefabMovement
         return settings;
     }
 
+    [[nodiscard]] inline PawnMovement ToPawnMovement( const ECS::CharacterControllerData& controller )
+    {
+        return PawnMovement{ ToPawnMoveSettings( controller ), PawnActionsOf( controller ) };
+    }
+
     // The movement of the pawn prefab at @p prefabFile: its first record with a CharacterController block (the
     // pawn's root). A prefab with none is refused by name - a pawn that has no movement is not a pawn.
-    [[nodiscard]] inline Common::ResultStr<PawnMoveSettings> ReadPawnPrefabMovement( const std::filesystem::path& prefabFile )
+    [[nodiscard]] inline Common::ResultStr<PawnMovement> ReadPawnPrefabMovement( const std::filesystem::path& prefabFile )
     {
         auto prefab = Common::Json::ReadFile<PrefabRecords>( prefabFile );
         if ( !prefab )
-            return Common::MakeError<PawnMoveSettings>(
+            return Common::MakeError<PawnMovement>(
                  std::format( "pawn prefab '{}': {}", prefabFile.string(), prefab.GetError() ) );
         for ( const Assets::EntityData& record : prefab.GetValue().Entities )
         {
@@ -77,11 +86,11 @@ namespace Desert::Net::PrefabMovement
                 continue;
             auto read = Common::Json::Read<CharacterControllerRecord>( Common::Json::Write( block.value() ) );
             if ( !read )
-                return Common::MakeError<PawnMoveSettings>( std::format(
+                return Common::MakeError<PawnMovement>( std::format(
                      "pawn prefab '{}': CharacterController: {}", prefabFile.string(), read.GetError() ) );
             const CharacterControllerRecord& stated = read.GetValue();
             ECS::CharacterControllerData     controller;
-            const auto take = []( float& field, const std::optional<float>& value )
+            const auto take = []<typename T>( T& field, const std::optional<T>& value )
             {
                 if ( value )
                     field = *value;
@@ -89,6 +98,7 @@ namespace Desert::Net::PrefabMovement
             take( controller.Radius, stated.Radius );
             take( controller.Height, stated.Height );
             take( controller.MaxWalkSpeed, stated.MaxWalkSpeed );
+            take( controller.MaxSprintSpeed, stated.MaxSprintSpeed );
             take( controller.MaxAcceleration, stated.MaxAcceleration );
             take( controller.BrakingDecelerationWalking, stated.BrakingDecelerationWalking );
             take( controller.GroundFriction, stated.GroundFriction );
@@ -96,9 +106,11 @@ namespace Desert::Net::PrefabMovement
             take( controller.JumpZVelocity, stated.JumpZVelocity );
             take( controller.AirControl, stated.AirControl );
             take( controller.GravityScale, stated.GravityScale );
-            return Common::MakeSuccess( ToPawnMoveSettings( controller ) );
+            take( controller.JumpAction, stated.JumpAction );
+            take( controller.SprintAction, stated.SprintAction );
+            return Common::MakeSuccess( ToPawnMovement( controller ) );
         }
-        return Common::MakeError<PawnMoveSettings>(
+        return Common::MakeError<PawnMovement>(
              std::format( "pawn prefab '{}' has no record with a CharacterController", prefabFile.string() ) );
     }
-} // namespace Desert::Net::PrefabMovement
+} // namespace Desert::Gameplay::PrefabMovement

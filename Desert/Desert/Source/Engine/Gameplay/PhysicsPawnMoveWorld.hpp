@@ -1,6 +1,6 @@
 #pragma once
 
-// THE OWN CHARACTER'S COLLISION WORLD, ONE IMPLEMENTATION FOR BOTH SIDES (PawnMovement.hpp IPawnMoveWorld).
+// THE OWN CHARACTER'S COLLISION WORLD, ONE IMPLEMENTATION FOR BOTH SIDES (CharacterMoveStep.hpp IPawnMoveWorld).
 //
 // A Jolt CharacterVirtual in a PhysicsWorld (PhysicsCore) moves the capsule: walls slide it, steps and slopes up
 // to the walkable angle carry it, a floor under it grounds it (UE SafeMoveUpdatedComponent + FindFloor). The
@@ -11,10 +11,10 @@
 // One probe character serves every pawn: each move places it at the pawn's feet first, so the result is a
 // function of (state, velocity, world) alone - what the client's replay and the server's step both require.
 //
-// Header-only on purpose: DesertNet is physics-free (the mesh roles, the wire); the two executables that move
-// pawns (DesertServer, the engine's ClientNetDriver) link PhysicsCore and include this.
+// Gameplay (module Core, PhysicsCore below it): DesertNet stays physics- and game-free (the mesh roles, the wire);
+// the server and the engine's ClientNetDriver build their Gameplay::CharacterPawnMover over this world.
 
-#include <Net/PawnMovement.hpp>
+#include <Engine/Gameplay/CharacterMoveStep.hpp>
 #include <PhysicsCore/CollisionProfiles.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 
@@ -23,7 +23,7 @@
 #include <format>
 #include <memory>
 
-namespace Desert::Net
+namespace Desert::Gameplay
 {
     class PhysicsPawnMoveWorld final : public IPawnMoveWorld
     {
@@ -82,4 +82,4 @@ namespace Desert::Net
         Physics::PhysicsWorld&   m_World;
         Physics::CharacterHandle m_Character;
     };
-} // namespace Desert::Net
+} // namespace Desert::Gameplay

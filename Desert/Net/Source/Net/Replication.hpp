@@ -42,7 +42,7 @@ namespace Desert::Net
     // and waits for a missing one, so a lost packet's steps must come again: the window covers the round trip plus
     // one slow frame's burst of steps (0.53 s at 60 Hz). A step older than the window is given up by the server.
     inline constexpr int kInputRedundancy = 32;
-    // One input step's length - the move both the server and the predicting client simulate (PawnMovement.hpp).
+    // One input step's length - the move both the server and the predicting client simulate (the game's Net::IPawnMover, MovePrediction.hpp).
     inline constexpr float kNetStepSeconds = static_cast<float>( 1.0 / kNetStepHz );
     // Snapshots go out every second step: 30 Hz per connection (§2). A project setting once §3.6 lands.
     inline constexpr int kSnapshotEverySteps = 2;
@@ -76,18 +76,24 @@ namespace Desert::Net
         float X = 0.f, Y = 0.f, Z = 0.f;
     };
 
-    // One fixed step of a player's input: the world-space direction the player asks to move in (length 0..1,
-    // already turned by its view on the client) and the yaw it faces, in degrees.
-    // InputStep::Buttons (UE FSavedMove_Character compressed flags): held / pressed this step.
-    inline constexpr std::uint8_t kInputSprint = 1u << 0;
-    inline constexpr std::uint8_t kInputJump   = 1u << 1; // pressed: a jump starts on this step when grounded
+    // One fixed step of a player's input. Net numbers it, carries it, acks it and resends it; it never reads what
+    // it says. Move and Yaw are the pawn's movement intent (UE ServerMove's Acceleration + View; Mover's
+    // MoveInput + OrientationIntent): the world-space direction the player asks to move in (length 0..1, already
+    // turned by its view on the client) and the yaw it faces, in degrees. Everything else is the PAWN'S DECLARED
+    // ACTION SET, opaque here (Mover 2.0: the game declares the input struct the net layer carries): bit i of
+    // Actions is the pawn's i-th declared digital action, Axes[j] its j-th declared analog one - the game's
+    // movement (Engine/Gameplay/PawnActions.hpp) names them and maps them to what they do. There is no sprint or
+    // jump here: a pawn that declares a new action sends it without a change to this file.
+    inline constexpr std::size_t kMaxInputActions = 32; // the bits of InputStep::Actions
+    inline constexpr std::size_t kMaxInputAxes    = 8;
 
     struct InputStep
     {
-        std::uint32_t Step = 0; // the client's fixed-step number
-        NetVec3       Move;
-        float         Yaw     = 0.f;
-        std::uint8_t  Buttons = 0;
+        std::uint32_t      Step = 0; // the client's fixed-step number
+        NetVec3            Move;
+        float              Yaw     = 0.f;
+        std::uint32_t      Actions = 0;
+        std::vector<float> Axes; // at most kMaxInputAxes
     };
 
     struct InputMessage
@@ -113,7 +119,7 @@ namespace Desert::Net
         std::uint8_t TeleportCount = 0;
     };
 
-    // The own character's whole movement state (PawnMovement.hpp): what the server sends back for the acked input
+    // The own character's whole movement state (Net::IPawnMover): what the server sends back for the acked input
     // step so the predicting client can compare and replay (UE ClientAdjustPosition's location + velocity + base +
     // movement mode). Raw floats on the wire - the client compares them with its own, bit-exact path.
     struct PawnMoveState

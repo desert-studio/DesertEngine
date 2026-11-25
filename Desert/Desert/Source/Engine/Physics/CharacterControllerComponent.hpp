@@ -49,6 +49,11 @@ namespace Desert::ECS
                   Summary )
         float MaxWalkSpeed = 600.0f;
 
+        // The ground speed while the pawn's Sprint Action is held (a game's sprint; UE games raise MaxWalkSpeed).
+        PROPERTY( DisplayName( "Max Sprint Speed" ), Category( "Walking" ), Range( 0.0f, 5000.0f ),
+                  Units( "cm/s" ) )
+        float MaxSprintSpeed = 1000.0f;
+
         // UE MaxAcceleration: how fast input changes the velocity (ground; times Air Control in the air).
         PROPERTY( DisplayName( "Max Acceleration" ), Category( "Walking" ), Range( 0.0f, 20000.0f ),
                   Units( "cm/s2" ) )
@@ -95,6 +100,16 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Max Swim Speed" ), Category( "Swimming" ), Range( 0.0f, 5000.0f ),
                   Units( "cm/s" ) )
         float MaxSwimSpeed = 300.0f;
+
+        // THE PAWN'S DECLARED ACTIONS the movement reads, by Enhanced Input action name (UE: the pawn's
+        // SetupPlayerInputComponent bindings; Mover 2.0: the game's input struct). In this order they are the
+        // pawn's replicated action set (Engine/Gameplay/CharacterMoveStep.hpp PawnActions): a network input step
+        // carries them as bits and the server's step reads them by these names. Empty: the pawn has no such action.
+        PROPERTY( DisplayName( "Jump Action" ), Category( "Input" ) )
+        std::string JumpAction = "IA_Jump";
+
+        PROPERTY( DisplayName( "Sprint Action" ), Category( "Input" ) )
+        std::string SprintAction = "IA_Sprint";
 
         // The capsule's profile in Config/CollisionProfiles.json (UE: the capsule's Collision Presets, "Pawn").
         PROPERTY( DisplayName( "Collision Profile" ), Category( "Collision" ) )
