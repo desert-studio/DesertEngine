@@ -14,7 +14,8 @@ namespace Desert::Net
         constexpr float kMaxPositionErrorSquared = 3.0f * 3.0f; // UE MAXPOSITIONERRORSQUARED: 3 cm
         constexpr float kMaxVelocityErrorSquared = 10.0f * 10.0f;
         return distanceSquared( a.Position, b.Position ) > kMaxPositionErrorSquared ||
-               distanceSquared( a.Velocity, b.Velocity ) > kMaxVelocityErrorSquared || a.Grounded != b.Grounded;
+               distanceSquared( a.Velocity, b.Velocity ) > kMaxVelocityErrorSquared || a.Grounded != b.Grounded ||
+               a.Mode != b.Mode;
     }
 
     void MovePredictor::Reset( const PawnMoveState& state )

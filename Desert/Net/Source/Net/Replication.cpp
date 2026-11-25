@@ -193,7 +193,7 @@ namespace Desert::Net
             out.Vec( message.OwnState.Position );
             out.Vec( message.OwnState.Velocity );
             out.F32( message.OwnState.Yaw );
-            out.U8( message.OwnState.Grounded ? 1 : 0 );
+            out.U8( MoveFlagsOf( message.OwnState ) );
             out.U8( message.InputBuffered );
         }
         out.U32( static_cast<std::uint32_t>( message.Pawns.size() ) );
@@ -263,10 +263,9 @@ namespace Desert::Net
         {
             std::uint8_t grounded = 0;
             if ( !in.Vec( message.OwnState.Position ) || !in.Vec( message.OwnState.Velocity ) ||
-                 !in.F32( message.OwnState.Yaw ) || !in.U8( grounded ) || grounded > 1 ||
-                 !in.U8( message.InputBuffered ) )
+                 !in.F32( message.OwnState.Yaw ) || !in.U8( grounded ) || !in.U8( message.InputBuffered ) )
                 return std::nullopt;
-            message.OwnState.Grounded = grounded == 1;
+            SetMoveFlags( message.OwnState, grounded );
         }
         if ( !in.U32( count ) || count > kMaxSnapshotPawns )
             return std::nullopt;

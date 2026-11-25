@@ -7,11 +7,15 @@
 // THIS module is that mover. It lives in the module Core (render-free), which both the editor's client and
 // DesertServer link, so the server steps the pawn and the client predicts it with one compiled step.
 //
-// StepPawnMove is the one movement step both sides run: the server for every input step it receives (and only
-// then - a pawn whose input has not arrived holds, so the state after step N is a function of the inputs up to
-// N alone), the client for every input step it sends. Same inputs, same float path, same state: the client's
-// prediction matches the server bit for bit unless something only the server knows happened (a teleport, a lost
-// input, another authority's push) - then Net::MovePredictor takes the server's state and replays.
+// StepPawnMove is the one movement step every side runs - standalone Play (ECS::CharacterMovement::Step over the
+// pawn's own capsule), the server and the client's prediction (UE: one
+// UCharacterMovementComponent::PerformMovement for standalone, authority and autonomous proxy). Walking, falling,
+// crouch, swimming and root motion all live in it: StepPawnMove is the one movement step both sides of a session
+// run: the server for every input step it receives (and only then - a pawn whose input has not arrived holds, so
+// the state after step N is a function of the inputs up to N alone), the client for every input step it sends.
+// Same inputs, same float path, same state: the client's prediction matches the server bit for bit unless
+// something only the server knows happened (a teleport, a lost input, another authority's push) - then
+// Net::MovePredictor takes the server's state and replays.
 //
 // The math is UE's CharacterMovementComponent walking / falling (CalcVelocity with ground friction and braking,
 // JumpZVelocity, AirControl, gravity) on world centimetres, Y up. Where the velocity takes the capsule is the
@@ -48,10 +52,22 @@ namespace Desert::Gameplay
         float JumpZVelocity              = 700.0f;
         float AirControl                 = 0.35f;
         float Gravity                    = 980.0f;
+        float MaxWalkSpeedCrouched       = 300.0f; // UE MaxWalkSpeedCrouched
+        float MaxSwimSpeed               = 300.0f; // UE MaxSwimSpeed, horizontal and vertical
         // UE ACharacter's CapsuleComponent (34 cm radius, 88 cm half height = 54 cm cylinder + the cap).
-        float CapsuleRadius     = 34.0f;
-        float CapsuleHalfHeight = 54.0f; // the cylinder's half height, without the caps
+        float CapsuleRadius      = 34.0f;
+        float CapsuleHalfHeight  = 54.0f; // the cylinder's half height, without the caps
+        float CrouchedHalfHeight = 26.0f; // UE CrouchedHalfHeight, as the cylinder's (120 cm tall)
     };
+
+    // The game's movement mode bits in PawnMoveState::Mode (Net carries them opaque, beside Grounded). Swimming is
+    // the game's mode switch (UE SetMovementMode(MOVE_Swimming): the pawn's script, from the water level); the
+    // step keeps it. JumpHeld is the last step's Jump action (UE bPressedJump): one jump a press, on every side.
+    inline constexpr std::uint8_t kModeCrouched = 1u << 0;
+    inline constexpr std::uint8_t kModeSwimming = 1u << 1;
+    inline constexpr std::uint8_t kModeJumpHeld = 1u << 2;
+    // The input step's axis the swim's vertical intent rides (+1 up, -1 down; absent = 0).
+    inline constexpr std::size_t kSwimVerticalAxis = 0;
 
     // THE PAWN'S DECLARED ACTION SET (Mover 2.0: the game declares the input struct; UE: the pawn's
     // SetupPlayerInputComponent bindings). The ordered Enhanced Input action names the pawn's movement reads, from
@@ -61,7 +77,7 @@ namespace Desert::Gameplay
     struct PawnActions
     {
         std::vector<std::string> Names;
-        std::string              Jump, Sprint; // the movement's roles: which declared name jumps / sprints
+        std::string Jump, Sprint, Crouch; // the movement's roles: which declared name jumps / sprints / crouches
 
         [[nodiscard]] std::optional<std::size_t> IndexOf( std::string_view name ) const;
         // The action's bit in InputStep::Actions (0 when the pawn does not declare it).
@@ -79,9 +95,19 @@ namespace Desert::Gameplay
         PawnActions      Actions;
     };
 
-    // The collision world one move asks (UE SafeMoveUpdatedComponent + slide + FindFloor): where a capsule whose
+    // The pawn's capsule: radius and the cylinder's half height (caps excluded).
+    struct PawnCapsule
+    {
+        float Radius     = 34.0f;
+        float HalfHeight = 54.0f;
+    };
+    [[nodiscard]] PawnCapsule CapsuleOf( const PawnMoveSettings& settings, bool crouched );
+
+    // The collision world one move asks (UE SafeMoveUpdatedComponent + slide + FindFloor): where @p capsule whose
     // feet stand at @p from.Position ends after moving with @p velocity for @p dtSeconds, its velocity after
-    // the walls and floors it met, and whether it stands on a walkable floor. Position = the capsule's FEET.
+    // the walls and floors it met, and whether it stands on a walkable floor (@p gravity presses the floor's
+    // bodies). Position = the capsule's FEET. Fits: would @p capsule stand at @p feet without overlapping the
+    // world (UE: the stand-up test of UnCrouch)?
     class IPawnMoveWorld
     {
     public:
@@ -91,15 +117,19 @@ namespace Desert::Gameplay
             NetVec3 Velocity;
             bool    Grounded = false;
         };
-        virtual ~IPawnMoveWorld()                                                               = default;
+        virtual ~IPawnMoveWorld()                                                                        = default;
         [[nodiscard]] virtual Outcome Move( const PawnMoveState& from, const NetVec3& velocity,
-                                            const PawnMoveSettings& settings, float dtSeconds ) = 0;
+                                            const PawnCapsule& capsule, float gravity, float dtSeconds ) = 0;
+        [[nodiscard]] virtual bool    Fits( const NetVec3& feet, const PawnCapsule& capsule ) const      = 0;
     };
 
-    // One fixed step of the pawn under one input step.
+    // One fixed step of the pawn under one input step: crouch / stand up (UE UpdateCharacterStateBeforeMovement),
+    // then swimming, walking or falling, the capsule moved through @p world. @p rootMotionVelocity (cm/s, world;
+    // UE HasAnimRootMotion) replaces the planar velocity the input would give; the session's sides pass none
+    // (root motion is not replicated).
     [[nodiscard]] PawnMoveState StepPawnMove( const PawnMoveState& from, const InputStep& input,
-                                              const PawnMovement& movement, IPawnMoveWorld& world,
-                                              float dtSeconds );
+                                              const PawnMovement& movement, IPawnMoveWorld& world, float dtSeconds,
+                                              const NetVec3* rootMotionVelocity = nullptr );
 
     // THE GAME'S MOVER, as the server's simulation and the client's prediction call it (Net::IPawnMover).
     class CharacterPawnMover final : public Net::IPawnMover

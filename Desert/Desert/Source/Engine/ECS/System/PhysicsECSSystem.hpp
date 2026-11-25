@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/System/CharacterMovement.hpp>
+#include <Engine/Input/LocalPawnInput.hpp>
 #include <Engine/ECS/System/ProjectileMovement.hpp>
 #include <Engine/ECS/System/SpringArm.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
@@ -644,8 +645,9 @@ namespace Desert::ECS
             LogVolumeOverlaps( registry, queue.Events );
         }
 
-        // One fixed step of every character controller: the script's intent resolved against the camera basis,
-        // gravity/jump/swim integrated over @p dt (the fixed step), the capsule moved through Jolt.
+        // One fixed step of every character controller: the script's intent resolved against the camera basis and
+        // the pawn's declared actions made into the step's input (Input/LocalPawnInput), the ONE movement step
+        // (Gameplay::StepPawnMove - the server's and the prediction's) run over @p dt (the fixed step).
         void StepCharacters( entt::registry& registry, const glm::vec3& camFwd, const glm::vec3& camRight,
                              float dt )
         {
@@ -659,10 +661,10 @@ namespace Desert::ECS
                     continue;
 
                 // World move intent from the script's camera-relative one (y = forward, x = right); the model
-                // (walking / falling / crouch / swimming, UE CharacterMovementComponent) is
-                // CharacterMovement::Step, run on every FIXED step.
+                // (walking / falling / crouch / swimming / root motion, UE CharacterMovementComponent) is
+                // Gameplay::StepPawnMove through CharacterMovement::Step, run on every FIXED step.
                 const glm::vec3 wish = camFwd * cc.MoveInput.y + camRight * cc.MoveInput.x;
-                CharacterMovement::Step( cc, *m_World, wish, dt );
+                Input::StepSceneCharacter( *m_Scene, entity, cc, *m_World, wish, dt, m_PawnLogClock );
 
                 // NOTE: physics only PRODUCES state (cc.Velocity / cc.OnGround). Mapping that state to a
                 // locomotion clip is behaviour and lives in LocomotionSystem (runs after this), not here.
@@ -678,6 +680,7 @@ namespace Desert::ECS
         }
 
         Core::Scene*                           m_Scene = nullptr;
+        float m_PawnLogClock                           = 0.0f; // the possessed pawn's once-a-second movement line
         std::unique_ptr<Physics::PhysicsWorld> m_World;
         // Declared AFTER m_World so it is destroyed first: it releases into the world, never the other way.
         std::unique_ptr<PhysicsBodyLifetime> m_Lifetime;

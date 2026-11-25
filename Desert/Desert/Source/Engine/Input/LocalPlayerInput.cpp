@@ -291,6 +291,12 @@ namespace Desert::Input
         return it != m_ActionNames.end() ? std::optional<Common::Content::AssetGuid>( it->second ) : std::nullopt;
     }
 
+    bool LocalPlayerInput::ActionHeld( const std::string& name ) const
+    {
+        const auto action = ActionNamed( name );
+        return action && m_Subsystem.GetTriggerState( *action ) == TriggerState::Triggered;
+    }
+
     std::optional<Common::Content::AssetGuid> LocalPlayerInput::ContextNamed( const std::string& name ) const
     {
         const auto it = m_ContextNames.find( name );
