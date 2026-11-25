@@ -192,9 +192,9 @@ namespace Desert::World::Landscape
                                                                  std::vector<uint16_t> samples );
 
         /**
-         * @brief The stamp of this tile's heights: a new one, larger than every stamp of the process before it, at
-         * every height write that changed a sample. Two tiles of one stamp hold the same heights (a copy keeps its
-         * source's). Reading it takes nothing, so any number of readers may key what they derived by it.
+         * @brief The stamp of this tile's heights: a 64-bit hash of its dimensions and samples, kept as they are
+         * written. Tiles of the same heights have the same stamp, so heights put back (an undo) are the stamp they
+         * were. Reading it takes nothing: any number of readers may key what they derived by it.
          */
         [[nodiscard]] uint64_t HeightStamp() const
         {

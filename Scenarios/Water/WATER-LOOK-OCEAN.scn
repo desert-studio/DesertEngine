@@ -6,6 +6,7 @@
 # >= 10 cm on the sand; wet to dry albedo 0.4..0.7. Log: 0 VUID, no "[Water]" refusals.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Ocean.desce
 Дано run View "View mode: Lit"
+Дано run View "Realtime: On"
 Дано --subject viewport set Camera.Position 0,180,-2500
 Дано --subject viewport set Camera.Direction 0,-0.2,1
 Когда frames 64
@@ -59,8 +60,12 @@
 Когда run Landscape "Sculpt mode"
 Дано --subject viewport set Camera.Position -1500,900,-2000
 Дано --subject viewport set Camera.Direction 0,-0.6,0.8
+# The clock stands between the two frames: what differs is the edit, not the sea.
+Когда run View "Realtime: Off"
+Когда frames 16
 Тогда-вид edit_before пена и мокрый песок до правки рельефа
 Когда run Landscape "Stroke at the viewport centre"
 Когда frames 8
-Тогда-вид edit рельеф под кистью изменился, вода и пена под ней - по новому дну; пена вне правленого прямоугольника осталась как была (edit_before)
+Тогда-вид edit рельеф под кистью изменился, вода и пена под ней - по новому дну; пена вне правленого прямоугольника не изменилась против edit_before (часы стоят)
 Когда run Action "Undo"
+Когда run View "Realtime: On"

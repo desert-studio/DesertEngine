@@ -19,3 +19,8 @@
 Когда frames 1
 Тогда-вид night_near_c вода и пена освещены луной; без света ничего не светится, дно в глубине тёмное
 Когда frames 1
+# No light at all: the moon (the scene's only light) is put out.
+Дано set 2655487512173432098 DirectionalLightData.Intensity 0
+Когда frames 64
+Тогда-вид night_near_dark луна погашена: вода и пена не светятся, ярче неба на воде ничего нет
+Дано set 2655487512173432098 DirectionalLightData.Intensity 0.25

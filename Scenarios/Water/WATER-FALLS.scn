@@ -1,6 +1,8 @@
 # WATER-FALLS: Water_Falls - a river (WaterBody River, FlowSpeed 200 cm/s) runs 8 m above a lake on a cliff and pours over
 # its lip at x = 0: the spline's steep reach (rise/run > Water::kRiverFallMinSlope) is drawn as the river's falling
 # sheet (WaterRenderer fall rows, Vertex_WaterMesh.glslh WaterFallVertex) and answered by Water::RiverFallAt.
+# Behind the lake a breakwater and the Sea: the world's one FFT ocean beside a Gerstner lake and a waveless river, all three
+# live in one wave record (ECS::WaterWaveSources). Log: no "[Water] ... is no water body".
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Falls.desce
 Дано --subject viewport set Camera.Position 100,400,-2500
 Дано --subject viewport set Camera.Direction 0,-0.05,1
@@ -13,11 +15,11 @@
 Тогда-вид 3_far издали водопад - часть реки, без шва между рекой и падением
 Дано --subject viewport set Camera.Position 1400,250,-700
 Дано --subject viewport set Camera.Direction -0.75,-0.1,0.65
-Тогда-вид 8_falls_a полотно рвётся на струи с толщиной, пена белая; водопад и озеро - одна вода, без шва у подножия
-Когда frames 1
-Тогда-вид 8_falls_b полотно рвётся на струи с толщиной, пена белая; водопад и озеро - одна вода, без шва у подножия
-Когда frames 1
-Тогда-вид 8_falls_c полотно рвётся на струи с толщиной, пена белая; водопад и озеро - одна вода, без шва у подножия
+Тогда-вид 8_falls_a полотно рвётся на струи с толщиной, пена белая; водопад и озеро - одна вода, без шва у подножия; в кадре море за молом (другой набор волн - FFT, у озера Герстнер)
+Когда frames 4
+Тогда-вид 8_falls_b полотно рвётся на струи с толщиной, пена белая; водопад и озеро - одна вода, без шва у подножия; в кадре море за молом (другой набор волн - FFT, у озера Герстнер)
+Когда frames 4
+Тогда-вид 8_falls_c полотно рвётся на струи с толщиной, пена белая; водопад и озеро - одна вода, без шва у подножия; в кадре море за молом (другой набор волн - FFT, у озера Герстнер)
 Когда frames 1
 Дано --subject viewport set Camera.Position -1200,1500,-1800
 Дано --subject viewport set Camera.Direction 0.45,-0.55,0.7

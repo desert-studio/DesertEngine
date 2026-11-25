@@ -123,40 +123,44 @@ namespace Desert::Graphic::System
         return m_Foam[0] != nullptr && m_Foam[1] != nullptr && m_FoamPipeline != nullptr;
     }
 
-    Water::WaterFoamParams WaterRenderer::FoamParamsOf( const Assets::AssetHandle& material,
-                                                        const MaterialStamp&       stamp )
+    const WaterRenderer::BodyMaterialValues& WaterRenderer::MaterialValuesOf( const Assets::AssetHandle& material,
+                                                                             const MaterialStamp&       stamp )
     {
-        if ( !( m_FoamStamp == stamp ) )
+        if ( !( m_BodyMaterialStamp == stamp ) )
         {
-            m_FoamStamp = stamp;
-            m_FoamMaterials.clear();
+            m_BodyMaterialStamp = stamp;
+            m_BodyMaterials.clear();
         }
-        const auto known = m_FoamMaterials.find( static_cast<uint64_t>( material ) );
-        if ( known != m_FoamMaterials.end() )
-            return known->second;
-        constexpr std::array<std::string_view, 6> kNames{ "FoamDecaySeconds",      "BubbleDecaySeconds",
-                                                          "WetDrySeconds",         "WhitecapGain",
-                                                          "FoamJacobianThreshold", "FoamJacobianSoftness" };
-        std::array<glm::vec4, 6>                  values{};
-        Water::WaterFoamParams                    params;
-        if ( !ReadMaterialValues( material, stamp, kNames, values ) )
-            return params; // the template is not there yet: the next frame asks again
-        params.FoamDecaySeconds   = std::max( values[0].x, 0.1f );
-        params.BubbleDecaySeconds = std::max( values[1].x, 0.1f );
-        params.WetDrySeconds      = std::max( values[2].x, 0.1f );
-        params.WhitecapGain       = std::max( values[3].x, 0.0f );
-        params.JacobianThreshold  = values[4].x;
-        params.JacobianSoftness   = std::max( values[5].x, 0.01f );
-        m_FoamMaterials.emplace( static_cast<uint64_t>( material ), params );
-        return params;
+        const auto [known, fresh] = m_BodyMaterials.try_emplace( static_cast<uint64_t>( material ) );
+        BodyMaterialValues& values = known->second;
+        if ( !fresh )
+            return values;
+        constexpr std::array<std::string_view, 6> kFoam{ "FoamDecaySeconds",      "BubbleDecaySeconds",
+                                                         "WetDrySeconds",         "WhitecapGain",
+                                                         "FoamJacobianThreshold", "FoamJacobianSoftness" };
+        std::array<glm::vec4, 6>                  foam{};
+        if ( ReadMaterialValues( material, stamp, kFoam, foam ) )
+        {
+            values.Foam.FoamDecaySeconds   = std::max( foam[0].x, 0.1f );
+            values.Foam.BubbleDecaySeconds = std::max( foam[1].x, 0.1f );
+            values.Foam.WetDrySeconds      = std::max( foam[2].x, 0.1f );
+            values.Foam.WhitecapGain       = std::max( foam[3].x, 0.0f );
+            values.Foam.JacobianThreshold  = foam[4].x;
+            values.Foam.JacobianSoftness   = std::max( foam[5].x, 0.01f );
+        }
+        constexpr std::array<std::string_view, 3> kCaustics{ "CausticsOnsetDepth", "CausticsFadeDepth",
+                                                             "CausticsStrength" };
+        std::array<glm::vec4, 3>                  caustics{};
+        if ( ReadMaterialValues( material, stamp, kCaustics, caustics ) )
+            values.Caustics = glm::vec3( std::max( caustics[0].x, 1.0f ), std::max( caustics[1].x, 1.0f ),
+                                         std::clamp( caustics[2].x, 0.0f, 1.0f ) );
+        return values;
     }
 
     void WaterRenderer::PrepareFoam( const MaterialStamp& stamp, const glm::vec3& eye, const int32_t fftSet,
                                      const std::shared_ptr<const Water::WaterShoreField>& shore,
                                      std::array<glm::vec4, 3>& origin, glm::vec4& shape )
     {
-        const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
-        m_RetiredImages.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
         const auto side = Common::Scalability::QualityState::Resolved().As<uint32_t>(
              Common::Scalability::Parameter::EffectsWaterFoamSize );
         if ( !EnsureFoam( side ) || m_FrameBodies.empty() )
@@ -210,12 +214,12 @@ namespace Desert::Graphic::System
         {
             const Water::WaterQuadTreeBody& body   = m_FrameBodies[b];
             const FrameBodyLook&            look   = m_FrameBodyLooks[b];
-            const Water::WaterFoamParams    params = FoamParamsOf( look.Material, stamp );
-            const int32_t                   set    = look.River ? -1 : static_cast<int32_t>( m_FrameBodyWaveLanes[b] ) - 1;
+            const Water::WaterFoamParams    params = MaterialValuesOf( look.Material, stamp ).Foam;
+            const int32_t                   set    = look.River >= 0 ? -1 : static_cast<int32_t>( m_FrameBodyWaveLanes[b] ) - 1;
             frame.Bodies.push_back( FoamBody{
                  .Footprint = glm::vec4( body.FootprintMin, body.FootprintMax ),
-                 .Level     = glm::vec4( body.SurfaceY, static_cast<float>( set ), look.River ? 1.0f : 0.0f,
-                                         look.River ? 0.0f : slope ),
+                 .Level     = glm::vec4( body.SurfaceY, static_cast<float>( set ), static_cast<float>( look.River + 1 ),
+                                         look.River >= 0 ? 0.0f : slope ),
                  .Source    = glm::vec4( params.JacobianThreshold, params.JacobianSoftness, params.WhitecapGain, 0.0f ),
                  .Decay = glm::vec4( params.FoamDecaySeconds, params.BubbleDecaySeconds, params.WetDrySeconds, 0.0f ),
                  .Drift = set >= 0 && set == fftSet ? glm::vec4( drift, 0.0f, 0.0f ) : glm::vec4( 0.0f ) } );

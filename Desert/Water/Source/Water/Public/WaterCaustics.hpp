@@ -46,13 +46,13 @@ namespace Desert::Graphic::System
     };
 
     // The frame row's head, std430 (Common/WaterCaustics.glslh WaterCausticsFrameUB), followed by Shape.x rows of
-    // WaterCausticsBodyRow (the block's runtime array WaterCausticsBodies, two vec4 per body): read by every
+    // WaterCausticsBodyRow (the block's runtime array WaterCausticsBodies, three vec4 per body): read by every
     // receiver with the map (SceneViewInputs::WaterCausticsFrame) and by the splat.
     struct WaterCausticsFrameHead
     {
         glm::vec4 Window{
              0.0f };             // xy = the map's lower world (X, Z), z = 1 / side (cm), w = 1 when there is a map
-        glm::vec4 Shape{ 0.0f }; // x = the body rows that follow, y = onset depth, z = fade depth (cm), w = strength
+        glm::vec4 Shape{ 0.0f }; // x = the body rows that follow, yzw = 0
     };
     static_assert( sizeof( WaterCausticsFrameHead ) == 2 * sizeof( glm::vec4 ), "std430 head of two vec4" );
     // One body of the frame whose footprint meets the map's square.
@@ -63,8 +63,11 @@ namespace Desert::Graphic::System
                                      // frame's wave set, 0 = flat; WaterMeshTiles.glslh WaterWaveSetOf),
                                      // z = its share of the
                                      // beach slope (1 = an ocean, 0 = a river)
+        // Its material's (WaterSurface.shader Caustics*): x = the depth the map comes in over, y = the depth its
+        // contrast falls by 1/e over (cm), z = its strength (1 = the map as computed).
+        glm::vec4 Look{ 0.0f };
     };
-    static_assert( sizeof( WaterCausticsBodyRow ) == 2 * sizeof( glm::vec4 ), "std430 body of two vec4" );
+    static_assert( sizeof( WaterCausticsBodyRow ) == 3 * sizeof( glm::vec4 ), "std430 body of three vec4" );
 
     // What every receiver binds when the caustics draw (FrameTransients::WaterCausticsMap / WaterCausticsFrame ->
     // SceneViewInputs): two valid refs of this frame's graph. A frame without caustics keeps the graph's 'off'
@@ -117,6 +120,8 @@ namespace Desert::Graphic::System
             std::span<const Water::WaterQuadTreeBody> Bodies;
             // WaterRenderer::GetFrameBodyWaveLanes: Bodies[i]'s wave lane (the set it draws with); one per body.
             std::span<const float> BodyWaveLanes;
+            // WaterRenderer::GetFrameBodyCaustics: Bodies[i]'s material values (WaterCausticsBodyRow::Look).
+            std::span<const glm::vec3> BodyCaustics;
             WaterFrameRefs  Water; // the frame's water the surface draws with (SceneRenderer::FrameWater)
             glm::vec3       SunTravel{ 0.0f, -1.0f, 0.0f }; // the direction the sunlight travels
             glm::vec3       Camera{ 0.0f };                 // the view's world position (cm)

@@ -25,7 +25,7 @@ Shader "WaterFoamUpdate"
         struct WaterFoamBody
         {
             vec4 Footprint; // min X, min Z, max X, max Z
-            vec4 Level;     // x = still Y, y = its wave set (-1: none), z = 1 a river, w = its beach's slope
+            vec4 Level;     // x = still Y, y = its wave set (-1: none), z = 1 + its river of the frame (0: no river), w = its beach's slope
             vec4 Source;    // x = jacobian threshold, y = softness, z = gain
             vec4 Decay;     // x = foam, y = bubbles, z = wetness (s)
             vec4 Drift;     // xy = the wind's surface drift (cm/s)
@@ -46,15 +46,19 @@ Shader "WaterFoamUpdate"
             return smoothstep( 200.0, 500.0, speed );
         }
 
-        // The body a texel belongs to: a river's inside its banks, else the highest still level whose footprint
-        // holds it (the shore field's own rule, WaterShoreField.cpp LevelAt); -1: none.
-        int FoamBodyAt( vec2 world, float river )
+        // The body whose water stands at a texel: the river the drawn bank clip gives it, else the highest still level
+        // whose rectangle holds it (the shore field's own rule, WaterShoreField.cpp LevelAt); -1: none.
+        int FoamBodyAt( vec2 world, int river )
         {
             int found = -1;
             for ( int b = 0; b < int( FoamTime.w + 0.5 ); ++b )
             {
                 const WaterFoamBody body = FoamBodies[b];
-                if ( body.Level.z != river || any( lessThan( world, body.Footprint.xy ) ) || any( greaterThan( world, body.Footprint.zw ) ) )
+                if ( int( body.Level.z + 0.5 ) != river + 1 )
+                    continue;
+                if ( river >= 0 )
+                    return b; // its banks are its shape
+                if ( any( lessThan( world, body.Footprint.xy ) ) || any( greaterThan( world, body.Footprint.zw ) ) )
                     continue;
                 if ( found < 0 || body.Level.x > FoamBodies[found].Level.x )
                     found = b;
@@ -73,12 +77,12 @@ Shader "WaterFoamUpdate"
             const float texel = 1.0 / WaterFoamOrigin[level].z;
             const vec2  world = ( vec2( ij ) + 0.5 ) * texel;
 
-            float riverY;
-            bool  onRiver = WaterRiverLevel( world, riverY );
-            int   owner   = onRiver ? FoamBodyAt( world, 1.0 ) : -1;
-            onRiver       = owner >= 0;
+            float     riverY;
+            const int river = WaterRiverLevel( world, riverY ) ? WaterRiverOwner( world ) : -1;
+            int       owner = river >= 0 ? FoamBodyAt( world, river ) : -1;
+            const bool onRiver = owner >= 0;
             if ( !onRiver )
-                owner = FoamBodyAt( world, 0.0 );
+                owner = FoamBodyAt( world, -1 );
             if ( owner < 0 )
             {
                 o_Foam = vec4( 0.0, 0.0, 0.0, 0.5 ); // no water stands here

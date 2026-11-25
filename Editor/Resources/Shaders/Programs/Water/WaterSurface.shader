@@ -41,6 +41,9 @@ Shader "WaterSurface"
         Float       FoamDecaySeconds ("Foam Decay (s)", Range(0.1,60), Category("Foam")) = 6
         Float       BubbleDecaySeconds ("Bubble Decay (s)", Range(0.1,60), Category("Foam")) = 3
         Float       WetDrySeconds ("Wet Sand Drying (s)", Range(0.1,600), Category("Shore")) = 40
+        Float       CausticsOnsetDepth ("Caustics Onset Depth (cm)", Range(1,1000), Category("Caustics")) = 30
+        Float       CausticsFadeDepth ("Caustics Fade Depth (cm)", Range(1,10000), Category("Caustics")) = 600
+        Float       CausticsStrength ("Caustics Strength", Range(0,1), Category("Caustics")) = 1
         Float       DebugFoamMask ("Debug: Foam Mask Only", Range(0,1), Category("Debug")) = 0
     }
 

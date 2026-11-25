@@ -13,16 +13,22 @@
 
 // THE RIVER (UE WaterInfo's river height and velocity): (flow x, flow z cm/s, bank mask, still surface Y cm), one
 // river's texels ARE its bake's grid (Water::RiverFlowField), so the height here and Water::SampleRiverSurfaceY's are
-// one source. RGBA32F, fetched by texel.
+// one source. RGBA32F, fetched by texel. The stored bank mask is 1 + the index of the river of the frame whose texel
+// it is; WaterRiverTexel gives it back as the mask, WaterRiverOwner as the river.
 layout( set = 1, binding = 9 ) uniform texture2D WaterRiverTexture;
 
 // The river region's texel at (x, z) of that region; zero (no flow, outside every bank) off it.
-vec4 WaterRiverTexel( ivec2 texel )
+vec4 WaterRiverStored( ivec2 texel )
 {
     const ivec2 size = ivec2( WaterFlowFrame.zw + 0.5 );
     if ( any( lessThan( texel, ivec2( 0 ) ) ) || any( greaterThanEqual( texel, size ) ) )
         return vec4( 0.0 );
     return texelFetch( WaterRiverTexture, texel, 0 );
+}
+vec4 WaterRiverTexel( ivec2 texel )
+{
+    const vec4 t = WaterRiverStored( texel );
+    return vec4( t.rg, min( t.b, 1.0 ), t.a );
 }
 
 // The river region's texel space at a world (X, Z): texel centres on integers (Water::SampleRiverSurfaceY's p).
@@ -123,6 +129,30 @@ float WaterRiverBankBand( vec2 worldXZ, float riverTile )
 bool WaterOutsideBank( vec2 worldXZ, float riverTile )
 {
     return riverTile > 0.5 && !WaterTileIsFall( riverTile ) && WaterFlowAt( worldXZ ).z < WATER_RIVER_BANK_CLIP;
+}
+
+// The river (its index in the frame's rivers) whose water stands at a world (X, Z) inside the banks: the one with the
+// nearest texel of the four; -1 off every bank.
+int WaterRiverOwner( vec2 worldXZ )
+{
+    if ( WaterFlowFrame.x < 0.5 || WaterFlowAt( worldXZ ).z < WATER_RIVER_BANK_CLIP )
+        return -1;
+    const vec2  p     = WaterRiverTexelSpace( worldXZ );
+    const ivec2 i0    = ivec2( floor( p ) );
+    const vec2  f     = p - floor( p );
+    int         owner = -1;
+    float       most  = 0.0;
+    for ( int dz = 0; dz < 2; ++dz )
+        for ( int dx = 0; dx < 2; ++dx )
+        {
+            const float mask = WaterRiverStored( i0 + ivec2( dx, dz ) ).b;
+            const float w    = ( dx == 1 ? f.x : 1.0 - f.x ) * ( dz == 1 ? f.y : 1.0 - f.y );
+            if ( mask < 0.5 || w <= most )
+                continue;
+            most  = w;
+            owner = int( mask + 0.5 ) - 1;
+        }
+    return owner;
 }
 
 // THE RIVER-TO-OCEAN LEAF (UE draws the ocean under the river): a quadtree leaf a river's banks cut, over an ocean,

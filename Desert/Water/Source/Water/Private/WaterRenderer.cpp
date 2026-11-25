@@ -26,6 +26,7 @@
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Common/Core/Profiler.hpp>
 
 #include <cmath>
@@ -193,8 +194,8 @@ namespace Desert::Graphic::System
             return layout;
         }
 
-        // (flow x, flow z cm/s, bank mask, still surface Y cm) per texel: the first river whose banks hold its
-        // centre; zeros outside every bank. No river: one zero texel.
+        // (flow x, flow z cm/s, 1 + the river's index, still surface Y cm) per texel: the first river whose banks
+        // hold its centre; zeros outside every bank. No river: one zero texel.
         std::shared_ptr<Image2D> CreateRiverImage( std::span<const std::shared_ptr<const Water::RiverFlowField>> flows )
         {
             const RiverLayout      layout = RiverLayoutOf( flows );
@@ -205,8 +206,9 @@ namespace Desert::Graphic::System
                 {
                     const glm::vec2 world =
                          layout.Min + ( glm::vec2( static_cast<float>( x ), static_cast<float>( z ) ) + 0.5f ) * layout.Texel;
-                    for ( const auto& flow : flows )
+                    for ( size_t r = 0; r < flows.size(); ++r )
                     {
+                        const auto&     flow = flows[r];
                         const glm::vec2 g = ( world - flow->Min ) / flow->Extent * glm::vec2( flow->Size );
                         if ( g.x < 0.0f || g.y < 0.0f || g.x >= static_cast<float>( flow->Size.x ) ||
                              g.y >= static_cast<float>( flow->Size.y ) )
@@ -216,7 +218,7 @@ namespace Desert::Graphic::System
                             continue;
                         const glm::vec4& f = flow->Texels[at];
                         texels[size_t( z ) * size.x + x] =
-                             glm::vec4( f.x, f.y, f.z,
+                             glm::vec4( f.x, f.y, static_cast<float>( r + 1u ),
                                         at < flow->SurfaceHeightCm.size() ? flow->SurfaceHeightCm[at] : flow->SurfaceY );
                         break;
                     }
@@ -268,6 +270,7 @@ namespace Desert::Graphic::System
         const WaterCaustics::FrameInputs frame{ .Waves         = GetFrameWavesBlock(),
                                                 .Bodies        = GetFrameBodies(),
                                                 .BodyWaveLanes = GetFrameBodyWaveLanes(),
+                                               .BodyCaustics  = GetFrameBodyCaustics(),
                                                 .Water         = inputs.Water,
                                                 .SunTravel     = inputs.SunTravel,
                                                 .Camera        = inputs.Camera,
@@ -573,6 +576,9 @@ namespace Desert::Graphic::System
     {
         m_FrameDraws.clear();
         const auto* camera = m_SceneRenderer->GetMainCamera();
+        // The images this renderer replaced go when no frame in flight reads them, water in the frame or not.
+        const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
+        m_RetiredImages.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
         m_FrameReady       = false;
         m_Walk             = TileWalk{};
         m_FrameFrontLayers = 0u;
@@ -584,6 +590,7 @@ namespace Desert::Graphic::System
         m_FrameBodies.clear();
         m_FrameBodyWaveLanes.clear();
         m_FrameBodyLooks.clear();
+        m_FrameBodyCaustics.clear();
         m_Underwater = UnderwaterFrame{};
         if ( m_Queue.empty() )
             m_ZoneTrees.clear(); // no water this frame: the retained trees (and their body sets) go
@@ -591,8 +598,8 @@ namespace Desert::Graphic::System
             return;
 
         // THE FRAME'S BODIES (UE: the water mesh tile's WaterBodyIndex picks its body's material and waves). Each
-        // distinct (wave set, WaveOrigin) the bodies name is one of the frame's wave sets (WaterWavesBlock::Sets,
-        // at most kMaxWaveSets; a body past them draws flat, said once); a tile reads its body's set (Body.z).
+        // lane of the world's wave record (ECS::WaterWaveSources) is one of the frame's wave sets
+        // (WaterWavesBlock::Sets); a tile reads its body's set (Body.z).
         // Each template the bodies use is one FrameProgram (its own cell, binding block and Materials block);
         // every body material gets a row in its template's Materials block (FrameProgram::Materials; its tiles
         // draw with MaterialIndex = that row, through that program). Each river body's
@@ -624,6 +631,15 @@ namespace Desert::Graphic::System
         std::vector<FrameProgram>           programs;
         // The world's wave lanes (ECS::WaterWaveSources), the CPU queries' own: every zone carries the one table.
         const std::shared_ptr<const Water::WaterWaveTable> table = m_Queue.front().get().Waves;
+        // The frame's rivers: every distinct baked ribbon of the zones (a body shared by two zones counts once).
+        // Kept as shared_ptrs: the WaterInfo texture composed from them is rebuilt only when this list changes
+        // (FinishPrepare, m_FlowsBaked).
+        std::vector<std::shared_ptr<const Water::RiverFlowField>> rivers;
+        for ( const WaterZoneDraw& zone : m_Queue )
+            for ( const std::shared_ptr<const Water::RiverFlowField>& flow : zone.Bodies->Flows )
+                if ( flow != nullptr && flow->Size.x != 0u && flow->Size.y != 0u &&
+                     std::find( rivers.begin(), rivers.end(), flow ) == rivers.end() )
+                    rivers.push_back( flow );
         std::vector<std::vector<WaterBodyLane>> bodyLanes( m_Queue.size() );
         std::vector<std::vector<uint32_t>>      bodyPrograms( m_Queue.size() );
         for ( size_t z = 0; z < m_Queue.size(); ++z )
@@ -672,7 +688,12 @@ namespace Desert::Graphic::System
                 // Every body that draws this frame (WATER-CAUSTICS: its footprint, still level and wave set).
                 m_FrameBodies.push_back( bodies.Footprints[b] );
                 m_FrameBodyWaveLanes.push_back( waveLane );
-                m_FrameBodyLooks.push_back( FrameBodyLook{ .Material = body, .River = river } );
+                const auto riverAt = std::find( rivers.begin(), rivers.end(), flow );
+                m_FrameBodyLooks.push_back( FrameBodyLook{
+                     .Material = body,
+                     .River    = river && riverAt != rivers.end() ? static_cast<int32_t>( riverAt - rivers.begin() )
+                                                                  : -1 } );
+                m_FrameBodyCaustics.push_back( MaterialValuesOf( body, stamp ).Caustics );
             }
         }
         if ( programs.empty() )
@@ -753,15 +774,6 @@ namespace Desert::Graphic::System
                                              kShoreWaveReach * swell.SignificantHeight } );
             }
         }
-        // The frame's rivers: every distinct baked ribbon of the zones (a body shared by two zones counts once).
-        // Kept as shared_ptrs: the WaterInfo texture composed from them is rebuilt only when this list changes
-        // (FinishPrepare, m_FlowsBaked).
-        std::vector<std::shared_ptr<const Water::RiverFlowField>> rivers;
-        for ( const WaterZoneDraw& zone : m_Queue )
-            for ( const std::shared_ptr<const Water::RiverFlowField>& flow : zone.Bodies->Flows )
-                if ( flow != nullptr && flow->Size.x != 0u && flow->Size.y != 0u &&
-                     std::find( rivers.begin(), rivers.end(), flow ) == rivers.end() )
-                    rivers.push_back( flow );
         const auto riverCount = static_cast<int32_t>( rivers.size() );
         if ( const int32_t source = ( fft ? 1 : 0 ) + 2 * riverCount; source != m_LoggedWaveSource )
         {

@@ -113,6 +113,13 @@ namespace Desert::Graphic::System
                 return {};
             return m_FrameBodyWaveLanes;
         }
+        // Its material's caustics: x = onset depth, y = fade depth (cm), z = strength; parallel to GetFrameBodies.
+        [[nodiscard]] std::span<const glm::vec3> GetFrameBodyCaustics() const
+        {
+            if ( m_Walk.Programs.empty() )
+                return {};
+            return m_FrameBodyCaustics;
+        }
         // THE FFT OCEAN (Tessendorf 2001): when a body of the frame names a wave set authored as an FFT ocean and
         // Effects.WaterWaveMethod resolves to FFT, PrepareFrame sets the frame's spectrum, uploading its h0 cascades
         // once per set.
@@ -421,7 +428,7 @@ namespace Desert::Graphic::System
         struct FoamBody
         {
             glm::vec4 Footprint{ 0.0f }; // min X, min Z, max X, max Z
-            glm::vec4 Level{ 0.0f };     // x = still Y, y = its wave set (-1: none), z = 1 a river, w = its beach's slope
+            glm::vec4 Level{ 0.0f };     // x = still Y, y = its wave set (-1: none), z = 1 + its river of the frame, w = its beach's slope
             glm::vec4 Source{ 0.0f };    // x = jacobian threshold, y = softness, z = whitecap gain
             glm::vec4 Decay{ 0.0f };     // x = foam, y = bubbles, z = wetness (s)
             glm::vec4 Drift{ 0.0f };     // xy = the wind's surface drift (cm/s)
@@ -436,9 +443,15 @@ namespace Desert::Graphic::System
         void PrepareFoam( const MaterialStamp& stamp, const glm::vec3& eye, int32_t fftSet,
                           const std::shared_ptr<const Water::WaterShoreField>& shore,
                           std::array<glm::vec4, 3>& origin, glm::vec4& shape );
-        // The foam values of @p material, read again only when the stamp moved.
-        [[nodiscard]] Water::WaterFoamParams FoamParamsOf( const Assets::AssetHandle& material,
-                                                           const MaterialStamp&       stamp );
+        // What the passes read of a body's material (its look is the surface shader's own).
+        struct BodyMaterialValues
+        {
+            Water::WaterFoamParams Foam;
+            glm::vec3              Caustics{ 1.0f, 1.0f, 0.0f }; // a template that states none has none
+        };
+        // Read again only when the stamp moved; valid until the next call.
+        [[nodiscard]] const BodyMaterialValues& MaterialValuesOf( const Assets::AssetHandle& material,
+                                                                  const MaterialStamp&       stamp );
         [[nodiscard]] bool EnsureFoam( uint32_t side );
         [[nodiscard]] RDG::TextureRef AddFoamPass( RDG::Builder& graph, const WaterFrameRefs& water,
                                                    const WaterFrameImports& imports, float timeSeconds );
@@ -460,13 +473,13 @@ namespace Desert::Graphic::System
         // The rectangle of the world (min X, min Z, max X, max Z) whose floor moved under the history.
         std::optional<glm::vec4>                 m_FoamChanged;
         bool                                     m_FoamTried = false;
-        // The foam values of the materials read since the stamp moved.
-        MaterialStamp                                        m_FoamStamp;
-        std::unordered_map<uint64_t, Water::WaterFoamParams> m_FoamMaterials;
+        // The materials read since the stamp moved.
+        MaterialStamp                                    m_BodyMaterialStamp;
+        std::unordered_map<uint64_t, BodyMaterialValues> m_BodyMaterials;
         // THE CPU MIRROR's read-back (WATER-RIVERS-FFT pass 7; Water::FFTSurfaceMirror): one host-readable buffer
         // per frame in flight the finalize pass fills with every kFFTReadbackStride-th displacement texel, read
         // when its slot comes round again (the frame start waited that slot's fence: no GPU wait), with the wave
-        // time and the sea it was written for. Published to Runtime::WaterWavesService::Surfaces.
+        // time and the sea it was written for. Published to the world's WaterFFTSurface.
         struct FFTReadbackSlot
         {
             RDG::ExternalBuffer                            Buffer;
@@ -591,8 +604,9 @@ namespace Desert::Graphic::System
         struct FrameBodyLook
         {
             Assets::AssetHandle Material;
-            bool                River = false;
+            int32_t             River = -1; // its index in the frame's rivers, -1: not a river
         };
-        std::vector<FrameBodyLook> m_FrameBodyLooks; // parallel to m_FrameBodies
+        std::vector<FrameBodyLook> m_FrameBodyLooks;    // parallel to m_FrameBodies
+        std::vector<glm::vec3>     m_FrameBodyCaustics; // its material's (GetFrameBodyCaustics)
     };
 } // namespace Desert::Graphic::System

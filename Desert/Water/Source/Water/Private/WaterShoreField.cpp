@@ -7,7 +7,7 @@
 #include <glm/gtc/packing.hpp>
 
 #include <algorithm>
-#include <atomic>
+#include <bit>
 #include <cmath>
 #include <limits>
 #include <optional>
@@ -136,11 +136,33 @@ namespace Desert::Water
                          std::max( rect.Z1, z + 1u ) };
         }
 
+        // What the field holds, as one number, never 0.
+        uint64_t ContentOf( const WaterShoreField& field )
+        {
+            uint64_t   hash = 0x9e3779b97f4a7c15ull;
+            const auto add  = [&hash]( const uint64_t value )
+            {
+                hash = ( hash ^ value ) * 0xbf58476d1ce4e5b9ull;
+                hash ^= hash >> 29u;
+            };
+            const auto pair = [&add]( const float a, const float b )
+            { add( ( uint64_t{ std::bit_cast<uint32_t>( a ) } << 32u ) | std::bit_cast<uint32_t>( b ) ); };
+            add( ( uint64_t{ field.Width } << 32u ) | field.Height );
+            pair( field.MinCm.x, field.MinCm.y );
+            pair( field.TexelCm, field.ReferenceLevelCm );
+            pair( field.OpenSeaFloorCm, field.BeachSlope );
+            for ( const WaterShoreField::Texel& texel : field.Texels )
+            {
+                pair( texel.GroundCm, texel.ShoreDistanceCm );
+                pair( texel.ShoreDirX, texel.ShoreDirZ );
+            }
+            return hash != 0u ? hash : 1u;
+        }
+
         // The GPU's texels, the bake's number and what differs from the field it replaces.
         void Finish( WaterShoreField& field, const WaterShoreField* base )
         {
-            static std::atomic<uint64_t> s_Last{ 0u };
-            field.Revision = s_Last.fetch_add( 1u, std::memory_order_relaxed ) + 1u;
+            field.Revision = ContentOf( field );
             field.Packed.reserve( field.Texels.size() );
             for ( const WaterShoreField::Texel& texel : field.Texels )
                 field.Packed.push_back( PackShoreTexel( texel, field.ReferenceLevelCm ) );

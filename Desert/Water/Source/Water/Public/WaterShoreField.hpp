@@ -62,7 +62,7 @@ namespace Desert::Water
                 return X0 >= X1 || Z0 >= Z1;
             }
         };
-        /// The bake's own number, unique in the process and never 0.
+        /// A hash of the field's content, never 0: a bake that changed nothing keeps it.
         uint64_t Revision = 0;
         /// The field this one was baked after, when both lie on one grid over one reference level: what changed
         /// since then is in the two rectangles. 0: nothing is known of it, everything changed.

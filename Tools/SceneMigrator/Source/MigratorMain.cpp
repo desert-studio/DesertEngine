@@ -1805,7 +1805,9 @@ namespace Desert::Migration
                     }
                     out << ( check ? "would raise " : "raised " ) << path.string() << " WAVS " << stated.GetValue() << " -> "
                         << Desert::Assets::kWaterWavesSchemaVersion << "\n";
-                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    for ( const std::string& dropped : raised.GetValue().Dropped )
+                        out << "       dropped " << dropped << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue().Text, err ) )
                         ++failed;
                     continue;
                 }

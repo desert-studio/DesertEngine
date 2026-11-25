@@ -78,7 +78,7 @@ Shader "WaterCausticsSplat"
                 float targetDepth = 0.0;
                 for ( int i = 0; i < int( WaterCausticsShape.x ); ++i )
                 {
-                    const vec4 footprint = WaterCausticsBodies[2 * i];
+                    const vec4 footprint = WaterCausticsBodies[3 * i];
                     if ( any( lessThan( target, footprint.xy ) ) || any( greaterThan( target, footprint.zw ) ) )
                         continue;
                     const float d = WaterCausticsBodyLevel( i ) - WaterShoreAt( target ).GroundCm;

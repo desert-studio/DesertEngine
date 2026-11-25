@@ -11,8 +11,10 @@
         },
         "Dependencies": [
             "04da1260a1004ee3892601d1e8d34153",
+            "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
             "7012a81f62884202b922e14c2317132a",
             "75f3d199ad6c44c3acd9d50988339f63",
+            "b13683e714584f4889f5e1f86ac62049",
             "b8d47d86f4c2452cb46af076e682368b",
             "d73a046d0e3147928403692c8ea26f73",
             "e04d99eaf3ddd30e0184e38e5c3bcc57"
@@ -756,6 +758,83 @@
                 60.0,
                 7.6,
                 30.0
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "",
+                        "Path": ""
+                    }
+                ]
+            }
+        },
+        {
+            "id": 4300000000000000030,
+            "siblingIndex": 10,
+            "Tag": "Sea",
+            "Translation": [
+                0.0,
+                0.0,
+                1003400.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "WaterBody": {
+                "WaterWaves": {
+                    "Guid": "b13683e714584f4889f5e1f86ac62049",
+                    "Path": "assets:Water/Waves/FFTOcean.dwaves"
+                },
+                "OceanExtents": [
+                    4096000.0,
+                    2000000.0
+                ],
+                "WaterMaterial": {
+                    "Guid": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
+                    "Path": "assets:Water/Materials/M_Water_Ocean.demat"
+                },
+                "Type": 0,
+                "RiverSpline": [],
+                "RiverWidth": 800.0,
+                "RiverFlowSpeed": 200.0,
+                "RiverFlowPeriod": 1.0,
+                "FallFoam": "",
+                "FallSpray": "",
+                "FallMist": "",
+                "Density": 1000.0,
+                "Drag": 1.5
+            }
+        },
+        {
+            "id": 4300000000000000031,
+            "siblingIndex": 11,
+            "Tag": "Breakwater",
+            "Translation": [
+                0.0,
+                -100.0,
+                3300.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                200.0,
+                4.0,
+                2.0
             ],
             "StaticMesh": {
                 "Primitive": "Cube",

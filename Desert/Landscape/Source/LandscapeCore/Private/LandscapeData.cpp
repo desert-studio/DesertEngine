@@ -12,7 +12,6 @@
 #include <glm/vec4.hpp>
 
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -145,10 +144,23 @@ namespace Desert::World::Landscape
              kWeightConsumers | ConsumerBit( LandscapeDirtyConsumer::Physics );
         constexpr uint32_t kAllConsumers    = ( 1u << kLandscapeDirtyConsumerCount ) - 1u;
 
-        uint64_t NextHeightStamp()
+        // One sample's share of the height stamp (splitmix64 of where it is and what it holds). The stamp is their
+        // sum, so a write moves it by the samples it changed.
+        uint64_t HeightTerm( const size_t index, const uint16_t sample )
         {
-            static std::atomic<uint64_t> s_Last{ 0u };
-            return s_Last.fetch_add( 1u, std::memory_order_relaxed ) + 1u;
+            uint64_t value = ( ( static_cast<uint64_t>( index ) << 16u ) | sample ) + 0x9e3779b97f4a7c15ull;
+            value          = ( value ^ ( value >> 30u ) ) * 0xbf58476d1ce4e5b9ull;
+            value          = ( value ^ ( value >> 27u ) ) * 0x94d049bb133111ebull;
+            return value ^ ( value >> 31u );
+        }
+
+        uint64_t HeightStampOf( const uint32_t samplesX, const uint32_t samplesZ, const std::vector<uint16_t>& samples )
+        {
+            // The dimensions: an index no tile has (kLandscapeMaxTileSamples squared is far below it).
+            uint64_t stamp = HeightTerm( ( size_t{ 1 } << 46u ) | ( size_t{ samplesX } << 20u ) | samplesZ, 0u );
+            for ( size_t i = 0; i < samples.size(); ++i )
+                stamp += HeightTerm( i, samples[i] );
+            return stamp;
         }
     } // namespace
 
@@ -156,7 +168,7 @@ namespace Desert::World::Landscape
          : m_SamplesX( samplesX ), m_SamplesZ( samplesZ ), m_Samples( std::move( samples ) )
     {
         RescanSampleRange();
-        m_HeightStamp = NextHeightStamp();
+        m_HeightStamp = HeightStampOf( m_SamplesX, m_SamplesZ, m_Samples );
         MarkDirty( Bounds(), kAllConsumers );
     }
 
@@ -205,9 +217,11 @@ namespace Desert::World::Landscape
                        x, z, m_EditLayers.size() );
         DESERT_VERIFY( x < m_SamplesX && z < m_SamplesZ, "Landscape sample ({}, {}) outside {} x {}", x, z,
                        m_SamplesX, m_SamplesZ );
-        uint16_t& slot = m_Samples[static_cast<size_t>( z ) * m_SamplesX + x];
+        const size_t index = static_cast<size_t>( z ) * m_SamplesX + x;
+        uint16_t&    slot  = m_Samples[index];
         if ( slot == value )
             return;
+        m_HeightStamp += HeightTerm( index, value ) - HeightTerm( index, slot );
         // Overwriting the lowest or highest sample may narrow the range, which only a scan can tell; any other
         // write can only widen it.
         const bool heldABound = slot == m_LowestSample || slot == m_HighestSample;
@@ -219,7 +233,6 @@ namespace Desert::World::Landscape
             m_LowestSample  = std::min( m_LowestSample, value );
             m_HighestSample = std::max( m_HighestSample, value );
         }
-        m_HeightStamp = NextHeightStamp();
         MarkDirty( { x, z, x + 1u, z + 1u }, kHeightConsumers );
     }
 
@@ -268,12 +281,14 @@ namespace Desert::World::Landscape
         uint16_t highest    = m_HighestSample;
         for ( uint32_t z = rect.Z0; z < rect.Z1; ++z )
         {
-            uint16_t*       row = m_Samples.data() + static_cast<size_t>( z ) * m_SamplesX + rect.X0;
-            const uint16_t* src = values.data() + static_cast<size_t>( z - rect.Z0 ) * rect.Width();
+            const size_t    first = static_cast<size_t>( z ) * m_SamplesX + rect.X0;
+            uint16_t*       row   = m_Samples.data() + first;
+            const uint16_t* src   = values.data() + static_cast<size_t>( z - rect.Z0 ) * rect.Width();
             for ( uint32_t i = 0; i < rect.Width(); ++i )
             {
                 if ( row[i] == src[i] )
                     continue;
+                m_HeightStamp += HeightTerm( first + i, src[i] ) - HeightTerm( first + i, row[i] );
                 changed    = true;
                 lostABound = lostABound || row[i] == m_LowestSample || row[i] == m_HighestSample;
                 lowest     = std::min( lowest, src[i] );
@@ -290,7 +305,6 @@ namespace Desert::World::Landscape
             m_LowestSample  = lowest;
             m_HighestSample = highest;
         }
-        m_HeightStamp = NextHeightStamp();
         MarkDirty( rect, kHeightConsumers );
         return Common::MakeSuccess( true );
     }
