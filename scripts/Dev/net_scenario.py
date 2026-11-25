@@ -11,7 +11,7 @@ line to this file; the output layout is play_scenario's, so accept.sh reads it t
 Line format (one step per line in order, `#` comments; a step's REGEX is the rest of the line, taken verbatim):
   Проект|Project <x.deproj>                   optional, before any step (default Projects/Desert/Desert.deproj)
   Мир|World <scene.desce>                     the world every role plays, relative to the .deproj folder; cooked with
-                                              the tree's WorldCook into the run folder before the first role starts
+                                              the tree's WorldCook to <scene>.dwworld before the first role starts
   Роль|Role <name> server|editor|bot [account=N] [lag=MS] [loss=PCT] [jitter=MS] <the process's own args…>
                                               starts the role at this point of the run. The controller adds what it
                                               owns: project, world, port, auth (an issuer key pair per run; a token per
@@ -31,7 +31,7 @@ Line format (one step per line in order, `#` comments; a step's REGEX is the res
   Нет|Never <role> <REGEX>                    the role's whole log so far has no line matching REGEX
   Тогда|Then <role> <frame> <what it shows…>  the next frame the editor role draws, as <frame>.png (index.txt)
 Output: <scratch>/<CODE>/frames/scn-<time>/ (scn-latest points at it): <role>.log per role, the frames, index.txt,
-result.txt, the scenario, the cooked world. Every role is ended when the steps end or one fails.
+result.txt, trace.txt (each step's time and what it read), the scenario, cook.log. Every role is ended when the steps end or one fails.
 """
 import os
 import re
@@ -151,8 +151,9 @@ class Run:
         scene = os.path.join(os.path.dirname(self.proj), self.world)
         if not os.path.isfile(scene):
             raise Fail(f"world {scene} does not exist")
-        name = os.path.splitext(os.path.basename(scene))[0]
-        self.cooked = os.path.join(self.out, "world", name + ".dwworld")
+        # Where every role reads it: Core::WorldCells::CookedWorldDirectory, <scene>.dwworld beside the scene (the
+        # server derives it from --world; a derived product, git-ignored). Cooked per run (~3 s), so it is never stale.
+        self.cooked = os.path.splitext(scene)[0] + ".dwworld"
         with open(os.path.join(self.out, "cook.log"), "w", encoding="utf-8") as log:
             rc = subprocess.call([self.tool("WorldCook"), scene, "--out", self.cooked, "--project", self.proj,
                                   "--project-registry"], cwd=self.tree, stdout=log, stderr=subprocess.STDOUT)
