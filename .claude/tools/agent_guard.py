@@ -164,7 +164,7 @@ def brief_size_denial(prompt, feature=False):
     # feature was seen working, and that brief names the proof in a «Фича принята:» line.
     # Target names (EditorTests), clauses handing suites to the lead («Сюиты/CI — тимлид») and «Тесты не писать» are not asks.
     asks_tests = re.search(r"(?i)мутац\w*|\bтест\w*|\bсюит\w*|\bsuites?\b|\btests?\b",
-                           re.sub(r"[^.;\n]*тимлид[^.;\n]*|[^.;\n]*suite\.sh[^.;\n]*|\w*Tests\b|[Тт]ест\w*\s+не\s+\w+|\bне\s+\w+\s+тест\w*", "", body))
+                           re.sub(r"[^.;\n]*тимлид[^.;\n]*|[^.;\n]*suite\.sh[^.;\n]*|\w*Tests\b|[Тт]ест\w*\s+не\s+\w+|(?i:existing test projects[^.;\n]*compile\w*)|(?i:\bno (?:new )?tests?\b)|\bне\s+\w+\s+тест\w*", "", body))
     if asks_tests and "Фича принята:" not in text:
         return (f"[agent_guard] Тимлид: бриф {found.group(0)} просит тесты/мутации вместе с кодом («{asks_tests.group(0)}»). "
                 "Владелец 10-10 вечер: новые тесты ОТЛОЖЕНЫ до конца фич (потом отдельный период тестов). Бриф — код + "
@@ -459,6 +459,18 @@ def self_check():
             cases[name] = None
             if '"deny"' not in out.stdout:
                 failed.append(name)
+        # Owner 11-25: the lead's own waste, and the calls that must stay open.
+        for name, cmd, refused in (("lead cuts a merge with timeout", "timeout 100 git merge --no-ff x", True),
+                                   ("lead reads a whole diff", "cd x && git diff -U2 a..b -- '*.cpp'", True),
+                                   ("lead prints 48k chars", "cat f | head -c 48000", True),
+                                   ("lead reads a diff stat", "git diff --shortstat a..b", False),
+                                   ("lead runs a merge", "git merge --no-ff x", False),
+                                   ("lead pushes with a timeout", "timeout 90 git push origin x", False),
+                                   ("lead runs merge-tree with a timeout", "timeout 60 git merge-tree --write-tree a b", False)):
+            if refused:
+                cases[name] = None
+            if bool(lead_waste_refusal(cmd)) != refused:
+                failed.append(name)
         # Owner 11-23: continuing an agent past CONTINUE_MAX calls is refused.
         send = os.path.join(STATE_DIR, "selfcheck-SEND.json")
         with open(send, "w") as f:
@@ -605,6 +617,28 @@ def weather_gate_pending():
     return pending
 
 
+LEAD_OUTPUT_CAP = 6000
+GIT_TREE_WRITE = re.compile(r"\btimeout\s+(?:-\S+\s+)*\d+\w?\s+git\s+(?:-C\s+\S+\s+)?"
+                            r"(?:merge(?!-tree|-base)|rebase|checkout|switch|reset|stash|cherry-pick|am)\b")
+GIT_TEXT = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?(?:diff|show|log\s+-p)\b")
+CAPPED = re.compile(r"--(?:short)?stat|--name-only|--name-status|--numstat|--raw|--quiet|\|\s*(?:wc|grep|head|tail)\b|"
+                    r">\s*[\w/$\"']|\s-s\b")
+
+
+def lead_waste_refusal(cmd):
+    """Owner 11-25: a merge cut by `timeout` left a half-written tree, and whole diffs were read into the lead."""
+    if GIT_TREE_WRITE.search(cmd):
+        return ("`timeout` вокруг git, который пишет дерево, обрывает его на середине (11-25: ng6build восстанавливали по "
+                "blob). Запусти без timeout, с run_in_background.")
+    big = [int(n) for n in re.findall(r"\bhead\s+-c\s*(\d+)", cmd) if int(n) > LEAD_OUTPUT_CAP]
+    if big:
+        return (f"вывод {big[0]} знаков в контекст лида (> {LEAD_OUTPUT_CAP}) перечитывается каждым следующим запросом. "
+                "Выжимка скриптом или ревьюер.")
+    if any(GIT_TEXT.search(part) and not CAPPED.search(part) for part in re.split(r"&&|;|\n", cmd)):
+        return "дифф целиком в контекст лида не читается: --stat, выжимка (| head -60) или агент reviewer."
+    return None
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -617,6 +651,10 @@ def main():
     # Verified 2026-09-24 on live calls: a sub-agent's input carries agent_id and agent_type.
     agent = data.get("agent_id")
     agent_type = (data.get("agent_type") or "").lower()
+    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") in ("Bash", "PowerShell"):
+        waste = lead_waste_refusal(str((data.get("tool_input") or {}).get("command") or ""))
+        if waste:
+            deny("[agent_guard] Тимлид: " + waste, data, "lead")
     # The lead's own spawns: sonnet is refused for any agent (owner 09-29 «соннет дорогой», measured above).
     if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
             "sonnet" in str((data.get("tool_input") or {}).get("model") or "").lower():

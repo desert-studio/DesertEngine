@@ -49,7 +49,7 @@ def load():
             s = json.load(f)
     except (OSError, ValueError):
         s = {}
-    for k in ("pages", "writes", "pending", "agents", "unblock", "launched", "stopped", "board"):
+    for k in ("pages", "writes", "pending", "agents", "unblock", "launched", "stopped", "board", "helpers", "handins"):
         s.setdefault(k, {})
     s.setdefault("prompts", [])
     s.setdefault("board_t", 0)
@@ -146,6 +146,28 @@ def running_agent(s, code):
     return None
 
 
+# Owner 11-25 («оптимизируй это всё, чтобы больше никогда к этому не возвращаться»): 22 Stop refusals in a day were about
+# cards a reviewer or a board agent was already on, and each cost a whole lead turn. A card under review is not
+# abandoned; a running board agent is the acceptance being written.
+HELPERS_OF_CARD = ("architect", "reviewer", "acceptance")
+BOARD_MAX_AGE = 600
+
+
+def live_helpers(s, kinds):
+    now = time.time()
+    return [h for h in s["helpers"].values()
+            if h["type"] in kinds and now - h["t"] < (BOARD_MAX_AGE if h["type"] == "board" else RUNNING_MAX_AGE)]
+
+
+def helper_on(s, code):
+    """A reviewer launched as CODE or CODE-REV works for CODE's card."""
+    return any(h["code"] == code or h["code"].startswith(code + "-REV") for h in live_helpers(s, HELPERS_OF_CARD))
+
+
+def busy_count(s):
+    return running_count(s) + len(live_helpers(s, HELPERS_OF_CARD))
+
+
 def running_count(s):
     now = time.time()
     return sum(1 for aid in s["agents"] if aid not in s["stopped"] and now - s["launched"].get(aid, 0) < RUNNING_MAX_AGE)
@@ -202,15 +224,17 @@ def night_until():
 
 
 def landing():
-    """A merge (land_dev.sh) running counts as the working slot it is."""
+    """A merge (land_dev.sh), a batch build or a scenario running counts as the working slot it is: new work started on
+    code no build has seen yet is the waste of 11-25."""
     try:
-        return subprocess.run(["pgrep", "-f", "land_dev.sh"], capture_output=True).returncode == 0
+        return subprocess.run(["pgrep", "-f", "land_dev.sh|build_land.sh|play_scenario.py"], capture_output=True).returncode == 0
     except OSError:
         pass
     # Windows has no pgrep: the command lines of the running processes, through CIM
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-Command",
-                              "(Get-CimInstance Win32_Process -Filter \"CommandLine like '%land_dev.sh%' "
+                              "(Get-CimInstance Win32_Process -Filter \"(CommandLine like '%land_dev.sh%' "
+                              "or CommandLine like '%build_land.sh%' or CommandLine like '%play_scenario.py%') "
                               "and not CommandLine like '%Win32_Process%'\").Count"],
                              capture_output=True, text=True, timeout=20).stdout.strip()
         return out.isdigit() and int(out) > 0
@@ -220,6 +244,30 @@ def landing():
 
 def unaccepted(s):
     return sorted(c for c, t in s["pending"].items() if s["writes"].get(c, 0) < t)
+
+
+# A feature is compiled after its first run (11-25: the water went through five engineer runs, 21.8M units, unbuilt).
+# One code run and one review-fix run may precede the build; the third waits for it.
+RUNS_BEFORE_BUILD = 2
+BUILD_LEDGER = os.environ.get("BUILD_GATE_LEDGER", "C:/aftmp/build_ledger.jsonl")
+
+
+def last_build_time():
+    try:
+        with open(BUILD_LEDGER, encoding="utf-8") as f:
+            return max((json.loads(line).get("t", 0) for line in f if line.strip()), default=0)
+    except (OSError, ValueError):
+        return 0
+
+
+def unbuilt_refusal(s, code, prompt):
+    since = last_build_time()
+    runs = [x for x in s["handins"].get(code, []) if x > since]
+    if len(runs) < RUNS_BEFORE_BUILD or owner_quote_ok(s, prompt):
+        return None
+    return (f"{code}: сдано {len(runs)} захода после последней сборки — следующий только после сборки и кадра (владелец 11-25: "
+            "вода, пять заходов без сборки = 21,8 млн). Слей ветку и запусти build_land.sh (BUILD_WHY=\"первая сборка фичи\"), "
+            "или приведи слова владельца: ВЛАДЕЛЕЦ: «цитата».")
 
 
 UNBLOCK_SQL = ("SELECT \"Код\",\"Статус\",\"Название\" FROM \"collection://386f5e0e-e749-479b-83a7-59e03ef9b8b2\" "
@@ -254,7 +302,8 @@ def tails(s):
 def abandoned(s):
     if landing():
         return []
-    return sorted(c for c, r in tails(s).items() if r.get("status") == "В работе" and not running_agent(s, c))
+    return sorted(c for c, r in tails(s).items() if r.get("status") == "В работе" and not running_agent(s, c)
+                  and not helper_on(s, c))
 
 
 def ingest_rows(s, resp, full, paged=False):
@@ -419,6 +468,8 @@ def main():
             now = time.time()
             for aid in s["agents"]:
                 s["stopped"].setdefault(aid, now)
+            s["helpers"].clear()
+            save(s)
         session_start(s)
         sys.exit(0)
     if "--owner-named-mirror" in sys.argv:
@@ -455,6 +506,8 @@ def main():
         sys.exit(0)
 
     if event == "SubagentStop" and (data.get("agent_type") or "").lower() in NOT_WRITERS:
+        if s["helpers"].pop(data.get("agent_id") or "", None):
+            save(s)
         sys.exit(0)  # nothing to accept
     if event == "SubagentStop":
         # A worker's nested child (an Explore it spawned) stops with the worker's agent_id; its own id is only in the
@@ -467,6 +520,7 @@ def main():
         s["stopped"][aid] = time.time()
         if code:
             s["pending"][code] = time.time()
+            s["handins"][code] = (s["handins"].get(code, []) + [time.time()])[-10:]
         save(s)
         sys.exit(0)
 
@@ -490,23 +544,26 @@ def main():
         sys.exit(0)
 
     if event == "Stop":
-        late = unaccepted(s)
-        if late and not data.get("stop_hook_active"):
-            emit({"decision": "block", "reason": "[board_guard] Агенты сдали, карточки не обновлены: " + ", ".join(late) +
-                  ". Приём = карточка: Статус (На проверке/Сделано/В работе), «Кто ведёт», итог и остаток в теле."})
-        # Rule 4 is NOT enforced at Stop (owner 10-19: a blocked Stop re-ran the whole lead turn after every
-        # hand-in); it is enforced before the next Agent launch, where the check actually changes what runs.
-        gone = abandoned(s)
-        if gone and not late and not data.get("stop_hook_active"):
-            emit({"decision": "block", "reason": "[board_guard] Брошено — «В работе» без живого агента: " + " ".join(gone) +
-                  ". Запусти или поставь честный статус (Готово к старту / Заблокировано с причиной) — владелец 10-27: хвосты не бросать."})
-        floor = min_agents()
-        if floor and not night_until() and not late and not data.get("stop_hook_active"):
-            busy = running_count(s)
-            if busy < floor and not landing():
-                emit({"decision": "block", "reason": f"[board_guard] Работает агентов {busy} < {floor} (владелец 11-24: без простоя, "
-                      "~/.claude/min_agents, по умолчанию 1). Запусти карточку с самым высоким приоритетом, потом заканчивай ход." +
-                      idle_hint(s)})
+        # Every complaint in ONE refusal, and none while a board agent is writing the cards (11-25: three refusals in a
+        # row for one hand-in). Rule 4 is NOT enforced here (owner 10-19) but before the next Agent launch.
+        if not data.get("stop_hook_active") and not live_helpers(s, ("board",)):
+            why = []
+            late = unaccepted(s)
+            if late:
+                why.append("Агенты сдали, карточки не обновлены: " + ", ".join(late) + ". Приём = ОДИН запуск board на сдачу, сразу с "
+                           "верным следующим статусом (у ревьюера или ждёт сборки — «На проверке»), «Кто ведёт», итог и остаток.")
+            gone = [c for c in abandoned(s) if c not in late]
+            if gone:
+                why.append("Брошено — «В работе» без живого агента: " + " ".join(gone) +
+                           ". Запусти или поставь честный статус (владелец 10-27: хвосты не бросать).")
+            floor = min_agents()
+            if floor and not night_until():
+                busy = busy_count(s)
+                if busy < floor and not landing():
+                    why.append(f"Работает агентов {busy} < {floor}, сборки и приёмки нет (владелец 11-24: без простоя). Запусти карточку "
+                               "с самым высоким приоритетом, потом заканчивай ход." + idle_hint(s))
+            if why:
+                emit({"decision": "block", "reason": "[board_guard] " + " | ".join(why)})
         night = night_until()
         if night and not data.get("stop_hook_active"):
             busy = running_count(s)
@@ -563,6 +620,10 @@ def main():
             s["agents"][m.group(1)] = code
             s["launched"][m.group(1)] = time.time()
             save(s)
+        kind = (tin.get("subagent_type") or "").lower()
+        if m and kind in HELPERS_OF_CARD + ("board",):
+            s["helpers"][m.group(1)] = {"type": kind, "code": code or "", "t": time.time()}
+            save(s)
         sys.exit(0)
 
     if event == "PostToolUse" and tool == "SendMessage":
@@ -618,6 +679,9 @@ def main():
             refusal = code not in s["writes"] or launch_refusal(s, code, str(tin.get("prompt") or ""))
             if isinstance(refusal, str):
                 deny(refusal)
+            unbuilt = unbuilt_refusal(s, code, str(tin.get("prompt") or ""))
+            if unbuilt:
+                deny(unbuilt)
             stale = stale_branch_refusal(code, str(tin.get("prompt") or ""))
             if stale:
                 deny(stale)

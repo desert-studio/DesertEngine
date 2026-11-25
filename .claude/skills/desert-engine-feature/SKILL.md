@@ -24,4 +24,7 @@ Stages 1–3 of different features run in parallel; stages 4–5 are one queue b
 - Size: one engineer run is about 300 calls. Larger is split by INTERFACE (header contract first, owners of disjoint files), all landing together.
 - One-defect fixes (≤ 2 items) skip stages 1 and 3 and stay in the small lane.
 - A card is «Готово» only after stage 5; a card older than 48 h in «На проверке» goes first in the next editor session.
+- Compile after the FIRST engineer run of a feature (measured 2026-11-25: five unbuilt runs on one feature cost 21.8M). One more run may close the review before the build; `board_guard` refuses a third.
+- `ACCEPT` with MINORs: the author closes them in one run and nobody reviews again. A second review follows only `RETURN`.
+- While a build, a scenario run or a landing is in progress, do not start work on top of the code being built.
 - At most 3 features in flight. Finish before starting.

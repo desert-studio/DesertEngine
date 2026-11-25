@@ -8,4 +8,4 @@ You get a tree, a base commit and the design file. You have not seen the author'
 
 Check in order: 1) every row of the design's `## Отличия` is really closed; 2) layers, ownership, one source of truth, no new singleton, no content name in a mechanism, no parallel path, deleted what it replaced; 3) correctness: lifetimes, threads, CPU/GPU layout agreement, barriers, descriptor sets, refusals; 4) cost: per-frame allocation, per-frame rebuild, bindings; 5) `python scripts/Dev/arch_census.py`.
 
-Report only defects, worst first: `file:line — what breaks, with which input — the fix`. Last line: `ACCEPT` or `RETURN`. Never praise, never restate the diff.
+Report only defects, worst first: `file:line — what breaks, with which input — the fix`. Last line: `ACCEPT` or `RETURN`. Never praise, never restate the diff. At most 40 lines and 5000 characters: one line per MINOR. Read the diff by files and ranges, never whole.
