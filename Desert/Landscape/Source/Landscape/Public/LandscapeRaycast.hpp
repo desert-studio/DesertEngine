@@ -8,7 +8,7 @@
 // body would rest. Along a ray each triangle's height is linear in the ray parameter, so the ray is cut
 // at the grid lines and at each cell's diagonal and every piece is one linear equation, solved in double.
 
-#include <Engine/World/Landscape/LandscapeFrame.hpp>
+#include <LandscapeCore/Public/LandscapeFrame.hpp>
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>

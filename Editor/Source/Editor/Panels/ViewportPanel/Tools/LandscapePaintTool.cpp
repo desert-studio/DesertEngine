@@ -9,7 +9,7 @@
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/ToastManager.hpp>
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Landscape/Public/LandscapeLayerRules.hpp>
 #include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>

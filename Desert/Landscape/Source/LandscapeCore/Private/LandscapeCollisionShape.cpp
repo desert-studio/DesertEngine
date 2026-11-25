@@ -1,4 +1,4 @@
-#include <Engine/World/Landscape/LandscapeCollisionShape.hpp>
+#include <LandscapeCore/Public/LandscapeCollisionShape.hpp>
 
 namespace Desert::World::Landscape
 {

@@ -7,7 +7,7 @@
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Engine/Geometry/MeshAssetArrays.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
-#include <Engine/World/Landscape/LandscapeSplinesJson.hpp>
+#include <LandscapeCore/Public/LandscapeSplinesJson.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 

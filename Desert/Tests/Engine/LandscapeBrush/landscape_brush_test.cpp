@@ -8,7 +8,7 @@
 //   3. Across a tile seam the two stored copies of the shared row receive the same weight, and a tile that
 //      only shares an edge row with the brush rectangle is still reported.
 
-#include <Engine/World/Landscape/LandscapeBrush.hpp>
+#include <Landscape/Public/LandscapeBrush.hpp>
 
 #include <gtest/gtest.h>
 

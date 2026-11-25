@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Geometry/MeshTypes.hpp>
-#include <Engine/World/Landscape/LandscapeSplines.hpp>
+#include <LandscapeCore/Public/LandscapeSplines.hpp>
 
 #include <span>
 #include <vector>

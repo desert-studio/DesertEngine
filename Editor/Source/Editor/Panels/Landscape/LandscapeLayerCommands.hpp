@@ -1,5 +1,5 @@
 #pragma once
-#include <Engine/World/Landscape/LandscapeSplines.hpp>
+#include <LandscapeCore/Public/LandscapeSplines.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 

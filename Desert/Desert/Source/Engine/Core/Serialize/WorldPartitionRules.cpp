@@ -1,7 +1,7 @@
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <Common/Json/DocumentStruct.hpp>
-#include <Engine/World/Landscape/LandscapeSplinesJson.hpp>
+#include <LandscapeCore/Public/LandscapeSplinesJson.hpp>
 
 namespace Desert::Core::Rules::Detail
 {

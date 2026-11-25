@@ -7,7 +7,7 @@
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/SceneDependencies.hpp>
-#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
+#include <LandscapeCore/Public/LandscapeTileFiles.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentKinds.hpp>

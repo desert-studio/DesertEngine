@@ -11,7 +11,7 @@
 #include <Engine/ECS/System/MeshStandInDraw.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Graphic/Render/Commands/DrawMeshCommand.hpp>
-#include <Engine/World/Landscape/LandscapeSplines.hpp>
+#include <LandscapeCore/Public/LandscapeSplines.hpp>
 
 #include <entt/entt.hpp>
 

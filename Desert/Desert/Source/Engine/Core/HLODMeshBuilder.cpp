@@ -13,9 +13,9 @@
 #include <Engine/Geometry/MeshSimplifyOperation.hpp>
 #include <Engine/Geometry/MikkTangents.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
-#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeTileFiles.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>

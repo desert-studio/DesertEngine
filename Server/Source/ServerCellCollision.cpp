@@ -2,8 +2,8 @@
 
 #include <Engine/Physics/ColliderComponent.hpp>
 #include <Engine/Physics/RigidBodyComponent.hpp>
-#include <Engine/World/Landscape/LandscapeCollisionShape.hpp>
-#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
+#include <LandscapeCore/Public/LandscapeCollisionShape.hpp>
+#include <LandscapeCore/Public/LandscapeTileFiles.hpp>
 #include <PhysicsCore/CollisionProfiles.hpp>
 
 #include <Common/Core/Logger.hpp>

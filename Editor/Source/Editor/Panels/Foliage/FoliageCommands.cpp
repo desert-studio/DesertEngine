@@ -25,7 +25,7 @@
 #include <Engine/ECS/TagComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Landscape/Public/LandscapeTileComponent.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <set>
 
 namespace Desert::Editor

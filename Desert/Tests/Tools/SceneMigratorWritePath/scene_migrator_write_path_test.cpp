@@ -36,8 +36,8 @@
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Utilities/Crc32c.hpp>
-#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeEditLayers.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 
 #include <gtest/gtest.h>
 

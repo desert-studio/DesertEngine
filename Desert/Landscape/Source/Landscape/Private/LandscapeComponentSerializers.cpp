@@ -7,7 +7,7 @@
 
 #include <Engine/Core/Serialize/ComponentSerializerKit.hpp>
 #include <Engine/Core/Serialize/EngineComponentProvider.hpp>
-#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
+#include <LandscapeCore/Public/LandscapeTileFiles.hpp>
 #include <Landscape/Public/LandscapeLayerInfoAsset.hpp>
 #include <Landscape/Public/LandscapeRootOf.hpp>
 

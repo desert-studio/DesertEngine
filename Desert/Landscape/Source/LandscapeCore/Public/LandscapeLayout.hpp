@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/World/Landscape/LandscapeFrame.hpp>
+#include <LandscapeCore/Public/LandscapeFrame.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
