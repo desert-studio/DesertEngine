@@ -784,17 +784,22 @@ namespace
     // A HEADLESS PLAYER (NET-1 scenario net1_two_clients; NET-ARCH §9 NET-10's bot client): the same
     // ReplicationClient the engine's net driver runs, input sent at the 60 Hz client step.
     //   --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir x,y,z
-    //         --turn-deg-s R] [--lag-ms L --loss P]
-    // --turn-deg-s turns the walk direction about +Y at R degrees per second (a curve: radius = speed / R), and the
-    // pawn faces where it walks (NET-5's remote walk). |dir| below 1 walks slower (the server scales the move).
-    // Walks its own pawn D cm along dir (server-authoritative: it stops when the SERVER's position of its pawn has
-    // moved D cm), then idles; logs its own pawn and every remote pawn (interpolated) twice a second and a final
-    // line per pawn with its displacement from where this client first saw it.
+    //         --turn-deg-s R] [--waypoints x,y,z;x,y,z...] [--lag-ms L --loss P]
+    // --waypoints walks a SHUTTLE instead (NET-5's remote walk in front of an observer): the bot steers its pawn
+    // straight at the current point from the SERVER's newest position of it (closed loop, so a slope or a push
+    // cannot carry it off the path), turns back at each end of the list and walks until --seconds; only x and z
+    // steer (the server's character keeps the pawn on the ground), and |dir| is the speed fraction.
+    // --turn-deg-s turns the walk direction about +Y at R degrees per second (a curve: radius = speed / R), and
+    // the pawn faces where it walks (NET-5's remote walk). |dir| below 1 walks slower (the server scales the
+    // move). Walks its own pawn D cm along dir (server-authoritative: it stops when the SERVER's position of its
+    // pawn has moved D cm), then idles; logs its own pawn and every remote pawn (interpolated) twice a second and
+    // a final line per pawn with its displacement from where this client first saw it.
     int RunBot( int argc, char** argv )
     {
         std::string connect, cooked, tokenHex, name = "bot";
         double      seconds = 10.0, walkCm = 0.0, turnDegPerSecond = 0.0;
         NetVec3     dir{ 1.f, 0.f, 0.f };
+        std::vector<NetVec3> waypoints;
         NetSimulator simulator;
         for ( int i = 1; i < argc; ++i )
         {
@@ -826,6 +831,27 @@ namespace
                 simulator.SendLagMs = std::atoi( value.c_str() );
             else if ( arg == "--loss" )
                 simulator.SendLossPercent = static_cast<float>( std::atof( value.c_str() ) );
+            else if ( arg == "--waypoints" )
+            {
+                for ( std::size_t begin = 0; begin <= value.size(); )
+                {
+                    const std::size_t end = std::min( value.find( ';', begin ), value.size() );
+                    NetVec3           point{};
+                    if ( std::sscanf( value.substr( begin, end - begin ).c_str(), "%f,%f,%f", &point.X, &point.Y,
+                                      &point.Z ) != 3 )
+                    {
+                        Log( "--waypoints '{}': '{}' is not x,y,z", value, value.substr( begin, end - begin ) );
+                        return 1;
+                    }
+                    waypoints.push_back( point );
+                    begin = end + 1;
+                }
+                if ( waypoints.size() < 2 )
+                {
+                    Log( "--waypoints '{}' needs at least two points", value );
+                    return 1;
+                }
+            }
             else if ( arg == "--dir" )
             {
                 if ( std::sscanf( value.c_str(), "%f,%f,%f", &dir.X, &dir.Y, &dir.Z ) != 3 )
@@ -844,7 +870,7 @@ namespace
         if ( connect.empty() || cooked.empty() || !token || seconds <= 0.0 )
         {
             Log( "usage: --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir "
-                 "x,y,z --turn-deg-s R] [--lag-ms L --loss P]" );
+                 "x,y,z --turn-deg-s R] [--waypoints x,y,z;x,y,z...] [--lag-ms L --loss P]" );
             return 1;
         }
         const std::optional<std::uint64_t> cookHash = ReadCookHash( cooked );
@@ -872,7 +898,13 @@ namespace
         const auto distance = []( const NetVec3& a, const NetVec3& b )
         { return std::sqrt( ( a.X - b.X ) * ( a.X - b.X ) + ( a.Y - b.Y ) * ( a.Y - b.Y ) + ( a.Z - b.Z ) * ( a.Z - b.Z ) ); };
         std::map<NetId, NetVec3> firstSeen;
-        bool                     walking = walkCm > 0.0;
+        bool                     walking      = walkCm > 0.0 || !waypoints.empty();
+        const float              shuttleSpeed = std::sqrt( dir.X * dir.X + dir.Y * dir.Y + dir.Z * dir.Z );
+        std::size_t              target       = 0;
+        int                      heading      = 1; // +1 walks up the list, -1 back down it
+        // Within this horizontal distance of the point the bot turns: the server's position it steers from is
+        // ~one link delay old, so a tighter radius would overshoot and circle the point.
+        constexpr float          kArriveCm = 40.f;
         const auto               start   = std::chrono::steady_clock::now();
         const auto               period  = std::chrono::duration<double>( 1.0 / kNetStepHz );
         std::uint64_t            step    = 0;
@@ -895,7 +927,8 @@ namespace
                     if ( const auto sample = client.Sample( id ) )
                         firstSeen[id] = sample->Position;
             // The SERVER's newest position of the own pawn (the snapshot, not the interpolated one) ends the walk.
-            if ( walking && client.OwnPawn() != kInvalidNetId && firstSeen.contains( client.OwnPawn() ) )
+            if ( walking && waypoints.empty() && client.OwnPawn() != kInvalidNetId &&
+                 firstSeen.contains( client.OwnPawn() ) )
             {
                 const auto& own = client.Pawns().at( client.OwnPawn() );
                 const PawnState newest = own.History.Newest();
@@ -905,14 +938,39 @@ namespace
                     Log( "[{}] walked {:.0f} cm (server position): stopping at step {}", name, walkCm, step );
                 }
             }
-            if ( walking && turnDegPerSecond != 0.0 )
+            if ( !waypoints.empty() )
+            {
+                dir = {};
+                if ( client.OwnPawn() != kInvalidNetId && client.Pawns().contains( client.OwnPawn() ) )
+                {
+                    const PawnState newest = client.Pawns().at( client.OwnPawn() ).History.Newest();
+                    float           dx     = waypoints[target].X - newest.Position.X;
+                    float           dz     = waypoints[target].Z - newest.Position.Z;
+                    if ( std::sqrt( dx * dx + dz * dz ) < kArriveCm )
+                    {
+                        const auto next = static_cast<std::ptrdiff_t>( target ) + heading;
+                        if ( next < 0 || next >= static_cast<std::ptrdiff_t>( waypoints.size() ) )
+                            heading = -heading;
+                        target = static_cast<std::size_t>( static_cast<std::ptrdiff_t>( target ) + heading );
+                        Log( "[{}] shuttle turn at ({:.0f}, {:.0f}, {:.0f}) for ({:.0f}, {:.0f}), step {}", name,
+                             newest.Position.X, newest.Position.Y, newest.Position.Z, waypoints[target].X,
+                             waypoints[target].Z, step );
+                        dx = waypoints[target].X - newest.Position.X;
+                        dz = waypoints[target].Z - newest.Position.Z;
+                    }
+                    if ( const float length = std::sqrt( dx * dx + dz * dz ); length > 0.f )
+                        dir = { dx / length * shuttleSpeed, 0.f, dz / length * shuttleSpeed };
+                }
+            }
+            else if ( walking && turnDegPerSecond != 0.0 )
             {
                 const double turn = turnDegPerSecond * 3.14159265358979 / 180.0 / kNetStepHz;
                 const float  c = static_cast<float>( std::cos( turn ) ), s = static_cast<float>( std::sin( turn ) );
                 dir = { dir.X * c + dir.Z * s, dir.Y, -dir.X * s + dir.Z * c };
             }
             // Facing the walk (the editor's convention: yaw 0 faces -Z).
-            const float yaw = walking ? std::atan2( -dir.X, -dir.Z ) : 0.f;
+            const bool  moving = walking && ( dir.X != 0.f || dir.Z != 0.f );
+            const float yaw    = moving ? std::atan2( -dir.X, -dir.Z ) : 0.f;
             client.SendInput( walking ? dir : NetVec3{}, yaw );
             // The cells around the SERVER's position of the own pawn, reported when they change.
             if ( client.OwnPawn() != kInvalidNetId && client.Pawns().contains( client.OwnPawn() ) )
