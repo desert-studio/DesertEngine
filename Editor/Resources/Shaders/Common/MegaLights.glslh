@@ -419,12 +419,6 @@ int MegaLightsLightShadowMaskSlot(int light)
 #include <Common/MegaLightsScreenTrace.glslh>
 #endif
 
-// THE ONE VISIBILITY TEST of a sample (UE MegaLights traces each sample once): 0..1, how much of @p light reaches
-// the surface point @p p. The ray aims at a point of the light's source sphere, uniform in the solid angle it
-// subtends (UE SampleSphereLight / UniformSampleCone: SourceRadius makes the shadow soft over frames), first
-// marched through the screen depth as the light's contact shadow (UE MegaLights screen traces: the detail the TLAS
-// does not hold), then one ray query over the TLAS from the point (off the surface along its normal, on the
-// light's side - UE r.RayTracing.NormalBias) to the sphere, stopped short by the same bias.
 // LIGHT THROUGH THE RECEIVER. A subsurface receiver (SubsurfaceOpacity >= 0) lit from behind its normal is reached
 // only by the light its model transmits, and that light is attenuated by the matter it crossed - exp(-thickness x
 // density), the thickness from the occluder nearest the LIGHT to the receiver, density from the receiver's opacity -
@@ -492,6 +486,12 @@ float MegaLightsEmissiveVisibility(MegaLightsPixel p, int light, inout uint rand
 #endif
 }
 
+// THE ONE VISIBILITY TEST of a sample (UE MegaLights traces each sample once): 0..1, how much of @p light reaches
+// the surface point @p p. The ray aims at a point of the light's source sphere, uniform in the solid angle it
+// subtends (UE SampleSphereLight / UniformSampleCone: SourceRadius makes the shadow soft over frames), first
+// marched through the screen depth as the light's contact shadow (UE MegaLights screen traces: the detail the TLAS
+// does not hold), then one ray query over the TLAS from the point (off the surface along its normal, on the
+// light's side - UE r.RayTracing.NormalBias) to the sphere, stopped short by the same bias.
 float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 {
 	if (MegaLightsLightIsEmissive(light))
