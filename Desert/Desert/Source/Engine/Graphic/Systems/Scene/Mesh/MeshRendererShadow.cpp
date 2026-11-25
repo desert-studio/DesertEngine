@@ -2327,6 +2327,9 @@ namespace Desert::Graphic::System
         if ( caster == nullptr )
         {
             // Not drawn through the shared program instead: that is the square shadow this route exists to end.
+            // A read in flight is not a refusal: the next frames ask again.
+            if ( Runtime::ResourceRegistry::GetMaterialService()->IsPending( material ) )
+                return nullptr;
             static std::unordered_set<const DataDrivenMaterial*> s_Refused;
             if ( s_Refused.insert( material ).second )
                 LOG_ERROR(

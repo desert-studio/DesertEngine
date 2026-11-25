@@ -1511,6 +1511,13 @@ namespace Desert::Runtime
         return m_Requests.contains( handle );
     }
 
+    bool MaterialService::IsPending( const Graphic::Material* built ) const
+    {
+        const ReadGuard serviceLock;
+        const auto      it = m_BuiltToAsset.find( built );
+        return it != m_BuiltToAsset.end() && m_Requests.contains( it->second );
+    }
+
     std::size_t MaterialService::GraveyardCount() const noexcept
     {
         const ReadGuard serviceLock;
