@@ -4,7 +4,7 @@
 
 #include <Landscape/Public/LandscapeTileImage.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
-#include <Engine/World/Landscape/LandscapeSculpt.hpp>
+#include <Landscape/Public/LandscapeSculpt.hpp>
 
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 

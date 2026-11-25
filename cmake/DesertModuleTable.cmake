@@ -53,7 +53,7 @@ desert_module(Engine DEPS Core RenderCore Render2DCore Localization PhysicsCore 
 # L6: the renderer sits ABOVE Engine (UE layering, plan sec. 3.2); features are plugins over Engine
 desert_module(Renderer DEPS Engine UE "Renderer")
 desert_module(Media DEPS Engine Audio UE "MediaAssets")
-desert_module(Landscape DEPS Engine UE "Landscape")
+desert_module(Landscape DEPS Engine UE "Landscape" REFLECTED)
 desert_module(Destruction DEPS Engine UE "GeometryCollectionEngine" REFLECTED)
 # Water privately needs the Renderer as UE's Water plugin does: its single layer water pass implements the
 # Renderer's ISingleLayerWaterPass (Graphic/Systems/Scene/SingleLayerWaterPass.hpp), and its bodies stand on the landscape.
@@ -70,7 +70,7 @@ desert_module(Scripting DEPS Engine UE "ScriptPlugin")
 # L9: a script language is a plugin over Scripting (Luau: the VM, the reflection binder, the host natives)
 desert_module(ScriptLuau DEPS Scripting UE "ScriptPlugin")
 
-# Core first: its files sit in directories whose catch-all rows below place them in Engine, Landscape, Foliage or
+# Core first: its files sit in directories whose catch-all rows below place them in Engine, Foliage or
 # ScriptLuau. A file joins Core by name here (and the RENDER_FREE check then holds it to that).
 desert_placement(Core [[Engine/Core/Serialize/(ComponentRegistry|WorldPartitionRules|CookedWorld|WorldCells|WorldCellLoader|WorldPartitionResidencyExecutor|SceneDependencies|SceneFormat|PrefabExpansion|EntityDescriptorIndex|EntityReferenceRemap|ExternalEntities|ForeignKeys)\.|Engine/Assets/Prefab/(PackedPrefab|PrefabFormat|PrefabOverrides)\.|Engine/Assets/Serialization/FoliageType\.|Engine/Scripting/ScriptSchema\.|Engine/Scripting/Luau/(LuauScriptSchema|LuauScriptSource|LuauRuntime|LuauBinder|LuauDebugger|LuauProperties)\.|Engine/ECS/ReflectedComponents\.|Engine/World/Landscape/(LandscapeBrush|LandscapeCollisionShape|LandscapeTileFiles|LandscapeData|LandscapeEditCache|LandscapeEditLayers|LandscapeEditLayerStack|LandscapeLayout|LandscapePaint|LandscapeSplines|LandscapeSplinesJson|LandscapeFrame|LandscapeLayerLimits)\.]])
 # UI-FW-4 moved Render2DCore and DesertUI into their Folders (and CoreReflection's macros into its own);
@@ -106,11 +106,6 @@ desert_placement(Engine [[Engine/Graphic/Materials/(Material|MaterialInstance|Da
 desert_placement(Renderer [[Engine/Graphic/]])
 desert_placement(Media [[Engine/Media/]])
 # feature modules over Engine (UE plugins own their assets, services, components and systems)
-# BUILD-MOD-6L pass 1: the Landscape module's FOLDER (Desert/Landscape/Source/Landscape) holds its translation units
-# and the headers no lower module includes; these rows hold the headers Engine/Core still include (Scene raycast,
-# serializers, HLOD builder, physics, spline-mesh draw) until those includes are cut with hooks; pass 2 cut the
-# services, the render collector, hot reload, eviction and the terrain's layer names (Landscape::StartupModule).
-desert_placement(Landscape [[Engine/World/Landscape/|Engine/Assets/(LandscapeLayerInfoAsset|Serialization/LandscapeLayerInfo)\.hpp|Engine/ECS/LandscapeRootOf\.hpp]])
 desert_placement(Foliage [[Engine/World/Foliage/|Engine/Assets/(FoliageTypeAsset|Serialization/FoliageType)\.|Engine/Runtime/Services/Foliage/|Engine/ECS/ProceduralFoliageComponent\.]])
 desert_placement(ScriptLuau [[Engine/Scripting/Luau/]])
 desert_placement(Scripting [[Engine/Scripting/]])

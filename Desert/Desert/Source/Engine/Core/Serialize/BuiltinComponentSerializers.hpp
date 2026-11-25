@@ -2,8 +2,9 @@
 
 // THE HAND-WRITTEN COMPONENT SERIALIZERS, declared (BUILD-MOD-5). Their file form is NOT their reflection alone,
 // so they are not generated rows (ReflectedComponentBlocks.hpp says which are). Defined by subject beside this
-// header (Mesh / Actor / World ComponentSerializers.cpp, ScriptComponentSerializer.cpp); ComponentRegistry.cpp
-// calls them in load order between the generated runs. Each Add* appends its blocks to `out` in their order.
+// header (Mesh / Actor / World ComponentSerializers.cpp; a feature module's own through
+// EngineComponentProvider.hpp, ScriptComponentSerializer.cpp); ComponentRegistry.cpp calls them in load order
+// between the generated runs. Each Add* appends its blocks to `out` in their order.
 
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
 
@@ -24,8 +25,5 @@ namespace Desert::Core::Serialize::Builtins
     // Morph, SocketAttachment.
     void AddAuthoredSerializers( std::vector<ComponentSerializer>& out );
 
-    ComponentSerializer MakeLandscapeRoot();
-    ComponentSerializer MakeLandscapeTile();
-    ComponentSerializer MakeLandscapeSpline();
     ComponentSerializer MakeScript();
 } // namespace Desert::Core::Serialize::Builtins

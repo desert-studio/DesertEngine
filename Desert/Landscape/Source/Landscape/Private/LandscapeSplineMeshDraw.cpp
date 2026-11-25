@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <span>
 #include <unordered_set>
-#include <Engine/World/Landscape/LandscapeSplineComponent.hpp>
+#include <Landscape/Public/LandscapeSplineComponent.hpp>
 #include <Engine/Graphic/Render/RenderCommandBuffer.hpp>
 
 namespace Desert::ECS

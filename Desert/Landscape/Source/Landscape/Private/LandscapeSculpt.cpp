@@ -2,7 +2,7 @@
 // :593-808, :878-1000, :1049-1350 and :1533-1650, LandscapeEdModeTools.h:29-280, :474-516 and :1134-1142,
 // LandscapeEditorObject.h:85-99, adapted: see LandscapeSculpt.hpp.
 
-#include <Engine/World/Landscape/LandscapeSculpt.hpp>
+#include <Landscape/Public/LandscapeSculpt.hpp>
 
 #include <Common/Core/JobSystem.hpp>
 

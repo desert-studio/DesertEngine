@@ -2,7 +2,7 @@
 
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
-#include <Engine/World/Landscape/LandscapeSculpt.hpp>
+#include <Landscape/Public/LandscapeSculpt.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

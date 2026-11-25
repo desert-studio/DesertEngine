@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
+#include <Landscape/Public/LandscapeComponentIO.hpp>
 
 #include <Common/Json/Document.hpp>
 
@@ -32,8 +33,8 @@
 #include <vector>
 #include <Engine/ECS/MorphComponent.hpp>
 #include <Engine/ECS/SocketAttachmentComponent.hpp>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
-#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeTileComponent.hpp>
 #include <Common/Json/ReadWrite.hpp>
 
 namespace ECS = Desert::ECS;

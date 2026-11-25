@@ -71,12 +71,12 @@
 #include <Engine/UI/Ecs/UIToggleComponent.hpp>
 #include <Engine/UI/Ecs/UITreeViewComponent.hpp>
 #include <Engine/UI/Ecs/UITweenComponent.hpp>
-#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
 #include <Engine/World/Partition/DataLayersComponent.hpp>
 #include <Engine/World/Partition/HLODLayerComponent.hpp>
 #include <Engine/World/Partition/LocationVolumeComponent.hpp>
 #include <Engine/World/Partition/RuntimeGridComponent.hpp>
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
+#include <Landscape/Public/LandscapeMaterialComponent.hpp>
 #include <VFX/Public/VFXComponent.hpp>
 #include <Water/Public/WaterBodyComponent.hpp>
 #include <Water/Public/WaterZoneComponent.hpp>

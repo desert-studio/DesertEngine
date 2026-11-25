@@ -1,4 +1,4 @@
-#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
+#include <Landscape/Public/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 

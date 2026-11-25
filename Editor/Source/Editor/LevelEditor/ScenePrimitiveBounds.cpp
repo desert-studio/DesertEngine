@@ -4,7 +4,7 @@
 #include <VFX/Public/VFXSystem.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>

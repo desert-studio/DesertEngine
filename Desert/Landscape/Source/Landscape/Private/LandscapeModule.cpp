@@ -1,4 +1,5 @@
 #include <Landscape/Public/LandscapeCollision.hpp>
+#include <Landscape/Private/LandscapeSerialization.hpp>
 #include <Landscape/Public/LandscapeECSSystem.hpp>
 #include <Landscape/Public/LandscapeGrassTypeAsset.hpp>
 #include <Landscape/Public/LandscapeGrassTypeService.hpp>
@@ -8,14 +9,14 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetRootSet.hpp>
-#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
+#include <Landscape/Public/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
-#include <Engine/World/Landscape/LandscapeRaycast.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
+#include <Landscape/Public/LandscapeRaycast.hpp>
 #include <Engine/ECS/System/PhysicsSceneFeature.hpp>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
-#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeMaterialComponent.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <filesystem>
@@ -182,6 +183,10 @@ namespace Desert::Landscape
 
     void StartupModule()
     {
+        // The scene file: the root / tile / spline serializers and the tile height files beside a scene.
+        RegisterComponentSerializers();
+        RegisterSceneFiles();
+
         Core::ModuleHookLists& hooks = Core::ModuleHooks();
         hooks.Services.push_back( { []( const std::weak_ptr<Assets::AssetManager>& assets )
                                     { Runtime::GetLandscapeLayerInfoService()->BindAssetManager( assets ); },

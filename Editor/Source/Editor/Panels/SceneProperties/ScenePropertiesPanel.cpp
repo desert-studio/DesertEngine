@@ -33,7 +33,7 @@
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
 #include <Engine/World/Partition/AlwaysLoadedComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 

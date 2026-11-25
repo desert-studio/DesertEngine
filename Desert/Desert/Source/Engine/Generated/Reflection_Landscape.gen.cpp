@@ -14,7 +14,7 @@
 #include <type_traits>
 #include <vector>
 
-#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
+#include <Landscape/Public/LandscapeMaterialComponent.hpp>
 
 namespace Desert::Reflection::Generated
 {

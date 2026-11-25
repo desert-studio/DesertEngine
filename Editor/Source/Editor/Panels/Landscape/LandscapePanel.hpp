@@ -4,7 +4,7 @@
 
 #include <Editor/Core/IPanel.hpp>
 
-#include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
+#include <Landscape/Public/LandscapeLayerInfo.hpp>
 
 #include <memory>
 #include <optional>

@@ -11,7 +11,7 @@
 // the physics step (UE's FSolverSafeWaterBodyData), not a UObject; UE's LWC tile is the body's WaveOrigin, its
 // own location. Ocean only: lakes and rivers take their shape and depth from a spline (W-9, W-10).
 
-#include <Engine/World/Landscape/LandscapeRaycast.hpp>
+#include <Landscape/Public/LandscapeRaycast.hpp>
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
