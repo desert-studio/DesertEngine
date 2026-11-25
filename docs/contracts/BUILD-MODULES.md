@@ -162,9 +162,13 @@ L1  CoreReflection  Projects  ImageCore  ApplicationCore  GeometryCore  Audio  R
     NetCore     (NEW: bit streams, packet/channel, connection, serialization of reflected values; no ECS)
 L2  AssetCore  TextCore  DesertUI  AnimationCore
 L3  Localization  ShaderCompiler
-    LandscapeCore (BUILD-MOD-6L, RENDER_FREE: heightfield/weight tiles, tile files, layout, frame, collision
-                   heightfield, edit-layer stack, splines; Core and the dedicated server reach it; sculpt/paint/
-                   brush/edit cache stay in Landscape until a LandscapeEditor module exists)
+    LandscapeCore (BUILD-MOD-6L, RENDER_FREE, DEPS Core - ABOVE Core: heightfield/weight tiles, tile files,
+                   layout, frame, collision heightfield, edit-layer stack, splines. Core names no landscape key:
+                   its StartupModule registers the landscape's loading rows, entity references, descriptor hooks,
+                   HLOD builder components and activation kind with Core's World Partition rules (UE:
+                   FLandscapeActorDesc is the Landscape module's); a process that plans without it reports each
+                   landscape record as an Issue and places none. Engine, DesertServer, WorldGen and WorldCook
+                   call it; sculpt/paint/brush/edit cache stay in Landscape until a LandscapeEditor module exists)
 L4  RenderCore (RHI + Vulkan + RDG)
 L5  Engine      (Scene = entity registry + subsystem collection; Entity; transform/hierarchy/camera/light/mesh
                  components; ISystem; service locator by type id; NO feature headers)

@@ -13,6 +13,7 @@
 #include <Engine/Core/Serialize/StoredAssetForm.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
+#include <LandscapeCore/Public/LandscapeWorldPartition.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Engine/Geometry/RenderMeshData.hpp>
@@ -80,7 +81,8 @@ namespace Desert::Editor
             const auto isLand   = []( const Assets::EntityData& record )
             {
                 for ( const auto& [name, payload] : record.Components )
-                    if ( name == Rules::kLandscapeRootComponent || name == Rules::kLandscapeTileComponent )
+                    if ( name == LandscapeCore::kLandscapeRootComponent ||
+                         name == LandscapeCore::kLandscapeTileComponent )
                         return true;
                 return false;
             };

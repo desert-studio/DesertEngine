@@ -2,9 +2,11 @@
 #
 # A SEPARATE EXECUTABLE, NOT A FLAG OF THE CLIENT. It links the engine's render-free runtime core, the module Core
 # (cmake/DesertModuleTable.cmake: the cooked world and World Partition residency, scene/prefab serialization, the
-# reflected-component table, the server-realm Luau runtime of NET-ARCH §7), and the modules below it - among them
-# LandscapeCore, the landscape's runtime data its cells' collision stands pawns on (ServerCellCollision reads tiles
-# through LandscapeCore/Public/LandscapeTileFiles.hpp, as UE's dedicated server loads Runtime/Landscape) - never
+# reflected-component table, the server-realm Luau runtime of NET-ARCH §7), the modules below it, and LandscapeCore
+# ABOVE it (DEPS Core): the landscape's runtime data its cells' collision stands pawns on (ServerCellCollision reads
+# tiles through LandscapeCore/Public/LandscapeTileFiles.hpp, as UE's dedicated server loads Runtime/Landscape) and
+# the partition rows and hooks main() registers through LandscapeCore::StartupModule, without which Core places no
+# tile - never
 # RenderCore/Renderer (RHI, Vulkan, shaders), ApplicationCore (window, input, GLFW), Audio, ImGui or the editor.
 # Engine links the same Core library, so no engine object is compiled twice. Core is RENDER_FREE:
 # configure fails if any of its files reaches a render, window, Audio or ImGui header (cmake/DesertModules.cmake),

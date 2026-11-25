@@ -14,7 +14,7 @@ namespace Desert::Core::Rules
     std::size_t RemapEntityReferences( Common::Json::KeyedValues& components, const EntityIdRemap& remap )
     {
         std::size_t changed = 0;
-        for ( const EntityReferenceRow& row : kEntityReferences )
+        for ( const EntityReferenceRow& row : EntityReferences() )
         {
             const std::string key( row.ComponentKey );
             const auto        payload = components.get( key );
@@ -57,7 +57,7 @@ namespace Desert::Core::Rules
 
     bool HasEntityReferenceBlock( const Common::Json::KeyedValues& components )
     {
-        for ( const EntityReferenceRow& row : kEntityReferences )
+        for ( const EntityReferenceRow& row : EntityReferences() )
         {
             if ( components.get( std::string( row.ComponentKey ) ) )
                 return true;

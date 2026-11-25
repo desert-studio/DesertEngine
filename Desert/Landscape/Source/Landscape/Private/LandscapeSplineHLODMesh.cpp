@@ -8,6 +8,7 @@
 #include <Engine/Geometry/MeshAssetArrays.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 #include <LandscapeCore/Public/LandscapeSplinesJson.hpp>
+#include <LandscapeCore/Public/LandscapeWorldPartition.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 
@@ -33,8 +34,8 @@ namespace Desert::Landscape
         if ( request.Spline >= request.Records.size() )
             return Common::MakeFormattedError<Result>( "record {} is not in the cell", request.Spline );
         Common::Json::Issues issues;
-        const auto           block = Core::Rules::Detail::BlockOf( request.Records[request.Spline],
-                                                                   Core::Rules::kLandscapeSplineComponent, issues );
+        const auto           block = Core::Rules::Detail::BlockOf(
+             request.Records[request.Spline], ::Desert::LandscapeCore::kLandscapeSplineComponent, issues );
         if ( !block.has_value() )
             return Common::MakeError<Result>( "the record has no LandscapeSpline block" );
         World::Landscape::LandscapeSplines splines;
