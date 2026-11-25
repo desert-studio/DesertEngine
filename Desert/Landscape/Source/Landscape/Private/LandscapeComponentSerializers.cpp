@@ -1,8 +1,13 @@
 #include <Landscape/Private/LandscapeSerialization.hpp>
 
+// Before the kit: its MakeAuthored template calls WriteComponent / ReadComponent unqualified, and the landscape's
+// overloads (namespace Core::Serialize, not the components' ECS, so no argument-dependent lookup finds them) are
+// seen only when declared before it - as AuthoredComponentIO.hpp's are, which the kit includes first.
+#include <Landscape/Public/LandscapeComponentIO.hpp>
+
 #include <Engine/Core/Serialize/ComponentSerializerKit.hpp>
 #include <Engine/Core/Serialize/EngineComponentProvider.hpp>
-#include <Landscape/Public/LandscapeComponentIO.hpp>
+#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 #include <Landscape/Public/LandscapeLayerInfoAsset.hpp>
 #include <Landscape/Public/LandscapeRootOf.hpp>
 
