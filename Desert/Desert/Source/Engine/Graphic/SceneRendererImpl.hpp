@@ -4,6 +4,7 @@
 // SceneRenderer*.cpp translation units include it; everything else holds the interface (SceneRenderer.hpp).
 #include <Engine/Graphic/Systems/Scene/Weather/RainStreakRenderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/GpuMemoryBudget.hpp>
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Animation/AnimationUpdateRate.hpp>
@@ -810,8 +811,12 @@ namespace Desert::Graphic
         [[nodiscard]] bool SunCascadesRead() const;
         // Every point/spot light that casts in this view gets a ShadowMaskSlot (and a record of
         // m_LocalShadowMaskLights) when LocalShadowsAreScreenMask and its attenuation sphere meets @p view (the
-        // frame's unjittered frustum), every other -1. After UpdateLocalShadows.
+        // frame's unjittered frustum) and it was not left to its shadow map (m_LocalShadowMapLights), every other
+        // -1. After UpdateLocalShadows.
         void AssignLocalShadowMaskSlots( const Core::Frustum& view );
+        // The ray-traced lights whose denoiser history the video memory holds (GpuMemoryBudget), the largest on
+        // screen first; the others go to m_LocalShadowMapLights. Before UpdateLocalShadows, which draws their maps.
+        void SelectLocalShadowHistories( const ViewFrame& frame );
         // Per slot: trace, denoise (history per light, m_LocalShadowDenoisers) and pack into the frame's 2D-array
         // mask (one White layer when no slot). Invalid (logged) only when the array could not be filled at all;
         // the composite then draws its sun-mask program (the lights' shadow maps, if drawn, or unshadowed).
@@ -1954,6 +1959,9 @@ namespace Desert::Graphic
         // A pruned light's denoiser (its extracted history textures) is PARKED here, not destroyed: frames still
         // in flight may read its history; released once no frame recorded before the prune can (FrameRetireQueue).
         Assets::FrameRetireQueue<std::unique_ptr<System::ScreenSpaceDenoiser>> m_RetiredLocalShadowDenoisers;
+        // This frame's lights past the histories' grant (SourceIds): no trace, no history - their shadow map is read.
+        std::unordered_set<uint32_t> m_LocalShadowMapLights;
+        GpuMemoryBudget::Client      m_LocalShadowHistoryBudget{ "Local shadow histories", 1.0f };
         bool                                                                   m_RayTracedShadowReady  = false;
         bool                                                                   m_RayTracedShadowFailed = false;
         // "Shadows: Distance Field Sun", created on the first frame DistanceFieldShadowRuns; latched like the

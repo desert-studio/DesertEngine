@@ -6,6 +6,7 @@
 #include <Engine/Graphic/BRDFLut.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/GeometryPool.hpp>
+#include <Engine/Graphic/GpuMemoryBudget.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 
 #include <Engine/Graphic/RendererAPI.hpp>
@@ -140,12 +141,10 @@ namespace Desert::Graphic
         // BEFORE the backend call rather than after, so a frame the backend refuses still contributes
         // its reading. The refusal is the interesting frame.
         //
-        // AND IT IS GATED AT THE CALL SITE, unlike the draw counter and the load ledger, because the
-        // ARGUMENT is the instrument: `TakeFrameSample()` asks the device for its heap budgets and reads
-        // the process's resident set. An empty `SampleFrame` would still pay for the query every frame.
-        // The paragraph above says this reading is taken "in the shipped path" — it was written when
-        // there was no configuration in which anything was NOT in the shipped path. A player's frame does
-        // not pay for a number no player can read.
+        // THE HEAP BUDGETS ARE READ IN EVERY CONFIGURATION, once a frame: GpuMemoryBudget divides them between
+        // the texture pool and the shadow histories, in the player's frame as in the editor's. The rest of the
+        // sample (the process's resident set, the watch) is gated at the call site, because the ARGUMENT is the
+        // instrument: an empty `SampleFrame` would still pay for it.
         //
         // A ROW OF ITS OWN (THREAD-OVERLAP-1): the sample is a driver query (vkGetPhysicalDeviceMemoryProperties2
         // with the budget chain) and a process query, both inside "Renderer: BeginFrame" and outside the
@@ -155,7 +154,9 @@ namespace Desert::Graphic
         {
             DESERT_PROFILE_SCOPE( "Memory: frame sample" );
             const bool wasOver = MemoryWatch::OverBudget();
-            MemoryWatch::SampleFrame( MemoryReadout::TakeFrameSample() );
+            const MemoryReadout sample = MemoryReadout::TakeFrameSample();
+            GpuMemoryBudget::Get().Update( sample.Device );
+            MemoryWatch::SampleFrame( sample );
             // GRASS-VRAM-BUDGET-1: ONE line where the run enters the over-budget state and one where it leaves it
             // (VK_EXT_memory_budget): past the budget the driver pages video memory and the frame stalls wherever
             // the paged memory is next touched, which no pass's timing names.
@@ -177,6 +178,9 @@ namespace Desert::Graphic
                 }
             }
         }
+#else
+        if ( const std::shared_ptr<Engine::Device> device = EngineContext::GetInstance().GetDevice() )
+            GpuMemoryBudget::Get().Update( device->QueryMemory() );
 #endif
 
         return s_RendererAPI->WaitFrameSlot();
