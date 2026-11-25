@@ -533,14 +533,12 @@ def self_check():
 # Owner 10-08: «сниму в рамках этой недели лимит на агентов» — cap lifted through Sunday 2026-10-11 (owner: «не до 15, а до 11»),
 # then back to the 09-30 three. Builds stay serialized (one build on the machine at a time), so more agents queue
 # on the build lock instead of OOM-ing the 16 GB machine.
-import datetime as _dt
 # Owner 10-12: «в рамках текущего контекста снимаю лимит на агентов. Запускай 20 штук» — lifted for 10-12.
 NIGHT_MAX_WORKING_AGENTS = 3  # owner 10-22
-MAX_WORKING_AGENTS = 5  # owner 10-29 «минимум 3, а максимум 5» (floor in board_guard)
+MAX_WORKING_AGENTS = 4  # owner 10-30: two to four (the floor is in board_guard)
 # Owner 10-15: «уберу лимит агентов до понедельника» — no count cap through Monday 2026-10-19, then back to 7 by
 # itself. The real ceiling is the disk (10-15: 5.3 GB free; a tree + build is several GB), so a launch is refused
 # below MIN_FREE_DISK_GB whatever the count.
-NO_AGENT_CAP_THROUGH = _dt.date( 2026, 10, 15 )  # owner 10-16: cap of 3 back in force now (lift was through 10-19)
 MIN_FREE_DISK_GB = 15
 PROCESS_EVENTS = os.path.expanduser("~/.claude/process-events.csv")
 
@@ -657,7 +655,7 @@ def main():
             if stalled >= 2 and "## Пересмотр" not in brief:
                 deny(f"[agent_guard] Тимлид: {cm.group(1)} — {stalled} прохода без продвижения (владелец 10-22). Третий "
                      f"заход тем же путём не запускать: впиши в бриф «## Пересмотр» — причина застоя и новый подход.", data, "lead")
-        if _dt.date.today() > NO_AGENT_CAP_THROUGH and len(running) >= cap:
+        if len(running) >= cap:
             deny(f"[agent_guard] Тимлид: лимит владельца — не более {cap} агентов одновременно{' (ночной режим)' if night else ''}; идут: "
                  f"{', '.join(running)}. Дождись сдачи (accept.sh), потом запускай.", data, "lead")
     # Owner 10-05 («можно дать гарантию, что не повторится?»): three of four agents that day hit the 60-call cap with

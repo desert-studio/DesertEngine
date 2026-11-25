@@ -10,7 +10,7 @@ C++20 / Vulkan game engine: EnTT ECS, RDG renderer, ImGui editor, Lua, its own s
 - A feature goes whole and once: skill `desert-engine-feature` (design by `architect` → one `engineer` run → `reviewer` → batch build → `acceptance` → land the same day).
 - Architecture first: skill `desert-engine-architecture`; `python scripts/Dev/arch_census.py` may only fall.
 - Visible things: skill `desert-engine-look`. Shipping rules and definition of done: `desert-engine-contract`. Code conventions and performance: `desert-engine-dev`. Proof: `desert-engine-verify`. Long polish: `desert-engine-gauntlet`.
-- The lead's procedure is `.claude/skills/desert-engine-contract/LEAD_PROTOCOL.md`; read the section you need, never the whole file.
+- The lead's procedure is `.claude/LEAD_PROTOCOL.md`; read the section you need, never the whole file.
 
 ## Build and run
 - Windows: `bash .claude/tools/build_land.sh F:/DesertEngine <log>`, in the background, one batch, never while the editor runs; below-normal priority, `-j6`. Agents never build.

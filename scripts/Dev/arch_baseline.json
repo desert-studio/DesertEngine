@@ -1,7 +1,6 @@
 {
  "content-name": {
-  "Desert/Common/Source/Common/Core/Constants.hpp": 1,
-  "Desert/Desert/Source/Engine/Core/Window.hpp": 1
+  "Desert/Common/Source/Common/Core/Constants.hpp": 1
  },
  "file-too-big": {
   "Desert/Desert/Source/Engine/Assets/CloudProceduralVolume.cpp": 8,
