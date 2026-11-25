@@ -2,10 +2,10 @@
 // Editor-only (UE: LandscapeEditor's heightmap file formats): it decodes a SOURCE PNG through stb_image, and the
 // runtime reads cooked landscape data only (Tests/Engine/RuntimeSourceDecoders holds that line).
 
-#include <Engine/World/Landscape/LandscapeBrush.hpp>
-#include <Engine/World/Landscape/LandscapeEditCache.hpp>
+#include <Landscape/Public/LandscapeBrush.hpp>
+#include <Landscape/Public/LandscapeEditCache.hpp>
 #include <Landscape/Public/LandscapeGenerator.hpp>
-#include <Engine/World/Landscape/LandscapeSculpt.hpp>
+#include <Landscape/Public/LandscapeSculpt.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

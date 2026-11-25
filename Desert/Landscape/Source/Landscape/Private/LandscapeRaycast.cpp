@@ -1,5 +1,5 @@
-#include <Engine/World/Landscape/LandscapeRaycast.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Landscape/Public/LandscapeRaycast.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 
 #include <Common/Core/GlslAsCpp.hpp>
 #include <Common/Core/Logger.hpp>

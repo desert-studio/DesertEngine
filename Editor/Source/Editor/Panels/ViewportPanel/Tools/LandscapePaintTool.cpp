@@ -9,11 +9,11 @@
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/ToastManager.hpp>
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Landscape/Public/LandscapeLayerRules.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/World/Landscape/LandscapeRaycast.hpp>
+#include <Landscape/Public/LandscapeRaycast.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -23,7 +23,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
 
 namespace Desert::Editor::Tools
 {

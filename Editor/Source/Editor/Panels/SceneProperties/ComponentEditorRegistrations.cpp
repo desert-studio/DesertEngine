@@ -158,7 +158,7 @@
 #include <Engine/UI/Ecs/UITweenComponent.hpp>
 #include <VFX/Public/VFXComponent.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
-#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
+#include <Landscape/Public/LandscapeMaterialComponent.hpp>
 #include <Engine/World/Partition/DataLayersComponent.hpp>
 #include <Engine/World/Partition/HLODLayerComponent.hpp>
 #include <Engine/World/Partition/LocationVolumeComponent.hpp>

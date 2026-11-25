@@ -1,7 +1,28 @@
-# NET-REMOTE pass 5: the server's pawn prefab is read off the frame (unread shell + AsyncAssetLoader request), its
-# dependency closure is requested when that read lands, and pawn spawns wait for both; the remote pawn casts its
-# skinned shadow (70ef84a29). Runner: <scratch>/NET-REMOTE/run_net5b.sh (bot A connects FIRST, Editor B joins while
-# A walks in front of B's spawn).
-Дано DesertServer --role all on WP_Protocol (--lag-ms 75 --jitter-ms 30 --loss 2) + probe A (DesertNetProbe --bot, player 2, circle --dir 0,0,-0.5 --turn-deg-s 36) from task/NET-REMOTE
-Когда Editor B (player 1, --play --shot-player-view, --net-lag-ms 75 --net-loss 2) joins while A walks in front of B's camera for 20 s
-Тогда net5_remote_shadow B's frame shows A's pawn with a ground shadow; no sync-load warning for Pawn_Character.deprefab or its closure in B's log; interpolation delay 100-200 ms, jitter p95 <= 100 ms, 0 snaps
+# NET-REMOTE: a remote (simulated-proxy) pawn as another player sees it. The server's pawn prefab is read off the
+# frame (unread shell + AsyncAssetLoader request) and its dependency closure requested when that read lands; pawn
+# spawns wait for both (no sync load). The remote pawn is interpolated on a snapshot buffer (delay = arrival jitter
+# p95 + one interval) and casts its skinned shadow; GpuScene latches PrevLocalToWorld once per frame.
+# Played by scripts/Dev/net_scenario.py (NET-SCENARIO-PLAY): DesertServer --role all sending with 75 ms lag + 30 ms
+# jitter + 2 % loss, Editor B = observer (player 1, its own pawn camera, every frame shot), bot A (player 2) walking a
+# 400 cm shuttle 5 m in front of B (probe --waypoints, steered from the server position). B joins first, A once B
+# has landed (B falls 92 -> ~-420 on WP_Protocol's hill), so the spawn points are listed in admission order.
+# |dir| 0.02 moves A ~6 cm per wall second: the remote pawn is interpolated on the network's wall clock.
+# Pass history (p5-p10, run_net5b.sh): git log of this file.
+Мир Content/Scenes/WP_Protocol.desce
+Роль server server lag=75 jitter=30 loss=2 --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Character.deprefab --spawn 0,92,650 --spawn 0,92,150 --steps 1000000
+Ждать server 60 \[Server\] listening on port
+Роль B editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --shot-player-view --quality PostProcess.MotionBlurQuality=0
+Ждать B 1800 \[Net\] in session
+Ждать B 600 drawn own \(-?0,-4\d\d,650\)
+# Когда: A walks the shuttle across B's view (B's pawn camera faces -Z at the segment's middle).
+Роль A bot account=2 lag=75 loss=2 --seconds 15000 --waypoints "-200,-440,150;200,-440,150" --dir 0.02,0,0
+Ждать B 120 \[Net\] remote pawn net id \d+ \(player \d+\) spawned
+Ждать B 60 3x \[Net\] t=
+Тогда B net5_remote_walk1 B's view: A as one solid grey mannequin (head, body, arms) on the slope 5 m ahead, its shadow at its feet; no ghost, no trail
+Ждать B 60 5x \[Net\] t=
+Тогда B net5_remote_walk2 A a few cm further along the shuttle, still one solid mannequin with its shadow at its feet; no stray shadow elsewhere
+Ждать B 60 5x \[Net\] t=
+Тогда B net5_remote_walk3 A further along again, same: solid, shadow at its feet, no ghost/trail
+# Тогда [net5_remote_shadow]: interpolation delay 100-200 ms, 0 snaps.
+Ждать B 30 \[Net\] interpolation buffer: delay 1\d\d ms .*\(0 snap\(s\)\)
+Нет B \(([1-9]\d*) snap\(s\)\)

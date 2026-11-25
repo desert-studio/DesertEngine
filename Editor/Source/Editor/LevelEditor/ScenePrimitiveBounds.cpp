@@ -4,12 +4,12 @@
 #include <VFX/Public/VFXSystem.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <VFX/Public/VFXSystemService.hpp>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>

@@ -164,15 +164,23 @@ namespace Desert::Net
     std::vector<std::byte> EncodeInput( const InputMessage& message )
     {
         Writer out( EReplicationMessage::Input );
+        static_assert( kMaxUnackedInputSteps <= 255, "the step count is one byte" );
         out.U32( message.Sequence );
-        const std::size_t count = std::min<std::size_t>( message.Steps.size(), kInputRedundancy );
+        // Every step the message holds - the client's ring (Replication.hpp kMaxUnackedInputSteps) never holds
+        // more; past it only a lost session's oldest steps go, as the ring itself drops them.
+        const std::size_t count = std::min( message.Steps.size(), kMaxUnackedInputSteps );
         out.U8( static_cast<std::uint8_t>( count ) );
         for ( std::size_t i = message.Steps.size() - count; i < message.Steps.size(); ++i )
         {
             out.U32( message.Steps[i].Step );
             out.Vec( message.Steps[i].Move );
             out.F32( message.Steps[i].Yaw );
-            out.U8( message.Steps[i].Buttons );
+            // The pawn's declared action set, opaque (Replication.hpp InputStep): the bits, then the axes.
+            out.U32( message.Steps[i].Actions );
+            const std::size_t axes = std::min( message.Steps[i].Axes.size(), kMaxInputAxes );
+            out.U8( static_cast<std::uint8_t>( axes ) );
+            for ( std::size_t a = 0; a < axes; ++a )
+                out.F32( message.Steps[i].Axes[a] );
         }
         return out.Take();
     }
@@ -188,8 +196,7 @@ namespace Desert::Net
             out.Vec( message.OwnState.Position );
             out.Vec( message.OwnState.Velocity );
             out.F32( message.OwnState.Yaw );
-            out.F32( message.OwnState.FloorY );
-            out.U8( message.OwnState.Grounded ? 1 : 0 );
+            out.U8( MoveFlagsOf( message.OwnState ) );
             out.U8( message.InputBuffered );
         }
         out.U32( static_cast<std::uint32_t>( message.Pawns.size() ) );
@@ -227,12 +234,20 @@ namespace Desert::Net
         Reader       in( data, EReplicationMessage::Input );
         InputMessage message;
         std::uint8_t count = 0;
-        if ( !in.U32( message.Sequence ) || !in.U8( count ) || count == 0 || count > kInputRedundancy )
+        if ( !in.U32( message.Sequence ) || !in.U8( count ) || count == 0 || count > kMaxUnackedInputSteps )
             return std::nullopt;
         message.Steps.resize( count );
         for ( InputStep& step : message.Steps )
-            if ( !in.U32( step.Step ) || !in.Vec( step.Move ) || !in.F32( step.Yaw ) || !in.U8( step.Buttons ) )
+        {
+            std::uint8_t axes = 0;
+            if ( !in.U32( step.Step ) || !in.Vec( step.Move ) || !in.F32( step.Yaw ) || !in.U32( step.Actions ) ||
+                 !in.U8( axes ) || axes > kMaxInputAxes )
                 return std::nullopt;
+            step.Axes.resize( axes );
+            for ( float& axis : step.Axes )
+                if ( !in.F32( axis ) )
+                    return std::nullopt;
+        }
         if ( !in.Done() )
             return std::nullopt;
         return message;
@@ -251,10 +266,9 @@ namespace Desert::Net
         {
             std::uint8_t grounded = 0;
             if ( !in.Vec( message.OwnState.Position ) || !in.Vec( message.OwnState.Velocity ) ||
-                 !in.F32( message.OwnState.Yaw ) || !in.F32( message.OwnState.FloorY ) || !in.U8( grounded ) ||
-                 grounded > 1 || !in.U8( message.InputBuffered ) )
+                 !in.F32( message.OwnState.Yaw ) || !in.U8( grounded ) || !in.U8( message.InputBuffered ) )
                 return std::nullopt;
-            message.OwnState.Grounded = grounded == 1;
+            SetMoveFlags( message.OwnState, grounded );
         }
         if ( !in.U32( count ) || count > kMaxSnapshotPawns )
             return std::nullopt;
@@ -373,10 +387,9 @@ namespace Desert::Net
             m_Steps.pop_front();
     }
 
-    std::vector<InputStep> InputRing::Latest( std::size_t count ) const
+    std::vector<InputStep> InputRing::Unacked() const
     {
-        const std::size_t n = std::min( count, m_Steps.size() );
-        return { m_Steps.end() - static_cast<std::ptrdiff_t>( n ), m_Steps.end() };
+        return { m_Steps.begin(), m_Steps.end() };
     }
 
     void InterpolationBuffer::Push( double serverSeconds, const PawnState& state )

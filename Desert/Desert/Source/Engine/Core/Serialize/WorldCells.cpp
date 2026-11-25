@@ -686,11 +686,19 @@ namespace Desert::Core::WorldCells
             row.Assets.assign( keys.begin(), keys.end() );
             index.Units.push_back( std::move( row ) );
         }
+        // A world with a record the plan placed nowhere is not cooked. A record of a component no started module
+        // registers (UnregisteredRecords: a cook run without the module, e.g. `WorldCook --disable-module
+        // LandscapeCore`) has its Issue in the plan report above; the refusal says that is why.
         for ( std::size_t record = 0; record < records.size(); ++record )
             if ( unitOf[record] == Rules::kNoRecord )
-                return Common::MakeError<Result>( "record " + std::to_string( record ) + " ('" +
-                                                  records[record].Tag.value_or( "" ) + "') of '" +
-                                                  scene.SceneName + "' is in no unit of the plan" );
+                return Common::MakeError<Result>( std::format(
+                     "record {} ('{}') of '{}' is in no unit of the plan{}", record,
+                     records[record].Tag.value_or( "" ), scene.SceneName,
+                     std::ranges::find( plan.UnregisteredRecords, record ) != plan.UnregisteredRecords.end()
+                          ? std::format( ": it carries a component no module started in this process "
+                                         "registers ({} such record(s), each an Issue above)",
+                                         plan.UnregisteredRecords.size() )
+                          : std::string() ) );
 
         // The references that cross a unit, resolved as the planner resolved them (the register, the scripts'
         // Entity properties, names: Rules::ResolveEntityReferences), so this list and the plan's composites agree.
@@ -2267,7 +2275,8 @@ namespace Desert::Core::WorldCells
             if ( unitOf[group] == "no place" )
             {
                 if ( unplaced++ == 0 )
-                    out += "\nWithout a place (UnplacedPrefabInstances, UnplacedLandscapeTiles):\n";
+                    out += "\nWithout a place (UnplacedPrefabInstances, UnplacedFramedRecords, "
+                           "UnregisteredRecords):\n";
                 out += composite( group );
             }
         std::format_to( std::back_inserter( out ), "\nIssues: {}\n", issues.size() );

@@ -2,14 +2,13 @@
 
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/System/CharacterMovement.hpp>
+#include <Engine/Input/LocalPawnInput.hpp>
 #include <Engine/ECS/System/ProjectileMovement.hpp>
 #include <Engine/ECS/System/SpringArm.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
 #include <Engine/ECS/System/KinematicBodies.hpp>
 #include <Engine/ECS/System/PhysicsSceneFeature.hpp>
 #include <Engine/ECS/System/RagdollLifetime.hpp>
-#include <Engine/ECS/System/LandscapeCollision.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/FoliageCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/ModularCharacter.hpp>
@@ -143,7 +142,6 @@ namespace Desert::ECS
                     m_PosedLastFrame.clear(); // entities of the Play that ends
                     if ( auto* queue = registry.try_ctx<PhysicsEventQueue>() )
                         queue->Events.clear();
-                    m_Landscape.reset();
                     m_Foliage.reset();
                     m_Features.clear(); // their bodies go back into the world before it goes
                     m_World->Shutdown();
@@ -171,7 +169,6 @@ namespace Desert::ECS
                 m_AppliedGravity = m_Scene ? m_Scene->GetSettings().Gravity : Core::SceneSettings{}.Gravity;
                 m_World->Init( m_AppliedGravity, profiles.ExtractValue() );
                 m_Lifetime  = std::make_unique<PhysicsBodyLifetime>( *m_World );
-                m_Landscape = std::make_unique<LandscapeCollision>( *m_World );
                 m_Foliage   = std::make_unique<FoliageCollision>( *m_World );
                 // The feature modules' parts of the scene (destruction's objects, ...), one each per Play.
                 for ( const PhysicsSceneFeatureFactory make : PhysicsSceneFeatures() )
@@ -468,13 +465,10 @@ namespace Desert::ECS
             // Every body created below is given back by the listener when its entity (or its collider) goes —
             // see PhysicsBodyLifetime.hpp. Re-armed each frame because a reloaded scene may be a new registry.
             m_Lifetime->Attach( registry );
-            m_Landscape->Attach( registry );
             m_Foliage->Attach( registry );
             m_Ragdolls->Attach( registry );
             for ( const auto& feature : m_Features )
                 feature->Sync( registry );
-            // Refused tiles get no body; LandscapeECSSystem reports them (it applies the same test).
-            m_Landscape->Sync( DrawableLandscapeTiles( registry ).Tiles );
             // One static body per foliage field whose type collides (FOLIAGE-COLLISION), streamed with its cell.
             m_Foliage->Sync( registry );
 
@@ -665,8 +659,9 @@ namespace Desert::ECS
             LogVolumeOverlaps( registry, queue.Events );
         }
 
-        // One fixed step of every character controller: the script's intent resolved against the camera basis,
-        // gravity/jump/swim integrated over @p dt (the fixed step), the capsule moved through Jolt.
+        // One fixed step of every character controller: the script's intent resolved against the camera basis and
+        // the pawn's declared actions made into the step's input (Input/LocalPawnInput), the ONE movement step
+        // (Gameplay::StepPawnMove - the server's and the prediction's) run over @p dt (the fixed step).
         void StepCharacters( entt::registry& registry, const glm::vec3& camFwd, const glm::vec3& camRight,
                              float dt )
         {
@@ -680,10 +675,10 @@ namespace Desert::ECS
                     continue;
 
                 // World move intent from the script's camera-relative one (y = forward, x = right); the model
-                // (walking / falling / crouch / swimming, UE CharacterMovementComponent) is
-                // CharacterMovement::Step, run on every FIXED step.
+                // (walking / falling / crouch / swimming / root motion, UE CharacterMovementComponent) is
+                // Gameplay::StepPawnMove through CharacterMovement::Step, run on every FIXED step.
                 const glm::vec3 wish = camFwd * cc.MoveInput.y + camRight * cc.MoveInput.x;
-                CharacterMovement::Step( cc, *m_World, wish, dt );
+                Input::StepSceneCharacter( *m_Scene, entity, cc, *m_World, wish, dt, m_PawnLogClock );
 
                 // NOTE: physics only PRODUCES state (cc.Velocity / cc.OnGround). Mapping that state to a
                 // locomotion clip is behaviour and lives in LocomotionSystem (runs after this), not here.
@@ -699,11 +694,11 @@ namespace Desert::ECS
         }
 
         Core::Scene*                           m_Scene = nullptr;
+        float m_PawnLogClock                           = 0.0f; // the possessed pawn's once-a-second movement line
         std::unique_ptr<Physics::PhysicsWorld> m_World;
         // Declared AFTER m_World so it is destroyed first: it releases into the world, never the other way.
         std::unique_ptr<PhysicsBodyLifetime> m_Lifetime;
         // Same rule: the landscape's heightfield bodies live in m_World.
-        std::unique_ptr<LandscapeCollision> m_Landscape;
         std::unique_ptr<FoliageCollision>   m_Foliage;
         // Same rule: the feature modules' bodies (destructibles) live in m_World, advanced by its fixed step.
         std::vector<std::unique_ptr<IPhysicsSceneFeature>> m_Features;

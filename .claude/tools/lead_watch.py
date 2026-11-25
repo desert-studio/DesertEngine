@@ -30,7 +30,8 @@ STATE_DIR = os.path.expanduser("~/.claude/lead-watch")
 CSV = os.path.expanduser("~/.claude/lead-spend.csv")
 REPORT_EVERY = 20
 CONTEXT_LIMIT = 250_000
-CLEAR_AT = 100_000  # owner 11-23 «сделай автокомпакт на 100к» (was 150k); autoCompactWindow 133000 (fires ~33k below it) in ~/.claude/settings.json
+CLEAR_AT = 130_000  # owner 11-24: 150k too late, 100k thrashed (a fresh compact starts at ~75k); the reminder also triggers auto_compact.py
+COMPACT_NOW = os.path.expanduser("~/.claude/tools/auto_compact.now")
 CLEAR_EVERY = 10
 BIG_RESULT = 6_000
 DIG_PER_TURN = 6
@@ -39,6 +40,7 @@ BIG_SCHEMAS = re.compile(r"notion-query-data-sources|notion-query-meeting-notes|
 LONG_WAIT_MS = 300_000
 NOTIFY = re.compile(r"<task-notification>|Another Claude session sent a message|<agent-message")
 TASK_ID = re.compile(r"<task-id>([A-Za-z0-9]+)</task-id>")
+AGENT_DONE = re.compile(r'<summary>Agent "')
 STARTED = re.compile(r"(?:running in background with ID: |agentId: )([A-Za-z0-9]+)")
 
 
@@ -124,7 +126,8 @@ def main():
                 st["turn_dig"] = 0
                 tid = TASK_ID.search(txt)
                 st["turn_tid"] = tid.group(1) if tid else ""
-                if tid and tid.group(1) not in started:
+                # An agent's completion is never a waiter: subagents outlive /clear (11-25), board_guard tracks them.
+                if tid and tid.group(1) not in started and not AGENT_DONE.search(txt):
                     st["stale"] += 1
                     pending.append(f"stale waiter {tid.group(1)} (not started by this session: ps aux | grep it, kill)")
             elif kind == "assistant":
@@ -168,10 +171,11 @@ def main():
     event = data.get("hook_event_name", "")
     if st["ctx"] > CLEAR_AT and (event == "UserPromptSubmit" or st["n"] - st["last_clear_n"] >= CLEAR_EVERY):
         st["last_clear_n"] = st["n"]
-        lines.append(f"/CLEAR or /COMPACT: context {st['ctx']//1000}k > {CLEAR_AT//1000}k — every request re-reads it; write the handover "
-                     "(memory STATE FOR /clear), FIRST fill every free agent slot (up to 4) and start ready landings, THEN in this reply ASK THE OWNER "
-                     "FOR /clear if a task just ended (owner 11-23: /clear вместо /compact на стыке задач), else for /compact mid-work; "
-                     "continue at once after it (10-29: no idle before/after)")
+        open(COMPACT_NOW, "w").close()
+        lines.append(f"/COMPACT: context {st['ctx']//1000}k > {CLEAR_AT//1000}k — /compact is typed AUTOMATICALLY ~6 s after this turn ends, "
+                     "then a 'continue' prompt (auto_compact.py, owner 11-24). YOU decide: at a task boundary (slots full, hand-ins accepted) write "
+                     "the handover and run `python3 .claude/tools/auto_compact.py --clear` — /clear is typed instead (owner: «clear тоже делай ты»). "
+                     "In this turn fill every free agent slot (up to 4) and TELL THE OWNER «контекст Nk — запускаю /compact» (or /clear)")
     if st["n"] - st["last_report_n"] >= REPORT_EVERY:
         st["last_report_n"] = st["n"]
         read_pct = round(100 * 0.1 * st["read"] / units) if units else 0

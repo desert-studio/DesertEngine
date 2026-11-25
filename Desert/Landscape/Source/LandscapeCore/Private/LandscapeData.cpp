@@ -1,0 +1,863 @@
+#include <LandscapeCore/Public/LandscapeData.hpp>
+
+#include <Common/Core/Core.hpp>
+#include <Common/Core/GlslAsCpp.hpp>
+#include <Common/Utilities/Crc32c.hpp>
+#include <Engine/Assets/ContainerBytes.hpp>
+
+#include <glm/common.hpp>
+#include <glm/geometric.hpp>
+#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <format>
+#include <string_view>
+#include <utility>
+
+namespace Desert::World::Landscape
+{
+    namespace
+    {
+        // Shaders/Common/LandscapeHeight.glslh COMPILED AS C++ — the same text Terrain.shader decodes a
+        // tile's R16 copy with, so the CPU's heights and the drawn heights are one function. The shader
+        // root is on the include path of every project that compiles this file.
+        using glm::clamp;
+        using glm::dot;
+        using glm::floor;
+        using glm::min;
+        using glm::mix;
+        using glm::vec2;
+        using glm::vec3;
+        using glm::vec4;
+
+        DESERT_GLSL_AS_CPP_BEGIN // see the header: GLSL has no `inline`, so these are statics
+#include <Common/LandscapeHeight.glslh>
+#include <Common/LandscapeWeights.glslh>
+             DESERT_GLSL_AS_CPP_END
+    } // namespace
+
+    bool LandscapeWeightIsHole( uint8_t weight )
+    {
+        return LandscapeIsHole( static_cast<float>( weight ) / 255.0f );
+    }
+
+    float LandscapeLocalHeight( uint16_t sample )
+    {
+        return LandscapeLocalFromSample( static_cast<float>( sample ) );
+    }
+
+    float LandscapeHeightCm( uint16_t sample, float zScale )
+    {
+        return LandscapeHeightCmFromSample( static_cast<float>( sample ), zScale );
+    }
+
+    uint16_t LandscapeSampleFromLocal( float localHeight )
+    {
+        const float scaled = localHeight * kLandscapeStepsPerLocal + static_cast<float>( kLandscapeMidSample );
+        const float lo     = 0.0f;
+        const auto  hi     = static_cast<float>( kLandscapeMaxSample );
+        // FMath::Clamp's own spelling — see the header for why it is not std::clamp (NaN).
+        const float clamped = scaled < lo ? lo : ( scaled < hi ? scaled : hi );
+        // FMath::RoundToInt is floor(x + 0.5): an exact half step (a height on an odd multiple of 1/256
+        // local unit) rounds UP, never to even.
+        return static_cast<uint16_t>( std::floor( clamped + 0.5f ) );
+    }
+
+    uint16_t LandscapeSampleFromHeightCm( float heightCm, float zScale )
+    {
+        return LandscapeSampleFromLocal( heightCm / zScale );
+    }
+
+    Common::BoolResultStr ValidateLandscapeFrame( const LandscapeFrame& frame )
+    {
+        if ( !std::isfinite( frame.SpacingCm ) || frame.SpacingCm <= 0.0f )
+            return Common::MakeFormattedError<bool>( "Landscape spacing must be a positive number of cm, got {}",
+                                                     frame.SpacingCm );
+        if ( !std::isfinite( frame.ZScale ) || frame.ZScale <= 0.0f )
+            return Common::MakeFormattedError<bool>( "Landscape Z scale must be positive, got {}", frame.ZScale );
+        if ( !std::isfinite( frame.OriginX ) || !std::isfinite( frame.OriginZ ) || !std::isfinite( frame.BaseY ) )
+            return Common::MakeFormattedError<bool>( "Landscape origin must be finite, got ({}, {}, {})",
+                                                     frame.OriginX, frame.BaseY, frame.OriginZ );
+        return Common::MakeSuccess( true );
+    }
+
+    // ── The tile ──────────────────────────────────────────────────────────────────────────────────────
+
+    namespace
+    {
+        Common::BoolResultStr ValidateDimensions( uint32_t samplesX, uint32_t samplesZ )
+        {
+            const auto inRange = []( uint32_t n )
+            { return n >= kLandscapeMinTileSamples && n <= kLandscapeMaxTileSamples; };
+            if ( !inRange( samplesX ) || !inRange( samplesZ ) )
+                return Common::MakeFormattedError<bool>(
+                     "Landscape tile of {} x {} samples: each side must lie in "
+                     "[{}, {}]",
+                     samplesX, samplesZ, kLandscapeMinTileSamples, kLandscapeMaxTileSamples );
+            return Common::MakeSuccess( true );
+        }
+
+        Common::BoolResultStr ValidateRect( const LandscapeRect& rect, uint32_t samplesX, uint32_t samplesZ )
+        {
+            if ( rect.Empty() )
+                return Common::MakeFormattedError<bool>( "Landscape region [{}, {}) x [{}, {}) is empty", rect.X0,
+                                                         rect.X1, rect.Z0, rect.Z1 );
+            if ( rect.X1 > samplesX || rect.Z1 > samplesZ )
+                return Common::MakeFormattedError<bool>(
+                     "Landscape region [{}, {}) x [{}, {}) leaves a tile of {} "
+                     "x {} samples",
+                     rect.X0, rect.X1, rect.Z0, rect.Z1, samplesX, samplesZ );
+            return Common::MakeSuccess( true );
+        }
+
+        // True when the two rectangles overlap or share an edge or a corner. Merging those costs at most the
+        // small notch beside them in the bounding box; merging far-apart ones would upload the whole gap.
+        bool Touches( const LandscapeRect& a, const LandscapeRect& b )
+        {
+            return a.X0 <= b.X1 && b.X0 <= a.X1 && a.Z0 <= b.Z1 && b.Z0 <= a.Z1;
+        }
+
+        LandscapeRect Union( const LandscapeRect& a, const LandscapeRect& b )
+        {
+            return { std::min( a.X0, b.X0 ), std::min( a.Z0, b.Z0 ), std::max( a.X1, b.X1 ),
+                     std::max( a.Z1, b.Z1 ) };
+        }
+    } // namespace
+
+    namespace
+    {
+        constexpr uint32_t ConsumerBit( LandscapeDirtyConsumer c )
+        {
+            return 1u << static_cast<uint32_t>( c );
+        }
+        constexpr uint32_t kHeightConsumers = ConsumerBit( LandscapeDirtyConsumer::Gpu ) |
+                                              ConsumerBit( LandscapeDirtyConsumer::Physics ) |
+                                              ConsumerBit( LandscapeDirtyConsumer::Grass ) |
+                                              ConsumerBit( LandscapeDirtyConsumer::Water );
+        constexpr uint32_t kWeightConsumers =
+             ConsumerBit( LandscapeDirtyConsumer::Weights ) | ConsumerBit( LandscapeDirtyConsumer::Grass );
+        // The visibility layer also cuts the collider (LandscapeCollision reads it for holes).
+        constexpr uint32_t kVisibilityConsumers =
+             kWeightConsumers | ConsumerBit( LandscapeDirtyConsumer::Physics );
+        constexpr uint32_t kAllConsumers    = ( 1u << kLandscapeDirtyConsumerCount ) - 1u;
+    } // namespace
+
+    LandscapeTileData::LandscapeTileData( uint32_t samplesX, uint32_t samplesZ, std::vector<uint16_t> samples )
+         : m_SamplesX( samplesX ), m_SamplesZ( samplesZ ), m_Samples( std::move( samples ) )
+    {
+        RescanSampleRange();
+        MarkDirty( Bounds(), kAllConsumers );
+    }
+
+    void LandscapeTileData::RescanSampleRange()
+    {
+        if ( m_Samples.empty() )
+            return;
+        const auto [lowest, highest] = std::minmax_element( m_Samples.begin(), m_Samples.end() );
+        m_LowestSample               = *lowest;
+        m_HighestSample              = *highest;
+    }
+
+    Common::ResultStr<LandscapeTileData> LandscapeTileData::Create( uint32_t samplesX, uint32_t samplesZ )
+    {
+        if ( auto valid = ValidateDimensions( samplesX, samplesZ ); !valid )
+            return Common::MakeError<LandscapeTileData>( valid.GetError() );
+        std::vector<uint16_t> samples( static_cast<size_t>( samplesX ) * samplesZ, kLandscapeMidSample );
+        return Common::MakeSuccess( LandscapeTileData( samplesX, samplesZ, std::move( samples ) ) );
+    }
+
+    Common::ResultStr<LandscapeTileData> LandscapeTileData::FromSamples( uint32_t samplesX, uint32_t samplesZ,
+                                                                         std::vector<uint16_t> samples )
+    {
+        if ( auto valid = ValidateDimensions( samplesX, samplesZ ); !valid )
+            return Common::MakeError<LandscapeTileData>( valid.GetError() );
+        const size_t expected = static_cast<size_t>( samplesX ) * samplesZ;
+        if ( samples.size() != expected )
+            return Common::MakeFormattedError<LandscapeTileData>(
+                 "Landscape tile of {} x {} needs {} samples, got {}", samplesX, samplesZ, expected,
+                 samples.size() );
+        return Common::MakeSuccess( LandscapeTileData( samplesX, samplesZ, std::move( samples ) ) );
+    }
+
+    uint16_t LandscapeTileData::Sample( uint32_t x, uint32_t z ) const
+    {
+        DESERT_VERIFY( x < m_SamplesX && z < m_SamplesZ, "Landscape sample ({}, {}) outside {} x {}", x, z,
+                       m_SamplesX, m_SamplesZ );
+        return m_Samples[static_cast<size_t>( z ) * m_SamplesX + x];
+    }
+
+    void LandscapeTileData::SetSample( uint32_t x, uint32_t z, uint16_t value )
+    {
+        DESERT_VERIFY( m_EditLayers.empty(),
+                       "Landscape sample ({}, {}) written directly on a tile with {} edit "
+                       "layers; its samples are their merge",
+                       x, z, m_EditLayers.size() );
+        DESERT_VERIFY( x < m_SamplesX && z < m_SamplesZ, "Landscape sample ({}, {}) outside {} x {}", x, z,
+                       m_SamplesX, m_SamplesZ );
+        uint16_t& slot = m_Samples[static_cast<size_t>( z ) * m_SamplesX + x];
+        if ( slot == value )
+            return;
+        // Overwriting the lowest or highest sample may narrow the range, which only a scan can tell; any other
+        // write can only widen it.
+        const bool heldABound = slot == m_LowestSample || slot == m_HighestSample;
+        slot                  = value;
+        if ( heldABound )
+            RescanSampleRange();
+        else
+        {
+            m_LowestSample  = std::min( m_LowestSample, value );
+            m_HighestSample = std::max( m_HighestSample, value );
+        }
+        MarkDirty( { x, z, x + 1u, z + 1u }, kHeightConsumers );
+    }
+
+    Common::ResultStr<std::vector<uint16_t>> LandscapeTileData::ReadRegion( const LandscapeRect& rect ) const
+    {
+        if ( auto valid = ValidateRect( rect, m_SamplesX, m_SamplesZ ); !valid )
+            return Common::MakeError<std::vector<uint16_t>>( valid.GetError() );
+        std::vector<uint16_t> out;
+        out.reserve( static_cast<size_t>( rect.Area() ) );
+        for ( uint32_t z = rect.Z0; z < rect.Z1; ++z )
+        {
+            const auto row = m_Samples.begin() + static_cast<ptrdiff_t>( static_cast<size_t>( z ) * m_SamplesX );
+            out.insert( out.end(), row + rect.X0, row + rect.X1 );
+        }
+        return Common::MakeSuccess( std::move( out ) );
+    }
+
+    Common::BoolResultStr LandscapeTileData::RefuseIfMerged( std::string_view what ) const
+    {
+        if ( !m_EditLayers.empty() )
+            return Common::MakeFormattedError<bool>( "Landscape tile carries {} edit layers, so its {} are their "
+                                                     "merge: write the layer and merge (MergeLandscapeEditLayers)",
+                                                     m_EditLayers.size(), what );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr LandscapeTileData::WriteRegion( const LandscapeRect&      rect,
+                                                          std::span<const uint16_t> values )
+    {
+        if ( auto open = RefuseIfMerged( "samples" ); !open )
+            return open;
+        return WriteRegionUnchecked( rect, values );
+    }
+
+    Common::BoolResultStr LandscapeTileData::WriteRegionUnchecked( const LandscapeRect&      rect,
+                                                                   std::span<const uint16_t> values )
+    {
+        if ( auto valid = ValidateRect( rect, m_SamplesX, m_SamplesZ ); !valid )
+            return valid;
+        if ( values.size() != rect.Area() )
+            return Common::MakeFormattedError<bool>( "Landscape region {} x {} needs {} values, got {}",
+                                                     rect.Width(), rect.Depth(), rect.Area(), values.size() );
+        bool     changed    = false;
+        bool     lostABound = false; // a changed sample held the lowest or highest value (SetSample)
+        uint16_t lowest     = m_LowestSample;
+        uint16_t highest    = m_HighestSample;
+        for ( uint32_t z = rect.Z0; z < rect.Z1; ++z )
+        {
+            uint16_t*       row = m_Samples.data() + static_cast<size_t>( z ) * m_SamplesX + rect.X0;
+            const uint16_t* src = values.data() + static_cast<size_t>( z - rect.Z0 ) * rect.Width();
+            for ( uint32_t i = 0; i < rect.Width(); ++i )
+            {
+                if ( row[i] == src[i] )
+                    continue;
+                changed    = true;
+                lostABound = lostABound || row[i] == m_LowestSample || row[i] == m_HighestSample;
+                lowest     = std::min( lowest, src[i] );
+                highest    = std::max( highest, src[i] );
+                row[i]     = src[i];
+            }
+        }
+        if ( !changed )
+            return Common::MakeSuccess( true );
+        if ( lostABound )
+            RescanSampleRange();
+        else
+        {
+            m_LowestSample  = lowest;
+            m_HighestSample = highest;
+        }
+        MarkDirty( rect, kHeightConsumers );
+        return Common::MakeSuccess( true );
+    }
+
+    std::optional<size_t> LandscapeTileData::FindWeightLayer( std::string_view name ) const
+    {
+        for ( size_t i = 0; i < m_WeightLayers.size(); ++i )
+            if ( m_WeightLayers[i].Name == name )
+                return i;
+        return std::nullopt;
+    }
+
+    Common::ResultStr<size_t> LandscapeTileData::AddWeightLayer( std::string name )
+    {
+        if ( auto open = RefuseIfMerged( "weight layers" ); !open )
+            return Common::MakeError<size_t>( open.GetError() );
+        return AddWeightLayerUnchecked( std::move( name ) );
+    }
+
+    Common::ResultStr<size_t> LandscapeTileData::AddWeightLayerUnchecked( std::string name )
+    {
+        if ( name.empty() || name.size() > kLandscapeMaxWeightLayerName )
+            return Common::MakeFormattedError<size_t>( "Landscape weight layer name '{}' must be 1..{} bytes",
+                                                       name, kLandscapeMaxWeightLayerName );
+        if ( const auto existing = FindWeightLayer( name ) )
+            return Common::MakeSuccess( *existing );
+        if ( m_WeightLayers.size() >= kLandscapeMaxWeightLayers )
+            return Common::MakeFormattedError<size_t>( "Landscape tile already carries {} weight layers; '{}' "
+                                                       "would be one more than the {} a tile holds",
+                                                       m_WeightLayers.size(), name, kLandscapeMaxWeightLayers );
+        m_WeightLayers.push_back(
+             { std::move( name ), std::vector<uint8_t>( static_cast<size_t>( m_SamplesX ) * m_SamplesZ, 0u ) } );
+        MarkDirty( Bounds(), kWeightConsumers );
+        return Common::MakeSuccess( m_WeightLayers.size() - 1u );
+    }
+
+    uint8_t LandscapeTileData::Weight( size_t layer, uint32_t x, uint32_t z ) const
+    {
+        DESERT_VERIFY( layer < m_WeightLayers.size() && x < m_SamplesX && z < m_SamplesZ,
+                       "Landscape weight {} ({}, {}) outside {} layers of {} x {}", layer, x, z,
+                       m_WeightLayers.size(), m_SamplesX, m_SamplesZ );
+        return m_WeightLayers[layer].Weights[static_cast<size_t>( z ) * m_SamplesX + x];
+    }
+
+    Common::ResultStr<std::vector<uint8_t>> LandscapeTileData::ReadWeightRegion( size_t               layer,
+                                                                                 const LandscapeRect& rect ) const
+    {
+        if ( layer >= m_WeightLayers.size() )
+            return Common::MakeFormattedError<std::vector<uint8_t>>( "Landscape weight layer {} of {}", layer,
+                                                                     m_WeightLayers.size() );
+        if ( auto valid = ValidateRect( rect, m_SamplesX, m_SamplesZ ); !valid )
+            return Common::MakeError<std::vector<uint8_t>>( valid.GetError() );
+        const std::vector<uint8_t>& plane = m_WeightLayers[layer].Weights;
+        std::vector<uint8_t>        out;
+        out.reserve( static_cast<size_t>( rect.Area() ) );
+        for ( uint32_t z = rect.Z0; z < rect.Z1; ++z )
+        {
+            const auto row = plane.begin() + static_cast<ptrdiff_t>( static_cast<size_t>( z ) * m_SamplesX );
+            out.insert( out.end(), row + rect.X0, row + rect.X1 );
+        }
+        return Common::MakeSuccess( std::move( out ) );
+    }
+
+    Common::BoolResultStr LandscapeTileData::WriteWeightRegion( size_t layer, const LandscapeRect& rect,
+                                                                std::span<const uint8_t> values )
+    {
+        if ( auto open = RefuseIfMerged( "weights" ); !open )
+            return open;
+        return WriteWeightRegionUnchecked( layer, rect, values );
+    }
+
+    Common::BoolResultStr LandscapeTileData::WriteWeightRegionUnchecked( size_t layer, const LandscapeRect& rect,
+                                                                         std::span<const uint8_t> values )
+    {
+        if ( layer >= m_WeightLayers.size() )
+            return Common::MakeFormattedError<bool>( "Landscape weight layer {} of {}", layer,
+                                                     m_WeightLayers.size() );
+        if ( auto valid = ValidateRect( rect, m_SamplesX, m_SamplesZ ); !valid )
+            return valid;
+        if ( values.size() != rect.Area() )
+            return Common::MakeFormattedError<bool>( "Landscape weight region {} x {} needs {} values, got {}",
+                                                     rect.Width(), rect.Depth(), rect.Area(), values.size() );
+        std::vector<uint8_t>& plane   = m_WeightLayers[layer].Weights;
+        bool                  changed = false;
+        for ( uint32_t z = rect.Z0; z < rect.Z1; ++z )
+        {
+            uint8_t*       row = plane.data() + static_cast<size_t>( z ) * m_SamplesX + rect.X0;
+            const uint8_t* src = values.data() + static_cast<size_t>( z - rect.Z0 ) * rect.Width();
+            for ( uint32_t i = 0; i < rect.Width(); ++i )
+            {
+                changed = changed || row[i] != src[i];
+                row[i]  = src[i];
+            }
+        }
+        if ( changed )
+            MarkDirty( rect, m_WeightLayers[layer].Name == kLandscapeVisibilityLayerName ? kVisibilityConsumers
+                                                                                         : kWeightConsumers );
+        return Common::MakeSuccess( true );
+    }
+
+    std::vector<LandscapeRect> LandscapeTileData::TakeDirtyRects( LandscapeDirtyConsumer consumer )
+    {
+        return std::exchange( m_Dirty[static_cast<size_t>( consumer )], {} );
+    }
+
+    namespace
+    {
+        /// At most kLandscapeMaxWeightLayers planes of @p plane weights each, every name 1..max bytes and once.
+        Common::BoolResultStr ValidateWeightPlanes( const std::vector<LandscapeWeightLayer>& layers, size_t plane )
+        {
+            if ( layers.size() > kLandscapeMaxWeightLayers )
+                return Common::MakeFormattedError<bool>( "Landscape tile given {} weight layers, at most {}",
+                                                         layers.size(), kLandscapeMaxWeightLayers );
+            for ( size_t i = 0; i < layers.size(); ++i )
+            {
+                if ( layers[i].Name.empty() || layers[i].Name.size() > kLandscapeMaxWeightLayerName ||
+                     layers[i].Weights.size() != plane )
+                    return Common::MakeFormattedError<bool>(
+                         "Landscape weight layer '{}' has {} weights, the tile "
+                         "needs {} (and a 1..{}-byte name)",
+                         layers[i].Name, layers[i].Weights.size(), plane, kLandscapeMaxWeightLayerName );
+                for ( size_t j = 0; j < i; ++j )
+                    if ( layers[j].Name == layers[i].Name )
+                        return Common::MakeFormattedError<bool>( "Landscape weight layer '{}' given twice",
+                                                                 layers[i].Name );
+            }
+            return Common::MakeSuccess( true );
+        }
+    } // namespace
+
+    Common::BoolResultStr LandscapeTileData::SetWeightLayers( std::vector<LandscapeWeightLayer> layers )
+    {
+        if ( auto open = RefuseIfMerged( "weight layers" ); !open )
+            return open;
+        if ( auto valid = ValidateWeightPlanes( layers, static_cast<size_t>( m_SamplesX ) * m_SamplesZ ); !valid )
+            return valid;
+        const bool holesBefore = VisibilityLayer().has_value();
+        m_WeightLayers         = std::move( layers );
+        MarkDirty( Bounds(),
+                   holesBefore || VisibilityLayer().has_value() ? kVisibilityConsumers : kWeightConsumers );
+        return Common::MakeSuccess( true );
+    }
+
+    const LandscapeEditLayerTileData* LandscapeTileData::FindEditLayer( const Common::UUID& layer ) const
+    {
+        for ( const LandscapeEditLayerTileData& data : m_EditLayers )
+            if ( static_cast<uint64_t>( data.Layer ) == static_cast<uint64_t>( layer ) )
+                return &data;
+        return nullptr;
+    }
+
+    Common::BoolResultStr LandscapeTileData::SetEditLayer( LandscapeEditLayerTileData data )
+    {
+        if ( data.Layer.IsNull() )
+            return Common::MakeError<bool>( "Landscape edit layer data names no layer (null Guid)" );
+        const size_t plane = static_cast<size_t>( m_SamplesX ) * m_SamplesZ;
+        if ( !data.Heights.empty() && data.Heights.size() != plane )
+            return Common::MakeFormattedError<bool>(
+                 "Landscape edit layer {} has {} heights, the tile needs 0 or {}",
+                 static_cast<uint64_t>( data.Layer ), data.Heights.size(), plane );
+        if ( auto valid = ValidateWeightPlanes( data.Weights, plane ); !valid )
+            return valid;
+        for ( LandscapeEditLayerTileData& existing : m_EditLayers )
+            if ( static_cast<uint64_t>( existing.Layer ) == static_cast<uint64_t>( data.Layer ) )
+            {
+                existing = std::move( data );
+                return Common::MakeSuccess( true );
+            }
+        m_EditLayers.push_back( std::move( data ) );
+        return Common::MakeSuccess( true );
+    }
+
+    bool LandscapeTileData::RemoveEditLayer( const Common::UUID& layer )
+    {
+        return std::erase_if( m_EditLayers, [&]( const LandscapeEditLayerTileData& data )
+                              { return static_cast<uint64_t>( data.Layer ) == static_cast<uint64_t>( layer ); } ) >
+               0u;
+    }
+
+    void LandscapeTileData::MarkDirty( LandscapeRect rect, uint32_t consumers )
+    {
+        // Absorbing one rectangle can make the grown one touch another that it did not touch before, so the
+        // scan restarts until a pass absorbs nothing. The list stays tiny (disjoint, non-touching boxes on
+        // one tile), so the quadratic worst case is a handful of comparisons.
+        for ( size_t c = 0; c < m_Dirty.size(); ++c )
+        {
+            if ( ( consumers & ( 1u << c ) ) == 0u )
+                continue;
+            auto&         list     = m_Dirty[c];
+            LandscapeRect grown    = rect;
+            bool          absorbed = true;
+            while ( absorbed )
+            {
+                absorbed = false;
+                for ( size_t i = 0; i < list.size(); ++i )
+                {
+                    if ( !Touches( list[i], grown ) )
+                        continue;
+                    grown = Union( list[i], grown );
+                    list.erase( list.begin() + static_cast<ptrdiff_t>( i ) );
+                    absorbed = true;
+                    break;
+                }
+            }
+            list.push_back( grown );
+        }
+    }
+
+    // ── Sampling ──────────────────────────────────────────────────────────────────────────────────────
+
+    namespace
+    {
+        // Where a world point falls on the tile's grid: the cell's lower-left sample and the fractions
+        // across it. The far edge maps to the last cell at fraction 1, not to a cell that does not exist.
+        struct GridPoint
+        {
+            uint32_t CellX = 0u;
+            uint32_t CellZ = 0u;
+            float    Fx    = 0.0f;
+            float    Fz    = 0.0f;
+        };
+
+        std::optional<GridPoint> Locate( const LandscapeTileData& tile, const LandscapeFrame& frame, float worldX,
+                                         float worldZ )
+        {
+            if ( tile.SamplesX() < kLandscapeMinTileSamples || tile.SamplesZ() < kLandscapeMinTileSamples )
+                return std::nullopt; // the empty tile: covers nothing
+            const float gx    = ( worldX - frame.OriginX ) / frame.SpacingCm;
+            const float gz    = ( worldZ - frame.OriginZ ) / frame.SpacingCm;
+            const auto  lastX = static_cast<float>( tile.SamplesX() - 1u );
+            const auto  lastZ = static_cast<float>( tile.SamplesZ() - 1u );
+            // Written as !(inside) so NaN lands outside rather than on sample 0.
+            // NOLINTNEXTLINE(readability-simplify-boolean-expr): the De Morgan form lets NaN through.
+            if ( !( gx >= 0.0f && gx <= lastX && gz >= 0.0f && gz <= lastZ ) )
+                return std::nullopt;
+            const float cellX = LandscapeCellOf( gx, static_cast<float>( tile.SamplesX() ) );
+            const float cellZ = LandscapeCellOf( gz, static_cast<float>( tile.SamplesZ() ) );
+            GridPoint   p;
+            p.CellX = static_cast<uint32_t>( cellX );
+            p.CellZ = static_cast<uint32_t>( cellZ );
+            p.Fx    = gx - cellX;
+            p.Fz    = gz - cellZ;
+            return p;
+        }
+
+        float Bilinear( float h00, float h10, float h01, float h11, float fx, float fz )
+        {
+            return LandscapeBilinear( h00, h10, h01, h11, fx, fz );
+        }
+
+        float HeightAt( const LandscapeTileData& tile, const LandscapeFrame& frame, uint32_t x, uint32_t z )
+        {
+            return LandscapeHeightCm( tile.Sample( x, z ), frame.ZScale );
+        }
+
+        // A sample of the bordered grid: x in [-1, SamplesX], z in [-1, SamplesZ]. The ring row is the
+        // neighbour's SECOND row (index 1 or Samples - 2): its first is this tile's own edge.
+        uint16_t BorderedSample( const LandscapeTileData& tile, const LandscapeTileNeighbours& n, int32_t x,
+                                 int32_t z )
+        {
+            const auto sx   = static_cast<int32_t>( tile.SamplesX() );
+            const auto sz   = static_cast<int32_t>( tile.SamplesZ() );
+            const bool outX = x < 0 || x >= sx;
+            const bool outZ = z < 0 || z >= sz;
+            const auto cx   = static_cast<uint32_t>( std::clamp( x, 0, sx - 1 ) );
+            const auto cz   = static_cast<uint32_t>( std::clamp( z, 0, sz - 1 ) );
+            if ( outX == outZ ) // inside, or a ring corner no gradient reads
+                return tile.Sample( cx, cz );
+            if ( x < 0 && ( n.West != nullptr ) )
+                return n.West->Sample( static_cast<uint32_t>( sx - 2 ), cz );
+            if ( x >= sx && ( n.East != nullptr ) )
+                return n.East->Sample( 1u, cz );
+            if ( z < 0 && ( n.South != nullptr ) )
+                return n.South->Sample( cx, static_cast<uint32_t>( sz - 2 ) );
+            if ( z >= sz && ( n.North != nullptr ) )
+                return n.North->Sample( cx, 1u );
+            return tile.Sample( cx, cz ); // absent neighbour: never differenced (the mask says so)
+        }
+
+        void VerifyNeighbours( const LandscapeTileData& tile, const LandscapeTileNeighbours& n )
+        {
+            for ( const LandscapeTileData* other : { n.West, n.East, n.South, n.North } )
+                DESERT_VERIFY(
+                     !other || ( other->SamplesX() == tile.SamplesX() && other->SamplesZ() == tile.SamplesZ() ),
+                     "Landscape neighbour of {} x {} samples beside a tile of {} x {}",
+                     other ? other->SamplesX() : 0u, other ? other->SamplesZ() : 0u, tile.SamplesX(),
+                     tile.SamplesZ() );
+        }
+
+        float BorderedHeight( const LandscapeTileData& tile, const LandscapeTileNeighbours& n,
+                              const LandscapeFrame& frame, float x, float z )
+        {
+            return LandscapeHeightCm(
+                 BorderedSample( tile, n, static_cast<int32_t>( x ), static_cast<int32_t>( z ) ), frame.ZScale );
+        }
+
+        // dh/dx and dh/dz at a sample, in cm per cm — LandscapeGradientLow/High pick the two samples, the
+        // same functions the terrain shader calls on the same bordered grid.
+        std::pair<float, float> GradientAt( const LandscapeTileData& tile, const LandscapeTileNeighbours& n,
+                                            const LandscapeFrame& frame, uint32_t ix, uint32_t iz )
+        {
+            const auto  x     = static_cast<float>( ix );
+            const auto  z     = static_cast<float>( iz );
+            const auto  lastX = static_cast<float>( tile.SamplesX() - 1u );
+            const auto  lastZ = static_cast<float>( tile.SamplesZ() - 1u );
+            const float xa    = LandscapeGradientLow( x, ( n.West != nullptr ) ? 1.0f : 0.0f );
+            const float xb    = LandscapeGradientHigh( x, lastX, ( n.East != nullptr ) ? 1.0f : 0.0f );
+            const float za    = LandscapeGradientLow( z, ( n.South != nullptr ) ? 1.0f : 0.0f );
+            const float zb    = LandscapeGradientHigh( z, lastZ, ( n.North != nullptr ) ? 1.0f : 0.0f );
+            const float dx =
+                 LandscapeGradient( BorderedHeight( tile, n, frame, xa, z ),
+                                    BorderedHeight( tile, n, frame, xb, z ), xb - xa, frame.SpacingCm );
+            const float dz =
+                 LandscapeGradient( BorderedHeight( tile, n, frame, x, za ),
+                                    BorderedHeight( tile, n, frame, x, zb ), zb - za, frame.SpacingCm );
+            return { dx, dz };
+        }
+    } // namespace
+
+    std::optional<float> SampleLandscapeHeight( const LandscapeTileData& tile, const LandscapeFrame& frame,
+                                                float worldX, float worldZ )
+    {
+        const auto p = Locate( tile, frame, worldX, worldZ );
+        if ( !p )
+            return std::nullopt;
+        const float h = LandscapeTriangle( HeightAt( tile, frame, p->CellX, p->CellZ ),
+                                           HeightAt( tile, frame, p->CellX + 1u, p->CellZ ),
+                                           HeightAt( tile, frame, p->CellX, p->CellZ + 1u ),
+                                           HeightAt( tile, frame, p->CellX + 1u, p->CellZ + 1u ), p->Fx, p->Fz );
+        return frame.BaseY + h;
+    }
+
+    uint32_t LandscapeNeighbourMask( const LandscapeTileNeighbours& neighbours )
+    {
+        return ( ( neighbours.West != nullptr ) ? 1u : 0u ) | ( ( neighbours.East != nullptr ) ? 2u : 0u ) |
+               ( ( neighbours.South != nullptr ) ? 4u : 0u ) | ( ( neighbours.North != nullptr ) ? 8u : 0u );
+    }
+
+    std::vector<uint16_t> LandscapeBorderedSamples( const LandscapeTileData&       tile,
+                                                    const LandscapeTileNeighbours& neighbours )
+    {
+        VerifyNeighbours( tile, neighbours );
+        const auto            sx = static_cast<int32_t>( tile.SamplesX() );
+        const auto            sz = static_cast<int32_t>( tile.SamplesZ() );
+        std::vector<uint16_t> out;
+        out.reserve( static_cast<size_t>( sx + 2 ) * static_cast<size_t>( sz + 2 ) );
+        for ( int32_t z = -1; z <= sz; ++z )
+            for ( int32_t x = -1; x <= sx; ++x )
+                out.push_back( BorderedSample( tile, neighbours, x, z ) );
+        return out;
+    }
+
+    std::optional<glm::vec3> SampleLandscapeNormal( const LandscapeTileData& tile, const LandscapeFrame& frame,
+                                                    const LandscapeTileNeighbours& neighbours, float worldX,
+                                                    float worldZ )
+    {
+        const auto p = Locate( tile, frame, worldX, worldZ );
+        if ( !p )
+            return std::nullopt;
+        VerifyNeighbours( tile, neighbours );
+        const auto  g00 = GradientAt( tile, neighbours, frame, p->CellX, p->CellZ );
+        const auto  g10 = GradientAt( tile, neighbours, frame, p->CellX + 1u, p->CellZ );
+        const auto  g01 = GradientAt( tile, neighbours, frame, p->CellX, p->CellZ + 1u );
+        const auto  g11 = GradientAt( tile, neighbours, frame, p->CellX + 1u, p->CellZ + 1u );
+        const float dx  = Bilinear( g00.first, g10.first, g01.first, g11.first, p->Fx, p->Fz );
+        const float dz  = Bilinear( g00.second, g10.second, g01.second, g11.second, p->Fx, p->Fz );
+        // The surface y = h(x, z) has the (unnormalised) normal (-dh/dx, 1, -dh/dz).
+        return glm::normalize( glm::vec3( -dx, 1.0f, -dz ) );
+    }
+
+    // ── The blob ──────────────────────────────────────────────────────────────────────────────────────
+
+    namespace
+    {
+        // A weight-plane list as the blob spells it: count, then per plane name length, name, plane bytes.
+        void WriteWeightPlanes( std::vector<unsigned char>& out, const std::vector<LandscapeWeightLayer>& planes )
+        {
+            Assets::WriteU32( out, static_cast<uint32_t>( planes.size() ) );
+            for ( const LandscapeWeightLayer& layer : planes )
+            {
+                Assets::WriteU32( out, static_cast<uint32_t>( layer.Name.size() ) );
+                out.insert( out.end(), layer.Name.begin(), layer.Name.end() );
+                out.insert( out.end(), layer.Weights.begin(), layer.Weights.end() );
+            }
+        }
+
+        // Reads what WriteWeightPlanes wrote, every length checked against the bytes left before it is used.
+        // @p what names the list in a refusal ("weight layer", "edit layer 2's weight layer").
+        Common::ResultStr<std::vector<LandscapeWeightLayer>> ReadWeightPlanes( const unsigned char*& cursor,
+                                                                               const unsigned char*  end,
+                                                                               size_t                plane,
+                                                                               std::string_view      what )
+        {
+            using Result = std::vector<LandscapeWeightLayer>;
+            if ( end - cursor < 4 )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob ends before its {} count", what );
+            const uint32_t count = Assets::ReadU32( cursor );
+            cursor += 4;
+            if ( count > kLandscapeMaxWeightLayers )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob carries {} {}s, at most {}", count,
+                                                           what, kLandscapeMaxWeightLayers );
+            Result planes;
+            planes.reserve( count );
+            for ( uint32_t l = 0; l < count; ++l )
+            {
+                if ( end - cursor < 4 )
+                    return Common::MakeFormattedError<Result>( "Landscape tile blob ends inside {} {}", what, l );
+                const uint32_t nameLength = Assets::ReadU32( cursor );
+                cursor += 4;
+                if ( nameLength == 0u || nameLength > kLandscapeMaxWeightLayerName ||
+                     static_cast<size_t>( end - cursor ) < nameLength + plane )
+                    return Common::MakeFormattedError<Result>(
+                         "Landscape tile blob {} {} states a {}-byte name and "
+                         "{} weights; {} bytes remain",
+                         what, l, nameLength, plane, end - cursor );
+                LandscapeWeightLayer layer{ std::string( cursor, cursor + nameLength ), {} };
+                cursor += nameLength;
+                layer.Weights.assign( cursor, cursor + plane );
+                cursor += plane;
+                planes.push_back( std::move( layer ) );
+            }
+            return Common::MakeSuccess( std::move( planes ) );
+        }
+    } // namespace
+
+    std::vector<unsigned char> EncodeLandscapeTile( const LandscapeTileData& tile )
+    {
+        DESERT_VERIFY( tile.SamplesX() >= kLandscapeMinTileSamples && tile.SamplesZ() >= kLandscapeMinTileSamples,
+                       "Encoding an empty landscape tile ({} x {})", tile.SamplesX(), tile.SamplesZ() );
+        const std::vector<uint16_t>& samples      = tile.Samples();
+        const uint64_t               payloadBytes = static_cast<uint64_t>( samples.size() ) * 2u;
+
+        std::vector<unsigned char> out;
+        out.reserve( kLandscapeTileHeaderSize + static_cast<size_t>( payloadBytes ) + kLandscapeTileTrailerSize );
+        out.insert( out.end(), kLandscapeTileMagic, kLandscapeTileMagic + sizeof( kLandscapeTileMagic ) );
+        Assets::WriteU32( out, kLandscapeTileContainerVersion );
+        Assets::WriteU32( out, tile.SamplesX() );
+        Assets::WriteU32( out, tile.SamplesZ() );
+        Assets::WriteU32( out, static_cast<uint32_t>( tile.EditLayers().size() ) );
+        Assets::WriteU64( out, payloadBytes );
+        for ( const uint16_t s : samples )
+        {
+            out.push_back( static_cast<unsigned char>( s & 0xFFu ) );
+            out.push_back( static_cast<unsigned char>( ( s >> 8 ) & 0xFFu ) );
+        }
+        WriteWeightPlanes( out, tile.WeightLayers() );
+        for ( const LandscapeEditLayerTileData& layer : tile.EditLayers() )
+        {
+            Assets::WriteU64( out, static_cast<uint64_t>( layer.Layer ) );
+            Assets::WriteU32( out, static_cast<uint32_t>( layer.Heights.size() ) );
+            for ( const uint16_t h : layer.Heights )
+            {
+                out.push_back( static_cast<unsigned char>( h & 0xFFu ) );
+                out.push_back( static_cast<unsigned char>( ( h >> 8 ) & 0xFFu ) );
+            }
+            WriteWeightPlanes( out, layer.Weights );
+        }
+        Assets::WriteU32( out, Common::Utils::Crc32c( out.data(), out.size() ) );
+        return out;
+    }
+
+    Common::ResultStr<LandscapeTileData> DecodeLandscapeTile( std::span<const unsigned char> bytes )
+    {
+        using Result = LandscapeTileData;
+        if ( bytes.size() < kLandscapeTileHeaderSize + kLandscapeTileTrailerSize )
+            return Common::MakeFormattedError<Result>(
+                 "Landscape tile blob of {} bytes is shorter than its {}-byte "
+                 "header and trailer",
+                 bytes.size(), kLandscapeTileHeaderSize + kLandscapeTileTrailerSize );
+        const unsigned char* at = bytes.data();
+        if ( std::memcmp( at, kLandscapeTileMagic, sizeof( kLandscapeTileMagic ) ) != 0 )
+            return Common::MakeFormattedError<Result>( "Landscape tile blob has magic {:02x}{:02x}{:02x}{:02x}, "
+                                                       "expected 'DLHT'",
+                                                       at[0], at[1], at[2], at[3] );
+        const uint32_t version = Assets::ReadU32( at + 4 );
+        if ( version != kLandscapeTileContainerVersion )
+            return Common::MakeFormattedError<Result>( "Landscape tile blob version {} is not the supported {} "
+                                                       "(older tiles are not read)",
+                                                       version, kLandscapeTileContainerVersion );
+
+        // The checksum before any field is believed: a header bit flip that keeps every length consistent
+        // is exactly what the checks below cannot see.
+        const size_t   covered   = bytes.size() - kLandscapeTileTrailerSize;
+        const uint32_t storedCrc = Assets::ReadU32( at + covered );
+        const uint32_t actualCrc = Common::Utils::Crc32c( at, covered );
+        if ( storedCrc != actualCrc )
+            return Common::MakeFormattedError<Result>( "Landscape tile blob checksum {:08x} does not match its "
+                                                       "contents' {:08x} ({} bytes)",
+                                                       storedCrc, actualCrc, bytes.size() );
+
+        const uint32_t samplesX = Assets::ReadU32( at + 8 );
+        const uint32_t samplesZ = Assets::ReadU32( at + 12 );
+        if ( auto valid = ValidateDimensions( samplesX, samplesZ ); !valid )
+            return Common::MakeError<Result>( valid.GetError() );
+        const uint32_t layers = Assets::ReadU32( at + 16 );
+        if ( layers > kLandscapeMaxEditLayers )
+            return Common::MakeFormattedError<Result>( "Landscape tile blob carries {} edit layers; this version "
+                                                       "carries at most {}",
+                                                       layers, kLandscapeMaxEditLayers );
+        const uint64_t payloadBytes = Assets::ReadU64( at + 20 );
+        const uint64_t expected     = static_cast<uint64_t>( samplesX ) * samplesZ * 2u;
+        if ( payloadBytes != expected )
+            return Common::MakeFormattedError<Result>( "Landscape tile blob of {} x {} states {} payload bytes, "
+                                                       "the dimensions need {}",
+                                                       samplesX, samplesZ, payloadBytes, expected );
+        if ( covered < kLandscapeTileHeaderSize + expected + 4u )
+            return Common::MakeFormattedError<Result>(
+                 "Landscape tile blob is {} bytes, header + payload + trailer "
+                 "is {}",
+                 bytes.size(), kLandscapeTileHeaderSize + expected + kLandscapeTileTrailerSize );
+
+        const unsigned char*  payload = at + kLandscapeTileHeaderSize;
+        std::vector<uint16_t> samples( static_cast<size_t>( samplesX ) * samplesZ );
+        for ( size_t i = 0; i < samples.size(); ++i )
+            samples[i] = static_cast<uint16_t>( payload[2u * i] | ( payload[2u * i + 1u] << 8 ) );
+        auto tile = LandscapeTileData::FromSamples( samplesX, samplesZ, std::move( samples ) );
+        if ( !tile )
+            return tile;
+
+        // The weight section: every length is checked against the bytes that remain before it is used.
+        LandscapeTileData    result = std::move( tile.GetValue() );
+        const unsigned char* cursor = payload + expected;
+        const unsigned char* end    = at + covered;
+        const size_t         plane  = static_cast<size_t>( samplesX ) * samplesZ;
+        auto                 planes = ReadWeightPlanes( cursor, end, plane, "weight layer" );
+        if ( !planes )
+            return Common::MakeError<Result>( planes.GetError() );
+        for ( uint32_t l = 0; l < planes.GetValue().size(); ++l )
+        {
+            const LandscapeWeightLayer& layer = planes.GetValue()[l];
+            auto                        index = result.AddWeightLayer( layer.Name );
+            if ( !index )
+                return Common::MakeError<Result>( index.GetError() );
+            if ( index.GetValue() != l )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob names weight layer '{}' twice",
+                                                           layer.Name );
+            auto written = result.WriteWeightRegion( l, result.Bounds(), layer.Weights );
+            if ( !written )
+                return Common::MakeError<Result>( written.GetError() );
+        }
+
+        // The edit-layer records, after the tile's own planes: a layered tile refuses AddWeightLayer and
+        // WriteWeightRegion, so the merged planes above are set first. SetEditLayer checks the plane sizes.
+        for ( uint32_t l = 0; l < layers; ++l )
+        {
+            if ( end - cursor < 12 )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob ends inside edit layer {}", l );
+            LandscapeEditLayerTileData data;
+            data.Layer = Common::UUID( Assets::ReadU64( cursor ) );
+            cursor += 8;
+            const uint32_t heights = Assets::ReadU32( cursor );
+            cursor += 4;
+            if ( ( heights != 0u && heights != plane ) || static_cast<size_t>( end - cursor ) / 2u < heights )
+                return Common::MakeFormattedError<Result>(
+                     "Landscape tile blob edit layer {} states {} heights; the "
+                     "tile needs 0 or {}, and {} bytes remain",
+                     l, heights, plane, end - cursor );
+            data.Heights.resize( heights );
+            for ( size_t i = 0; i < heights; ++i )
+                data.Heights[i] = static_cast<uint16_t>( cursor[2u * i] | ( cursor[2u * i + 1u] << 8 ) );
+            cursor += 2u * static_cast<size_t>( heights );
+            auto weights =
+                 ReadWeightPlanes( cursor, end, plane, std::format( "edit layer {}'s weight layer", l ) );
+            if ( !weights )
+                return Common::MakeError<Result>( weights.GetError() );
+            data.Weights = weights.ExtractValue();
+            if ( result.FindEditLayer( data.Layer ) != nullptr )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob names edit layer {} twice",
+                                                           static_cast<uint64_t>( data.Layer ) );
+            if ( auto set = result.SetEditLayer( std::move( data ) ); !set )
+                return Common::MakeFormattedError<Result>( "Landscape tile blob edit layer {}: {}", l,
+                                                           set.GetError() );
+        }
+        if ( cursor != end )
+            return Common::MakeFormattedError<Result>( "Landscape tile blob has {} bytes after its edit layers",
+                                                       end - cursor );
+        return Common::MakeSuccess( std::move( result ) );
+    }
+} // namespace Desert::World::Landscape

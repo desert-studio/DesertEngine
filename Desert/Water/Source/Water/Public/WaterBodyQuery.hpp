@@ -13,7 +13,7 @@
 
 #include <Water/Public/FFTSurfaceMirror.hpp>
 #include <Water/Public/WaterRiver.hpp>
-#include <Engine/World/Landscape/LandscapeRaycast.hpp>
+#include <Landscape/Public/LandscapeRaycast.hpp>
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>

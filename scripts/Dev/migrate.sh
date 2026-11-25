@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # migrate.sh [--write] <paths…> — the ONLY sanctioned way to run SceneMigrator (default: --check, writes nothing).
-# Rebuilds the Debug migrator first (target SceneMigrator and what it links, -j4, after any other build finishes), then
+# Rebuilds the DEV_CONFIG migrator first (target SceneMigrator and what it links, -j4, after any other build finishes), then
 # refuses unless Ninja, asked in dry run, has nothing left to do for it (a stale Release once wiped 101k lines in 157
-# files). Runs build/Bin/Debug/SceneMigrator by absolute path with DESERT_MIGRATE_VIA_SCRIPT=1. Prints the migrator's summary; exit = the migrator's code.
+# files). Runs build/Bin/<DEV_CONFIG>/SceneMigrator by absolute path with DESERT_MIGRATE_VIA_SCRIPT=1. Prints the migrator's summary; exit = the migrator's code.
 set -u
 source "$(dirname "$0")/_common.sh"
 case "${1:-}" in -h|--help|"") dev_help "$0"; exit 0 ;; esac
@@ -17,7 +17,7 @@ for p in "$@"; do
 done
 cd "$DEV_ROOT" || exit 2
 LOG=$(dev_logdir migrate)
-BINARY="$DEV_ROOT/build/Bin/${DEV_CONFIG:-Debug}/SceneMigrator"   # DEV_CONFIG=Release: same build + no-work-left check
+BINARY="$DEV_BIN/SceneMigrator"
 [ -f "$BINARY.exe" ] && BINARY="$BINARY.exe"
 
 dev_configure "$LOG" || exit 2

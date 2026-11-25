@@ -4,13 +4,13 @@
 // that one is compiled by the loader, physics and a dozen suites that have no business with the asset
 // loader this needs.
 #include <Landscape/Public/LandscapeLayerInfoService.hpp>
-#include <Engine/World/Landscape/LandscapePaint.hpp>
+#include <Landscape/Public/LandscapePaint.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <string>
 #include <vector>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
 
 namespace Desert::ECS
 {

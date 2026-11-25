@@ -9,8 +9,8 @@
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
-#include <Engine/World/Landscape/LandscapeSplines.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
+#include <LandscapeCore/Public/LandscapeSplines.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/CommandHistory.hpp>
@@ -61,9 +61,9 @@
 #include <Engine/UI/Ecs/UICanvasComponent.hpp>
 #include <Engine/UI/Ecs/UILayoutComponent.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
-#include <Engine/World/Landscape/LandscapeSplineComponent.hpp>
-#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeSplineComponent.hpp>
+#include <Landscape/Public/LandscapeTileComponent.hpp>
 #include <Engine/Core/Scene.hpp>
 
 namespace Desert::Editor

@@ -105,7 +105,16 @@ namespace Common::Settings
         // ABSENT = this machine never chose: QualityBoot starts on StartingQuality's answer (the benchmark's
         // recommendation when it is valid for this device, UE's auto-detect on first run; else all High), and
         // the key appears in the file the first time a selection is applied.
+        // ON DISK Quality.Levels names ONLY the groups this machine chose away from its device preset (FPS-MAC-2;
+        // UE: DeviceProfiles give the platform's levels, GameUserSettings keeps what the user changed): Save
+        // leaves out every group at the preset's level (Recommended, else High), and a group the file does not
+        // name starts on the preset (UnreadLevels -> StartFrom), so a better preset reaches every group the
+        // user never touched. In memory the selection is whole.
         std::optional<Scalability::QualitySelection> Quality;
+        // Present in every file this form writes. A Quality.Levels in a file WITHOUT it was written by a build
+        // that stored every group whether chosen or not, so it cannot tell a choice from the default: Load
+        // starts each of its groups on the preset and the next write keeps only real choices (overrides stand).
+        bool QualityLevelsAreChoices = true;
         // The benchmark's answer, cached with the device / driver / table identity it was measured on
         // (Scalability::CacheValid). Absent until the first benchmark run on this machine. Read by
         // StartingQuality (first run) and shown by the editor's Scalability panel.
@@ -211,8 +220,9 @@ namespace Common::Settings
                                                         const LevelGroups&                    unreadLevels,
                                                         const Scalability::BenchmarkCacheKey& device );
 
-        // The Quality.Levels groups whose element the last Load() refused (not a level name), each reported by
-        // an ERROR naming the group. Empty after a clean Load, without one, or when Quality was refused whole.
+        // The Quality.Levels groups that start on the device preset: the file does not name them (not chosen), or
+        // their element was refused (not a level name, reported by an ERROR naming the group). Empty without a
+        // Load or when Quality was refused whole.
         [[nodiscard]] static const LevelGroups& UnreadLevels();
 
         // True when the last Load() read Quality.Levels in a form this build migrates (the former positional

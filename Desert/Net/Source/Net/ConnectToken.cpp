@@ -1,27 +1,25 @@
 #include "Net/ConnectToken.hpp"
 
+#include "steamnetworkingsockets/steamnetworkingsockets_internal.h"
+#include "crypto.h"
+#include "crypto_25519.h"
+
+#include <algorithm>
 #include <chrono>
+#include <cstring>
+#include <filesystem>
 #include <format>
 #include <fstream>
-
-#if defined( _WIN32 )
-#include <windows.h>
-#include <bcrypt.h>
-#else
-#include <openssl/evp.h>
-#include <openssl/hmac.h>
-#include <array>
-#include <cstdint>
-#include <string>
-#include <vector>
-#endif
 
 namespace Desert::Net
 {
     namespace
     {
-        constexpr std::size_t kSignedSize = kConnectTokenSize - kConnectTokenMacSize;
-        using Mac                         = std::array<std::byte, kConnectTokenMacSize>;
+        // Field offsets: version 0, key id 1, issuer 5, audience 13, issued 21, expires 29, nonce 37, claims size
+        // 53, claims 55.
+        constexpr std::size_t kNonceOffset = 37;
+        constexpr std::size_t kHeaderSize  = kNonceOffset + kConnectTokenNonceSize + 2;
+        static_assert( kConnectTokenSignatureSize == k_cubCryptoSignature );
 
         void Put( std::vector<std::byte>& out, std::uint64_t value, int bytes )
         {
@@ -31,110 +29,200 @@ namespace Desert::Net
             }
         }
 
-        std::uint64_t Get( std::span<const std::byte> in, std::size_t offset )
+        std::uint64_t Get( std::span<const std::byte> in, std::size_t offset, int bytes )
         {
             std::uint64_t value = 0;
-            for ( int i = 0; i < 8; ++i )
+            for ( int i = 0; i < bytes; ++i )
             {
                 value |= static_cast<std::uint64_t>( in[offset + i] ) << ( 8 * i );
             }
             return value;
         }
 
-        // HMAC-SHA256 of @p data under @p key; false when the platform crypto fails.
-        bool HmacSha256( std::span<const std::byte> key, std::span<const std::byte> data, Mac& out )
+        std::string ToHex( std::span<const std::byte> bytes )
         {
-#if defined( _WIN32 )
-            BCRYPT_ALG_HANDLE algorithm = nullptr;
-            if ( !BCRYPT_SUCCESS( BCryptOpenAlgorithmProvider( &algorithm, BCRYPT_SHA256_ALGORITHM, nullptr,
-                                                               BCRYPT_ALG_HANDLE_HMAC_FLAG ) ) )
+            std::string text;
+            text.reserve( bytes.size() * 2 );
+            for ( const std::byte b : bytes )
+            {
+                text += std::format( "{:02x}", static_cast<unsigned>( b ) );
+            }
+            return text;
+        }
+
+        bool FromHex( std::string_view text, std::span<std::byte> out )
+        {
+            const auto nibble = []( char c ) -> int
+            {
+                if ( c >= '0' && c <= '9' )
+                    return c - '0';
+                if ( c >= 'a' && c <= 'f' )
+                    return c - 'a' + 10;
+                if ( c >= 'A' && c <= 'F' )
+                    return c - 'A' + 10;
+                return -1;
+            };
+            if ( text.size() != out.size() * 2 )
             {
                 return false;
             }
-            BCRYPT_HASH_HANDLE hash = nullptr;
-            bool               ok   = BCRYPT_SUCCESS( BCryptCreateHash(
-                 algorithm, &hash, nullptr, 0, reinterpret_cast<PUCHAR>( const_cast<std::byte*>( key.data() ) ),
-                 static_cast<ULONG>( key.size() ), 0 ) );
-            ok                      = ok && BCRYPT_SUCCESS( BCryptHashData(
-                            hash, reinterpret_cast<PUCHAR>( const_cast<std::byte*>( data.data() ) ),
-                            static_cast<ULONG>( data.size() ), 0 ) );
-            ok = ok && BCRYPT_SUCCESS( BCryptFinishHash( hash, reinterpret_cast<PUCHAR>( out.data() ),
-                                                         static_cast<ULONG>( out.size() ), 0 ) );
-            if ( hash )
+            for ( std::size_t i = 0; i < out.size(); ++i )
             {
-                BCryptDestroyHash( hash );
+                const int hi = nibble( text[2 * i] ), lo = nibble( text[2 * i + 1] );
+                if ( hi < 0 || lo < 0 )
+                {
+                    return false;
+                }
+                out[i] = static_cast<std::byte>( ( hi << 4 ) | lo );
             }
-            BCryptCloseAlgorithmProvider( algorithm, 0 );
-            return ok;
-#else
-            unsigned int length = 0;
-            return HMAC( EVP_sha256(), key.data(), static_cast<int>( key.size() ),
-                         reinterpret_cast<const unsigned char*>( data.data() ), data.size(),
-                         reinterpret_cast<unsigned char*>( out.data() ), &length ) != nullptr &&
-                   length == out.size();
-#endif
-        }
-
-        // Equal in time independent of where the first difference is: a timing oracle would let a forger find
-        // the signature byte by byte.
-        bool ConstantTimeEqual( std::span<const std::byte> a, std::span<const std::byte> b )
-        {
-            std::byte difference{ 0 };
-            for ( std::size_t i = 0; i < a.size(); ++i )
-            {
-                difference |= a[i] ^ b[i];
-            }
-            return difference == std::byte{ 0 };
+            return true;
         }
     } // namespace
 
-    std::vector<std::byte> IssueConnectToken( const ConnectToken& token, std::span<const std::byte> secret,
-                                              std::string& error )
+    bool GenerateIssuerKeys( std::uint64_t issuer, std::uint32_t keyId, IssuerKeyRecord& privateKey,
+                             IssuerKeyRecord& publicKey, std::string& error )
     {
-        if ( secret.size() < kMinTokenSecretSize )
+        CCrypto::Init(); // the issuer runs no transport: GameNetworkingSockets_Init does not do it here
+        CECSigningPublicKey  publicHalf;
+        CECSigningPrivateKey privateHalf;
+        CCrypto::GenerateSigningKeyPair( &publicHalf, &privateHalf );
+        if ( publicHalf.GetRawData( nullptr ) != kIssuerKeySize ||
+             privateHalf.GetRawData( nullptr ) != kIssuerKeySize )
         {
-            error = std::format( "token secret is {} bytes; at least {} are required", secret.size(),
-                                 kMinTokenSecretSize );
+            error = "Ed25519 key generation failed in the platform crypto";
+            return false;
+        }
+        publicHalf.GetRawData( publicKey.Key.data() );
+        privateHalf.GetRawData( privateKey.Key.data() );
+        privateKey.Issuer = publicKey.Issuer = issuer;
+        privateKey.KeyId = publicKey.KeyId = keyId;
+        return true;
+    }
+
+    std::vector<std::byte> MintConnectToken( const ConnectToken& token, const IssuerKeyRecord& privateKey,
+                                             std::string& error )
+    {
+        if ( token.Claims.size() > kMaxConnectTokenClaims )
+        {
+            error = std::format( "claims are {} bytes; at most {} are carried", token.Claims.size(),
+                                 kMaxConnectTokenClaims );
             return {};
         }
+        CCrypto::Init();
+        CECSigningPrivateKey key;
+        if ( !key.SetRawDataWithoutWipingInput( privateKey.Key.data(), privateKey.Key.size() ) )
+        {
+            error = "the issuer private key is not an Ed25519 seed";
+            return {};
+        }
+        TokenNonce nonce;
+        CCrypto::GenerateRandomBlock( nonce.data(), static_cast<int>( nonce.size() ) );
+
         std::vector<std::byte> out;
-        out.reserve( kConnectTokenSize );
-        Put( out, kConnectTokenFormat, 1 );
-        Put( out, token.Account, 8 );
-        Put( out, token.Server, 8 );
+        out.reserve( kHeaderSize + token.Claims.size() + kConnectTokenSignatureSize );
+        Put( out, kConnectTokenVersion, 1 );
+        Put( out, privateKey.KeyId, 4 );
+        Put( out, privateKey.Issuer, 8 );
+        Put( out, token.Audience, 8 );
+        Put( out, token.IssuedUnixSeconds, 8 );
         Put( out, token.ExpiresUnixSeconds, 8 );
-        Mac mac;
-        if ( !HmacSha256( secret, out, mac ) )
-        {
-            error = "HMAC-SHA256 failed in the platform crypto";
-            return {};
-        }
-        out.insert( out.end(), mac.begin(), mac.end() );
+        out.insert( out.end(), nonce.begin(), nonce.end() );
+        Put( out, token.Claims.size(), 2 );
+        out.insert( out.end(), token.Claims.begin(), token.Claims.end() );
+        CryptoSignature_t signature;
+        key.GenerateSignature( out.data(), out.size(), &signature );
+        const auto* signatureBytes = reinterpret_cast<const std::byte*>( signature );
+        out.insert( out.end(), signatureBytes, signatureBytes + kConnectTokenSignatureSize );
         return out;
     }
 
-    TokenVerdict VerifyConnectToken( std::span<const std::byte> token, std::span<const std::byte> secret,
-                                     std::uint64_t serverId, std::uint64_t nowUnixSeconds )
+    std::string_view TokenCheckText( ETokenCheck check )
+    {
+        switch ( check )
+        {
+            case ETokenCheck::Valid:
+                return "token valid";
+            case ETokenCheck::Malformed:
+                return "token malformed";
+            case ETokenCheck::UnknownKey:
+                return "token issuer key not trusted";
+            case ETokenCheck::Signature:
+                return "token signature invalid";
+            case ETokenCheck::Audience:
+                return "token is for another world";
+            case ETokenCheck::Expired:
+                return "token expired";
+            case ETokenCheck::Lifetime:
+                return "token lifetime too long";
+            case ETokenCheck::Replayed:
+                return "token already used";
+        }
+        return "token unknown check";
+    }
+
+    ConnectTokenVerifier::ConnectTokenVerifier( std::vector<IssuerKeyRecord> trustedKeys, std::uint64_t audience )
+         : m_Trusted( std::move( trustedKeys ) ), m_Audience( audience )
+    {
+        CCrypto::Init();
+    }
+
+    TokenVerdict ConnectTokenVerifier::Verify( std::span<const std::byte> token, std::uint64_t nowUnixSeconds )
     {
         TokenVerdict verdict;
-        if ( secret.size() < kMinTokenSecretSize || token.size() != kConnectTokenSize ||
-             token[0] != static_cast<std::byte>( kConnectTokenFormat ) )
+        if ( token.size() < kHeaderSize + kConnectTokenSignatureSize ||
+             token[0] != static_cast<std::byte>( kConnectTokenVersion ) )
         {
             return verdict;
         }
-        Mac expected;
-        if ( !HmacSha256( secret, token.first( kSignedSize ), expected ) ||
-             !ConstantTimeEqual( expected, token.subspan( kSignedSize ) ) )
+        const std::size_t claimsSize = static_cast<std::size_t>( Get( token, kHeaderSize - 2, 2 ) );
+        const std::size_t signedSize = kHeaderSize + claimsSize;
+        if ( claimsSize > kMaxConnectTokenClaims || token.size() != signedSize + kConnectTokenSignatureSize )
         {
             return verdict;
         }
-        const ConnectToken fields{ Get( token, 1 ), Get( token, 9 ), Get( token, 17 ) };
-        if ( fields.Server != serverId )
+        const auto keyId   = static_cast<std::uint32_t>( Get( token, 1, 4 ) );
+        const auto issuer  = Get( token, 5, 8 );
+        const auto trusted = std::find_if( m_Trusted.begin(), m_Trusted.end(), [&]( const IssuerKeyRecord& key )
+                                           { return key.Issuer == issuer && key.KeyId == keyId; } );
+        if ( trusted == m_Trusted.end() )
         {
+            verdict.Check = ETokenCheck::UnknownKey;
             return verdict;
         }
-        verdict.Token = fields;
-        verdict.Check = fields.ExpiresUnixSeconds <= nowUnixSeconds ? ETokenCheck::Expired : ETokenCheck::Valid;
+        CECSigningPublicKey publicKey;
+        CryptoSignature_t   signature;
+        std::memcpy( signature, token.data() + signedSize, kConnectTokenSignatureSize );
+        if ( !publicKey.SetRawDataWithoutWipingInput( trusted->Key.data(), trusted->Key.size() ) ||
+             !publicKey.VerifySignature( token.data(), signedSize, signature ) )
+        {
+            verdict.Check = ETokenCheck::Signature;
+            return verdict;
+        }
+        // Signed by a key we trust: its fields may now be read.
+        ConnectToken& fields      = verdict.Token;
+        fields.KeyId              = keyId;
+        fields.Issuer             = issuer;
+        fields.Audience           = Get( token, 13, 8 );
+        fields.IssuedUnixSeconds  = Get( token, 21, 8 );
+        fields.ExpiresUnixSeconds = Get( token, 29, 8 );
+        std::memcpy( fields.Nonce.data(), token.data() + kNonceOffset, kConnectTokenNonceSize );
+        fields.Claims.assign( token.begin() + kHeaderSize, token.begin() + signedSize );
+        if ( fields.Audience != m_Audience )
+            verdict.Check = ETokenCheck::Audience;
+        else if ( fields.ExpiresUnixSeconds <= nowUnixSeconds )
+            verdict.Check = ETokenCheck::Expired;
+        else if ( fields.ExpiresUnixSeconds > fields.IssuedUnixSeconds &&
+                  fields.ExpiresUnixSeconds - fields.IssuedUnixSeconds > kMaxConnectTokenLifetimeSeconds )
+            verdict.Check = ETokenCheck::Lifetime;
+        else
+        {
+            // The nonces of expired tokens are forgotten: such a token is refused as Expired before this.
+            std::erase_if( m_Admitted,
+                           [nowUnixSeconds]( const auto& entry ) { return entry.second <= nowUnixSeconds; } );
+            verdict.Check = m_Admitted.emplace( fields.Nonce, fields.ExpiresUnixSeconds ).second
+                                 ? ETokenCheck::Valid
+                                 : ETokenCheck::Replayed;
+        }
         return verdict;
     }
 
@@ -145,38 +233,41 @@ namespace Desert::Net
                                                 .count() );
     }
 
-    std::vector<std::byte> ReadTokenSecretFile( const std::string& path, std::string& error )
+    std::optional<IssuerKeyRecord> ReadIssuerKeyFile( const std::string& path, std::string& error )
     {
-        std::ifstream file( path );
-        std::string   text;
-        if ( !file || !( file >> text ) )
+        std::ifstream   file( path );
+        IssuerKeyRecord key;
+        std::string     hex;
+        if ( !file || !( file >> key.Issuer >> key.KeyId >> hex ) || !FromHex( hex, key.Key ) )
         {
-            error = std::format( "secret file '{}' cannot be read", path );
-            return {};
+            error =
+                 std::format( "issuer key file '{}' must hold one line '<issuer> <key id> <{}-byte key as hex>'",
+                              path, kIssuerKeySize );
+            return std::nullopt;
         }
-        const auto nibble = []( char c ) -> int
+        return key;
+    }
+
+    bool WriteIssuerKeyFile( const std::string& path, const IssuerKeyRecord& key, std::string& error )
+    {
         {
-            if ( c >= '0' && c <= '9' )
-                return c - '0';
-            if ( c >= 'a' && c <= 'f' )
-                return c - 'a' + 10;
-            if ( c >= 'A' && c <= 'F' )
-                return c - 'A' + 10;
-            return -1;
-        };
-        std::vector<std::byte> bytes;
-        bool                   hex = text.size() % 2 == 0;
-        for ( std::size_t i = 0; hex && i < text.size(); i += 2 )
-        {
-            const int hi = nibble( text[i] ), lo = nibble( text[i + 1] );
-            hex          = hi >= 0 && lo >= 0;
-            bytes.push_back( static_cast<std::byte>( ( hi << 4 ) | ( lo & 0xF ) ) );
+            std::ofstream file( path, std::ios::trunc );
+            if ( !( file << std::format( "{} {} {}\n", key.Issuer, key.KeyId, ToHex( key.Key ) ) ) )
+            {
+                error = std::format( "cannot write issuer key file '{}'", path );
+                return false;
+            }
         }
-        if ( !hex || bytes.size() < kMinTokenSecretSize )
+        // A private key readable by others is a key anyone on the machine can mint with.
+        std::error_code failure;
+        std::filesystem::permissions(
+             path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write, failure );
+        if ( failure )
         {
-            error = std::format( "secret file '{}' must hold at least {} bytes as hex", path, kMinTokenSecretSize );
-            return {};
+            error =
+                 std::format( "cannot restrict issuer key file '{}' to its owner: {}", path, failure.message() );
+            return false;
         }
-        return bytes;
+        return true;
     }
 } // namespace Desert::Net

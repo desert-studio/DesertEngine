@@ -22,10 +22,10 @@
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 #include <Engine/World/Foliage/FoliageCells.hpp>
-#include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
+#include <Landscape/Public/LandscapeLayerInfo.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -60,7 +60,7 @@
 #include <Engine/ECS/VisibilityComponent.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
 #include <Engine/World/Partition/RuntimeGridComponent.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Engine/Core/Scene.hpp>
 
 namespace Desert::Editor::Tools
@@ -1351,7 +1351,7 @@ namespace Desert::Editor::Tools
         }
 
         const LandscapeTileIndex tiles( scene );
-        const auto               landscapeSet = scene.GatherRaycastLandscape();
+        const auto               landscapeSet = scene.GatherRaycastSurfaces();
         ProceduralFoliageHost    host;
         // The volume's fields stream on the volume's grid and are cut by its cell (WP22e).
         const std::optional<std::string> volumeGrid = RuntimeGridOf( found->get() );
@@ -1613,7 +1613,7 @@ namespace Desert::Editor::Tools
         dab.Filter            = Core::FoliagePaint::SurfaceFilter();
         const LandscapeTileIndex tiles( scene );
         // One landscape set for every ray of the dab: gathering it per ray was 81 of the dab's 98 ms (FO-3b).
-        const auto landscapeSet = scene.GatherRaycastLandscape();
+        const auto landscapeSet = scene.GatherRaycastSurfaces();
 
         for ( const auto& uuid : Core::FoliagePaint::ActiveTypes() )
         {
@@ -2086,7 +2086,7 @@ namespace Desert::Editor::Tools
         // ground and foliage is traced through, as the brush traces.
         // Below the instance first, then above it (an instance pushed under the ground comes back up).
         const LandscapeTileIndex   tiles( scene );
-        const auto                 landscapeSet = scene.GatherRaycastLandscape();
+        const auto                 landscapeSet = scene.GatherRaycastSurfaces();
         const FoliageSurfaceFilter filter       = Core::FoliagePaint::SurfaceFilter();
         const auto                 accept       = [&]( const Common::UUID& id )
         {

@@ -30,6 +30,7 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
+#include <LandscapeCore/Public/LandscapeWorldPartition.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
@@ -87,17 +88,19 @@ using Desert::Core::Rules::AlwaysLoadedReason;
 using Desert::Core::Rules::CellBounds;
 using Desert::Core::Rules::CellCoord;
 using Desert::Core::Rules::CellOf;
+// The landscape's partition rows and hooks, registered once as every executable registers them (StartupModule).
+[[maybe_unused]] static const bool kLandscapeRegistered = ( Desert::LandscapeCore::StartupModule(), true );
+
 using Desert::Core::Rules::CellsPerLevel;
 using Desert::Core::Rules::ComponentLoading;
+using Desert::Core::Rules::ComponentLoadingRows;
 using Desert::Core::Rules::Containment;
+using Desert::Core::Rules::EntityReferences;
 using Desert::Core::Rules::FindUnregisteredEntityReferences;
 using Desert::Core::Rules::GridSquareOf;
-using Desert::Core::Rules::kComponentLoading;
-using Desert::Core::Rules::kEntityReferences;
 using Desert::Core::Rules::kEntityReferencesByName;
 using Desert::Core::Rules::kInstancePointsComponent;
 using Desert::Core::Rules::kInstancePointsField;
-using Desert::Core::Rules::kLandscapeTileComponent;
 using Desert::Core::Rules::kNoRecord;
 using Desert::Core::Rules::LevelCellSize;
 using Desert::Core::Rules::PlannedCell;
@@ -107,6 +110,7 @@ using Desert::Core::Rules::ReferenceKind;
 using Desert::Core::Rules::SingleCellHolding;
 using Desert::Core::Rules::SummarisePartition;
 using Desert::Core::Rules::WorldPartitionPlan;
+using Desert::LandscapeCore::kLandscapeTileComponent;
 
 namespace
 {
@@ -1469,7 +1473,7 @@ TEST( WorldPartitionLandscape, EveryTileIsItsOwnCompositeAtLevelZeroInItsOwnCell
     const auto               records = TwoByTwoLandscape();
     const WorldPartitionPlan plan    = PlanWorldPartition( records, Cells( kTileCm ) );
 
-    EXPECT_TRUE( plan.UnplacedLandscapeTiles.empty() );
+    EXPECT_TRUE( plan.UnplacedFramedRecords.empty() );
     ASSERT_EQ( plan.Composites.size(), 5u ) << "the root and four tiles, none joined to another";
     for ( std::size_t record = 0; record < records.size(); ++record )
         EXPECT_EQ( HeldBy( plan, record ).Members.size(), 1u ) << records[record].Tag.value_or( "" );
@@ -1554,7 +1558,7 @@ TEST( WorldPartitionLandscape, TilesArePlacedByTheirRootsWorldFrame )
     records.push_back( LandscapeTileRecord( 9002, 0, -1 ) ); // [-6300, 0] x [-6300, 0]
 
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( kTileCm ) );
-    EXPECT_TRUE( plan.UnplacedLandscapeTiles.empty() );
+    EXPECT_TRUE( plan.UnplacedFramedRecords.empty() );
     EXPECT_EQ( HeldBy( plan, 2 ).Level, 0 );
     EXPECT_EQ( HeldBy( plan, 2 ).Cell.X, -2 );
     EXPECT_EQ( HeldBy( plan, 2 ).Cell.Z, 0 );
@@ -1573,9 +1577,9 @@ TEST( WorldPartitionLandscape, ATileWithoutAPlaceableRootIsListedAndHasNoFootpri
     records.push_back( LandscapeTileRecord( 9002, 1, 0, 123456789 ) ); // root not in this file
 
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( kTileCm ) );
-    ASSERT_EQ( plan.UnplacedLandscapeTiles.size(), 2u );
-    EXPECT_EQ( plan.UnplacedLandscapeTiles[0], 1u );
-    EXPECT_EQ( plan.UnplacedLandscapeTiles[1], 2u );
+    ASSERT_EQ( plan.UnplacedFramedRecords.size(), 2u );
+    EXPECT_EQ( plan.UnplacedFramedRecords[0], 1u );
+    EXPECT_EQ( plan.UnplacedFramedRecords[1], 2u );
     EXPECT_FALSE( HeldBy( plan, 1 ).Footprint.has_value() );
     EXPECT_FALSE( HeldBy( plan, 2 ).Footprint.has_value() );
 }
@@ -1599,7 +1603,7 @@ TEST( WorldPartitionCensus, EveryComponentTheRegistrySerialisesHasExactlyOneLoad
     EXPECT_EQ( keysRead, registered.size() ) << "a component key is registered twice";
 
     std::set<std::string> rows;
-    for ( const auto& row : kComponentLoading )
+    for ( const auto& row : ComponentLoadingRows() )
         EXPECT_TRUE( rows.insert( std::string( row.ComponentKey ) ).second )
              << "two rows for " << row.ComponentKey;
 
@@ -1619,7 +1623,7 @@ TEST( WorldPartitionCensus, TheGlobalRowsAreTheOnesTheWorldNeedsEverywhere )
 {
     const auto loadingOf = []( std::string_view key )
     {
-        for ( const auto& row : kComponentLoading )
+        for ( const auto& row : ComponentLoadingRows() )
             if ( row.ComponentKey == key )
                 return row.Loading;
         return ComponentLoading::Spatial;
@@ -1674,7 +1678,7 @@ TEST( WorldPartitionReferences, TheRegisterNamesTheReferencesItClassifies )
 {
     bool socket     = false;
     bool projectile = false;
-    for ( const auto& row : kEntityReferences )
+    for ( const auto& row : EntityReferences() )
     {
         if ( row.ComponentKey == "SocketAttachment" && row.Field == "Target" )
         {
@@ -1693,7 +1697,7 @@ TEST( WorldPartitionReferences, TheRegisterNamesTheReferencesItClassifies )
     // The landscape tile's root. OBSERVATION, and WorldPartitionLandscape goes red if it is ever made
     // containment: every tile would join its root's composite and the whole terrain would be one footprint.
     bool landscape = false;
-    for ( const auto& row : kEntityReferences )
+    for ( const auto& row : EntityReferences() )
     {
         if ( row.ComponentKey == "LandscapeTile" && row.Field == "Landscape" )
         {
@@ -1950,7 +1954,7 @@ TEST( WorldPartitionReferences, EveryCorpusPointLiesInsideTheSquareOfItsComposit
 
 // A WRONG TYPE IS NEVER SILENT. A tile whose TileX is a string is read as the loader reads it — the default
 // coordinate is kept, so the tile is placed — and the planner names the value by its full path. Before the
-// facade it was silently dropped into UnplacedLandscapeTiles with nothing to say why.
+// facade it was silently dropped into UnplacedFramedRecords with nothing to say why.
 TEST( WorldPartitionLandscape, ATileCoordinateOfTheWrongTypeIsAnIssueAndKeepsItsDefault )
 {
     std::vector<EntityData> records;
@@ -1963,7 +1967,7 @@ TEST( WorldPartitionLandscape, ATileCoordinateOfTheWrongTypeIsAnIssueAndKeepsIts
     ASSERT_EQ( plan.Issues.size(), 1u );
     EXPECT_EQ( plan.Issues[0].Path, "Entities[id=2].LandscapeTile.TileX" );
     EXPECT_EQ( plan.Issues[0].Expected.rfind( "integer", 0 ), 0u ) << plan.Issues[0].Expected;
-    EXPECT_TRUE( plan.UnplacedLandscapeTiles.empty() );
+    EXPECT_TRUE( plan.UnplacedFramedRecords.empty() );
 }
 
 // ── PREFAB INSTANCES: PLACED BY THE TRANSFORM THEIR RECORD STATES (scene v37, PFX1) ─────────────────

@@ -9,9 +9,9 @@
 #include <functional>
 #include <string>
 #include <vector>
-#include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/ECS/LandscapeEditTarget.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
+#include <Landscape/Public/LandscapeEditTarget.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Panels/Landscape/LandscapeLayerCommands.hpp>
 #include <Editor/Import/LandscapeHeightmapIO.hpp>
@@ -22,7 +22,7 @@
 #include <initializer_list>
 #include <utility>
 #include <Landscape/Public/LandscapeLayerInfoService.hpp>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
 
 namespace Desert::Editor
 {

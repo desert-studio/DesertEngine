@@ -13,7 +13,7 @@
 // replicated to every relevant connection, autonomous proxy for its owner, simulated proxy for the others.
 
 #include <Net/NetTransport.hpp>
-#include <Net/PawnMovement.hpp>
+#include <Net/MovePrediction.hpp>
 #include <Net/Replication.hpp>
 
 #include <cstdint>
@@ -140,9 +140,12 @@ namespace Desert::Net
         struct Settings
         {
             std::vector<NetVec3> SpawnPoints; // world cm; the n-th player takes point n % size
-            PawnMoveSettings     Movement;    // the pawns' CharacterMovement (the client predicts with the same)
         };
-        PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, Settings settings, NetLogSink log );
+        // @p mover: THE GAME'S movement (Engine/Gameplay/CharacterMoveStep.hpp, the same step the client predicts
+        // with, over the server's collision world of the streamed cells). Net queues and orders the input steps
+        // and hands each to it; what an input means is the game's.
+        PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, IPawnMover& mover, Settings settings,
+                        NetLogSink log );
 
         void PlayerJoined( PlayerId player, std::uint64_t account ) override;
         void PlayerLeft( PlayerId player ) override;
@@ -195,6 +198,11 @@ namespace Desert::Net
             PawnMoveState                      Move;    // the movement state State is the replicated part of
             std::map<std::uint32_t, InputStep> Pending; // by client step (wrap: a session is < 2^31 steps)
             std::optional<std::uint32_t>       LastProcessed;
+            // The newest first step of any Input message: the client resends from its oldest unacked step, so a
+            // step before this floor is one the client no longer has (its ring overflowed) - the only hole given
+            // up.
+            std::optional<std::uint32_t> ResendFloor;
+            std::uint32_t                LastActions = 0; // the last applied step's action set (for the log)
             // The queue as the last Step found it, BEFORE it consumed: the clock sync's measure (one waiting step
             // each server step = the client exactly on time; after consumption a punctual client reads 0).
             std::uint8_t QueuedAtStep = 0;
@@ -203,10 +211,20 @@ namespace Desert::Net
 
         IReplicationStore&       m_Store;
         IGatewayLink&            m_Gateway;
+        IPawnMover&              m_Mover;
         Settings                 m_Settings;
         NetLogSink               m_Log;
         std::map<PlayerId, Pawn> m_Pawns;
         std::uint32_t            m_Joined = 0;
+    };
+
+    // What a gateway admits (NET-AUTH-SPLIT): the served cook, the connect tokens of its world (the issuer public
+    // keys it trusts + its audience + the replay cache), and the game's PreLogin, which decides on the claims.
+    struct GatewayAdmission
+    {
+        std::uint64_t        CookHash = 0;
+        ConnectTokenVerifier Tokens;
+        IPreLogin&           Game; // the server's game layer; outlives the gateway
     };
 
     // THE GATEWAY ROLE: client connections, the connect handshake (token + cook hash), routing input to the sim,
@@ -217,8 +235,8 @@ namespace Desert::Net
     public:
         // @p pawnPrefab: the server GameMode's pawn (UE DefaultPawnClass), named to every admitted client in the
         // Welcome; never 0.
-        Gateway( INetTransport& transport, IReplicationStore& store, HelloPolicy policy, std::uint64_t pawnPrefab,
-                 NetRelevancyGrid grid, NetLogSink log );
+        Gateway( INetTransport& transport, IReplicationStore& store, GatewayAdmission admission,
+                 std::uint64_t pawnPrefab, NetRelevancyGrid grid, NetLogSink log );
         void Bind( ISimLink& sim )
         {
             m_Sim = &sim;
@@ -275,6 +293,7 @@ namespace Desert::Net
         {
             bool                                  Admitted = false;
             PlayerId                              Player   = 0;
+            std::string                           Address; // where it connected from (the game's PreLogin sees it)
             std::map<StableNetId, ObjectBaseline> Baselines;
             std::map<std::uint32_t, SentPacket>   InFlight; // by ObjectState sequence
             std::uint32_t                         NextStateSequence = 1;
@@ -300,7 +319,7 @@ namespace Desert::Net
 
         INetTransport&                   m_Transport;
         IReplicationStore&               m_Store;
-        HelloPolicy                      m_Policy;
+        GatewayAdmission                 m_Admission;
         std::uint64_t                    m_PawnPrefab = 0;
         NetRelevancyGrid                 m_Grid;
         NetLogSink                       m_Log;

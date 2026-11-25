@@ -1,6 +1,6 @@
 #include <Landscape/Public/LandscapeECSSystem.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Landscape/Public/LandscapeTileImage.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -17,7 +17,7 @@
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 #include <Landscape/Public/LandscapeWeightmap.hpp>
 #include <Common/Core/Logger.hpp>
 
@@ -31,9 +31,9 @@
 #include <vector>
 #include <Landscape/Public/LandscapeGrassTypeService.hpp>
 #include <Landscape/Public/LandscapeLayerInfoService.hpp>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
-#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
-#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeMaterialComponent.hpp>
+#include <Landscape/Public/LandscapeTileComponent.hpp>
 
 namespace Desert::ECS
 {

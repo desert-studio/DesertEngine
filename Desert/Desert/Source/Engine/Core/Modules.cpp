@@ -11,6 +11,10 @@ namespace Desert::Destruction
     void StartupModule();
 } // namespace Desert::Destruction
 
+namespace Desert::LandscapeCore
+{
+    void StartupModule();
+}
 namespace Desert::Landscape
 {
     void StartupModule();
@@ -34,6 +38,8 @@ namespace Desert::Core
         {
             Destruction::StartupModule();
             // Before Water: the landscape's collector precedes the water zones' (SceneRenderCollectors.cpp).
+            Desert::LandscapeCore::StartupModule(); // the landscape world-partition descriptor hooks
+                                                    // (BUILD-MOD-6L)
             Landscape::StartupModule();
             VFX::StartupModule();
             Water::StartupModule();

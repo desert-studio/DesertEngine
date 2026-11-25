@@ -1,13 +1,13 @@
 #include "LandscapeEditLayerEdits.hpp"
 
-#include <Engine/ECS/LandscapeRootOf.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Common/Core/Core.hpp>
 
 #include <algorithm>
 #include <format>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
-#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeTileComponent.hpp>
 
 namespace Desert::Editor::Commands
 {

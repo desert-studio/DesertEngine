@@ -1,4 +1,5 @@
 #pragma once
+#include <Engine/Core/ModuleHooks.hpp>
 
 // WHAT THIS HEADER INCLUDES IS WHAT A SCENE IS MADE OF, NOT WHAT IT OWNS (BUILD-MOD-3; UE UWorld.h forward-declares
 // its subsystems and holds the feature worlds by pointer). The registry, the entity index, the view list and the
@@ -20,7 +21,6 @@
 #include <Engine/ECS/HierarchyRevision.hpp>
 #include <Engine/ECS/RenderStateDelta.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
-#include <Engine/World/Landscape/LandscapeRaycast.hpp>
 
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>
@@ -374,11 +374,11 @@ namespace Desert::Core
         [[nodiscard]] std::optional<std::reference_wrapper<const ECS::Entity>>
         FindEntityByID( const Common::UUID& uuid ) const;
 
-        // Ray vs every StaticMeshComponent's submesh AABBs and every drawn landscape tile's surface (world
-        // space; LandscapeRaycast.hpp). Returns the nearest hit (entity/point/normal) — a landscape hit names
-        // the TILE entity and carries the surface normal. Engine-owned so picking AND tools (foliage placement,
-        // etc.) share ONE raycast + ONE mesh resolution (MeshHandle / RuntimeMesh / primitive) instead of
-        // duplicating both.
+        // Ray vs every StaticMeshComponent's submesh AABBs and every module surface (world space;
+        // ModuleHooks().RaySurfaces: the landscape's drawn tiles). Returns the nearest hit (entity/point/normal) —
+        // a landscape hit names the TILE entity and carries the surface normal. Engine-owned so picking AND tools
+        // (foliage placement, etc.) share ONE raycast + ONE mesh resolution (MeshHandle / RuntimeMesh / primitive)
+        // instead of duplicating both.
         [[nodiscard]] bool Raycast( const Common::Math::Ray& ray, RaycastHit& outHit ) const;
         // The same trace through every entity @p accept refuses, as if it were not there (UE: a trace's
         // ignore filter, as FFoliagePaintingGeometryFilter passes the foliage brush's trace through a
@@ -386,21 +386,19 @@ namespace Desert::Core
         [[nodiscard]] bool Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
                                     const std::function<bool( const Common::UUID& )>& accept ) const;
 
-        // The drawn landscape tiles a raycast tests: a view of the shared landscape tile table
-        // (ECS::LandscapeTileTable, LandscapeRootOf.hpp), which keeps them beside the drawn tiles and rebuilds
-        // them only when a tile or a root changes. A caller tracing many rays at one moment (a foliage dab
-        // traces hundreds) gathers once and passes the set; it borrows the table, so it lives no longer than
-        // that moment (no tile added, removed or reloaded, no root moved meanwhile).
-        struct RaycastLandscapeSet
+        // The module surfaces a raycast tests (ModuleHooks().RaySurfaces; the landscape's drawn tiles, a view of
+        // its shared tile table, rebuilt only when a tile or a root changes). A caller tracing many rays at one
+        // moment (a foliage dab traces hundreds) gathers once and passes the set; it borrows the modules' tables,
+        // so it lives no longer than that moment (no tile added, removed or reloaded, no root moved meanwhile).
+        struct RaycastSurfaceSet
         {
-            std::span<const Common::UUID>                       Entities;
-            std::span<const World::Landscape::LandscapeRayTile> Tiles;
+            std::vector<Core::RaySurfaceTrace> Surfaces;
         };
-        [[nodiscard]] RaycastLandscapeSet GatherRaycastLandscape() const;
-        // The accept-filtered trace against a landscape set gathered earlier.
+        [[nodiscard]] RaycastSurfaceSet GatherRaycastSurfaces() const;
+        // The accept-filtered trace against a surface set gathered earlier.
         [[nodiscard]] bool Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
                                     const std::function<bool( const Common::UUID& )>& accept,
-                                    const RaycastLandscapeSet&                        landscape ) const;
+                                    const RaycastSurfaceSet&                          surfaces ) const;
         // The COMPLEX trace (UE FCollisionQueryParams::bTraceComplex, as ToolSceneQueriesUtil traces for the
         // Modeling tools): a static mesh is met on its own triangles, not its submesh boxes, so the hit point
         // lies on the surface and Normal is the face normal of the triangle the ray crossed (turned toward the
@@ -408,11 +406,11 @@ namespace Desert::Core
         // physics bodies.
         [[nodiscard]] bool RaycastComplex( const Common::Math::Ray& ray, RaycastHit& outHit,
                                            const std::function<bool( const Common::UUID& )>& accept = {} ) const;
-        // The complex trace against a landscape set gathered earlier (a foliage dab traces hundreds of segments
+        // The complex trace against a surface set gathered earlier (a foliage dab traces hundreds of segments
         // at one moment, UE AInstancedFoliageActor::FoliageTrace with bTraceComplex).
         [[nodiscard]] bool RaycastComplex( const Common::Math::Ray& ray, RaycastHit& outHit,
                                            const std::function<bool( const Common::UUID& )>& accept,
-                                           const RaycastLandscapeSet&                        landscape ) const;
+                                           const RaycastSurfaceSet&                          surfaces ) const;
 
         // Play-mode state. Edit = authoring (gameplay systems frozen); Play = running (gameplay ticks);
         // Paused = running but time frozen (ts forced to 0). The editor snapshots the scene on Play and
@@ -902,7 +900,7 @@ namespace Desert::Core
         // Both traces: @p complex meets a static mesh on its triangles (RaycastComplex), else on its boxes.
         [[nodiscard]] bool Trace( const Common::Math::Ray& ray, RaycastHit& outHit,
                                   const std::function<bool( const Common::UUID& )>& accept,
-                                  const RaycastLandscapeSet& landscape, bool complex ) const;
+                                  const RaycastSurfaceSet& surfaces, bool complex ) const;
 
         // Picks the active camera from the play state (Edit -> EditorCamera, Play -> the main
         // CameraComponent). Skipped entirely while a camera is pinned.

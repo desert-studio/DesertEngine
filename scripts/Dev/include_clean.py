@@ -19,6 +19,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BUILD = os.path.join(ROOT, "build/cmake/macos-clang-ninja")
+# the configuration the dev pipeline builds (scripts/Dev/dev_config.txt, read by _common.sh as DEV_CONFIG)
+DEV_CONFIG = next(l.split()[1] for l in open(os.path.join(ROOT, "scripts/Dev/dev_config.txt"))
+                  if l.split()[:1] == ["Darwin"])
 CLEANER = "/opt/homebrew/opt/llvm/bin/clang-include-cleaner"  # llvm@18 never returns from ~ASTContext
 SKIP = re.compile(r"/Systems/Scene/Mesh/|/Systems/Scene/Shadows/|MaterialService|/Systems/Scene/Grass/|/GlobalIllumination/"
                   r"|/View/Temporal|/Skybox/|/Sky[A-Z]|/RayTracing|/Systems/RayTracing/|/Upscalers/|/API/D3D12/|\.gen\.")
@@ -29,7 +32,7 @@ KEEP = re.compile(r"GlmReflection\.hpp|ReflectionMacros\.hpp")
 SCOPE = (os.path.join(ROOT, "Desert/Desert/Source/Engine/"), os.path.join(ROOT, "Editor/Source/Editor/"))
 
 def deps_by_object():
-    out = subprocess.run(["ninja", "-C", BUILD, "-f", "build-Debug.ninja", "-t", "deps"], capture_output=True, text=True).stdout
+    out = subprocess.run(["ninja", "-C", BUILD, "-f", f"build-{DEV_CONFIG}.ninja", "-t", "deps"], capture_output=True, text=True).stdout
     cur, table = None, {}
     for line in out.splitlines():
         if line and not line.startswith(" "):
@@ -134,7 +137,7 @@ def main():
     db = json.load(open(os.path.join(BUILD, "compile_commands.json")))
     by_file = {}
     for e in db:
-        if "/Debug/" in e["command"] and e["file"] not in by_file: by_file[e["file"]] = e
+        if f"/{DEV_CONFIG}/" in e["command"] and e["file"] not in by_file: by_file[e["file"]] = e
     table = deps_by_object()
     files = set()
     for obj, deps in table.items():

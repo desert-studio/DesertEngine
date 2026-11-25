@@ -1,6 +1,6 @@
-#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 
 #include <algorithm>
 #include <cmath>

@@ -3,7 +3,7 @@
 // over two tiles that keeps every sample's weight-blended sum at 255 and undoes byte for byte. And the way
 // to the screen: the RGBA8 weightmap a tile uploads, the colours its channels take from the root, and the
 // surface shader's blend (LandscapeWeights.glslh, compiled here as C++).
-#include <Engine/World/Landscape/LandscapePaint.hpp>
+#include <Landscape/Public/LandscapePaint.hpp>
 #include <Landscape/Public/LandscapeWeightmap.hpp>
 
 #include <Common/Core/GlslAsCpp.hpp>

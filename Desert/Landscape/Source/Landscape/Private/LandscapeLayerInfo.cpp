@@ -1,6 +1,6 @@
-#include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
+#include <Landscape/Public/LandscapeLayerInfo.hpp>
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Content/TextAssetHeader.hpp>

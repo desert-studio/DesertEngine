@@ -5,9 +5,12 @@
 // Engine-free: the engine's net driver maps net ids to Scene entities (PlayerControllers) and calls
 // SampleRemote/SampleOwn per frame; a headless bot (DesertNetProbe --bot) drives the same object.
 //
-// Input: SendInput(move, yaw) once per client fixed step - the step is numbered, pushed into the InputRing and
-// the last kInputRedundancy steps go out under a new sequence id. The server's ack (Snapshot::AckInputStep)
-// drops the ring up to it. NET-4 adds the replay from the ack; nothing here corrects a pawn yet.
+// Input: RecordInput(move, yaw) once per client fixed step - the step is numbered and pushed into the InputRing;
+// FlushInputs() once per frame sends every step not acked yet (all of them, up to kMaxUnackedInputSteps) under a
+// new sequence id, so a lost packet's steps go again with every later frame until the ack (UE: the client's moves
+// batched per net update, each unacked move resent until ClientAckGoodMove). SendInput = one step recorded and
+// flushed (a headless bot's frame is one step). The server's ack (Snapshot::AckInputStep) drops the ring up to it;
+// the engine's driver replays from it (NET-4).
 
 #include <Net/NetTransport.hpp>
 #include <Net/Replication.hpp>
@@ -48,9 +51,15 @@ namespace Desert::Net
         bool Connect( std::string_view address, std::string& error );
         // Pumps the transport and advances the remote pawns' render clock (call every frame).
         void Poll();
-        // One client fixed step of input (call at kNetStepHz while InSession): the step as sent (numbered) - the
-        // input the client's prediction runs - or nullopt outside the session.
-        std::optional<InputStep> SendInput( const NetVec3& move, float yaw, std::uint8_t buttons = 0 );
+        // One client fixed step of input (call at kNetStepHz while InSession): @p input as the game filled it (move
+        // intent and the pawn's declared action set, InputStep), numbered here - the step as recorded is the input
+        // the client's prediction runs - or nullopt outside the session. It goes out at FlushInputs.
+        std::optional<InputStep> RecordInput( InputStep input );
+        // Sends every unacked step (all of them, never only the newest) in one Input message; nothing when none is
+        // unacked.
+        void FlushInputs();
+        // RecordInput + FlushInputs: a frame of one step.
+        std::optional<InputStep> SendInput( InputStep input );
         // THE OWN PAWN'S AUTHORITY (§5.1): the newest ack with the server's state after that step, once per new
         // ack (UE ClientAdjustPosition / ClientAckGoodMove), and the server's input queue length with it.
         struct OwnAuthority

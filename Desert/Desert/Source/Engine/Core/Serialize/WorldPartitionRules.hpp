@@ -65,9 +65,8 @@
 // A scene record carries no extent of its own: a mesh's bounds live in the mesh asset and a prefab's in
 // the prefab's registry row (AL1-8a). So a footprint is the XZ rectangle around a set of
 // world-space POINTS, and `Detail::AppendFootprint` is the one place that decides which points a record
-// contributes. It knows six things, each stated where it is read, and a seventh is handled beside it
-// because it needs another record (a LANDSCAPE TILE: the rectangle its root's frame gives it, see
-// kLandscapeTileComponent — the tile's own position is read by nothing and is not a point):
+// contributes. It knows six things, each stated where it is read; a record whose component places it by its own
+// rule is handed to that component's DescriptorHook instead (below, A COMPONENT THAT PLACES ITS OWN RECORD):
 //
 //   * the record's own world position — every record;
 //   * the eight corners of the box a PRIMITIVE draws, through the world matrix. The box is
@@ -104,10 +103,11 @@
 //
 // ── PURE ──────────────────────────────────────────────────────────────────────────────────────────
 //
-// In: parsed records and the world's block. Out: a plan. No Scene, no renderer, no filesystem, no globals —
-// same split as `SceneStitchRules.hpp` and for the same reason: `SceneSerializer.cpp` reaches the
-// renderer through `Scene.hpp`, so anything left inside it cannot be reached by any suite in this
-// repository. Desert/Tests/Engine/WorldPartition is what reaches this.
+// In: parsed records and the world's block. Out: a plan. No Scene, no renderer, no filesystem; the one process
+// state read is the DescriptorHook list the executable's modules registered at startup (UE: the loaded actor
+// classes and their FWorldPartitionActorDesc) — same split as `SceneStitchRules.hpp` and for the same reason:
+// `SceneSerializer.cpp` reaches the renderer through `Scene.hpp`, so anything left inside it cannot be reached by
+// any suite in this repository. Desert/Tests/Engine/WorldPartition is what reaches this.
 
 #include <Common/Core/Math/AABB.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
@@ -119,7 +119,6 @@
 #include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
 
 // The transform composition below, and NOT Engine/ECS/Components.hpp for it. TransformComponent's
 // GetTransform() is the three lines this file needs, but that header carries entt, the reflection
@@ -221,17 +220,15 @@ namespace Desert::Core::Rules
          // Who fired the bullet, kept so a projectile can skip self-hits. The bullet is not part of
          // the shooter; a null owner costs one redundant hit test.
          { "Projectile", "Owner", ReferenceKind::Observation },
-         // A landscape tile names its root, and it is OBSERVATION ON PURPOSE (landscape analysis A1). As
-         // containment every tile of a landscape would be one composite, and the whole terrain would be
-         // placed as one footprint — the opposite of why a landscape is cut into tiles. The reader handles
-         // null the way observation requires: a tile whose root is not loaded has no frame and is placed
-         // nowhere (WorldPartitionPlan::UnplacedLandscapeTiles); it does not drag the root in.
-         { "LandscapeTile", "Landscape", ReferenceKind::Observation },
-         // A landscape spline names its root the same way and for the same reason (UE: ALandscapeSplineActor
-         // is its own spatially loaded actor in a partitioned world). Its points are world cm, so it is placed by
-         // its band (EntityDescriptor::LandscapeSpline) whether the root is loaded or not, and never joins it.
-         { "LandscapeSpline", "Landscape", ReferenceKind::Observation },
     };
+
+    // A REFERENCE A MODULE ADDS (UE: a module's actor class states its own references): registered at that
+    // module's StartupModule, beside its DescriptorHooks, for a component this file does not know (a terrain tile
+    // naming its root). A second row for the same component and field is ignored. Registered before the first
+    // record is read.
+    void RegisterEntityReference( const EntityReferenceRow& row );
+    // THE REGISTER AS EVERY READER SEES IT: kEntityReferences, then the registered rows in registration order.
+    [[nodiscard]] std::span<const EntityReferenceRow> EntityReferences();
 
     // REFERENCES THAT NAME THEIR TARGET BY A NAME INSTEAD OF AN ID — the BLIND SPOT of the discovery
     // function below, written down rather than left to be found.
@@ -474,14 +471,22 @@ namespace Desert::Core::Rules
         // source could not state. A number, so the size of that gap is visible.
         std::size_t PointOnlyRecords = 0;
 
-        // LANDSCAPE TILES THAT HAVE NO PLACE, for the same reason and treated the same way as unplaced prefab
-        // instances: a tile is placed by its ROOT's frame (World/Landscape/LandscapeLayout.hpp), and a tile
-        // whose root this file does not contain — or whose root cannot be tiled — has no rectangle. Its own
-        // entity position is not a stand-in: nothing reads it. Listed, and contributing no point.
-        std::vector<std::size_t> UnplacedLandscapeTiles;
+        // RECORDS PLACED IN ANOTHER RECORD'S FRAME THAT HAVE NO PLACE, for the same reason and treated the same
+        // way as unplaced prefab instances: such a record is placed by its hook from the facts of the record it
+        // names (DescriptorHook::FrameComponent; a terrain tile by its root's tiling), and one whose frame record
+        // this file does not contain - or whose frame the hook refuses - has no rectangle. Its own entity position
+        // is not a stand-in: nothing reads it. Listed, and contributing no point.
+        std::vector<std::size_t> UnplacedFramedRecords;
+
+        // RECORDS OF A CLASS NOBODY REGISTERED (UE: an actor desc whose class no loaded module provides): a record
+        // carrying a component key with no ComponentLoadingRows() row - the module that serialises it never ran
+        // its StartupModule in this process, so neither its loading nor its descriptor hook is known. Each is an
+        // Issue naming the key, and has no place: its entity position is not a stand-in for a footprint a hook
+        // would answer (a tile's rectangle), so it contributes no point.
+        std::vector<std::size_t> UnregisteredRecords;
 
         // EVERY COMPONENT VALUE THE PLANNER READ AND FOUND OF THE WRONG TYPE, each with its full path
-        // (`Entities[id=7].LandscapeTile.TileX`). The planner reads such a value as the loader does — the
+        // (`Entities[id=7].<component>.<field>`). The planner reads such a value as the loader does — the
         // component's default is kept — and says so here instead of in silence; every place that plans a world
         // to act on it (cook, Play, editor regions) names them through ReportPlanIssues.
         Common::Json::Issues Issues;
@@ -567,11 +572,6 @@ namespace Desert::Core::Rules
          // A hero cloud stands kilometres up and is seen from tens of kilometres away; no ground loading
          // range is that wide, so it would vanish while in plain view.
          { "HeroCloud", ComponentLoading::Global },
-         // A landscape root owns the FRAME every tile is placed by, not a place of its own; UE loads
-         // ALandscape the same way (not spatially loaded) and streams the proxies.
-         { "Landscape", ComponentLoading::Global },
-         // The root's look travels with the root: every tile of it is drawn with it.
-         { "LandscapeMaterial", ComponentLoading::Global },
          // WATER-W1's body is UE's AWaterBodyOcean, the one body kind it has: the sea the whole world floats
          // on and swims in, answered by buoyancy wherever a hull is. UE keeps the ocean out of the spatial
          // hash for that reason (lakes and rivers are spatially loaded by their spline bounds); a footprint
@@ -604,7 +604,8 @@ namespace Desert::Core::Rules
          { "LevelSequence", ComponentLoading::Global },
          // The level's clock of day drives the one sun and sky (UE: the Sun Position actor); it has no place.
          { "TimeOfDay", ComponentLoading::Global },
-         // An editor loader of the world (WP-LOADER-ADAPTERS): the World Partition window lists every volume, loaded
+         // An editor loader of the world (WP-LOADER-ADAPTERS): the World Partition window lists every volume,
+         // loaded
          // or not, and loads by its box - UE ALocationVolume is not spatially loaded (bIsSpatiallyLoaded = false).
          // Editor-only: the cook leaves it out (WorldCells), so it never reaches the always-loaded part of a game.
          { "LocationVolume", ComponentLoading::Global },
@@ -661,8 +662,6 @@ namespace Desert::Core::Rules
          { "SocketAttachment", ComponentLoading::Spatial },
          { "SpotLight", ComponentLoading::Spatial },
          { "StaticMesh", ComponentLoading::Spatial },
-         { "LandscapeTile", ComponentLoading::Spatial },   // its rectangle is its footprint
-         { "LandscapeSpline", ComponentLoading::Spatial }, // the box around its band is its footprint
          { "Text", ComponentLoading::Spatial },
          { "TwoBoneIK", ComponentLoading::Spatial },
          { "Visibility", ComponentLoading::Spatial },
@@ -702,6 +701,14 @@ namespace Desert::Core::Rules
          { "UITween", ComponentLoading::Spatial },
     };
 
+    // A ROW A MODULE ADDS for a component it serialises (UE: each module's actor classes state their own
+    // streaming): registered at its StartupModule, beside its DescriptorHooks; a second row for the same key is
+    // ignored. A record carrying a key that has a row nowhere - its module never started in this process - is an
+    // Issue and is placed nowhere (WorldPartitionPlan::UnregisteredRecords), never a point at its position.
+    void RegisterComponentLoading( const ComponentLoadingRow& row );
+    // THE REGISTER AS EVERY READER SEES IT: kComponentLoading, then the registered rows in registration order.
+    [[nodiscard]] std::span<const ComponentLoadingRow> ComponentLoadingRows();
+
     // The author's marker, by its key on disk. Named once: the register row above and the reason
     // Author are both about it.
     inline constexpr std::string_view kAlwaysLoadedComponent = "AlwaysLoaded";
@@ -722,16 +729,9 @@ namespace Desert::Core::Rules
     // saved form of SavedMeshForm.hpp): its vertex positions, xyz per vertex in the entity's own frame.
     inline constexpr std::string_view kEditMeshField          = "EditMesh";
     inline constexpr std::string_view kEditMeshPositionsField = "Positions";
-    // A landscape tile's footprint is a RECTANGLE computed from its coordinate and its root's frame. The
-    // root is not a part of the tile (see the register row): it is read, never joined.
-    inline constexpr std::string_view kLandscapeRootComponent = "Landscape";
-    inline constexpr std::string_view kLandscapeTileComponent = "LandscapeTile";
     // ECS::ScriptComponent's block (ComponentRegistry MakeScript): Scripts[] of { ScriptKey, Props[] of { Name, Type,
     // Ref, ElementType, Items[] } } - Type is Scripting::PropertyType's stored number (WP-ENTITY-REFS).
     inline constexpr std::string_view kScriptComponent = "Script";
-    // A landscape spline's footprint is the box around its band (World::Landscape::LandscapeSplinesBounds), read
-    // from its own block: its points are world cm and nothing reads the entity's transform.
-    inline constexpr std::string_view kLandscapeSplineComponent = "LandscapeSpline";
 
     // THE MESH BLOCKS THAT NAME A MESH ASSET, and where each states its reference (PrefabData.hpp): the Static
     // Mesh in its reflected `MeshHandle` object {Guid, Path} (asset references v1), the Skinned Mesh in the
@@ -833,34 +833,6 @@ namespace Desert::Core::Rules
         [[nodiscard]] std::optional<Common::Math::AABB> EditMeshBox( const Common::Json::Node& block,
                                                                      Common::Json::Issues&     issues );
 
-        // THE BOX AROUND A LANDSCAPE SPLINE RECORD'S BAND (world cm), or nullopt when the record has no
-        // LandscapeSpline block, its splines do not read (an Issue), or they have no control point.
-        std::optional<Common::Math::AABB> LandscapeSplineBandOf( const Assets::EntityData& record,
-                                                                 Common::Json::Issues&     issues );
-
-        // The two corners of a spline's band box: its whole footprint, and NOT the entity's position.
-        void AppendSplineBand( const Common::Math::AABB& band, std::vector<glm::vec3>& out );
-
-        // THE POINTS ONE RECORD CONTRIBUTES TO ITS COMPOSITE'S FOOTPRINT — the extension point named at
-        // the top of this file. Returns false when the record contributed its position and nothing more.
-        // A landscape spline contributes its band's box alone (UE ALandscapeSplineActor's streaming bounds).
-        bool AppendFootprint( const Assets::EntityData& record, const glm::mat4& world,
-                              const AssetBoundsSource& bounds, std::vector<glm::vec3>& out,
-                              Common::Json::Issues& issues );
-
-        // THE GROUND RECTANGLE OF A LANDSCAPE TILE RECORD, or nullopt when it has none. The root's fields are
-        // read with the loader's rule — an absent field is the component's default, which is LandscapeRoot's
-        // default because both are spelled from the same constants, and a field of the wrong type is an Issue
-        // that keeps that default — and the root is refused by the same ValidateLandscapeRoot the loader
-        // applies, so the partition never places a tile the loader refuses.
-        //
-        // @p world holds the composed world matrices: the root's translation is the frame's origin, as
-        // Entity::GetWorldTransform is for the loaded root.
-        std::optional<World::Landscape::LandscapeTileRect>
-        LandscapeTileRectOf( const Assets::EntityData& tile, const std::vector<glm::mat4>& world,
-                             std::span<const Assets::EntityData>                  records,
-                             const std::unordered_map<Common::UUID, std::size_t>& byId,
-                             Common::Json::Issues&                                issues );
     } // namespace Detail
 
     // EVERY ENTITY REFERENCE IN THESE RECORDS THAT `kEntityReferences` DOES NOT HAVE A ROW FOR.
@@ -940,21 +912,68 @@ namespace Desert::Core::Rules
         std::string Name;
     };
 
-    // A landscape tile: its rectangle is its root's, so it keeps the root and its own tile coordinate.
-    struct DescriptorLandscapeTile
+    // ── A COMPONENT THAT PLACES ITS OWN RECORD (UE: an FWorldPartitionActorDesc subclass) ─────────────────────
+    //
+    // UE's World Partition names no actor class of a feature module: each class supplies its own descriptor
+    // (FWorldPartitionActorDesc subclasses, registered by the module that owns the class), which reads what the
+    // partition needs off the actor and answers its streaming bounds. Here a component whose record is placed by a
+    // rule of its own - a box its block states in world cm, or a rectangle in the frame of a record it names -
+    // supplies that rule as a DescriptorHook, registered at its module's StartupModule together with its
+    // ComponentLoadingRow and EntityReferenceRows (the terrain module registers its root, tile and spline). This
+    // file reads the hooks; it names none.
+
+    // One value a hook read off its block, by the name the hook gives it.
+    struct DescriptorFact
     {
-        std::uint64_t Root = 0; // 0: the reference is absent, null or unreadable - the tile has no place
-        std::int32_t  X    = 0;
-        std::int32_t  Z    = 0;
+        std::string Name;
+        double      Value = 0.0;
     };
 
-    // A landscape root's tiling, as LandscapeTileRectOf reads it (the origin is the root's world position).
-    struct DescriptorLandscapeRoot
+    // WHAT A HOOK READ OFF ONE RECORD, kept in the descriptor (and the descriptor index) under its component key.
+    struct DescriptorFacts
     {
-        std::uint32_t QuadsPerTile = World::Landscape::kLandscapeDefaultTileQuads;
-        float         SpacingCm    = World::Landscape::kLandscapeDefaultSpacingCm;
-        float         ZScale       = World::Landscape::kLandscapeDefaultZScale;
+        std::string Component; // the hook's component key
+        // The record whose facts (of the hook's FrameComponent) and world position place this one; 0: none -
+        // the reference is absent, null or unreadable, and a hook with a FrameComponent then has no place.
+        std::uint64_t               Frame = 0;
+        std::vector<DescriptorFact> Values; // the hook's own numbers
+        // A footprint the record states itself in world cm (a landscape spline's band); absent = none.
+        std::optional<Common::Math::AABB> WorldBox;
+
+        // The value the hook named @p name, or @p fallback when it wrote none.
+        [[nodiscard]] double ValueOr( std::string_view name, double fallback ) const
+        {
+            for ( const DescriptorFact& fact : Values )
+                if ( fact.Name == name )
+                    return fact.Value;
+            return fallback;
+        }
     };
+
+    // A COMPONENT'S OWN DESCRIPTOR RULE.
+    struct DescriptorHook
+    {
+        std::string_view Component;
+        // The component whose facts on the Frame record place this one (a tile's root component); empty: the
+        // record is placed by its own facts alone, or not by this hook (Footprint null).
+        std::string_view FrameComponent;
+        // Reads the facts of @p block (null: the record carries the component but its payload is not a block) into
+        // @p facts, a value of the wrong type an Issue on its path; false: the record keeps no facts of this hook.
+        bool ( *Describe )( const Common::Json::Node* block, DescriptorFacts& facts,
+                            Common::Json::Issues& issues ) = nullptr;
+        // The record's footprint, world cm, from its facts, the FrameComponent facts of its Frame record (null
+        // when that record is not in this world or states none) and that record's world matrix; nullopt: no place
+        // (WorldPartitionPlan::UnplacedFramedRecords). Null: the component states facts other hooks read and
+        // places no record itself (a landscape root).
+        std::optional<Common::Math::AABB> ( *Footprint )( const DescriptorFacts& own, const DescriptorFacts* frame,
+                                                          const glm::mat4& frameWorld ) = nullptr;
+    };
+
+    // Registers @p hook (a module's StartupModule; one per component, a second registration of the same component
+    // is ignored). Registered before the first record is described.
+    void RegisterDescriptorHook( const DescriptorHook& hook );
+    // The hooks registered, in registration order (the order their facts and Issues are read in).
+    [[nodiscard]] std::span<const DescriptorHook> DescriptorHooks();
 
     // A Location Volume's box (UE ALocationVolume): half size around the entity's world position, cm, and whether
     // the editor loads it when the world opens. Read here so the editor resolves the volume before any record is.
@@ -989,11 +1008,9 @@ namespace Desert::Core::Rules
         std::vector<DescriptorScriptReference> ScriptReferences; // WP-ENTITY-REFS
         std::vector<DescriptorNamedReference>  NamedReferences;  // WP-ENTITY-REFS
         std::vector<DescriptorName>            Names;            // WP-ENTITY-REFS
-        std::optional<DescriptorLandscapeTile> LandscapeTile;
-        std::optional<DescriptorLandscapeRoot> LandscapeRoot;
-        // A landscape spline: the world box around its band (LandscapeSplineBandOf); absent for any other record,
-        // and for a spline whose block does not read or has no control point (then its position, as any record).
-        std::optional<Common::Math::AABB> LandscapeSpline;
+        // What the registered hooks read off the record (DescriptorHook), one entry per hooked component it
+        // carries.
+        std::vector<DescriptorFacts> Facts;
         // The RuntimeGrid block's grid name (WP22); absent = the world's first grid.
         std::optional<std::string> RuntimeGrid;
         // The StreamingSource block's Target Grids (UE FWorldPartitionStreamingSource::TargetGrids); empty = every
@@ -1174,15 +1191,22 @@ namespace Desert::Core::Rules
     {
         // A descriptor's footprint points: its world position, then the corners of every box it states or
         // the bounds source answers for its meshes, then its instance points. True when it had more than
-        // the position (AppendFootprint over the record, the same points).
+        // the position.
         bool AppendFootprint( const EntityDescriptor& descriptor, const glm::mat4& world,
                               const AssetBoundsSource& bounds, std::vector<glm::vec3>& out );
 
-        // A landscape tile's rectangle from its root's descriptor and world position (LandscapeTileRectOf).
-        std::optional<World::Landscape::LandscapeTileRect>
-        LandscapeTileRectOf( const EntityDescriptor& tile, const std::vector<glm::mat4>& world,
-                             std::span<const EntityDescriptor>                    descriptors,
-                             const std::unordered_map<Common::UUID, std::size_t>& byId );
+        // The footprint a registered hook gives @p record (the first of its facts whose hook has a Footprint), in
+        // world cm: nullopt in `Box` with `Hooked` set = the hook refused it a place. Not hooked: placed as any
+        // record.
+        struct HookedFootprint
+        {
+            bool                              Hooked = false;
+            std::optional<Common::Math::AABB> Box;
+        };
+        [[nodiscard]] HookedFootprint HookFootprintOf( std::size_t                       record,
+                                                       std::span<const EntityDescriptor> records,
+                                                       const std::vector<glm::mat4>&     world,
+                                                       const std::unordered_map<Common::UUID, std::size_t>& byId );
     } // namespace Detail
 
     // THE STREAMING GENERATION FINDINGS OF @p issues, logged one warning line each (UE FStreamingGenerationLogErrorHandler)

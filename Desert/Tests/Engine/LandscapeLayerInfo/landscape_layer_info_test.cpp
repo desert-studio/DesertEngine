@@ -5,8 +5,8 @@
 
 #include <TestSupport/scratch_dir.hpp>
 
-#include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Landscape/Public/LandscapeLayerInfo.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 
 #include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Common/Json/Json.hpp>

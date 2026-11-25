@@ -2,7 +2,7 @@
 
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Landscape/Public/LandscapeEditTarget.hpp>
 #include <Common/Core/Math/Ray.hpp>
 
 #include <glm/glm.hpp>

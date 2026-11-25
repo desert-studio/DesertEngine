@@ -3,7 +3,7 @@
 #include <Common/Core/Math/Rounding.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
-#include <Engine/World/Landscape/LandscapeLayerLimits.hpp>
+#include <LandscapeCore/Public/LandscapeLayerLimits.hpp>
 
 #include <glm/glm.hpp>
 

@@ -3,8 +3,10 @@
 // PAWN REPLICATION WIRE + CLIENT-SIDE BUFFERS (Docs/contracts/NET-ARCH.md §2, §3.1, §5).
 //
 // After the handshake (NetHandshake.hpp) a session speaks four messages:
-//   Input    client -> server, State lane (unreliable): the last kInputRedundancy fixed steps of input, each with
-//            the client's fixed-step number, under a sequence id - one lost packet loses no input (§2).
+//   Input    client -> server, State lane (unreliable): every fixed step of input the server has not acked yet
+//            (all of them, up to kMaxUnackedInputSteps), each with the client's fixed-step number, under a
+//            sequence id - a lost packet loses no input: its steps ride in every later one until the ack (§2; UE
+//            ServerMove resent until ClientAckGoodMove, Overwatch-style full resend).
 //   Snapshot server -> client, State lane (unreliable): the server step, the last input step the server has
 //            PROCESSED for this connection (the ack the client's prediction replays from, NET-4 §5.1), and the
 //            transform of every replicated pawn relevant to the connection.
@@ -37,8 +39,16 @@ namespace Desert::Net
     using NetId                              = std::uint32_t;
     inline constexpr NetId  kInvalidNetId    = 0;
     inline constexpr double kNetStepHz       = 60.0; // the server's fixed step (§2); the net frame number
-    inline constexpr int    kInputRedundancy = 3;    // input steps per Input message (§2)
-    // One input step's length - the move both the server and the predicting client simulate (PawnMovement.hpp).
+    // The unacked input steps the client keeps and resends (§2): the InputRing's capacity, 2.1 s at 60 Hz, and so
+    // the most one Input message carries. The server moves a pawn by every step in order and waits for a missing
+    // one, so every Input message carries EVERY unacked step - never only the newest few: a slow client frame
+    // records a burst of steps (20-30 at 3 fps), and a newest-32 window pushed the older steps of the burst
+    // before it out after one send, so one lost packet lost them for good (NET-4 run 1125-061130: steps
+    // 742..754). An unacked step older than this is a lost session's; the server gives it up when a message
+    // no longer starts at or before it (MeshOfOne.cpp PawnSimulation::StepPawn).
+    inline constexpr std::size_t kMaxUnackedInputSteps = 128;
+    // One input step's length - the move both the server and the predicting client simulate (the game's
+    // Net::IPawnMover, MovePrediction.hpp).
     inline constexpr float kNetStepSeconds = static_cast<float>( 1.0 / kNetStepHz );
     // Snapshots go out every second step: 30 Hz per connection (§2). A project setting once §3.6 lands.
     inline constexpr int kSnapshotEverySteps = 2;
@@ -72,24 +82,31 @@ namespace Desert::Net
         float X = 0.f, Y = 0.f, Z = 0.f;
     };
 
-    // One fixed step of a player's input: the world-space direction the player asks to move in (length 0..1,
-    // already turned by its view on the client) and the yaw it faces, in degrees.
-    // InputStep::Buttons (UE FSavedMove_Character compressed flags): held / pressed this step.
-    inline constexpr std::uint8_t kInputSprint = 1u << 0;
-    inline constexpr std::uint8_t kInputJump   = 1u << 1; // pressed: a jump starts on this step when grounded
+    // One fixed step of a player's input. Net numbers it, carries it, acks it and resends it; it never reads what
+    // it says. Move and Yaw are the pawn's movement intent (UE ServerMove's Acceleration + View; Mover's
+    // MoveInput + OrientationIntent): the world-space direction the player asks to move in (length 0..1, already
+    // turned by its view on the client) and the yaw it faces, in degrees. Everything else is the PAWN'S DECLARED
+    // ACTION SET, opaque here (Mover 2.0: the game declares the input struct the net layer carries): bit i of
+    // Actions is the pawn's i-th declared digital action, Axes[j] its j-th declared analog one - the game's
+    // movement (Engine/Gameplay/PawnActions.hpp) names them and maps them to what they do. There is no sprint or
+    // jump here: a pawn that declares a new action sends it without a change to this file.
+    inline constexpr std::size_t kMaxInputActions = 32; // the bits of InputStep::Actions
+    inline constexpr std::size_t kMaxInputAxes    = 8;
 
     struct InputStep
     {
-        std::uint32_t Step = 0; // the client's fixed-step number
-        NetVec3       Move;
-        float         Yaw     = 0.f;
-        std::uint8_t  Buttons = 0;
+        std::uint32_t      Step = 0; // the client's fixed-step number
+        NetVec3            Move;
+        float              Yaw     = 0.f;
+        std::uint32_t      Actions = 0;
+        std::vector<float> Axes; // at most kMaxInputAxes
     };
 
     struct InputMessage
     {
         std::uint32_t          Sequence = 0;
-        std::vector<InputStep> Steps; // oldest first, at most kInputRedundancy
+        std::vector<InputStep>
+             Steps; // oldest first, every unacked step (consecutive), at most kMaxUnackedInputSteps
     };
 
     // The movement mode bits of a pawn's state (UE: the simulated proxy's replicated MovementMode).
@@ -109,17 +126,30 @@ namespace Desert::Net
         std::uint8_t TeleportCount = 0;
     };
 
-    // The own character's whole movement state (PawnMovement.hpp): what the server sends back for the acked input
+    // The own character's whole movement state (Net::IPawnMover): what the server sends back for the acked input
     // step so the predicting client can compare and replay (UE ClientAdjustPosition's location + velocity + base +
     // movement mode). Raw floats on the wire - the client compares them with its own, bit-exact path.
     struct PawnMoveState
     {
-        NetVec3 Position;
+        NetVec3 Position; // the capsule's feet
         NetVec3 Velocity;
         float   Yaw      = 0.f;
-        float   FloorY   = 0.f; // the floor plane the pawn stands on (PawnMovement.hpp)
         bool    Grounded = true;
+        // The game's movement mode bits beyond Grounded (Gameplay: crouched, swimming, jump held), opaque here:
+        // carried and compared, never read - at most kMaxMoveModeBits of them.
+        std::uint8_t Mode = 0;
     };
+    inline constexpr unsigned kMaxMoveModeBits = 7;
+    // The move state's one flag byte on the wire: Grounded in bit 0, the game's Mode bits above it.
+    [[nodiscard]] inline std::uint8_t MoveFlagsOf( const PawnMoveState& state )
+    {
+        return static_cast<std::uint8_t>( ( state.Grounded ? 1u : 0u ) | ( unsigned( state.Mode ) << 1 ) );
+    }
+    inline void SetMoveFlags( PawnMoveState& state, std::uint8_t flags )
+    {
+        state.Grounded = ( flags & 1u ) != 0;
+        state.Mode     = static_cast<std::uint8_t>( flags >> 1 );
+    }
 
     struct SnapshotMessage
     {
@@ -166,17 +196,17 @@ namespace Desert::Net
     std::optional<DestroyMessage>  DecodeDestroy( std::span<const std::byte> data );
 
     // THE CLIENT'S SENT INPUTS (NET-4's replay buffer): every step's input is pushed; the server's ack drops the
-    // ones it processed; Latest(n) is what the next Input message carries.
+    // ones it processed; Unacked() - all of the rest - is what the next Input message carries.
     class InputRing
     {
     public:
-        static constexpr std::size_t kCapacity = 128; // 2.1 s at 60 Hz: an ack older than that is a lost session
+        static constexpr std::size_t kCapacity = kMaxUnackedInputSteps; // an ack older than that: a lost session
 
         void Push( const InputStep& step );
         // Drops every input with Step <= @p ackStep (wrap-safe step comparison).
         void DropUpTo( std::uint32_t ackStep );
-        // The newest @p count inputs, oldest first.
-        [[nodiscard]] std::vector<InputStep> Latest( std::size_t count ) const;
+        // Every input not acked yet, oldest first: what each Input message carries.
+        [[nodiscard]] std::vector<InputStep> Unacked() const;
         [[nodiscard]] std::size_t            Size() const
         {
             return m_Steps.size();

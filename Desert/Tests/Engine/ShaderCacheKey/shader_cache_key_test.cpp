@@ -2143,7 +2143,7 @@ TEST( ShaderCacheKeyProfile, TheRuntimeDefaultIsThisBuildsProfile )
 }
 
 // The packager maps its target-config STRING through SpirvDebugInfoForConfigName; the engine compiles
-// under DESERT_CONFIG_DEBUG. Both spellings of "which configuration is this" must agree — this test
+// under DESERT_DEV_INSTRUMENTS. Both spellings of "which configuration is this" must agree — this test
 // runs in both configurations in CI, so each side of the mapping is pinned by a real build of the
 // other. (This suite defines DESERT_CONFIG_DEBUG for Debug exactly as the engine's own build does.)
 TEST( ShaderCacheKeyProfile, TheConfigNameMappingMatchesTheBuildThatCarriesIt )
@@ -2156,8 +2156,11 @@ TEST( ShaderCacheKeyProfile, TheConfigNameMappingMatchesTheBuildThatCarriesIt )
     EXPECT_EQ( Desert::Core::SpirvDebugInfoForConfigName( thisConfig ), Desert::Core::SpirvDebugInfoThisBuild() );
 
     // And the mapping is a real function of its argument, not a constant.
+    // Debug and Release (= UE Development) share one profile, so either editor hits the caches the other
+    // warmed (FPS-MAC-2); only Shipping, which has no developer instruments, compiles without debug info.
     EXPECT_TRUE( Desert::Core::SpirvDebugInfoForConfigName( "Debug" ) );
-    EXPECT_FALSE( Desert::Core::SpirvDebugInfoForConfigName( "Release" ) );
+    EXPECT_TRUE( Desert::Core::SpirvDebugInfoForConfigName( "Release" ) );
+    EXPECT_FALSE( Desert::Core::SpirvDebugInfoForConfigName( "Shipping" ) );
 }
 
 // ─── Prose in a comment cannot move a location ────────────────────────────────────────────────────

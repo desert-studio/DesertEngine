@@ -43,9 +43,9 @@
 #include "ClipInterpShift.hpp"
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
-#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeTileFiles.hpp>
 // For the shipped presets' names and the directory they live in, and nothing else. The v4 -> v5 migration
 // turns the species integer a v4 file carries into the PATH of the preset that holds the same twelve
 // numbers, and spelling that path here as a literal would be a second statement of it — the exact

@@ -1,0 +1,8 @@
+# The build configuration the dev pipeline builds and runs, per host: scripts/Dev/_common.sh (dev_build, compile_check,
+# migrate, header_fanout ...) and .claude/tools/play_scenario.py both read this file, so the editor an agent's scenario
+# plays is the one its build produced. UE runs the editor in Development (optimised, checks on); DebugGame is for a
+# debugger session. Release here is that Development build: -O2, DESERT_DEV_INSTRUMENTS on (only Shipping drops them).
+# Debug (-O0) on Mac made a scenario frame 1-4 s (FPS-MAC-2, 11-23). Windows builds Release since 11-25 (build_land.sh).
+# <host> <config>     host = Darwin | Windows
+Darwin Release
+Windows Release

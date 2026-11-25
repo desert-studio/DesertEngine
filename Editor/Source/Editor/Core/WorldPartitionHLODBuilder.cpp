@@ -9,6 +9,8 @@
 #include <Engine/Core/Serialize/PrefabExpansion.hpp>
 #include "WorldPartitionHLODBuilder.hpp"
 
+#include <Landscape/Public/LandscapeSplineHLODMesh.hpp>
+
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
@@ -686,7 +688,7 @@ namespace Desert::Editor
              -> Common::ResultStr<std::optional<::Desert::Assets::StaticMeshComponentSer>>
         {
             using Built = std::optional<::Desert::Assets::StaticMeshComponentSer>;
-            auto built  = ::Desert::Core::BuildLandscapeSplineHLODMesh( request, from );
+            auto built  = ::Desert::Landscape::BuildLandscapeSplineHLODMesh( request, from );
             if ( !built || !built.GetValue().has_value() )
                 return built;
             Built spline = built.ExtractValue();

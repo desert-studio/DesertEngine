@@ -8,7 +8,7 @@
 //      dirty rectangles — what the GPU upload and the Jolt heightfield consume — are set, others are not.
 //   4. A write that touches an unloaded tile, or a sample no tile stores, is refused and changes nothing.
 
-#include <Engine/World/Landscape/LandscapeEditCache.hpp>
+#include <Landscape/Public/LandscapeEditCache.hpp>
 
 #include <gtest/gtest.h>
 

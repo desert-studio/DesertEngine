@@ -12,8 +12,8 @@
 #include <Landscape/Public/LandscapeLayerRules.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
-#include <Engine/World/Landscape/LandscapeRaycast.hpp>
-#include <Engine/World/Landscape/LandscapeSplines.hpp>
+#include <Landscape/Public/LandscapeRaycast.hpp>
+#include <LandscapeCore/Public/LandscapeSplines.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -24,8 +24,8 @@
 #include <utility>
 #include <vector>
 #include <Engine/ECS/UUIDComponent.hpp>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
-#include <Engine/World/Landscape/LandscapeSplineComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeSplineComponent.hpp>
 
 namespace Desert::Editor::Tools
 {

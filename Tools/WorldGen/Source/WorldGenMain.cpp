@@ -7,7 +7,7 @@
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <Engine/Core/Serialize/SceneDependencies.hpp>
-#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
+#include <LandscapeCore/Public/LandscapeTileFiles.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentKinds.hpp>
@@ -977,6 +977,12 @@ namespace Desert::WorldGen
             const auto& scene = parsed.GetValue();
             const auto  plan  = Core::Rules::PlanWorldPartition( scene.Entities, *scene.WorldPartition );
             out << "  partition    : " << Core::Rules::SummarisePartition( plan, *scene.WorldPartition ) << "\n";
+            // What the planner found wrong in the world it just wrote (a record of a component no started module
+            // registers, a value of the wrong type), named as every place that plans a world names it.
+            if ( const std::string issues =
+                      Core::Rules::ReportPlanIssues( plan, std::filesystem::path( outPath ).generic_string() );
+                 !issues.empty() )
+                err << "WorldGen: " << issues << "\n";
             if ( plan.MaxLevelComposite != Core::Rules::kNoRecord && plan.MaxLevel > 0 )
             {
                 const auto& anchor = scene.Entities[plan.Composites[plan.MaxLevelComposite].Anchor];

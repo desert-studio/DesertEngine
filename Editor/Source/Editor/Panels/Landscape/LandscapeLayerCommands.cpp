@@ -6,16 +6,16 @@
 #include <Editor/Core/ToastManager.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
+#include <Landscape/Public/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Landscape/Public/LandscapeEditTarget.hpp>
 #include <Landscape/Public/LandscapeLayerRules.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
-#include <Engine/World/Landscape/LandscapeSplines.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeSplines.hpp>
 #include <Editor/Import/LandscapeHeightmapIO.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -30,9 +30,9 @@
 #include <vector>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
-#include <Engine/World/Landscape/LandscapeSplineComponent.hpp>
-#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeSplineComponent.hpp>
+#include <Landscape/Public/LandscapeTileComponent.hpp>
 
 namespace Desert::Editor::Commands
 {

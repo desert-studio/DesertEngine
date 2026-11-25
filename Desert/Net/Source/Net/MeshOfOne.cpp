@@ -60,9 +60,10 @@ namespace Desert::Net
 
     // ---- simulation --------------------------------------------------------------------------------------------
 
-    PawnSimulation::PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, Settings settings,
-                                    NetLogSink log )
-         : m_Store( store ), m_Gateway( gateway ), m_Settings( std::move( settings ) ), m_Log( std::move( log ) )
+    PawnSimulation::PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, IPawnMover& mover,
+                                    Settings settings, NetLogSink log )
+         : m_Store( store ), m_Gateway( gateway ), m_Mover( mover ), m_Settings( std::move( settings ) ),
+           m_Log( std::move( log ) )
     {
         if ( m_Settings.SpawnPoints.empty() )
             m_Settings.SpawnPoints.push_back( {} );
@@ -75,8 +76,14 @@ namespace Desert::Net
         pawn.Index          = m_Joined++;
         pawn.State.Id       = m_Store.AllocateNetId();
         pawn.State.Position = m_Settings.SpawnPoints[pawn.Index % m_Settings.SpawnPoints.size()];
+        // A spawned character starts falling and finds the floor under it on its first move (UE: the first
+        // PerformMovement's FindFloor; a spawn point stands above the ground). The replicated mode says so too:
+        // the owning client starts its prediction from this snapshot, and a server that began grounded took a
+        // ground step where the client took an air step (NET-4 run 11: 8.5 cm correction at input step 15,
+        // server vx +22 = one ground-acceleration step, vy +16 = one gravity step).
         pawn.Move.Position  = pawn.State.Position;
-        pawn.Move.FloorY    = pawn.State.Position.Y;
+        pawn.Move.Grounded  = false;
+        pawn.State.Movement = 0;
         m_Store.Write( pawn.State );
         m_Log( std::format( "player {} (account {}): pawn net id {} spawned at ({:.0f}, {:.0f}, {:.0f}) cm",
                             player, account, pawn.State.Id, pawn.State.Position.X, pawn.State.Position.Y,
@@ -105,6 +112,9 @@ namespace Desert::Net
         if ( it == m_Pawns.end() )
             return;
         Pawn& pawn = it->second;
+        if ( !input.Steps.empty() &&
+             ( !pawn.ResendFloor || StepAfter( input.Steps.front().Step, *pawn.ResendFloor ) ) )
+            pawn.ResendFloor = input.Steps.front().Step;
         for ( const InputStep& step : input.Steps )
         {
             // Already processed (a redundant copy) or already queued: the first arrival wins.
@@ -125,9 +135,15 @@ namespace Desert::Net
         return AckedMove{ *it->second.LastProcessed, it->second.Move, it->second.QueuedAtStep };
     }
 
-    // The server moves a pawn only by its player's input steps, one per step in step order (UE ServerMove: the
+    // The server moves a pawn only by its player's input steps, every one, in step order (UE ServerMove: the
     // server simulates the client's moves, never moves of its own) - so its state after step N is the client's
-    // prediction of N. A starved pawn holds; a queue above the clock sync's target drains two per step.
+    // prediction of N. A step that has not arrived holds the pawn, the steps after it wait: every Input message
+    // carries EVERY unacked step (Replication.hpp kMaxUnackedInputSteps), so a lost packet's steps come with the
+    // next one. Moving on past a hole would leave the server a step's move short of the client - the periodic
+    // sprint corrections of NET-4 run 9 (33-183 cm, whole steps of 16.7 cm). Only a step the client no longer
+    // sends is given up: a message that starts past it (the client's ring overflowed - never a guess from how
+    // far the queue runs ahead, which a slow client frame's burst of steps exceeds while the hole is still
+    // being resent). A starved pawn holds; a queue above the sync's target drains two per step.
     void PawnSimulation::StepPawn( Pawn& pawn ) const
     {
         constexpr std::size_t kDrainAbove = 4;
@@ -135,9 +151,30 @@ namespace Desert::Net
         const int consume = pawn.Pending.size() > kDrainAbove ? 2 : 1;
         for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i )
         {
-            const auto next    = pawn.Pending.begin();
+            const auto next = pawn.Pending.begin();
+            if ( pawn.LastProcessed && next->first != *pawn.LastProcessed + 1 )
+            {
+                const std::uint32_t missing = *pawn.LastProcessed + 1;
+                if ( !pawn.ResendFloor || !StepAfter( *pawn.ResendFloor, missing ) )
+                    break; // still in flight: every Input message repeats it until the ack
+                m_Log( std::format(
+                     "pawn net id {}: input steps {}..{} never arrived and the client no longer resends "
+                     "them (its unacked ring of {} steps overflowed); moving on (the client is "
+                     "corrected)",
+                     pawn.State.Id, missing, next->first - 1, kMaxUnackedInputSteps ) );
+            }
             // A move is one CLIENT step long, whatever the server's frame took (UE FSavedMove's DeltaTime).
-            pawn.Move          = StepPawnMove( pawn.Move, next->second, m_Settings.Movement, kNetStepSeconds );
+            // The step's action set is the game's to read (IPawnMover); the log names it in the game's words when
+            // it changes, and once a second with the speed it gives (cm/s, planar).
+            const InputStep& input = next->second;
+            pawn.Move              = m_Mover.Step( pawn.Move, input, kNetStepSeconds );
+            const float speed      = std::sqrt( pawn.Move.Velocity.X * pawn.Move.Velocity.X +
+                                                pawn.Move.Velocity.Z * pawn.Move.Velocity.Z );
+            if ( !pawn.LastProcessed || input.Actions != pawn.LastActions || next->first % static_cast<std::uint32_t>( kNetStepHz ) == 0 )
+                m_Log( std::format( "pawn net id {}: input step {} actions {} (bits 0x{:x}, axes {}), speed {:.0f} cm/s",
+                                    pawn.State.Id, next->first, m_Mover.DescribeActions( input ), input.Actions,
+                                    input.Axes.size(), speed ) );
+            pawn.LastActions   = input.Actions;
             pawn.LastProcessed = next->first;
             pawn.Pending.erase( next );
         }
@@ -197,11 +234,12 @@ namespace Desert::Net
             return false;
         it->second.State.Position = position;
         ++it->second.State.TeleportCount;
-        // UE TeleportTo on a character: it stands at the new place, still; the floor is where it stands.
+        // UE TeleportTo on a character: it is at the new place, still, and falls to the floor there (the next
+        // move's FindFloor) - a teleport onto the landscape lands on the terrain, not on a plane at its height.
         it->second.Move.Position = position;
         it->second.Move.Velocity = {};
-        it->second.Move.FloorY   = position.Y;
-        it->second.Move.Grounded = true;
+        it->second.Move.Grounded = false;
+        it->second.State.Movement = 0; // the replicated mode is the move's: falling
         m_Store.Write( it->second.State );
         m_Log( std::format( "player {}: pawn {} teleported to ({:.0f}, {:.0f}, {:.0f}) cm", player,
                             it->second.State.Id, position.X, position.Y, position.Z ) );
@@ -218,16 +256,17 @@ namespace Desert::Net
 
     // ---- gateway -----------------------------------------------------------------------------------------------
 
-    Gateway::Gateway( INetTransport& transport, IReplicationStore& store, HelloPolicy policy,
+    Gateway::Gateway( INetTransport& transport, IReplicationStore& store, GatewayAdmission admission,
                       std::uint64_t pawnPrefab, NetRelevancyGrid grid, NetLogSink log )
-         : m_Transport( transport ), m_Store( store ), m_Policy( policy ), m_PawnPrefab( pawnPrefab ),
-           m_Grid( std::move( grid ) ), m_Log( std::move( log ) )
+         : m_Transport( transport ), m_Store( store ), m_Admission( std::move( admission ) ),
+           m_PawnPrefab( pawnPrefab ), m_Grid( std::move( grid ) ), m_Log( std::move( log ) )
     {
     }
 
     void Gateway::OnConnected( ConnectionId connection, std::string_view address )
     {
-        m_Peers[connection] = {};
+        m_Peers[connection]         = {};
+        m_Peers[connection].Address = std::string( address );
         m_Log( std::format( "connection {} from {}: awaiting its Hello", connection, address ) );
     }
 
@@ -249,38 +288,51 @@ namespace Desert::Net
 
     void Gateway::Admit( ConnectionId connection, Peer& peer, std::span<const std::byte> hello )
     {
-        HelloPolicy policy         = m_Policy;
-        policy.NowUnixSeconds      = UnixSecondsNow();
-        const HelloVerdict verdict = EvaluateHello( hello, policy );
+        const HelloPolicy policy{ m_Admission.CookHash, UnixSecondsNow() };
+        HelloVerdict      verdict = EvaluateHello( hello, policy, m_Admission.Tokens );
+        // Net's checks passed: the game decides on the claims (UE AGameModeBase::PreLogin).
+        PreLoginResult login;
+        if ( verdict.Accepted )
+        {
+            login = m_Admission.Game.PreLogin(
+                 { verdict.Token.Claims, verdict.Token.Issuer, verdict.Hello.JoinOptions, peer.Address } );
+            if ( !login.Refusal.empty() )
+            {
+                verdict.Accepted = false;
+                verdict.Reason   = ERefuseReason::PreLogin;
+            }
+        }
         if ( !verdict.Accepted )
         {
             // UE PreLogin's ErrorMessage: the reason is logged here and sent to the client, which shows it.
+            const std::string text = verdict.Reason == ERefuseReason::PreLogin
+                                          ? login.Refusal
+                                          : std::string( RefuseReasonText( verdict.Reason ) );
             m_Log( std::format(
-                 "connection {}: refused - {} (client protocol {}, cook hash {:016x}, token {} bytes, "
-                 "account {}, server id {}, expiry {}; server protocol {}, cook hash {:016x}, id {}, "
-                 "now {})",
-                 connection, RefuseReasonText( verdict.Reason ), verdict.Hello.ProtocolVersion,
-                 verdict.Hello.CookHash, verdict.Hello.Token.size(), verdict.Token.Account, verdict.Token.Server,
-                 verdict.Token.ExpiresUnixSeconds, kProtocolVersion, policy.CookHash, policy.ServerId,
-                 policy.NowUnixSeconds ) );
-            m_Transport.Send( connection, EncodeRefuse( verdict.Reason ), ENetLane::Control );
-            m_Transport.Close( connection, RefuseCloseCode( verdict.Reason ), RefuseReasonText( verdict.Reason ),
-                               true );
+                 "connection {}: refused - {} (client protocol {}, cook hash {:016x}, token {} bytes, issuer {} "
+                 "key {}, audience {}, expiry {}, claims {} bytes; server protocol {}, cook hash {:016x}, "
+                 "audience {}, now {})",
+                 connection, text, verdict.Hello.ProtocolVersion, verdict.Hello.CookHash,
+                 verdict.Hello.Token.size(), verdict.Token.Issuer, verdict.Token.KeyId, verdict.Token.Audience,
+                 verdict.Token.ExpiresUnixSeconds, verdict.Token.Claims.size(), kProtocolVersion, policy.CookHash,
+                 m_Admission.Tokens.Audience(), policy.NowUnixSeconds ) );
+            m_Transport.Send( connection, EncodeRefuse( verdict.Reason, text ), ENetLane::Control );
+            m_Transport.Close( connection, RefuseCloseCode( verdict.Reason ), text, true );
             m_Peers.erase( connection );
             return;
         }
         peer.Admitted              = true;
         peer.Player                = m_NextPlayer++;
         m_Connections[peer.Player] = connection;
-        m_Transport.Send( connection, EncodeWelcome( m_Policy.CookHash, m_PawnPrefab ), ENetLane::Control );
-        m_Log( std::format( "connection {}: admitted as player {} (account {}), pawn prefab {:016x}", connection,
-                            peer.Player, verdict.Token.Account, m_PawnPrefab ) );
+        m_Transport.Send( connection, EncodeWelcome( m_Admission.CookHash, m_PawnPrefab ), ENetLane::Control );
+        m_Log( std::format( "connection {}: admitted as player {} (account {}, issuer {}), pawn prefab {:016x}",
+                            connection, peer.Player, login.Account, verdict.Token.Issuer, m_PawnPrefab ) );
         // Nothing else is relevant yet: the other pawns and the cells' stable objects follow the client's first
         // residency report (UE: actors replicate once the client has made their level visible).
         // Stable objects are NOT spawned: the new connection's baselines are empty, so the next state send carries
         // every changed field of every stable object in full (§3.4).
         if ( m_Sim != nullptr )
-            m_Sim->PlayerJoined( peer.Player, verdict.Token.Account );
+            m_Sim->PlayerJoined( peer.Player, login.Account );
     }
 
     void Gateway::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,

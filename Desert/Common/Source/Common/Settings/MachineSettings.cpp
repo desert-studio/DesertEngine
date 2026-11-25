@@ -204,7 +204,8 @@ namespace Common::Settings
         // Quality.Levels read PER GROUP, BY GROUP NAME ({"Textures": "High", ...}, Scalability::GroupLevels):
         //   - a name that is no group of this build is an ERROR and is dropped (the next write leaves it out);
         //   - a value that is not a level name is an ERROR and marks the group in `unread`;
-        //   - a group the file does not name is a WARN and marks it in `unread` (a group this build added);
+        //   - a group the file does not name was not chosen and marks it in `unread`, silently (the file keeps
+        //     only the groups chosen away from the device preset, MachineSettings::Quality);
         // MachineSettings::StartFrom gives an unread group the level this device starts on with no choice, so the
         // other groups and the overrides stand. The marked group is written as High only to keep the object
         // readable — the mask, not that value, is what StartFrom reads.
@@ -279,15 +280,9 @@ namespace Common::Settings
             for ( std::size_t g = 0; g < Scalability::kGroupCount; ++g )
             {
                 const std::string_view group = Scalability::GroupKey( static_cast<Scalability::Group>( g ) );
-                if ( !byGroup[g] && !out.Unread.test( g ) )
-                {
-                    out.Warnings.push_back(
-                         std::format( "Quality.Levels has no level for the {} group; it runs at the level this "
-                                      "device starts on with no choice and the file is rewritten with it",
-                                      group ) );
+                // Not named = not chosen (MachineSettings::Quality): the group starts on this device's preset.
+                if ( !byGroup[g] )
                     out.Unread.set( g );
-                    out.Migrated = true;
-                }
                 rebuilt.Set( group, byGroup[g] ? *byGroup[g]
                                                : Json::Value( std::string(
                                                       Scalability::LevelKey( Scalability::Level::High ) ) ) );
@@ -497,6 +492,9 @@ namespace Common::Settings
             return std::nullopt;
         }
 
+        // Defined below Load's helpers: the file's form of a MachineSettings (choices-only Quality.Levels).
+        std::string WrittenForm( const MachineSettings& settings );
+
         Common::ResultStr<ScreenedFile> ScreenFile( std::string_view text )
         {
             auto parsed = Json::Parse( text );
@@ -513,9 +511,15 @@ namespace Common::Settings
             // its in-struct default, the others stand.
             ScreenedFile        screened;
             Json::ObjectBuilder kept;
+            bool                levelsAreChoices = false;
+            bool                namesQuality     = false;
             root.ForEachMember(
                  [&]( std::string_view name, const Json::Node& member )
                  {
+                     if ( name == "QualityLevelsAreChoices" )
+                         levelsAreChoices = true;
+                     if ( name == "Quality" )
+                         namesQuality = true;
                      if ( name == "ForcedNeuralKernelPath" )
                      {
                          if ( std::optional<Json::Value> path = ScreenNeuralKernelPath( member, screened.Rejections ) )
@@ -539,6 +543,18 @@ namespace Common::Settings
                      }
                      kept.Set( name, value );
                  } );
+
+            // A Quality.Levels written before the file kept only choices (MachineSettings::QualityLevelsAreChoices):
+            // every group starts on the preset, and the load is migrated so the host writes the choices-only form.
+            if ( !levelsAreChoices && namesQuality )
+            {
+                screened.Warnings.push_back(
+                     "Quality.Levels was written by a build that stored every group, chosen or not; every group "
+                     "starts on this device's preset and the file is rewritten with the choices only (the "
+                     "overrides stand)" );
+                screened.UnreadLevels.set();
+                screened.LevelsMigrated = true;
+            }
 
             const Json::Value accepted( kept.Build() );
             auto              settings = Json::Root( accepted ).As<MachineSettings>();
@@ -601,9 +617,60 @@ namespace Common::Settings
 
             // A file whose Quality.Levels had to be MIGRATED (the former positional list, a missing group) does
             // not say what its canonical form says: an empty memo, so the write-back is not skipped as a no-op.
-            const std::string canonical        = screened.LevelsMigrated ? std::string{} : Json::Write( fromDisk );
+            const std::string canonical        = screened.LevelsMigrated ? std::string{} : WrittenForm( fromDisk );
             MachineSettings::Get().UnknownKeys = std::move( fromDisk.UnknownKeys );
             return canonical;
+        }
+    } // namespace
+
+    namespace
+    {
+        // THE FILE'S FORM of `settings`: the struct as written, with Quality.Levels cut to the groups chosen away
+        // from the device preset (MachineSettings::Quality) — the preset is the cached recommendation, else High.
+        std::string WrittenForm( const MachineSettings& settings )
+        {
+            const std::string whole = Json::Write( settings );
+            if ( !settings.Quality )
+                return whole;
+            const Scalability::GroupLevels preset = settings.Recommended.has_value()
+                                                         ? settings.Recommended->Levels
+                                                         : MachineSettings::HighSelection().Levels;
+            const auto parsed = Json::Parse( whole );
+            if ( !parsed ) // our own writer's text: a failure here is a writer defect, never a file's
+            {
+                LOG_ERROR( "[Machine] the written form did not re-read ({}); the file keeps every group",
+                           parsed.GetError() );
+                return whole;
+            }
+            Json::ObjectBuilder root;
+            Json::Root( parsed.GetValue() )
+                 .ForEachMember(
+                      [&]( std::string_view name, const Json::Node& member )
+                      {
+                          if ( name != "Quality" )
+                          {
+                              root.Set( name, member.Raw() );
+                              return;
+                          }
+                          Json::ObjectBuilder quality;
+                          member.ForEachMember(
+                               [&]( std::string_view field, const Json::Node& value )
+                               {
+                                   if ( field != "Levels" )
+                                   {
+                                       quality.Set( field, value.Raw() );
+                                       return;
+                                   }
+                                   Json::ObjectBuilder chosen;
+                                   for ( std::size_t g = 0; g < Scalability::kGroupCount; ++g )
+                                       if ( settings.Quality->Levels[g] != preset[g] )
+                                           chosen.Set( Scalability::GroupKey( static_cast<Scalability::Group>( g ) ),
+                                                       settings.Quality->Levels[g] );
+                                   quality.Set( field, Json::Value( chosen.Build() ) );
+                               } );
+                          root.Set( name, Json::Value( quality.Build() ) );
+                      } );
+            return Json::Write( Json::Value( root.Build() ) );
         }
     } // namespace
 
@@ -680,7 +747,7 @@ namespace Common::Settings
         // The canonical form of what the file holds, NOT the raw bytes: an older build's key order or
         // spacing is not a settings change, and a memo taken from the raw text would report the whole
         // struct as changed on the first save after an upgrade.
-        s_OnDisk = Json::Write( Get() );
+        s_OnDisk = WrittenForm( Get() );
 
         // NAMED, not numbered: this line is what a support ticket's engine_log.txt has to answer "what was this
         // machine asking for" with. What it actually RUNS is QualityState's to say (it knows the device).
@@ -690,7 +757,7 @@ namespace Common::Settings
             for ( std::size_t g = 0; g < Scalability::kGroupCount; ++g )
                 std::format_to( std::back_inserter( levels ), "{}{} {}", g == 0 ? "" : ", ",
                                 Scalability::GroupKey( static_cast<Scalability::Group>( g ) ),
-                                s_UnreadLevels.test( g ) ? std::string_view( "unread" )
+                                s_UnreadLevels.test( g ) ? std::string_view( "preset" )
                                                          : Scalability::LevelKey( quality->Levels[g] ) );
             LOG_INFO( "[Machine] {} — quality {}; {} override(s); VSync {}", s_File.string(), levels,
                       quality->Overrides.size(), Get().Display.VSync ? "on" : "off" );
@@ -776,7 +843,7 @@ namespace Common::Settings
         else if ( std::filesystem::exists( s_File ) )
             s_OnDisk.clear();
 
-        const std::string json = Json::Write( Get() );
+        const std::string json = WrittenForm( Get() );
         if ( json == s_OnDisk && std::filesystem::exists( s_File ) )
         {
             // The file already says exactly this. No write and no log line about one. The exists() is not
@@ -790,7 +857,7 @@ namespace Common::Settings
         std::error_code ec;
         std::filesystem::create_directories( s_File.parent_path(), ec );
 
-        const auto written = Json::WriteFileAtomic( s_File, Get() );
+        const auto written = Json::Detail::WriteTextAtomic( s_File, json );
         if ( !written )
         {
             // The memo is deliberately NOT updated: the next save must try again rather than assume the

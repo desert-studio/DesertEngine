@@ -47,7 +47,7 @@
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
-#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
+#include <Landscape/Public/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <VFX/Public/VFXSystemAsset.hpp>
 #include <Engine/Assets/EnhancedInputAssets.hpp>

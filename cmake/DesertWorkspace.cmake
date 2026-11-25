@@ -269,7 +269,7 @@ set(DESERT_UNITY_OPT_OUT
     "Source/Engine/Graphic/Systems/Scene/PostProcessing/LensFlareRenderer.cpp"
     "Source/Engine/Graphic/Systems/Scene/PostProcessing/LightShaftRenderer.cpp"
     "Source/UI/UICanvasRenderer2D.cpp"
-    "Source/Engine/World/Landscape/LandscapeEditCache.cpp"
+    "Source/Landscape/Private/LandscapeEditCache.cpp"
     "Source/Editor/Panels/Clouds/CloudLayoutPanel.cpp"
     "Source/Editor/Panels/Clouds/CloudNoiseVolumePanel.cpp"
     "Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp"

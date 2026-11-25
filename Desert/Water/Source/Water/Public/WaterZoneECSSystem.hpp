@@ -6,8 +6,8 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Water/Public/WaterWavesService.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Water/Public/WaterBodyQuery.hpp>
 #include <Water/Public/WaterZoneCommand.hpp>
 

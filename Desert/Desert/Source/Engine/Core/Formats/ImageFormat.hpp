@@ -91,7 +91,7 @@ namespace Desert::Core::Formats
         BC5_UNORM,
 
         /// `VK_FORMAT_R16_UNORM`. One 16-bit channel — a landscape tile's height samples, uploaded as the
-        /// CPU holds them (Engine/World/Landscape/LandscapeData.hpp). UNORM rather than UINT so the tile is
+        /// CPU holds them (LandscapeCore/Public/LandscapeData.hpp). UNORM rather than UINT so the tile is
         /// an ordinary sampled image through the material's combined-sampler bindings; the shader reads it
         /// with texelFetch and recovers the exact integer sample, so no filtering ever touches it.
         /// APPENDED, not grouped with the other uncompressed formats: a cooked texture stores its format

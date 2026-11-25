@@ -1,4 +1,5 @@
 {
+  "autoCompactWindow": 200000,
   "hooks": {
     "PreToolUse": [
       {
@@ -147,7 +148,8 @@
           },
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/auto_compact.py\""
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/auto_compact.py\"",
+            "timeout": 10
           }
         ]
       }

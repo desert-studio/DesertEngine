@@ -1,15 +1,15 @@
-#include <Engine/ECS/System/LandscapeSplineMeshDraw.hpp>
+#include <Landscape/Public/LandscapeSplineMeshDraw.hpp>
 
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
-#include <Engine/World/Landscape/LandscapeSplineMeshes.hpp>
+#include <Landscape/Public/LandscapeSplineMeshes.hpp>
 
 #include <algorithm>
 #include <span>
 #include <unordered_set>
-#include <Engine/World/Landscape/LandscapeSplineComponent.hpp>
+#include <Landscape/Public/LandscapeSplineComponent.hpp>
 #include <Engine/Graphic/Render/RenderCommandBuffer.hpp>
 
 namespace Desert::ECS
@@ -26,7 +26,7 @@ namespace Desert::ECS
         };
 
         std::optional<Source> SourceOf( const WL::LandscapeSplineMeshEntry& entry,
-                                        const LandscapeSplineMeshDraw::Services& services )
+                                        const IMeshStandInDraw::Services&   services )
         {
             if ( entry.Primitive )
             {
@@ -35,22 +35,24 @@ namespace Desert::ECS
                     return std::nullopt;
                 return Source{ { shape->GetVertices(), shape->GetIndices(), shape->GetSubmeshes() }, {} };
             }
-            const Assets::StaticMeshAsset* asset = services.MeshAsset( entry.Mesh );
+            const Assets::StaticMeshAsset* asset =
+                 services.MeshAsset( Assets::AssetHandle( static_cast<uint64_t>( entry.Mesh ) ) );
             if ( asset == nullptr )
                 return std::nullopt;
             return Source{ { asset->GetVertices(), asset->GetIndices(), asset->GetSubmeshes() },
                            asset->GetMaterialHandles() };
         }
 
-        Graphic::MaterialSlotBindingPtr SlotsFor( const std::vector<Common::UUID>&           materials,
-                                                  const LandscapeSplineMeshDraw::Services& services )
+        Graphic::MaterialSlotBindingPtr SlotsFor( const std::vector<Common::UUID>&  materials,
+                                                  const IMeshStandInDraw::Services& services )
         {
             auto binding = std::make_shared<Graphic::MaterialSlotBinding>();
             if ( materials.empty() )
                 binding->Owned.push_back( services.DefaultInstance() );
             for ( const Common::UUID& material : materials )
             {
-                auto instance = services.Instance( material );
+                auto instance = services.Instance(
+                     services.MaterialByExternal( Assets::AssetHandle( static_cast<uint64_t>( material ) ) ) );
                 binding->Owned.push_back( instance ? std::move( instance ) : services.DefaultInstance() );
             }
             for ( const auto& instance : binding->Owned )
@@ -60,7 +62,8 @@ namespace Desert::ECS
     } // namespace
 
     void LandscapeSplineMeshDraw::Record( entt::registry& registry, Graphic::Render::RenderCommandBuffer& commands,
-                                          uint32_t materialsVersion, const Services& services )
+                                          uint32_t materialsVersion, const Services& services,
+                                          std::unordered_set<entt::entity>& /*drawnInstead*/ )
     {
         std::unordered_set<entt::entity> seen;
         registry.view<LandscapeSplineComponent>().each(

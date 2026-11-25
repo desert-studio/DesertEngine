@@ -35,6 +35,31 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 WIN = os.name == "nt"
+
+
+def dev_config(tree):
+    """The configuration the tree's dev pipeline builds: the host's row of scripts/Dev/dev_config.txt (_common.sh reads
+    the same row as DEV_CONFIG). 11-23 FPS-MAC-2: a hard-coded Debug played a -O0 editor at 1-4 s a frame on Mac."""
+    host = "Windows" if WIN else "Darwin"
+    path = os.path.join(tree, "scripts", "Dev", "dev_config.txt")
+    try:
+        rows = [l.split() for l in open(path, encoding="utf-8") if l.strip() and not l.startswith("#")]
+    except OSError:
+        # A tree cut before FPS-MAC-2 (dev 9261e7d2d) has no dev_config.txt: its _common.sh builds build-Debug.ninja
+        # by name. That is the tree's own configuration, read from its script; any other tree without the file is an error.
+        common = os.path.join(tree, "scripts", "Dev", "_common.sh")
+        try:
+            text = open(common, encoding="utf-8").read()
+        except OSError:
+            sys.exit(f"SCENARIO: {path} and {common} are missing - the tree names no dev build configuration")
+        if "dev_config.txt" not in text and "build-Debug.ninja" in text:
+            print("SCENARIO: tree predates scripts/Dev/dev_config.txt - its _common.sh builds Debug", flush=True)
+            return "Debug"
+        sys.exit(f"SCENARIO: {path} is missing - the tree names no dev build configuration")
+    for row in rows:
+        if row[:1] == [host] and len(row) > 1:
+            return row[1]
+    sys.exit(f"SCENARIO: {path} has no row for {host}")
 GIVEN = {"дано", "given", "когда", "when"}
 THEN = {"тогда": "shot-window", "then": "shot-window", "тогда-вид": "shot-viewport", "then-view": "shot-viewport"}
 EXPECT = {"ожидать", "expect"}
@@ -89,6 +114,13 @@ def main():
     if newest and int(newest) - stamp > 86400:
         sys.exit(f"SCENARIO {code}: refused, the editor is over a day older than the tree's last C++ commit - rebuild it")
     lines = open(scn, encoding="utf-8").read().splitlines()
+    # NET-SCENARIO-PLAY (11-25): a scenario with role lines (server / editor client / bot) is a network run, UE
+    # Gauntlet's shape - played by the tree's own controller, same output (<scratch>/<CODE>/frames/scn-latest).
+    if any(l.strip().partition(" ")[0].lower() in ("роль", "role") for l in lines):
+        net = os.path.join(tree, "scripts", "Dev", "net_scenario.py")
+        if not os.path.isfile(net):
+            sys.exit(f"SCENARIO {code}: role lines need {net} - the tree predates NET-SCENARIO-PLAY")
+        sys.exit(subprocess.call([sys.executable, net, tree, scn]))
     named = project_line(tree, lines)
     proj, launch = named if named else (os.path.join(tree, "Projects", "Desert", "Desert.deproj"), [])
     for need in (scn, editor, ctl, proj):
@@ -116,6 +148,8 @@ def main():
         os.remove(sock)
     log = open(os.path.join(out, "editor.log"), "w", encoding="utf-8", errors="replace")
     env = dict(os.environ, DESERT_ROOT=tree, DESERT_SCENARIO="1")
+    if hold:
+        env["DESERT_TIME_CAP_S"] = "0"  # run_capped.sh's 30-min wall-clock cap (11-25) is for unattended runs
     proc = subprocess.Popen([sys.executable, os.path.join(HERE, "run_capped.py"), editor, "--project", proj,
                              "--control-socket", sock, *launch], cwd=os.path.join(tree, "Editor"), env=env,
                             stdout=log, stderr=subprocess.STDOUT)

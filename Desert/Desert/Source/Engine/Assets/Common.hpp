@@ -129,7 +129,7 @@ namespace Desert::Assets
         VFXDataChannel,
         // A LANDSCAPE GRASS TYPE (`.degrasstype`): UE's ULandscapeGrassType — the varieties (mesh, density,
         // scale, cull distances) a layer info grows. The instances are never stored: the GPU generates them
-        // around the camera every frame — see Engine/Assets/LandscapeGrassTypeAsset.hpp and
+        // around the camera every frame — see Landscape/Public/LandscapeGrassTypeAsset.hpp and
         // Graphic/Systems/Scene/Grass/GrassRenderer.hpp.
         LandscapeGrassType,
         // A WORLD PARAMETER COLLECTION (`.dworldparams`): UE's UMaterialParameterCollection — named world values

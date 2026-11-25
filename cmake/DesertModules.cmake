@@ -131,9 +131,10 @@ foreach(rel IN LISTS _legacy)
 endforeach()
 
 # ── RENDER-FREE MODULES: no path from their files to a renderer, a window, Audio or ImGui ─────────────────
-# A RENDER_FREE module (Core) is what the dedicated server links in place of Engine (NET-ARCH.md sec. 6). Its
-# files are followed through every #include that resolves inside the repository (the legacy root, the module
-# folders, the shader-shared headers), transitively; configure fails when one of them reaches a file under
+# A RENDER_FREE module (Core, LandscapeCore) is what the dedicated server links in place of Engine (NET-ARCH.md
+# sec. 6). Its files (placed by a row, or in its FOLDER) are followed through every #include that resolves inside the
+# repository (the legacy root, the module folders, the shader-shared headers), transitively; configure fails when
+# one of them reaches a file under
 # Engine/Graphic/ or an RHI/ directory, a file placed in RenderCore, Renderer, ApplicationCore or Audio, the Audio
 # module's folder, or names ImGui, Vulkan, volk or GLFW. The header that breaks the rule is cut (a forward
 # declaration, the render half moved to a render .cpp), never wrapped in a server #ifdef.
@@ -151,13 +152,21 @@ foreach(name IN LISTS DESERT_MODULES)
     if(NOT DESERT_MODULE_${name}_RENDER_FREE)
         continue()
     endif()
-    if(NOT DESERT_MODULE_${name}_LEGACY)
-        message(FATAL_ERROR "DesertModules.cmake: RENDER_FREE module '${name}' has no file placed in it")
-    endif()
     set(_queue "")
     foreach(rel IN LISTS DESERT_MODULE_${name}_LEGACY)
         list(APPEND _queue "${_legacy_root}/${rel}")
     endforeach()
+    # A module that lives in its FOLDER (LandscapeCore) is followed from its folder's files.
+    if(IS_DIRECTORY "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}")
+        set(_root "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}")
+        file(GLOB_RECURSE _folder_files LIST_DIRECTORIES false CONFIGURE_DEPENDS
+             "${_root}/*.cpp" "${_root}/*.hpp" "${_root}/*.h" "${_root}/*.inl" "${_root}/*.mm")
+        list(SORT _folder_files)
+        list(APPEND _queue ${_folder_files})
+    endif()
+    if(NOT _queue)
+        message(FATAL_ERROR "DesertModules.cmake: RENDER_FREE module '${name}' has no file placed in it")
+    endif()
     set(_seen "")
     while(_queue)
         list(POP_FRONT _queue _file)

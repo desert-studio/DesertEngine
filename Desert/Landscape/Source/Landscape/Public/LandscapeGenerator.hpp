@@ -1,8 +1,8 @@
 #pragma once
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
-#include <Engine/World/Landscape/LandscapeSculpt.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
+#include <Landscape/Public/LandscapeSculpt.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

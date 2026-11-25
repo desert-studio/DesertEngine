@@ -133,12 +133,35 @@ MIN_AGENTS_FILE = os.path.expanduser("~/.claude/min_agents")
 MAX_AGENTS = 4  # owner 10-30 «не меньше 2, не больше 4»: a launch above it is refused
 
 
+# Owner 11-24 «хоть какой-то агент работал по задаче (начиная с самого высокого приоритета), чтобы не было простоя»:
+# with no ~/.claude/min_agents the floor is 1; the owner's pause is written as 0 (`echo 0 > ~/.claude/min_agents`).
+DEFAULT_MIN_AGENTS = 1
+PRIO_ORDER = {"Владелец назвал": 0, "Высокий": 1, "Обычный": 2}
+
+
 def min_agents():
     try:
         with open(MIN_AGENTS_FILE) as f:
             return int(f.read().strip() or 0)
-    except (OSError, ValueError):
+    except OSError:
+        return DEFAULT_MIN_AGENTS
+    except ValueError:
         return 0
+
+
+def next_cards(s, n=3):
+    """This machine's «Готово к старту» cards with no live agent, highest priority first, oldest update first."""
+    rows = sorted((PRIO_ORDER.get(r.get("prio"), 3), r.get("upd") or "", c) for c, r in tails(s).items()
+                  if r.get("status") == "Готово к старту" and not running_agent(s, c))
+    return [f"{c} ({s['board'][c].get('prio') or 'без приоритета'})" for _, _, c in rows[:n]]
+
+
+def idle_hint(s):
+    cards = next_cards(s)
+    hint = " Следующие по приоритету: " + ", ".join(cards) + "." if cards else " Готовых карточек в зеркале нет."
+    if not mirror_fresh(s):
+        hint += " Зеркало доски старое — сначала TAILS-запрос (" + TAILS_SQL[:40] + "…)."
+    return hint + " Пауза владельца — `echo 0 > ~/.claude/min_agents`."
 
 
 def night_until():
@@ -357,7 +380,18 @@ def push_refusal(cmd):
 
 def main():
     if "--session-start" in sys.argv:
-        session_start(load())
+        s = load()
+        try:
+            source = json.load(sys.stdin).get("source", "")
+        except (ValueError, OSError):
+            source = ""
+        # A new Claude process (startup, resume) ends every agent of the previous one without a SubagentStop; /clear and
+        # /compact keep them running (11-25: four agents were live after /clear).
+        if source in ("startup", "resume"):
+            now = time.time()
+            for aid in s["agents"]:
+                s["stopped"].setdefault(aid, now)
+        session_start(s)
         sys.exit(0)
     if "--owner-named-mirror" in sys.argv:
         # Notion's SQL allowance runs out (10-27): the unblock check is answered from the board mirror while it is fresh.
@@ -439,15 +473,17 @@ def main():
         if floor and not night_until() and not late and not data.get("stop_hook_active"):
             busy = running_count(s)
             if busy < floor and not landing():
-                emit({"decision": "block", "reason": f"[board_guard] Работает агентов {busy} < {floor} (владелец 10-29: минимум 3, "
-                      "максимум 5, ~/.claude/min_agents). Запусти следующие карточки из очереди HANDOVER, потом заканчивай ход."})
+                emit({"decision": "block", "reason": f"[board_guard] Работает агентов {busy} < {floor} (владелец 11-24: без простоя, "
+                      "~/.claude/min_agents, по умолчанию 1). Запусти карточку с самым высоким приоритетом, потом заканчивай ход." +
+                      idle_hint(s)})
         night = night_until()
         if night and not data.get("stop_hook_active"):
             busy = running_count(s)
             if busy < NIGHT_MIN_AGENTS and not landing():
                 emit({"decision": "block", "reason": "[board_guard] Ночной режим до " +
                       time.strftime("%H:%M", time.localtime(night)) + f" (владелец спит): работает агентов {busy} < "
-                      f"{NIGHT_MIN_AGENTS}, слияния нет. Запусти следующую карточку по хвосту HANDOVER — простой = промах."})
+                      f"{NIGHT_MIN_AGENTS}, слияния нет. Запусти следующую карточку по хвосту HANDOVER — простой = промах." +
+                      idle_hint(s)})
         sys.exit(0)
 
     if event == "PostToolUse" and tool.startswith("mcp__notion__"):

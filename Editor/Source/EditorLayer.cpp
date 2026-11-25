@@ -4,7 +4,7 @@
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/DisplayOutput.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Editor/Core/SaveShortcut.hpp>
@@ -85,6 +85,7 @@
 #include <Common/Core/KeyCodes.hpp>
 #include <Common/Core/Version.hpp>
 #include <Common/Settings/MachineSettings.hpp>
+#include <Common/Settings/Scalability.hpp>
 #include <fstream>
 #include <iterator>
 #include <Engine/Graphic/QualityBoot.hpp>
@@ -252,6 +253,34 @@ namespace Desert::Editor
         m_QualityStart = Graphic::QualityBoot::Start(
              machineJson, unattended ? Graphic::QualityBoot::Persistence::ThisProcess
                                      : Graphic::QualityBoot::Persistence::MachineFile );
+        // --quality Key=Value: the capture's own overrides (UE -ExecCmds cvars), set for this process only.
+        for ( const Editor::ShotOptions::QualityOverride& asked : Editor::ShotOptions::Get().Quality )
+        {
+            if ( !m_QualityStart )
+                break;
+            const auto specs = Common::Scalability::ParameterSpecs();
+            const auto spec  = std::ranges::find( specs, std::string_view( asked.Key ),
+                                                  &Common::Scalability::ParameterSpec::Key );
+            if ( !unattended || spec == specs.end() || !Common::Scalability::IsLegalValue( *spec, asked.Value ) )
+            {
+                m_QualityStart = Common::MakeFormattedError<bool>(
+                     "--quality {}={}: {}", asked.Key, asked.Value,
+                     !unattended ? "an override on the command line belongs to a capture (--shot)"
+                     : spec == specs.end()
+                          ? "no scalability parameter has that key (Resources/Config/Scalability.json)"
+                          : "the value is outside the parameter's legal range" );
+                break;
+            }
+            const auto report = Common::Scalability::QualityState::SetOverride( spec->Id, asked.Value );
+            if ( !report.Refused.empty() )
+            {
+                m_QualityStart = Common::MakeFormattedError<bool>( "--quality {}={}: refused: {}", asked.Key,
+                                                                   asked.Value, report.Refused );
+                break;
+            }
+            LOG_INFO( "[Scalability] --quality {} = {} for this capture (machine.json untouched)", asked.Key,
+                      asked.Value );
+        }
 
         // Filled by the "Indexing animation clips" stage above, from the registry's clip rows.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
@@ -984,6 +1013,12 @@ namespace Desert::Editor
         // buffer is in flight is what produced the "can't be called on VkPipeline/VkDescriptorPool ... that
         // is currently in use by VkCommandBuffer" validation errors on quit. Idle first, then tear down.
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
+
+        // Play ends first: its net client's predicted pawn is a character in the played world's physics and the
+        // world streamer names that world's cells, and the world goes in m_Workspace.Teardown() below (UE destroys
+        // a world's NetDriver before the world). Left to ~EditorLayer -> ~PlaySession it ran after the teardown:
+        // SIGSEGV in PhysicsWorld::RemoveCharacter from ~PhysicsPawnMoveWorld on every quit of a net client.
+        m_Play.EndForExit();
 
         // The thumbnail service is NOT one of the panels, and the sentence above is why that matters: it
         // names "asset thumbnails" among the GPU objects this teardown covers, but m_Panels.clear() cannot

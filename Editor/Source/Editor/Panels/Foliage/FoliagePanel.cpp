@@ -41,8 +41,8 @@
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
-#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Landscape/Public/LandscapeTileComponent.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 

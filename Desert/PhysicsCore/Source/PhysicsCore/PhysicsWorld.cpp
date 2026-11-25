@@ -1956,7 +1956,7 @@ namespace Desert::Physics
     }
 
     void PhysicsWorld::UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float gravityCmPerS2,
-                                        float dt )
+                                        float dt, ECharacterContacts contacts )
     {
         if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] || dt <= 0.0f )
             return;
@@ -1965,9 +1965,14 @@ namespace Desert::Physics
         const CollisionProfileId  profile   = m_Impl->CharacterProfiles[handle];
         const BlockingLayerFilter blockedBy( m_Impl->Profiles, profile );
         character->SetLinearVelocity( ToJolt( velocity ) );
+        const JPH::BodyFilter        anyBody;
+        const NotCharacterBodyFilter notCharacter;
         character->Update( dt, JPH::Vec3( 0.0f, -gravityCmPerS2, 0.0f ),
                            m_Impl->System.GetDefaultBroadPhaseLayerFilter( LayerOf( profile, true ) ), blockedBy,
-                           {}, {}, *m_Impl->TempAllocator );
+                           contacts == ECharacterContacts::WorldOnly
+                                ? static_cast<const JPH::BodyFilter&>( notCharacter )
+                                : anyBody,
+                           {}, *m_Impl->TempAllocator );
     }
 
     BodyHandle PhysicsWorld::GetCharacterBody( CharacterHandle handle ) const

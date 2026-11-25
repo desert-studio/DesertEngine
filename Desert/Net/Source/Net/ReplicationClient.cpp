@@ -89,16 +89,31 @@ namespace Desert::Net
         }
     }
 
-    std::optional<InputStep> ReplicationClient::SendInput( const NetVec3& move, float yaw, std::uint8_t buttons )
+    std::optional<InputStep> ReplicationClient::RecordInput( InputStep input )
     {
         if ( m_State != EState::InSession )
             return std::nullopt;
-        const InputStep step{ m_NextStep++, move, yaw, buttons };
-        m_Inputs.Push( step );
+        input.Step = m_NextStep++;
+        m_Inputs.Push( input );
+        return input;
+    }
+
+    void ReplicationClient::FlushInputs()
+    {
+        if ( m_State != EState::InSession )
+            return;
         InputMessage message;
+        message.Steps = m_Inputs.Unacked(); // each unacked step again, until the ack drops it (UE ServerMove)
+        if ( message.Steps.empty() )
+            return;
         message.Sequence = m_NextSequence++;
-        message.Steps    = m_Inputs.Latest( kInputRedundancy );
         m_Transport.Send( m_Connection, EncodeInput( message ), ENetLane::State );
+    }
+
+    std::optional<InputStep> ReplicationClient::SendInput( InputStep input )
+    {
+        const std::optional<InputStep> step = RecordInput( std::move( input ) );
+        FlushInputs();
         return step;
     }
 
@@ -135,7 +150,7 @@ namespace Desert::Net
             {
                 m_State       = EState::Closed;
                 m_CloseReason = answer.Kind == HandshakeAnswer::EKind::Refuse
-                                     ? std::string( RefuseReasonText( answer.Reason ) )
+                                     ? answer.ReasonText
                                      : std::string( "malformed handshake answer" );
                 m_Log( std::format( "refused: {}", m_CloseReason ) );
             }

@@ -13,28 +13,29 @@ LOG="$(dev_logdir compile_check)"
 start=$(date +%s)
 dev_configure "$LOG" "" || exit 1
 while pgrep -x ninja >/dev/null; do sleep 5; done
+dev_drop_foreign_pch
 cd "$DEV_BUILD" || exit 1
 
-ninja -f build-Debug.ninja -t inputs "${TARGETS[@]}" 2>"$LOG/inputs.err" | grep -E '\.(o|obj)$' > "$LOG/objects.txt"
+ninja -f "build-$DEV_CONFIG.ninja" -t inputs "${TARGETS[@]}" 2>"$LOG/inputs.err" | grep -E '\.(o|obj)$' > "$LOG/objects.txt"
 [ -s "$LOG/objects.txt" ] || { echo "compile_check: no objects for ${TARGETS[*]} (ninja -t inputs: $(head -1 "$LOG/inputs.err"))"; exit 1; }
-# The branch's own sources -> their Debug objects (compile_commands.json: file -> output), only those the targets use.
+# The branch's own sources -> their DEV_CONFIG objects (compile_commands.json: file -> output), only those the targets use.
 base=$(git -C "$DEV_ROOT" merge-base HEAD origin/dev 2>/dev/null || git -C "$DEV_ROOT" rev-parse HEAD)
 { git -C "$DEV_ROOT" diff --name-only "$base"; git -C "$DEV_ROOT" ls-files --others --exclude-standard; } | sort -u > "$LOG/changed.txt"
-python3 - "$DEV_ROOT" "$LOG/changed.txt" "$LOG/objects.txt" > "$LOG/own.txt" <<'EOF'
+python3 - "$DEV_ROOT" "$LOG/changed.txt" "$LOG/objects.txt" "$DEV_CONFIG" > "$LOG/own.txt" <<'EOF'
 import json, os, sys
-root, changed, objects = sys.argv[1], sys.argv[2], sys.argv[3]
+root, changed, objects, config = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 mine = {os.path.join(root, l.strip()) for l in open(changed) if l.strip()}
 wanted = {l.strip() for l in open(objects)}
 for e in json.load(open('compile_commands.json')):
     out = e.get('output', '')
-    if '/Debug/' in out and os.path.normpath(os.path.join(e['directory'], e['file'])) in mine and out in wanted:
+    if '/' + config + '/' in out and os.path.normpath(os.path.join(e['directory'], e['file'])) in mine and out in wanted:
         print(out)
 EOF
 
 JOBS="${DEV_JOBS:-6}"
 run_pass() {  # run_pass <name> <object list file>
     [ -s "$2" ] || return 0
-    xargs ninja -f build-Debug.ninja -k 0 -j "$JOBS" < "$2" > "$LOG/$1.log" 2>&1
+    xargs ninja -f "build-$DEV_CONFIG.ninja" -k 0 -j "$JOBS" < "$2" > "$LOG/$1.log" 2>&1
 }
 report() {  # report <pass log>: the first errors, paths relative to the tree
     echo "compile_check: FAILED ($1, $(( $(date +%s) - start ))s; log $LOG/$1.log). First errors:"
