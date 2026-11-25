@@ -13,8 +13,8 @@ static int RunTool( int argc, char** argv )
 {
     // The modules this process starts: the landscape's partition rows and hooks, so a cook places its tiles.
     // `--disable-module LandscapeCore` cooks as a build without the module would (ToolModules.hpp).
-    const Desert::Tools::StartedToolModules started =
-        Desert::Tools::StartToolModules( argc, argv, { { "LandscapeCore", &Desert::LandscapeCore::StartupModule } } );
+    const Desert::Tools::StartedToolModules started = Desert::Tools::StartToolModules(
+         argc, argv, { { "LandscapeCore", &Desert::LandscapeCore::StartupModule } } );
     if ( !started.Refused.empty() )
     {
         std::cerr << "WorldCook: " << started.Refused << "\n";

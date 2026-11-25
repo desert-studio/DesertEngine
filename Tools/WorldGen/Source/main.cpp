@@ -20,8 +20,8 @@ static int RunTool( int argc, char** argv )
     // --project and --assets needs none, so only then is a missing one not a refusal. `--disable-module <Name>`
     // is the process's too: the landscape world-partition descriptor hooks (BUILD-MOD-6L) are started unless it
     // names LandscapeCore (ToolModules.hpp).
-    const Desert::Tools::StartedToolModules started =
-        Desert::Tools::StartToolModules( argc, argv, { { "LandscapeCore", &Desert::LandscapeCore::StartupModule } } );
+    const Desert::Tools::StartedToolModules started = Desert::Tools::StartToolModules(
+         argc, argv, { { "LandscapeCore", &Desert::LandscapeCore::StartupModule } } );
     if ( !started.Refused.empty() )
     {
         std::cerr << "WorldGen: " << started.Refused << "\n";

@@ -31,16 +31,16 @@ namespace Desert::WorldCook
             return "usage: WorldCook <source.desce> --out <directory> (--project <file.deproj> | --no-project) "
                    "(--registry <file.dreg>... | --project-registry | --no-registry) [--verify] [--check]\n"
                    "  [--disable-module LandscapeCore]\n"
-                   "  --check        check the world's partition (WP-MAP-CHECK) and cook nothing: every finding is\n"
-                   "                 printed, the StreamingGeneration log written; exit 0 = none, 8 = findings; --out\n"
-                   "                 is not needed\n"
+                   "  --check        check the world's partition (WP-MAP-CHECK) and cook nothing: every\n"
+                   "                 finding is printed, the StreamingGeneration log written; exit 0 = none,\n"
+                   "                 8 = findings; --out is not needed\n"
                    "  --project      open this project first, as GamePackager does: the source's content paths\n"
-                   "                 (landscape tiles, meshes) resolve under its folder, and the cook's log goes "
-                   "to\n"
-                   "                 its Saved/Logs\n"
+                   "                 (landscape tiles, meshes) resolve under its folder, and the cook's log goes\n"
+                   "                 to its Saved/Logs\n"
                    "  --no-project   cook a world that names no project content (primitives only)\n"
-                   "  --disable-module  the process's, taken out by main before this cook: the module is not started,\n"
-                   "                 so its components' records are Issues placed nowhere (Tools/Shared/ToolModules.hpp)";
+                   "  --disable-module  the process's, taken out by main before this cook: the module is not\n"
+                   "                 started, so its components' records are Issues placed nowhere\n"
+                   "                 (Tools/Shared/ToolModules.hpp)";
         }
 
         struct Options
