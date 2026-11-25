@@ -11,6 +11,7 @@
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position -20,170,330
 Дано --subject viewport set Camera.Direction -0.6,-0.45,-0.66
+Дано run Debug "GPU profiling: On"
 Когда state device
 Когда run Quality "Quality: Shadows.Method HardwareTraced"
 Когда frames 120
@@ -20,7 +21,9 @@
 Когда run Quality "Quality: Reflections.Method PathTraced"
 Когда run Quality "Quality: PathTracing.Denoiser Off"
 Когда run Quality "Quality: PathTracing.SamplesPerPixel 64"
-Когда frames 200
+Когда frames 40
+Когда profile-dump
+Когда frames 160
 Когда profile-dump
 Тогда-вид 1_pt [ser_on_off] run A vs run B: per-pixel diff of 1_pt within the PT noise of 64 paths (mean luminance within 1 %, the 5 x 5 local std of the diff not above that of two run-B frames with different seeds); the PathTracer raygen GPU time of run A NOT ABOVE run B's; 0 VUID
 Когда run Quality "Quality: GlobalIllumination.Method Level"
@@ -28,4 +31,5 @@
 Когда run Quality "Quality: PathTracing.Denoiser Level"
 Когда run Quality "Quality: PathTracing.SamplesPerPixel Level"
 Когда run Quality "Quality: Shadows.Method Level"
+Когда run Debug "GPU profiling: Off"
 Тогда 9_level overrides removed (machine.json clean of the Quality overrides; the Hide* rows of run B are taken back by hand)
