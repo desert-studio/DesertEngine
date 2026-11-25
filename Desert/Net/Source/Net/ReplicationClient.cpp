@@ -89,13 +89,13 @@ namespace Desert::Net
         }
     }
 
-    std::optional<InputStep> ReplicationClient::RecordInput( const NetVec3& move, float yaw, std::uint8_t buttons )
+    std::optional<InputStep> ReplicationClient::RecordInput( InputStep input )
     {
         if ( m_State != EState::InSession )
             return std::nullopt;
-        const InputStep step{ m_NextStep++, move, yaw, buttons };
-        m_Inputs.Push( step );
-        return step;
+        input.Step = m_NextStep++;
+        m_Inputs.Push( input );
+        return input;
     }
 
     void ReplicationClient::FlushInputs()
@@ -110,9 +110,9 @@ namespace Desert::Net
         m_Transport.Send( m_Connection, EncodeInput( message ), ENetLane::State );
     }
 
-    std::optional<InputStep> ReplicationClient::SendInput( const NetVec3& move, float yaw, std::uint8_t buttons )
+    std::optional<InputStep> ReplicationClient::SendInput( InputStep input )
     {
-        const std::optional<InputStep> step = RecordInput( move, yaw, buttons );
+        const std::optional<InputStep> step = RecordInput( std::move( input ) );
         FlushInputs();
         return step;
     }

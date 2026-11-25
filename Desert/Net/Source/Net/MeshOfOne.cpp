@@ -60,9 +60,9 @@ namespace Desert::Net
 
     // ---- simulation --------------------------------------------------------------------------------------------
 
-    PawnSimulation::PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, IPawnMoveWorld& world,
+    PawnSimulation::PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, IPawnMover& mover,
                                     Settings settings, NetLogSink log )
-         : m_Store( store ), m_Gateway( gateway ), m_World( world ), m_Settings( std::move( settings ) ),
+         : m_Store( store ), m_Gateway( gateway ), m_Mover( mover ), m_Settings( std::move( settings ) ),
            m_Log( std::move( log ) )
     {
         if ( m_Settings.SpawnPoints.empty() )
@@ -159,7 +159,17 @@ namespace Desert::Net
                                     pawn.State.Id, missing, next->first - 1 ) );
             }
             // A move is one CLIENT step long, whatever the server's frame took (UE FSavedMove's DeltaTime).
-            pawn.Move          = StepPawnMove( pawn.Move, next->second, m_Settings.Movement, m_World, kNetStepSeconds );
+            // The step's action set is the game's to read (IPawnMover); the log names it in the game's words when
+            // it changes, and once a second with the speed it gives (cm/s, planar).
+            const InputStep& input = next->second;
+            pawn.Move              = m_Mover.Step( pawn.Move, input, kNetStepSeconds );
+            const float speed      = std::sqrt( pawn.Move.Velocity.X * pawn.Move.Velocity.X +
+                                                pawn.Move.Velocity.Z * pawn.Move.Velocity.Z );
+            if ( !pawn.LastProcessed || input.Actions != pawn.LastActions || next->first % static_cast<std::uint32_t>( kNetStepHz ) == 0 )
+                m_Log( std::format( "pawn net id {}: input step {} actions {} (bits 0x{:x}, axes {}), speed {:.0f} cm/s",
+                                    pawn.State.Id, next->first, m_Mover.DescribeActions( input ), input.Actions,
+                                    input.Axes.size(), speed ) );
+            pawn.LastActions   = input.Actions;
             pawn.LastProcessed = next->first;
             pawn.Pending.erase( next );
         }
