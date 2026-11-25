@@ -1,5 +1,7 @@
 #include <LandscapeCore/Public/LandscapeWorldPartition.hpp>
 
+#include <Engine/Core/Serialize/WorldPartitionActivationCost.hpp>
+#include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <LandscapeCore/Public/LandscapeLayout.hpp>
 #include <LandscapeCore/Public/LandscapeSplinesJson.hpp>
@@ -95,15 +97,47 @@ namespace Desert::LandscapeCore
 
     void StartupModule()
     {
-        // Tile, spline, root: the order the rules read them in before the hook (their Issues keep that order).
         static const bool kRegistered = []
         {
-            Rules::RegisterDescriptorHook( Rules::DescriptorHook{
-                 Rules::kLandscapeTileComponent, Rules::kLandscapeRootComponent, &DescribeTile, &TileFootprint } );
-            Rules::RegisterDescriptorHook( Rules::DescriptorHook{
-                 Rules::kLandscapeSplineComponent, {}, &DescribeSpline, &SplineFootprint } );
+            // Loading (Rules::ComponentLoadingRows). A root owns the FRAME every tile is placed by, not a place of
+            // its own; UE loads ALandscape the same way (not spatially loaded) and streams the proxies. The root's
+            // look travels with the root: every tile of it is drawn with it. A tile's rectangle and a spline's
+            // band are their footprints.
+            Rules::RegisterComponentLoading( { kLandscapeRootComponent, Rules::ComponentLoading::Global } );
+            Rules::RegisterComponentLoading( { kLandscapeMaterialComponent, Rules::ComponentLoading::Global } );
+            Rules::RegisterComponentLoading( { kLandscapeTileComponent, Rules::ComponentLoading::Spatial } );
+            Rules::RegisterComponentLoading( { kLandscapeSplineComponent, Rules::ComponentLoading::Spatial } );
+
+            // References (Rules::EntityReferences). A tile names its root, and it is OBSERVATION ON PURPOSE
+            // (landscape analysis A1): as containment every tile of a landscape would be one composite, and the
+            // whole terrain one footprint - the opposite of why a landscape is cut into tiles. A tile whose root
+            // is not loaded has no frame and is placed nowhere (UnplacedFramedRecords); it does not drag the root
+            // in. A spline names its root the same way (UE: ALandscapeSplineActor is its own spatially loaded
+            // actor in a partitioned world); its points are world cm, so its band places it whether the root is
+            // loaded or not.
+            Rules::RegisterEntityReference(
+                 { kLandscapeTileComponent, kLandscapeRootComponent, Rules::ReferenceKind::Observation } );
+            Rules::RegisterEntityReference(
+                 { kLandscapeSplineComponent, kLandscapeRootComponent, Rules::ReferenceKind::Observation } );
+
+            // Descriptors - tile, spline, root: the order the rules read them in (their Issues keep that order).
+            Rules::RegisterDescriptorHook( Rules::DescriptorHook{ kLandscapeTileComponent, kLandscapeRootComponent,
+                                                                  &DescribeTile, &TileFootprint } );
             Rules::RegisterDescriptorHook(
-                 Rules::DescriptorHook{ Rules::kLandscapeRootComponent, {}, &DescribeRoot, nullptr } );
+                 Rules::DescriptorHook{ kLandscapeSplineComponent, {}, &DescribeSpline, &SplineFootprint } );
+            Rules::RegisterDescriptorHook(
+                 Rules::DescriptorHook{ kLandscapeRootComponent, {}, &DescribeRoot, nullptr } );
+
+            // HLOD: a tile draws terrain from its height file and a spline meshes bent along it - neither a mesh
+            // block; BuildCellHLOD hands them to the landscape and spline builders (WP-FAR-6).
+            Rules::RegisterHLODBuilderComponent(
+                 { kLandscapeTileComponent, Rules::HLODExclusion::LandscapeTile } );
+            Rules::RegisterHLODBuilderComponent(
+                 { kLandscapeSplineComponent, Rules::HLODExclusion::LandscapeSpline } );
+
+            // Activation: a tile builds a heightfield (and its collision) - more than a primitive.
+            Rules::RegisterActivationKind(
+                 { kLandscapeTileComponent, Rules::ActivationRecordKind::LandscapeTile } );
             return true;
         }();
         (void)kRegistered;

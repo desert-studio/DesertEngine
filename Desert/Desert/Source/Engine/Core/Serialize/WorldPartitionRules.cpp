@@ -2,6 +2,8 @@
 
 #include <Common/Json/DocumentStruct.hpp>
 
+#include <unordered_set> // the keys a plan knows (UnregisteredRecords)
+
 namespace Desert::Core::Rules::Detail
 {
     // THE BOXES ONE RECORD OCCUPIES IN ITS OWN FRAME, each handed to @p onBox: a primitive's unit box,
@@ -286,7 +288,7 @@ namespace Desert::Core::Rules
             if ( PayloadOf( record, kAlwaysLoadedComponent ).has_value() )
                 return AlwaysLoadedReason::Author;
 
-            for ( const ComponentLoadingRow& row : kComponentLoading )
+            for ( const ComponentLoadingRow& row : ComponentLoadingRows() )
             {
                 if ( row.Loading == ComponentLoading::Spatial )
                     continue;
@@ -390,6 +392,21 @@ namespace Desert::Core::Rules
             return hooks;
         }
 
+        // The loading and reference registers: this file's rows first, then the ones modules registered.
+        std::vector<ComponentLoadingRow>& LoadingRowList()
+        {
+            static std::vector<ComponentLoadingRow> rows( std::begin( kComponentLoading ),
+                                                          std::end( kComponentLoading ) );
+            return rows;
+        }
+
+        std::vector<EntityReferenceRow>& ReferenceRowList()
+        {
+            static std::vector<EntityReferenceRow> rows( std::begin( kEntityReferences ),
+                                                         std::end( kEntityReferences ) );
+            return rows;
+        }
+
         const DescriptorHook* FindHook( std::string_view component )
         {
             for ( const DescriptorHook& hook : HookList() )
@@ -417,6 +434,36 @@ namespace Desert::Core::Rules
     std::span<const DescriptorHook> DescriptorHooks()
     {
         return HookList();
+    }
+
+    void RegisterComponentLoading( const ComponentLoadingRow& row )
+    {
+        if ( row.ComponentKey.empty() )
+            return;
+        for ( const ComponentLoadingRow& known : LoadingRowList() )
+            if ( known.ComponentKey == row.ComponentKey )
+                return;
+        LoadingRowList().push_back( row );
+    }
+
+    std::span<const ComponentLoadingRow> ComponentLoadingRows()
+    {
+        return LoadingRowList();
+    }
+
+    void RegisterEntityReference( const EntityReferenceRow& row )
+    {
+        if ( row.ComponentKey.empty() || row.Field.empty() )
+            return;
+        for ( const EntityReferenceRow& known : ReferenceRowList() )
+            if ( known.ComponentKey == row.ComponentKey && known.Field == row.Field )
+                return;
+        ReferenceRowList().push_back( row );
+    }
+
+    std::span<const EntityReferenceRow> EntityReferences()
+    {
+        return ReferenceRowList();
     }
 
     [[nodiscard]] std::vector<UnregisteredReference>
@@ -449,7 +496,7 @@ namespace Desert::Core::Rules
                              return;
 
                          bool registered = false;
-                         for ( const EntityReferenceRow& row : kEntityReferences )
+                         for ( const EntityReferenceRow& row : EntityReferences() )
                          {
                              if ( componentKey == row.ComponentKey && field == row.Field )
                              {
@@ -517,7 +564,7 @@ namespace Desert::Core::Rules
 
         out.Reason = Detail::GlobalReasonOf( record, issues );
 
-        for ( const EntityReferenceRow& row : kEntityReferences )
+        for ( const EntityReferenceRow& row : EntityReferences() )
         {
             const auto block = Detail::BlockOf( record, row.ComponentKey, issues );
             if ( !block.has_value() )
@@ -1438,8 +1485,36 @@ namespace Desert::Core::Rules
         // ── 1. World positions ────────────────────────────────────────────────────────────────────
         const std::vector<glm::mat4> world = Detail::ComposeWorld( records, byId );
 
-        // A record a registered hook places (a landscape tile's rectangle from its root, a spline's band): after
-        // step 1, because a frame record's origin is its WORLD position.
+        // A record of a class nobody registered (UnregisteredRecords): every key of it no row knows is named, and
+        // the record is placed nowhere - not by a hook nobody registered, not by its position.
+        {
+            std::unordered_set<std::string_view> known;
+            for ( const ComponentLoadingRow& row : ComponentLoadingRows() )
+                known.insert( row.ComponentKey );
+            for ( std::size_t record = 0; record < records.size(); ++record )
+            {
+                const EntityDescriptor& data         = records[record];
+                bool                    unregistered = false;
+                for ( const std::string& key : data.Components )
+                {
+                    if ( known.contains( std::string_view( key ) ) )
+                        continue;
+                    unregistered = true;
+                    plan.Issues.push_back( Common::Json::Issue{
+                         std::format( "{}.{}",
+                                      data.Id.has_value() ? std::format( "Entities[id={}]", *data.Id )
+                                                          : std::format( "Entities[{}]", record ),
+                                      key ),
+                         "a component a started module registers (its ComponentLoadingRow, at its StartupModule)",
+                         std::format( "'{}', which no module started in this process registers", key ) } );
+                }
+                if ( unregistered )
+                    plan.UnregisteredRecords.push_back( record );
+            }
+        }
+
+        // A record a registered hook places (a tile's rectangle from its root, a spline's band): after step 1,
+        // because a frame record's origin is its WORLD position.
         std::vector<std::optional<Common::Math::AABB>> hookBox( records.size() );
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
@@ -1573,6 +1648,8 @@ namespace Desert::Core::Rules
         for ( const std::size_t record : plan.UnplacedPrefabInstances )
             unplaced[record] = true;
         for ( const std::size_t record : plan.UnplacedFramedRecords )
+            unplaced[record] = true;
+        for ( const std::size_t record : plan.UnregisteredRecords )
             unplaced[record] = true;
 
         std::vector<glm::vec3> points;
@@ -1855,6 +1932,10 @@ namespace Desert::Core::Rules
              std::to_string( byReason[static_cast<std::size_t>( AlwaysLoadedReason::Persistent )] ) +
              "); highest promotion: level " + std::to_string( plan.MaxLevel ) + "; " +
              std::to_string( plan.PointOnlyRecords ) + " record(s) placed by position alone";
+        if ( !plan.UnregisteredRecords.empty() )
+            std::format_to( std::back_inserter( line ),
+                            "; {} record(s) of a component no started module registers",
+                            plan.UnregisteredRecords.size() );
         for ( const RuntimePartitionSerialized& partition : settings.RuntimePartitions )
         {
             std::format_to( std::back_inserter( line ), "; partition '{}' ({})", partition.Name,

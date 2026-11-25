@@ -16,6 +16,7 @@
 #include <LandscapeCore/Public/LandscapeData.hpp>
 #include <LandscapeCore/Public/LandscapeLayout.hpp>
 #include <LandscapeCore/Public/LandscapeTileFiles.hpp>
+#include <LandscapeCore/Public/LandscapeWorldPartition.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -642,7 +643,7 @@ namespace Desert::Core
                 return Common::MakeError<Result>( "the landscape tile request names no record of its records" );
             const Assets::EntityData& tile = request.Records[request.Tile];
             Common::Json::Issues      issues;
-            const auto tileBlock = Rules::Detail::BlockOf( tile, Rules::kLandscapeTileComponent, issues );
+            const auto tileBlock = Rules::Detail::BlockOf( tile, LandscapeCore::kLandscapeTileComponent, issues );
             if ( !tileBlock.has_value() )
                 return Common::MakeError<Result>( "the record has no readable LandscapeTile block" );
             Common::UUID rootId;
@@ -655,7 +656,7 @@ namespace Desert::Core
                 return Common::MakeFormattedError<Result>( "the tile's landscape root {} is not in the world",
                                                            static_cast<std::uint64_t>( rootId ) );
             const std::size_t rootIndex = static_cast<std::size_t>( root - request.Records.begin() );
-            const auto        rootBlock = Rules::Detail::BlockOf( *root, Rules::kLandscapeRootComponent, issues );
+            const auto rootBlock = Rules::Detail::BlockOf( *root, LandscapeCore::kLandscapeRootComponent, issues );
             if ( !rootBlock.has_value() )
                 return Common::MakeError<Result>( "the tile's root has no readable Landscape block" );
 
