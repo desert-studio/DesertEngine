@@ -604,7 +604,7 @@ namespace Desert::Graphic::System
         struct FrameBodyLook
         {
             Assets::AssetHandle Material;
-            int32_t             River = -1; // its index in the frame's rivers, -1: not a river
+            int32_t             River = -1; // its index in the frame's rivers, -1: not a river, -2: a river with no bake
         };
         std::vector<FrameBodyLook> m_FrameBodyLooks;    // parallel to m_FrameBodies
         std::vector<glm::vec3>     m_FrameBodyCaustics; // its material's (GetFrameBodyCaustics)

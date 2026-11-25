@@ -270,7 +270,7 @@ namespace Desert::Graphic::System
         const WaterCaustics::FrameInputs frame{ .Waves         = GetFrameWavesBlock(),
                                                 .Bodies        = GetFrameBodies(),
                                                 .BodyWaveLanes = GetFrameBodyWaveLanes(),
-                                               .BodyCaustics  = GetFrameBodyCaustics(),
+                                                .BodyCaustics  = GetFrameBodyCaustics(),
                                                 .Water         = inputs.Water,
                                                 .SunTravel     = inputs.SunTravel,
                                                 .Camera        = inputs.Camera,
@@ -691,8 +691,9 @@ namespace Desert::Graphic::System
                 const auto riverAt = std::find( rivers.begin(), rivers.end(), flow );
                 m_FrameBodyLooks.push_back( FrameBodyLook{
                      .Material = body,
-                     .River    = river && riverAt != rivers.end() ? static_cast<int32_t>( riverAt - rivers.begin() )
-                                                                  : -1 } );
+                     .River    = !river ? -1
+                                 : riverAt != rivers.end() ? static_cast<int32_t>( riverAt - rivers.begin() )
+                                                           : -2 } );
                 m_FrameBodyCaustics.push_back( MaterialValuesOf( body, stamp ).Caustics );
             }
         }

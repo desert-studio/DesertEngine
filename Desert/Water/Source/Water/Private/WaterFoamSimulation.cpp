@@ -163,7 +163,8 @@ namespace Desert::Graphic::System
     {
         const auto side = Common::Scalability::QualityState::Resolved().As<uint32_t>(
              Common::Scalability::Parameter::EffectsWaterFoamSize );
-        if ( !EnsureFoam( side ) || m_FrameBodies.empty() )
+        if ( !EnsureFoam( side ) ||
+             std::ranges::none_of( m_FrameBodyLooks, []( const FrameBodyLook& look ) { return look.River >= -1; } ) )
             return;
         // The frame that recorded the pass is over: what it wrote is the history now.
         if ( m_FoamRecorded )
@@ -214,6 +215,8 @@ namespace Desert::Graphic::System
         {
             const Water::WaterQuadTreeBody& body   = m_FrameBodies[b];
             const FrameBodyLook&            look   = m_FrameBodyLooks[b];
+            if ( look.River < -1 )
+                continue; // a river with no bake has no banks: no water of it stands anywhere
             const Water::WaterFoamParams    params = MaterialValuesOf( look.Material, stamp ).Foam;
             const int32_t                   set    = look.River >= 0 ? -1 : static_cast<int32_t>( m_FrameBodyWaveLanes[b] ) - 1;
             frame.Bodies.push_back( FoamBody{
