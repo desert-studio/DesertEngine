@@ -1,0 +1,55 @@
+# RT-HWGI-NIGHT-LEAK: Bistro night under hardware traced GI against the path tracer (shield) and a_default (cypress; the path tracer has no foliage transmission, so it is no reference there).
+# The exposure is fixed in every frame: the scene's automatic exposure answers the GI method, so under it frames of two methods differ by the exposure too. The d_* frames separate the terms: the tracer, the screen probes, the cards, the sky.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure false
+Когда frames 90
+Тогда-вид a_default the same view without hardware tracing, the comparison base
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда frames 60
+Тогда-вид b_hwrefl hardware reflections alone: the shield is not blue
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда frames 120
+Тогда-вид hwgi_shield the shield is teal as in the path tracer, not blue
+Тогда [hwgi_shield]: the shield is teal as in the path tracer, not blue
+Тогда-вид hwgi_cypress the cypress is not brighter than in a_default
+Тогда [hwgi_cypress]: the cypress is not brighter than in a_default
+Когда run View "View mode: Indirect Lighting (GI)"
+Когда frames 60
+Тогда-вид d_gi_hw the hardware gather's indirect alone: whether the shield's blue and the cypress's excess are in it
+Когда run View "View mode: Lumen Scene (Lit)"
+Когда frames 8
+Тогда-вид d_cards the surface cache: the cards of the lamps, the cypress and the wall beside it are no brighter than those surfaces in b_hwrefl
+Когда run View "View mode: Albedo"
+Когда frames 8
+Тогда-вид d_albedo the shield is teal and the cypress green: the colour the gather is multiplied by
+Когда run View "View mode: Indirect Lighting (GI)"
+Когда run Quality "Quality: GlobalIllumination.Method SoftwareTraced"
+Когда frames 120
+Тогда-вид d_gi_sw the same gather under the distance-field tracer: an excess here too is not the ray query's hit
+Когда run Quality "Quality: GlobalIllumination.Method ProbeVolume"
+Когда frames 120
+Тогда-вид d_gi_probevolume no screen probes and no screen traces: an excess absent here is the screen probes'
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда set 4576059197435775655 SkyAtmosphereData.SunIntensity 0
+Когда set 4576059197435775655 SkyAtmosphereData.StarIntensity 0
+Когда set 4576059197435775655 SkyAtmosphereData.NightColor 0,0,0
+Когда frames 180
+Тогда-вид d_gi_hw_nosky no sky light: a blue that goes away here is a ray's miss, one that stays is a hit's radiance
+Когда set 4576059197435775655 SkyAtmosphereData.SunIntensity 22
+Когда set 4576059197435775655 SkyAtmosphereData.StarIntensity 1
+Когда set 4576059197435775655 SkyAtmosphereData.NightColor 0.01,0.02,0.05
+Когда run View "View mode: Lit"
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда frames 160
+Тогда-вид e_pt the path tracer at the same exposure: the shield's reference
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure true
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Resolution.Percent Level"
+Тогда z the levels are restored
