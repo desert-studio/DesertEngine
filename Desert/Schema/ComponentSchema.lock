@@ -29,6 +29,7 @@ Radius: float
 Height: float
 MaxSlopeDeg: float
 MaxWalkSpeed: float
+MaxSprintSpeed: float
 MaxAcceleration: float
 BrakingDecelerationWalking: float
 GroundFriction: float
@@ -39,6 +40,9 @@ GravityScale: float
 MaxWalkSpeedCrouched: float
 CrouchedHeight: float
 MaxSwimSpeed: float
+JumpAction: string
+SprintAction: string
+CrouchAction: string
 CollisionProfile: string
 
 [Collider] Version 1
