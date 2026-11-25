@@ -32,7 +32,7 @@ namespace Desert::Editor
     // THE ONE PLACEMENT. Both the `--camera`/`--look` capture path and the control channel's
     // `set Camera.Position` land here, through the editor's own view-axis-gizmo and F-focus gestures.
     // Two copies would drift.
-    void PlaceEditorCamera( Desert::Core::EditorCamera& camera, const glm::vec3& position,
+    void PlaceEditorCamera( Desert::Core::EditorCamera& camera, const glm::dvec3& position,
                             const glm::vec3& forward );
 
     class ShotDirector

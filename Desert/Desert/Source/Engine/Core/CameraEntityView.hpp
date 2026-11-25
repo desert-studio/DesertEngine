@@ -36,8 +36,8 @@ namespace Desert::Core
 {
     struct CameraEntityView
     {
-        glm::vec3 Position{ 0.0f };
-        ViewBasis Basis;
+        glm::dvec3 Position{ 0.0 }; // LWC: the eye as the entity's WorldTransform::Origin carries it
+        ViewBasis  Basis;
         float     FovYDegrees = 45.0f;
         float     Near        = kDefaultNearPlane;
         float     Far         = kDefaultFarPlane;
@@ -54,7 +54,7 @@ namespace Desert::Core
                                                               float nearPlane, float farPlane )
     {
         CameraEntityView out;
-        out.Position = glm::vec3( world[3] );
+        out.Position = glm::dvec3( world[3] );
 
         const glm::vec3 forward = -glm::normalize( glm::vec3( world[2] ) );
         const glm::vec3 rawUp   = glm::normalize( glm::vec3( world[1] ) );

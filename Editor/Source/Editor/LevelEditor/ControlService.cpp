@@ -358,7 +358,7 @@ namespace Desert::Editor
         // the rest of the played world, so no undo step is recorded.
         [[nodiscard]] Common::BoolResultStr WritePlayViewCamera( ::Desert::Core::Scene&    scene,
                                                                  const ViewportCameraWrite which,
-                                                                 const std::vector<float>& value )
+                                                                 const std::vector<double>& value )
         {
             const entt::entity target   = scene.GetViewTarget();
             auto&              registry = scene.GetRegistry();
@@ -380,8 +380,8 @@ namespace Desert::Editor
             const glm::mat4 world = entity.GetWorldTransform().ToFloatMatrix();
             const auto      now   = ::Desert::Core::CameraEntityViewOf( world, lens.FOV, lens.Near, lens.Far );
 
-            const glm::vec3           position = ( which == ViewportCameraWrite::Position )
-                                                      ? glm::vec3( value[0], value[1], value[2] )
+            const glm::dvec3          position = ( which == ViewportCameraWrite::Position )
+                                                      ? glm::dvec3( value[0], value[1], value[2] )
                                                       : now.Position;
             ::Desert::Core::ViewBasis basis    = now.Basis;
             if ( which == ViewportCameraWrite::Direction )
@@ -397,7 +397,7 @@ namespace Desert::Editor
             const glm::vec3 worldScale( glm::length( glm::vec3( world[0] ) ), glm::length( glm::vec3( world[1] ) ),
                                         glm::length( glm::vec3( world[2] ) ) );
             const glm::mat4 local = glm::inverse( parentWorld ) *
-                                    ::Desert::Core::CameraWorldTransformFor( position, basis, worldScale );
+                                    ::Desert::Core::CameraWorldTransformFor( glm::vec3( position ), basis, worldScale );
             const glm::mat3 rotation( glm::normalize( glm::vec3( local[0] ) ),
                                       glm::normalize( glm::vec3( local[1] ) ),
                                       glm::normalize( glm::vec3( local[2] ) ) );
@@ -475,12 +475,12 @@ namespace Desert::Editor
                     const glm::vec2 flat  = glm::normalize( turnedHeading ) * std::cos( next );
                     turned                = glm::vec3( flat.x, std::sin( next ), flat.y );
                 }
-                glm::vec3       position = camera->GetPosition();
+                glm::dvec3      position = camera->GetPosition();
                 const glm::vec2 heading( forward.x, forward.z );
                 if ( glm::length( heading ) > 1e-4f )
                 {
                     const glm::vec2 step = glm::normalize( heading ) * m_CameraGlideCmPerFrame;
-                    position += glm::vec3( step.x, 0.0f, step.y );
+                    position += glm::dvec3( step.x, 0.0, step.y );
                 }
                 PlaceEditorCamera( *camera, position, turned );
             }
@@ -1489,7 +1489,8 @@ namespace Desert::Editor
                 if ( request.Whose == Control::Subject::Modeling )
                 {
                     if ( const auto written = Core::SetModelingStateProperty( Core::ModelingState::Get(),
-                                                                              request.Property, request.Value );
+                                                                              request.Property,
+                                                                              Control::ProtocolDetail::FloatValues( request.Value ) );
                          !written )
                         return Control::Response::Failure( request.Id, written.GetError() );
                     return Control::Response::Success( request.Id );
@@ -1719,7 +1720,8 @@ namespace Desert::Editor
                                       request.Property ) );
                 }
 
-                if ( const auto written = focused->SetEditableProperty( request.Property, request.Value );
+                if ( const auto written = focused->SetEditableProperty( request.Property,
+                                                                            Control::ProtocolDetail::FloatValues( request.Value ) );
                      !written )
                 {
                     return Control::Response::Failure( request.Id, written.GetError() );
@@ -1925,7 +1927,9 @@ namespace Desert::Editor
                                             "last frame; open and focus one first." );
                 }
                 const auto plan = Control::PointerDrag::Plan(
-                     *target, { request.Value[0], request.Value[1], request.Value[2], request.Value[3] },
+                     *target,
+                     { static_cast<float>( request.Value[0] ), static_cast<float>( request.Value[1] ),
+                       static_cast<float>( request.Value[2] ), static_cast<float>( request.Value[3] ) },
                      request.Steps.value_or( Control::PointerDrag::kDefaultSteps ) );
                 if ( !plan.IsSuccess() )
                     return Control::Response::Failure( request.Id, plan.GetError() );
@@ -2021,9 +2025,9 @@ namespace Desert::Editor
         ECS::Rules::SunAngles   angles   = ECS::Rules::SunAnglesFromToward(
              ECS::Rules::AtmosphereSunDirection( ECS::WorldRotation( registry, entity.GetHandle() ) ) );
         if ( request.Property == Core::kSelectionSunElevation )
-            angles.ElevationDeg = glm::clamp( request.Value[0], -90.0f, 90.0f );
+            angles.ElevationDeg = glm::clamp( static_cast<float>( request.Value[0] ), -90.0f, 90.0f );
         else
-            angles.AzimuthDeg = request.Value[0];
+            angles.AzimuthDeg = static_cast<float>( request.Value[0] );
         ECS::AimDirectionalLight( registry, entity.GetHandle(), -ECS::Rules::TowardSunFromAngles( angles ) );
         Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
         return Control::Response::Success( request.Id );
@@ -2129,9 +2133,9 @@ namespace Desert::Editor
         // only the direction means "look that way from where you are", and a copy of the position kept on
         // this side would be the second answer to where the camera is — wrong the first time a person
         // dragged it.
-        const glm::vec3 position = ( which.GetValue() == ViewportCameraWrite::Position )
-                                        ? glm::vec3( request.Value[0], request.Value[1], request.Value[2] )
-                                        : camera->GetPosition();
+        const glm::dvec3 position = ( which.GetValue() == ViewportCameraWrite::Position )
+                                         ? glm::dvec3( request.Value[0], request.Value[1], request.Value[2] )
+                                         : camera->GetPosition();
         const glm::vec3 forward  = ( which.GetValue() == ViewportCameraWrite::Direction )
                                         ? glm::vec3( request.Value[0], request.Value[1], request.Value[2] )
                                         : camera->GetDirection();

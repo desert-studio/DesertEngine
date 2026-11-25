@@ -114,10 +114,10 @@ namespace Desert::Editor
     /// This is the whole arithmetic of the placement and it is separated for one reason: "the camera lands
     /// exactly where it was asked" is a RELATION between the aim point and the framing distance, and a
     /// relation is what this project's defects have always been. @p forward need not be normalized.
-    [[nodiscard]] inline glm::vec3 ViewportCameraFocalPoint( const glm::vec3& position, const glm::vec3& forward,
-                                                             float distance = kViewportCameraFramingDistance )
+    [[nodiscard]] inline glm::dvec3 ViewportCameraFocalPoint( const glm::dvec3& position, const glm::vec3& forward,
+                                                              float distance = kViewportCameraFramingDistance )
     {
-        return position + glm::normalize( forward ) * distance;
+        return position + glm::dvec3( glm::normalize( forward ) ) * static_cast<double>( distance );
     }
 
     /// The camera's pose as the census `properties` answers with.
@@ -130,7 +130,7 @@ namespace Desert::Editor
     /// NO Min/Max. A world position has no clamp in an engine whose unit is the centimetre, and inventing
     /// one here would refuse a legitimate placement on the authority of a number nobody chose.
     [[nodiscard]] inline std::vector<EditableProperty>
-    DescribeViewportCamera( const glm::vec3& position, const glm::vec3& forward, float fovDegrees,
+    DescribeViewportCamera( const glm::dvec3& position, const glm::vec3& forward, float fovDegrees,
                             bool validateGpuCulling, bool forceVgCutRefusal, bool forceVgPostCutRefusal,
                             float spinDegreesPerFrame = 0.0f, float glideCmPerFrame = 0.0f,
                             float tiltDegreesPerFrame = 0.0f )
@@ -143,7 +143,7 @@ namespace Desert::Editor
         positionRow.Group      = "Camera";
         positionRow.Type       = "float3";
         positionRow.Components = 3;
-        positionRow.Value      = { position.x, position.y, position.z, 0.0f };
+        positionRow.Value      = { position.x, position.y, position.z, 0.0 }; // the camera's own double (LWC)
         census.push_back( positionRow );
 
         EditableProperty directionRow;
@@ -262,7 +262,7 @@ namespace Desert::Editor
      *     then the view matrix, then every pass, and shows up as a black frame nothing explains.
      */
     [[nodiscard]] inline Common::ResultStr<ViewportCameraWrite>
-    ValidateViewportCameraWrite( const std::string& property, const std::vector<float>& value )
+    ValidateViewportCameraWrite( const std::string& property, const std::vector<double>& value )
     {
         const bool isPosition  = ( property == kViewportCameraPosition );
         const bool isDirection = ( property == kViewportCameraDirection );

@@ -74,3 +74,39 @@
 Когда --subject viewport set Camera.Direction -0.02593,-0.13820,-0.99007
 Когда frames 2
 Тогда-вид f_orb3 20 km slow orbit 1.5 deg around the set: vs o_orb3: uneven steps of edges/skin (L-A01), shadow swim (L-A02), TAA smear (L-A03)
+# Pass 3 (11-25): L-A04 the camera is a double - at 20 km it steps 0.5 cm and the viewport census reads the exact value
+# (2000001.3 is a double witness: a float eye reads 2000001.25); L-E03 the 20 km block moved 0.5 cm (2000150 -> 2000150.5)
+# survives save-as + reopen bit-exact. Each `properties` reply is kept as line_NNN_properties.txt in the run folder.
+Когда --subject viewport set Camera.Position 2000000,140,430
+Когда --subject viewport set Camera.Direction 0.00000,-0.13820,-0.99040
+Когда frames 30
+Когда --subject viewport properties
+Тогда-вид c_0 [lwc_cam_step] L-A04 camera X = 2000000.0 (census): the 20 km set framed as f_n
+Когда --subject viewport set Camera.Position 2000000.5,140,430
+Когда frames 2
+Когда --subject viewport properties
+Тогда-вид c_1 [lwc_cam_step] L-A04 camera X = 2000000.5 (census): the set 0.5 cm further left than c_0 (the view moved)
+Когда --subject viewport set Camera.Position 2000001,140,430
+Когда frames 2
+Когда --subject viewport properties
+Тогда-вид c_2 [lwc_cam_step] L-A04 camera X = 2000001.0 (census): one more 0.5 cm step, same direction
+Когда --subject viewport set Camera.Position 2000001.3,140,430
+Когда frames 2
+Когда --subject viewport properties
+Тогда-вид c_3 [lwc_cam_step] L-A04 camera X = 2000001.3 exactly (census; a float eye would read 2000001.25)
+Когда select 7700000000000204
+Когда --subject selection set Translation 2000150.5,100,-60
+Когда frames 2
+Когда --subject selection properties
+Тогда-вид e_moved [lwc_roundtrip] L-E03 the 20 km block moved 0.5 cm: Translation 2000150.5 (census)
+Когда save-as LWC_Witness_RT
+Когда run Scene "Open Scene LWC_Witness.desce"
+Когда frames 30
+Когда run Scene "Open Scene LWC_Witness_RT.desce"
+Когда frames 30
+Когда select 7700000000000204
+Когда --subject selection properties
+Когда --subject viewport set Camera.Position 2000000,140,430
+Когда --subject viewport set Camera.Direction 0.00000,-0.13820,-0.99040
+Когда frames 30
+Тогда-вид e_reopen [lwc_roundtrip] L-E03 after save-as + reopen: Translation reads 2000150.5 bit-exact (census); the block where e_moved had it

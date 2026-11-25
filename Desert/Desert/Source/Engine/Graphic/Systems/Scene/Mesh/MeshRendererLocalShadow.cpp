@@ -491,7 +491,7 @@ namespace Desert::Graphic::System
         const float tanHalfFov     = camera != nullptr && camera->GetProjectionMatrix()[1][1] != 0.0f
                                           ? 1.0f / std::abs( camera->GetProjectionMatrix()[1][1] )
                                           : 0.0f;
-        const glm::vec3 eye        = camera != nullptr ? camera->GetPosition() : glm::vec3( 0.0f );
+        const glm::vec3 eye        = camera != nullptr ? glm::vec3( camera->GetPosition() ) : glm::vec3( 0.0f ); // LWC p4 edge
         const auto      screenRadius = [&]( const glm::vec3& centre, const float radius )
         {
             return camera != nullptr ? SphereScreenRadiusPx( centre, radius, eye, tanHalfFov, viewportHeight )

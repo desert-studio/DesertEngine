@@ -42,7 +42,7 @@ namespace Desert::Editor::Core
     [[nodiscard]] inline std::vector<EditableProperty> DescribeSelectionTransform( const SelectionTransform& trs )
     {
         std::vector<EditableProperty> census;
-        const auto row = [&census]( const char* name, const char* label, const glm::vec3& value )
+        const auto row = [&census]( const char* name, const char* label, const glm::dvec3& value )
         {
             EditableProperty property;
             property.Name       = name;
@@ -53,9 +53,11 @@ namespace Desert::Editor::Core
             property.Value      = { value.x, value.y, value.z, 0.0f };
             census.push_back( property );
         };
-        row( kSelectionTranslation, "Location (cm)", glm::vec3( trs.Translation ) ); // LWC: display narrowing
-        row( kSelectionRotation, "Rotation (radians)", trs.Rotation );
-        row( kSelectionScale, "Scale", trs.Scale );
+        // LWC p3: the census carries the entity's own double (EditableProperty::Value is double), so a client
+        // reads 2000000.3 back as written, as UE's FVector reaches its Details row and its Python API unrounded.
+        row( kSelectionTranslation, "Location (cm)", trs.Translation );
+        row( kSelectionRotation, "Rotation (radians)", glm::dvec3( trs.Rotation ) );
+        row( kSelectionScale, "Scale", glm::dvec3( trs.Scale ) );
         return census;
     }
 
@@ -67,7 +69,7 @@ namespace Desert::Editor::Core
      */
     [[nodiscard]] inline Common::ResultStr<SelectionTransform>
     WriteSelectionTransform( SelectionTransform current, const std::string& property,
-                             const std::vector<float>& value )
+                             const std::vector<double>& value )
     {
         glm::vec3* field     = nullptr;
         const bool translate = property == kSelectionTranslation;
@@ -85,7 +87,7 @@ namespace Desert::Editor::Core
         if ( value.size() != 3 )
             return Common::MakeFormattedError<SelectionTransform>( "'{}' takes three numbers and was given {}.",
                                                                    property, value.size() );
-        for ( const float component : value )
+        for ( const double component : value )
             if ( !std::isfinite( component ) )
                 return Common::MakeFormattedError<SelectionTransform>(
                      "'{}' was given a component that is not a finite number; it would reach the entity's world "
@@ -94,7 +96,7 @@ namespace Desert::Editor::Core
         if ( translate )
             current.Translation = glm::dvec3( value[0], value[1], value[2] );
         else
-            *field = glm::vec3( value[0], value[1], value[2] );
+            *field = glm::vec3( glm::dvec3( value[0], value[1], value[2] ) ); // rotation/scale are float fields
         return Common::MakeSuccess( current );
     }
 } // namespace Desert::Editor::Core

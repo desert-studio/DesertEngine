@@ -107,32 +107,33 @@ namespace Desert::Core
         constexpr float kEyeHeightWorldUnits = 200.0f; // 2 m, in centimetres
         constexpr float kPitchAboveHorizon   = -0.14f; // radians, ~8 degrees up
 
-        m_FocalPoint = glm::vec3( 0.0f, kEyeHeightWorldUnits, 0.0f );
+        m_FocalPoint = glm::dvec3( 0.0, kEyeHeightWorldUnits, 0.0 );
         m_Pitch      = kPitchAboveHorizon;
         m_Yaw        = 3.0f * glm::pi<float>() / 4.0f;
         m_Distance   = 100.0f; // 1 m — the pivot sits just in front of the eye
 
-        m_Position                  = m_FocalPoint - CurrentBasis().Forward * m_Distance + m_LocationDelta;
+        m_Position = m_FocalPoint - glm::dvec3( CurrentBasis().Forward ) * static_cast<double>( m_Distance ) +
+                     glm::dvec3( m_LocationDelta );
         const glm::quat orientation = OrbitOrientation( m_Yaw, m_Pitch );
 
         m_Direction  = glm::eulerAngles( orientation ) * ( 180.f / glm::pi<float>() );
-        m_ViewMatrix = glm::translate( glm::mat4( 1.0 ), m_Position ) * glm::toMat4( orientation );
-        m_ViewMatrix = glm::inverse( m_ViewMatrix );
+        m_ViewMatrix = glm::mat4( glm::inverse( glm::translate( glm::dmat4( 1.0 ), m_Position ) *
+                                                glm::dmat4( glm::toMat4( orientation ) ) ) );
     }
 
     EditorCamera::EditorCamera( const glm::mat4& projectionMatrix )
     {
         m_ProjectionMatrix = projectionMatrix;
         m_Direction        = glm::vec3( 90.0f, 0.0f, 0.0f );
-        m_FocalPoint       = glm::vec3( 0.0f );
+        m_FocalPoint       = glm::dvec3( 0.0 );
 
-        const glm::vec3 position = { -500, 500, 500 };
-        m_Distance              = glm::distance( position, m_FocalPoint );
+        const glm::dvec3 position = { -500, 500, 500 };
+        m_Distance               = static_cast<float>( glm::distance( position, m_FocalPoint ) );
 
         m_Yaw   = 3.0f * glm::pi<float>() / 4.0f;
         m_Pitch = glm::pi<float>() / 4.0f;
 
-        m_Position = m_FocalPoint - CurrentBasis().Forward * m_Distance;
+        m_Position = m_FocalPoint - glm::dvec3( CurrentBasis().Forward ) * static_cast<double>( m_Distance );
         UpdateCameraView();
     }
 
@@ -235,7 +236,7 @@ namespace Desert::Core
 
         m_InitialMousePosition = MousePosition;
 
-        m_Position += m_LocationDelta;
+        m_Position += glm::dvec3( m_LocationDelta );
 
         // ── LEAVING AN AXIS VIEW IS WHAT TURNING MEANS ────────────────────────────────────────────
         //
@@ -268,8 +269,8 @@ namespace Desert::Core
 
         if ( m_Flying )
         {
-            const float distance = glm::distance( m_FocalPoint, m_Position );
-            m_FocalPoint         = m_Position + CurrentBasis().Forward * distance;
+            const float distance = static_cast<float>( glm::distance( m_FocalPoint, m_Position ) );
+            m_FocalPoint         = m_Position + glm::dvec3( CurrentBasis().Forward ) * static_cast<double>( distance );
             m_Distance           = distance;
         }
 
@@ -326,8 +327,8 @@ namespace Desert::Core
         m_PitchDelta = 0.0f;
 
         // Keep the current framing distance; orbit the position onto the new direction.
-        const float dist = glm::max( glm::distance( m_Position, m_FocalPoint ), 1.0f );
-        m_Position       = m_FocalPoint - CurrentBasis().Forward * dist;
+        const double dist = glm::max( glm::distance( m_Position, m_FocalPoint ), 1.0 );
+        m_Position        = m_FocalPoint - glm::dvec3( CurrentBasis().Forward ) * dist;
         UpdateCameraView();
     }
 
@@ -343,22 +344,22 @@ namespace Desert::Core
 
         // Same framing as SnapToDirection: a named angle changes where you look FROM, never what you are
         // looking at, which is what makes flipping between Top and Front useful rather than disorienting.
-        const float dist = glm::max( glm::distance( m_Position, m_FocalPoint ), 1.0f );
-        m_Position       = m_FocalPoint - m_AxisView->Forward * dist;
+        const double dist = glm::max( glm::distance( m_Position, m_FocalPoint ), 1.0 );
+        m_Position        = m_FocalPoint - glm::dvec3( m_AxisView->Forward ) * dist;
         UpdateCameraView();
     }
 
-    void EditorCamera::Focus( const glm::vec3& point, float distance )
+    void EditorCamera::Focus( const glm::dvec3& point, float distance )
     {
         // Keep the current orientation — only re-center and re-frame (matches Unity/Godot 'F'). An axis
         // view survives it: framing is not a rotation, and an F-focus that quietly dropped the plan view
         // would be the same defect one level up.
         m_FocalPoint = point;
-        m_Position   = point - CurrentBasis().Forward * glm::max( distance, 50.0f );
+        m_Position   = point - glm::dvec3( CurrentBasis().Forward ) * static_cast<double>( glm::max( distance, 50.0f ) );
         UpdateCameraView();
     }
 
-    void EditorCamera::PlaceAt( const glm::vec3& position, const ViewBasis& basis )
+    void EditorCamera::PlaceAt( const glm::dvec3& position, const ViewBasis& basis )
     {
         if ( glm::length( basis.Forward ) < 1e-5f || glm::length( basis.Up ) < 1e-5f )
             return;
@@ -371,7 +372,7 @@ namespace Desert::Core
         // Keep the framing distance so F-focus and the orbit pivot behave as they did before piloting.
         const float dist = glm::max( m_Distance, 1.0f );
         m_Position       = position;
-        m_FocalPoint     = position + f * dist;
+        m_FocalPoint     = position + glm::dvec3( f ) * static_cast<double>( dist );
         UpdateCameraView();
     }
 
@@ -425,9 +426,9 @@ namespace Desert::Core
     void EditorCamera::UpdateCameraView()
     {
         const ViewBasis basis         = CurrentBasis();
-        const glm::vec3 lookDirection = m_Position + basis.Forward;
-        m_Direction                   = basis.Forward;
-        m_Distance                    = glm::distance( lookDirection, m_FocalPoint );
+        const glm::dvec3 lookDirection = m_Position + glm::dvec3( basis.Forward );
+        m_Direction                    = basis.Forward;
+        m_Distance                     = static_cast<float>( glm::distance( lookDirection, m_FocalPoint ) );
         m_RightDirection              = glm::cross( m_Direction, basis.Up );
 
         m_ViewMatrix = ViewMatrixFrom( m_Position, basis );
@@ -451,13 +452,15 @@ namespace Desert::Core
         UpdateProjectionMatrix( width, height );
     }
 
-    void GameplayCamera::SetFromTransform( const glm::vec3& position, const glm::vec3& eulerRotation,
+    void GameplayCamera::SetFromTransform( const glm::dvec3& position, const glm::vec3& eulerRotation,
                                            float fovDegrees, float nearPlane, float farPlane, uint32_t width,
                                            uint32_t height )
     {
-        const glm::mat4 world =
-             glm::translate( glm::mat4( 1.0f ), position ) * glm::toMat4( glm::quat( eulerRotation ) );
-        SetView( CameraEntityViewOf( world, fovDegrees, nearPlane, farPlane ), width, height, kNoSourceEntity );
+        // The rotation alone goes through the matrix; the eye stays the double it was given (LWC).
+        CameraEntityView view =
+             CameraEntityViewOf( glm::toMat4( glm::quat( eulerRotation ) ), fovDegrees, nearPlane, farPlane );
+        view.Position = position;
+        SetView( view, width, height, kNoSourceEntity );
     }
 
     void Camera::CopyViewFrom( const Camera& live )

@@ -2338,7 +2338,7 @@ namespace Desert::Graphic
             DESERT_PROFILE_PHASE( planPhases, "Plan: View inputs" );
             auto* const     meshes     = m_Systems.Mesh.get();
             const auto*     camera     = GetMainCamera();
-            const glm::vec3 viewOrigin = camera != nullptr ? camera->GetPosition() : glm::vec3( 0.0f );
+            const glm::vec3 viewOrigin = camera != nullptr ? glm::vec3( camera->GetPosition() ) : glm::vec3( 0.0f ); // LWC p4 edge
             const float     lensScale  = camera != nullptr
                                               ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(),
                                                                                  camera->GetProjectionMatrix() } )

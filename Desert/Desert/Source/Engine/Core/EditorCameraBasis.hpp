@@ -200,7 +200,12 @@ namespace Desert::Core
     // LookAt - EyePosition), in glm's right-handed convention: the same matrix glm::lookAtRH builds, with
     // the direction taken as given. @p basis must be unit and perpendicular — every ViewBasis this header
     // produces is.
-    [[nodiscard]] inline glm::mat4 ViewMatrixFrom( const glm::vec3& eye, const ViewBasis& basis )
+    //
+    // THE EYE IS A DOUBLE (LWC, UE FViewMatrices: ViewOrigin is an FVector kept apart from the rotation). The
+    // rotation rows are float; the translation column -R*eye is formed in double and narrowed once, here, so
+    // the view matrix of a camera 20 km out is the float nearest the true one rather than the dot product of
+    // a rounded eye. The camera-relative renderer (LWC p4) stops reading this column altogether.
+    [[nodiscard]] inline glm::mat4 ViewMatrixFrom( const glm::dvec3& eye, const ViewBasis& basis )
     {
         const glm::vec3 f = glm::normalize( basis.Forward );
         const glm::vec3 s = glm::normalize( glm::cross( f, basis.Up ) );
@@ -216,9 +221,9 @@ namespace Desert::Core
         view[0][2] = -f.x;
         view[1][2] = -f.y;
         view[2][2] = -f.z;
-        view[3][0] = -glm::dot( s, eye );
-        view[3][1] = -glm::dot( u, eye );
-        view[3][2] = glm::dot( f, eye );
+        view[3][0] = static_cast<float>( -glm::dot( glm::dvec3( s ), eye ) );
+        view[3][1] = static_cast<float>( -glm::dot( glm::dvec3( u ), eye ) );
+        view[3][2] = static_cast<float>( glm::dot( glm::dvec3( f ), eye ) );
         return view;
     }
 } // namespace Desert::Core

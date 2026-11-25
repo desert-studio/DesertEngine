@@ -467,7 +467,7 @@ namespace Desert::Graphic::System
         // WHERE THE LEVELS WANT TO BE. The camera MINUS the accumulated wind, because the march asks the
         // volume about `position - wind`: the sky drifting downwind for an hour must not carry the clipmap
         // away from the camera that is looking at it.
-        const glm::vec3 cameraKm = camera->GetPosition() / kCloudWorldUnitsPerKm;
+        const glm::vec3 cameraKm = glm::vec3( camera->GetPosition() / static_cast<double>( kCloudWorldUnitsPerKm ) );
         const glm::vec3 windKm   = m_WindOffset / kCloudWorldUnitsPerKm;
         const glm::vec2 clipCameraKm( cameraKm.x - windKm.x, cameraKm.z - windKm.z );
 

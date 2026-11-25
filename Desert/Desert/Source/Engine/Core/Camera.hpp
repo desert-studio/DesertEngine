@@ -34,7 +34,8 @@ namespace Desert::Core
         [[nodiscard]] virtual glm::mat4 GetViewMatrix() const { return m_ViewMatrix; }
         [[nodiscard]] virtual glm::mat4 GetProjectionMatrix() const { return m_ProjectionMatrix; }
 
-        [[nodiscard]] const glm::vec3& GetPosition() const { return m_Position; }
+        // LWC: the eye is a double (UE FViewMatrices::ViewOrigin); the float view matrix is built from it once.
+        [[nodiscard]] const glm::dvec3& GetPosition() const { return m_Position; }
         [[nodiscard]] float            GetNear() const { return m_NearPlane; }
         [[nodiscard]] float            GetFar() const { return m_FarPlane; }
 
@@ -98,7 +99,7 @@ namespace Desert::Core
     protected:
         glm::mat4 m_ProjectionMatrix = glm::mat4( 1.0f );
         glm::mat4 m_ViewMatrix       = glm::mat4( 1.0f );
-        glm::vec3 m_Position         = glm::vec3( 0.0f );
+        glm::dvec3 m_Position        = glm::dvec3( 0.0 );
         uint32_t           m_SourceEntity     = kNoSourceEntity;
         CameraSourceTicket m_SourceTicket; // this object's issued id (GetSourceId when no entity drives it)
 
@@ -189,7 +190,7 @@ namespace Desert::Core
 
         // Frame a world point: the focal point moves there and the camera backs off along its
         // CURRENT view direction to `distance`. Drives F-focus and hierarchy double-click.
-        void Focus( const glm::vec3& point, float distance = 500.0f );
+        void Focus( const glm::dvec3& point, float distance = 500.0f );
 
         // ── PILOTING A CAMERA ENTITY ──────────────────────────────────────────────────────────────
         //
@@ -201,7 +202,7 @@ namespace Desert::Core
         // pitch clamp does not bend a steep camera, and the roll is kept through the next rotation (the
         // orbit applies it about the forward axis), so turning a rolled camera does not flatten it. The
         // damping deltas are left alone on purpose: a flight in progress keeps its inertia.
-        void PlaceAt( const glm::vec3& position, const ViewBasis& basis );
+        void PlaceAt( const glm::dvec3& position, const ViewBasis& basis );
 
         // Where the camera looks and which way is up, whichever model is driving it.
         [[nodiscard]] ViewBasis GetBasis() const
@@ -216,8 +217,8 @@ namespace Desert::Core
         // Everything a pilot session changes, so Eject can put the viewport back where it was.
         struct Pose
         {
-            glm::vec3                Position{ 0.0f };
-            glm::vec3                FocalPoint{ 0.0f };
+            glm::dvec3               Position{ 0.0 };
+            glm::dvec3               FocalPoint{ 0.0 };
             float                    Distance = 0.0f;
             float                    Yaw      = 0.0f;
             float                    Pitch    = 0.0f;
@@ -246,7 +247,7 @@ namespace Desert::Core
 
     private:
         glm::vec3 m_Orientation   = glm::vec3( 0.0f, 0.0f, -1.0f );
-        glm::vec3 m_FocalPoint    = glm::vec3( 0.0f );
+        glm::dvec3 m_FocalPoint   = glm::dvec3( 0.0 ); // a world point, double with the eye
         glm::vec3 m_LocationDelta = glm::vec3( 0.0f );
 
         glm::vec2 m_InitialMousePosition = glm::vec2( 0.0f );
@@ -294,7 +295,7 @@ namespace Desert::Core
         void SetView( const CameraEntityView& view, uint32_t width, uint32_t height, uint32_t sourceEntity );
 
         // The previews' spelling (an orbit given as Euler radians); builds the same view and calls SetView.
-        void SetFromTransform( const glm::vec3& position, const glm::vec3& eulerRotation, float fovDegrees,
+        void SetFromTransform( const glm::dvec3& position, const glm::vec3& eulerRotation, float fovDegrees,
                                float nearPlane, float farPlane, uint32_t width, uint32_t height );
     };
 } // namespace Desert::Core

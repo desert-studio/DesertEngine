@@ -72,8 +72,10 @@ namespace Desert::Editor
 
         /// What the document is showing RIGHT NOW for this property — the same number the widget draws,
         /// seeded by the same rule (own override, else the parent's effective value, else the schema
-        /// default). Components beyond @ref Components are zero.
-        std::array<float, 4> Value{};
+        /// default). Components beyond @ref Components are zero. DOUBLE, as UE's FVector is: a world position
+        /// (the selection's Location, the viewport camera) at 20 km is a double the census must not round;
+        /// a float property widens into it exactly.
+        std::array<double, 4> Value{};
 
         /// An INSTANCE row whose value comes from the parent rather than from this material's own
         /// overrides. Reported because "0.5" means something different depending on which of the two it

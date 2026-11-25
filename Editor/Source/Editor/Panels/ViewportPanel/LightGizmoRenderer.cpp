@@ -796,7 +796,7 @@ namespace Desert::Editor
             const glm::vec3 towardSun = ::Desert::ECS::Rules::AtmosphereSunDirection(
                  ::Desert::ECS::WorldRotation( *entity.GetRegistry(), entity.GetHandle() ) ); // scene -> sun
             const glm::vec3 lightDir  = -towardSun;                                        // sun -> scene
-            const glm::vec3 iconWorld = camera->GetPosition() + towardSun * 50.0f;
+            const glm::vec3 iconWorld = glm::vec3( camera->GetPosition() ) + towardSun * 50.0f; // LWC p4: eye-relative
 
             glm::vec2 screenPos;
             if ( !ProjectToScreen( iconWorld, mvp, width, height, screenPos ) )
@@ -1125,7 +1125,7 @@ namespace Desert::Editor
 
             // The viewer is standing inside this camera — a viewport piloting it. Every edge would pass
             // through the eye and the icon would cover the whole view, so there is nothing to draw.
-            if ( glm::length( worldPos - camera->GetPosition() ) < 1.0f )
+            if ( glm::length( glm::dvec3( worldPos ) - camera->GetPosition() ) < 1.0 )
                 continue;
 
             // ── THE WIREFRAME ───────────────────────────────────────────────────────────────────────

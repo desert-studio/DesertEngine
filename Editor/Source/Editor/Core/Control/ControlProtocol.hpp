@@ -271,7 +271,9 @@ namespace Desert::Editor::Control
         /// Op::Set — the value, with as many components as the property takes. The COUNT is carried rather
         /// than padded to four: a float given three numbers is a client that meant a different property,
         /// and the document refuses it instead of writing something that looks accepted.
-        std::vector<float> Value;
+        /// DOUBLE (LWC): a world position in centimetres at 20 km keeps its 0.01 cm; a float-typed target
+        /// narrows once, where the value lands in its float field.
+        std::vector<double> Value;
 
         /// Op::AddComponent — the component, by its Details name or its reflected type name.
         std::string Component;
@@ -407,8 +409,15 @@ namespace Desert::Editor::Control
         /// A non-number ANYWHERE in the array fails the whole field rather than being skipped: dropping
         /// one element of `[1,"x",0]` would silently turn a three-component write into a two-component
         /// one, and the document would refuse it with a count the client never sent.
-        [[nodiscard]] inline NumberArray ReadFloatArray( const Common::Json::Node& fields, const char* key,
-                                                         std::vector<float>& out )
+        /// A `set` value handed to a FLOAT-typed property (a material parameter, a modeling setting): the one
+        /// narrowing, where the double the channel carries lands in its float field.
+        [[nodiscard]] inline std::vector<float> FloatValues( const std::vector<double>& value )
+        {
+            return std::vector<float>( value.begin(), value.end() );
+        }
+
+        [[nodiscard]] inline NumberArray ReadNumberArray( const Common::Json::Node& fields, const char* key,
+                                                          std::vector<double>& out )
         {
             const auto field = fields.Find( key );
             if ( !field )
@@ -426,12 +435,12 @@ namespace Desert::Editor::Control
                          return;
                      if ( const auto whole = element.AsInteger() )
                      {
-                         out.push_back( static_cast<float>( whole.GetValue() ) );
+                         out.push_back( static_cast<double>( whole.GetValue() ) );
                          return;
                      }
                      if ( const auto real = element.AsNumber() )
                      {
-                         out.push_back( static_cast<float>( real.GetValue() ) );
+                         out.push_back( real.GetValue() );
                          return;
                      }
                      allNumbers = false;
@@ -596,7 +605,7 @@ namespace Desert::Editor::Control
                     break;
                 }
 
-                switch ( ReadFloatArray( fields, "value", request.Value ) )
+                switch ( ReadNumberArray( fields, "value", request.Value ) )
                 {
                     case NumberArray::Absent:
                         return Common::MakeFormattedError<Request>(
@@ -664,7 +673,7 @@ namespace Desert::Editor::Control
             {
                 request.Path   = ReadString( fields, "path" );
                 request.Entity = ReadString( fields, "entity" );
-                if ( request.Path.empty() || ReadFloatArray( fields, "value", request.Value ) != NumberArray::Read ||
+                if ( request.Path.empty() || ReadNumberArray( fields, "value", request.Value ) != NumberArray::Read ||
                      request.Value.size() != 3 )
                     return Common::MakeError<Request>(
                          "'spawn' needs 'path' (the asset) and 'value' as three numbers: the world point it lands "
@@ -697,7 +706,7 @@ namespace Desert::Editor::Control
                 break;
             case Op::Advance:
             {
-                if ( ReadFloatArray( fields, "value", request.Value ) != NumberArray::Read ||
+                if ( ReadNumberArray( fields, "value", request.Value ) != NumberArray::Read ||
                      request.Value.size() != 1 || !( request.Value[0] > 0.0f ) ||
                      request.Value[0] > kMaxAdvanceSeconds )
                 {
@@ -710,7 +719,7 @@ namespace Desert::Editor::Control
             }
             case Op::Frames:
             {
-                if ( ReadFloatArray( fields, "value", request.Value ) != NumberArray::Read ||
+                if ( ReadNumberArray( fields, "value", request.Value ) != NumberArray::Read ||
                      request.Value.size() != 1 || !( request.Value[0] >= 1.0f ) ||
                      request.Value[0] > static_cast<float>( kMaxWaitFrames ) ||
                      request.Value[0] != static_cast<float>( static_cast<int>( request.Value[0] ) ) )
@@ -731,7 +740,7 @@ namespace Desert::Editor::Control
             }
             case Op::Drag:
             {
-                if ( ReadFloatArray( fields, "value", request.Value ) != NumberArray::Read ||
+                if ( ReadNumberArray( fields, "value", request.Value ) != NumberArray::Read ||
                      request.Value.size() != 4 )
                 {
                     return Common::MakeError<Request>(
@@ -775,7 +784,7 @@ namespace Desert::Editor::Control
                 }
                 if ( !IsKeyInputKind( request.InputKind ) )
                 {
-                    if ( ReadFloatArray( fields, "value", request.Value ) != NumberArray::Read ||
+                    if ( ReadNumberArray( fields, "value", request.Value ) != NumberArray::Read ||
                          request.Value.size() != 2 )
                         return Common::MakeFormattedError<Request>(
                              "'input' of kind '{}' needs 'value' as two numbers [x, y]: points inside 'panel' "

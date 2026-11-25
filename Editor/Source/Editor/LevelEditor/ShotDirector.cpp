@@ -36,7 +36,7 @@ namespace Desert::Editor
     // Focus backs the camera off along the current view direction by the framing distance, so aiming one
     // framing distance ahead is what lands it exactly on the position asked for; the two uses of that
     // distance are one named constant for that reason.
-    void PlaceEditorCamera( Desert::Core::EditorCamera& camera, const glm::vec3& position,
+    void PlaceEditorCamera( Desert::Core::EditorCamera& camera, const glm::dvec3& position,
                             const glm::vec3& forward )
     {
         // A COPY, TAKEN BEFORE THE CAMERA MOVES. A caller may hand over the camera's own eye (Camera.Spin passes
@@ -45,7 +45,7 @@ namespace Desert::Editor
         // round a circle of kViewportCameraFramingDistance (8.7 cm a frame at 1 degree) instead of turning it in
         // place - every cache keyed on the eye's position (the displaced landscape's virtual shadow pages, the
         // shadow LOD keys, the cloud shadow's sample count) was rebuilt on every frame of a "turn".
-        const glm::vec3 at = position;
+        const glm::dvec3 at = position;
         camera.SnapToDirection( glm::normalize( forward ) );
         camera.Focus( ViewportCameraFocalPoint( at, forward ), kViewportCameraFramingDistance );
         // EXACTLY THERE. Focus backs off along the orbit's own forward, rebuilt from yaw and pitch, which is the

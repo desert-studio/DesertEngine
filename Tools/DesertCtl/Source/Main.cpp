@@ -250,7 +250,7 @@ namespace
             }
 
             char buffer[64];
-            std::snprintf( buffer, sizeof( buffer ), "%.9g", value );
+            std::snprintf( buffer, sizeof( buffer ), "%.17g", value ); // a double round-trips (LWC: 2000000.3 cm)
             if ( out.size() > 1 )
                 out += ',';
             out += buffer;
