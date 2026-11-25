@@ -23,6 +23,7 @@
 namespace Desert::Graphic::API::Vulkan
 {
     struct VulkanBuiltPipeline; // VulkanPipeline.hpp: one published pipeline build
+    class VulkanPipeline;
 
     class VulkanRendererAPI : public RendererAPI
     {
@@ -320,10 +321,13 @@ namespace Desert::Graphic::API::Vulkan
          * Latched by debug name because this is asked once per draw call: a broken shader would
          * otherwise write the same line thousands of times a second and the log would stop being read.
          */
-        // @p record: the pipeline's build the caller read once (VulkanPipeline::GetBuilt) and takes its layout and
-        // push range from; null = the one published now.
-        NO_DISCARD bool BindGraphicsPipeline( const GraphicsPipeline*    pipeline,
-                                              const VulkanBuiltPipeline* record = nullptr );
+        // @p built: the pipeline's build the caller read once (BuiltForDraw) and takes its layout and push range
+        // from.
+        NO_DISCARD bool BindGraphicsPipeline( const GraphicsPipeline* pipeline, const VulkanBuiltPipeline& built );
+        // The record a draw through @p pipeline records from (VulkanPipeline::GetBuiltForDraw), or null: skip the
+        // whole draw. Compiling is silent (the content gate waits for engine pipelines); a pipeline whose build
+        // was refused or never started is a LOG_ERROR once per name.
+        NO_DISCARD const VulkanBuiltPipeline* BuiltForDraw( const VulkanPipeline& pipeline );
         // The shared buffer a mesh without vertex streams binds at binding 1 (white, UV1 0,0 in every vertex),
         // grown to hold `capacity` stream vertices (MeshVertexLayout.hpp DefaultVertexStreamsFor).
         // RDG-PARALLEL-1: its handle, read under m_GrowLock - a chunk on another worker may grow it meanwhile (the

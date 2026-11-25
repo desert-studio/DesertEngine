@@ -9,7 +9,7 @@
             "UNIT": 1,
             "WPAR": 14
         },
-        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91", "b13683e714584f4889f5e1f86ac62049", "b7de7b6da944bded0382e39126712944", "df51ca6ed9cb71779a9b5634db0863bc"]
+        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "07d47b430fcb4f73ad47488a19c6b5b8", "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91", "c41f7a92e6d84b0f9a3c5d2e8b7016f4", "df51ca6ed9cb71779a9b5634db0863bc"]
     },
     "SceneName": "Water_Buoyancy",
     "Entities": [
@@ -52,8 +52,8 @@
             "Scale": [1.0, 1.0, 1.0],
             "WaterBody": {
                 "WaterWaves": {
-                    "Guid": "b13683e714584f4889f5e1f86ac62049",
-                    "Path": "assets:Water/Waves/FFTOcean.dwaves"
+                    "Guid": "07d47b430fcb4f73ad47488a19c6b5b8",
+                    "Path": "assets:Water/Waves/CalmOcean.dwaves"
                 },
                 "OceanExtents": [4096000.0, 4096000.0],
                 "TargetWaveMaskDepth": 200.0,
@@ -418,8 +418,8 @@
                 },
                 "MaterialSlots": [
                     {
-                        "Guid": "b7de7b6da944bded0382e39126712944",
-                        "Path": "assets:Materials/CB_Glass.demat"
+                        "Guid": "c41f7a92e6d84b0f9a3c5d2e8b7016f4",
+                        "Path": "assets:Materials/CB_Ice.demat"
                     }
                 ]
             }
