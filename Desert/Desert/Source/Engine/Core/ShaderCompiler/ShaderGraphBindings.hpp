@@ -270,7 +270,7 @@ namespace Desert::Core
      *
      * SET 1, because set 0 has no slot for them outside every shared range: the traced permutation they ride on
      * fills set 0 from 0 to 40 (its G-buffer inputs, the GI frame, lights, light grid, radiance cache, the GI
-     * tracer at 23..33 and the surface cache at 34..40), 25..62 are the scene-read and raster ranges, and 63 up is
+     * tracer at 23..33 and the surface cache at 34..40), from 25 up are the scene-read and raster ranges, then
      * the graph's window, which nothing shipped may declare into (Tests/Engine/ShaderCacheKey). They had sat at
      * 50/51, inside the scene-read range. Set 1 is a program's own set (BindlessSetIndex.hpp) and no header
      * SSR.shader includes declares into it; the deferred composite parks its own extra reads there the same way

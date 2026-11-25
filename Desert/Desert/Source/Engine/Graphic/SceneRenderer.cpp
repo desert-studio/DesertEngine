@@ -2717,8 +2717,10 @@ namespace Desert::Graphic
             // MSAA the prepass's multisampled depth through its own resolve, once (the base pass writes no depth,
             // so this is the opaque depth the receivers read).
             const bool volumeTracesScreen = LocalLightsAreStochastic() && StochasticTraceSources().ScreenTrace();
+            // A casting light without a shadow map is traced on this depth's hierarchy by the base pass.
+            const bool baseTracesScreen = LocalLightsNeedScreenTrace();
             const RDG::TextureRef prepassDepth =
-                 sceneDepth.IsValid() && ( LocalLightsReadVirtualPages() || volumeTracesScreen )
+                 sceneDepth.IsValid() && ( LocalLightsReadVirtualPages() || volumeTracesScreen || baseTracesScreen )
                       ? AddFrameSceneDepthResolve( graph, textures, "Forward: Prepass DepthResolve" )
                       : RDG::TextureRef{};
             // Stochastic with vsm+screen: the volume's froxels read the same local pages (MegaLightsVolumeVirtual).
@@ -2728,6 +2730,8 @@ namespace Desert::Graphic
                 (void)AddFrameVirtualShadows( graph, textures, prepassDepth, {}, glm::vec3( 0.0f, 1.0f, 0.0f ),
                                               frame, {} );
             }
+            if ( baseTracesScreen && prepassDepth.IsValid() && EnsureScreenTraceResources() )
+                AddFrameHZB( graph, textures, prepassDepth );
             AddFrameMegaLightsVolume( graph, textures, frame, lightGrid, prepassDepth );
         }
         DESERT_PROFILE_PHASE_END( lightGridPhases );

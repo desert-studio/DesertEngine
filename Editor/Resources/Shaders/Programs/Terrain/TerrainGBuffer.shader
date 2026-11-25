@@ -200,8 +200,9 @@ Shader "TerrainGBuffer"
             transmission *= 1.0 - snow.Weight;
             // The decals over the ground (and over its snow), before the specular AA widens the roughness. The
             // ground is a dielectric: metallic 0 unless the water or a decal says otherwise.
-            DesertApplyDBuffer( DesertReadDBuffer( ivec2( gl_FragCoord.xy ) ), s.Albedo, s.N, s.Roughness,
-                                metallic, s.AO );
+            const DesertDBufferTexel decal = DesertReadDBuffer( ivec2( gl_FragCoord.xy ) );
+            DesertApplyDBuffer( decal, s.Albedo, s.N, s.Roughness, metallic, s.AO );
+            transmission *= decal.A.a; // a decal hides the blades it covers: no light comes through them
 
             // Ground is a dielectric; roughness and occlusion are the landscape material's layers'. Where the grass
             // field's far cover lies over it (GRASS-FIELD) the pixel shades as the blades do - TwoSidedFoliage, its

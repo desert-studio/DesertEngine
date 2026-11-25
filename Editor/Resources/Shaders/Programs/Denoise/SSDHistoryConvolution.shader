@@ -123,14 +123,15 @@ Shader "SSDHistoryConvolution"
         					const vec3 otherV = SSDViewVector((vec2(p) + 0.5) / size, other.Position,
         					                                  InverseJitteredViewProjection);
         					w *= SSDLobeSimilarity(lobe, SSDRoughnessLobe(other.Roughness, other.Normal, otherV));
-        					w *= SSDKarisWeight(s.a > 0.0 ? s.rgb / s.a : vec3(0.0));
         				}
         				alphaSum       += s.a * w;
         				alphaWeightSum += w;
         				if (deviationKnown)
         					w *= SSDBrightnessWeight(s.rgb, centreLight, deviation);
         				else if (signal == kSSDSignalDiffuseIndirect)
-        					w *= SSDKarisWeight(s.rgb); // a specular signal took it above
+        					w *= SSDKarisWeight(s.rgb);
+        				else if (SSDSignalIsSpecular(signal))
+        					w *= SSDKarisWeight(s.a > 0.0 ? s.rgb / s.a : vec3(0.0));
         				sum       += s * w;
         				weightSum += w;
         			}
