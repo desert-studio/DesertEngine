@@ -10,7 +10,6 @@
 #include <Editor/Core/SaveShortcut.hpp>
 #include <Editor/Core/ContentCreateCommands.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
-#include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Assets/BootContent.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -134,7 +133,6 @@
 // 4. Misc
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <Engine/Core/SceneRenderCollectors.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/TextECSSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
@@ -482,7 +480,7 @@ namespace Desert::Editor
         Graphic::SetSdrCaptureRendition( m_Control.WindowShotPending() );
         m_ScriptDebug.Service();
 
-        // THE EDITOR'S FRAME BOUNDARY FOR Core::OpenLevel (UEngine::TickWorldTravel for the PIE world context).
+        // THE EDITOR'S FRAME BOUNDARY FOR A LEVEL TRAVEL (UEngine::TickWorldTravel for the PIE world context).
         // In Play the queued level replaces the PLAYED world and Stop still returns to the authored one
         // (PlayWorldTravel); outside Play there is no game world and the request is refused with its target.
         if ( const auto travelled = m_Play.ServiceTravel(); !travelled )
@@ -526,8 +524,6 @@ namespace Desert::Editor
         // volume, and doing that before the frame's passes resolve their inputs is what lets the volume
         // be used by the same frame it arrived in rather than by the next one.
         Assets::AsyncAssetLoader::Get().Pump();
-        // The environment cache's readbacks land here and go to a worker for the encode (AL1-3).
-        Graphic::EnvironmentCacheWriter::Get().Pump();
         m_Startup.UpdateContentSettling();
 
         // Scene loads wait until the startup stages finished (a scene expects cooked/preloaded assets).
@@ -1030,8 +1026,6 @@ namespace Desert::Editor
         // Before the panels rather than after: a panel's own teardown must never be able to queue one last
         // preview into a service that has already let its renderer go.
         ThumbnailService::Get().Shutdown();
-        // The same reason for the environment cache: its readbacks own staging buffers and command buffers.
-        Graphic::EnvironmentCacheWriter::Get().Drain();
 
         // The SECOND half of the same problem, and the half the sentence above still does not cover: the
         // component widgets keep their thumbnail caches in function-statics (StaticMeshComponent.cpp,

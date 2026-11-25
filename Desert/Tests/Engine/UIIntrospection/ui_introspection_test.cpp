@@ -20,6 +20,7 @@
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 #include <TestSupport/ui_canvas_resources_mock.hpp>
+#include <TestSupport/ui_registry.hpp>
 
 #include <gtest/gtest.h>
 
@@ -94,7 +95,7 @@ namespace
     // question is about.
     struct Scene
     {
-        entt::registry            Registry;
+        entt::registry            Registry = ::TestSupport::UIRegistry();
         entt::entity              Canvas = entt::null;
         std::vector<entt::entity> Panels;
 
@@ -335,7 +336,7 @@ TEST( UIIntrospectionWalk, ABindingThatSaysHiddenIsItsOwnReason )
     auto& b  = scene.Registry.emplace<ECS::UIBindingComponent>( scene.Panels[1] ).Data;
     b.Key    = "hud.visible";
     b.Target = UI::UIBindTarget::Visible;
-    UI::UIDataStore::Get().Set( "hud.visible", false );
+    scene.Registry.ctx<UI::UIWorld>().Data.Set( "hud.visible", false );
 
     R2D::DrawList2D dl;
     UIViewContext   ctx{ s_Resources };
@@ -347,8 +348,6 @@ TEST( UIIntrospectionWalk, ABindingThatSaysHiddenIsItsOwnReason )
     ASSERT_NE( bound, nullptr );
     EXPECT_FALSE( bound->Drawn );
     EXPECT_EQ( bound->Cause, UISkipCause::BindingHidden );
-
-    UI::UIDataStore::Get().Clear(); // the store is global; leave it as it was found
 }
 
 TEST( UIIntrospectionWalk, AScreenThatIsNotCurrentIsItsOwnReason )

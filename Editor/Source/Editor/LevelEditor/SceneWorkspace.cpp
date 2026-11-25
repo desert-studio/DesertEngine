@@ -13,16 +13,7 @@
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/SceneRenderCollectors.hpp>
-#include <Engine/ECS/System/AnimationECSSystem.hpp>
-#include <Engine/ECS/System/AttachmentSystem.hpp>
-#include <Engine/ECS/System/AudioECSSystem.hpp>
-#include <Engine/ECS/System/LevelSequenceSystem.hpp>
-#include <Engine/ECS/System/LocomotionSystem.hpp>
-#include <Engine/ECS/System/PhysicsECSSystem.hpp>
-#include <Engine/ECS/System/ComponentEventSystem.hpp>
-#include <Engine/ECS/System/ScriptSystem.hpp>
-#include <Engine/ECS/System/GameModeSystem.hpp>
+#include <Engine/Core/WorldSystems.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -62,7 +53,8 @@ namespace Desert::Editor
         // The viewport panel is laid out on the first frame, after Scene::Init builds this renderer; the
         // panel's resize brings it to size then (see Graphic::kUnsizedViewExtent).
         m_SceneRenderer = Graphic::SceneRenderer::Create( Graphic::kUnsizedViewExtent );
-        m_ActiveScene   = std::make_shared<Desert::Core::Scene>( "New Scene", m_SceneRenderer.get() );
+        m_ActiveScene   = std::make_shared<Desert::Core::Scene>( "New Scene", m_SceneRenderer.get(),
+                                                             Desert::Core::WorldKind::Document );
         m_PrimaryScene  = m_ActiveScene; // the always-present document #-1 (see SetActiveScene)
     }
 
@@ -169,27 +161,9 @@ namespace Desert::Editor
         Core::SelectionManager::ClearSelection();
     }
 
-    void SceneWorkspace::BuildSceneSystems( Desert::Core::Scene& scene )
+    Common::BoolResultStr SceneWorkspace::CreateSystems( Desert::Core::Scene& scene ) const
     {
-        // The nine collectors that turn components into render data, and their order, live in ONE place
-        // (Engine/Core/SceneRenderCollectors.hpp). The gameplay systems below belong to the host: each needs a
-        // service only the host owns.
-        Desert::Core::AddSceneRenderCollectors( scene );
-        scene.AddSystem<ECS::AnimationECSSystem>( m_Animations.get(), m_Assets.get() );
-        // AttachmentSystem runs right AFTER animation: weapons-in-hand follow the freshly-posed bone this frame.
-        scene.AddSystem<ECS::AttachmentSystem>( &scene );
-        // ScriptSystem runs BEFORE physics: scripts set the character's move intent (+ look) which
-        // PhysicsECSSystem then executes the same frame.
-        scene.AddSystem<ECS::ScriptSystem>( &scene, m_Assets.get() );
-        scene.AddSystem<ECS::GameModeSystem>( &scene, m_Assets.get() );
-        scene.AddSystem<ECS::PhysicsECSSystem>( &scene );
-        scene.AddSystem<ECS::ComponentEventSystem>(); // the physics/destruction facts -> component events
-        // Maps character movement state (speed/onGround from physics) -> locomotion clip; after physics.
-        scene.AddSystem<ECS::LocomotionSystem>( &scene );
-        scene.AddSystem<ECS::AudioECSSystem>( &scene );
-        // Level sequences play last: a keyed Transform wins over this frame's physics and locomotion (UE
-        // evaluates sequences after the actors' own tick).
-        scene.AddSystem<ECS::LevelSequenceSystem>( &scene, m_Assets.get() );
+        return Desert::Core::CreateWorldSystems( scene, { m_Assets.get(), m_Animations.get() } );
     }
 
     void SceneWorkspace::SetActiveScene( uint64_t id )
@@ -271,9 +245,12 @@ namespace Desert::Editor
         doc->Name = std::format( "Scene {}", id + 1 ); // the main scene reads as "Scene 1"
 
         doc->Renderer = Graphic::SceneRenderer::Create( Graphic::kUnsizedViewExtent );
-        doc->Scene    = std::make_shared<Desert::Core::Scene>( std::string( doc->Name ), doc->Renderer.get() );
-        BuildSceneSystems( *doc->Scene );
-        if ( const auto inited = doc->Scene->Init(); !inited.IsSuccess() )
+        doc->Scene    = std::make_shared<Desert::Core::Scene>( doc->Name, doc->Renderer.get(),
+                                                          Desert::Core::WorldKind::Document );
+        auto inited = CreateSystems( *doc->Scene );
+        if ( inited.IsSuccess() )
+            inited = doc->Scene->Init();
+        if ( !inited.IsSuccess() )
             LOG_ERROR( "[EditorLayer] scene view '{}' failed to initialise: {}", doc->Name, inited.GetError() );
         doc->Registry = std::make_unique<Render::RenderRegistry>( doc->Scene );
 

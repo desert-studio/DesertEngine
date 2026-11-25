@@ -669,7 +669,7 @@ namespace Desert::UI
         const auto& b = *tree.Get<UIBindingData>( e );
         if ( b.Target != UIBindTarget::Visible || b.Key.empty() )
             return false;
-        const auto v = BindingStore( ctx, b.Key, row ).Bool( b.Key );
+        const auto v = BindingStore( tree.World(), ctx, b.Key, row ).Bool( b.Key );
         return v.has_value() && !*v;
     }
 

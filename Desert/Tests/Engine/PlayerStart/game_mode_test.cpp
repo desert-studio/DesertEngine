@@ -63,7 +63,7 @@ namespace
 
 TEST( GameMode, StartSelectionIsTheLevelRuleOverTheScenesPlayerStarts )
 {
-    Scene scene( "GP3_Starts", nullptr );
+    Scene scene( "GP3_Starts", nullptr, WorldKind::Game );
     Start( scene, "Main", "", { 100.0f, 0.0f, 0.0f } );
     Start( scene, "Door", "Door", { 0.0f, 0.0f, 500.0f } );
 
@@ -78,7 +78,7 @@ TEST( GameMode, StartSelectionIsTheLevelRuleOverTheScenesPlayerStarts )
 
 TEST( GameMode, RestartSpawnsThePrefabAtTheStartAndPossessesItsCamera )
 {
-    Scene scene( "GP3_Restart", nullptr );
+    Scene scene( "GP3_Restart", nullptr, WorldKind::Game );
     NamePawn( scene, 2.0f );
     Start( scene, "Main", "", { 300.0f, 50.0f, -20.0f } );
     int spawned = 0;
@@ -101,7 +101,7 @@ TEST( GameMode, RestartSpawnsThePrefabAtTheStartAndPossessesItsCamera )
 
 TEST( GameMode, KillUnpossessesAndRestartsAfterTheDelayAtTheStart )
 {
-    Scene scene( "GP3_Respawn", nullptr );
+    Scene scene( "GP3_Respawn", nullptr, WorldKind::Game );
     NamePawn( scene, 2.0f );
     Start( scene, "Main", "", { 0.0f, 0.0f, 900.0f } );
     int   spawned = 0;
@@ -146,7 +146,7 @@ TEST( GameMode, KillUnpossessesAndRestartsAfterTheDelayAtTheStart )
 
 TEST( GameMode, OnlyThePlayersPawnDiesAndOnlyOnce )
 {
-    Scene scene( "GP3_Kill", nullptr );
+    Scene scene( "GP3_Kill", nullptr, WorldKind::Game );
     NamePawn( scene, 1.0f );
     const entt::entity bystander = Start( scene, "Main", "", { 0.0f, 0.0f, 0.0f } );
     int                spawned   = 0;
@@ -163,7 +163,7 @@ TEST( GameMode, OnlyThePlayersPawnDiesAndOnlyOnce )
 // camera, and nobody can die or restart.
 TEST( GameMode, ALevelWithoutAPawnPlaysThroughItsCameraAndNeverRestarts )
 {
-    Scene        scene( "GP3_CameraOnly", nullptr );
+    Scene        scene( "GP3_CameraOnly", nullptr, WorldKind::Game );
     ECS::Entity& camera = scene.CreateEntityWithUUID( Common::UUID(), "Shot" );
     camera.AddComponent<ECS::CameraComponent>().Data.AutoActivateForPlayer = true;
     const entt::entity cameraHandle                                        = camera.GetHandle();
@@ -182,9 +182,8 @@ TEST( GameMode, ALevelWithoutAPawnPlaysThroughItsCameraAndNeverRestarts )
 // spawn, and the events move the player's input contexts and reach the Lua hooks before the scripts run.
 TEST( GameMode, HostsTickItAndItsEventsMoveInputAndReachLua )
 {
-    for ( const char* host :
-          { "Runtime/Source/RuntimeLayer.cpp", "Editor/Source/Editor/LevelEditor/SceneWorkspace.cpp" } )
     {
+        const char* const host    = "Desert/Desert/Source/Engine/Core/WorldSystems.cpp";
         const std::string src     = ReadSource( host );
         const auto        scripts = src.find( "AddSystem<ECS::ScriptSystem>" );
         const auto        mode    = src.find( "AddSystem<ECS::GameModeSystem>" );

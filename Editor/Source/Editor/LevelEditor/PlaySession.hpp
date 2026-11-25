@@ -60,7 +60,7 @@ namespace Desert::Editor
         }
         void ServiceRequests();
 
-        // The editor's frame boundary for Core::OpenLevel (PlayWorldTravel): in Play the queued level is loaded
+        // The editor's frame boundary for the world's travel (PlayWorldTravel): in Play the queued level is loaded
         // into the PLAYED world and Stop still restores the authored one; outside Play the request is refused.
         // Returns false when nothing was pending.
         [[nodiscard]] Common::BoolResultStr ServiceTravel();
@@ -121,6 +121,7 @@ namespace Desert::Editor
         State                                        m_State = State::Paused;
         PlayWorldTravel                              m_PlayWorld; // the authored snapshot + the travelled map
         std::optional<Desert::Core::EntityPackages>  m_EditPackages; // the edit world's, from Play to Stop
+        std::string                                  m_EditFilePath; // its file, from Play to Stop
         bool                                         m_PendingStop = false;
         std::unique_ptr<Desert::Core::WorldStreamer> m_WorldStreamer;
         // Play as a network client (--connect): the session with the server, for the whole Play.

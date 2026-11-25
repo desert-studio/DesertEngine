@@ -166,8 +166,10 @@ namespace CrashReporter
             {
                 if ( key == "machine" )
                     report.machine = value;
-                else if ( key == "scene" )
-                    report.scene = value;
+                else if ( key == "world" )
+                    report.worlds.emplace_back( value );
+                else if ( key == "worlds_not_listed" )
+                    report.worldsNotListed = value;
                 else if ( key == "os" )
                     report.os = value;
                 else if ( key == "gpu" )
@@ -333,8 +335,11 @@ namespace CrashReporter
              { "Time", std::format( "{}  (started {})", FormatCrashTime( inReport ), inReport.started ), false },
              { "Machine", std::format( "{}  -  {}", inReport.machine, inReport.os ), false },
              { "GPU", gpu, false },
-             { "Scene", inReport.scene, false },
         };
+        for ( const std::string& world : inReport.worlds )
+            view.summary.push_back( { "World", world, false } );
+        if ( !inReport.worldsNotListed.empty() )
+            view.summary.push_back( { "Worlds not listed", inReport.worldsNotListed, false } );
         return view;
     }
 } // namespace CrashReporter

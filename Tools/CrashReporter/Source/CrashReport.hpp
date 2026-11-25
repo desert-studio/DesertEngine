@@ -61,7 +61,8 @@ namespace CrashReporter
 
         // [context]
         std::string machine;
-        std::string scene;
+        std::vector<std::string> worlds; // one line per live world: "<kind> <state> <path>"
+        std::string worldsNotListed;     // empty: every live world is in `worlds`
         std::string os;
         std::string gpu;
         std::string gpuVendor; // CR1c: "0x10DE"; empty for a report written before the key existed

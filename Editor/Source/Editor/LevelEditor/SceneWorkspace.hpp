@@ -185,8 +185,8 @@ namespace Desert::Editor
         void BeginSceneOpenMeasure( std::string_view scene );
         void SampleSceneOpenMeasure();
 
-        // The standard ECS systems, shared by the primary scene and every extra document.
-        void BuildSceneSystems( Desert::Core::Scene& scene );
+        // CreateWorldSystems with the editor's services, for the primary scene and every extra document.
+        [[nodiscard]] Common::BoolResultStr CreateSystems( Desert::Core::Scene& scene ) const;
 
         // ── which document the editor is bound to ──────────────────────────────────────────────────
         void SetActiveScene( uint64_t id );

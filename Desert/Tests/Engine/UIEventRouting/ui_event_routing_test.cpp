@@ -21,6 +21,7 @@
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
 #include <TestSupport/ui_canvas_resources_mock.hpp>
+#include <TestSupport/ui_registry.hpp>
 #include <gtest/gtest.h>
 
 #include <string>
@@ -83,7 +84,7 @@ namespace
     // which "who heard it" has more than one possible answer. The two leaves are siblings and disjoint.
     struct Tree
     {
-        entt::registry Registry;
+        entt::registry Registry = ::TestSupport::UIRegistry();
         entt::entity   Canvas = entt::null;
         entt::entity   Outer  = entt::null;
         entt::entity   Inner  = entt::null;

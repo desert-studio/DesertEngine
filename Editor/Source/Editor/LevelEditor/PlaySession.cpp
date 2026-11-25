@@ -17,6 +17,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Engine/Core/LevelTravel.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/EditorRegions.hpp>
@@ -169,6 +170,7 @@ namespace Desert::Editor
         // The edit world's packages (which entities differ from their files, which records an editor region
         // left on disk) go with the snapshot: the restore at Stop is a load, and a load forgets them.
         m_EditPackages = *scene->Packages();
+        m_EditFilePath = scene->GetFilePath();
 
         // THE PLAYED WORLD IS THE WHOLE WORLD (WP20, UE's PIE over World Partition): a world the editor holds
         // in part is completed from its files - what the editor holds plays as it is in memory, the rest as
@@ -179,7 +181,7 @@ namespace Desert::Editor
             LOG_ERROR( "[Scene] Play refused: {0}", completed.GetError() );
             Editor::ToastManager::Push( std::format( "Play refused: {}", completed.GetError() ),
                                         Editor::ToastLevel::Error );
-            m_PlayWorld.Discard();
+            m_PlayWorld.Discard( scene->Travel() );
             m_EditPackages.reset();
             return;
         }
@@ -193,7 +195,7 @@ namespace Desert::Editor
                 RestoreEditWorld( m_PlayWorld.AuthoredSnapshot() );
             else
                 m_EditPackages.reset();
-            m_PlayWorld.Discard();
+            m_PlayWorld.Discard( scene->Travel() );
         };
         // The pawn is spawned AFTER the snapshot, so Stop's restore has never heard of it, and BEFORE the
         // streamer, which may unload the cell the PlayerStart stands in.
@@ -295,7 +297,7 @@ namespace Desert::Editor
         // Whatever map Play ended on -- the authored one or one a travel loaded -- the snapshot taken when Play
         // began is what comes back (UEditorEngine::EndPlayMap: the PIE world goes, the editor's level stays).
         const auto restored = m_PlayWorld.End(
-             [&]( const std::string& snapshot ) -> Common::BoolResultStr
+             scene->Travel(), [&]( const std::string& snapshot ) -> Common::BoolResultStr
              {
                  const std::size_t outgoing = scene->GetAllEntities().size();
                  scene->Clear();
@@ -316,7 +318,9 @@ namespace Desert::Editor
             Editor::ToastManager::Push( "Play snapshot could not be restored — see the log",
                                         Editor::ToastLevel::Error );
         }
-        else if ( m_EditPackages )
+        else
+            scene->SetFilePath( m_EditFilePath );
+        if ( restored && m_EditPackages )
             *scene->Packages() = *m_EditPackages; // the edit world is back, and so is what it knows of its files
         m_EditPackages.reset();
         const std::size_t incoming = scene->GetAllEntities().size();
@@ -360,8 +364,12 @@ namespace Desert::Editor
             Editor::ToastManager::Push( "Play snapshot could not be restored — see the log",
                                         Editor::ToastLevel::Error );
         }
-        else if ( m_EditPackages )
-            *scene->Packages() = *m_EditPackages;
+        else
+        {
+            scene->SetFilePath( m_EditFilePath );
+            if ( m_EditPackages )
+                *scene->Packages() = *m_EditPackages;
+        }
         m_EditPackages.reset();
         if ( const auto inited = scene->Init(); !inited.IsSuccess() )
             LOG_ERROR( "[EditorLayer] scene failed to initialise after a refused Play: {}", inited.GetError() );
@@ -370,7 +378,8 @@ namespace Desert::Editor
 
     Common::BoolResultStr PlaySession::ServiceTravel()
     {
-        return m_PlayWorld.Tick( [this]( const std::string& path ) { return LoadIntoPlayWorld( path ); } );
+        return m_PlayWorld.Tick( m_Workspace.ActiveScene()->Travel(),
+                                 [this]( const std::string& path ) { return LoadIntoPlayWorld( path ); } );
     }
 
     Common::BoolResultStr PlaySession::LoadIntoPlayWorld( const std::string& path )
@@ -404,8 +413,6 @@ namespace Desert::Editor
             LOG_ERROR( "[Play] travel found no undo barrier: this Play session never fenced the history" );
         const std::size_t outgoing = scene->GetAllEntities().size();
         scene->Clear();
-        // A notification of the level being left names one of ITS overlay canvases (RuntimeLayer's switch).
-        Desert::UI::UIOverlayRequests::Get().Clear();
         phases.Lap( "clear the played world", outgoing );
 
         // Whatever fails from here on, the scene stays in Play: Stop restores the authored level only from a
@@ -420,6 +427,7 @@ namespace Desert::Editor
         if ( const auto loaded = serializer.Deserialize( loadable.ExtractValue(), path ); !loaded )
             return stayInPlay(
                  std::format( "Travel to '{}' failed after teardown: {}", path, loaded.GetError() ) );
+        scene->SetFilePath( path );
         (void)Runtime::AwaitSceneClosure( *scene ); // the new level's dependency closure, read by the workers
         if ( const auto inited = scene->Init(); !inited.IsSuccess() )
             return stayInPlay( std::format( "Travel to '{}': init failed: {}", path, inited.GetError() ) );
@@ -463,7 +471,7 @@ namespace Desert::Editor
                   sceneViewId );
         m_State       = State::Paused;
         m_PendingStop = false;
-        m_PlayWorld.Discard();
+        m_PlayWorld.Discard( m_Workspace.ActiveScene()->Travel() );
         m_EditPackages.reset();
         EndNetClient(); // the closed view's world is still the active one here and goes after this returns
         m_WorldStreamer.reset();

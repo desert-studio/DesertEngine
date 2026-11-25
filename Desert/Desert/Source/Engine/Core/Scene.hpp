@@ -98,6 +98,7 @@ namespace Desert::Core
     class DebugDrawWorld;
     class EntityPackages;
     class GameMode;
+    class LevelTravel;
     class WeatherState;
     class WorldParameterInstance;
     class WorldTime;
@@ -143,6 +144,11 @@ namespace Common::Math
     class Ray;
 }
 
+namespace Desert::UI
+{
+    struct UIWorld;
+}
+
 namespace Desert::Core
 {
     class Scene;
@@ -170,8 +176,8 @@ namespace Desert::Core
         using ViewList = SceneViewList<Graphic::SceneRenderer, Core::Camera>;
         using View     = ViewList::View;
 
-        Scene();
-        Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer );
+        // A world states its kind: which registered systems it runs (Core/WorldSystems.hpp).
+        Scene( std::string sceneName, Graphic::SceneRenderer* sceneRenderer, WorldKind kind );
         ~Scene();
 
         // Copying or moving a Scene would put a second entry in (or a stale entry into) the live-scene
@@ -203,7 +209,7 @@ namespace Desert::Core
         [[nodiscard]] static const std::vector<Scene*>& LiveScenes();
 
         // A feature module's per-scene state (ModuleHooks().SceneStates[slot]; e.g. the VFX module's effects
-        // world, VFX::VFXWorld::Of). Never null for a registered slot: made by both constructors.
+        // world, VFX::VFXWorld::Of). Never null for a registered slot: made by the constructor.
         [[nodiscard]] ISceneModuleState& GetModuleState( std::size_t slot )
         {
             return *m_ModuleStates[slot];
@@ -364,6 +370,10 @@ namespace Desert::Core
         {
             m_SceneName = name;
         }
+
+        // The .desce this world is; empty when it is in no file. Set by whoever loaded or saved it; Clear empties it.
+        [[nodiscard]] const std::string& GetFilePath() const;
+        void                             SetFilePath( std::string path );
 
         // The .desce's text header as loaded (or as last stamped by a save): it carries the scene's GUID,
         // which is the scene's identity and is kept from save to save - never re-derived.
@@ -568,6 +578,12 @@ namespace Desert::Core
         {
             return m_Players.empty() ? entt::entity( entt::null ) : m_Players.front().Controller;
         }
+        // This world's queued level change. Clear keeps it: it can be the travel that cleared the world.
+        [[nodiscard]] LevelTravel& Travel();
+        // What gameplay tells this world's screen and what the screen tells its gameplay (UI/UIWorld.hpp). Kept in
+        // the registry's context, where the UI's read view of the registry finds it.
+        [[nodiscard]] UI::UIWorld& GetUIWorld();
+
         // The game rules of this played world (Core/GameMode.hpp): death and restart of the player's pawn.
         [[nodiscard]] GameMode& GetGameMode()
         {
@@ -832,6 +848,17 @@ namespace Desert::Core
             return m_CameraPinned;
         }
 
+        [[nodiscard]] WorldKind Kind() const
+        {
+            return m_Kind;
+        }
+
+        [[nodiscard]] bool HasSystems() const
+        {
+            return !m_Systems.empty();
+        }
+
+        // For the registrations of Core/WorldSystems.hpp; a host calls CreateWorldSystems.
         template <typename T, typename... Args>
         void AddSystem( Args&&... args )
         {
@@ -931,6 +958,8 @@ namespace Desert::Core
         void ExecuteSystems( const Common::Timestep& gameplayTs );
 
     private:
+        const WorldKind m_Kind;
+
         // The retained render cache's feed of the dirty set (ECS::RenderStateDelta; the registry context links
         // it). Declared before the registry so it outlives every signal the registry's teardown may fire.
         ECS::RenderStateDelta m_RenderStateDelta;
@@ -986,21 +1015,21 @@ namespace Desert::Core
         std::unique_ptr<Debug::GameplayDebugger> m_GameplayDebugger;
 #endif
 
-        // See GetReflectionCaptures. Never null: made by both constructors.
+        // See GetReflectionCaptures. Never null: made by the constructor.
         std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
-        // See GetRayTracingCache. Never null: made by both constructors.
+        // See GetRayTracingCache. Never null: made by the constructor.
         std::unique_ptr<Graphic::RayTracing::RayTracingSceneCache> m_RayTracingCache;
-        // See GetGpuScene. Never null: made by both constructors.
+        // See GetGpuScene. Never null: made by the constructor.
         std::unique_ptr<Graphic::GpuDriven::GpuSceneRegistry> m_GpuScene;
-        // See GetSkyLight. Never null: made by both constructors. Shared so a view can hold it weakly.
+        // See GetSkyLight. Never null: made by the constructor. Shared so a view can hold it weakly.
         std::shared_ptr<Graphic::SceneSkyLight> m_SkyLight;
-        // See GetAtmosphere. Never null: made by both constructors.
+        // See GetAtmosphere. Never null: made by the constructor.
         std::shared_ptr<Graphic::SceneAtmosphere> m_Atmosphere;
-        // See GetLocalShadows. Never null: made by both constructors.
+        // See GetLocalShadows. Never null: made by the constructor.
         std::unique_ptr<Graphic::LocalShadowCache> m_LocalShadows;
-        // See GetDistanceFields. Never null: made by both constructors.
+        // See GetDistanceFields. Never null: made by the constructor.
         std::unique_ptr<Graphic::DistanceField::DistanceFieldSceneData> m_DistanceFields;
-        // See GetSurfaceCache. Never null: made by both constructors.
+        // See GetSurfaceCache. Never null: made by the constructor.
         std::unique_ptr<Graphic::SurfaceCache::SurfaceCacheRenderer> m_SurfaceCache;
         // The surface caches and capture renderers Clear dropped with their world, kept until no frame in flight
         // reads them (collected at the top of the views' render, OnUpdate).
@@ -1057,15 +1086,20 @@ namespace Desert::Core
 
         std::unique_ptr<SceneSettings> m_Settings;
         std::string   m_SceneName;
-        // See Packages(). Made by both constructors.
+        // See Packages(). Made by the constructor.
         std::shared_ptr<EntityPackages> m_Packages;
         // THE FILE THIS WORLD CAME FROM: its text header (GetAssetHeader), the parsed document the saver merges onto
         // (GetLoadedDocument) and the partition block (GetWorldPartition). Defined in Scene.cpp, so the scene format
-        // stays out of this header. Never null: made by both constructors.
+        // stays out of this header. Never null: made by the constructor.
         struct FileState;
         std::unique_ptr<FileState> m_File;
+        void                       ReportToCrashHandler() noexcept;
 
-        // see GetModuleState; one per ModuleHooks().SceneStates row, made by both constructors
+        // see Travel. A member and not a world subsystem: a travel the new level's BeginPlay queues must survive
+        // SetState's recreation of the subsystems.
+        std::unique_ptr<LevelTravel> m_Travel;
+
+        // see GetModuleState; one per ModuleHooks().SceneStates row, made by the constructor
         std::vector<std::unique_ptr<ISceneModuleState>> m_ModuleStates;
 
         Common::WorldSubsystems<Scene> m_Subsystems{ *this };

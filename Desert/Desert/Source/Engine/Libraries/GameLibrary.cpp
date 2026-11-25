@@ -3,6 +3,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Audio/AudioEngine.hpp>
 #include <Engine/Core/LevelTravel.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Core/TimerManager.hpp>
 #include <Engine/Core/WorldContext.hpp>
 #include <Projects/GameSettings.hpp>
@@ -52,8 +53,14 @@ namespace Desert::Libraries
 
     Common::BoolResultStr LevelLibrary::Open( const std::string& level )
     {
-        // Core::OpenLevel logs its refusal; the script hears it as (false, reason).
-        return Core::OpenLevel( level );
+        // The travel logs its refusal; the script hears it as (false, reason).
+        const Core::WorldContext* context = Core::WorldContext::Current();
+        if ( context == nullptr || context->World == nullptr )
+        {
+            LOG_ERROR( "[Script] level.open: no world runs this call" );
+            return Common::MakeError<bool>( "level.open: no world runs this call" );
+        }
+        return context->World->Travel().Open( level );
     }
 
     namespace

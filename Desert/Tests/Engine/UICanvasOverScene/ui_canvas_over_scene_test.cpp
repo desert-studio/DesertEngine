@@ -28,6 +28,7 @@
 #include <Engine/UI/Ecs/UIIntrospectionEcs.hpp>
 
 #include <TestSupport/ui_canvas_resources_mock.hpp>
+#include <TestSupport/ui_registry.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -104,7 +105,7 @@ namespace
     // siblings of the canvas rather than tripping over them.
     struct OverScene
     {
-        entt::registry            Registry;
+        entt::registry            Registry = ::TestSupport::UIRegistry();
         entt::entity              Canvas = entt::null;
         entt::entity              Marker = entt::null;
         entt::entity              Button = entt::null;

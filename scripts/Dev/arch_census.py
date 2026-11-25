@@ -20,6 +20,8 @@ ENGINE = re.compile(r"^Desert/(?!Tests/|Projects/).*\.(hpp|cpp|h)$")
 # Tables of numbers and icon names are data, not code.
 CODE = re.compile(r"^(Desert|Editor|Runtime|Server)/(?!Tests/|Projects/|.*Generated/|.*(?:SMAAAreaTexData|IconsMaterialDesignIcons)\.h)"
                   r".*\.(hpp|cpp|h)$")
+# The sources whose worlds share a process.
+STATICS = re.compile(r"^Desert/(Desert/Source/Engine|Common/Source/Common/Core|UI|Audio)/.*\.(hpp|cpp|h)$")
 MAX_LINES = 2500
 RULES = {
     # A process-wide object: breaks two worlds in one process (audit 8, 13, 14).
@@ -31,6 +33,58 @@ RULES = {
     "engine-includes-editor": (ENGINE, re.compile(r'#include\s*[<"](Editor|EditorCore)/')),
     "todo": (CODE, re.compile(r"//.*\b(TODO|FIXME|HACK)\b")),
 }
+
+
+NOT_CODE = re.compile(r'R"(?P<d>[^ ()\\\t\n]*)\(.*?\)(?P=d)"|//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\\n])*"'
+                      r"|(?<![0-9A-Fa-f])'(?:\\.|[^'\\\n])+'", re.S)
+DIRECTIVE = re.compile(r"^\s*#\s*(\w+)")
+TOKEN = re.compile(r"[{};]|\bstatic\b")
+
+
+def hidden_statics(text):
+    """The lines of function-local statics that are not const: state with no owner, shared by every world."""
+    text = NOT_CODE.sub(lambda m: '""' + "\n" * m.group().count("\n"), text)
+    lines, branches, continued = text.split("\n"), [], False
+    for i, line in enumerate(lines):
+        directive = DIRECTIVE.match(line)
+        if directive and not continued:
+            word = directive.group(1)
+            if word.startswith("if"):
+                branches.append(True)
+            elif word.startswith("el") and branches:
+                branches[-1] = False  # one branch only, so the braces of the two do not add up
+            elif word == "endif" and branches:
+                branches.pop()
+        blank = directive or continued or not all(branches)
+        continued = (directive is not None or continued) and line.rstrip().endswith("\\")
+        if blank:
+            lines[i] = ""
+    text = "\n".join(lines)
+    found, scopes, start = [], [], 0
+    for m in TOKEN.finditer(text):
+        token = m.group()
+        if token == "static":
+            if scopes and scopes[-1] == "function":
+                head = re.split(r"[=({;]", text[m.end():m.end() + 400], maxsplit=1)[0]
+                while "<" in head and re.search(r"<[^<>]*>", head):
+                    head = re.sub(r"<[^<>]*>", "", head)
+                if not re.search(r"\b(const|constexpr|constinit)\b", head):
+                    found.append(text.count("\n", 0, m.start()) + 1)
+            continue
+        if token == "{":
+            head = text[start:m.start()]
+            while re.search(r"<[^<>]*>", head):
+                head = re.sub(r"<[^<>]*>", "", head)
+            if re.search(r"\b(namespace|extern)\b", head):
+                scopes.append("namespace")
+            elif re.search(r"\b(class|struct|union|enum)\b", head) and not re.search(r"\)\s*(const|noexcept|override)?\s*$", head):
+                scopes.append("class")
+            else:
+                scopes.append("function")
+        elif token == "}" and scopes:
+            scopes.pop()
+        start = m.end()
+    return found
 
 
 def scan():
@@ -51,6 +105,10 @@ def scan():
                          and not (rule != "todo" and l.lstrip().startswith("//"))]
                 if found:
                     hits.setdefault(rule, {})[f] = found
+        if STATICS.match(f) and "static" in text:
+            found = hidden_statics(text)
+            if found:
+                hits.setdefault("hidden_statics", {})[f] = found
         if len(lines) > MAX_LINES:
             # Counted in steps of 100 lines, so a big file may not keep growing but a line or two is no event.
             hits.setdefault("file-too-big", {})[f] = [1] * ((len(lines) - MAX_LINES) // 100 + 1)

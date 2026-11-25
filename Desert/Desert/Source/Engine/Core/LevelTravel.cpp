@@ -40,12 +40,6 @@ namespace Desert::Core
         return Common::MakeSuccess( std::move( path ) );
     }
 
-    LevelTravel& LevelTravel::Get()
-    {
-        static LevelTravel instance;
-        return instance;
-    }
-
     Common::BoolResultStr LevelTravel::Open( std::string_view level )
     {
         auto resolved = ResolveLevelPath( level );

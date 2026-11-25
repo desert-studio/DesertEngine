@@ -211,7 +211,9 @@ namespace Desert::Landscape
                                       { return std::make_unique<ECS::LandscapeSplineMeshDraw>(); } );
         hooks.AssetParamLabels.push_back( { "LandscapeLayerInfoAsset", &LayerNameOf } );
         // The tiles' GPU copies are the scene's ledger rows (Scene::GetLedgerInstance).
-        hooks.RenderCollectors.push_back(
-             []( Core::Scene& scene ) { scene.AddSystem<ECS::LandscapeECSSystem>( scene.GetLedgerInstance() ); } );
+        hooks.WorldSystems.push_back(
+             { "Landscape", Core::WorldStage::ModuleDraw, 10, Core::kDrawnWorlds, false, false,
+               []( Core::Scene& scene, const Core::WorldServices& /*services*/ )
+               { scene.AddSystem<ECS::LandscapeECSSystem>( scene.GetLedgerInstance() ); } } );
     }
 } // namespace Desert::Landscape

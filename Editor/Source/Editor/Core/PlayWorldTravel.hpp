@@ -32,11 +32,6 @@ namespace Desert::Editor
         // Rebuild the authored level from its snapshot.
         using RestoreAuthored = std::function<Common::BoolResultStr( const std::string& snapshot )>;
 
-        explicit PlayWorldTravel( ::Desert::Core::LevelTravel& travel = ::Desert::Core::LevelTravel::Get() )
-             : m_Travel( travel )
-        {
-        }
-
         // Play began on the authored level serialized as @p authoredSnapshot.
         void Begin( std::string authoredSnapshot )
         {
@@ -58,15 +53,15 @@ namespace Desert::Editor
             return m_CurrentMap;
         }
 
-        // THE EDITOR'S FRAME BOUNDARY FOR Core::OpenLevel. In Play the queued travel is loaded into the played
+        // THE EDITOR'S FRAME BOUNDARY FOR THE PLAYED WORLD'S TRAVEL. In Play the queued travel is loaded into the played
         // world; outside Play there is no game world, and the level open is the one being authored -- the
         // request is refused with its target rather than left queued or applied to the document.
         // Returns false when nothing was pending; the refusal or the load's own error otherwise.
-        [[nodiscard]] Common::BoolResultStr Tick( const LoadMap& load )
+        [[nodiscard]] Common::BoolResultStr Tick( ::Desert::Core::LevelTravel& travel, const LoadMap& load )
         {
             if ( !Active() )
             {
-                return m_Travel.TickTravel(
+                return travel.TickTravel(
                      []( const std::string& path )
                      {
                          return Common::MakeFormattedError<bool>(
@@ -75,7 +70,7 @@ namespace Desert::Editor
                               path );
                      } );
             }
-            return m_Travel.TickTravel(
+            return travel.TickTravel(
                  [this, &load]( const std::string& path ) -> Common::BoolResultStr
                  {
                      // The undo stack recorded in the world being left targets entities about to be destroyed.
@@ -92,9 +87,10 @@ namespace Desert::Editor
 
         // Stop (UEditorEngine::EndPlayMap): a travel queued by the ending session dies with it, and the
         // authored level comes back from the snapshot whichever map was played last.
-        [[nodiscard]] Common::BoolResultStr End( const RestoreAuthored& restore )
+        [[nodiscard]] Common::BoolResultStr End( ::Desert::Core::LevelTravel& travel,
+                                                 const RestoreAuthored&       restore )
         {
-            m_Travel.Cancel();
+            travel.Cancel();
             if ( !Active() )
                 return Common::MakeSuccess( false );
             const std::string snapshot = std::exchange( m_Snapshot, {} );
@@ -103,16 +99,15 @@ namespace Desert::Editor
         }
 
         // The document Play was bound to closed: nothing to restore into.
-        void Discard()
+        void Discard( ::Desert::Core::LevelTravel& travel )
         {
-            m_Travel.Cancel();
+            travel.Cancel();
             m_Snapshot.clear();
             m_CurrentMap.clear();
         }
 
     private:
-        ::Desert::Core::LevelTravel& m_Travel;
-        std::string                  m_Snapshot;   // the authored level, serialized when Play began
-        std::string                  m_CurrentMap; // resolved path of the last travel; empty = the authored level
+        std::string m_Snapshot;   // the authored level, serialized when Play began
+        std::string m_CurrentMap; // resolved path of the last travel; empty = the authored level
     };
 } // namespace Desert::Editor

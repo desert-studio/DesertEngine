@@ -25,6 +25,7 @@
 #include <Engine/UI/Ecs/UIIntrospectionEcs.hpp>
 
 #include <TestSupport/ui_canvas_resources_mock.hpp>
+#include <TestSupport/ui_registry.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -84,7 +85,7 @@ namespace
     // what is counted here. So every saving this file reports is a LOWER BOUND on the real one.
     struct ListScene
     {
-        entt::registry            Registry;
+        entt::registry            Registry = ::TestSupport::UIRegistry();
         entt::entity              Canvas    = entt::null;
         entt::entity              Container = entt::null;
         std::vector<entt::entity> Rows;
@@ -705,8 +706,8 @@ namespace
 
     ListScene MakeBoundList( int records )
     {
-        UI::UIDataStore::Get().Clear();
-        auto& coll = UI::UIDataStore::Get().Collection( kBoundKey );
+        ListScene s;
+        auto&     coll = s.Registry.ctx<UI::UIWorld>().Data.Collection( kBoundKey );
         for ( int i = 0; i < records; ++i )
         {
             UI::UIDataStore r;
@@ -715,7 +716,6 @@ namespace
             coll.Add( std::move( r ) );
         }
 
-        ListScene s;
         s.MakeCanvas();
         s.MakeContainer();
         auto& lv      = s.Registry.emplace<ECS::UIListViewComponent>( s.Container ).Data;
@@ -734,9 +734,9 @@ namespace
         return s;
     }
 
-    UI::UICollection& Bound()
+    UI::UICollection& Bound( ListScene& s )
     {
-        return UI::UIDataStore::Get().Collection( kBoundKey );
+        return s.Registry.ctx<UI::UIWorld>().Data.Collection( kBoundKey );
     }
 
     float ScrollOf( ListScene& s )
@@ -775,7 +775,7 @@ TEST( ListViewBound, ChangingOneRecordChangesOnlyItsRowsVertices )
     const std::vector<R2D::Vertex2D> before( dl.GetVertices().begin(), dl.GetVertices().end() );
 
     constexpr int kRow = 3;
-    ASSERT_TRUE( Bound().SetField( kRow, "tint", glm::vec3( 1.0f, 0.0f, 1.0f ) ).IsSuccess() );
+    ASSERT_TRUE( Bound( scene ).SetField( kRow, "tint", glm::vec3( 1.0f, 0.0f, 1.0f ) ).IsSuccess() );
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     const auto& after = dl.GetVertices();
     ASSERT_EQ( after.size(), before.size() );
@@ -796,7 +796,7 @@ TEST( ListViewBound, ChangingOneRecordChangesOnlyItsRowsVertices )
 
     // A record outside the window changes nothing at all.
     const std::uint64_t still = Fingerprint( dl );
-    ASSERT_TRUE( Bound().SetField( 1500, "tint", glm::vec3( 0.0f ) ).IsSuccess() );
+    ASSERT_TRUE( Bound( scene ).SetField( 1500, "tint", glm::vec3( 0.0f ) ).IsSuccess() );
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     EXPECT_EQ( Fingerprint( dl ), still );
 }
@@ -825,12 +825,12 @@ TEST( ListViewBound, RemovingARecordInTheWindowMovesTheRecordsBelowItUpOneRow )
     ASSERT_TRUE( recordThree.has_value() );
     ASSERT_NE( rowColour( dl, 2 ), recordThree ) << "the fixture must tell records 2 and 3 apart";
 
-    ASSERT_TRUE( Bound().Remove( 2 ).IsSuccess() );
+    ASSERT_TRUE( Bound( scene ).Remove( 2 ).IsSuccess() );
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     const std::uint64_t removed = Fingerprint( dl );
 
     ListScene reference = MakeBoundList( 100 );
-    ASSERT_TRUE( Bound().Remove( 2 ).IsSuccess() );
+    ASSERT_TRUE( Bound( reference ).Remove( 2 ).IsSuccess() );
     UIViewContext refCtx{ s_Resources };
     ASSERT_TRUE( Walk( reference, dl, refCtx ) );
     EXPECT_EQ( Fingerprint( dl ), removed ) << "a list that saw the removal draws what a fresh one does";
@@ -851,20 +851,20 @@ TEST( ListViewBound, TheScrollFollowsTheRecordsWhenRecordsAreInsertedOrRemovedAb
     ASSERT_EQ( ScrollOf( scene ), 100 * kRowHeight );
 
     for ( int i = 0; i < 5; ++i )
-        ASSERT_TRUE( Bound().Insert( 0, UI::UIDataStore{} ).IsSuccess() );
+        ASSERT_TRUE( Bound( scene ).Insert( 0, UI::UIDataStore{} ).IsSuccess() );
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     EXPECT_EQ( ScrollOf( scene ), 105 * kRowHeight ) << "five records above the window move it five rows";
 
-    ASSERT_TRUE( Bound().Remove( 10 ).IsSuccess() );
+    ASSERT_TRUE( Bound( scene ).Remove( 10 ).IsSuccess() );
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     EXPECT_EQ( ScrollOf( scene ), 104 * kRowHeight );
 
-    ASSERT_TRUE( Bound().Insert( 500, UI::UIDataStore{} ).IsSuccess() );
-    Bound().Add( UI::UIDataStore{} );
+    ASSERT_TRUE( Bound( scene ).Insert( 500, UI::UIDataStore{} ).IsSuccess() );
+    Bound( scene ).Add( UI::UIDataStore{} );
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     EXPECT_EQ( ScrollOf( scene ), 104 * kRowHeight ) << "records below the window move nothing on screen";
 
-    Bound().Clear();
+    Bound( scene ).Clear();
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
     EXPECT_EQ( ScrollOf( scene ), 0.0f );
 }
@@ -884,14 +884,14 @@ TEST( ListViewBound, FollowEndKeepsAChatAtItsNewestLineOnlyWhileItIsThere )
         ASSERT_EQ( ScrollOf( scene ), end100 );
 
         for ( int i = 0; i < 3; ++i )
-            Bound().Add( UI::UIDataStore{} );
+            Bound( scene ).Add( UI::UIDataStore{} );
         ASSERT_TRUE( Walk( scene, dl, ctx ) );
         EXPECT_EQ( ScrollOf( scene ), follow ? end100 + 3 * kRowHeight : end100 ) << "follow=" << follow;
 
         // Scrolled up, the reader's place is kept even with FollowEnd on.
         lv.ScrollY = 10 * kRowHeight;
         ASSERT_TRUE( Walk( scene, dl, ctx ) );
-        Bound().Add( UI::UIDataStore{} );
+        Bound( scene ).Add( UI::UIDataStore{} );
         ASSERT_TRUE( Walk( scene, dl, ctx ) );
         EXPECT_EQ( ScrollOf( scene ), 10 * kRowHeight ) << "follow=" << follow;
     }
@@ -900,7 +900,7 @@ TEST( ListViewBound, FollowEndKeepsAChatAtItsNewestLineOnlyWhileItIsThere )
 TEST( ListViewBound, TheEnumerationNamesEachRowsRecordAndAgreesWithTheDrawAboutItsBindings )
 {
     ListScene scene = MakeBoundList( 50 );
-    ASSERT_TRUE( Bound().SetField( 4, "shown", false ).IsSuccess() );
+    ASSERT_TRUE( Bound( scene ).SetField( 4, "shown", false ).IsSuccess() );
     R2D::DrawList2D dl;
     UIViewContext   ctx{ s_Resources };
     ASSERT_TRUE( Walk( scene, dl, ctx ) );
@@ -944,5 +944,4 @@ TEST( ListViewBoundCost, WalkTimeAgainstRecordCount )
                      DrawnCount( scene, ctx ) );
     }
     std::printf( "\n" );
-    UI::UIDataStore::Get().Clear();
 }

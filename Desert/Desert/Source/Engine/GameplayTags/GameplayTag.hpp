@@ -94,8 +94,6 @@ namespace Desert::GameplayTags
     class GameplayTagRegistry
     {
     public:
-        static GameplayTagRegistry& Get();
-
         /// Reads Config/GameplayTags.json. Refuses, naming the row: a malformed name (empty segment, a character
         /// outside [A-Za-z0-9_]), a repeated name, more than kMaxTags tags. Every parent of a listed tag is
         /// registered implicitly (UE: "A.B.C" registers "A" and "A.B").
