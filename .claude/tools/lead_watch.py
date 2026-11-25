@@ -40,6 +40,7 @@ BIG_SCHEMAS = re.compile(r"notion-query-data-sources|notion-query-meeting-notes|
 LONG_WAIT_MS = 300_000
 NOTIFY = re.compile(r"<task-notification>|Another Claude session sent a message|<agent-message")
 TASK_ID = re.compile(r"<task-id>([A-Za-z0-9]+)</task-id>")
+AGENT_DONE = re.compile(r'<summary>Agent "')
 STARTED = re.compile(r"(?:running in background with ID: |agentId: )([A-Za-z0-9]+)")
 
 
@@ -125,7 +126,8 @@ def main():
                 st["turn_dig"] = 0
                 tid = TASK_ID.search(txt)
                 st["turn_tid"] = tid.group(1) if tid else ""
-                if tid and tid.group(1) not in started:
+                # An agent's completion is never a waiter: subagents outlive /clear (11-25), board_guard tracks them.
+                if tid and tid.group(1) not in started and not AGENT_DONE.search(txt):
                     st["stale"] += 1
                     pending.append(f"stale waiter {tid.group(1)} (not started by this session: ps aux | grep it, kill)")
             elif kind == "assistant":
