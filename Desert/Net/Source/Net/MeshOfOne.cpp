@@ -76,7 +76,14 @@ namespace Desert::Net
         pawn.Index          = m_Joined++;
         pawn.State.Id       = m_Store.AllocateNetId();
         pawn.State.Position = m_Settings.SpawnPoints[pawn.Index % m_Settings.SpawnPoints.size()];
+        // A spawned character starts falling and finds the floor under it on its first move (UE: the first
+        // PerformMovement's FindFloor; a spawn point stands above the ground). The replicated mode says so too:
+        // the owning client starts its prediction from this snapshot, and a server that began grounded took a
+        // ground step where the client took an air step (NET-4 run 11: 8.5 cm correction at input step 15,
+        // server vx +22 = one ground-acceleration step, vy +16 = one gravity step).
         pawn.Move.Position  = pawn.State.Position;
+        pawn.Move.Grounded  = false;
+        pawn.State.Movement = 0;
         m_Store.Write( pawn.State );
         m_Log( std::format( "player {} (account {}): pawn net id {} spawned at ({:.0f}, {:.0f}, {:.0f}) cm",
                             player, account, pawn.State.Id, pawn.State.Position.X, pawn.State.Position.Y,
@@ -217,6 +224,7 @@ namespace Desert::Net
         it->second.Move.Position = position;
         it->second.Move.Velocity = {};
         it->second.Move.Grounded = false;
+        it->second.State.Movement = 0; // the replicated mode is the move's: falling
         m_Store.Write( it->second.State );
         m_Log( std::format( "player {}: pawn {} teleported to ({:.0f}, {:.0f}, {:.0f}) cm", player,
                             it->second.State.Id, position.X, position.Y, position.Z ) );
