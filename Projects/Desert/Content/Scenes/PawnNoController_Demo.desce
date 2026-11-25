@@ -5,7 +5,7 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 76,
+            "SCNE": 77,
             "UNIT": 1,
             "WPAR": 14
         },
@@ -275,6 +275,7 @@
                 "Height": 176.0,
                 "MaxSlopeDeg": 50.0,
                 "MaxWalkSpeed": 600.0,
+                "MaxSprintSpeed": 1000.0,
                 "MaxAcceleration": 2048.0,
                 "BrakingDecelerationWalking": 2048.0,
                 "GroundFriction": 8.0,
@@ -285,6 +286,8 @@
                 "MaxWalkSpeedCrouched": 300.0,
                 "CrouchedHeight": 120.0,
                 "MaxSwimSpeed": 300.0,
+                "JumpAction": "IA_Jump",
+                "SprintAction": "IA_Sprint",
                 "CollisionProfile": "Pawn"
             }
         },
