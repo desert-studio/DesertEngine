@@ -3,6 +3,8 @@
 #include <Landscape/Public/LandscapeGrassTypeAsset.hpp>
 #include <Landscape/Public/LandscapeGrassTypeService.hpp>
 #include <Landscape/Public/LandscapeLayerInfoService.hpp>
+#include <Landscape/Public/LandscapeSplineHLODMesh.hpp>
+#include <Landscape/Public/LandscapeSplineMeshDraw.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AssetRootSet.hpp>
@@ -10,6 +12,7 @@
 #include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Engine/World/Landscape/LandscapeRaycast.hpp>
 #include <Engine/ECS/System/PhysicsSceneFeature.hpp>
 #include <Engine/World/Landscape/LandscapeComponent.hpp>
 #include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
@@ -123,6 +126,30 @@ namespace Desert::Landscape
                     roots.Mark( layer, "a landscape paints with it" );
         }
 
+        // The drawn tiles a scene raycast meets (Scene::GatherRaycastSurfaces): the renderer's own table
+        // (ECS::DrawableLandscapeTiles), so a tile the renderer refuses (LandscapeECSSystem warns why once) is not
+        // on screen and not pickable either, by the same test.
+        Core::RaySurfaceTrace GatherLandscapeRaySurface( entt::registry& registry )
+        {
+            const ECS::DrawableLandscape& drawable = ECS::DrawableLandscapeTiles( registry );
+            if ( drawable.RayTiles.empty() )
+                return {};
+            return [entities = std::span<const Common::UUID>( drawable.RayEntities ),
+                    tiles    = std::span<const World::Landscape::LandscapeRayTile>( drawable.RayTiles )](
+                        const Common::Math::Ray& ray, float limit,
+                        const std::function<bool( const Common::UUID& )>& accept )
+                        -> std::optional<Core::RaySurfaceHit>
+            {
+                const auto keep = [&]( std::size_t i ) { return !accept || accept( entities[i] ); };
+                const auto terrain =
+                     World::Landscape::RaycastLandscape( tiles, ray.Origin, ray.Direction, limit, keep );
+                if ( !terrain )
+                    return std::nullopt;
+                return Core::RaySurfaceHit{ entities[terrain->Tile], terrain->Point, terrain->Normal,
+                                            terrain->Distance };
+            };
+        }
+
         // The landscape's part of the physics scene (UE: ULandscapeHeightfieldCollisionComponent's bodies in the
         // Chaos scene): one height-field body per drawn tile, made per Play over PhysicsECSSystem's world.
         class LandscapePhysicsFeature final : public ECS::IPhysicsSceneFeature
@@ -163,11 +190,20 @@ namespace Desert::Landscape
                                     { Runtime::GetLandscapeGrassTypeService()->BindAssetManager( assets ); },
                                     []() { Runtime::GetLandscapeGrassTypeService()->Clear(); } } );
         hooks.AssetRoots.push_back( &MarkLandscapeAssetRoots );
+        hooks.Prepares.push_back( []( entt::registry& registry )
+                                  { registry.prepare<ECS::LandscapeMaterialComponent>(); } );
+        hooks.RaySurfaces.push_back( &GatherLandscapeRaySurface );
+        hooks.BeforeParallelGroup.push_back(
+             []( entt::registry& registry ) { static_cast<void>( ECS::RefreshLandscapeTileTable( registry ) ); } );
         ECS::RegisterPhysicsSceneFeature( []( Physics::PhysicsWorld& world ) -> std::unique_ptr<ECS::IPhysicsSceneFeature>
                                           { return std::make_unique<LandscapePhysicsFeature>( world ); } );
         hooks.HotReloads.push_back( { &WatchLoaded<Assets::LandscapeLayerInfoAsset>, &PollLayerInfos } );
         hooks.HotReloads.push_back( { &WatchLoaded<Assets::LandscapeGrassTypeAsset>, &PollGrassTypes } );
         hooks.AssetReferences.push_back( { &VisitLandscapeAssetReferences } );
+        hooks.HLODBuilders.push_back( &AddLandscapeSplineHLODBuilder );
+        // The spline meshes go out with the static meshes (MeshECSSystem records every module draw).
+        ECS::RegisterMeshStandInDraw( []() -> std::unique_ptr<ECS::IMeshStandInDraw>
+                                      { return std::make_unique<ECS::LandscapeSplineMeshDraw>(); } );
         hooks.AssetParamLabels.push_back( { "LandscapeLayerInfoAsset", &LayerNameOf } );
         // The tiles' GPU copies are the scene's ledger rows (Scene::GetLedgerInstance).
         hooks.RenderCollectors.push_back(

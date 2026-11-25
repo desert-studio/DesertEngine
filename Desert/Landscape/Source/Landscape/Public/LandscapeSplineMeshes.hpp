@@ -44,6 +44,7 @@ namespace Desert::World::Landscape
      * @p sources holds one source per entry (SplineMeshes order). A source with no forward extent places
      * nothing and yields an empty result.
      */
-    std::vector<LandscapeSplineDeformedMesh> BuildLandscapeSplineSegmentMeshes(
-         const LandscapeSplines& splines, size_t segment, std::span<const LandscapeSplineMeshSource> sources );
+    std::vector<LandscapeSplineDeformedMesh>
+    BuildLandscapeSplineSegmentMeshes( const LandscapeSplines& splines, size_t segment,
+                                       std::span<const LandscapeSplineMeshSource> sources );
 } // namespace Desert::World::Landscape
