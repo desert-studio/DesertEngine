@@ -23,6 +23,7 @@ namespace Desert::Reflection::Generated
     void RegisterReflection_AnimationCore();
     void RegisterReflection_Localization();
     void RegisterReflection_ShaderCompiler();
+    void RegisterReflection_LandscapeCore();
     void RegisterReflection_Core();
     void RegisterReflection_RenderCore();
     void RegisterReflection_Engine();
@@ -59,6 +60,7 @@ namespace
             ::Desert::Reflection::Generated::RegisterReflection_AnimationCore();
             ::Desert::Reflection::Generated::RegisterReflection_Localization();
             ::Desert::Reflection::Generated::RegisterReflection_ShaderCompiler();
+            ::Desert::Reflection::Generated::RegisterReflection_LandscapeCore();
             ::Desert::Reflection::Generated::RegisterReflection_Core();
             ::Desert::Reflection::Generated::RegisterReflection_RenderCore();
             ::Desert::Reflection::Generated::RegisterReflection_Engine();
