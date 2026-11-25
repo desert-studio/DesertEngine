@@ -121,6 +121,7 @@ namespace Desert::Editor
          { "--flight-csv", true, "/tmp/flight.csv",
            "--play --flight line:0,200,0:1000,200,0 --flight-speed 1000" },
          { "--stream-delay-ticks", true, "30", "--play" },
+         { "--quality", true, "PostProcess.MotionBlurQuality=0", "--shot out.png" },
          // Play as a network client of a DesertServer (NET-1; UE PIE "Play As Client"): the played world's player
          // is the server's pawn for this connection, the other players' pawns are replicated into it.
          { "--connect", true, "127.0.0.1:27031", "--net-token HEX --net-cooked World.dwworld" },
@@ -538,6 +539,19 @@ namespace Desert::Editor
                          value );
                 }
                 options.Shot.MotionFrames = frames;
+            }
+            else if ( arg == "--quality" )
+            {
+                const std::size_t eq    = value.find( '=' );
+                int               level = 0;
+                if ( eq == std::string::npos || eq == 0 || !ParseIntStrict( value.substr( eq + 1 ), level ) )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--quality '{}' is not <Key>=<Value> (a scalability parameter and a whole number, e.g. "
+                         "PostProcess.MotionBlurQuality=0).",
+                         value );
+                }
+                options.Shot.Quality.push_back( { value.substr( 0, eq ), level } );
             }
             else if ( arg == "--shot-every" )
             {
