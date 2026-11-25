@@ -50,3 +50,8 @@
 # Тогда [net4_fence] net4/clientA_fence_before.png, net4/clientA_fence_after.png: frames at A x 2400-2600 show the fence and A clearing it (motion blur off); HUD/log "corrections 0" over 30 s; clock x0.98-1.02.
 # Когда: A stands 10 s on a slope; then the server teleports A onto the landscape 200 m away; A gets no input.
 # Тогда [net4_teleport_ground] net4/clientA_teleport_ground.png: A falls and lands; from the landing server and client move < 1 cm over 10 s; one correction (snap beyond 384 cm, as UE); A stands on the terrain, camera above ground.
+# Pass 11 result (run 13, logs/net4): --quality PostProcess.MotionBlurQuality=0 applied ("machine.json untouched"),
+# frames sharp. Corrections 0 over the whole 300 m sprint, clock x1.00-1.01. Teleport: (10462,1524,806) -> falls ->
+# landed server (10466,-111,805) = client drawn (10466,-111,805); 10 s later both identical: drift 0 cm; corrections 1.
+# net4_teleport_ground PASS. net4_fence PARTIAL: frames at x 2305 / 2555 are sharp but the fence is not in them - A
+# runs at z 580-595, the fence (600 cm along Z) is beside that line (a green edge at the right border at x 2555).
