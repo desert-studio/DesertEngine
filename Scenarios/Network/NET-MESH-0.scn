@@ -21,6 +21,10 @@
 #        desert-server --project /project/Desert.deproj --role all --world /world/WP_Protocol.desce
 #        --source 0,0,0 --steps 600                                            > mesh0_linux_server.log
 #   docker run --platform linux/amd64 --entrypoint file desert-server /opt/desert/DesertServer >> the same log
+# Pass 6: the job builds first-party code for the x86-64 baseline. A function using a newer instruction set than
+# the target's minimum carries that set itself and runs behind a runtime CPU check (Crc32c.cpp Crc32cHardware,
+# target("sse4.2") on clang/gcc). Checked before CI: every DesertServer TU compiled for -arch x86_64 -c.
+#   gh workflow run ci.yml --ref task/NET-MESH-0; the run's desert-server-image is loaded and run as pass 5.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано state
 # Тогда [mesh0_core_split] (вне редактора): mesh0_core_split.otool.txt без Vulkan/MoltenVK/Metal/AppKit; mesh0_core_split.log: no device created, cook hash ee311acb3b50b349, 600 steps
