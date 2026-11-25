@@ -11,3 +11,7 @@
 # Тогда [netgm_sprint] (N-C07, server log): "[Server] pawn movement: ... declared actions [IA_Jump, IA_Sprint]"; "pawn net id N: input step S actions IA_Sprint#1 (bits 0x2, ...), speed ~1000 cm/s" with Sprint held and "actions none ..., speed ~600 cm/s" without; Net has no kInputSprint/kInputJump (sym.sh --refs: no uses).
 # Когда: MaxWalkSpeed is edited to 300 in the pawn prefab (Pawn_Player.deprefab, CharacterController), the scene cooked again, the walk run repeats.
 # Тогда [netgm_prefab_speed] (N-D01, both logs): server "[Server] pawn movement: walk 300 ..." and "speed ~300 cm/s"; client A's per-second line "corrections 0" over the run (prediction steps the same prefab's 300).
+# Pass 1 result (scratch NET-GAMEMODE/logs/{sprint,walk300}, build dfb783299 Debug, 2026-11-25): server "pawn movement: walk
+# 600 cm/s, sprint 1000 cm/s; declared actions [IA_Jump#0 IA_Sprint#1]"; Sprint held: "actions IA_Sprint#1 (bits 0x2, axes 0),
+# speed 1000 cm/s" (steps 120-240), released at the stop -> "actions none". Prefab MaxWalkSpeed 300: server "walk 300 cm/s"
+# and "actions none ..., speed 300 cm/s" (steps 120-780); client A "corrections 0" over both runs (40 m each). PASS.
