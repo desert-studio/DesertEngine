@@ -35,21 +35,6 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 WIN = os.name == "nt"
-
-
-def dev_config(tree):
-    """The configuration the tree's dev pipeline builds: the host's row of scripts/Dev/dev_config.txt (_common.sh reads
-    the same row as DEV_CONFIG). 11-23 FPS-MAC-2: a hard-coded Debug played a -O0 editor at 1-4 s a frame on Mac."""
-    host = "Windows" if WIN else "Darwin"
-    path = os.path.join(tree, "scripts", "Dev", "dev_config.txt")
-    try:
-        rows = [l.split() for l in open(path, encoding="utf-8") if l.strip() and not l.startswith("#")]
-    except OSError:
-        sys.exit(f"SCENARIO: {path} is missing - the tree names no dev build configuration")
-    for row in rows:
-        if row[:1] == [host] and len(row) > 1:
-            return row[1]
-    sys.exit(f"SCENARIO: {path} has no row for {host}")
 GIVEN = {"дано", "given", "когда", "when"}
 THEN = {"тогда": "shot-window", "then": "shot-window", "тогда-вид": "shot-viewport", "then-view": "shot-viewport"}
 EXPECT = {"ожидать", "expect"}
@@ -88,7 +73,7 @@ def main():
     hold = "--hold" in args[2:]
     code = os.path.splitext(os.path.basename(scn))[0]
     exe = ".exe" if WIN else ""
-    bindir = os.path.join(tree, "build", "Bin", dev_config(tree))
+    bindir = os.path.join(tree, "build", "Bin", "Debug")
     editor, ctl = os.path.join(bindir, "Editor" + exe), os.path.join(bindir, "DesertCtl" + exe)
     lines = open(scn, encoding="utf-8").read().splitlines()
     named = project_line(tree, lines)
