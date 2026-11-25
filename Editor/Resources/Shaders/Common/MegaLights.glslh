@@ -425,6 +425,37 @@ int MegaLightsLightShadowMaskSlot(int light)
 // marched through the screen depth as the light's contact shadow (UE MegaLights screen traces: the detail the TLAS
 // does not hold), then one ray query over the TLAS from the point (off the surface along its normal, on the
 // light's side - UE r.RayTracing.NormalBias) to the sphere, stopped short by the same bias.
+// LIGHT THROUGH THE RECEIVER. A subsurface receiver (SubsurfaceOpacity >= 0) lit from behind its normal is reached
+// only by the light its model transmits, and that light is attenuated by the matter it crossed - exp(-thickness x
+// density), the thickness from the occluder nearest the LIGHT to the receiver, density from the receiver's opacity -
+// as the virtual shadow map (VsmLocalTransmission) and the shadow atlas (Mesh/LocalLightShadow.glslh) attenuate it.
+// A yes/no ray there would black out every leaf behind another leaf or its own mesh.
+bool MegaLightsTransmits(MegaLightsPixel p, vec3 dir)
+{
+	return p.SubsurfaceOpacity >= 0.0 && dot(p.N, dir) < 0.0;
+}
+
+#if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY)
+// Traced from the light back to the receiver, so the closest hit is the occluder nearest the light - the surface a
+// shadow map stores. @p origin / @p dir / @p rayLength: the receiver's shadow ray.
+float MegaLightsRayQueryTransmission(vec3 origin, vec3 dir, float rayLength, float density)
+{
+	if (rayLength <= 0.0)
+		return 1.0;
+	const float hit = RayQueryClosestBlocker(origin + dir * rayLength, -dir, rayLength, RAY_TRACING_MASK_SHADOW_CASTER);
+	return exp(-(rayLength - hit) * density);
+}
+#endif
+
+#if defined(MEGALIGHTS_VISIBILITY_SCREEN)
+// The screen holds one occluder of the ray, the one the walk stops at; its distance is the thickness the screen knows.
+float MegaLightsScreenTransmission(vec3 origin, vec3 dir, float rayLength, float density)
+{
+	float hit = 0.0;
+	return MegaLightsScreenTraceHit(origin, dir, rayLength, hit) ? exp(-hit * density) : 1.0;
+}
+#endif
+
 // AN EMISSIVE TRIANGLE'S TEST: one ray to a point uniform over the triangle (EmissiveLightsSamplePoint, two draws of
 // the sample's stream: the shadow softens with the occluder's distance over frames, as the sphere's), off the
 // surface as a local light's, stopped short of the emitter by the bias and a relative margin (the emitter's own
@@ -445,6 +476,15 @@ float MegaLightsEmissiveVisibility(MegaLightsPixel p, int light, inout uint rand
 	const vec3  dir    = toPoint / distance;
 	const vec3  origin = p.Position + p.N * (dot(p.N, dir) >= 0.0 ? bias : -bias);
 	const float reach  = max(distance - max(2.0 * bias, 1e-3 * distance), 0.0);
+	if (MegaLightsTransmits(p, dir))
+	{
+		const float density = ContactShadowSubsurfaceDensity(p.SubsurfaceOpacity);
+#if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY)
+		return MegaLightsRayQueryTransmission(origin, dir, reach, density);
+#else
+		return MegaLightsScreenTransmission(origin, dir, reach, density);
+#endif
+	}
 #if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY)
 	return RayQueryVisibility(origin, dir, reach, RAY_TRACING_MASK_SHADOW_CASTER);
 #else
@@ -486,7 +526,10 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 	     ContactShadowFactor(p.Position, p.N, dir, MegaLightsLightContactShadow(light), p.SubsurfaceOpacity);
 	if (contact <= 0.0)
 		return 0.0;
-	const vec3 origin = p.Position + p.N * (dot(p.N, dir) >= 0.0 ? bias : -bias);
+	const vec3  origin    = p.Position + p.N * (dot(p.N, dir) >= 0.0 ? bias : -bias);
+	const float rayLength = max(reach - 2.0 * bias, 0.0);
+	const bool  transmits = MegaLightsTransmits(p, dir);
+	const float density   = transmits ? ContactShadowSubsurfaceDensity(p.SubsurfaceOpacity) : 0.0;
 #if !defined(MEGALIGHTS_VISIBILITY_RAY_QUERY) && !defined(MEGALIGHTS_VISIBILITY_SCREEN)
 #error "MegaLights.glslh: MEGALIGHTS_TRACE needs a MEGALIGHTS_VISIBILITY_* source"
 #endif
@@ -499,10 +542,21 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 	if (source == 0)
 #endif
 #if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY)
-	return contact * RayQueryVisibility(origin, dir, max(reach - 2.0 * bias, 0.0), RAY_TRACING_MASK_SHADOW_CASTER);
+	return contact * (transmits ? MegaLightsRayQueryTransmission(origin, dir, rayLength, density)
+	                            : RayQueryVisibility(origin, dir, rayLength, RAY_TRACING_MASK_SHADOW_CASTER));
 #endif
 #if defined(MEGALIGHTS_VISIBILITY_SCREEN)
-	if (MegaLightsScreenTraceOccluded(origin, dir, max(reach - 2.0 * bias, 0.0)))
+	if (transmits)
+	{
+#if defined(MEGALIGHTS_VISIBILITY_VSM)
+		// The light's map stores the occluder nearest it: the whole thickness, with no need of the screen's.
+		const int map = MegaLightsLightShadowMaskSlot(light);
+		if (map >= 0)
+			return contact * VsmLocalTransmission(vsmLocalLights[map], p.Position, density);
+#endif
+		return contact * MegaLightsScreenTransmission(origin, dir, rayLength, density);
+	}
+	if (MegaLightsScreenTraceOccluded(origin, dir, rayLength))
 		return 0.0;
 #if defined(MEGALIGHTS_VISIBILITY_VSM)
 	// The occluders the screen does not hold: the light's virtual shadow map, its pages marked from this G-buffer
@@ -512,7 +566,7 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 	const int slot = MegaLightsLightShadowMaskSlot(light);
 	if (slot >= 0)
 		return contact * VsmLocalVisibilityRay(vsmLocalLights[slot], p.Position, p.N, dir,
-		                                       max(reach - 2.0 * bias, 0.0), MegaLightsRandom(random));
+		                                       rayLength, MegaLightsRandom(random));
 #endif
 	return contact;
 #endif

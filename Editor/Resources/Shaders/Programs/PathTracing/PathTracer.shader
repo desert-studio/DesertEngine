@@ -190,9 +190,12 @@ Shader "PathTracer"
             // visible normals (isotropic, or stretched along the slab's ANISOTROPY tangent) and a third GGX lobe for
             // the slab's HAZE lobe or CLEAR_COAT layer, each chosen by its estimated albedo at this view; the FUZZ
             // layer's wide sheen lobe is sampled by the cosine lobe (UE samples the fuzz from the hemisphere). A
-            // model that is no slab preset (subsurface, foliage, toon, water) is sampled as the featureless slab and
-            // still evaluated as itself, so the estimator stays unbiased (the light samples and the mixture cover
-            // the whole upper hemisphere).
+            // model that is no slab preset (subsurface, toon, water) is sampled as the featureless slab and still
+            // evaluated as itself, so the estimator stays unbiased (the light samples and the mixture cover the whole
+            // upper hemisphere). TWO-SIDED FOLIAGE is the one model with a second hemisphere, as in UE's path tracer
+            // (PathTracing TwoSidedFoliage): the slab reflects on the N side and a Lambert lobe of SubsurfaceColor
+            // lets light through from the -N side (Transmission); sampling, evaluation and density all carry it, and
+            // every light is sampled on both sides.
             struct PathTracingMaterial
             {
                 vec3          Position;
@@ -206,6 +209,8 @@ Shader "PathTracer"
                 float         CoatRoughness;   // the third lobe's roughness (z > 0: the slab's HAZE or CLEAR_COAT)
                 vec2          Alphas;          // the base GGX lobe's alphas along Tangent and cross(N, Tangent)
                 vec3          Tangent;         // the base lobe's tangent (any one around N for an isotropic lobe)
+                vec3          Transmission;    // the transmitted albedo (two-sided foliage; 0 for any other model)
+                float         TransmissionProbability; // the mixture's fourth weight: the cosine lobe around -N
             };
 
             // The surface and the unit light a model is evaluated with, made as the raster makes them
@@ -290,13 +295,22 @@ Shader "PathTracer"
                 }
                 // Every lobe the BSDF has keeps at least 5 % of the samples (the two-lobe sampler's clamp), so no
                 // direction it reflects into has a vanishing density; a black surface samples its GGX lobe alone.
-                const vec3  weights = vec3(diffuse, specular, coat);
-                const float total   = weights.x + weights.y + weights.z;
-                m.LobeProbability   = vec3(0.0, 1.0, 0.0);
+                // The transmitted albedo takes no more than the diffuse reflection leaves, so a leaf authored with a
+                // bright BaseColor and a bright SubsurfaceColor does not amplify the light.
+                m.Transmission = m.Model == SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE
+                                     ? clamp(DesertSubsurfaceColor(m.Model, m.Payload), vec3(0.0),
+                                             max(vec3(1.0) - m.BaseColor * (1.0 - m.Metallic), vec3(0.0)))
+                                     : vec3(0.0);
+                const vec4  weights = vec4(diffuse, specular, coat, PathTracingLuminance(m.Transmission));
+                const float total   = weights.x + weights.y + weights.z + weights.w;
+                m.LobeProbability         = vec3(0.0, 1.0, 0.0);
+                m.TransmissionProbability = 0.0;
                 if (total > 0.0)
                 {
-                    const vec3 floored = max(weights / total, vec3(greaterThan(weights, vec3(0.0))) * 0.05);
-                    m.LobeProbability  = floored / (floored.x + floored.y + floored.z);
+                    const vec4 floored = max(weights / total, vec4(greaterThan(weights, vec4(0.0))) * 0.05);
+                    const vec4 share   = floored / (floored.x + floored.y + floored.z + floored.w);
+                    m.LobeProbability         = share.xyz;
+                    m.TransmissionProbability = share.w;
                 }
                 return m;
             }
@@ -305,12 +319,38 @@ Shader "PathTracer"
             // PathTracingSplitShare): the denoiser's lobe split of the first surface's light samples and bounce.
             vec3 gPathTracingSpecularShare = vec3(0.0);
 
-            // f * cos of the hit's model toward L; the model's specular lobe (EvaluateSpecular) is the share.
+            // Does light from a direction at cosine @p NoL to the normal reach the eye through the hit's BSDF? Above
+            // the horizon always; below it only through a transmission lobe.
+            bool PathTracingReaches(PathTracingMaterial m, float NoL)
+            {
+                return NoL > 0.0 || (NoL < 0.0 && m.TransmissionProbability > 0.0);
+            }
+
+            // The start of a ray toward @p L: @p origin (the vertex lifted off its surface along N), or its mirror
+            // under the surface for a direction that leaves through the back.
+            vec3 PathTracingOriginToward(PathTracingMaterial m, vec3 origin, vec3 N, vec3 L)
+            {
+                return dot(N, L) < 0.0 ? 2.0 * m.Position - origin : origin;
+            }
+
+            // f * cos of the hit's model toward L. Two-sided foliage: the raster's Evaluate with no transmitted
+            // light (its wrapped, view-dependent scatter fits a single punctual light and does not conserve energy)
+            // plus the Lambert transmission lobe the mixture samples and weighs.
+            vec3 PathTracingEvaluateCos(PathTracingMaterial m, vec3 N, vec3 V, vec3 L)
+            {
+                DesertLight light = PathTracingUnitLight(L);
+                if (m.Model == SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE)
+                    light.TransmissionShadow = 0.0;
+                return DesertEvaluateShadingModel(m.Model, light, PathTracingSurfaceOf(m, N, V), m.Payload) +
+                       m.Transmission * (max(-dot(N, L), 0.0) / PI);
+            }
+
+            // f * cos toward L; the model's specular lobe (EvaluateSpecular) is the share.
             vec3 PathTracingBsdfCos(PathTracingMaterial m, vec3 N, vec3 V, vec3 L)
             {
                 const DesertSurface S     = PathTracingSurfaceOf(m, N, V);
                 const DesertLight   light = PathTracingUnitLight(L);
-                const vec3          total = DesertEvaluateShadingModel(m.Model, light, S, m.Payload);
+                const vec3          total = PathTracingEvaluateCos(m, N, V, L);
                 const vec3          lobe  = DesertEvaluateShadingModelSpecular(m.Model, light, S, m.Payload);
                 gPathTracingSpecularShare = PathTracingSplitShare(lobe, total);
                 return total;
@@ -333,12 +373,12 @@ Shader "PathTracer"
             }
 
             // The sampler's solid-angle density of L: the mixture of the cosine lobe, the base GGX lobe and the
-            // coat.
+            // coat above the surface, the transmission's cosine lobe around -N below it.
             float PathTracingBsdfPdf(PathTracingMaterial m, vec3 N, vec3 V, vec3 L)
             {
                 const float NoL = dot(N, L);
                 if (NoL <= 0.0)
-                    return 0.0;
+                    return m.TransmissionProbability * max(-NoL, 0.0) / PI;
                 float pdf = m.LobeProbability.x * NoL / PI +
                             m.LobeProbability.y * PathTracingVisibleGGXPdf(m.Alphas, m.Tangent, N, V, L);
                 if (m.LobeProbability.z > 0.0)
@@ -377,11 +417,17 @@ Shader "PathTracer"
                         alphas = vec2(m.CoatRoughness * m.CoatRoughness);
                     const vec3 Ve = transpose(basis) * V;
                     const vec3 H  = basis * PathTracingSampleVisibleGGX(Ve, alphas, u);
-                    return reflect(-V, H);
+                    // A reflection under the horizon is no sample (direction 0: density 0): the density below the
+                    // surface is the transmission lobe's alone.
+                    const vec3 L = reflect(-V, H);
+                    return dot(N, L) > 0.0 ? L : vec3(0.0);
                 }
                 const float r   = sqrt(u.x);
                 const float phi = 2.0 * PI * u.y;
-                return basis * vec3(r * cos(phi), r * sin(phi), sqrt(max(1.0 - u.x, 0.0)));
+                const float z   = sqrt(max(1.0 - u.x, 0.0));
+                const bool  through =
+                    pick < m.LobeProbability.y + m.LobeProbability.z + m.TransmissionProbability;
+                return basis * vec3(r * cos(phi), r * sin(phi), through ? -z : z);
             }
 
             // ---- Glass: the dielectric interface of a translucent hit (Transmission > 0). ----
@@ -621,7 +667,8 @@ Shader "PathTracer"
             };
 
             // The resampling target of local light @p local at the vertex: its estimate times the material's f * cos
-            // toward its centre (+ the floor); 0 when the whole emitter sphere is below the horizon.
+            // toward its centre (+ the floor); 0 when the whole emitter sphere is below the horizon of a
+            // material that lets no light through.
             float PathTracingLocalLightTarget(PathTracingMaterial m, vec3 P, vec3 N, vec3 V, uint local, float estimate)
             {
                 if (estimate <= 0.0)
@@ -635,10 +682,9 @@ Shader "PathTracer"
                 if (dist <= sourceRadius)
                     return estimate * (1.0 + kPathTracingLightTargetFloor);
                 const vec3 L = toLight / dist;
-                if (dot(N, L) < -sourceRadius / dist)
+                if (dot(N, L) < -sourceRadius / dist && !PathTracingReaches(m, dot(N, L)))
                     return 0.0;
-                const float bsdf = PathTracingLuminance(DesertEvaluateShadingModel(
-                    m.Model, PathTracingUnitLight(L), PathTracingSurfaceOf(m, N, V), m.Payload));
+                const float bsdf = PathTracingLuminance(PathTracingEvaluateCos(m, N, V, L));
                 return estimate * (max(bsdf, 0.0) + kPathTracingLightTargetFloor);
             }
 
@@ -740,10 +786,11 @@ Shader "PathTracer"
                         L        = PathTracingBasis(toLight) * vec3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
                         lightPdf = 1.0 / (2.0 * PI * oneMinusCos);
                     }
-                    if (dot(N, L) <= 0.0)
+                    if (!PathTracingReaches(m, dot(N, L)))
                         return vec3(0.0);
+                    const vec3 start = PathTracingOriginToward(m, origin, N, L);
                     const vec3 transmittance =
-                        PathTracingDirectionalCastsShadows(d) ? PathTracingTransmittance(origin, L, 1.0e9) : vec3(1.0);
+                        PathTracingDirectionalCastsShadows(d) ? PathTracingTransmittance(start, L, 1.0e9) : vec3(1.0);
                     if (all(lessThanEqual(transmittance, vec3(0.0))))
                         return vec3(0.0);
                     // The sun's light crosses the cloud layer on its way down: its transmittance from this vertex
@@ -760,9 +807,10 @@ Shader "PathTracer"
                 if (chosen == 1u)
                 {
                     const PathTracingSkySample s = PathTracingSkySampleLight(u, SkyParams.x, SkyParams.y);
-                    if (s.Pdf <= 0.0 || dot(N, s.Direction) <= 0.0)
+                    if (s.Pdf <= 0.0 || !PathTracingReaches(m, dot(N, s.Direction)))
                         return vec3(0.0);
-                    const vec3 transmittance = PathTracingTransmittance(origin, s.Direction, 1.0e9);
+                    const vec3 transmittance = PathTracingTransmittance(
+                        PathTracingOriginToward(m, origin, N, s.Direction), s.Direction, 1.0e9);
                     if (all(lessThanEqual(transmittance, vec3(0.0))))
                         return vec3(0.0);
                     const float weight = PathTracingMISWeightPower(pickPdf * s.Pdf, PathTracingBsdfPdf(m, N, V, s.Direction));
@@ -790,9 +838,10 @@ Shader "PathTracer"
                 float      reach;
                 const vec3 toLight = SampleLightSourceSphere(normalize(position - origin), distance(position, origin),
                                                              sourceRadius, u, reach);
-                if (dot(N, toLight) <= 0.0)
+                if (!PathTracingReaches(m, dot(N, toLight)))
                     return vec3(0.0);
-                const vec3 transmittance = PathTracingTransmittance(origin, toLight, reach);
+                const vec3 transmittance =
+                    PathTracingTransmittance(PathTracingOriginToward(m, origin, N, toLight), toLight, reach);
                 return PathTracingBsdfCos(m, N, V, toLight) * light.Radiance * transmittance / pickPdf;
             }
 
@@ -827,9 +876,9 @@ Shader "PathTracer"
                     return vec3(0.0);
                 const vec3  L         = toPoint / dist;
                 const float cosEmit   = -dot(L, normal);
-                if (cosEmit <= 0.0 || dot(N, L) <= 0.0)
+                if (cosEmit <= 0.0 || !PathTracingReaches(m, dot(N, L)))
                     return vec3(0.0);
-                const vec3 transmittance = PathTracingTransmittance(origin, L, dist);
+                const vec3 transmittance = PathTracingTransmittance(PathTracingOriginToward(m, origin, N, L), L, dist);
                 if (all(lessThanEqual(transmittance, vec3(0.0))))
                     return vec3(0.0);
                 const float area   = (x1 - x0) * (y1 - y0);
@@ -873,12 +922,14 @@ Shader "PathTracer"
                 if (triangle >= EmissiveLightsTriangleCount(EmissiveCounts, EmissiveDynamicCounts))
                     return vec3(0.0);
                 const EmissiveTriangle t       = EmissiveLightsTriangle(triangle, EmissiveCounts);
-                const vec3             toPoint = EmissiveLightsSamplePoint(t, u) - origin;
+                const vec3             point   = EmissiveLightsSamplePoint(t, u);
+                const vec3             start   = PathTracingOriginToward(m, origin, N, point - m.Position);
+                const vec3             toPoint = point - start;
                 const float            dist    = length(toPoint);
                 if (dist <= 0.0)
                     return vec3(0.0);
                 const vec3 L = toPoint / dist;
-                if (dot(N, L) <= 0.0)
+                if (!PathTracingReaches(m, dot(N, L)))
                     return vec3(0.0);
                 const float lightPdf = EmissiveLightsSolidAnglePdf(
                     t, EmissiveLightsPickPdf(triangle, EmissiveCounts, EmissiveDynamicCounts), dist, dot(EmissiveLightsNormal(t), L));
@@ -886,7 +937,7 @@ Shader "PathTracer"
                     return vec3(0.0);
                 // Past the point by a margin, so the closest hit can land on the sampled triangle itself; anything
                 // else it meets first occludes it.
-                PathTracingTraceMaterialTo(origin, L, coneWidth, dist * 1.001 + 0.1);
+                PathTracingTraceMaterialTo(start, L, coneWidth, dist * 1.001 + 0.1);
                 if (payload.HitT < 0.0 || PathTracingEmissiveTriangleOfHit() != triangle)
                     return vec3(0.0);
                 const float weight = PathTracingMISWeightPower(lightPdf, PathTracingBsdfPdf(m, N, V, L));
@@ -1306,7 +1357,7 @@ Shader "PathTracer"
                             break;
                         throughput /= survive;
                     }
-                    origin = next;
+                    origin = PathTracingOriginToward(m, next, N, L);
                     dir    = L;
                 }
             #if PATH_TRACING_NRC
