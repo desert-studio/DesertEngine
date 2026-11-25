@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/AssetBase.hpp>
-#include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
+#include <Landscape/Public/LandscapeLayerInfo.hpp>
 
 namespace Desert::Assets
 {
@@ -60,7 +60,7 @@ namespace Desert::Assets
     private:
         Common::Content::AssetGuid            m_Guid;
         Serialization::LandscapeLayerInfoData m_Data;
-        bool                                  m_Ready = false;
+        bool                                  m_Ready    = false;
         uint64_t                              m_Revision = 0;
     };
 } // namespace Desert::Assets

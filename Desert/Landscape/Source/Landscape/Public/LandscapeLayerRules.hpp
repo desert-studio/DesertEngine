@@ -10,7 +10,7 @@
 
 #include <string>
 #include <vector>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
 
 namespace Desert::ECS
 {

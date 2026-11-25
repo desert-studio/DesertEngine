@@ -24,7 +24,7 @@
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
-#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Landscape/Public/LandscapeTileComponent.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <set>
 

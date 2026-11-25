@@ -64,16 +64,40 @@ namespace Desert::ECS
             return *this;
         }
 
-        bool has_value() const noexcept { return m_Data != nullptr; }
-        explicit operator bool() const noexcept { return m_Data != nullptr; }
+        bool has_value() const noexcept
+        {
+            return m_Data != nullptr;
+        }
+        explicit operator bool() const noexcept
+        {
+            return m_Data != nullptr;
+        }
         void reset() noexcept;
 
-        Data&       operator*() noexcept { return *m_Data; }
-        const Data& operator*() const noexcept { return *m_Data; }
-        Data*       operator->() noexcept { return m_Data.get(); }
-        const Data* operator->() const noexcept { return m_Data.get(); }
-        Data&       value() noexcept { return *m_Data; }
-        const Data& value() const noexcept { return *m_Data; }
+        Data& operator*() noexcept
+        {
+            return *m_Data;
+        }
+        const Data& operator*() const noexcept
+        {
+            return *m_Data;
+        }
+        Data* operator->() noexcept
+        {
+            return m_Data.get();
+        }
+        const Data* operator->() const noexcept
+        {
+            return m_Data.get();
+        }
+        Data& value() noexcept
+        {
+            return *m_Data;
+        }
+        const Data& value() const noexcept
+        {
+            return *m_Data;
+        }
 
     private:
         std::unique_ptr<Data> m_Data;

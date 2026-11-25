@@ -20,6 +20,7 @@
 // compiled by no suite (see Desert/Tests/CMakeLists.txt). The editor run in the LS-3 report covers the glue.
 
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
+#include <Landscape/Public/LandscapeComponentIO.hpp>
 #include <Common/Json/Document.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
@@ -37,8 +38,8 @@
 #include <string>
 #include <vector>
 #include <optional>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
-#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeTileComponent.hpp>
 #include <Common/Json/ReadWrite.hpp>
 
 namespace

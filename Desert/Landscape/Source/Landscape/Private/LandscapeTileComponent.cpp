@@ -1,4 +1,4 @@
-#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Landscape/Public/LandscapeTileComponent.hpp>
 
 #include <Engine/World/Landscape/LandscapeData.hpp>
 

@@ -19,7 +19,7 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/CloudLayoutAsset.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
-#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
+#include <Landscape/Public/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
+#include <Landscape/Public/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Runtime/Services/OnDemandAssets.hpp>
 
 #include <memory>

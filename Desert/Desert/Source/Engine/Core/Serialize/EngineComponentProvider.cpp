@@ -2,6 +2,9 @@
 
 #include <Engine/Core/Serialize/BuiltinComponentSerializers.hpp>
 #include <Engine/Core/Serialize/ComponentRegistration.hpp>
+#include <Engine/Core/ModuleHooks.hpp>
+
+#include <Common/Core/Logger.hpp>
 
 #include <span>
 #include <vector>
@@ -17,15 +20,41 @@ namespace Desert::Core::Serialize
 {
     namespace
     {
+        struct ModuleSerializerList
+        {
+            std::vector<ModuleSerializer> Registered;
+            bool                          Ordered = false; // the registry was built: nothing more can be placed
+        };
+
+        ModuleSerializerList& ModuleSerializers()
+        {
+            static ModuleSerializerList list;
+            return list;
+        }
+
         void Order( std::span<const ModuleComponent> rows, std::vector<ComponentSerializer>& out )
         {
+            // The feature modules register their hand-written serializers at StartupModule: started first (a
+            // no-op once done), so the order never depends on which static initialiser ran first.
+            StartupEngineModules();
+            ModuleSerializers().Ordered = true;
+
             std::vector<ComponentSerializer>& builtins = out; // the registry's load order itself
-            // ---- Reflected data blocks: every module's generated rows (COMPONENT markers), run by run ----
-            const auto registerRun = [&out, rows]( ReflectedBlockRun run )
+            const auto moduleSerializers               = [&out]( ReflectedBlockRun run, ModuleSerializerSlot slot )
             {
+                for ( const ModuleSerializer& serializer : ModuleSerializers().Registered )
+                    if ( serializer.Run == run && serializer.Slot == slot )
+                        out.push_back( serializer.Make() );
+            };
+            // ---- Reflected data blocks: every module's generated rows (COMPONENT markers), run by run, each
+            // between the module serializers registered before and after it ----
+            const auto registerRun = [&out, rows, &moduleSerializers]( ReflectedBlockRun run )
+            {
+                moduleSerializers( run, ModuleSerializerSlot::BeforeRun );
                 for ( const ModuleComponent& row : rows )
                     if ( row.Run == run )
                         out.push_back( row.Serializer );
+                moduleSerializers( run, ModuleSerializerSlot::AfterRun );
             };
 
             Builtins::AddMeshSerializers( builtins );
@@ -46,15 +75,9 @@ namespace Desert::Core::Serialize
             // ever wrote one. (Projectile, the fifth, is a reflected block now: ProjectileData.)
             Builtins::AddAuthoredSerializers( builtins );
 
-            // ---- Landscape (LS-3) ----
-            // The root is its frame and nothing else; the tile loads its heights from the file it names
-            // (MakeLandscapeTile above). No version bump: two new block keys, and no scene carried them before.
-            builtins.push_back( Builtins::MakeLandscapeRoot() );
+            // ---- Landscape (LS-3): the module's root before the run, its tile and spline after it
+            // (Landscape/Private/LandscapeComponentSerializers.cpp) ----
             registerRun( ReflectedBlockRun::Landscape );
-            builtins.push_back( Builtins::MakeLandscapeTile() );
-            // One entity per spline (UE ALandscapeSplineActor), its root named by id; scene v76 moved the root's
-            // Splines here (Tools/SceneMigrator, MigrateLandscapeSplineEntitiesV75ToV76).
-            builtins.push_back( Builtins::MakeLandscapeSpline() );
 
             // ---- Skybox, sky, fog, post-process, clouds: one row each in ReflectedComponentBlocks.hpp ----
             registerRun( ReflectedBlockRun::SkyAndAtmosphere );
@@ -67,6 +90,17 @@ namespace Desert::Core::Serialize
 
         [[maybe_unused]] const bool kInstalled = ( InstallComponentProvider( kEngineProvider ), true );
     } // namespace
+
+    void RegisterModuleSerializer( const ModuleSerializer& serializer )
+    {
+        if ( ModuleSerializers().Ordered )
+        {
+            LOG_ERROR( "[Scene] a module serializer was registered after the component registry was built; it is "
+                       "not placed (register it from the module's StartupModule)" );
+            return;
+        }
+        ModuleSerializers().Registered.push_back( serializer );
+    }
 
     void LinkEngineComponentProvider()
     {

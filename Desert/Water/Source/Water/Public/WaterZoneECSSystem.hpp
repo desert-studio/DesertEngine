@@ -2,7 +2,7 @@
 
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Water/Public/WaterBodyQuery.hpp>
 #include <Water/Public/WaterZoneCommand.hpp>

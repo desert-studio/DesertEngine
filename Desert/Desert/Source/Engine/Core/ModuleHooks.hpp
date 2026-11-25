@@ -124,6 +124,16 @@ namespace Desert::Core
     /// classes): added to the process's registry when it is first made.
     using HLODBuilderAdder = void ( * )( Rules::HLODBuilderRegistry& builders );
 
+    /// After a scene is read and every pass is done (prefab instances included): a module checks what it owns
+    /// across entities (SceneSerializer::Deserialize; UE: a plugin's actors' PostLoad) - the landscape refuses a
+    /// tile its root cannot hold.
+    using SceneLoadCheck = std::function<void( const Scene& scene, std::string_view sceneName )>;
+    /// Before a scene is written: a module writes the files the scene names beside it (UE: a level's external
+    /// packages saved with it; the landscape's tile heights) and returns why it failed, which stops the save
+    /// before the scene points at a file that did not land (SceneSerializer::Serialize).
+    using SceneSaveWriter =
+         std::function<std::optional<std::string>( Scene& scene, const std::filesystem::path& scenePath )>;
+
     struct ModuleHookLists
     {
         std::vector<ModuleService>   Services;
@@ -137,6 +147,8 @@ namespace Desert::Core
         std::vector<AssetParamLabel>       AssetParamLabels;
         std::vector<HLODBuilderAdder>      HLODBuilders;
         std::vector<RaySurfaceGather>      RaySurfaces;
+        std::vector<SceneLoadCheck>        SceneLoadChecks;
+        std::vector<SceneSaveWriter>       SceneSaveWriters;
         /// A module's shared tables brought up to date serially before each parallel system group, so the
         /// group's readers only read them (Scene's update; the landscape's tile table).
         std::vector<RegistryPrepare> BeforeParallelGroup;

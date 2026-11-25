@@ -13,7 +13,7 @@
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
-#include <Engine/World/Landscape/LandscapeRaycast.hpp>
+#include <Landscape/Public/LandscapeRaycast.hpp>
 
 #include "../PhysicsFixture.hpp"
 
@@ -50,7 +50,7 @@ namespace
     DESERT_GLSL_AS_CPP_BEGIN
 #include <Common/LandscapeHeight.glslh>
 #include <Common/LandscapeLod.glslh>
-#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Landscape/Public/LandscapeTileComponent.hpp>
     DESERT_GLSL_AS_CPP_END
 } // namespace
 

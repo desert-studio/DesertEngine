@@ -59,7 +59,7 @@
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
 #include <Engine/Scripting/ScriptComponent.hpp>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
 #include <Engine/World/Partition/DataLayersComponent.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 

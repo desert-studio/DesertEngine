@@ -3,10 +3,10 @@
 
 #include <algorithm>
 #include <vector>
-#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Engine/World/Landscape/LandscapeCollisionShape.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Landscape/Public/LandscapeTileComponent.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 
 namespace Desert::ECS

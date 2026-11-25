@@ -1,6 +1,7 @@
 # BUILD-MOD-6L: Landscape lives in Desert/Landscape/Source/Landscape and Hair in Desert/Hair/Source/Hair (Public/Private).
 # WP_Protocol must stream as on dev; G3_TwoTerrains (two sculpted landscapes, Ground layer, tile height files) must draw
-# exactly as the same scene on the dev Editor (frames/dev, shot before the move).
+# exactly as the same scene on the dev Editor (frames/dev, shot before the move); saved as a new scene (tile height files
+# written beside it by the module's save hook) and reopened, it draws the same (no lost layers or tiles).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
 Тогда 0_wp_protocol WP_Protocol как в dev: ландшафт, город, небо; стриминг (8 из 602 сущностей, как в dev); без падения и диалога ошибки
@@ -10,3 +11,10 @@
 Когда --subject viewport set Camera.Direction 0,-0.5,-0.866
 Когда frames 60
 Тогда-вид 1_landscape оба ландшафта G3_TwoTerrains с рельефом и слоем Ground, как в кадре dev той же сцены; в editor.log нет "missing module" и "unregistered component"
+Когда save-as G3_TwoTerrains_6L
+Когда run Scene "Open Scene G3_TwoTerrains_6L.desce"
+Когда wait-idle 60
+Когда --subject viewport set Camera.Position -10000,9000,12000
+Когда --subject viewport set Camera.Direction 0,-0.5,-0.866
+Когда frames 60
+Тогда-вид 2_saved_reopened G3_TwoTerrains, сохранённая как G3_TwoTerrains_6L и открытая заново: оба ландшафта с тем же рельефом и слоем Ground, что в 1_landscape (тайлы и слои не потеряны); в editor.log нет ошибки сохранения ландшафта и отказа тайла

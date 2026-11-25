@@ -6,7 +6,7 @@
 
 #include <Engine/Core/Serialize/ComponentRegistration.hpp>
 
-#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
+#include <Landscape/Public/LandscapeMaterialComponent.hpp>
 
 namespace Desert::Core::Serialize::Generated
 {

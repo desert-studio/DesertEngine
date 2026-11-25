@@ -4,7 +4,7 @@
 
 #include <Editor/Panels/ViewportPanel/Tools/FoliageBrush.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/World/Landscape/LandscapeRaycast.hpp>
+#include <Landscape/Public/LandscapeRaycast.hpp>
 
 #include <gtest/gtest.h>
 

@@ -1,8 +1,8 @@
 #pragma once
 
-#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
-#include <Engine/World/Landscape/LandscapeSculpt.hpp>
+#include <Landscape/Public/LandscapeSculpt.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -13,8 +13,8 @@
 #include <utility>
 #include <vector>
 #include <Engine/ECS/UUIDComponent.hpp>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
-#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeTileComponent.hpp>
 
 namespace Desert::ECS
 {

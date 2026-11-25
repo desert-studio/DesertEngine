@@ -11,7 +11,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/PhysicsSceneFeature.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/SingleLayerWaterPass.hpp>

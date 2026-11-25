@@ -12,7 +12,7 @@
 // samples beyond the landscape take the edge sample; every write goes through the stroke's height cache, so one
 // command undoes in one step.
 
-#include <Engine/World/Landscape/LandscapeSculpt.hpp>
+#include <Landscape/Public/LandscapeSculpt.hpp>
 
 #include <algorithm>
 #include <cmath>

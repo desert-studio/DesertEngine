@@ -20,7 +20,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Landscape/Public/LandscapeEditTarget.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
@@ -37,7 +37,7 @@
 #include <format>
 #include <string>
 #include <Landscape/Public/LandscapeLayerInfoService.hpp>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
 
 namespace Desert::Editor
 {

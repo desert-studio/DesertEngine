@@ -5,7 +5,7 @@
 #include <Engine/World/Landscape/LandscapeBrush.hpp>
 #include <Engine/World/Landscape/LandscapeEditCache.hpp>
 #include <Landscape/Public/LandscapeGenerator.hpp>
-#include <Engine/World/Landscape/LandscapeSculpt.hpp>
+#include <Landscape/Public/LandscapeSculpt.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

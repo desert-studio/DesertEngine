@@ -22,10 +22,10 @@
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
+#include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <Engine/World/Foliage/FoliageCells.hpp>
-#include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
+#include <Landscape/Public/LandscapeLayerInfo.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>

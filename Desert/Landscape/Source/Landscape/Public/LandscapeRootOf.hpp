@@ -5,7 +5,7 @@
 // four copies of these five lines would be four chances for the surface to be in four places.
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
-#include <Engine/World/Landscape/LandscapeRaycast.hpp>
+#include <Landscape/Public/LandscapeRaycast.hpp>
 
 #include <entt/entt.hpp>
 
@@ -18,8 +18,8 @@
 #include <vector>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
-#include <Engine/World/Landscape/LandscapeTileComponent.hpp>
+#include <Landscape/Public/LandscapeComponent.hpp>
+#include <Landscape/Public/LandscapeTileComponent.hpp>
 
 namespace Desert::ECS
 {
