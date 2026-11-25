@@ -50,10 +50,10 @@ namespace Desert::Editor::MeshLODRows
         const auto& camera = scene->GetActiveCamera();
         if ( !camera )
             return std::nullopt;
-        const std::size_t level =
-             Geometry::SelectLOD( entity.GetWorldTransform().ToFloatMatrix(), mesh.GetSubmeshes(),
-                                  Geometry::LODView{ glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() },
-                                  mesh.GetLODScreenSizes(), forcedLOD, lodBias );
+        const std::size_t level = Geometry::SelectLOD(
+             entity.GetWorldTransform().ToFloatMatrix(), mesh.GetSubmeshes(),
+             Geometry::LODView{ glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() },
+             mesh.GetLODScreenSizes(), forcedLOD, lodBias );
         return level < levels ? level : levels - 1;
     }
 

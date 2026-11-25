@@ -286,8 +286,8 @@ namespace Desert::Editor
             return Common::MakeError( "create shape: the viewport has no scene, camera or size yet" );
         const auto ray = Common::Math::Ray::FromScreenPosition(
              { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
-             camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ), static_cast<uint32_t>( m_ViewportData.Size.x ),
-             static_cast<uint32_t>( m_ViewportData.Size.y ) );
+             camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ),
+             static_cast<uint32_t>( m_ViewportData.Size.x ), static_cast<uint32_t>( m_ViewportData.Size.y ) );
         auto placed = Tools::CreateShapeTool::PlaceAlong( *m_Scene, ray );
         if ( !placed.IsSuccess() )
             return Common::MakeError( placed.GetError() );
@@ -309,8 +309,8 @@ namespace Desert::Editor
             return Common::MakeError( "foliage preview: the viewport has no scene, camera or size yet" );
         const auto ray = Common::Math::Ray::FromScreenPosition(
              { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
-             camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ), static_cast<uint32_t>( m_ViewportData.Size.x ),
-             static_cast<uint32_t>( m_ViewportData.Size.y ) );
+             camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ),
+             static_cast<uint32_t>( m_ViewportData.Size.x ), static_cast<uint32_t>( m_ViewportData.Size.y ) );
         ::Desert::Core::RaycastHit hit;
         if ( !m_Scene->RaycastComplex( ray, hit ) )
             return Common::MakeError( "foliage preview: the viewport centre meets no surface" );
@@ -329,8 +329,8 @@ namespace Desert::Editor
             return Common::MakeError( "foliage stroke: the viewport has no camera or no size yet" );
         const auto ray = Common::Math::Ray::FromScreenPosition(
              { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
-             camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ), static_cast<uint32_t>( m_ViewportData.Size.x ),
-             static_cast<uint32_t>( m_ViewportData.Size.y ) );
+             camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ),
+             static_cast<uint32_t>( m_ViewportData.Size.x ), static_cast<uint32_t>( m_ViewportData.Size.y ) );
         m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, true );
         m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, false );
         return BOOLSUCCESS;
@@ -622,7 +622,8 @@ namespace Desert::Editor
                     if ( const auto* meshAsset =
                               Runtime::ResourceRegistry::GetMeshService()->GetAsset( resolved.Handle ) )
                         e.SetLocalTranslation( glm::dvec3( ActorDrop::PlacedOrigin(
-                             *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ), transform.GetScale() ) ) );
+                             *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ),
+                             transform.GetScale() ) ) );
                 PlaceRecordedLights( *m_Scene, done.UserData, done.SourcePath );
             }
         }
@@ -2187,8 +2188,8 @@ namespace Desert::Editor
             {
                 auto [mx, my]  = GetMouseViewportSpace();
                 const auto ray = Common::Math::Ray::FromScreenPosition(
-                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ),
-                     static_cast<uint32_t>( m_ViewportData.Size.x ),
+                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(),
+                     glm::vec3( camera->GetPosition() ), static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 // The footprint preview follows the cursor while it is over the viewport; off it, the last
                 // point stays (a palette command may have aimed it at the centre).
@@ -2229,8 +2230,8 @@ namespace Desert::Editor
             {
                 auto [mx, my]  = GetMouseViewportSpace();
                 const auto ray = Common::Math::Ray::FromScreenPosition(
-                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ),
-                     static_cast<uint32_t>( m_ViewportData.Size.x ),
+                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(),
+                     glm::vec3( camera->GetPosition() ), static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 m_VFXPaintTool.Update( *m_Scene, ray, pressing );
                 Tools::VFXPaintTool::DrawPoints( *m_Scene, camera->GetProjectionMatrix() * camera->GetViewMatrix(),
@@ -2248,8 +2249,8 @@ namespace Desert::Editor
                 const auto width    = static_cast<uint32_t>( m_ViewportData.Size.x );
                 const auto height   = static_cast<uint32_t>( m_ViewportData.Size.y );
                 const auto mouseRay = Common::Math::Ray::FromScreenPosition(
-                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ),
-                     width, height );
+                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(),
+                     glm::vec3( camera->GetPosition() ), width, height );
                 const auto centreRay = Common::Math::Ray::FromScreenPosition(
                      { m_ViewportData.Size.x * 0.5f, m_ViewportData.Size.y * 0.5f }, camera->GetProjectionMatrix(),
                      camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ), width, height );
@@ -2269,8 +2270,8 @@ namespace Desert::Editor
             {
                 auto [mx, my]  = GetMouseViewportSpace();
                 const auto ray = Common::Math::Ray::FromScreenPosition(
-                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ),
-                     static_cast<uint32_t>( m_ViewportData.Size.x ),
+                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(),
+                     glm::vec3( camera->GetPosition() ), static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 // CubeGrid aimed from the viewport centre (the palette's stand-in for a cursor): the same
                 // targeting, fed the ray a cursor at the centre would give.
@@ -3304,8 +3305,8 @@ namespace Desert::Editor
 
         // Same screen->world ray the click-picker uses (mouse position is already viewport-local).
         const auto ray = Common::Math::Ray::FromScreenPosition(
-             { m_ViewportData.MousePosition.x, m_ViewportData.MousePosition.y },
-             mainCamera->GetProjectionMatrix(), mainCamera->GetViewMatrix(), glm::vec3( mainCamera->GetPosition() ),
+             { m_ViewportData.MousePosition.x, m_ViewportData.MousePosition.y }, mainCamera->GetProjectionMatrix(),
+             mainCamera->GetViewMatrix(), glm::vec3( mainCamera->GetPosition() ),
              static_cast<uint32_t>( m_ViewportData.Size.x ), static_cast<uint32_t>( m_ViewportData.Size.y ) );
 
         ::Desert::Core::RaycastHit hit;
@@ -3321,8 +3322,8 @@ namespace Desert::Editor
             return ActorDrop::Target{};
         const auto ray = Common::Math::Ray::FromScreenPosition(
              { m_ViewportData.MousePosition.x, m_ViewportData.MousePosition.y }, camera->GetProjectionMatrix(),
-             camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ), static_cast<uint32_t>( m_ViewportData.Size.x ),
-             static_cast<uint32_t>( m_ViewportData.Size.y ) );
+             camera->GetViewMatrix(), glm::vec3( camera->GetPosition() ),
+             static_cast<uint32_t>( m_ViewportData.Size.x ), static_cast<uint32_t>( m_ViewportData.Size.y ) );
         ::Desert::Core::RaycastHit hit;
         const bool                 met = m_Scene->Raycast( ray, hit );
         return ActorDrop::TargetFor( met ? std::optional<glm::vec3>( hit.Point ) : std::nullopt, hit.Normal,

@@ -546,7 +546,8 @@ namespace
         const glm::vec3 up    = std::abs( view.Forward.y ) > 0.99f ? glm::vec3( 0, 0, -1 ) : glm::vec3( 0, 1, 0 );
         const glm::vec3 right = glm::normalize( glm::cross( view.Forward, up ) );
         const glm::mat4 viewMat = Desert::Core::ViewMatrixFrom(
-             glm::dvec3( view.Position ), Desert::Core::ViewBasis{ view.Forward, glm::cross( right, view.Forward ) } );
+             glm::dvec3( view.Position ),
+             Desert::Core::ViewBasis{ view.Forward, glm::cross( right, view.Forward ) } );
         const glm::mat4 proj = Desert::Core::MakePerspective(
              Desert::Core::VerticalFovKeepingHorizontal( glm::radians( fovX ), aspect ), aspect, view.Near,
              view.Far );

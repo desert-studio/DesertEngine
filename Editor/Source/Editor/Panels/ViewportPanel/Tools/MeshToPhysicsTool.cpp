@@ -159,8 +159,8 @@ namespace Desert::Editor::Tools
                  id, name,
                  [&]( ECS::Entity& volume )
                  {
-                     volume.SetLocalTransform(
-                          ECS::LocalTransform{ glm::dvec3( world.Translation ), world.Rotation, glm::vec3( 1.0f ) } );
+                     volume.SetLocalTransform( ECS::LocalTransform{ glm::dvec3( world.Translation ),
+                                                                    world.Rotation, glm::vec3( 1.0f ) } );
 
                      ECS::VolumeComponent component;
                      component.Data.Type = session.VolumeType;

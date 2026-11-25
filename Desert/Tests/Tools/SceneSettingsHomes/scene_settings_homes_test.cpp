@@ -369,7 +369,8 @@ TEST( PostProcessVolume, AHiddenVolumeAndAHiddenLightAreSkipped )
     reg.emplace<ECS::VisibilityComponent>( v, false );
 
     const entt::entity hidden                                            = reg.create();
-    reg.emplace<ECS::TransformComponent>( hidden, ECS::LocalTransform{ .Translation = glm::dvec3( 0.0f, -1.0f, 0.0f ) } );
+    reg.emplace<ECS::TransformComponent>( hidden,
+                                          ECS::LocalTransform{ .Translation = glm::dvec3( 0.0f, -1.0f, 0.0f ) } );
     reg.emplace<ECS::DirectionLightComponent>( hidden ).Data.CastShadows = false;
     reg.emplace<ECS::VisibilityComponent>( hidden, false );
 

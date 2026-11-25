@@ -1562,7 +1562,8 @@ namespace Desert::Graphic::System
             return;
         }
         // Blending is order-dependent: far glass first, near glass over it (see TranslucentSortOrder.hpp).
-        TranslucentSortOrderInto( glm::vec3( camera->GetPosition() ), sortKeys, walk.SortDistance2, walk.DrawOrder );
+        TranslucentSortOrderInto( glm::vec3( camera->GetPosition() ), sortKeys, walk.SortDistance2,
+                                  walk.DrawOrder );
         const std::vector<uint32_t>& drawOrder = walk.DrawOrder;
 
         // --- Per translucent cell, once per frame and BEFORE the blocks are declared, so each cell's route fill

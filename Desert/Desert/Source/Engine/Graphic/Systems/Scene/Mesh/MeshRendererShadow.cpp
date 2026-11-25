@@ -722,8 +722,9 @@ namespace Desert::Graphic::System
         // its cull distance, level or wind ring inside the cell (CPU-ISM-SHADOW REMAINDER says what replaces it).
         const auto*             camera = m_SceneRenderer->GetMainCamera();
         const Geometry::LODView lodView =
-             camera != nullptr ? Geometry::LODView{ glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() }
-                               : Geometry::LODView{};
+             camera != nullptr
+                  ? Geometry::LODView{ glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() }
+                  : Geometry::LODView{};
         SignatureHash hash;
         hash.Add( camera != nullptr );
         if ( camera != nullptr )

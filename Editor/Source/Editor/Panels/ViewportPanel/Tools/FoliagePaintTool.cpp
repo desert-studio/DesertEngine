@@ -1189,7 +1189,8 @@ namespace Desert::Editor::Tools
                     auto&       field = scene.CreateNewEntity( CellFieldTag( tag, cell ) );
                     // NOLINTNEXTLINE(bugprone-unchecked-optional-access) cellSize is set: only a scatter adds
                     // fields
-                    field.SetLocalTranslation( glm::dvec3( World::Foliage::FoliageCellAnchor( cell, *cellSize ) ) );
+                    field.SetLocalTranslation(
+                         glm::dvec3( World::Foliage::FoliageCellAnchor( cell, *cellSize ) ) );
                     field.AddComponent<ECS::FoliageComponent>().FoliageType = type;
                     ECS::InstancedStaticMeshDesc ism;
                     ism.MeshHandle        = lead.GetMeshHandle();
@@ -1493,7 +1494,8 @@ namespace Desert::Editor::Tools
             // FO-6: a cell field stands at its cell's centre; a world that is not partitioned keeps the field
             // where a painted one stands, at the origin (instances are world transforms either way).
             if ( const auto& cellSize = host.CellSize; cellSize.has_value() )
-                field.SetLocalTranslation( glm::dvec3( World::Foliage::FoliageCellAnchor( fresh.Cell, *cellSize ) ) );
+                field.SetLocalTranslation(
+                     glm::dvec3( World::Foliage::FoliageCellAnchor( fresh.Cell, *cellSize ) ) );
             field.AddComponent<ECS::FoliageComponent>().FoliageType = type->GetMetadata().Handle;
             ECS::InstancedStaticMeshDesc ism;
             ism.MeshHandle         = type->GetMeshHandle();

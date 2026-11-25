@@ -1839,7 +1839,8 @@ namespace Desert::Migration
                 if ( !isLight( override_.Components ) || !override_.Translation.has_value() ||
                      glm::length( *override_.Translation ) <= kOldDirectionEpsilon )
                     continue;
-                override_.Rotation = glm::eulerAngles( ECS::Rules::RotationForTravel( glm::vec3( *override_.Translation ) ) );
+                override_.Rotation =
+                     glm::eulerAngles( ECS::Rules::RotationForTravel( glm::vec3( *override_.Translation ) ) );
                 override_.Translation = glm::vec3( 0.0f );
                 ++report.Overrides;
             }

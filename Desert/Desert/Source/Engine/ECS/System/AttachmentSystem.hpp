@@ -116,7 +116,8 @@ namespace Desert::ECS
                 const Rules::DecomposedTransform decomposed = Rules::DecomposeTransform( local );
 
                 SetLocalTransform( registry, entity,
-                                   LocalTransform{ glm::dvec3( decomposed.Translation ), decomposed.Rotation, decomposed.Scale } );
+                                   LocalTransform{ glm::dvec3( decomposed.Translation ), decomposed.Rotation,
+                                                   decomposed.Scale } );
             }
         }
 

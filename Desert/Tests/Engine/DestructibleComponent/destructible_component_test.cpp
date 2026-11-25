@@ -90,7 +90,8 @@ namespace
         entt::entity Spawn( const glm::vec3& at, Assets::AssetHandle handle = kFractureHandle )
         {
             const entt::entity entity                                            = registry.create();
-            registry.emplace<ECS::TransformComponent>( entity, ECS::LocalTransform{ .Translation = glm::dvec3( at ) } );
+            registry.emplace<ECS::TransformComponent>( entity,
+                                                       ECS::LocalTransform{ .Translation = glm::dvec3( at ) } );
             registry.emplace<ECS::DestructibleComponent>( entity ).Data.Fracture = handle;
             return entity;
         }

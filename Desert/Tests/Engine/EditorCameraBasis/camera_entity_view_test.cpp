@@ -36,7 +36,7 @@ namespace
     // A camera at @p position, yawed then pitched then rolled (radians), scaled — built the way a
     // TransformComponent composes it, then widened to the entity's double WorldTransform.
     Desert::ECS::WorldTransform CameraWorld( const glm::vec3& position, float yaw, float pitch, float roll,
-                                     float scale = 1.0f )
+                                             float scale = 1.0f )
     {
         glm::mat4 m = glm::translate( glm::mat4( 1.0f ), position );
         m           = glm::rotate( m, yaw, glm::vec3( 0.0f, 1.0f, 0.0f ) );

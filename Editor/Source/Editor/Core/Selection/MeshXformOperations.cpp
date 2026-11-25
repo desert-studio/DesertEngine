@@ -81,7 +81,8 @@ namespace Desert::Editor::Core
 
         Commands::XformEntityState StateOf( const Common::UUID& id, MeshPtr mesh, const Geometry::Trs& local )
         {
-            return { id, std::move( mesh ), glm::dvec3( local.Translation ), local.Rotation, local.Scale, std::nullopt };
+            return { id,          std::move( mesh ), glm::dvec3( local.Translation ), local.Rotation,
+                     local.Scale, std::nullopt };
         }
 
         // Merge's material table: the target's slots first, then every other part's slots not already there;

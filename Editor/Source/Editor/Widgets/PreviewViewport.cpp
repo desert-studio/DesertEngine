@@ -1278,8 +1278,8 @@ namespace Desert::Editor
         const float     aspect   = static_cast<float>( width ) / static_cast<float>( std::max( height, 1u ) );
         const glm::vec3 position = m_Focus + offset * ( FittedDistance( aspect ) * m_Zoom );
 
-        m_Camera->SetFromTransform( glm::dvec3( position ), glm::vec3( -m_Pitch, m_Yaw, 0.0f ), kFov, kNearPlane, kFarPlane,
-                                    width, height );
+        m_Camera->SetFromTransform( glm::dvec3( position ), glm::vec3( -m_Pitch, m_Yaw, 0.0f ), kFov, kNearPlane,
+                                    kFarPlane, width, height );
     }
 
     void PreviewViewport::Update( uint32_t width, uint32_t height )

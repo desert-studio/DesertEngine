@@ -80,7 +80,7 @@ TEST( ViewportCamera, TheCameraLandsExactlyWhereItWasAskedForEveryPoseTried )
     {
         for ( const glm::vec3& forward : forwards )
         {
-            const glm::dvec3 aim = ViewportCameraFocalPoint( position, forward );
+            const glm::dvec3 aim    = ViewportCameraFocalPoint( position, forward );
             const glm::dvec3 landed = WhereTheCameraEndsUp( aim, forward );
 
             EXPECT_NEAR( landed.x, position.x, 1e-2f );

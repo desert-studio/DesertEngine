@@ -1569,7 +1569,8 @@ namespace Desert::Editor
             const bool isStart = entity.HasComponent<ECS::PlayerStartComponent>();
             if ( isStart )
                 DrawPlayerStartBody( drawList, entity.GetWorldTransform().ToFloatMatrix(), mvp,
-                                     glm::vec3( camera->GetPosition() ), width, height, windowPos, IsSelected( entity ), pawn );
+                                     glm::vec3( camera->GetPosition() ), width, height, windowPos,
+                                     IsSelected( entity ), pawn );
 
             if ( DrawBillboardIcon( drawList, ImVec2( ax, ay ), role, color, IsSelected( entity ), m_UIHelper ) )
             {

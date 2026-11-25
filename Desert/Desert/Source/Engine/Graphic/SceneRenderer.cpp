@@ -1014,8 +1014,8 @@ namespace Desert::Graphic
             {
                 const Geometry::LODView view{ glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() };
                 TextureStreamingDemand::Get().NoteAsset(
-                     value.Texture,
-                     TextureStreamingDemand::ScreenPixels( glm::vec3( camera->GetPosition() ), 1.0f, view, GetViewExtent().Height ) );
+                     value.Texture, TextureStreamingDemand::ScreenPixels( glm::vec3( camera->GetPosition() ), 1.0f,
+                                                                          view, GetViewExtent().Height ) );
             }
             const Texture2D* texture = Runtime::ResourceRegistry::GetTextureService()->Get( value.Texture );
             // The bindless slot lives on the texture's image (as Texture2DProperty::GetBindlessSlot reads it).
@@ -1487,8 +1487,8 @@ namespace Desert::Graphic
             const LocalWindSelection previous = m_LocalWindSelection;
             if ( const auto* cam = GetMainCamera() )
                 SelectLocalWind( m_LocalWindCandidates, glm::vec3( cam->GetPosition() ),
-                                 glm::length( m_DirectionalWindVelocityXZ ),
-                                 previous, m_LocalWindSelection, m_LocalWind, m_PrevLocalWind );
+                                 glm::length( m_DirectionalWindVelocityXZ ), previous, m_LocalWindSelection,
+                                 m_LocalWind, m_PrevLocalWind );
             else
             {
                 m_LocalWindSelection = LocalWindSelection{};
@@ -2268,10 +2268,11 @@ namespace Desert::Graphic
                      .DicingRatePixels = static_cast<float>( std::max( m_DisplacementDicingRate, 1 ) ),
                      .PoolBytes        = static_cast<uint64_t>( m_DisplacementPoolMiB ) << 20u } );
                 if ( const auto* viewCamera = GetMainCamera(); viewCamera != nullptr )
-                    meshes->ApplyDisplacement(
-                         displacement,
-                         Geometry::LODView{ glm::vec3( viewCamera->GetPosition() ), viewCamera->GetProjectionMatrix() },
-                         static_cast<float>( m_ViewExtent.Height ), frameNumber, !m_ViewProfile.SceneCapture );
+                    meshes->ApplyDisplacement( displacement,
+                                               Geometry::LODView{ glm::vec3( viewCamera->GetPosition() ),
+                                                                  viewCamera->GetProjectionMatrix() },
+                                               static_cast<float>( m_ViewExtent.Height ), frameNumber,
+                                               !m_ViewProfile.SceneCapture );
             }
             if ( m_FrameGpuScene == nullptr )
             {
@@ -2340,10 +2341,10 @@ namespace Desert::Graphic
             auto* const     meshes     = m_Systems.Mesh.get();
             const auto*     camera     = GetMainCamera();
             const glm::vec3 viewOrigin = camera != nullptr ? glm::vec3( camera->GetPosition() ) : glm::vec3( 0.0f ); // LWC p4 edge
-            const float     lensScale  = camera != nullptr
-                                              ? DrawDistanceScale( Geometry::LODView{ glm::vec3( camera->GetPosition() ),
-                                                                                 camera->GetProjectionMatrix() } )
-                                              : 1.0f;
+            const float lensScale =
+                 camera != nullptr ? DrawDistanceScale( Geometry::LODView{ glm::vec3( camera->GetPosition() ),
+                                                                           camera->GetProjectionMatrix() } )
+                                   : 1.0f;
             // The view's methods, or the scene's cards this view relights this frame with ray query.
             const bool required =
                  RayTracing::RayTracingSceneRequired( m_RenderMethods ) || SurfaceCacheUpdateTracesRayQuery();
@@ -4589,8 +4590,9 @@ namespace Desert::Graphic
         const auto* camera = GetMainCamera();
         if ( maxDrawDistance <= 0.0f || mesh == nullptr || camera == nullptr )
             return true;
-        return IsWithinDrawDistance( Geometry::LODView{ glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() },
-                                     transform, Geometry::LocalBounds( mesh->GetSubmeshes() ), maxDrawDistance );
+        return IsWithinDrawDistance(
+             Geometry::LODView{ glm::vec3( camera->GetPosition() ), camera->GetProjectionMatrix() }, transform,
+             Geometry::LocalBounds( mesh->GetSubmeshes() ), maxDrawDistance );
     }
 
     void SceneRendererImpl::SetLODPreview( const uint32_t entity, const int level )

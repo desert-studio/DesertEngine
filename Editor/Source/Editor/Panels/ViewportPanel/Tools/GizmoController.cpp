@@ -491,7 +491,8 @@ namespace Desert::Editor::Tools
             // itself lives in GizmoTransformMath.hpp so the GizmoTransformSpace suite can reach it.
             const auto local = WorldToLocalTRS( parentWorld, modelMatrix );
 
-            selectedEntity.SetLocalTransform( ECS::LocalTransform{ glm::dvec3( local.Translation ), local.Rotation, local.Scale } );
+            selectedEntity.SetLocalTransform(
+                 ECS::LocalTransform{ glm::dvec3( local.Translation ), local.Rotation, local.Scale } );
 
             // Group manipulation: apply the same WORLD-space delta to every other selected top-level root,
             // so the whole selection moves/rotates/scales as one rigid group around the primary's gizmo.
@@ -519,8 +520,8 @@ namespace Desert::Editor::Tools
                     const glm::mat4 pw = parentWorldOf( e.GetHandle() );
 
                     const auto follower = WorldToLocalTRS( pw, delta * ( pw * tc.GetTransform() ) );
-                    e.SetLocalTransform(
-                         ECS::LocalTransform{ glm::dvec3( follower.Translation ), follower.Rotation, follower.Scale } );
+                    e.SetLocalTransform( ECS::LocalTransform{ glm::dvec3( follower.Translation ),
+                                                              follower.Rotation, follower.Scale } );
                 }
             }
         }

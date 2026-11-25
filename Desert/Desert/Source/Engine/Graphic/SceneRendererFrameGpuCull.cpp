@@ -285,7 +285,7 @@ namespace Desert::Graphic
         }
         const Common::ResultStr<GpuDriven::GpuSceneBuffers> scene = Common::MakeSuccess( *m_FrameGpuSceneTables );
 
-        const Geometry::LODView lod{ .Origin     = glm::vec3( camera->GetPosition() ),
+        const Geometry::LODView lod{ .Origin        = glm::vec3( camera->GetPosition() ),
                                      .Projection    = camera->GetProjectionMatrix(),
                                      .Temporal      = frame.TemporalLOD,
                                      .DistanceScale = meshes->GetLODDistanceScale() };
@@ -669,7 +669,7 @@ namespace Desert::Graphic
 
         // Every view selects LOD and distance-culls ISM from the main camera (MeshRenderer::ComputeLOD,
         // MeshRenderer.cpp:193-209; the shadows draw the main view's LOD).
-        const Geometry::LODView lod{ .Origin     = glm::vec3( camera->GetPosition() ),
+        const Geometry::LODView lod{ .Origin        = glm::vec3( camera->GetPosition() ),
                                      .Projection    = camera->GetProjectionMatrix(),
                                      .DistanceScale = meshes->GetLODDistanceScale() };
         const float             lensScale    = Graphic::DrawDistanceScale( lod );
@@ -1068,7 +1068,7 @@ namespace Desert::Graphic
 
         // THE LEVELS AS CULL VIEWS (the validation path's VSM views, AddFrameGpuCull): the far plane open, as the
         // casters' cull, and the level's drawn-page mask; cull view = cut view = level.
-        const Geometry::LODView lod{ .Origin     = glm::vec3( camera->GetPosition() ),
+        const Geometry::LODView lod{ .Origin        = glm::vec3( camera->GetPosition() ),
                                      .Projection    = camera->GetProjectionMatrix(),
                                      .DistanceScale = meshes->GetLODDistanceScale() };
         const float             lensScale    = Graphic::DrawDistanceScale( lod );

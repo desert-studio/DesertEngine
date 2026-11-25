@@ -134,9 +134,9 @@ namespace Desert::Editor::Tools
                 label = fmt::format( "{}{}", MS::ShapeName( settings.Kind ), n );
         }
         const ECS::Entity entity    = scene.CreateNewEntity( std::move( label ) );
-        entity.SetLocalTransform( ECS::LocalTransform{
-             glm::dvec3( spot.Point ), glm::eulerAngles( spot.Rotation ),
-             entity.GetComponent<ECS::TransformComponent>().GetScale() } );
+        entity.SetLocalTransform(
+             ECS::LocalTransform{ glm::dvec3( spot.Point ), glm::eulerAngles( spot.Rotation ),
+                                  entity.GetComponent<ECS::TransformComponent>().GetScale() } );
         ECS::StaticMeshDesc shape;
         if ( auto set = ECS::SetEditableMesh(
                   shape, std::make_shared<const Geometry::DynamicMesh3>( mesh.ExtractValue() ) );
