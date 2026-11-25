@@ -3,17 +3,20 @@
 // headless at a fixed 60 Hz step.
 //
 //   DesertServer --project <file.deproj> --role all --world <scene.desce> --source <x,y,z> [--steps <n>]
-//                [--port <p> --server-id <id> --secret-file <hex file> --pawn <assets:X.deprefab> --spawn <x,y,z>
-//                ...]
+//                [--port <p> --audience <world id> --issuer-key <public key file> [--issuer-key ...]
+//                 [--refuse-account <id> ...] --pawn <assets:X.deprefab> --spawn <x,y,z> ...]
 //
 // --world   the scene whose cooked world (WorldCells::CookedWorldDirectory, `X.dwworld/` beside it) is served;
 //           relative to the project's directory. A scene with no cooked world beside it is refused.
 // --source  one server-side streaming source, world cm (NET-ARCH §4.1: an NPC schedule or a script's
 //           RequestStreaming; players are sources from NET-1).
 // --steps   steps to run, then exit 0 (a scenario's run); without it the server runs until killed.
-// --port    listen for clients (NET-1): the gateway admits a connection whose Hello carries a token signed with
-//           --secret-file for --server-id and the served world's cook hash, and the sim spawns a pawn for it at
-//           the next --spawn point; every pawn is a streaming source of the residency union (NET-ARCH §4.1).
+// --port    listen for clients (NET-1): the gateway admits a connection whose Hello carries a connect token signed
+//           by an issuer whose PUBLIC key is an --issuer-key (several = key rotation; the private key never comes
+//           here), for --audience (the world id) and the served world's cook hash; then this server's game layer
+//           (ServerPreLogin.hpp) decides on the token's claims: --refuse-account <id> refuses that account. The
+//           sim spawns a pawn for an admitted player at the next --spawn point; every pawn is a streaming source
+//           of the residency union (NET-ARCH §4.1).
 
 #if !DESERT_SERVER
 #error "DesertServer is compiled only by its own target (Server/CMakeLists.txt), which defines DESERT_SERVER"
@@ -29,6 +32,7 @@
 #include <Net/MeshCertificates.hpp>
 #include <Net/MeshLink.hpp>
 #include <Net/MeshOfOne.hpp>
+#include "ServerPreLogin.hpp"
 
 #include <ToolMain.hpp>
 #include <ToolProject.hpp>
@@ -136,8 +140,9 @@ namespace Desert::Server
             glm::vec3                    source{ 0.0f };
             std::optional<std::uint64_t> steps;
             std::optional<std::uint16_t> port;
-            std::uint64_t                serverId = 0;
-            std::string                  secretFile;
+            std::uint64_t                audience = 0;    // the world (cluster) id the connect tokens name
+            std::vector<std::string>     issuerKeys;      // the issuer public key files the gateway trusts
+            std::set<std::uint64_t>      refusedAccounts; // the game's PreLogin rule (ServerPreLogin)
             std::vector<glm::vec3>       spawns;
             std::string pawn; // the GameMode's pawn prefab, a stable key (assets:Prefabs/X.deprefab)
             // The split roles (NET-MESH-1): this process's index within its role, where the coordinator listens,
@@ -163,7 +168,8 @@ namespace Desert::Server
         {
             return "usage: DesertServer --project <file.deproj> --role all --world <scene.desce> --source <x,y,z> "
                    "[--steps <n>] "
-                   "[--port <p> --server-id <id> --secret-file <file> --pawn <assets:...deprefab> --spawn <x,y,z> "
+                   "[--port <p> --audience <world id> --issuer-key <public key file> [--issuer-key ...] "
+                   "[--refuse-account <id> ...] --pawn <assets:...deprefab> --spawn <x,y,z> "
                    "[--spawn ...] [--lag-ms <ms> --jitter-ms <ms> --loss <pct>]]\n"
                    "       DesertServer --project <p> --role coordinator --mesh-port <p> --mesh-ca <dir> [--steps "
                    "<n>] "
@@ -176,9 +182,33 @@ namespace Desert::Server
                    "--mesh-ca <dir> --world <w> --source <x,y,z> --spawn <x,y,z> [--spawn ...]\n"
                    "       DesertServer --project <p> --role gateway [--index <n>] --coordinator <ip:port> "
                    "--mesh-ca <dir> "
-                   "--world <w> --port <p> --server-id <id> --secret-file <file> --pawn <assets:...deprefab>\n"
+                   "--world <w> --port <p> --audience <world id> --issuer-key <file> [--refuse-account <id> ...] "
+                   "--pawn <assets:...deprefab>\n"
                    "       DesertServer --mesh-dev-ca <dir>   (a local dev CA + one certificate per role, never "
                    "committed)";
+        }
+
+        // A gateway's admission: the issuer public keys of --issuer-key, the world's --audience, and the game's
+        // PreLogin; nullopt (logged) when a key file cannot be read.
+        std::optional<Net::GatewayAdmission> AdmissionOf( const Options& options, std::uint64_t cookHash,
+                                                          Net::IPreLogin& game )
+        {
+            std::vector<Net::IssuerKeyRecord> keys;
+            for ( const std::string& path : options.issuerKeys )
+            {
+                std::string                         error;
+                std::optional<Net::IssuerKeyRecord> key = Net::ReadIssuerKeyFile( path, error );
+                if ( !key )
+                {
+                    LOG_ERROR( "[Server] {}", error );
+                    return std::nullopt;
+                }
+                LOG_INFO( "[Server] trusting connect tokens of issuer {} key {} for world {}", key->Issuer,
+                          key->KeyId, options.audience );
+                keys.push_back( *key );
+            }
+            return Net::GatewayAdmission{ cookHash,
+                                          Net::ConnectTokenVerifier( std::move( keys ), options.audience ), game };
         }
 
         Common::ResultStr<glm::vec3> ParsePoint( std::string_view text, std::string_view flag )
@@ -325,11 +355,12 @@ namespace Desert::Server
                              std::format( "{} '{}' is not a distance in cm", flag, value ) );
                     ( flag == "--border-band" ? options.borderBand : options.handoverMargin ) = cm;
                 }
-                else if ( flag == "--secret-file" )
-                    options.secretFile = value;
+                else if ( flag == "--issuer-key" )
+                    options.issuerKeys.push_back( value );
                 else if ( flag == "--pawn" )
                     options.pawn = value;
-                else if ( flag == "--port" || flag == "--server-id" || flag == "--mesh-port" || flag == "--index" )
+                else if ( flag == "--port" || flag == "--audience" || flag == "--mesh-port" || flag == "--index" ||
+                          flag == "--refuse-account" )
                 {
                     std::uint64_t n  = 0;
                     const auto    at = std::from_chars( value.data(), value.data() + value.size(), n );
@@ -343,8 +374,10 @@ namespace Desert::Server
                         options.meshPort = static_cast<std::uint16_t>( n );
                     else if ( flag == "--index" )
                         options.index = static_cast<std::uint32_t>( n );
+                    else if ( flag == "--refuse-account" )
+                        options.refusedAccounts.insert( n );
                     else
-                        options.serverId = n;
+                        options.audience = n;
                 }
                 else if ( flag == "--steps" )
                 {
@@ -413,14 +446,15 @@ namespace Desert::Server
                 return Common::MakeError<Options>( "--role sim needs at least one --spawn (where pawns start)" );
             if ( role == Role::Gateway && !options.port )
                 return Common::MakeError<Options>( "--role gateway needs --port (where clients connect)" );
-            if ( role == Role::Gateway && ( options.secretFile.empty() || options.serverId == 0 || options.pawn.empty() ) )
-                return Common::MakeError<Options>(
-                     "--role gateway needs --server-id, --secret-file and --pawn (the prefab every player's pawn is)" );
+            if ( role == Role::Gateway &&
+                 ( options.issuerKeys.empty() || options.audience == 0 || options.pawn.empty() ) )
+                return Common::MakeError<Options>( "--role gateway needs --audience, --issuer-key and --pawn (the "
+                                                   "prefab every player's pawn is)" );
             if ( role == Role::All && options.port &&
-                 ( options.secretFile.empty() || options.serverId == 0 || options.spawns.empty() ||
+                 ( options.issuerKeys.empty() || options.audience == 0 || options.spawns.empty() ||
                    options.pawn.empty() ) )
                 return Common::MakeError<Options>(
-                     "--port needs --server-id, --secret-file, --pawn (the prefab every "
+                     "--port needs --audience, --issuer-key, --pawn (the prefab every "
                      "player's pawn is) and at least one --spawn (where pawns start)" );
             return Common::MakeSuccess( std::move( options ) );
         }
@@ -792,15 +826,12 @@ namespace Desert::Server
                                pawnPath.string() );
                     return 7;
                 }
-                const std::vector<std::byte> secret = Net::ReadTokenSecretFile( options.secretFile, error );
-                if ( secret.empty() )
-                {
-                    LOG_ERROR( "[Server] {}", error );
+                ServerPreLogin                       game( options.refusedAccounts );
+                std::optional<Net::GatewayAdmission> admission = AdmissionOf( options, world.CookHash, game );
+                if ( !admission )
                     return 7;
-                }
                 const Common::AssetHandle pawnPrefab = Common::AssetHandle::FromKey( options.pawn );
-                Net::Gateway              gateway( *transport, replica,
-                                                   Net::HelloPolicy{ world.CookHash, options.serverId, secret, 0 },
+                Net::Gateway              gateway( *transport, replica, std::move( *admission ),
                                                    static_cast<std::uint64_t>( pawnPrefab ), RelevancyGridOf( world ), netLog );
                 Net::RemoteSimLink        simLink( endpoint, netLog );
                 gateway.Bind( simLink );
@@ -850,9 +881,9 @@ namespace Desert::Server
                             return 7;
                         }
                         listening = true;
-                        LOG_INFO( "[Server] listening on port {} (gateway {}, server id {}, cook hash {:016x}); pawn "
+                        LOG_INFO( "[Server] listening on port {} (gateway {}, world {}, cook hash {:016x}); pawn "
                                   "{} ({:016x}); clients' input goes to the sim the authority map names",
-                                  *options.port, options.index, options.serverId, world.CookHash, options.pawn,
+                                  *options.port, options.index, options.audience, world.CookHash, options.pawn,
                                   static_cast<std::uint64_t>( pawnPrefab ) );
                     }
                     for ( const std::uint32_t step : std::exchange( ticks, {} ) )
@@ -1089,7 +1120,7 @@ namespace Desert::Server
             // THE MESH OF ONE (NET-ARCH §2M.2): gateway + sim + store in this process, behind the interfaces the
             // split roles of NET-MESH-1 keep.
             const Net::NetLogSink netLog = []( std::string_view line ) { LOG_INFO( "[Net] {}", line ); };
-            std::vector<std::byte>                     secret;
+            std::unique_ptr<ServerPreLogin> game; // outlives the gateway (declared before it)
             std::unique_ptr<Net::INetTransport>        transport;
             std::unique_ptr<Net::InProcessReplicationStore> store;
             std::unique_ptr<Net::Gateway>              gateway;
@@ -1097,12 +1128,6 @@ namespace Desert::Server
             if ( options.port )
             {
                 std::string error;
-                secret = Net::ReadTokenSecretFile( options.secretFile, error );
-                if ( secret.empty() )
-                {
-                    LOG_ERROR( "[Server] {}", error );
-                    return 7;
-                }
                 transport = Net::CreateGnsTransport( netLog );
                 if ( transport && !transport->SetSimulator( options.simulator, error ) )
                 {
@@ -1130,10 +1155,15 @@ namespace Desert::Server
                     return 7;
                 }
                 const Common::AssetHandle pawnPrefab = Common::AssetHandle::FromKey( options.pawn );
+                game                                 = std::make_unique<ServerPreLogin>( options.refusedAccounts );
+                std::optional<Net::GatewayAdmission> admission =
+                     AdmissionOf( options, server->World().CookHash, *game );
+                if ( !admission )
+                    return 7;
                 store   = std::make_unique<Net::InProcessReplicationStore>();
-                gateway                              = std::make_unique<Net::Gateway>(
-                     *transport, *store, Net::HelloPolicy{ server->World().CookHash, options.serverId, secret, 0 },
-                     static_cast<std::uint64_t>( pawnPrefab ), RelevancyGridOf( server->World() ), netLog );
+                gateway = std::make_unique<Net::Gateway>( *transport, *store, std::move( *admission ),
+                                                          static_cast<std::uint64_t>( pawnPrefab ),
+                                                          RelevancyGridOf( server->World() ), netLog );
                 Net::PawnSimulation::Settings simSettings;
                 for ( const glm::vec3& spawn : options.spawns )
                     simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
@@ -1142,9 +1172,9 @@ namespace Desert::Server
                                                                    std::move( simSettings ), netLog );
                 gateway->Bind( *sim );
                 LOG_INFO(
-                     "[Server] listening on port {} (server id {}, cook hash {:016x}); {} spawn point(s); pawn {} "
+                     "[Server] listening on port {} (world {}, cook hash {:016x}); {} spawn point(s); pawn {} "
                      "({:016x})",
-                     *options.port, options.serverId, server->World().CookHash, options.spawns.size(),
+                     *options.port, options.audience, server->World().CookHash, options.spawns.size(),
                      options.pawn, static_cast<std::uint64_t>( pawnPrefab ) );
             }
 

@@ -212,6 +212,15 @@ namespace Desert::Net
         std::uint32_t            m_Joined = 0;
     };
 
+    // What a gateway admits (NET-AUTH-SPLIT): the served cook, the connect tokens of its world (the issuer public
+    // keys it trusts + its audience + the replay cache), and the game's PreLogin, which decides on the claims.
+    struct GatewayAdmission
+    {
+        std::uint64_t        CookHash = 0;
+        ConnectTokenVerifier Tokens;
+        IPreLogin&           Game; // the server's game layer; outlives the gateway
+    };
+
     // THE GATEWAY ROLE: client connections, the connect handshake (token + cook hash), routing input to the sim,
     // Spawn/Destroy and Snapshots out of the store, for each connection's relevant set (§3.5): its own pawn, the
     // pawns standing in a cell the client reports resident, and the stable objects of those cells (+ always-loaded).
@@ -220,8 +229,8 @@ namespace Desert::Net
     public:
         // @p pawnPrefab: the server GameMode's pawn (UE DefaultPawnClass), named to every admitted client in the
         // Welcome; never 0.
-        Gateway( INetTransport& transport, IReplicationStore& store, HelloPolicy policy, std::uint64_t pawnPrefab,
-                 NetRelevancyGrid grid, NetLogSink log );
+        Gateway( INetTransport& transport, IReplicationStore& store, GatewayAdmission admission,
+                 std::uint64_t pawnPrefab, NetRelevancyGrid grid, NetLogSink log );
         void Bind( ISimLink& sim )
         {
             m_Sim = &sim;
@@ -278,6 +287,7 @@ namespace Desert::Net
         {
             bool                                  Admitted = false;
             PlayerId                              Player   = 0;
+            std::string                           Address; // where it connected from (the game's PreLogin sees it)
             std::map<StableNetId, ObjectBaseline> Baselines;
             std::map<std::uint32_t, SentPacket>   InFlight; // by ObjectState sequence
             std::uint32_t                         NextStateSequence = 1;
@@ -303,7 +313,7 @@ namespace Desert::Net
 
         INetTransport&                   m_Transport;
         IReplicationStore&               m_Store;
-        HelloPolicy                      m_Policy;
+        GatewayAdmission                 m_Admission;
         std::uint64_t                    m_PawnPrefab = 0;
         NetRelevancyGrid                 m_Grid;
         NetLogSink                       m_Log;
