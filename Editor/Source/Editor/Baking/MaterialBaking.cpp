@@ -54,12 +54,12 @@ namespace Desert::Editor::Baking
         // range and the material's world-scaled inputs (a texture's world tiling) in an ordinary range.
         constexpr float kProxyExtentCm = 100.0f;
         // The camera looks straight down at the plane from this height, its depth range around it.
-        constexpr float kEyeHeightCm = 1000.0f;
-        constexpr float kNearCm      = 1.0f;
-        constexpr float kFarCm       = 1.0e4f;
+        constexpr float kMaterialBakeEyeHeightCm = 1000.0f;
+        constexpr float kMaterialBakeNearCm      = 1.0f;
+        constexpr float kMaterialBakeFarCm       = 1.0e4f;
         // Frames recorded before the G-buffer is read: the renderer's stages, the material's textures streaming
         // in and the temporal history settling (LandscapeHLODBake's count).
-        constexpr int kWarmFrames = 60;
+        constexpr int kMaterialBakeWarmFrames = 60;
 
         constexpr std::size_t kHalfTexelBytes = 8; // RGBA16F
         constexpr float       kFlatEpsilon    = 1.0e-6f;
@@ -368,12 +368,13 @@ namespace Desert::Editor::Baking
         world[0] = glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f );  // right
         world[1] = glm::vec4( 0.0f, 0.0f, -1.0f, 0.0f ); // up
         world[2] = glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f );  // backward (the camera looks down -Y)
-        world[3] = glm::vec4( kProxyExtentCm * 0.5f, kEyeHeightCm, kProxyExtentCm * 0.5f, 1.0f );
+        world[3] = glm::vec4( kProxyExtentCm * 0.5f, kMaterialBakeEyeHeightCm, kProxyExtentCm * 0.5f, 1.0f );
         m_Camera = std::make_shared<::Desert::Core::GameplayCamera>();
         m_Camera->SetProjectionType( ::Desert::Core::ProjectionType::Orthographic );
         m_Camera->SetOrthoSize( kProxyExtentCm * 0.5f );
-        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( world, 45.0f, kNearCm, kFarCm ), m_Request.Size,
-                           m_Request.Size, ::Desert::Core::Camera::kNoSourceEntity );
+        m_Camera->SetView(
+             ::Desert::Core::CameraEntityViewOf( world, 45.0f, kMaterialBakeNearCm, kMaterialBakeFarCm ),
+             m_Request.Size, m_Request.Size, ::Desert::Core::Camera::kNoSourceEntity );
         m_Scene->PinActiveCamera( m_Camera );
         return BOOLSUCCESS;
     }
@@ -402,7 +403,7 @@ namespace Desert::Editor::Baking
                     Fail( started.GetError() );
                     return true;
                 }
-                m_WarmFrames = kWarmFrames;
+                m_WarmFrames = kMaterialBakeWarmFrames;
                 m_Phase      = Phase::Frame;
                 return false;
             }

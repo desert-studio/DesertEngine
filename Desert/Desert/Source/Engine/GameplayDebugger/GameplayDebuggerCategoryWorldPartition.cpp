@@ -22,8 +22,8 @@ namespace Desert::Debug
     {
         namespace Rules = Core::Rules;
 
-        const glm::vec4 kLabel( 0.65f, 0.65f, 0.65f, 1.0f );
-        const glm::vec4 kValue( 1.0f, 1.0f, 1.0f, 1.0f );
+        const glm::vec4 kWorldPartitionLabel( 0.65f, 0.65f, 0.65f, 1.0f );
+        const glm::vec4 kWorldPartitionValue( 1.0f, 1.0f, 1.0f, 1.0f );
         const glm::vec4 kOnColor( 0.35f, 1.0f, 0.35f, 1.0f );
         const glm::vec4 kOffColor( 0.55f, 0.55f, 0.55f, 1.0f );
         const glm::vec4 kSourceColor( 1.0f, 0.55f, 0.1f, 1.0f );
@@ -188,15 +188,16 @@ namespace Desert::Debug
                { "Shift+I details  ", onOff( m_View.CellDetails ) },
                { std::format( "Shift+G level {}  ",
                               m_View.GridLevel ? std::to_string( *m_View.GridLevel ) : std::string( "all" ) ),
-                 kValue },
-               { std::format( "Shift+C colour by {}", ColorModeName( m_View.Coloring ) ), kValue } } );
+                 kWorldPartitionValue },
+               { std::format( "Shift+C colour by {}", ColorModeName( m_View.Coloring ) ),
+                 kWorldPartitionValue } } );
 
         const Core::WorldStreamer* streamer = scene.GetGameplayDebugger().GetWorldStreamer();
         if ( streamer == nullptr )
         {
             out.AddTextLine( { { "not streamed: World Partition streams in Play, a world that states a "
                                  "WorldPartition block",
-                                 kLabel } } );
+                                 kWorldPartitionLabel } } );
             return;
         }
         const Rules::WorldPartitionPlan&      plan      = streamer->Plan();
@@ -212,17 +213,17 @@ namespace Desert::Debug
         for ( std::size_t c = 0; c < plan.Cells.size(); ++c )
             ++byState[static_cast<std::size_t>( UnitState( residency, firstCell + c ) )];
         const Core::WorldStreamer::TickReport& tick = streamer->LastTick();
-        out.AddTextLine( { { "Cells ", kLabel },
-                           { std::format( "{} activated, {} loaded, {} loading, {} failed of {}",
-                                          byState[static_cast<std::size_t>( Rules::Residency::Activated )],
-                                          byState[static_cast<std::size_t>( Rules::Residency::Loaded )],
-                                          byState[static_cast<std::size_t>( Rules::Residency::Loading )],
-                                          byState[static_cast<std::size_t>( Rules::Residency::Failed )],
-                                          plan.Cells.size() ),
-                             kValue },
-                           { std::format( "   records live {}, reads in flight {}, {} source(s)", tick.LiveRecords,
-                                          tick.LoadsInFlight, sources.size() ),
-                             kLabel } } );
+        out.AddTextLine(
+             { { "Cells ", kWorldPartitionLabel },
+               { std::format( "{} activated, {} loaded, {} loading, {} failed of {}",
+                              byState[static_cast<std::size_t>( Rules::Residency::Activated )],
+                              byState[static_cast<std::size_t>( Rules::Residency::Loaded )],
+                              byState[static_cast<std::size_t>( Rules::Residency::Loading )],
+                              byState[static_cast<std::size_t>( Rules::Residency::Failed )], plan.Cells.size() ),
+                 kWorldPartitionValue },
+               { std::format( "   records live {}, reads in flight {}, {} source(s)", tick.LiveRecords,
+                              tick.LoadsInFlight, sources.size() ),
+                 kWorldPartitionLabel } } );
 
         // 3D: every cell that is not Unloaded, a box over its square as high as its content.
         if ( m_View.Hash3D )
@@ -331,13 +332,13 @@ namespace Desert::Debug
                      std::format( "G{} L{} {},{}{}", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z,
                                   layers.empty() ? std::string() : std::format( " [{}]", layers ) );
                 out.AddTextLine(
-                     { { probe.Name + " in ", kLabel },
+                     { { probe.Name + " in ", kWorldPartitionLabel },
                        { name, WithAlpha( CellColor( m_View.Coloring, cell, state, partition ), 1.0f ) },
                        { std::format( "  {} records, {}, loaded in {}, activated in {}, height {:.0f}..{:.0f} cm",
                                       records, StateName( state ), Millis( timing ? timing->LoadMs : -1.0 ),
                                       Millis( timing ? timing->ActivationMs : -1.0 ), cell.Height.MinY,
                                       cell.Height.MaxY ),
-                         kValue } } );
+                         kWorldPartitionValue } } );
                 if ( labelled[c] )
                     continue;
                 labelled[c] = true;
@@ -347,7 +348,7 @@ namespace Desert::Debug
                      .Type        = GameplayDebuggerShape::Kind::Point,
                      .A           = top,
                      .Radius      = 4.0f,
-                     .Color       = kValue,
+                     .Color       = kWorldPartitionValue,
                      .Description = std::format( "{} - {} records, loaded in {}", name, records,
                                                  Millis( timing ? timing->LoadMs : -1.0 ) ) } );
             }
@@ -455,7 +456,7 @@ namespace Desert::Debug
         map.Shapes.push_back(
              { .Type  = Core::DebugDrawCanvasShape::Kind::Text,
                .A     = glm::vec2( 6.0f, 4.0f ),
-               .Color = kValue,
+               .Color = kWorldPartitionValue,
                .Text  = std::format( "WP 2D  {:.0f} cm across  level {}  by {}", 2.0f * reach,
                                     m_View.GridLevel ? std::to_string( *m_View.GridLevel ) : std::string( "all" ),
                                      ColorModeName( m_View.Coloring ) ) } );
