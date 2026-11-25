@@ -1388,17 +1388,6 @@ namespace Desert::Graphic::ShaderPush
     template <> inline constexpr bool IsBlock<UIText> = true;
     static_assert( offsetof( UIText, Projection ) == 0u, "UIText::Projection: std430 offset" );
 
-    // Programs/TemporalAA/UpscalerVelocity.shader (Compute)
-    struct UpscalerVelocity
-    {
-        glm::mat4 ClipToPrevClip{};
-        glm::vec4 Params{};
-    };
-    static_assert( sizeof( UpscalerVelocity ) == 80u, "UpscalerVelocity: std430 push block size" );
-    template <> inline constexpr bool IsBlock<UpscalerVelocity> = true;
-    static_assert( offsetof( UpscalerVelocity, ClipToPrevClip ) == 0u, "UpscalerVelocity::ClipToPrevClip: std430 offset" );
-    static_assert( offsetof( UpscalerVelocity, Params ) == 64u, "UpscalerVelocity::Params: std430 offset" );
-
     // Programs/Debug/VirtualGeometryClusters.shader (Vertex)
     struct VirtualGeometryClusters
     {

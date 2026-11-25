@@ -38,7 +38,8 @@ namespace Desert::Graphic::RDG
 //  - Indices are stable for the primitive's life (free list; UE FGPUScene::AllocatePrimitive / FreeIndices).
 //  - Updates are DELTAS: the CPU marks rows dirty, AddUploadPass scatters only those rows into the persistent
 //    buffers in-graph (UE FGPUScene::Update + FGPUScatterUploadBuffer). A frame with no change uploads nothing.
-//  - PrevLocalToWorld rule (UE "velocity" list): SetTransform writes Prev := the old LocalToWorld; BeginFrame
+//  - PrevLocalToWorld rule (UE "velocity" list): SetTransform writes Prev := the old LocalToWorld on the
+//    frame's FIRST move only (latched once per frame; a second move keeps it); BeginFrame
 //    re-dirties every primitive that moved LAST frame and did not move this frame with Prev := LocalToWorld, so a
 //    primitive that stops reports zero motion one frame later. A primitive added this frame has Prev == World.
 //  - Skinned palettes change every frame: SetSkinning writes the row's Bone/PrevBone offsets into the scene's
@@ -153,8 +154,8 @@ namespace Desert::Graphic::GpuDriven
         // A live primitive (added and not removed).
         [[nodiscard]] bool IsValid( PrimitiveIndex primitive ) const;
 
-        // The component moved: LocalToWorld := world, PrevLocalToWorld := the old LocalToWorld. The same world
-        // again is no change (nothing is dirtied), so every view of a frame may report it.
+        // The component moved: LocalToWorld := world, PrevLocalToWorld := the old LocalToWorld on the frame's
+        // first move (a later move in the same frame keeps that Prev). The same world again is no change (nothing is dirtied), so every view of a frame may report it.
         void SetTransform( PrimitiveIndex primitive, const glm::mat4& world );
         // The primitive's foliage wind (its clock moves every frame it sways); the same wind again dirties
         // nothing.

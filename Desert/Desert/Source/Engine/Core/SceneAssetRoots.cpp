@@ -27,8 +27,6 @@
 #include <Engine/UI/Ecs/UIPanelComponent.hpp>
 #include <Engine/UI/Ecs/UITextComponent2D.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
-#include <Engine/World/Landscape/LandscapeComponent.hpp>
-#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 
 namespace Desert::Core
@@ -96,12 +94,6 @@ namespace Desert::Core
         for ( const auto entity : registry.view<ECS::VolumetricCloudComponent>() )
             roots.Mark( registry.get<ECS::VolumetricCloudComponent>( entity ).Data.Material,
                         "a VolumetricCloudComponent marches its medium with it" );
-        for ( const auto entity : registry.view<ECS::LandscapeMaterialComponent>() )
-            roots.Mark( registry.get<ECS::LandscapeMaterialComponent>( entity ).Data.Material,
-                        "a landscape is surfaced with it" );
-        for ( const auto entity : registry.view<ECS::LandscapeComponent>() )
-            for ( const Assets::AssetHandle& layer : registry.get<ECS::LandscapeComponent>( entity ).Layers )
-                roots.Mark( layer, "a landscape paints with it" );
 
         // A generic shader material's texture overrides. `uint64_t` rather than AssetHandle in the
         // component, which is why this loop cannot be folded into the others.

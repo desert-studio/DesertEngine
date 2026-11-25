@@ -3,13 +3,12 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
-#include <Engine/Assets/LandscapeGrassTypeAsset.hpp>
-#include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
 
+#include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Core/TextTemplate.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
@@ -155,25 +154,12 @@ namespace Desert::Assets
             visit( Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ),
                    why );
         };
-        if ( const auto layer = manager.ProbeByHandle<LandscapeLayerInfoAsset>( handle ) )
-        {
-            if ( layer->IsReadyForUse() )
-                for ( const AssetGuidRef& grass : layer->GetData().GrassTypes )
-                    visitGuid( grass.Guid, "a reachable landscape layer grows it" );
-        }
-        if ( const auto grassType = manager.ProbeByHandle<LandscapeGrassTypeAsset>( handle ) )
-        {
-            if ( grassType->IsReadyForUse() )
-            {
-                for ( const auto& variety : grassType->GetData().GrassVarieties )
-                {
-                    if ( variety.Mesh )
-                        visitGuid( variety.Mesh->Guid, "a reachable grass type draws it" );
-                    if ( variety.Material )
-                        visitGuid( variety.Material->Guid, "a reachable grass type shades its blades with it" );
-                }
-            }
-        }
+        // A feature module's assets (ModuleHooks().AssetReferences; the Landscape module's layer infos name the
+        // grass types they grow, its grass types the meshes and materials they draw with).
+        for ( const Core::AssetReferenceVisitor& references : Core::ModuleHooks().AssetReferences )
+            references.Visit( manager, static_cast<uint64_t>( handle ),
+                              [&visitGuid]( const std::string& text, const char* why )
+                              { visitGuid( text, why ); } );
         if ( const auto foliageType = manager.ProbeByHandle<FoliageTypeAsset>( handle ) )
         {
             if ( foliageType->IsReadyForUse() )

@@ -420,20 +420,45 @@ def self_check():
         os.makedirs(STATE_DIR, exist_ok=True)
         with open(fat, "w", encoding="utf-8") as f:
             f.write("## Сделать\n1. a\n2. b\n3. c\n## Чем доказать\n")
-        out = subprocess.run([sys.executable, __file__], input=json.dumps({
+        fat_out = subprocess.run([sys.executable, __file__], input=json.dumps({
             "tool_name": "Agent", "hook_event_name": "PreToolUse",
             "tool_input": {"subagent_type": "general-purpose", "prompt": f"brief {fat}"}}), capture_output=True, text=True)
         for name, case in {
                 "lead runs ledger by hand": {"tool_name": "Bash", "tool_input": {"command": "python3 ~/.claude/tools/ledger.py X fix done a"}},
                 "lead fetches the board schema": {"tool_name": "mcp__notion__notion-fetch",
-                                                  "tool_input": {"id": "collection://386f5e0e-e749-479b-83a7-59e03ef9b8b2"}}}.items():
+                                                  "tool_input": {"id": "collection://386f5e0e-e749-479b-83a7-59e03ef9b8b2"}},
+                "lead queries Notion": {"tool_name": "mcp__notion__notion-query-data-sources", "tool_input": {"query": "SELECT 1"}},
+                "lead updates a card": {"tool_name": "mcp__notion__notion-update-page", "tool_input": {"page_id": "x"}},
+                "lead loads Notion schemas": {"tool_name": "ToolSearch", "tool_input": {"query": "select:mcp__notion__notion-fetch"}},
+                "board agent runs Bash": {"tool_name": "Bash", "tool_input": {"command": "ls"},
+                                          "agent_id": "selfcheck-board", "agent_type": "board"}}.items():
             out = subprocess.run([sys.executable, __file__], input=json.dumps(dict(case, hook_event_name="PreToolUse")),
                                  capture_output=True, text=True)
             cases[name] = None
             if '"deny"' not in out.stdout:
                 failed.append(name)
+        # Owner 11-23: continuing an agent past CONTINUE_MAX calls is refused.
+        send = os.path.join(STATE_DIR, "selfcheck-SEND.json")
+        with open(send, "w") as f:
+            json.dump({"calls": 60}, f)
+        sent = subprocess.run([sys.executable, __file__], input=json.dumps({
+            "tool_name": "SendMessage", "hook_event_name": "PreToolUse",
+            "tool_input": {"to": "selfcheck-SEND", "message": "next step"}}), capture_output=True, text=True)
+        os.remove(send)
+        cases["SendMessage to an agent with 60 calls"] = None
+        if '"deny"' not in sent.stdout:
+            failed.append("SendMessage to an agent with 60 calls")
+        # The other half: the route the refusals point to must stay open.
+        for name, case in {
+                "board agent queries Notion": {"tool_name": "mcp__notion__notion-query-data-sources", "tool_input": {"query": "SELECT 1"},
+                                               "agent_id": "selfcheck-board", "agent_type": "board"},
+                "lead launches the board agent": {"tool_name": "Agent", "tool_input": {"subagent_type": "board", "prompt": "tails"}}}.items():
+            legal = subprocess.run([sys.executable, __file__], input=json.dumps(dict(case, hook_event_name="PreToolUse")),
+                                   capture_output=True, text=True)
+            if legal.returncode or '"deny"' in legal.stdout:
+                failed.append("REFUSED a legal call: " + name)
         cases["lead launches a fat brief"] = None
-        if '"deny"' not in out.stdout:
+        if '"deny"' not in fat_out.stdout:
             failed.append("lead launches a fat brief")
         with open(fat, "w", encoding="utf-8") as f:
             f.write("## Сделать\n1. Код фичи, собрать Editor EditorTests.\n2. Написать новую сюиту FooBar + мутация.\n")
@@ -460,7 +485,7 @@ def self_check():
             pass
     rules = ", ".join(cases)
     msg = (f"[agent_guard] ДВА ПАРАМЕТРА ВСЕГДА: АРХИТЕКТУРА И NEXTGEN; вид — из ассетов, не кодом (владелец 10-29). А Р Х И Т Е К Т У Р А ПЕРВОЙ: решение = как правильно устроено (UE или лучше; где UE архитектурно хуже — сказать владельцу ДО кода, владелец 10-12), не замер/бюджет/урезанный охват "
-           f"(LEAD_PROTOCOL, DEV_CONTRACT §00). ПАУЗЫ НЕТ (владелец 10-05: «кончились токены»): незаконченные задачи обязательны, игра — параллельно; граф рендера не трогать. Бриф = ОДИН результат (хук: ≤ 2 пункта / 900 знаков в «## Сделать»). Запуск/доска — по ~/.claude/tools/lead_templates.md (process_event.py launch на запуск); приём — одним ~/.claude/tools/accept.sh. self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
+           f"(LEAD_PROTOCOL, DEV_CONTRACT §00). ПАУЗЫ НЕТ (владелец 10-05: «кончились токены»): незаконченные задачи обязательны, игра — параллельно; граф рендера не трогать. Бриф = ОДИН результат (хук: ≤ 2 пункта / 900 знаков в «## Сделать»). Доска — только агент board (DEV_CONTRACT §00c); запуск (process_event.py launch на запуск); приём — одним ~/.claude/tools/accept.sh. self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
            f"[agent_guard] SELF-CHECK FAILED — these rules no longer bite: {', '.join(failed)}. "
            f"Restore .claude/tools/agent_guard.py from git history BEFORE launching any agent.")
     emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}})
@@ -479,6 +504,30 @@ MAX_WORKING_AGENTS = 5  # owner 10-29 «минимум 3, а максимум 5�
 NO_AGENT_CAP_THROUGH = _dt.date( 2026, 10, 15 )  # owner 10-16: cap of 3 back in force now (lift was through 10-19)
 MIN_FREE_DISK_GB = 15
 PROCESS_EVENTS = os.path.expanduser("~/.claude/process-events.csv")
+
+
+CONTINUE_MAX = 50  # owner 11-23: SendMessage to an agent past this many calls is refused
+
+
+def continued_agent_calls(tin):
+    """(target, calls) for a SendMessage recipient: an agent id, or a task code resolved through process-events.csv."""
+    import csv
+    target = str(tin.get("to") or tin.get("recipient") or tin.get("agent_id") or "").strip()
+    if not target:
+        return target, 0
+    ids = [target]
+    try:
+        with open(PROCESS_EVENTS) as f:
+            for row in csv.reader(f):
+                if len(row) >= 4 and row[1] == "launch" and row[2] == target:
+                    ids.append(row[3])
+    except OSError:
+        pass
+    calls = 0
+    for aid in ids:
+        if re.fullmatch(r"[\w.-]+", aid):
+            calls = max(calls, load_state(aid)[0].get("calls", 0))
+    return target, calls
 
 
 def lead_running_agents():
@@ -540,7 +589,7 @@ def main():
     # Owner 09-30: at most THREE working agents at once (Explore not counted). Running = `process_event.py launch` in the
     # last 6 h with no later done/wip for that id — so a launch not logged there escapes this check: log every launch.
     if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
-            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() != "explore":
+            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() not in ("explore", "board"):
         import shutil
         free_gb = shutil.disk_usage( os.path.expanduser( "~" ) ).free / 1024 ** 3
         if free_gb < MIN_FREE_DISK_GB:
@@ -577,14 +626,14 @@ def main():
     # So a working agent is launched ONLY from a brief file whose «## Сделать» is ONE result: ≤ MAX_BRIEF_ITEMS numbered
     # items and ≤ MAX_BRIEF_DO_CHARS characters (packing items into one paragraph is caught by the length).
     if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
-            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() != "explore":
+            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() not in ("explore", "board"):
         denial = brief_size_denial(str((data.get("tool_input") or {}).get("prompt") or ""))
         if denial:
             deny(denial, data, "lead")
     # Owner 10-19 («2 и 3 ок»): no further weather agent until WTH-STATE and WTH-OCCL are on dev — weather tasks cost
     # ~1 M each (Editor build + frames) and stacked on branches nobody had landed.
     if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
-            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() != "explore":
+            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() not in ("explore", "board"):
         tin = data.get("tool_input") or {}
         codes = sorted(set(WEATHER_CODE.findall(f"{tin.get('description') or ''} {tin.get('prompt') or ''}")) - WEATHER_GATE)
         pending = weather_gate_pending() if codes else []
@@ -593,7 +642,7 @@ def main():
                  f"origin/dev — выбор владельца 10-19 «2 и 3 ок». Сначала влей их (land_dev.sh), `git fetch --prune`, потом запускай.",
                  data, "lead")
     # Owner 10-21 («да давай по пунктам этим», token items 4–6): an acceptance is ONE accept.sh call (ledger + event +
-    # tree + frame digest), not 6–8 hand calls; the board's schema is in lead_templates.md, never fetched again (6k
+    # tree + frame digest), not 6–8 hand calls; the board is the board agent's (6k
     # characters re-read on every later request).
     if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse":
         tin = data.get("tool_input") or {}
@@ -601,9 +650,25 @@ def main():
                 r"python3?\s+\S*ledger\.py\s|python3?\s+\S*process_event\.py\s+(done|wip)\b", tin.get("command", "")):
             deny("[agent_guard] Тимлид: приём — одним вызовом ~/.claude/tools/accept.sh CODE AGENT_ID KIND OUTCOME TREE "
                  "[кадры] (ledger + process_event + ветка + кадры; владелец 10-21, пункт 4).", data, "lead")
-        if data.get("tool_name") == "mcp__notion__notion-fetch" and "386f5e0e" in str(tin.get("id") or ""):
-            deny("[agent_guard] Тимлид: схему доски не читать — поля и значения в ~/.claude/tools/lead_templates.md "
-                 "(владелец 10-21, пункт 6). Карточку — notion-search по коду, затем update.", data, "lead")
+        # Owner 2026-11-24: Notion belongs to the board sub-agent; schemas and page bodies stay out of the lead context.
+        name = str(data.get("tool_name") or "")
+        if name.startswith("mcp__notion__") or (name == "ToolSearch" and "notion" in str(tin.get("query") or "").lower()):
+            deny("[agent_guard] Тимлид: Notion читает и пишет только субагент board: Agent(subagent_type: \"board\", "
+                 "prompt: что прочитать или какие поля записать). Владелец 2026-11-24, DEV_CONTRACT §00c.", data, "lead")
+    # Owner 11-23 («окей, обновляй все»): an agent past CONTINUE_MAX calls is not continued — its context costs more per
+    # call than a fresh agent reading its «## NEXT» (file:line + excerpts, DEV_CONTRACT §00).
+    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "SendMessage":
+        target, calls = continued_agent_calls(data.get("tool_input") or {})
+        if calls > CONTINUE_MAX:
+            deny(f"[agent_guard] Тимлид: агент {target} уже сделал {calls} вызовов (> {CONTINUE_MAX}) — не продолжать. "
+                 f"Запусти свежего агента по «## NEXT» его REMAINDER (владелец 11-23).", data, "lead")
+    if agent and agent_type == "board":
+        # The board agent reads and writes Notion only (.claude/agents/board.md).
+        name = str(data.get("tool_name") or "")
+        if data.get("hook_event_name", "PreToolUse") == "PreToolUse" and \
+                name not in ("ToolSearch", "Read") and not name.startswith("mcp__notion__"):
+            deny(f"[agent_guard] Агент board работает только с Notion, вызов {name} запрещён.", data, agent)
+        sys.exit(0)
     if not agent or agent_type == "explore":
         sys.exit(0)  # the lead's own session, or a discovery agent: unrestricted
 

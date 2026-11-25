@@ -82,6 +82,11 @@ namespace Desert::Net
                 F32( p.Position.Y );
                 F32( p.Position.Z );
                 F32( p.Yaw );
+                F32( p.Velocity.X );
+                F32( p.Velocity.Y );
+                F32( p.Velocity.Z );
+                U8( p.Movement );
+                U8( p.TeleportCount );
             }
             void Move( const ISimLink::AckedMove& m )
             {
@@ -93,7 +98,6 @@ namespace Desert::Net
                 F32( m.State.Velocity.Y );
                 F32( m.State.Velocity.Z );
                 F32( m.State.Yaw );
-                F32( m.State.FloorY );
                 U8( m.State.Grounded ? 1 : 0 );
                 U8( m.Buffered );
             }
@@ -179,15 +183,15 @@ namespace Desert::Net
             bool Pawn( PawnState& p )
             {
                 return U32( p.Id ) && F32( p.Position.X ) && F32( p.Position.Y ) && F32( p.Position.Z ) &&
-                       F32( p.Yaw );
+                       F32( p.Yaw ) && F32( p.Velocity.X ) && F32( p.Velocity.Y ) && F32( p.Velocity.Z ) &&
+                       U8( p.Movement ) && U8( p.TeleportCount );
             }
             bool Move( ISimLink::AckedMove& m )
             {
                 std::uint8_t grounded = 0;
                 if ( !( U32( m.Step ) && F32( m.State.Position.X ) && F32( m.State.Position.Y ) &&
                         F32( m.State.Position.Z ) && F32( m.State.Velocity.X ) && F32( m.State.Velocity.Y ) &&
-                        F32( m.State.Velocity.Z ) && F32( m.State.Yaw ) && F32( m.State.FloorY ) &&
-                        U8( grounded ) && U8( m.Buffered ) ) )
+                        F32( m.State.Velocity.Z ) && F32( m.State.Yaw ) && U8( grounded ) && U8( m.Buffered ) ) )
                     return false;
                 m.State.Grounded = grounded != 0;
                 return true;
@@ -336,7 +340,6 @@ namespace Desert::Net
             w.F32( move.Velocity.Y );
             w.F32( move.Velocity.Z );
             w.F32( move.Yaw );
-            w.F32( move.FloorY );
             w.U8( move.Grounded ? 1 : 0 );
         }
 
@@ -345,7 +348,7 @@ namespace Desert::Net
             std::uint8_t grounded = 0;
             if ( !( r.F32( move.Position.X ) && r.F32( move.Position.Y ) && r.F32( move.Position.Z ) &&
                     r.F32( move.Velocity.X ) && r.F32( move.Velocity.Y ) && r.F32( move.Velocity.Z ) &&
-                    r.F32( move.Yaw ) && r.F32( move.FloorY ) && r.U8( grounded ) ) )
+                    r.F32( move.Yaw ) && r.U8( grounded ) ) )
                 return false;
             move.Grounded = grounded != 0;
             return true;
@@ -657,12 +660,13 @@ namespace Desert::Net
             m_Handler.PeerLost( link.Role, link.Index, connection );
     }
 
-    void MeshEndpoint::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data )
+    void MeshEndpoint::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                                  NetClock::time_point received )
     {
         if ( m_ClientConnections.contains( connection ) )
         {
             if ( m_Clients )
-                m_Clients->OnMessage( connection, lane, data );
+                m_Clients->OnMessage( connection, lane, data, received );
             return;
         }
         const auto it = m_Links.find( connection );

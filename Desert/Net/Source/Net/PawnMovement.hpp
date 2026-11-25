@@ -11,9 +11,10 @@
 // client replays its unacked moves on top of it (MovePredictor::Reconcile).
 //
 // The math is UE's CharacterMovementComponent walking / falling (CalcVelocity with ground friction and braking,
-// JumpZVelocity, AirControl, gravity) on world centimetres, Y up. The world under the pawn is a floor plane at the
-// state's FloorY: the dedicated server has no collision world yet (it holds cell records as data, ServerWorld),
-// so a fence is not an obstacle on either side; the server's collision world is the next step of this file.
+// JumpZVelocity, AirControl, gravity) on world centimetres, Y up. Where the velocity takes the capsule is the
+// collision world's answer (IPawnMoveWorld; UE SafeMoveUpdatedComponent + FindFloor): both sides ask the same
+// cooked collision of the same cells (PhysicsPawnMoveWorld over a PhysicsWorld - the server's built from the
+// streamed cells' colliders, the client's the scene's), so a fence stops the pawn on both.
 
 #include <Net/Replication.hpp>
 
@@ -34,11 +35,32 @@ namespace Desert::Net
         float JumpZVelocity              = 700.0f;
         float AirControl                 = 0.35f;
         float Gravity                    = 980.0f;
+        // UE ACharacter's CapsuleComponent (34 cm radius, 88 cm half height = 54 cm cylinder + the cap).
+        float CapsuleRadius     = 34.0f;
+        float CapsuleHalfHeight = 54.0f; // the cylinder's half height, without the caps
+    };
+
+    // The collision world one move asks (UE SafeMoveUpdatedComponent + slide + FindFloor): where a capsule whose
+    // feet stand at @p from.Position ends after moving with @p velocity for @p dtSeconds, its velocity after
+    // the walls and floors it met, and whether it stands on a walkable floor. Position = the capsule's FEET.
+    class IPawnMoveWorld
+    {
+    public:
+        struct Outcome
+        {
+            NetVec3 Position;
+            NetVec3 Velocity;
+            bool    Grounded = false;
+        };
+        virtual ~IPawnMoveWorld()                                                               = default;
+        [[nodiscard]] virtual Outcome Move( const PawnMoveState& from, const NetVec3& velocity,
+                                            const PawnMoveSettings& settings, float dtSeconds ) = 0;
     };
 
     // One fixed step of the own character (StepPawnMove's input is the player's InputStep).
     [[nodiscard]] PawnMoveState StepPawnMove( const PawnMoveState& from, const InputStep& input,
-                                              const PawnMoveSettings& settings, float dtSeconds );
+                                              const PawnMoveSettings& settings, IPawnMoveWorld& world,
+                                              float dtSeconds );
 
     // True when two states differ by more than the reconciliation tolerance (UE MAXPOSITIONERRORSQUARED: the
     // server corrects only an error the client could see).
@@ -62,10 +84,11 @@ namespace Desert::Net
             return m_Started;
         }
         // Predicts one input step; the input's Step is its number on the wire.
-        void Predict( const InputStep& input, const PawnMoveSettings& settings, float dtSeconds );
+        void Predict( const InputStep& input, const PawnMoveSettings& settings, IPawnMoveWorld& world,
+                      float dtSeconds );
         // The server's state after input step @p ackStep (UE ClientAdjustPosition / ClientAckGoodMove).
         EReconcile Reconcile( std::uint32_t ackStep, const PawnMoveState& server, const PawnMoveSettings& settings,
-                              float dtSeconds );
+                              IPawnMoveWorld& world, float dtSeconds );
 
         [[nodiscard]] const PawnMoveState& Current() const
         {
@@ -84,6 +107,15 @@ namespace Desert::Net
         {
             return m_Moves.size();
         }
+        // The last corrected step as it was predicted, and its input: what the server's state is read against.
+        [[nodiscard]] const PawnMoveState& LastMispredicted() const
+        {
+            return m_LastMispredicted;
+        }
+        [[nodiscard]] const InputStep& LastMispredictedInput() const
+        {
+            return m_LastMispredictedInput;
+        }
 
     private:
         struct SavedMove
@@ -92,7 +124,8 @@ namespace Desert::Net
             PawnMoveState After;
         };
         std::deque<SavedMove> m_Moves;
-        PawnMoveState         m_Current, m_Previous;
+        PawnMoveState         m_Current, m_Previous, m_LastMispredicted;
+        InputStep             m_LastMispredictedInput;
         std::uint32_t         m_Corrections = 0;
         bool                  m_Started     = false;
     };

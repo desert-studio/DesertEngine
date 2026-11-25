@@ -49,7 +49,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
+#include <Landscape/Public/LandscapeLayerInfoService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/ECS/InstancedStaticMeshComponent.hpp>
 #include <Engine/ECS/RelationshipComponent.hpp>
@@ -739,7 +739,7 @@ namespace Desert::Editor::Tools
         LayerNamesOf( const Assets::Serialization::FoliageTypeData& type )
         {
             std::vector<std::string> names;
-            auto*                    service = Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
+            auto*                    service = Runtime::GetLandscapeLayerInfoService();
             for ( const auto& ref : type.LandscapeLayers )
             {
                 const auto guid = Common::Content::AssetGuidFromText( ref.Guid );
@@ -1351,7 +1351,7 @@ namespace Desert::Editor::Tools
         }
 
         const LandscapeTileIndex tiles( scene );
-        const auto               landscapeSet = scene.GatherRaycastLandscape();
+        const auto               landscapeSet = scene.GatherRaycastSurfaces();
         ProceduralFoliageHost    host;
         // The volume's fields stream on the volume's grid and are cut by its cell (WP22e).
         const std::optional<std::string> volumeGrid = RuntimeGridOf( found->get() );
@@ -1613,7 +1613,7 @@ namespace Desert::Editor::Tools
         dab.Filter            = Core::FoliagePaint::SurfaceFilter();
         const LandscapeTileIndex tiles( scene );
         // One landscape set for every ray of the dab: gathering it per ray was 81 of the dab's 98 ms (FO-3b).
-        const auto landscapeSet = scene.GatherRaycastLandscape();
+        const auto landscapeSet = scene.GatherRaycastSurfaces();
 
         for ( const auto& uuid : Core::FoliagePaint::ActiveTypes() )
         {
@@ -2086,7 +2086,7 @@ namespace Desert::Editor::Tools
         // ground and foliage is traced through, as the brush traces.
         // Below the instance first, then above it (an instance pushed under the ground comes back up).
         const LandscapeTileIndex   tiles( scene );
-        const auto                 landscapeSet = scene.GatherRaycastLandscape();
+        const auto                 landscapeSet = scene.GatherRaycastSurfaces();
         const FoliageSurfaceFilter filter       = Core::FoliagePaint::SurfaceFilter();
         const auto                 accept       = [&]( const Common::UUID& id )
         {

@@ -1,7 +1,7 @@
 // Ported from UE 5.8 Runtime/Landscape: LandscapeSplineSegment.cpp (UpdateSplineMeshes: the placement along
 // the segment) and Runtime/Engine SplineMeshComponent.cpp / SplineMeshShaderParams (the per-vertex bend),
 // done on the CPU once per edit: a landscape's spline meshes change only when their splines do.
-#include "LandscapeSplineMeshes.hpp"
+#include <Landscape/Public/LandscapeSplineMeshes.hpp>
 
 #include <algorithm>
 #include <cmath>

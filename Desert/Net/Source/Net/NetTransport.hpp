@@ -5,6 +5,7 @@
 // above this interface) over a socket subsystem (this). Nothing above sees the transport library's types, so the
 // implementation (GameNetworkingSockets today, CreateGnsTransport) can be replaced without touching replication.
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -98,6 +99,9 @@ namespace Desert::Net
         bool        Authenticated = false;
     };
 
+    // The clock message receive times are on (INetTransportEvents::OnMessage).
+    using NetClock = std::chrono::steady_clock;
+
     class INetTransportEvents
     {
     public:
@@ -108,8 +112,11 @@ namespace Desert::Net
         virtual void OnClosed( ConnectionId connection, const DisconnectInfo& info ) = 0;
         // One whole message, as sent, on the lane it was sent on (the transport fragments and reassembles). The
         // span is valid during the call. A message on a lane this protocol does not have is dropped by the
-        // transport.
-        virtual void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data ) = 0;
+        // transport. `received` is when the transport took the message off the wire (its receive thread), not when
+        // Poll handed it over: a consumer timing arrivals (the interpolation buffer's jitter) must not count its
+        // own frame stalls as network jitter.
+        virtual void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                                NetClock::time_point received ) = 0;
     };
 
     class INetTransport

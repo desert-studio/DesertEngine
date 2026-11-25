@@ -8,7 +8,7 @@
 //      grid lines and (5) everywhere inside the cells of a steep hill, it is the ray's surface.
 //   3. A ball rolled across the tile seams neither sinks through nor hops.
 //   4. Edits reach the body in place; the body goes with its tile.
-#include <Engine/ECS/System/LandscapeCollision.hpp>
+#include <Landscape/Public/LandscapeCollision.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>

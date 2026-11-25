@@ -82,7 +82,7 @@ namespace Desert::Net
     } // namespace
 
     PawnMoveState StepPawnMove( const PawnMoveState& from, const InputStep& input,
-                                const PawnMoveSettings& settings, float dtSeconds )
+                                const PawnMoveSettings& settings, IPawnMoveWorld& world, float dtSeconds )
     {
         PawnMoveState state = from;
         Planar        wish{ input.Move.X, input.Move.Z };
@@ -113,15 +113,35 @@ namespace Desert::Net
             state.Velocity.Y -= settings.Gravity * dtSeconds;
         state.Velocity.X = velocity.X;
         state.Velocity.Z = velocity.Z;
-        state.Position.X += state.Velocity.X * dtSeconds;
-        state.Position.Y += state.Velocity.Y * dtSeconds;
-        state.Position.Z += state.Velocity.Z * dtSeconds;
-        if ( !state.Grounded && state.Position.Y <= state.FloorY )
+        // A grounded walk keeps pressing the floor (UE: the walking move follows the floor; Jolt sticks the
+        // capsule to it), so a step off a ledge is a fall from the next move on, not a hover. A grounded pawn
+        // with no planar velocity does not press: UE PhysWalking moves nothing along a walkable floor and only
+        // re-finds it, while a press into a slope would slide down it (the collide-and-slide keeps the press's
+        // tangential part) - an idle pawn on a walkable slope stays put on both sides. A floor that went away
+        // still ends the stand: the move's contacts find no floor and the pawn falls from the next step.
+        const bool                    idleOnFloor = state.Grounded && state.Velocity.Y == 0.f &&
+                                                    velocity.X == 0.f && velocity.Z == 0.f;
+        const float                   pressY      = idleOnFloor ? 0.f : -settings.Gravity * dtSeconds;
+        const NetVec3                 moveVelocity{ state.Velocity.X, state.Grounded ? pressY : state.Velocity.Y,
+                                    state.Velocity.Z };
+        const IPawnMoveWorld::Outcome moved  = world.Move( state, moveVelocity, settings, dtSeconds );
+        const bool                    rising = !state.Grounded && state.Velocity.Y > 0.f;
+        state.Position                       = moved.Position;
+        state.Velocity.X                     = moved.Velocity.X;
+        state.Velocity.Z                     = moved.Velocity.Z;
+        if ( state.Grounded )
+            state.Velocity.Y = 0.f;
+        else if ( moved.Velocity.Y < state.Velocity.Y * 0.5f && rising )
+            state.Velocity.Y = moved.Velocity.Y; // a ceiling stopped the jump (UE HandleImpact on the way up)
+        // UE ProcessLanded: a walkable floor under a falling capsule ends the fall; a grounded capsule whose floor
+        // went away starts falling (UE StartFalling from PhysWalking).
+        if ( moved.Grounded && !( rising && state.Velocity.Y > 0.f ) )
         {
-            state.Position.Y = state.FloorY; // UE ProcessLanded
             state.Velocity.Y = 0.f;
             state.Grounded   = true;
         }
+        else if ( !moved.Grounded )
+            state.Grounded = false;
         state.Yaw = input.Yaw;
         return state;
     }
@@ -136,8 +156,7 @@ namespace Desert::Net
         constexpr float kMaxPositionErrorSquared = 3.0f * 3.0f; // UE MAXPOSITIONERRORSQUARED: 3 cm
         constexpr float kMaxVelocityErrorSquared = 10.0f * 10.0f;
         return distanceSquared( a.Position, b.Position ) > kMaxPositionErrorSquared ||
-               distanceSquared( a.Velocity, b.Velocity ) > kMaxVelocityErrorSquared || a.Grounded != b.Grounded ||
-               a.FloorY != b.FloorY;
+               distanceSquared( a.Velocity, b.Velocity ) > kMaxVelocityErrorSquared || a.Grounded != b.Grounded;
     }
 
     void MovePredictor::Reset( const PawnMoveState& state )
@@ -147,23 +166,30 @@ namespace Desert::Net
         m_Started              = true;
     }
 
-    void MovePredictor::Predict( const InputStep& input, const PawnMoveSettings& settings, float dtSeconds )
+    void MovePredictor::Predict( const InputStep& input, const PawnMoveSettings& settings, IPawnMoveWorld& world,
+                                 float dtSeconds )
     {
         m_Previous = m_Current;
-        m_Current  = StepPawnMove( m_Current, input, settings, dtSeconds );
+        m_Current  = StepPawnMove( m_Current, input, settings, world, dtSeconds );
         m_Moves.push_back( { input, m_Current } );
         while ( m_Moves.size() > InputRing::kCapacity )
             m_Moves.pop_front();
     }
 
     MovePredictor::EReconcile MovePredictor::Reconcile( std::uint32_t ackStep, const PawnMoveState& server,
-                                                        const PawnMoveSettings& settings, float dtSeconds )
+                                                        const PawnMoveSettings& settings, IPawnMoveWorld& world,
+                                                        float dtSeconds )
     {
         const auto acked = std::find_if( m_Moves.begin(), m_Moves.end(),
                                          [&]( const SavedMove& move ) { return move.Input.Step == ackStep; } );
         if ( acked == m_Moves.end() )
             return EReconcile::Unknown;
         const bool differ = MoveStatesDiffer( acked->After, server );
+        if ( differ )
+        {
+            m_LastMispredicted      = acked->After;
+            m_LastMispredictedInput = acked->Input;
+        }
         m_Moves.erase( m_Moves.begin(), std::next( acked ) );
         if ( !differ )
             return EReconcile::Matched;
@@ -172,7 +198,7 @@ namespace Desert::Net
         for ( SavedMove& move : m_Moves )
         {
             previous   = state;
-            state      = StepPawnMove( state, move.Input, settings, dtSeconds );
+            state      = StepPawnMove( state, move.Input, settings, world, dtSeconds );
             move.After = state;
         }
         m_Previous = m_Moves.empty() ? server : previous;

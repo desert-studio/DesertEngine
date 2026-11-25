@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Assets/LandscapeGrassTypeAsset.hpp>
+#include <Landscape/Public/LandscapeGrassTypeAsset.hpp>
 #include <Engine/Runtime/Services/OnDemandAssets.hpp>
 
 #include <memory>
@@ -54,4 +54,8 @@ namespace Desert::Runtime
              Common::Content::ContentKind::LandscapeGrassType, "[Landscape] Grass type",
              "the layers naming it do not grow it", "the layer info names no grass type asset" };
     };
+
+    /// The `.degrasstype` assets layer infos name (GRASS-GPU), one per process; bound and cleared through the
+    /// Landscape module's ModuleService (LandscapeModule.cpp).
+    LandscapeGrassTypeService* GetLandscapeGrassTypeService();
 } // namespace Desert::Runtime

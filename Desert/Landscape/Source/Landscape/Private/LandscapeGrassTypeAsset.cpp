@@ -1,4 +1,4 @@
-#include <Engine/Assets/LandscapeGrassTypeAsset.hpp>
+#include <Landscape/Public/LandscapeGrassTypeAsset.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
 

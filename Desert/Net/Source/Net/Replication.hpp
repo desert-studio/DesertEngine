@@ -3,8 +3,9 @@
 // PAWN REPLICATION WIRE + CLIENT-SIDE BUFFERS (Docs/contracts/NET-ARCH.md §2, §3.1, §5).
 //
 // After the handshake (NetHandshake.hpp) a session speaks four messages:
-//   Input    client -> server, State lane (unreliable): the last kInputRedundancy fixed steps of input, each with
-//            the client's fixed-step number, under a sequence id - one lost packet loses no input (§2).
+//   Input    client -> server, State lane (unreliable): every fixed step of input the server has not acked yet
+//            (the newest kInputRedundancy of them), each with the client's fixed-step number, under a sequence id
+//            - a lost packet loses no input: its steps ride in the next one (§2; Overwatch-style full resend).
 //   Snapshot server -> client, State lane (unreliable): the server step, the last input step the server has
 //            PROCESSED for this connection (the ack the client's prediction replays from, NET-4 §5.1), and the
 //            transform of every replicated pawn relevant to the connection.
@@ -37,14 +38,22 @@ namespace Desert::Net
     using NetId                              = std::uint32_t;
     inline constexpr NetId  kInvalidNetId    = 0;
     inline constexpr double kNetStepHz       = 60.0; // the server's fixed step (§2); the net frame number
-    inline constexpr int    kInputRedundancy = 3;    // input steps per Input message (§2)
+    // At most this many unacked input steps per Input message (§2). The server moves a pawn by every step in order
+    // and waits for a missing one, so a lost packet's steps must come again: the window covers the round trip plus
+    // one slow frame's burst of steps (0.53 s at 60 Hz). A step older than the window is given up by the server.
+    inline constexpr int kInputRedundancy = 32;
     // One input step's length - the move both the server and the predicting client simulate (PawnMovement.hpp).
     inline constexpr float kNetStepSeconds = static_cast<float>( 1.0 / kNetStepHz );
     // Snapshots go out every second step: 30 Hz per connection (§2). A project setting once §3.6 lands.
     inline constexpr int kSnapshotEverySteps = 2;
-    // How far behind the server clock remote pawns are drawn: three snapshot intervals, so one lost snapshot
-    // still interpolates between two received ones (UE / Source default 100 ms at 30 Hz).
+    // How far behind the server clock remote pawns are drawn at least: three snapshot intervals, so one lost
+    // snapshot still interpolates between two received ones (UE / Source default 100 ms at 30 Hz).
     inline constexpr double kInterpolationDelaySeconds = 0.1;
+    // NET-5 (§5.3): the adaptive delay (ReplicationClient) - two snapshot intervals plus the measured arrival
+    // jitter, never below kInterpolationDelaySeconds nor above kMaxInterpolationDelaySeconds; past the newest
+    // snapshot a remote pawn is extrapolated along its velocity for at most kMaxExtrapolationSeconds, then held.
+    inline constexpr double kMaxInterpolationDelaySeconds = 0.35;
+    inline constexpr double kMaxExtrapolationSeconds      = 0.25;
 
     enum class EReplicationMessage : std::uint8_t
     {
@@ -84,14 +93,24 @@ namespace Desert::Net
     struct InputMessage
     {
         std::uint32_t          Sequence = 0;
-        std::vector<InputStep> Steps; // oldest first, at most kInputRedundancy
+        std::vector<InputStep> Steps; // oldest first, the unacked steps, at most kInputRedundancy
     };
+
+    // The movement mode bits of a pawn's state (UE: the simulated proxy's replicated MovementMode).
+    inline constexpr std::uint8_t kPawnGrounded = 1u << 0;
 
     struct PawnState
     {
         NetId   Id = kInvalidNetId;
         NetVec3 Position;
-        float   Yaw = 0.f;
+        float   Yaw = 0.f; // radians about +Y (0 faces -Z), the pawn root's facing
+        // NET-5 (§5.3): the movement's velocity in cm/s - the Hermite tangent of the remote pawn's path and the
+        // source of its locomotion variables (speed, direction), as UE's simulated proxy replicates Velocity.
+        NetVec3      Velocity;
+        std::uint8_t Movement = 0; // kPawn* bits
+        // Bumped by every teleport (wraps): two samples with different counts are never interpolated between
+        // (UE's replicated teleport flag), so a teleport is a cut, not a 1.5 km slide.
+        std::uint8_t TeleportCount = 0;
     };
 
     // The own character's whole movement state (PawnMovement.hpp): what the server sends back for the acked input
@@ -99,10 +118,9 @@ namespace Desert::Net
     // movement mode). Raw floats on the wire - the client compares them with its own, bit-exact path.
     struct PawnMoveState
     {
-        NetVec3 Position;
+        NetVec3 Position; // the capsule's feet
         NetVec3 Velocity;
         float   Yaw      = 0.f;
-        float   FloorY   = 0.f; // the floor plane the pawn stands on (PawnMovement.hpp)
         bool    Grounded = true;
     };
 
@@ -171,14 +189,22 @@ namespace Desert::Net
         std::deque<InputStep> m_Steps;
     };
 
-    // ONE REMOTE PAWN'S TRANSFORM HISTORY, by server time: sampled between the two snapshots around the render
-    // time (linear position, shortest-arc yaw); before the first or after the last it holds the end sample - no
-    // extrapolation, which would be prediction (§5.3).
+    // ONE REMOTE PAWN'S TRANSFORM HISTORY, by server time (§5.3): sampled between the two snapshots around the
+    // render time as a cubic Hermite of position with the replicated velocities as tangents (C1 across snapshots:
+    // no velocity kinks at the samples, which linear interpolation shows as a stutter at 30 Hz), shortest-arc yaw,
+    // and the Hermite's derivative as the sampled velocity. Past the newest sample it extrapolates along the newest
+    // velocity for at most kMaxExtrapolationSeconds, then holds (UE SmoothClientPosition's capped extrapolation);
+    // before the first it holds it. Two samples across a teleport are a cut.
     class InterpolationBuffer
     {
     public:
         void                    Push( double serverSeconds, const PawnState& state );
         [[nodiscard]] PawnState Sample( double serverSeconds ) const;
+        // The newest snapshot's state as the server sent it (never extrapolated); {} when empty.
+        [[nodiscard]] PawnState Newest() const
+        {
+            return m_Samples.empty() ? PawnState{} : m_Samples.back().State;
+        }
         [[nodiscard]] bool      Empty() const
         {
             return m_Samples.empty();

@@ -38,8 +38,10 @@ LOG=$(dev_logdir land)
 dev_configure "$LOG" || { echo "land_dev: configure failed, nothing pushed"; exit 2; }
 # DesertCtl and SceneMigrator too: a scenario drives the editor through DesertCtl, and a stale one refuses the
 # verbs the landed branch added (11-19: 8 WP scenarios failed on wait-idle/spawn after the WP landing).
-dev_build "$LOG/build.log" Editor DesertCtl SceneMigrator ||
-    { echo "land_dev: Editor/DesertCtl/SceneMigrator build red, nothing pushed; log $LOG/build.log"; grep -m 15 -E "error" "$LOG/build.log"; exit 2; }
+# DesertServer and DesertNetProbe too: the server links the Core closure only, and a file moved out of Core
+# left it unlinkable on dev while the Editor stayed green (11-25: LandscapeTileFiles.cpp, BUILD-MOD-6L pass 1).
+dev_build "$LOG/build.log" Editor DesertCtl SceneMigrator DesertServer DesertNetProbe ||
+    { echo "land_dev: Editor/DesertCtl/SceneMigrator/DesertServer/DesertNetProbe build red, nothing pushed; log $LOG/build.log"; grep -m 15 -E "error" "$LOG/build.log"; exit 2; }
 git fetch -q origin
 [ "$(git rev-parse origin/dev)" = "$base" ] || { echo "land_dev: dev moved while building — re-run"; exit 2; }
 git push -q origin "HEAD:dev" || { echo "land_dev: push refused"; exit 2; }

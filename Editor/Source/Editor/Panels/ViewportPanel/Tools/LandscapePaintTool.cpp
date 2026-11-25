@@ -10,7 +10,7 @@
 #include <Editor/Core/ToastManager.hpp>
 
 #include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/ECS/LandscapeLayerRules.hpp>
+#include <Landscape/Public/LandscapeLayerRules.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
@@ -107,7 +107,7 @@ namespace Desert::Editor::Tools
         if ( rootEntity == entt::null )
             return Common::MakeError( "landscape paint: the landscape root is not loaded" );
         auto rules = ECS::LandscapeLayerRulesOf( registry.get<ECS::LandscapeComponent>( rootEntity ),
-                                                 *Runtime::ResourceRegistry::GetLandscapeLayerInfoService() );
+                                                 *Runtime::GetLandscapeLayerInfoService() );
         if ( !rules )
             return Common::MakeError( "landscape paint: " + rules.GetError() );
         auto target = ECS::FindLandscapeEditTarget( registry, *landscape );

@@ -51,4 +51,8 @@ namespace Desert::Runtime
              "the landscape's weight planes of that layer are neither drawn nor painted",
              "the layer slot names no asset" };
     };
+
+    /// The `.delayerinfo` assets a landscape's target layers name (LS-12b), one per process; bound to the
+    /// project's AssetManager and cleared through the Landscape module's ModuleService (LandscapeModule.cpp).
+    LandscapeLayerInfoService* GetLandscapeLayerInfoService();
 } // namespace Desert::Runtime

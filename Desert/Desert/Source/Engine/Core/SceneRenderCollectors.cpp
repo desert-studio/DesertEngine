@@ -5,7 +5,6 @@
 
 #include <Engine/ECS/System/DecalECSSystem.hpp>
 #include <Engine/ECS/System/HeightFogECSSystem.hpp>
-#include <Engine/ECS/System/LandscapeECSSystem.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
 #include <Engine/ECS/System/RectLightSystem.hpp>
@@ -31,9 +30,8 @@ namespace Desert::Core
         // A pure render-data collector: one command per visible decal box (DECALS-DBUFFER).
         scene.AddSystem<ECS::DecalECSSystem>();
         scene.AddSystem<ECS::VolumetricCloudECSSystem>();
-        // The tiles' GPU copies are the scene's ledger rows (Scene::GetLedgerInstance).
-        scene.AddSystem<ECS::LandscapeECSSystem>( scene.GetLedgerInstance() );
-        // The feature modules' collectors (Water: one command per water zone, WATER-W6), after the landscape's.
+        // The feature modules' collectors, in startup order (Core/Modules.cpp): the landscape's tiles and grass,
+        // then the water zones (WATER-W6), which draw over them.
         for ( const RenderCollectorAdder add : ModuleHooks().RenderCollectors )
             add( scene );
         scene.AddSystem<ECS::PointLightECSSystem>();

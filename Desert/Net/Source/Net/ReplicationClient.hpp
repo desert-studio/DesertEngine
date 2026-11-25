@@ -5,14 +5,17 @@
 // Engine-free: the engine's net driver maps net ids to Scene entities (PlayerControllers) and calls
 // SampleRemote/SampleOwn per frame; a headless bot (DesertNetProbe --bot) drives the same object.
 //
-// Input: SendInput(move, yaw) once per client fixed step - the step is numbered, pushed into the InputRing and
-// the last kInputRedundancy steps go out under a new sequence id. The server's ack (Snapshot::AckInputStep)
-// drops the ring up to it. NET-4 adds the replay from the ack; nothing here corrects a pawn yet.
+// Input: RecordInput(move, yaw) once per client fixed step - the step is numbered and pushed into the InputRing;
+// FlushInputs() once per frame sends every step not acked yet (the newest kInputRedundancy) under a new sequence
+// id, so a lost packet's steps go again with the next frame (UE: the client's moves batched per net update, the
+// old unacked move resent). SendInput = one step recorded and flushed (a headless bot's frame is one step). The
+// server's ack (Snapshot::AckInputStep) drops the ring up to it; the engine's driver replays from it (NET-4).
 
 #include <Net/NetTransport.hpp>
 #include <Net/Replication.hpp>
 
 #include <chrono>
+#include <deque>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -45,10 +48,15 @@ namespace Desert::Net
 
         // Connects to "ip:port"; false + @p error when the address cannot be used.
         bool Connect( std::string_view address, std::string& error );
-        // Pumps the transport (call every frame).
+        // Pumps the transport and advances the remote pawns' render clock (call every frame).
         void Poll();
-        // One client fixed step of input (call at kNetStepHz while InSession): the step as sent (numbered) - the
-        // input the client's prediction runs - or nullopt outside the session.
+        // One client fixed step of input (call at kNetStepHz while InSession): the step as recorded (numbered) -
+        // the input the client's prediction runs - or nullopt outside the session. It goes out at FlushInputs.
+        std::optional<InputStep> RecordInput( const NetVec3& move, float yaw, std::uint8_t buttons = 0 );
+        // Sends every unacked step (the newest kInputRedundancy) in one Input message; nothing when none is
+        // unacked.
+        void FlushInputs();
+        // RecordInput + FlushInputs: a frame of one step.
         std::optional<InputStep> SendInput( const NetVec3& move, float yaw, std::uint8_t buttons = 0 );
         // THE OWN PAWN'S AUTHORITY (§5.1): the newest ack with the server's state after that step, once per new
         // ack (UE ClientAdjustPosition / ClientAckGoodMove), and the server's input queue length with it.
@@ -65,7 +73,8 @@ namespace Desert::Net
 
         void OnConnected( ConnectionId connection, std::string_view address ) override;
         void OnClosed( ConnectionId connection, const DisconnectInfo& info ) override;
-        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data ) override;
+        void OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                        NetClock::time_point received ) override;
 
         [[nodiscard]] EState State() const
         {
@@ -89,8 +98,8 @@ namespace Desert::Net
         {
             return m_PawnPrefab;
         }
-        // The pawn drawn at the interpolation time (estimated server clock - kInterpolationDelaySeconds). The own
-        // pawn is drawn the same way until NET-4 predicts it.
+        // The pawn drawn at the interpolation time (the render clock: estimated server clock - InterpolationDelay).
+        // The own pawn is drawn the same way until NET-4 predicts it.
         [[nodiscard]] std::optional<PawnState> Sample( NetId id ) const;
         // Spawns / destroys since the last call (the engine creates and releases the entities).
         [[nodiscard]] std::vector<NetId> TakeSpawned();
@@ -122,10 +131,25 @@ namespace Desert::Net
         {
             return m_LastAck;
         }
+        // NET-5 (§5.3) THE ADAPTIVE INTERPOLATION DELAY: how far behind the estimated server clock remote pawns are
+        // drawn now, and the snapshots' arrival jitter it covers (95th percentile of each arrival's transit above
+        // the fastest one over the last kJitterWindowSeconds).
+        [[nodiscard]] double InterpolationDelay() const
+        {
+            return m_Delay;
+        }
+        [[nodiscard]] double ArrivalJitter() const
+        {
+            return m_Jitter;
+        }
+        static constexpr double kJitterWindowSeconds = 2.0;
 
     private:
-        using Clock = std::chrono::steady_clock;
+        using Clock = NetClock;
         [[nodiscard]] double RenderServerSeconds() const;
+        [[nodiscard]] double LocalSeconds() const;
+        void                 MeasureArrival( double serverSeconds, NetClock::time_point received );
+        void                 AdvanceRenderClock();
 
         INetTransport&               m_Transport;
         HelloMessage                 m_Hello;
@@ -146,8 +170,23 @@ namespace Desert::Net
         std::vector<StableChange>                                    m_StableChanges;
         std::vector<StableNetId>                                     m_StableDestroyed;
         std::vector<std::uint32_t>                                   m_AcknowledgedUnits;
-        // The server clock: the newest snapshot's step time and the local time it arrived.
+        // The newest snapshot's server step (a spawn's first sample is placed at it).
         std::optional<std::uint32_t> m_NewestServerStep;
-        Clock::time_point            m_NewestArrival{};
+        // NET-5: the render clock (Overwatch-style adaptive interpolation). Every snapshot's transit offset (local
+        // arrival - server time) over the jitter window; the fastest one maps the server clock to local time, the
+        // spread above it is the jitter the delay covers. The render clock runs at local rate dilated by at most
+        // kClockDilation towards (estimated server clock - delay), so a changing delay or a jittered estimate
+        // never jumps the pawns; it snaps only on a teleport-sized error above kClockSnapSeconds (a new session, a
+        // server clock jump). Arrivals are timed at the transport's receive, so a client frame stall moves
+        // neither.
+        static constexpr double kClockDilation   = 0.1;
+        static constexpr double                  kClockSnapSeconds = 2.0;
+        Clock::time_point                        m_Epoch = Clock::now();
+        std::deque<std::pair<double, double>>    m_Arrivals; // (local seconds, local - server seconds)
+        double                                   m_FastestOffset = 0.0, m_Jitter = 0.0;
+        double                                   m_Delay         = kInterpolationDelaySeconds;
+        std::optional<double>                    m_RenderSeconds;
+        double                                   m_LastAdvance = 0.0, m_NextDelayLog = 0.0;
+        int                                      m_ClockSnaps = 0; // past the first set, logged
     };
 } // namespace Desert::Net

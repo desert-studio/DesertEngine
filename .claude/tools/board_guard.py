@@ -133,12 +133,35 @@ MIN_AGENTS_FILE = os.path.expanduser("~/.claude/min_agents")
 MAX_AGENTS = 4  # owner 10-30 «не меньше 2, не больше 4»: a launch above it is refused
 
 
+# Owner 11-24 «хоть какой-то агент работал по задаче (начиная с самого высокого приоритета), чтобы не было простоя»:
+# with no ~/.claude/min_agents the floor is 1; the owner's pause is written as 0 (`echo 0 > ~/.claude/min_agents`).
+DEFAULT_MIN_AGENTS = 1
+PRIO_ORDER = {"Владелец назвал": 0, "Высокий": 1, "Обычный": 2}
+
+
 def min_agents():
     try:
         with open(MIN_AGENTS_FILE) as f:
             return int(f.read().strip() or 0)
-    except (OSError, ValueError):
+    except OSError:
+        return DEFAULT_MIN_AGENTS
+    except ValueError:
         return 0
+
+
+def next_cards(s, n=3):
+    """This machine's «Готово к старту» cards with no live agent, highest priority first, oldest update first."""
+    rows = sorted((PRIO_ORDER.get(r.get("prio"), 3), r.get("upd") or "", c) for c, r in tails(s).items()
+                  if r.get("status") == "Готово к старту" and not running_agent(s, c))
+    return [f"{c} ({s['board'][c].get('prio') or 'без приоритета'})" for _, _, c in rows[:n]]
+
+
+def idle_hint(s):
+    cards = next_cards(s)
+    hint = " Следующие по приоритету: " + ", ".join(cards) + "." if cards else " Готовых карточек в зеркале нет."
+    if not mirror_fresh(s):
+        hint += " Зеркало доски старое — сначала TAILS-запрос (" + TAILS_SQL[:40] + "…)."
+    return hint + " Пауза владельца — `echo 0 > ~/.claude/min_agents`."
 
 
 def night_until():
@@ -178,7 +201,7 @@ UNBLOCK_SQL = ("SELECT \"Код\",\"Статус\",\"Название\" FROM \"c
 
 def unblock_reason(codes):
     return ("сдано " + ", ".join(codes) + " — проверь, что ждало этого среди карточек «Владелец назвал»: "
-            "один notion-query-data-sources с «Владелец назвал» на все сданные коды, напр. " + UNBLOCK_SQL.format(codes=" ".join(codes)) +
+            "агентом board запрос с «Владелец назвал» на все сданные коды, напр. " + UNBLOCK_SQL.format(codes=" ".join(codes)) +
             " (затем открой карточки, где в теле «после <КОД>»). Ждавшее — запустить сразу или назвать владельцу причину "
             "(владелец 10-14: SCR-DETAILS 5 дней в бэклоге после SCR-PORT-2).")
 
@@ -260,7 +283,7 @@ def owner_quote_ok(s, prompt):
 def launch_refusal(s, code, prompt):
     """Rule 5: while tails exist, only a tail (or a closer naming one, or an owner-quoted feature) may be launched."""
     if not s["board_t"]:
-        return ("зеркала доски нет — сначала один notion-query-data-sources с хвостами (он заполнит зеркало): " + TAILS_SQL)
+        return ("зеркала доски нет — запусти агента board с TAILS-запросом (он заполнит зеркало): " + TAILS_SQL)
     t = tails(s)
     row = s["board"].get(code) or {}
     if not t or (row.get("status") in TAIL_STATUSES and not row.get("new")) or code in s["agents"].values():
@@ -300,7 +323,7 @@ def session_start(s):
     s["session_t"] = time.time()
     save(s)
     out = ["[tails] зеркало доски обновляется раз за сессию (владелец 10-30) — ПЕРВЫЙ вызов сессии: "
-           "notion-query-data-sources " + TAILS_SQL + " ; перед передачей/паузой — тот же запрос ещё раз."]
+           "агент board (Agent subagent_type board), запрос: " + TAILS_SQL + " ; перед передачей/паузой — тот же запрос ещё раз."]
     if t:
         by = {}
         for c, r in t.items():
@@ -357,7 +380,18 @@ def push_refusal(cmd):
 
 def main():
     if "--session-start" in sys.argv:
-        session_start(load())
+        s = load()
+        try:
+            source = json.load(sys.stdin).get("source", "")
+        except (ValueError, OSError):
+            source = ""
+        # A new Claude process (startup, resume) ends every agent of the previous one without a SubagentStop; /clear and
+        # /compact keep them running (11-25: four agents were live after /clear).
+        if source in ("startup", "resume"):
+            now = time.time()
+            for aid in s["agents"]:
+                s["stopped"].setdefault(aid, now)
+        session_start(s)
         sys.exit(0)
     if "--owner-named-mirror" in sys.argv:
         # Notion's SQL allowance runs out (10-27): the unblock check is answered from the board mirror while it is fresh.
@@ -389,6 +423,8 @@ def main():
         save(s)
         sys.exit(0)
 
+    if event == "SubagentStop" and (data.get("agent_type") or "").lower() == "board":
+        sys.exit(0)  # nothing to accept
     if event == "SubagentStop":
         # A worker's nested child (an Explore it spawned) stops with the worker's agent_id; its own id is only in the
         # transcript name, so a live FPS-MEASURE-5 read as stopped (10-30) - the transcript name wins.
@@ -410,7 +446,8 @@ def main():
             deny(reason)
         sys.exit(0)
 
-    if data.get("agent_id"):
+    # A board agent's Notion calls feed the mirror and the «Сделано» check; its other calls are not the board.
+    if data.get("agent_id") and not tool.startswith("mcp__notion__"):
         sys.exit(0)  # a sub-agent's own calls: the board is the lead's job
 
     if event == "PreToolUse" and tool.endswith("notion-update-page"):
@@ -436,15 +473,17 @@ def main():
         if floor and not night_until() and not late and not data.get("stop_hook_active"):
             busy = running_count(s)
             if busy < floor and not landing():
-                emit({"decision": "block", "reason": f"[board_guard] Работает агентов {busy} < {floor} (владелец 10-29: минимум 3, "
-                      "максимум 5, ~/.claude/min_agents). Запусти следующие карточки из очереди HANDOVER, потом заканчивай ход."})
+                emit({"decision": "block", "reason": f"[board_guard] Работает агентов {busy} < {floor} (владелец 11-24: без простоя, "
+                      "~/.claude/min_agents, по умолчанию 1). Запусти карточку с самым высоким приоритетом, потом заканчивай ход." +
+                      idle_hint(s)})
         night = night_until()
         if night and not data.get("stop_hook_active"):
             busy = running_count(s)
             if busy < NIGHT_MIN_AGENTS and not landing():
                 emit({"decision": "block", "reason": "[board_guard] Ночной режим до " +
                       time.strftime("%H:%M", time.localtime(night)) + f" (владелец спит): работает агентов {busy} < "
-                      f"{NIGHT_MIN_AGENTS}, слияния нет. Запусти следующую карточку по хвосту HANDOVER — простой = промах."})
+                      f"{NIGHT_MIN_AGENTS}, слияния нет. Запусти следующую карточку по хвосту HANDOVER — простой = промах." +
+                      idle_hint(s)})
         sys.exit(0)
 
     if event == "PostToolUse" and tool.startswith("mcp__notion__"):
@@ -513,12 +552,12 @@ def main():
         sys.exit(0)
 
     if event == "PreToolUse" and tool in ("Agent", "SendMessage"):
-        if tool == "Agent" and (tin.get("subagent_type") or "").lower() == "explore":
+        if tool == "Agent" and (tin.get("subagent_type") or "").lower() in ("explore", "board"):
             sys.exit(0)
         late = unaccepted(s)
         if late:
             deny("сначала приём на доске: агенты сдали, карточки не обновлены — " + ", ".join(late) +
-                 ". accept.sh, затем по ~/.claude/tools/lead_templates.md §6: update_properties (Статус, «Чем доказано», Токены) + insert_content (итог/остаток).")
+                 ". accept.sh, затем агентом board: update_properties (Статус, «Чем доказано», Токены) + insert_content (итог/остаток).")
         if tool == "Agent" and s["unblock"]:
             if not s["board_t"]:
                 deny(unblock_reason(sorted(s["unblock"])))
@@ -535,7 +574,7 @@ def main():
             code = code_from_text(str(tin.get("prompt") or ""))
             if not code:
                 deny("в промпте нет кода задачи («You are agent <КОД>» или /private/tmp/claude-501/<КОД>/BRIEF.md) — "
-                     "без кода карточку не сверить. Промпт — шаблон ~/.claude/tools/lead_templates.md §5.")
+                     "без кода карточку не сверить. Первая строка промпта: «You are agent <КОД>».")
             busy = running_count(s)
             if busy >= MAX_AGENTS:
                 deny(f"работает агентов {busy}, максимум {MAX_AGENTS} (владелец 10-29 «минимум 3, а максимум 5»). "
@@ -552,8 +591,8 @@ def main():
                 deny(stale)
             if code not in s["writes"]:
                 deny(f"нет карточки {code} на доске «Задачи»: создай/обнови ДО запуска (Код={code}, Статус «В работе», "
-                     "Ветка, «Кто ведёт»; заголовок «КОД · …»): notion-search по коду → update_properties по шаблону "
-                     "~/.claude/tools/lead_templates.md §6, без fetch схемы. Владелец 10-09: «почему я каждый раз тебя тыкаю?»")
+                     "Ветка, «Кто ведёт»; заголовок «КОД · …»): агентом board, "
+                     "одной пачкой. Владелец 10-09: «почему я каждый раз тебя тыкаю?»")
     sys.exit(0)
 
 

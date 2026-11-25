@@ -10,8 +10,6 @@
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Runtime/Services/Icon/IconService.hpp>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
-#include <Engine/Runtime/Services/Landscape/LandscapeGrassTypeService.hpp>
-#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
 #include <Engine/Runtime/Services/Lights/IesProfileService.hpp>
 #include <Engine/Runtime/Services/Lights/RectLightLtcService.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
@@ -140,18 +138,6 @@ namespace Desert::Runtime
         return &uiThemeService;
     }
 
-    LandscapeGrassTypeService* ResourceRegistry::GetLandscapeGrassTypeService()
-    {
-        static LandscapeGrassTypeService landscapeGrassTypeService;
-        return &landscapeGrassTypeService;
-    }
-
-    LandscapeLayerInfoService* ResourceRegistry::GetLandscapeLayerInfoService()
-    {
-        static LandscapeLayerInfoService landscapeLayerInfoService;
-        return &landscapeLayerInfoService;
-    }
-
     FoliageTypeService* ResourceRegistry::GetFoliageTypeService()
     {
         static FoliageTypeService foliageTypeService;
@@ -205,8 +191,6 @@ namespace Desert::Runtime
         GetCloudTypeService()->BindAssetManager( assets );
         GetUIThemeService()->BindAssetManager( assets );
         GetSkyboxService()->BindAssetManager( assets );
-        GetLandscapeLayerInfoService()->BindAssetManager( assets );
-        GetLandscapeGrassTypeService()->BindAssetManager( assets );
         GetFoliageTypeService()->BindAssetManager( assets );
         for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
             service.Bind( assets );
@@ -239,8 +223,6 @@ namespace Desert::Runtime
         GetCloudModellingService()->Clear();
         GetCloudLayoutService()->Clear();
         GetUIThemeService()->Clear();
-        GetLandscapeLayerInfoService()->Clear();
-        GetLandscapeGrassTypeService()->Clear();
         GetFoliageTypeService()->Clear();
         for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
             service.Clear();

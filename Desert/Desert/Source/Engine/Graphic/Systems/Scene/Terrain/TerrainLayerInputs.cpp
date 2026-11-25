@@ -1,15 +1,16 @@
 #include "TerrainLayerInputs.hpp"
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
 #include <format>
 #include <set>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
-#include <Engine/Runtime/Services/Landscape/LandscapeLayerInfoService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace Desert::Graphic::System
@@ -165,7 +166,6 @@ namespace Desert::Graphic::System
 
         std::array<std::array<LayerMap, kInputs>, kTerrainLayerMapKinds> maps{};
         inputs.Names.fill( {} );
-        auto* layerInfos = Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
         for ( const auto& p : schema.Params )
         {
             if ( p.ElementIndex < 0 )
@@ -178,11 +178,17 @@ namespace Desert::Graphic::System
                 continue;
             }
             const auto k = static_cast<size_t>( p.ElementIndex );
-            if ( p.AssetKind == "LandscapeLayerInfoAsset" )
+            // A layer input names its layer by asset (the Landscape module labels a `LandscapeLayerInfoAsset`
+            // with its layer name, ModuleHooks().AssetParamLabels).
+            const auto& labels = Core::ModuleHooks().AssetParamLabels;
+            if ( const auto label =
+                      std::find_if( labels.begin(), labels.end(), [&p]( const Core::AssetParamLabel& l )
+                                    { return l.AssetKind == p.AssetKind; } );
+                 label != labels.end() )
             {
-                if ( const uint64_t handle = HandleOf( overrides, p.Name ); handle != 0 && layerInfos != nullptr )
-                    if ( const auto* info = layerInfos->Get( Assets::AssetHandle( handle ) ) )
-                        inputs.Names[k] = info->LayerName;
+                if ( const uint64_t handle = HandleOf( overrides, p.Name ); handle != 0 )
+                    if ( const std::string* name = label->Label( handle ) )
+                        inputs.Names[k] = *name;
                 continue;
             }
             for ( uint32_t kind = 0; kind < kinds; ++kind )

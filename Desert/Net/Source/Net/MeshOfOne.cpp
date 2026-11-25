@@ -60,9 +60,10 @@ namespace Desert::Net
 
     // ---- simulation --------------------------------------------------------------------------------------------
 
-    PawnSimulation::PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, Settings settings,
-                                    NetLogSink log )
-         : m_Store( store ), m_Gateway( gateway ), m_Settings( std::move( settings ) ), m_Log( std::move( log ) )
+    PawnSimulation::PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, IPawnMoveWorld& world,
+                                    Settings settings, NetLogSink log )
+         : m_Store( store ), m_Gateway( gateway ), m_World( world ), m_Settings( std::move( settings ) ),
+           m_Log( std::move( log ) )
     {
         if ( m_Settings.SpawnPoints.empty() )
             m_Settings.SpawnPoints.push_back( {} );
@@ -75,8 +76,14 @@ namespace Desert::Net
         pawn.Index          = m_Joined++;
         pawn.State.Id       = m_Store.AllocateNetId();
         pawn.State.Position = m_Settings.SpawnPoints[pawn.Index % m_Settings.SpawnPoints.size()];
+        // A spawned character starts falling and finds the floor under it on its first move (UE: the first
+        // PerformMovement's FindFloor; a spawn point stands above the ground). The replicated mode says so too:
+        // the owning client starts its prediction from this snapshot, and a server that began grounded took a
+        // ground step where the client took an air step (NET-4 run 11: 8.5 cm correction at input step 15,
+        // server vx +22 = one ground-acceleration step, vy +16 = one gravity step).
         pawn.Move.Position  = pawn.State.Position;
-        pawn.Move.FloorY    = pawn.State.Position.Y;
+        pawn.Move.Grounded  = false;
+        pawn.State.Movement = 0;
         m_Store.Write( pawn.State );
         m_Log( std::format( "player {} (account {}): pawn net id {} spawned at ({:.0f}, {:.0f}, {:.0f}) cm",
                             player, account, pawn.State.Id, pawn.State.Position.X, pawn.State.Position.Y,
@@ -125,9 +132,14 @@ namespace Desert::Net
         return AckedMove{ *it->second.LastProcessed, it->second.Move, it->second.QueuedAtStep };
     }
 
-    // The server moves a pawn only by its player's input steps, one per step in step order (UE ServerMove: the
+    // The server moves a pawn only by its player's input steps, every one, in step order (UE ServerMove: the
     // server simulates the client's moves, never moves of its own) - so its state after step N is the client's
-    // prediction of N. A starved pawn holds; a queue above the clock sync's target drains two per step.
+    // prediction of N. A step that has not arrived holds the pawn, the steps after it wait: every Input message
+    // carries each unacked step (kInputRedundancy), so a lost packet's steps come with the next one. Moving on
+    // past a hole would leave the server a step's move short of the client - the periodic sprint corrections of
+    // NET-4 run 9 (33-183 cm, whole steps of 16.7 cm). Only a step the client no longer sends (the queue already
+    // runs a window past it) is given up. A starved pawn holds; a queue above the sync's target drains two per
+    // step.
     void PawnSimulation::StepPawn( Pawn& pawn ) const
     {
         constexpr std::size_t kDrainAbove = 4;
@@ -135,14 +147,26 @@ namespace Desert::Net
         const int consume = pawn.Pending.size() > kDrainAbove ? 2 : 1;
         for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i )
         {
-            const auto next    = pawn.Pending.begin();
+            const auto next = pawn.Pending.begin();
+            if ( pawn.LastProcessed && next->first != *pawn.LastProcessed + 1 )
+            {
+                const std::uint32_t missing = *pawn.LastProcessed + 1;
+                if ( !StepAfter( pawn.Pending.rbegin()->first,
+                                 missing + static_cast<std::uint32_t>( kInputRedundancy ) - 1 ) )
+                    break; // still in flight: the next Input message repeats it
+                m_Log( std::format( "pawn net id {}: input steps {}..{} never arrived within the resend window; "
+                                    "moving on (the client is corrected)",
+                                    pawn.State.Id, missing, next->first - 1 ) );
+            }
             // A move is one CLIENT step long, whatever the server's frame took (UE FSavedMove's DeltaTime).
-            pawn.Move          = StepPawnMove( pawn.Move, next->second, m_Settings.Movement, kNetStepSeconds );
+            pawn.Move          = StepPawnMove( pawn.Move, next->second, m_Settings.Movement, m_World, kNetStepSeconds );
             pawn.LastProcessed = next->first;
             pawn.Pending.erase( next );
         }
         pawn.State.Position = pawn.Move.Position;
         pawn.State.Yaw      = pawn.Move.Yaw;
+        pawn.State.Velocity = pawn.Move.Velocity;
+        pawn.State.Movement = pawn.Move.Grounded ? kPawnGrounded : std::uint8_t{ 0 };
     }
 
     void PawnSimulation::Step()
@@ -194,11 +218,13 @@ namespace Desert::Net
         if ( it == m_Pawns.end() )
             return false;
         it->second.State.Position = position;
-        // UE TeleportTo on a character: it stands at the new place, still; the floor is where it stands.
+        ++it->second.State.TeleportCount;
+        // UE TeleportTo on a character: it is at the new place, still, and falls to the floor there (the next
+        // move's FindFloor) - a teleport onto the landscape lands on the terrain, not on a plane at its height.
         it->second.Move.Position = position;
         it->second.Move.Velocity = {};
-        it->second.Move.FloorY   = position.Y;
-        it->second.Move.Grounded = true;
+        it->second.Move.Grounded = false;
+        it->second.State.Movement = 0; // the replicated mode is the move's: falling
         m_Store.Write( it->second.State );
         m_Log( std::format( "player {}: pawn {} teleported to ({:.0f}, {:.0f}, {:.0f}) cm", player,
                             it->second.State.Id, position.X, position.Y, position.Z ) );
@@ -280,7 +306,8 @@ namespace Desert::Net
             m_Sim->PlayerJoined( peer.Player, verdict.Token.Account );
     }
 
-    void Gateway::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data )
+    void Gateway::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
+                             NetClock::time_point )
     {
         const auto it = m_Peers.find( connection );
         if ( it == m_Peers.end() )

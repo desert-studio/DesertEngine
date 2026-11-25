@@ -2,7 +2,7 @@
 // and one settings block give one heightmap byte for byte, cut into tiles that agree on every shared edge, in a
 // frame centred where UE centres it.
 
-#include <Engine/World/Landscape/LandscapeGenerator.hpp>
+#include <Landscape/Public/LandscapeGenerator.hpp>
 
 #include <gtest/gtest.h>
 

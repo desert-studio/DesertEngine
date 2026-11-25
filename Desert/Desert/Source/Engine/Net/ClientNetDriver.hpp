@@ -1,5 +1,8 @@
 #pragma once
 
+#include <chrono>
+#include <optional>
+
 // THE CLIENT'S NET DRIVER (NET-ARCH §2, §5; UE UNetDriver + UPendingNetGame on a client world): the played world
 // becomes a network client of a DesertServer. It owns the transport and the ReplicationClient (Desert/Net, the
 // same session object the headless bot runs) and maps the replicated pawns onto the Scene:
@@ -13,6 +16,7 @@
 // MovePredictor, the server runs the same Net::StepPawnMove) and reconciled against the server's acked state.
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <glm/glm.hpp>
 
@@ -23,6 +27,7 @@
 #include <set>
 #include <vector>
 #include <string>
+#include <string_view>
 
 #include <entt/entt.hpp>
 
@@ -30,6 +35,8 @@ namespace Desert::Net
 {
     class INetTransport;
     class ReplicationClient;
+    struct PawnState;
+    class IPawnMoveWorld;
 } // namespace Desert::Net
 
 namespace Desert::Core
@@ -86,15 +93,26 @@ namespace Desert::Core
         // Once per frame while Play runs, BEFORE the systems (so physics and the renderer see this frame's poses).
         // The session's first Tick loads the server's pawn prefab into `assets` (UE: the client loads the
         // GameMode's DefaultPawnClass package before it spawns the pawns replicated to it).
-        void Tick( Scene& scene, Assets::AssetManager& assets, double deltaSeconds );
+        // The session runs on REAL time, not the frame's world delta: the server steps 60 Hz of wall clock, so a
+        // client whose world clock is fixed per frame (a headless shot's 1/60 s at a few frames a second) would
+        // send a fraction of the steps the server consumes, starve its queue and pin the clock sync at its edge.
+        void Tick( Scene& scene, Assets::AssetManager& assets );
         // Play stops: the remote pawns leave the Scene's players (Stop's restore drops their entities).
         void Shutdown( Scene& scene );
 
     private:
         ClientNetDriver() = default;
         void      LoadPawnPrefab( Assets::AssetManager& assets );
+        void      RequestPawnClosure();
+        bool      PawnClosureLanded();
         void      ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets );
         void      WriteTransforms( Scene& scene );
+        // NET-5: a remote pawn's locomotion variables from its interpolated replicated movement - the proxy's
+        // CharacterControllerComponent Velocity/CurrentSpeed and the anim graph parameters kLocomotion* of every
+        // AnimationComponent in its hierarchy.
+        void      WriteLocomotion( Scene& scene, entt::entity pawn, const Net::PawnState& sample );
+        static constexpr std::string_view kLocomotionSpeed   = "Speed";     // planar cm/s
+        static constexpr std::string_view kLocomotionFalling = "IsFalling"; // not on the ground
         // NET-2: the server's state of stable objects (cooked records, never spawned) written into the entities
         // this client's streamer made from the same records; a change whose entity is not streamed in waits for
         // it.
@@ -108,7 +126,10 @@ namespace Desert::Core
         std::uint8_t InputButtons( Scene& scene );
         // NET-4 (§5.1): the server's newest state for the own pawn against the saved moves; a correction moves the
         // simulation at once and the drawn pawn by a decaying offset (UE smoothed ClientAdjustPosition).
-        void         ReconcileOwnPawn();
+        void ReconcileOwnPawn( Scene& scene );
+        // The collision world the own pawn is predicted in: the physics world of the scene this driver ticks
+        // (UE: the CharacterMovement of the pawn's own UWorld). Null, said once, while that scene runs none.
+        Net::IPawnMoveWorld*    PredictionWorld( Scene& scene );
         [[nodiscard]] glm::vec3 OwnDrawnPosition() const;
 
         ClientNetOptions                        m_Options;
@@ -125,14 +146,27 @@ namespace Desert::Core
         bool                                    m_InSession = false;
         // The server's pawn prefab as THIS client's AssetManager knows it (LoadPawnPrefab); null until it loaded.
         Assets::AssetHandle                     m_PawnPrefab = Assets::AssetHandle::Null();
+        // The prefab file's own read, on the loader's workers (UE FStreamableManager::RequestAsyncLoad of the
+        // DefaultPawnClass): pawn spawns wait while it is in flight; destroying the driver releases it.
+        Assets::LoadRequest m_PawnPrefabRead;
+        bool                m_PawnPrefabReading = false;
+        // The pawn prefab's dependency closure, read on the loader's workers from the Welcome on; pawn spawns wait
+        // in m_AwaitingSpawn until it has landed (UE FStreamableManager: a replicated actor's class and its
+        // references are streamed before the spawn, never loaded inside a frame). ClientNetDriver.cpp.
+        struct PawnClosure;
+        std::shared_ptr<PawnClosure>            m_PawnClosure;
+        std::vector<std::uint32_t>              m_AwaitingSpawn; // NetIds the server spawned, not yet built here
         bool m_Closed = false;
         double                                  m_StepClock = 0.0, m_Clock = 0.0, m_NextLog = 1.0;
+        std::optional<std::chrono::steady_clock::time_point> m_LastTick; // the wall clock of the previous Tick
         // The own pawn's prediction (NET-4): its saved moves, the movement both sides run, the drawn offset a
         // correction left, and the clock sync (the server's input queue, averaged, and this client's step rate).
         // (Desert/Net is private to the engine: the predictor lives in ClientNetDriver.cpp.)
         struct Prediction;
         std::shared_ptr<Prediction> m_Prediction;
         glm::vec3                   m_SmoothOffset{ 0.0f };
-        double                      m_ServerQueue = 2.0, m_Dilation = 1.0, m_NextJump = 0.0;
+        double                      m_ServerQueue = 1.0, m_Dilation = 1.0, m_NextJump = 0.0;
+        // The clock sync's window: the fewest input steps the server held over it, and when it closes.
+        double m_QueueWindowMin = 1e9, m_QueueWindowEnd = 0.0;
     };
 } // namespace Desert::Core

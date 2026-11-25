@@ -1,5 +1,7 @@
 #include <Engine/Net/ClientNetDriver.hpp>
 
+#include <chrono>
+
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -8,7 +10,9 @@
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/CookHash.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
 #include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/Net/NetRoleComponent.hpp>
@@ -16,10 +20,14 @@
 #include <Engine/Reflection/FieldValue.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
 #include <Engine/Reflection/Value.hpp>
+#include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
 
 #include <Net/NetTransport.hpp>
 #include <Net/PawnMovement.hpp>
+#include <Engine/Net/PawnPrefabMovement.hpp>
+#include <Net/PhysicsPawnMoveWorld.hpp>
+#include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Net/ReplicationClient.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -94,11 +102,17 @@ namespace Desert::Core
         constexpr float  kNoSmoothDistanceCm = 384.0f;
         // UE NetworkSimulatedSmoothLocationTime: the drawn offset a correction leaves decays with this time.
         constexpr double kSmoothSeconds = 0.1;
-        // The clock sync's target: input steps waiting on the server when its step starts (measured BEFORE it
-        // consumes - PawnSimulation::Step): 1 = each step's input arrives just in time, the band's upper edge is
-        // one lost packet of slack; the step rate dilates either side of it (Overwatch: a few percent, never a
-        // visible speed change).
-        constexpr double kQueueLow = 1.0, kQueueHigh = 2.0, kDilation = 0.03;
+        // Steps one Tick may send and predict: a frame of up to a quarter second (a Debug editor drawing a
+        // streamed world) keeps the server's queue fed; a longer hitch is dropped, not replayed in a burst.
+        constexpr int kCatchUpSteps = 15;
+        // The clock sync (Overwatch's input buffer, UE's client-side time dilation): the server's queue of this
+        // client's input steps is read at its FEWEST over a window, not on average - a frame sends its steps in a
+        // burst, so the queue saws between that minimum and minimum + the burst, and only the minimum says how
+        // close the server came to starving. Target: one step always waiting (each input arrives a step early);
+        // the step rate dilates in proportion, a percent per step of error and never more than two (no visible
+        // speed change, the reading stays in 0.98-1.02).
+        constexpr double kQueueTarget = 1.0, kQueueWindowSeconds = 1.0, kDilationPerStep = 0.01,
+                         kMaxDilation = 0.02;
 
         std::optional<NetPredictionStats>& StatsSlot()
         {
@@ -111,7 +125,41 @@ namespace Desert::Core
     {
         Net::MovePredictor    Predictor;
         Net::PawnMoveSettings Movement;
+        // The scene's physics world the own pawn is predicted in: the same cells' colliders the server moves it
+        // through (PhysicsPawnMoveWorld). Made with the first prediction, dropped with the world it lives in.
+        std::unique_ptr<Net::PhysicsPawnMoveWorld> World;
+        Physics::PhysicsWorld*                     WorldOf = nullptr;
+        bool                                       NoWorldSaid = false; // the missing world is said once per loss
     };
+
+    Net::IPawnMoveWorld* ClientNetDriver::PredictionWorld( Scene& scene )
+    {
+        // The scene this driver ticks, not WorldContext::Current(): that is open only around a script call, and
+        // the net tick (PlaySession) runs outside any - NET-PREDICT p7: the own pawn was never predicted, drawn
+        // at its spawn and its view with it, while the server walked it 300 m.
+        const auto*            system  = scene.FindSystem<ECS::PhysicsECSSystem>();
+        Physics::PhysicsWorld* physics = system != nullptr ? system->GetPhysicsWorld() : nullptr;
+        if ( physics == nullptr && !m_Prediction->NoWorldSaid )
+            LOG_ERROR( "[Net] the own pawn cannot be predicted: the scene runs no physics world" );
+        m_Prediction->NoWorldSaid = physics == nullptr;
+        if ( physics != m_Prediction->WorldOf )
+        {
+            m_Prediction->World.reset();
+            m_Prediction->WorldOf = nullptr;
+            if ( physics != nullptr )
+            {
+                auto made = Net::PhysicsPawnMoveWorld::Create( *physics, m_Prediction->Movement );
+                if ( !made )
+                {
+                    LOG_ERROR( "[Net] the own pawn cannot be predicted: {}", made.GetError() );
+                    return nullptr;
+                }
+                m_Prediction->World   = made.ExtractValue();
+                m_Prediction->WorldOf = physics;
+            }
+        }
+        return m_Prediction->World.get();
+    }
 
     std::optional<NetPredictionStats> ClientNetDriver::LastStats()
     {
@@ -155,8 +203,11 @@ namespace Desert::Core
 
     ClientNetDriver::~ClientNetDriver() = default;
 
-    void ClientNetDriver::Tick( Scene& scene, Assets::AssetManager& assets, const double deltaSeconds )
+    void ClientNetDriver::Tick( Scene& scene, Assets::AssetManager& assets )
     {
+        const auto   now          = std::chrono::steady_clock::now();
+        const double deltaSeconds = m_LastTick ? std::chrono::duration<double>( now - *m_LastTick ).count() : 0.0;
+        m_LastTick                = now;
         m_Clock += deltaSeconds;
         m_Client->Poll();
         using EState = Net::ReplicationClient::EState;
@@ -180,9 +231,20 @@ namespace Desert::Core
         m_InSession = true;
 
         if ( !m_Prediction )
+        {
             m_Prediction = std::make_shared<Prediction>();
+            // UE: the own pawn's CharacterMovement is the DefaultPawnClass's - the prefab the server named, read
+            // as the server reads it (PawnPrefabMovement.hpp), so both sides step the same capsule.
+            const std::string key      = Assets::ContentRegistry::KeyForHandle( m_Client->PawnPrefab() );
+            auto              movement = Net::PrefabMovement::ReadPawnPrefabMovement(
+                 Common::AssetHandle::PathForStableKey( key ) );
+            if ( movement )
+                m_Prediction->Movement = movement.GetValue();
+            else
+                LOG_ERROR( "[Net] the own pawn's movement: {}", movement.GetError() );
+        }
         ApplySpawnsAndDestroys( scene, assets );
-        ReconcileOwnPawn();
+        ReconcileOwnPawn( scene );
         WriteTransforms( scene );
         ApplyStableDestroyed( scene );
         ApplyStableState( scene );
@@ -194,17 +256,21 @@ namespace Desert::Core
         m_StepClock += deltaSeconds;
         const double period = m_Dilation / Net::kNetStepHz;
         int          steps  = 0;
-        while ( predictor.Started() && m_StepClock >= period && steps < 8 )
+        while ( predictor.Started() && m_StepClock >= period && steps < kCatchUpSteps )
         {
             m_StepClock -= period;
             ++steps;
             const glm::vec3    move    = InputMove( scene );
             const float        yaw     = glm::length( move ) > 1e-4f ? std::atan2( -move.x, -move.z ) : 0.0f;
             const std::uint8_t buttons = InputButtons( scene );
-            if ( const auto sent = m_Client->SendInput( { move.x, move.y, move.z }, yaw, buttons ) )
-                predictor.Predict( *sent, m_Prediction->Movement, Net::kNetStepSeconds );
+            if ( const auto sent = m_Client->RecordInput( { move.x, move.y, move.z }, yaw, buttons ) )
+                if ( Net::IPawnMoveWorld* world = PredictionWorld( scene ) )
+                    predictor.Predict( *sent, m_Prediction->Movement, *world, Net::kNetStepSeconds );
         }
-        if ( !predictor.Started() || m_StepClock >= period ) // a hitch longer than 8 steps is not caught up
+        // This frame's steps go out together with every one the server has not acked yet: one message per frame.
+        if ( steps > 0 )
+            m_Client->FlushInputs();
+        if ( !predictor.Started() || m_StepClock >= period ) // a hitch longer than kCatchUpSteps is not caught up
             m_StepClock = 0.0;
 
         // The own pawn is drawn between its last two predicted steps, plus what is left of a correction's offset.
@@ -223,24 +289,39 @@ namespace Desert::Core
                 if ( const auto sample = m_Client->Sample( id ) )
                     line += std::format( " {}{}(player {})=({:.0f},{:.0f},{:.0f})", id, pawn.Owned ? "*" : "",
                                          pawn.Player, sample->Position.X, sample->Position.Y, sample->Position.Z );
+            // What this player is shown: the own pawn as drawn (its entity's world position) and the view point
+            // (UE GetPlayerViewPoint) - a view that does not travel with the pawn reads here, not in a frame.
+            std::string shown;
+            if ( const auto own = m_Entities.find( m_Client->OwnPawn() );
+                 own != m_Entities.end() && scene.GetRegistry().valid( own->second ) )
+            {
+                const glm::vec3 drawn = ECS::Entity( own->second, scene.GetRegistry() ).GetWorldTransform()[3];
+                shown += std::format( "; drawn own ({:.0f},{:.0f},{:.0f})", drawn.x, drawn.y, drawn.z );
+            }
+            if ( const auto view = scene.PlayerViewPoint() )
+                shown += std::format( "; view ({:.0f},{:.0f},{:.0f})", ( *view )[3].x, ( *view )[3].y, ( *view )[3].z );
             LOG_INFO( "[Net] t={:.1f}s pawns{}; scene players {}; unacked inputs {}; corrections {}; server input "
-                      "queue {:.1f}, clock x{:.2f}",
+                      "queue {:.1f}, clock x{:.2f}{}",
                       m_Clock, line.empty() ? std::string( " none" ) : line, scene.GetPlayers().size(),
-                      m_Client->PendingInputs(), predictor.Corrections(), m_ServerQueue, 1.0 / m_Dilation );
+                      m_Client->PendingInputs(), predictor.Corrections(), m_ServerQueue, 1.0 / m_Dilation, shown );
         }
     }
 
-    // THE SERVER'S PAWN PREFAB, LOADED BEFORE ANY PAWN IS SPAWNED. The Welcome names it by handle; the open level
-    // references only its own assets, so a pawn the level does not name is not registered yet. The handle is
-    // resolved to its file through the content registry (handle -> stable key, no type and no prior registration
-    // needed) and registered + loaded here, once per session - UE's client loads the GameMode's DefaultPawnClass
-    // the same way.
+    // THE SERVER'S PAWN PREFAB, READ OFF THE FRAME BEFORE ANY PAWN IS SPAWNED. The Welcome names it by handle;
+    // the open level references only its own assets, so a pawn the level does not name is not registered yet.
+    // The handle is resolved to its file through the content registry (handle -> stable key, no type and no prior
+    // registration needed), registered as an UNREAD shell and read on the AsyncAssetLoader's workers; its
+    // dependency closure is requested when the read lands (RequestPawnClosure), and spawns wait for both - UE's
+    // client streams the GameMode's DefaultPawnClass and its references (FStreamableManager) the same way,
+    // never inside a frame.
     void ClientNetDriver::LoadPawnPrefab( Assets::AssetManager& assets )
     {
         const Assets::AssetHandle handle( m_Client->PawnPrefab() );
-        if ( assets.FindByHandle<Assets::PrefabAsset>( handle ) )
+        if ( const auto resident = assets.FindByHandle<Assets::PrefabAsset>( handle );
+             resident && resident->IsReadyForUse() )
         {
             m_PawnPrefab = handle;
+            RequestPawnClosure();
             return;
         }
         const std::string key = Assets::ContentRegistry::KeyForHandle( m_Client->PawnPrefab() );
@@ -250,24 +331,98 @@ namespace Desert::Core
                        m_Client->PawnPrefab() );
             return;
         }
-        const std::filesystem::path path   = Common::AssetHandle::PathForStableKey( key );
-        const auto                  prefab = assets.CreateAsset<Assets::PrefabAsset>( path );
-        if ( !prefab || !prefab->IsReadyForUse() )
+        // The shell, not the bytes: CreateAsset without a load reads the header only, so the shell already
+        // carries the prefab's own identity. The Welcome's number is the path-derived one; a prefab that declares
+        // its own identity is registered under that, and the spawns name the asset by the handle it was
+        // registered with (which is why this is not CreateFromRegistryRow, which refuses that disagreement).
+        const std::filesystem::path path = Common::AssetHandle::PathForStableKey( key );
+        const auto prefab = assets.CreateAsset<Assets::PrefabAsset>( path, /*loadAfterCreate=*/false );
+        if ( !prefab )
         {
-            LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') did not load", m_Client->PawnPrefab(), key );
+            LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') could not be created",
+                       m_Client->PawnPrefab(), key );
             return;
         }
-        // The Welcome's number is the path-derived one; a prefab that declares its own identity is registered
-        // under that, so the spawns below name the asset by the handle it was registered with.
-        m_PawnPrefab = Assets::AssetHandle( static_cast<std::uint64_t>( prefab->GetMetadata().Handle ) );
-        LOG_INFO( "[Net] loaded the server's pawn prefab {:016x} ('{}', handle {:016x} here)",
-                  m_Client->PawnPrefab(), key, static_cast<std::uint64_t>( m_PawnPrefab ) );
+        const auto here     = Assets::AssetHandle( static_cast<std::uint64_t>( prefab->GetMetadata().Handle ) );
+        m_PawnPrefabReading = true;
+        m_PawnPrefabRead    = Assets::AsyncAssetLoader::Get().Request(
+             prefab,
+             [this, here, key, welcome = m_Client->PawnPrefab()]( const Assets::Asset<Assets::AssetBase>& read,
+                                                                  const Assets::LoadOutcome               outcome,
+                                                                  const std::string&                      error )
+             {
+                 m_PawnPrefabReading = false;
+                 if ( outcome == Assets::LoadOutcome::Failed || !read || !read->IsReadyForUse() )
+                 {
+                     LOG_ERROR( "[Net] the server's pawn prefab {:016x} ('{}') did not load: {}", welcome, key,
+                                   error );
+                     return;
+                 }
+                 m_PawnPrefab = here;
+                 LOG_INFO( "[Net] read the server's pawn prefab {:016x} off the frame ('{}', handle {:016x} here)",
+                              welcome, key, static_cast<std::uint64_t>( here ) );
+                 RequestPawnClosure();
+             },
+             [this] { m_PawnPrefabReading = false; } );
+        if ( !m_PawnPrefabRead.IsValid() )
+        {
+            m_PawnPrefabReading = false; // the loader refused and logged why
+            return;
+        }
+        LOG_INFO( "[Net] reading the server's pawn prefab {:016x} ('{}') off the frame", m_Client->PawnPrefab(),
+                  key );
+    }
+
+    // What a pawn spawn waits for: the rows of the prefab's closure that a spawn binds at once - meshes and their
+    // rigs, materials. Textures stream after the spawn at the mips the view asks (UE: a texture is never part of
+    // what an actor's spawn waits for), so they are read here but do not hold the spawn.
+    struct ClientNetDriver::PawnClosure
+    {
+        std::vector<Assets::ContentRegistry::ClosureRow> Rows;
+        bool                                             Landed = false;
+    };
+
+    void ClientNetDriver::RequestPawnClosure()
+    {
+        m_PawnClosure       = std::make_shared<PawnClosure>();
+        m_PawnClosure->Rows = Assets::ContentRegistry::Closure(
+             { { Common::AssetHandle( static_cast<std::uint64_t>( m_PawnPrefab ) ),
+                 std::string( Common::Content::KindName( Common::Content::ContentKind::Prefab ) ) } } );
+        Runtime::StartClosureReads( m_PawnClosure->Rows );
+        LOG_INFO( "[Net] reading the pawn prefab's closure off the frame: {} rows", m_PawnClosure->Rows.size() );
+    }
+
+    bool ClientNetDriver::PawnClosureLanded()
+    {
+        if ( m_PawnPrefabReading )
+            return false; // the prefab file itself is still on a worker
+        if ( !m_PawnClosure )
+            return true; // no prefab loaded: the spawn says why (SpawnPawnPrefabAt's error), nothing to wait for
+        if ( m_PawnClosure->Landed )
+            return true;
+        std::vector<Assets::ContentRegistry::ClosureRow> held;
+        for ( const auto& row : m_PawnClosure->Rows )
+            if ( row.Kind != Common::Content::KindName( Common::Content::ContentKind::Texture ) )
+                held.push_back( row );
+        if ( Runtime::ClosureArriving( held, 0.0f ) > 0 )
+            return false;
+        m_PawnClosure->Landed = true;
+        LOG_INFO( "[Net] the pawn prefab's closure has landed ({} rows): pawns spawn from now on",
+                  m_PawnClosure->Rows.size() );
+        return true;
     }
 
     void ClientNetDriver::ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets )
     {
         auto& reg = scene.GetRegistry();
         for ( const Net::NetId id : m_Client->TakeSpawned() )
+            m_AwaitingSpawn.push_back( id );
+        // A spawn binds the prefab's meshes and materials at once: it waits for their reads to land rather than
+        // reading them inside this frame (a destroy before that finds no entity and the held id no pawn).
+        std::vector<std::uint32_t> spawning;
+        if ( PawnClosureLanded() )
+            spawning.swap( m_AwaitingSpawn );
+        for ( const Net::NetId id : spawning )
         {
             const auto& pawns = m_Client->Pawns();
             const auto  found = pawns.find( id );
@@ -276,7 +431,7 @@ namespace Desert::Core
             const auto&     replicated = found->second;
             const auto      sample     = m_Client->Sample( id );
             const glm::vec3 at =
-                 sample ? ToGlm( sample->Position ) : ToGlm( replicated.History.Sample( 1e12 ).Position );
+                 sample ? ToGlm( sample->Position ) : ToGlm( replicated.History.Newest().Position );
             if ( replicated.Owned )
             {
                 // The own pawn: the one Play spawned from the level's GameMode, at the server's position; a level
@@ -384,6 +539,49 @@ namespace Desert::Core
             local.Translation         = position;
             local.Rotation            = { 0.0f, sample->Yaw, 0.0f };
             ECS::SetLocalTransform( reg, entity, local );
+            WriteLocomotion( scene, entity, *sample );
+        }
+    }
+
+    void ClientNetDriver::WriteLocomotion( Scene& scene, entt::entity pawn, const Net::PawnState& sample )
+    {
+        // NET-5 (§5.3): a simulated proxy's animation runs locally from its replicated movement, never from
+        // replicated poses (UE: the proxy's CharacterMovement Velocity is replicated and its AnimInstance reads it).
+        // The interpolated velocity is the Hermite's derivative, so the walk cycle's rate follows the path drawn.
+        auto&           reg      = scene.GetRegistry();
+        const glm::vec3 velocity = ToGlm( sample.Velocity );
+        const float     speed    = glm::length( glm::vec2( velocity.x, velocity.z ) );
+        const bool      falling  = ( sample.Movement & Net::kPawnGrounded ) == 0;
+        if ( auto* character = reg.try_get<ECS::CharacterControllerComponent>( pawn ) )
+        {
+            character->Velocity     = velocity;
+            character->CurrentSpeed = speed;
+        }
+        // The locomotion variables go to every anim graph of the pawn's hierarchy (the body is a child of the
+        // capsule) by the names the locomotion graphs declare.
+        std::vector<entt::entity> open{ pawn };
+        while ( !open.empty() )
+        {
+            const entt::entity entity = open.back();
+            open.pop_back();
+            if ( auto* anim = reg.try_get<ECS::AnimationComponent>( entity ) )
+            {
+                // One pending value per name: a graph that is not built yet does not drain the queue.
+                const auto write = [&]( std::string_view name, float value )
+                {
+                    auto& pending = anim->PendingGraphParams;
+                    const auto it = std::find_if( pending.begin(), pending.end(),
+                                                  [&]( const auto& p ) { return p.Name == name; } );
+                    if ( it != pending.end() )
+                        it->Value = value;
+                    else
+                        pending.push_back( { std::string( name ), value } );
+                };
+                write( kLocomotionSpeed, speed );
+                write( kLocomotionFalling, falling ? 1.0f : 0.0f );
+            }
+            if ( const auto* relation = reg.try_get<ECS::RelationshipComponent>( entity ) )
+                open.insert( open.end(), relation->Children.begin(), relation->Children.end() );
         }
     }
 
@@ -589,7 +787,7 @@ namespace Desert::Core
             const auto own = m_Client->Pawns().find( m_Client->OwnPawn() );
             if ( own != m_Client->Pawns().end() && m_OwnFirstServerPosition )
             {
-                const glm::vec3 newest = ToGlm( own->second.History.Sample( 1e12 ).Position );
+                const glm::vec3 newest = ToGlm( own->second.History.Newest().Position );
                 if ( glm::length( newest - *m_OwnFirstServerPosition ) >= m_Options.WalkCm )
                 {
                     m_Walking = false;
@@ -651,44 +849,67 @@ namespace Desert::Core
                m_SmoothOffset;
     }
 
-    void ClientNetDriver::ReconcileOwnPawn()
+    void ClientNetDriver::ReconcileOwnPawn( Scene& scene )
     {
         Net::MovePredictor& predictor = m_Prediction->Predictor;
         if ( !predictor.Started() )
         {
-            // The prediction starts where the server spawned the pawn, standing (the server's own start).
+            // The prediction starts from the server's spawned state (where, and in which movement mode).
+            // Not before the first snapshot of it (UE: an autonomous proxy moves once its replicated movement
+            // arrived), and not before this client's collision world exists to move it in.
             const auto own = m_Client->Pawns().find( m_Client->OwnPawn() );
-            if ( own == m_Client->Pawns().end() )
+            if ( own == m_Client->Pawns().end() || own->second.History.Empty() ||
+                 PredictionWorld( scene ) == nullptr )
                 return;
-            Net::PawnMoveState start;
-            start.Position = own->second.History.Sample( 1e12 ).Position;
-            start.FloorY   = start.Position.Y;
+            // The whole replicated state, the movement mode with it: the server's first move starts from it.
+            const Net::PawnState spawned = own->second.History.Sample( 1e12 );
+            Net::PawnMoveState   start;
+            start.Position = spawned.Position;
+            start.Yaw      = spawned.Yaw;
+            start.Grounded = ( spawned.Movement & Net::kPawnGrounded ) != 0;
             predictor.Reset( start );
             m_NextJump = m_Clock + m_Options.WalkJumpEverySeconds;
-            LOG_INFO( "[Net] predicting own pawn net id {} from ({:.0f}, {:.0f}, {:.0f}) cm", own->first,
-                      start.Position.X, start.Position.Y, start.Position.Z );
+            LOG_INFO( "[Net] predicting own pawn net id {} from ({:.0f}, {:.0f}, {:.0f}) cm, {}", own->first,
+                      start.Position.X, start.Position.Y, start.Position.Z,
+                      start.Grounded ? "grounded" : "falling" );
         }
         const auto authority = m_Client->TakeOwnAuthority();
         if ( !authority )
             return;
-        // Clock sync: keep the server's queue of this client's input steps between kQueueLow and kQueueHigh.
-        m_ServerQueue = m_ServerQueue * 0.9 + static_cast<double>( authority->InputBuffered ) * 0.1;
-        m_Dilation    = m_ServerQueue < kQueueLow    ? 1.0 - kDilation
-                        : m_ServerQueue > kQueueHigh ? 1.0 + kDilation
-                                                     : 1.0;
+        m_QueueWindowMin = std::min( m_QueueWindowMin, static_cast<double>( authority->InputBuffered ) );
+        if ( m_Clock >= m_QueueWindowEnd )
+        {
+            m_ServerQueue = m_QueueWindowMin;
+            m_Dilation    = 1.0 + std::clamp( ( m_ServerQueue - kQueueTarget ) * kDilationPerStep, -kMaxDilation,
+                                              kMaxDilation );
+            m_QueueWindowMin = 1e9;
+            m_QueueWindowEnd = m_Clock + kQueueWindowSeconds;
+        }
         const glm::vec3 drawnBefore = OwnDrawnPosition();
-        const auto      outcome =
-             predictor.Reconcile( authority->AckStep, authority->State, m_Prediction->Movement, Net::kNetStepSeconds );
+        Net::IPawnMoveWorld* world       = PredictionWorld( scene );
+        if ( world == nullptr )
+            return;
+        const auto outcome = predictor.Reconcile( authority->AckStep, authority->State, m_Prediction->Movement,
+                                                  *world, Net::kNetStepSeconds );
         if ( outcome != Net::MovePredictor::EReconcile::Corrected )
             return;
+        const Net::PawnMoveState& mispredicted = predictor.LastMispredicted();
         const glm::vec3 offset = drawnBefore - ( OwnDrawnPosition() - m_SmoothOffset );
         const bool      smooth = glm::length( offset ) <= kNoSmoothDistanceCm;
         m_SmoothOffset         = smooth ? offset : glm::vec3( 0.0f );
-        LOG_INFO( "[Net] correction {} at input step {}: the server has the own pawn at ({:.1f}, {:.1f}, {:.1f}) cm; "
-                  "{} unacked step(s) replayed; drawn offset {:.1f} cm {}",
-                  predictor.Corrections(), authority->AckStep, authority->State.Position.X,
-                  authority->State.Position.Y, authority->State.Position.Z, predictor.Unacked(),
-                  glm::length( offset ), smooth ? "smoothed" : "beyond the smoothing distance - drawn at once" );
+        LOG_INFO(
+             "[Net] correction {} at input step {}: the server has the own pawn at ({:.1f}, {:.1f}, {:.1f}) cm; "
+             "{} unacked step(s) replayed; drawn offset {:.1f} cm {}; predicted ({:.1f}, {:.1f}, {:.1f}) v "
+             "({:.0f}, "
+             "{:.0f}, {:.0f}) {} vs server v ({:.0f}, {:.0f}, {:.0f}) {}; input move ({:.2f}, {:.2f}) buttons {}",
+             predictor.Corrections(), authority->AckStep, authority->State.Position.X, authority->State.Position.Y,
+             authority->State.Position.Z, predictor.Unacked(), glm::length( offset ),
+             smooth ? "smoothed" : "beyond the smoothing distance - drawn at once", mispredicted.Position.X,
+             mispredicted.Position.Y, mispredicted.Position.Z, mispredicted.Velocity.X, mispredicted.Velocity.Y,
+             mispredicted.Velocity.Z, mispredicted.Grounded ? "grounded" : "falling", authority->State.Velocity.X,
+             authority->State.Velocity.Y, authority->State.Velocity.Z,
+             authority->State.Grounded ? "grounded" : "falling", predictor.LastMispredictedInput().Move.X,
+             predictor.LastMispredictedInput().Move.Z, predictor.LastMispredictedInput().Buttons );
     }
 
     void ClientNetDriver::Shutdown( Scene& scene )

@@ -3,7 +3,6 @@
 #include "System.hpp"
 #include "SystemRules.hpp"
 #include <Engine/ECS/System/MeshStandInDraw.hpp>
-#include "LandscapeSplineMeshDraw.hpp"
 #include "SelectionOutlineMask.hpp"
 #include "WindField.hpp"
 
@@ -113,8 +112,9 @@ namespace Desert::ECS
                  Runtime::ResourceRegistry::GetMaterialService()->GetInvalidationVersion();
 
             /* =========================
-               STAND-INS (MeshStandInDraw.hpp; fractured entities, DST-06): their draws go out as static-mesh
-               draws, through the same instanced path below; the entities they return do not draw their mesh.
+               STAND-INS (MeshStandInDraw.hpp; fractured entities, DST-06; the landscape's spline meshes,
+               L9-MESHES): their draws go out as static-mesh draws, through the same instanced path below; the
+               entities they return do not draw their mesh.
                ========================= */
             if ( m_StandIns.size() != MeshStandInDraws().size() )
             {
@@ -143,28 +143,16 @@ namespace Desert::ECS
             };
             pieceServices.SlotMaterial = []( const Graphic::MaterialInstance* instance )
             { return CustomSlotMaterial( instance ); };
+            pieceServices.MeshAsset = []( const Assets::AssetHandle& mesh ) -> const Assets::StaticMeshAsset*
+            {
+                return dynamic_cast<const Assets::StaticMeshAsset*>(
+                     Runtime::ResourceRegistry::GetMeshService()->GetAsset( mesh ) );
+            };
+            pieceServices.MaterialByExternal = []( const Assets::AssetHandle& external )
+            { return Runtime::ResourceRegistry::GetMaterialService()->GetAssetHandleByExternal( external ); };
             std::unordered_set<entt::entity> drawnAsPieces;
             for ( const auto& standIn : m_StandIns )
                 standIn->Record( registry, renderCommandBuffer, materialsVersion, pieceServices, drawnAsPieces );
-
-            /* =========================
-               LANDSCAPE SPLINE MESHES (L9-MESHES): each segment's meshes, bent along it, as static draws.
-               ========================= */
-            LandscapeSplineMeshDraw::Services splineServices;
-            splineServices.MeshAsset = []( const Common::UUID& id ) -> const Assets::StaticMeshAsset*
-            {
-                return dynamic_cast<const Assets::StaticMeshAsset*>(
-                     Runtime::ResourceRegistry::GetMeshService()->GetAsset(
-                          Assets::AssetHandle( static_cast<uint64_t>( id ) ) ) );
-            };
-            splineServices.Instance = []( const Common::UUID& id )
-            {
-                auto* materials = Runtime::ResourceRegistry::GetMaterialService();
-                return materials->CreateRuntimeInstance( materials->GetAssetHandleByExternal( id ) );
-            };
-            splineServices.DefaultInstance = [this]()
-            { return DefaultInstance( Graphic::MeshVertexPath::Static ); };
-            m_SplineMeshes.Record( registry, renderCommandBuffer, materialsVersion, splineServices );
 
             /* =========================
                STATIC MESHES: the retained static scene (RecordStaticScene), only its changes rebuilt
@@ -487,7 +475,6 @@ namespace Desert::ECS
         // The registered stand-in draws (fractured entities' pieces, DST-06), drawn as static meshes.
         std::vector<std::unique_ptr<IMeshStandInDraw>> m_StandIns;
         // The landscapes' spline meshes, drawn as static meshes (L9-MESHES).
-        LandscapeSplineMeshDraw m_SplineMeshes;
 
         // The material a slot instance draws with OFF the batched lit path: its parent when that is a
         // custom-shader material (a DataDrivenMaterial of a DSL surface's own cell), null when the batched path

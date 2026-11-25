@@ -4,12 +4,19 @@
 // plugin's subsystems, component classes and asset types; the engine then calls through these, never naming the
 // module). The registration point is Engine/Core/Modules.cpp; the lists are read by the engine code named per hook.
 
+#include <Common/Core/UUID.hpp>
+#include <Common/Core/Math/Ray.hpp>
+
 #include <entt/entt.hpp>
+#include <glm/vec3.hpp>
 
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Assets
@@ -18,6 +25,11 @@ namespace Desert::Assets
     class AssetManager;
     class AssetRootSet;
 } // namespace Desert::Assets
+
+namespace Desert::Core::Rules
+{
+    class HLODBuilderRegistry;
+} // namespace Desert::Core::Rules
 
 namespace Desert::Core
 {
@@ -69,9 +81,48 @@ namespace Desert::Core
     };
     using SceneModuleStateMaker = std::unique_ptr<ISceneModuleState> ( * )();
 
+    /// The assets a module's asset names (Assets/AssetEviction.cpp's reachability walk): Visit calls @p visitGuid
+    /// with each asset-GUID text the asset under @p handle stores, when that asset is the module's type.
+    struct AssetReferenceVisitor
+    {
+        void ( *Visit )( Assets::AssetManager& assets, std::uint64_t handle,
+                         const std::function<void( const std::string& guidText, const char* why )>& visitGuid ) =
+             nullptr;
+    };
+    /// A material parameter naming a module's asset by kind (DShader `Asset(<Kind>)`): the label the renderer
+    /// matches by (the terrain's layer inputs match a `LandscapeLayerInfoAsset` by its layer name,
+    /// Graphic/Systems/Scene/Terrain/TerrainLayerInputs.cpp). Label is null while the asset is not read.
+    struct AssetParamLabel
+    {
+        std::string_view AssetKind;
+        const std::string* ( *Label )( std::uint64_t handle ) = nullptr;
+    };
+
     /// A module's render-data collectors (ECS systems emitting render commands), added to every scene after the
     /// engine's own (Core/SceneRenderCollectors.cpp).
     using RenderCollectorAdder = void ( * )( Scene& scene );
+
+    /// A surface a scene raycast meets beside the entities' meshes (Scene::Raycast / RaycastComplex; UE: a
+    /// landscape's collision answering the scene query): the hit names the entity the surface belongs to.
+    struct RaySurfaceHit
+    {
+        Common::UUID Entity;
+        glm::vec3    Point{ 0.0f };
+        glm::vec3    Normal{ 0.0f, 1.0f, 0.0f };
+        float        Distance = 0.0f;
+    };
+    /// One module's surfaces as they are at one moment: the nearest hit nearer than @p limit among the entities
+    /// @p accept takes (an empty accept takes all). It borrows the module's tables, so it lives no longer than
+    /// that moment.
+    using RaySurfaceTrace = std::function<std::optional<RaySurfaceHit>(
+         const Common::Math::Ray& ray, float limit, const std::function<bool( const Common::UUID& )>& accept )>;
+    /// A module's raycastable surfaces, gathered once for a moment (Scene::GatherRaycastSurfaces); an empty
+    /// trace when it has none. The landscape's drawn tiles are the first.
+    using RaySurfaceGather = RaySurfaceTrace ( * )( entt::registry& registry );
+
+    /// A module's HLOD builders (Core/HLODMeshBuilder.cpp's HLODBuilders; UE: a plugin's UHLODBuilder
+    /// classes): added to the process's registry when it is first made.
+    using HLODBuilderAdder = void ( * )( Rules::HLODBuilderRegistry& builders );
 
     struct ModuleHookLists
     {
@@ -82,6 +133,13 @@ namespace Desert::Core
         std::vector<RenderCollectorAdder> RenderCollectors;
         std::vector<SceneModuleStateMaker> SceneStates;
         std::vector<HotReloadPoller>       HotReloads;
+        std::vector<AssetReferenceVisitor> AssetReferences;
+        std::vector<AssetParamLabel>       AssetParamLabels;
+        std::vector<HLODBuilderAdder>      HLODBuilders;
+        std::vector<RaySurfaceGather>      RaySurfaces;
+        /// A module's shared tables brought up to date serially before each parallel system group, so the
+        /// group's readers only read them (Scene's update; the landscape's tile table).
+        std::vector<RegistryPrepare> BeforeParallelGroup;
     };
 
     inline ModuleHookLists& ModuleHooks()

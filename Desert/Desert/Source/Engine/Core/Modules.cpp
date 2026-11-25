@@ -11,6 +11,11 @@ namespace Desert::Destruction
     void StartupModule();
 } // namespace Desert::Destruction
 
+namespace Desert::Landscape
+{
+    void StartupModule();
+} // namespace Desert::Landscape
+
 namespace Desert::VFX
 {
     void StartupModule();
@@ -28,6 +33,8 @@ namespace Desert::Core
         static const bool started = []
         {
             Destruction::StartupModule();
+            // Before Water: the landscape's collector precedes the water zones' (SceneRenderCollectors.cpp).
+            Landscape::StartupModule();
             VFX::StartupModule();
             Water::StartupModule();
             return true;
