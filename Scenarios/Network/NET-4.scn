@@ -27,6 +27,8 @@
 Ждать A 900 \[Net\] walked \d+ cm \(server position\): stopping
 Ждать A 60 6x \[Net\] t=
 Нет A \[Net\] correction \d+ at
+# No input step given up: every Input message resends each unacked step until the ack (kMaxUnackedInputSteps).
+Нет server never arrived
 # Когда: the server console relocates A 200 m back (-X) and 5 m up; it falls onto the landscape, no input.
 Ждать server 30 player 1 account 1 \(
 Запомнить p server player 1 account 1 \((-?\d+), (-?\d+), (-?\d+)\)
