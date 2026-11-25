@@ -103,7 +103,7 @@ namespace Desert::Net
         if ( m_State != EState::InSession )
             return;
         InputMessage message;
-        message.Steps = m_Inputs.Latest( kInputRedundancy );
+        message.Steps = m_Inputs.Unacked(); // each unacked step again, until the ack drops it (UE ServerMove)
         if ( message.Steps.empty() )
             return;
         message.Sequence = m_NextSequence++;
