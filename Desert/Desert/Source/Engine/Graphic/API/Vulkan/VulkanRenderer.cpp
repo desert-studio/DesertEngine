@@ -2023,6 +2023,9 @@ namespace Desert::Graphic::API::Vulkan
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
         const auto* graphics = static_cast<const VulkanPipeline*>( &pipeline );
+        // The same test as BindGraphicsPassState, and before the record below is read for the same reason.
+        if ( graphics->GetBuildState() == VulkanPipeline::BuildState::Compiling )
+            return Common::MakeSuccess( false );
         const auto& submeshes = mesh.GetSubmeshes();
         // CPU-FRAME-6: the loop below pushes the layout's whole range (same stages, offset and size as the bind's
         // push, which is never larger) before each submesh's draw, so when one is drawn at all the bind's push of
@@ -2646,6 +2649,12 @@ namespace Desert::Graphic::API::Vulkan
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
         const auto* graphics = static_cast<const VulkanPipeline*>( &pipeline );
+        // A pipeline still in the driver (PSO1) is not drawn this frame and is not an error: the content gate waits
+        // for engine pipelines (BindGraphicsPipeline). Success(false) tells the draw to skip.
+        if ( graphics->GetBuildState() == VulkanPipeline::BuildState::Compiling )
+            return Common::MakeSuccess( false );
+        // Asked BEFORE the record is read: the build publishes its record and only then leaves Compiling, so a
+        // record read after this test is the finished one.
         // ONE RECORD for the layouts the sets are written for, the layout they and the push are recorded with
         // and the pipeline bound: the caller's read, else one read here.
         const VulkanBuiltPipeline& built = record != nullptr ? *record : graphics->GetBuilt();
@@ -2818,10 +2827,6 @@ namespace Desert::Graphic::API::Vulkan
         }
         const std::span<const VkDescriptorSet> sets = WithLiveBindlessSet( layouts, *kept );
 
-        // A pipeline still in the driver (PSO1) is not drawn this frame and is not an error: the content gate waits
-        // for engine pipelines (BindGraphicsPipeline). Success(false) tells the draw to skip.
-        if ( graphics->GetBuildState() == VulkanPipeline::BuildState::Compiling )
-            return Common::MakeSuccess( false );
         if ( !BindGraphicsPipeline( &pipeline, &built ) )
             return Common::MakeFormattedError( "{}: pipeline '{}' could not be bound in the open render pass",
                                                pass, pipeline.GetSpecification().DebugName );
