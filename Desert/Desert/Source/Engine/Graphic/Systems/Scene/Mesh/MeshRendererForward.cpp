@@ -1773,6 +1773,8 @@ namespace Desert::Graphic::System
         const bool same = entry.Snapshot == ism.Transforms && entry.LocalBounds.Min == localBounds.Min &&
                           entry.LocalBounds.Max == localBounds.Max && entry.Planes == planes &&
                           entry.View.Origin == view.Origin && entry.View.Projection == view.Projection &&
+                          entry.View.DistanceScale == view.DistanceScale &&
+                          entry.View.DrawDistance == view.DrawDistance &&
                           entry.View.Temporal.Active == view.Temporal.Active &&
                           entry.View.Temporal.Origins[0] == view.Temporal.Origins[0] &&
                           entry.View.Temporal.Origins[1] == view.Temporal.Origins[1] &&
@@ -1833,9 +1835,7 @@ namespace Desert::Graphic::System
         // The main view's cull, as BuildStaticDraws asks it (the same frustum and LOD view): the passes' look-ups
         // then find every entry current and cull nothing again this frame.
         const Core::Frustum     frustum = camera->GetFrustum();
-        const Geometry::LODView mainView{ .Origin     = camera->GetPosition(),
-                                          .Projection = camera->GetProjectionMatrix(),
-                                          .Temporal   = m_ViewTemporalLOD };
+        const Geometry::LODView mainView = MainLODView( *camera );
         ++m_IsmViewCullCall;
         m_ViewIsmStale.clear();
         for ( std::size_t f = 0; f < m_InstancedQueue.size(); ++f )
@@ -3305,9 +3305,7 @@ namespace Desert::Graphic::System
             // instances and draws are the same; ParallelSetup 0 runs the culls inline, in queue order.
             // With the view's temporal LOD samples: an instance in a dithered transition draws both levels
             // (OrderIsmViewCullByLevel), PrepareViewIsmIds' view bit for bit.
-            const Geometry::LODView mainView{ .Origin     = camera->GetPosition(),
-                                              .Projection = camera->GetProjectionMatrix(),
-                                              .Temporal   = m_ViewTemporalLOD };
+            const Geometry::LODView mainView = MainLODView( *camera );
             ++m_IsmViewCullCall;
             scratch.IsmQueued.clear();
             scratch.IsmStale.clear();

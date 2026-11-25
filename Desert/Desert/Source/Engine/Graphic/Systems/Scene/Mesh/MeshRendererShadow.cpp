@@ -723,9 +723,7 @@ namespace Desert::Graphic::System
         // from them each frame, and a cached layer keyed by a coarser cell would keep an instance that crossed
         // its cull distance, level or wind ring inside the cell (CPU-ISM-SHADOW REMAINDER says what replaces it).
         const auto*             camera = m_SceneRenderer->GetMainCamera();
-        const Geometry::LODView lodView =
-             camera != nullptr ? Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() }
-                               : Geometry::LODView{};
+        const Geometry::LODView lodView = camera != nullptr ? MainLODView( *camera ) : Geometry::LODView{};
         SignatureHash hash;
         hash.Add( camera != nullptr );
         if ( camera != nullptr )
@@ -734,6 +732,7 @@ namespace Desert::Graphic::System
             hash.Add( camera->GetProjectionMatrix() );
         }
         hash.Add( TemporalLodKey() );
+        hash.Add( lodView.DistanceScale );
         hash.Add( DrawDistanceScale( lodView ) );
         hash.Add( m_ShadowWindDistance );
         hash.Add( m_InstancedQueue.size() );
@@ -1051,9 +1050,7 @@ namespace Desert::Graphic::System
         const auto*       camera = m_SceneRenderer->GetMainCamera();
         Geometry::LODView lodView{};
         if ( camera != nullptr )
-            lodView = Geometry::LODView{ .Origin     = camera->GetPosition(),
-                                         .Projection = camera->GetProjectionMatrix(),
-                                         .Temporal   = m_ViewTemporalLOD };
+            lodView = MainLODView( *camera );
         // The runs of every field a caster view asks (each one's filter: a mesh, CastShadows, instances), in field
         // order and, within a field, in index order.
         std::size_t runs = 0;

@@ -2260,6 +2260,12 @@ namespace Desert::Graphic::System
         {
             return m_LODDistanceScale;
         }
+        // UE r.ViewDistanceScale: every authored draw / cull distance of the view times @p scale (Geometry::LODView::
+        // DrawDistance). Scalability ViewDistance.DrawDistanceScalePercent / 100 (SceneRenderer::BeginScene).
+        void  SetDrawDistanceScale( float scale );
+        // The main view's LOD eye: origin, projection, temporal samples, level scale, draw-distance scale. The
+        // only builder of it: every pass that selects a level or culls by distance for the main view asks here.
+        [[nodiscard]] Geometry::LODView MainLODView( const Core::Camera& camera ) const;
 
         // Which LOD level to draw for a mesh: a forced level (>= 0) wins; otherwise auto by screen
         // coverage (world bounding radius / camera distance), so big objects keep detail farther than
@@ -3116,6 +3122,7 @@ namespace Desert::Graphic::System
 #endif
         bool                              m_LODEnabled = true;
         float                             m_LODDistanceScale = 1.0f; // SetLODDistanceScale
+        float                             m_DrawDistanceScale = 1.0f; // SetDrawDistanceScale
 
         // Deferred G-buffer geometry pipeline (static): writes Albedo+Metallic / Normal+Roughness into the
         // scene renderer's MRT G-buffer instead of shading. Same vertex layout + material bindings as the

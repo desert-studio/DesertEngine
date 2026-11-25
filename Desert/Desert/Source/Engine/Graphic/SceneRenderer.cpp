@@ -769,6 +769,14 @@ namespace Desert::Graphic
 
     namespace
     {
+        // The quality's texture bias in mips (Textures.MipBias): what the samplers add (ViewInputs::
+        // TextureMipBias) and the streamed size leaves out (TextureStreamingDemand::BiasedPixels).
+        float TextureMipBiasOf( const Common::Scalability::ResolvedQuality& quality )
+        {
+            return 0.01f * static_cast<float>(
+                                quality.As<int>( Common::Scalability::Parameter::TextureMipBias ) );
+        }
+
         // A view's name: what kind of surface it is and a serial that is never reused, so two log lines
         // about "preview #4" are about the same window and a reopened preview is visibly a new view.
         std::string NameView( const ViewProfile& profile )
@@ -1022,7 +1030,10 @@ namespace Desert::Graphic
                 const Geometry::LODView view{ camera->GetPosition(), camera->GetProjectionMatrix() };
                 TextureStreamingDemand::Get().NoteAsset(
                      value.Texture,
-                     TextureStreamingDemand::ScreenPixels( camera->GetPosition(), 1.0f, view, GetViewExtent().Height ) );
+                     TextureStreamingDemand::BiasedPixels(
+                          TextureStreamingDemand::ScreenPixels( camera->GetPosition(), 1.0f, view,
+                                                                GetViewExtent().Height ),
+                          TextureMipBiasOf( m_Quality ) ) );
             }
             const Texture2D* texture = Runtime::ResourceRegistry::GetTextureService()->Get( value.Texture );
             // The bindless slot lives on the texture's image (as Texture2DProperty::GetBindlessSlot reads it).
@@ -1111,7 +1122,7 @@ namespace Desert::Graphic
         if ( camera != nullptr && GetViewExtent().Height > 0 )
             TextureStreamingDemand::Get().NoteWarmups(
                  &scene, Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
-                 GetViewExtent().Height );
+                 GetViewExtent().Height, TextureMipBiasOf( m_Quality ) );
 
         const auto& skyboxSystem = m_Systems.Skybox.get();
 
@@ -1419,7 +1430,8 @@ namespace Desert::Graphic
                                                       Parameter::FoliageGrassMeshLodDistanceScalePercent ) ),
                  .BladeSegmentPixels =
                       static_cast<float>( quality.As<int>( Parameter::FoliageGrassBladeSegmentPixels ) ),
-                 .BladeCardHull = quality.As<int>( Parameter::FoliageGrassBladeCardHull ) != 0 };
+                 .BladeCardHull  = quality.As<int>( Parameter::FoliageGrassBladeCardHull ) != 0,
+                 .TextureMipBias = TextureMipBiasOf( quality ) };
             if ( const auto& grass = m_Systems.Grass )
                 grass->SetQuality( grassQuality );
             // The ground's far cover reads the lens through the view's frame (ViewFrame::GrassLens, OnUpdate).
@@ -1578,10 +1590,16 @@ namespace Desert::Graphic
         m_Systems.Mesh->SetWireframe( m_DebugView.WireframeMode );
         // The ground in the wireframe view too (UE draws every primitive kind through its wireframe pass).
         if ( const auto& it = m_Systems.Terrain )
+        {
             it->SetWireframe( m_DebugView.WireframeMode );
+            it->SetGridErrorPixels(
+                 0.01f * static_cast<float>( quality.As<int>( Parameter::ViewDistanceLandscapeGridErrorPercent ) ) );
+        }
         m_Systems.Mesh->SetLODEnabled( quality.As<bool>( Parameter::MeshLOD ) );
         m_Systems.Mesh->SetLODDistanceScale(
              0.01f * static_cast<float>( quality.As<int>( Parameter::ViewDistanceLODDistanceScalePercent ) ) );
+        m_Systems.Mesh->SetDrawDistanceScale(
+             0.01f * static_cast<float>( quality.As<int>( Parameter::ViewDistanceDrawDistanceScalePercent ) ) );
         m_Systems.Mesh->SetSkinCacheEnabled( quality.As<bool>( Parameter::SkinCache ) );
         m_Systems.Mesh->SetShadowWindDistance(
              static_cast<float>( quality.As<int>( Parameter::ShadowWindAnimationDistance ) ) );
@@ -1977,6 +1995,7 @@ namespace Desert::Graphic
         inputs.Upscaler                          = resolved.GetValue().Upscaler; // the view's, not the setting's
         inputs.Quality                           = m_TemporalAAQuality;
         inputs.Scalability                       = &m_Quality;
+        inputs.TextureMipBias                    = TextureMipBiasOf( m_Quality );
         inputs.TimeSeconds                       = m_SceneTimeSeconds;
         inputs.Parallax                          = m_ParallaxQuality;
         // Index 0 is the scene's one directional light (see the atmosphere sun above); its Direction is the way the
@@ -2316,8 +2335,7 @@ namespace Desert::Graphic
                      .PoolBytes        = static_cast<uint64_t>( m_DisplacementPoolMiB ) << 20u } );
                 if ( const auto* viewCamera = GetMainCamera(); viewCamera != nullptr )
                     meshes->ApplyDisplacement(
-                         displacement,
-                         Geometry::LODView{ viewCamera->GetPosition(), viewCamera->GetProjectionMatrix() },
+                         displacement, meshes->MainLODView( *viewCamera ),
                          static_cast<float>( m_ViewExtent.Height ), frameNumber, !m_ViewProfile.SceneCapture );
             }
             if ( m_FrameGpuScene == nullptr )
@@ -2378,10 +2396,8 @@ namespace Desert::Graphic
             auto* const     meshes     = m_Systems.Mesh.get();
             const auto*     camera     = GetMainCamera();
             const glm::vec3 viewOrigin = camera != nullptr ? camera->GetPosition() : glm::vec3( 0.0f );
-            const float     lensScale  = camera != nullptr
-                                              ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(),
-                                                                                 camera->GetProjectionMatrix() } )
-                                              : 1.0f;
+            const float     lensScale =
+                 camera != nullptr ? DrawDistanceScale( meshes->MainLODView( *camera ) ) : 1.0f;
             // The view's methods, or the scene's cards this view relights this frame with ray query.
             const bool required =
                  RayTracing::RayTracingSceneRequired( m_RenderMethods ) || SurfaceCacheUpdateTracesRayQuery();
@@ -4858,6 +4874,7 @@ namespace Desert::Graphic
             pixels                      = std::max(
                  pixels, TextureStreamingDemand::ScreenPixels( center, radius, view, GetViewExtent().Height ) );
         }
+        pixels       = TextureStreamingDemand::BiasedPixels( pixels, TextureMipBiasOf( m_Quality ) );
         auto& demand = TextureStreamingDemand::Get();
         for ( const Material* material : materials )
             demand.Note( material, pixels );
@@ -4882,7 +4899,9 @@ namespace Desert::Graphic
         auto&                   demand = TextureStreamingDemand::Get();
         // The field's bounds tree, built once per instance snapshot and measured once per view: the nearest
         // instance's size without walking the instances (CPU-STREAM-DEMAND).
-        const float pixels = demand.FieldScreenPixels( transforms, local, view, GetViewExtent().Height );
+        const float pixels = TextureStreamingDemand::BiasedPixels(
+             demand.FieldScreenPixels( transforms, local, view, GetViewExtent().Height ),
+             TextureMipBiasOf( m_Quality ) );
         for ( const Material* material : materials )
             demand.Note( material, pixels );
         return pixels;
@@ -4894,8 +4913,8 @@ namespace Desert::Graphic
         const auto* camera = GetMainCamera();
         if ( maxDrawDistance <= 0.0f || mesh == nullptr || camera == nullptr )
             return true;
-        return IsWithinDrawDistance( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
-                                     transform, Geometry::LocalBounds( mesh->GetSubmeshes() ), maxDrawDistance );
+        return IsWithinDrawDistance( m_Systems.Mesh->MainLODView( *camera ), transform,
+                                     Geometry::LocalBounds( mesh->GetSubmeshes() ), maxDrawDistance );
     }
 
     void SceneRendererImpl::SetLODPreview( const uint32_t entity, const int level )
@@ -5007,28 +5026,27 @@ namespace Desert::Graphic
             view.Position   = camera->GetPosition();
             view.Projection = camera->GetProjectionMatrix();
         }
-        view.Height = GetViewExtent().Height;
+        view.Height           = GetViewExtent().Height;
+        view.TextureMipBias   = TextureMipBiasOf( m_Quality );
         view.LODDistanceScale = m_Systems.Mesh->IsLODEnabled() ? m_Systems.Mesh->GetLODDistanceScale() : 0.0f;
         if ( m_LODPreview.FramesLeft > 0 && m_LODPreview.Level >= 0 ) // LODPreviewFor's lease, as it answers
         {
             view.PreviewEntity = m_LODPreview.Entity;
             view.PreviewLevel  = m_LODPreview.Level;
         }
+        std::optional<Geometry::LODView> lodView;
+        if ( camera != nullptr )
+        {
+            lodView.emplace( m_Systems.Mesh->MainLODView( *camera ) );
+            view.DrawDistance = lodView->DrawDistance;
+        }
         const bool sameView = cache.Valid && cache.Current == view;
         cache.Current       = view;
         cache.Valid         = true;
-        std::optional<Geometry::LODView> lodView;
-        if ( camera != nullptr )
-            lodView.emplace( Geometry::LODView{ view.Position, view.Projection } );
         const bool demandAsked = camera != nullptr && view.Height != 0;
-        // THE IMPOSTOR SWITCH'S EYE (WP-FAR-12E, StaticSceneSection::ImpostorScreenSize): the LOD eye with the
-        // renderer's LOD distance scale, as every other level is chosen; none while LOD is off (source side).
-        std::optional<Geometry::LODView> impostorView;
-        if ( lodView.has_value() && view.LODDistanceScale > 0.0f )
-        {
-            impostorView                = lodView;
-            impostorView->DistanceScale = view.LODDistanceScale;
-        }
+        // THE IMPOSTOR SWITCH'S EYE (WP-FAR-12E, StaticSceneSection::ImpostorScreenSize) is the LOD eye, as every
+        // other level is chosen; none while LOD is off (source side).
+        const bool impostorLod = lodView.has_value() && view.LODDistanceScale > 0.0f;
 
         // Uploads (the render revision, the residency, the cached bounds' validity) follow the stale epoch; while
         // it held over two recorded frames that compared the admitted revisions, none is pending (the cache's
@@ -5082,12 +5100,10 @@ namespace Desert::Graphic
                     const std::array<float, 2> switchSizes{ Geometry::kLOD0ScreenSize, section.ImpostorScreenSize };
                     const uint32_t             side  = section.ImpostorCard ? 1u : 0u;
                     bool                       drawn = !section.ImpostorCard;
-                    if ( impostorView.has_value() )
+                    if ( impostorLod )
                     {
-                        Geometry::LODView at = *impostorView;
-                        at.Temporal          = m_Systems.Mesh->GetViewTemporalLOD();
                         const Geometry::LODMask mask = Geometry::SelectDitheredLODFromBounds(
-                             section.Transform, section.ImpostorBounds, at, switchSizes, -1, 0 );
+                             section.Transform, section.ImpostorBounds, *lodView, switchSizes, -1, 0 );
                         drawn = mask.Levels[0] == side || mask.Levels[1] == side;
                         if ( mask.IsDithered() )
                             held.Pending = true;
@@ -5201,9 +5217,11 @@ namespace Desert::Graphic
                                        tile.OriginZ + ( static_cast<float>( tile.FirstSampleZ ) +
                                                         0.5f * static_cast<float>( tile.QuadsPerTile ) ) *
                                                            tile.SpacingCm };
-            const float     pixels = TextureStreamingDemand::ScreenPixels(
-                 center, side * 0.70710678f, { camera->GetPosition(), camera->GetProjectionMatrix() },
-                 GetViewExtent().Height );
+            const float     pixels = TextureStreamingDemand::BiasedPixels(
+                 TextureStreamingDemand::ScreenPixels(
+                      center, side * 0.70710678f, { camera->GetPosition(), camera->GetProjectionMatrix() },
+                      GetViewExtent().Height ),
+                 TextureMipBiasOf( m_Quality ) );
             for ( const auto& [slot, asset] : overrides->Textures )
                 TextureStreamingDemand::Get().NoteAsset( Common::AssetHandle( asset ), pixels );
         }

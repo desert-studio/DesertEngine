@@ -590,7 +590,7 @@ namespace Common::Scalability
         // (that is ViewDistanceLODDistanceScalePercent). Read by SceneRenderer::BeginScene ->
         // MeshRenderer::SetDrawDistanceScale (Geometry::LODView::DrawDistance). 25..1000; 100 = as authored.
         ViewDistanceDrawDistanceScalePercent,
-        // The landscape grid's allowed screen error, percent of kLandscapeGridErrorPixels. Read by
+        // The landscape grid's allowed screen error, percent of one pixel. Read by
         // SceneRenderer::BeginScene -> TerrainRenderer::SetGridErrorPixels. 25..800; 100 = as authored.
         ViewDistanceLandscapeGridErrorPercent,
         // The share of a foliage type's instances drawn, percent, for types with FoliageType::EnableDensityScaling

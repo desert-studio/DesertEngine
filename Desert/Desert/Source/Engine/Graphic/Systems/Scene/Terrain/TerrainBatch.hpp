@@ -276,7 +276,7 @@ namespace Desert::Graphic::System
         float MaxY = 0.0f;
         // The grid's height error per section and LOD (cm; LandscapeSectionGridErrors, recomputed by
         // LandscapeECSSystem when the heights change): the main camera's section LOD is the coarsest whose error
-        // projects under kLandscapeGridErrorPixels (TerrainRenderer CameraSectionLods). All zero = flat.
+        // projects under the view's error limit (TerrainRenderer CameraSectionLods). All zero = flat.
         LandscapeSectionErrorArray GridError{};
         // World::Landscape::LandscapeNeighbourMask of the neighbours whose ring row the heightmap carries.
         uint32_t NeighbourMask = 0u;
@@ -443,10 +443,6 @@ namespace Desert::Graphic::System
     using LandscapeSectionLodArray = std::array<float, kLandscapeMaxSections * kLandscapeMaxSections>;
     static_assert( kLandscapeGridErrorSections == kLandscapeMaxSections * kLandscapeMaxSections,
                    "LandscapeSectionErrorArray holds a row per section" );
-
-    // The grid's screen error the main camera's section LOD keeps (pixels; UE Nanite's 1 px target, Lindstrom's
-    // screen-space error): a section's grid is the coarsest whose largest height error projects under it.
-    inline constexpr float kLandscapeGridErrorPixels = 1.0f;
 
     // THE GRID'S HEIGHT ERROR of a tile (LandscapeTileDraw::GridError): @p heightCm(x, z) is the world height of
     // tile-local sample (x, z), x, z in [0, quadsPerTile]. For each section and grid LOD L (stride 2^L in tile

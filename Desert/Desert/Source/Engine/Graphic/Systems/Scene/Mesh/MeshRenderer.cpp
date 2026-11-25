@@ -563,6 +563,24 @@ namespace Desert::Graphic::System
         m_LODDistanceScale = scale;
     }
 
+    void MeshRenderer::SetDrawDistanceScale( const float scale )
+    {
+        if ( scale == m_DrawDistanceScale )
+            return;
+        LOG_INFO( "[Mesh] DrawDistanceScale {} (was {}): authored draw and cull distances x {}", scale,
+                  m_DrawDistanceScale, scale );
+        m_DrawDistanceScale = scale;
+    }
+
+    Geometry::LODView MeshRenderer::MainLODView( const Core::Camera& camera ) const
+    {
+        return { .Origin        = camera.GetPosition(),
+                 .Projection    = camera.GetProjectionMatrix(),
+                 .Temporal      = m_ViewTemporalLOD,
+                 .DistanceScale = m_LODDistanceScale,
+                 .DrawDistance  = m_DrawDistanceScale };
+    }
+
     uint32_t MeshRenderer::ComputeLOD( const glm::mat4& transform, const Mesh* mesh, int forcedLOD,
                                        int lodBias ) const
     {
@@ -576,10 +594,7 @@ namespace Desert::Graphic::System
 
         // The policy itself lives in Geometry::SelectLOD so the editor can report the SAME level it
         // draws with (Details "Mesh" section); this only resolves the renderer's camera + LOD toggle.
-        return Geometry::SelectLOD( transform, mesh->GetSubmeshes(),
-                                    Geometry::LODView{ .Origin        = camera->GetPosition(),
-                                                       .Projection    = camera->GetProjectionMatrix(),
-                                                       .DistanceScale = m_LODDistanceScale },
+        return Geometry::SelectLOD( transform, mesh->GetSubmeshes(), MainLODView( *camera ),
                                     mesh->GetLODScreenSizes(), forcedLOD, lodBias );
     }
 
@@ -597,10 +612,7 @@ namespace Desert::Graphic::System
         const auto* camera = m_SceneRenderer->GetMainCamera();
         if ( !camera )
             return levels;
-        const Geometry::LODView view{ .Origin        = camera->GetPosition(),
-                                      .Projection    = camera->GetProjectionMatrix(),
-                                      .Temporal      = m_ViewTemporalLOD,
-                                      .DistanceScale = m_LODDistanceScale };
+        const Geometry::LODView view = MainLODView( *camera );
         levels = Geometry::SelectDitheredLODFromBounds( transform, Geometry::LocalBounds( mesh->GetSubmeshes() ),
                                                         view, mesh->GetLODScreenSizes(), forcedLOD, lodBias );
         const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
@@ -2730,9 +2742,7 @@ namespace Desert::Graphic::System
         if ( camera != nullptr )
         {
             frustum.emplace( camera->GetProjectionMatrix(), camera->GetViewMatrix() );
-            lodView.emplace( Geometry::LODView{ .Origin        = camera->GetPosition(),
-                                                .Projection    = camera->GetProjectionMatrix(),
-                                                .DistanceScale = m_LODDistanceScale } );
+            lodView.emplace( MainLODView( *camera ) );
         }
         // THE FAR CROWD (WP-FAR-12): a record at its lowest level and below the crowd's screen size plays its
         // clip from the baked vertex animation (VertexAnimationCrowd) - its row fetches the baked frame, the skin

@@ -15,6 +15,7 @@
 // THE DECLARATIONS, at the scene-read slots (Core::kLandscapeVirtual*Binding, ShaderGraphBindings.hpp), so any cell -
 // the terrain G-buffer and a mesh that blends into the ground (RVT-MESH-BLEND) - reads the one RVT through one text,
 // bound by name as scene-view inputs (FrameGraphRefs.hpp BindSceneViewInputs, SceneViewInputs::LandscapeVirtualTexture).
+#include <Common/CameraUB.glslh>
 #include <Generated/SceneBindings.glslh>
 layout( std430, binding = kLandscapeVirtualPageTableBinding ) readonly buffer LandscapeVirtualPageTable
 {
@@ -72,7 +73,7 @@ bool LandscapeVirtualAtlasUV( vec2 p0, uint mip, out vec2 uv )
 }
 
 // THE LEVEL a footprint reads (@p dx / @p dy the screen derivatives of the world point's xz, taken by the caller
-// before any discard): the minor axis, at most a quarter of the major (the atlas is sampled bilinearly, so a long
+// before any discard) plus the view's MaterialMipBias, as every material texture: the minor axis, at most a quarter of the major (the atlas is sampled bilinearly, so a long
 // footprint is not left to alias). @p p0 the point in mip0 texels, @p m0 the floor level, @p f the fraction to the
 // next. Marks the floor level's page in the feedback on one pixel of each 4 x 4 block per frame (the header's phase).
 void LandscapeVirtualLevel( vec3 worldPosition, vec2 dx, vec2 dy, out vec2 p0, out uint m0, out float f )
@@ -88,7 +89,8 @@ void LandscapeVirtualLevel( vec3 worldPosition, vec2 dx, vec2 dy, out vec2 p0, o
     const float ly     = length( gy );
     const float major  = max( lx, ly );
     const float minor  = min( lx, ly );
-    const float lod    = clamp( log2( max( max( minor, 0.25 * major ), 1.0e-6 ) ), 0.0, float( mips - 1u ) );
+    const float lod    = clamp( log2( max( max( minor, 0.25 * major ), 1.0e-6 ) ) + cameraUB.MaterialMipBias, 0.0,
+                                float( mips - 1u ) );
     m0                 = uint( floor( lod ) );
     f                  = lod - float( m0 );
 

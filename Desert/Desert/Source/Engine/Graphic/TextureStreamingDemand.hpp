@@ -45,6 +45,10 @@ namespace Desert::Graphic
         /// @p viewHeight pixels tall. The distance is to the sphere's SURFACE: a camera inside it asks for all.
         [[nodiscard]] static float ScreenPixels( const glm::vec3& center, float radius,
                                                  const Geometry::LODView& view, uint32_t viewHeight );
+        /// What a draw of @p screenPixels asks for when its textures are sampled @p mipBias mips coarser (the
+        /// quality's Textures.MipBias, which ViewFrame::MaterialMipBias samples at): pixels x 2^-bias, so the
+        /// pool holds the mips the samplers read and no finer ones.
+        [[nodiscard]] static float BiasedPixels( float screenPixels, float mipBias );
         /// A draw's world bounding sphere (the LOD rule's: box centre, half-diagonal x largest scale) of
         /// @p local through @p transform.
         [[nodiscard]] static std::pair<glm::vec3, float> WorldSphere( const Common::Math::AABB& local,
@@ -85,8 +89,9 @@ namespace Desert::Graphic
         /// empty list withdraws them.
         void SetWarmups( const void* owner, const void* world, std::vector<std::shared_ptr<WarmupAsk>> asks );
         /// One view of world @p world (the renderer, per view): measures every standing ask about that world and
-        /// notes its textures. A view of another world (an asset preview, a second scene) measures none of them.
-        void NoteWarmups( const void* world, const Geometry::LODView& view, uint32_t viewHeight );
+        /// notes its textures, @p mipBias mips coarser (BiasedPixels). A view of another world (an asset preview, a second scene) measures none of them.
+        void NoteWarmups( const void* world, const Geometry::LODView& view, uint32_t viewHeight,
+                          float mipBias );
 
         /// The frame's demand per texture asset (largest screen size in pixels): every thread's notes merged
         /// once. The map is this object's own and reused; it holds until the next TakeFrame. One taker (the

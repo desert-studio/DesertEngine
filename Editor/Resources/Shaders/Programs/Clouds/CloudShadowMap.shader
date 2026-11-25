@@ -24,8 +24,8 @@ Shader "CloudShadowMap"
         // WHAT IT SAMPLES, AND WHAT THAT COSTS. The same field the view march samples, through the same
         // three resources bound at the same three slots: the parameter block, the noise volume and the
         // vertical profile table. `resolution` squared rays, each of `CloudShadowSampleCount` samples,
-        // every frame — which is why the resolution is the quality tier's lever on this pass and why the
-        // tier scales the extent with it rather than the resolution alone (Graphic::CloudQualityScale).
+        // every frame — which is why the resolution is the Effects quality's lever on this pass and why the
+        // quality scales the extent with it rather than the resolution alone (Graphic::CloudQualityScale).
         // That is the entire price of this feature and it is stated in Docs/Clouds/CALIBRATION.md beside
         // the measurement.
 
