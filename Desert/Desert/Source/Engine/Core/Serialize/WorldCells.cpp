@@ -1653,6 +1653,11 @@ namespace Desert::Core::WorldCells
 
         AssetClosure                                   Closure;
         std::unordered_map<std::string, std::uint64_t> Hashes; // by registry key
+
+        // The records ParentChainOf last indexed, and their indices by id: one build or check asks over one file.
+        const Assets::EntityData*                      IndexedData = nullptr;
+        std::size_t                                    IndexedSize = 0;
+        std::unordered_map<std::uint64_t, std::size_t> ById;
     };
 
     HLODAssetHasher::HLODAssetHasher( std::span<const Common::Utils::AssetRegistry> registries )
@@ -1662,12 +1667,11 @@ namespace Desert::Core::WorldCells
 
     HLODAssetHasher::~HLODAssetHasher() = default;
 
-    std::string HLODAssetHasher::ContentOf( std::span<const Assets::EntityData> records,
-                                            std::span<const std::size_t>        members )
+    std::string HLODAssetHasher::ContentOf( std::span<const Assets::EntityData> sources )
     {
         std::set<std::string> keys;
-        for ( const std::size_t member : members )
-            m_State->Closure.Record( records[member], keys );
+        for ( const Assets::EntityData& source : sources )
+            m_State->Closure.Record( source, keys );
         m_State->Closure.Expand( keys );
         std::string text;
         for ( const std::string& key : keys )
@@ -1680,26 +1684,66 @@ namespace Desert::Core::WorldCells
         return text;
     }
 
+    std::string HLODAssetHasher::ParentChainOf( std::span<const Assets::EntityData> records, std::size_t member )
+    {
+        State& state = *m_State;
+        if ( state.IndexedData != records.data() || state.IndexedSize != records.size() )
+        {
+            state.IndexedData = records.data();
+            state.IndexedSize = records.size();
+            state.ById.clear();
+            for ( std::size_t index = 0; index < records.size(); ++index )
+                if ( records[index].id.has_value() )
+                    state.ById.emplace( static_cast<std::uint64_t>( *records[index].id ), index );
+        }
+        std::string                 text;
+        std::optional<Common::UUID> parent = records[member].parent;
+        // Bounded by the file: a parent cycle (which the loader refuses) cannot hang the hash.
+        for ( std::size_t depth = 0; parent.has_value() && depth < records.size(); ++depth )
+        {
+            const auto at = state.ById.find( static_cast<std::uint64_t>( *parent ) );
+            if ( at == state.ById.end() )
+                break;
+            const Assets::EntityData& ancestor = records[at->second];
+            Assets::EntityData        placed;
+            placed.id          = ancestor.id;
+            placed.Translation = ancestor.Translation;
+            placed.Rotation    = ancestor.Rotation;
+            placed.Scale       = ancestor.Scale;
+            text += "parent ";
+            text += Common::Json::Write( placed );
+            text += '\n';
+            parent = ancestor.parent;
+        }
+        return text;
+    }
+
     std::uint32_t HLODBuildChecksum( std::span<const Assets::EntityData> records,
                                      std::span<const std::size_t>        members,
                                      const WorldPartitionSerialized& partition, HLODAssetHasher& assets )
     {
-        // THE ONE FORM A MEMBER IS HASHED IN (Build HLODs, CookWorld and Play all come here). The record minus
-        // `siblingIndex`: that is the outliner's sort key, not content - the scene saver writes its own sparse
-        // keys while Play's snapshot (SerializeToJson) numbers the same order densely, so hashing it made every
-        // saved HLOD "stale" in Play. Nothing an HLOD is built from reads it.
-        std::string text;
+        // THE ONE FORM A MEMBER IS HASHED IN (Build HLODs, CookWorld and Play all come here; WP-HLOD-HASH): only
+        // what the HLOD is built from (Rules::HLODSourceOf - its HLOD source blocks, id, parent and transform) and
+        // its ancestors' transforms (they place it). A member the HLOD takes nothing from - a pawn, a trigger, a
+        // player start, an invisible mesh - adds nothing, so a gameplay field (CharacterController.MaxStepHeight),
+        // an outliner sort key (`siblingIndex`) or a script never makes an HLOD stale; nothing of it is built.
+        std::string                     text;
+        std::vector<Assets::EntityData> sources;
+        sources.reserve( members.size() );
         for ( const std::size_t member : members )
         {
-            Assets::EntityData canonical = records[member];
-            canonical.siblingIndex.reset();
-            // ...and with every object's keys in one order: the saved file keeps the order it was written in
-            // (StaticMesh before RuntimeGrid, MaterialSlots before MeshHandle) while Play's snapshot writes the
-            // component registry's order, so the same content hashed differently and every Main/Foliage cell
-            // with two components read as stale in Play (WP22-REST: 194 errors right after Build HLODs).
-            canonical.Components = SortedKeys( canonical.Components );
-            text += Common::Json::Write( canonical );
+            std::optional<Assets::EntityData> source = Rules::HLODSourceOf( records[member] );
+            if ( !source.has_value() )
+                continue;
+            // ...with every object's keys in one order: the saved file keeps the order it was written in
+            // (MaterialSlots before MeshHandle) while Play's snapshot writes the component registry's order, so
+            // the same content hashed differently and every cell read as stale in Play (WP22-REST: 194 errors
+            // right after Build HLODs).
+            source->Components = SortedKeys( source->Components );
+            text += Common::Json::Write( *source );
             text += '\n';
+            text += assets.ParentChainOf( records, member );
+            sources.push_back( std::move( *source ) );
         }
         // ...and the partition minus what no HLOD is built from (WP-HLOD-DATA-LAYERS): a data layer's
         // InitiallyLoadedInEditor (what the editor opens loaded), its InitialRuntimeState and the world's
@@ -1723,7 +1767,7 @@ namespace Desert::Core::WorldCells
             runtime.DebugColor = glm::vec3( 0.5f );
         text += Common::Json::Write( built );
         text += '\n';
-        text += assets.ContentOf( records, members );
+        text += assets.ContentOf( sources );
         text += std::format( "builder {}\n", kHLODBuilderVersion );
         return Common::Utils::Crc32c( text.data(), text.size() );
     }

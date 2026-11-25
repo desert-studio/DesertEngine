@@ -514,20 +514,30 @@ namespace Desert::Core::WorldCells
         HLODAssetHasher( const HLODAssetHasher& )            = delete;
         HLODAssetHasher& operator=( const HLODAssetHasher& ) = delete;
 
-        [[nodiscard]] std::string ContentOf( std::span<const Assets::EntityData> records,
-                                             std::span<const std::size_t>        members );
+        // The "<registry key> <content hash>" lines of every asset @p sources name (each a member's HLOD source,
+        // Rules::HLODSourceOf: a member's gameplay assets - a script, a physics material - are not what its HLOD
+        // is built from).
+        [[nodiscard]] std::string ContentOf( std::span<const Assets::EntityData> sources );
+
+        // The ids and transforms of @p member's ancestors in @p records, nearest first, one "parent <record>" line
+        // each: the HLOD places a member by its WORLD matrix, so moving a parent moves what the HLOD holds. An
+        // ancestor @p records does not hold ends the chain, as Detail::ComposeWorld leaves such a root at the
+        // origin.
+        [[nodiscard]] std::string ParentChainOf( std::span<const Assets::EntityData> records, std::size_t member );
 
     private:
         struct State;
         std::unique_ptr<State> m_State;
     };
 
-    // What an HLOD is built from (UE: the HLOD actor's hash - its input actors, the assets they use, its layer's
-    // settings and the builder's base key): the cell's records (Json::Write of each member without its outliner
-    // sort key `siblingIndex`, in member order; the one form Build, Cook and Play hash), the saved content of
-    // every asset they name (@p assets), the world's partition block (grids, HLOD layers, data layers by Name and
-    // Type - not their editor default or runtime state, which change when an HLOD is drawn and not what it holds)
-    // and kHLODBuilderVersion. Crc32c. A mesh or material edited and saved makes the HLODs that use it stale.
+    // What an HLOD is built from (UE: the HLOD actor's hash - UHLODBuilder::ComputeHLODHash of each input actor's
+    // HLOD-relevant components, the assets they use, its layer's settings and the builder's base key): each
+    // member's HLOD source (Rules::HLODSourceOf: its HLOD source blocks, id, parent and transform, with its
+    // ancestors' transforms; a member the HLOD takes nothing from - a pawn, a trigger - adds nothing), in member
+    // order, the one form Build, Cook and Play hash; the saved content of every asset those sources name (@p
+    // assets), the world's partition block (grids, HLOD layers, data layers by Name and Type - not their editor
+    // default or runtime state, which change when an HLOD is drawn and not what it holds) and kHLODBuilderVersion.
+    // Crc32c. A mesh or material edited and saved makes the HLODs that use it stale.
     [[nodiscard]] std::uint32_t HLODBuildChecksum( std::span<const Assets::EntityData> records,
                                                    std::span<const std::size_t>        members,
                                                    const WorldPartitionSerialized&     partition,

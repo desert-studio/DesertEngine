@@ -569,8 +569,9 @@ namespace Desert::Editor
         ::Desert::Core::Rules::HLODBuilderRegistry builders   = ::Desert::Core::HLODBuilders();
         const std::filesystem::path                dir        = WC::BuiltHLODDirectory( m_ScenePath );
         // Each landscape HLOD bound to the material its tile's bake wrote (UE ULandscapeHLODBuilder). The slot
-        // does not enter HLODBuildChecksum (it hashes the member records), so binding changes no staleness. The
-        // mesh is the one Plan built and stored (m_LandscapeShells), built here only for a tile Plan did not see.
+        // does not enter HLODBuildChecksum (it hashes the members' HLOD sources), so binding changes no staleness.
+        // The mesh is the one Plan built and stored (m_LandscapeShells), built here only for a tile Plan did not
+        // see.
         ::Desert::Core::Rules::LandscapeHLODBuilder landscape =
              [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
         {

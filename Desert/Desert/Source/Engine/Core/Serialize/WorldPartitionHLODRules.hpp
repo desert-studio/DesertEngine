@@ -247,6 +247,72 @@ namespace Desert::Core::Rules
         }
     } // namespace Detail
 
+    // WHAT A RECORD GIVES ITS CELL'S HLOD (WP-HLOD-HASH; UE AActor::IsHLODRelevant and
+    // UHLODBuilder::ComputeHLODHash: an actor adds its HLOD-relevant primitive components - their mesh, materials
+    // and transform - and a pawn, a trigger or any other gameplay actor adds nothing). THE COMPONENTS
+    // BuildInstancingHLOD READS, each by what it reads of it: a mesh block's content (StaticMesh,
+    // InstancedStaticMesh), a foliage field's type, a skinned mesh's PRESENCE (it is named a hole, nothing of it
+    // is built) - and every row a module registers for its own builder (HLODBuilderComponents: that builder reads
+    // the whole block). A read added to the gathering adds its row here, or an edit of what it reads never makes
+    // an HLOD stale.
+    enum class HLODSourceRead : std::uint8_t
+    {
+        Block,
+        Presence,
+    };
+
+    struct HLODSourceComponent
+    {
+        std::string_view Component;
+        HLODSourceRead   Read = HLODSourceRead::Block;
+    };
+
+    inline constexpr std::array<HLODSourceComponent, 4> kHLODSourceComponents = { {
+         { kFoliageComponent, HLODSourceRead::Block },
+         { kSkinnedMeshComponent, HLODSourceRead::Presence },
+         { kPrimitiveComponent, HLODSourceRead::Block },
+         { kInstancePointsComponent, HLODSourceRead::Block },
+    } };
+
+    // The part of @p record its cell's HLOD is built from: its id (the HLOD's Sources name it), its parent and
+    // transform (the HLOD places it by its world matrix) and only its HLOD source blocks (kHLODSourceComponents,
+    // HLODBuilderComponents), a presence-only one as an empty object. Nullopt when the HLOD takes nothing from it:
+    // authored invisible (BuildInstancingHLOD skips it) or carrying no source block (a pawn, a trigger, a light, a
+    // player start). An unexpanded prefab instance is returned whole: the gathering refuses it by name, and the
+    // hash loses nothing of it.
+    [[nodiscard]] inline std::optional<Assets::EntityData> HLODSourceOf( const Assets::EntityData& record )
+    {
+        if ( record.PrefabPath.has_value() && !record.PrefabPath->empty() )
+            return record;
+        Common::Json::Issues
+             unread; // a Visibility block that does not read is the gathering's Issue, not the hash's
+        if ( !Detail::AuthoredVisible( record, unread ) )
+            return std::nullopt;
+        Assets::EntityData source;
+        const auto         take = [&]( std::string_view component, HLODSourceRead read )
+        {
+            for ( const auto& [name, payload] : record.Components )
+                if ( name == component )
+                {
+                    source.Components[std::string( component )] =
+                         read == HLODSourceRead::Block ? payload : Common::Json::Value( Common::Json::Object{} );
+                    return;
+                }
+        };
+        for ( const HLODSourceComponent& row : kHLODSourceComponents )
+            take( row.Component, row.Read );
+        for ( const HLODBuilderComponent& row : HLODBuilderComponents() )
+            take( row.Component, HLODSourceRead::Block );
+        if ( source.Components.empty() )
+            return std::nullopt;
+        source.id          = record.id;
+        source.parent      = record.parent;
+        source.Translation = record.Translation;
+        source.Rotation    = record.Rotation;
+        source.Scale       = record.Scale;
+        return source;
+    }
+
     // THE INSTANCING HLOD of the records @p members (one cell's, in ResidencyUnitMembers order). @p world is
     // every record's world matrix (Detail::ComposeWorld over the whole file, indexed like @p records).
     [[nodiscard]] inline InstancingHLOD

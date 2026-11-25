@@ -9,9 +9,9 @@
 // scene in memory - the cook and Play check the HLODs against the same files.
 //
 // INCREMENTAL. Each saved HLOD row carries the checksum of what it was built from (WorldCells::HLODBuildChecksum:
-// the cell's records, the saved content of every mesh, material and texture they name, the HLOD layer settings and
-// the builder version). A build rebuilds only the rows whose checksum changed and keeps every other row and its
-// file, as UE skips an HLOD actor whose hash is unchanged; ForceAll rebuilds every row.
+// the HLOD sources of the cell's records, the saved content of every mesh, material and texture they name, the
+// HLOD layer settings and the builder version). A build rebuilds only the rows whose checksum changed and keeps
+// every other row and its file, as UE skips an HLOD actor whose hash is unchanged; ForceAll rebuilds every row.
 //
 // THREE STAGES, none on the editor's thread for longer than a frame (WP-HLOD-HANG: a 598-cell world held it 6 min
 // in the first phase and 10 min in the last). Plan, on a JobSystem worker: the world is read and the builders run
