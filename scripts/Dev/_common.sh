@@ -4,12 +4,16 @@
 
 DEV_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # The host's configure preset (CMakePresets.json) and its build tree. Ninja Multi-Config: one tree holds Debug, Release
-# and Shipping, each with its own build-<Config>.ninja; the dev scripts build and run Debug.
+# and Shipping, each with its own build-<Config>.ninja; the dev scripts build and run DEV_CONFIG, the host's row of
+# scripts/Dev/dev_config.txt (play_scenario.py reads the same row). A host without a row is an error, not a default.
 case "$(uname -s)" in
-    Darwin) DEV_PRESET="macos-clang-ninja" ;;
-    *)      DEV_PRESET="windows-msvc-ninja" ;;
+    Darwin) DEV_PRESET="macos-clang-ninja"; DEV_HOST=Darwin ;;
+    *)      DEV_PRESET="windows-msvc-ninja"; DEV_HOST=Windows ;;
 esac
 DEV_BUILD="$DEV_ROOT/build/cmake/$DEV_PRESET"
+DEV_CONFIG="$(awk -v host="$DEV_HOST" '$1 == host { print $2 }' "$DEV_ROOT/scripts/Dev/dev_config.txt" 2>/dev/null)"
+[ -n "$DEV_CONFIG" ] || { echo "_common.sh: scripts/Dev/dev_config.txt has no row for $DEV_HOST" >&2; return 1 2>/dev/null || exit 1; }
+DEV_BIN="$DEV_ROOT/build/Bin/$DEV_CONFIG"
 
 # dev_logdir <name> — creates and prints build/DevLogs/<name>-<timestamp>
 dev_logdir() {
@@ -51,9 +55,9 @@ dev_configure() {
         { echo "cmake --preset $DEV_PRESET FAILED; log $logdir/configure.log"; tail -3 "$logdir/configure.log"; return 1; }
 }
 
-# dev_has_target <name> — the Debug build defines that target (a runner, a tool, Editor).
+# dev_has_target <name> — the DEV_CONFIG build defines that target (a runner, a tool, Editor).
 dev_has_target() {
-    grep -q "^build $1: phony" "$DEV_BUILD/build-Debug.ninja" 2>/dev/null
+    grep -q "^build $1: phony" "$DEV_BUILD/build-$DEV_CONFIG.ninja" 2>/dev/null
 }
 
 # dev_up_to_date <name> — Ninja, asked in dry run, has nothing left to do for the target: it is newer than every object,
@@ -63,12 +67,12 @@ dev_up_to_date() {
     # the CMake re-run behind it after every build ("[0/2] Re-checking globbed directories...", "[1/2] Re-running
     # CMake..."). Any OTHER step is real work left for the target.
     local out
-    out=$(ninja -C "$DEV_BUILD" -f build-Debug.ninja -n "$1" 2>/dev/null) || return 1
+    out=$(ninja -C "$DEV_BUILD" -f "build-$DEV_CONFIG.ninja" -n "$1" 2>/dev/null) || return 1
     grep -q '^ninja: no work to do' <<<"$out" && return 0
     ! grep -E '^\[[0-9]+/[0-9]+\] ' <<<"$out" | grep -vqE '\] (Re-checking globbed directories|Re-running CMake)\.\.\.$'
 }
 
-# dev_build <log> <target...> — build the Debug targets (and what they link) with the compiler cache, after any other
+# dev_build <log> <target...> — build the DEV_CONFIG targets (and what they link) with the compiler cache, after any other
 # build on this machine finished: two parallel builds share the CPU and both slow down by more than they gain.
 dev_build() {
     local log="$1"; shift
@@ -78,5 +82,5 @@ dev_build() {
         while pgrep -x ninja >/dev/null; do sleep 10; done
     fi
     # The compile cache's settings (base_dir, PCH digests) are the build's own: scripts/Dev/ccache_launcher.sh.
-    cmake --build "$DEV_BUILD" --config Debug -j "${DEV_JOBS:-4}" "${args[@]}" >>"$log" 2>&1
+    cmake --build "$DEV_BUILD" --config "$DEV_CONFIG" -j "${DEV_JOBS:-4}" "${args[@]}" >>"$log" 2>&1
 }

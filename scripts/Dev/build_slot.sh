@@ -115,7 +115,7 @@ list() {
     for s in $(slots); do
         h=$(cat "$(lockfile "$s")" 2>/dev/null || echo free)
         printf '%s  %-40s  %s %s  Editor:%s\n' "${s##*/}" "$h" "$(git -C "$s" rev-parse --short HEAD)" \
-            "$(git -C "$s" branch --show-current)" "$(stat -f %Sm -t '%m-%d %H:%M' "$s/build/Bin/Debug/Editor" 2>/dev/null || echo none)"
+            "$(git -C "$s" branch --show-current)" "$(stat -f %Sm -t '%m-%d %H:%M' "$s/build/Bin/$(source "$s/scripts/Dev/_common.sh" && echo "$DEV_CONFIG")/Editor" 2>/dev/null || echo none)"
     done
 }
 

@@ -85,9 +85,9 @@ namespace Desert::Core
 
     /**
      * The same key for an EXPLICIT debug-info profile — what the game packager asks with, because it
-     * cooks for the runtime the player will launch, not for the editor doing the cooking: a Debug
-     * editor packaging a Release runtime must produce Release keys or the shipped cache is dead on
-     * arrival.
+     * cooks for the runtime the player will launch, not for the editor doing the cooking: an editor
+     * packaging a Shipping runtime must produce Shipping keys (no debug info) or the shipped cache is
+     * dead on arrival. Debug and Release share one profile (SpirvDebugInfoThisBuild).
      */
     uint64_t ComputeShaderCacheKeyForProfile( Formats::ShaderStage stage, const std::string& source,
                                               const std::filesystem::path& requestingFile, bool spirvDebugInfo,
@@ -108,7 +108,7 @@ namespace Desert::Core
     bool SpirvDebugInfoThisBuild();
 
     /**
-     * The policy of the build a configuration NAME ("Debug" / "Release") produces. The packager maps
+     * The policy of the build a configuration NAME ("Debug" / "Release" / "Shipping") produces. The packager maps
      * its target-config choice through this so the cook and the shipped runtime cannot disagree; it
      * must therefore mirror the #ifdef the engine compiles under, and a test pins the two together.
      */

@@ -1,6 +1,8 @@
 #include "ShaderCacheKey.hpp"
 
 #include <Common/Core/Constants.hpp>
+#include <Common/Core/DevInstruments.hpp>
+#include <Common/Core/DeveloperOnlyShaders.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
@@ -256,7 +258,14 @@ namespace Desert::Core
         // The one home of the policy. ShaderCompiler generates debug info exactly when this is true,
         // and the key fingerprints it below — if the two ever came from different places they could
         // disagree, and a same-key artifact would be served across configs with different binaries.
-#ifdef DESERT_CONFIG_DEBUG
+        //
+        // The boundary is the DEVELOPER one, not Debug vs Release (FPS-MAC-2): as UE compiles the same
+        // shaders for Debug and Development (FShaderPipelineCache is one cache for both; only Shipping
+        // strips symbols), every developer configuration shares one SPIR-V profile, so a Release editor
+        // hits the shader map, the SPIR-V cache and the driver's pipeline cache a Debug editor warmed —
+        // and vice versa. Keyed per optimisation level instead, the Mac Release editor re-made every
+        // SPIR-V module, missed MoltenVK's pipeline cache and recompiled all of Metal on the main thread.
+#if DESERT_DEV_INSTRUMENTS
         return true;
 #else
         return false;
@@ -265,10 +274,10 @@ namespace Desert::Core
 
     bool SpirvDebugInfoForConfigName( std::string_view configName )
     {
-        // Mirrors the #ifdef above: DESERT_CONFIG_DEBUG is defined for the "Debug" build
-        // configuration and nothing else. Tests/Engine/ShaderCacheKey pins this mirror to
-        // SpirvDebugInfoThisBuild() in both configs.
-        return configName == "Debug";
+        // Mirrors the #if above through the same configuration -> instruments map the packager uses for
+        // the shader SET (Common::ConfigHasDeveloperInstruments): Debug and Release carry debug info,
+        // Shipping does not. Tests/Engine/ShaderCacheKey pins this mirror to SpirvDebugInfoThisBuild().
+        return Common::ConfigHasDeveloperInstruments( configName );
     }
 
     namespace
