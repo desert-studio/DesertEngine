@@ -76,6 +76,19 @@ namespace Desert::ECS
                            "cross-fades to the other phase. Shorter stretches less, longer pulses less." ) )
         float RiverFlowPeriod = 1.0f;
 
+        // The effects at the foot of each of the river's falls, played by the code as transient entities
+        // (Water/WaterFallEffects): as wide as the fall (User.Extent), as dense as the water lands
+        // fast. Empty = none.
+        PROPERTY( DisplayName( "Fall Foam" ), Category( "River" ), Asset<VFXSystemAsset>,
+                  EditCondition( "Type == River" ), Tooltip( "The .dfx on the water where a fall lands" ) )
+        Assets::AssetHandle FallFoam;
+        PROPERTY( DisplayName( "Fall Spray" ), Category( "River" ), Asset<VFXSystemAsset>,
+                  EditCondition( "Type == River" ), Tooltip( "The .dfx of the drops a fall throws up" ) )
+        Assets::AssetHandle FallSpray;
+        PROPERTY( DisplayName( "Fall Mist" ), Category( "River" ), Asset<VFXSystemAsset>,
+                  EditCondition( "Type == River" ), Tooltip( "The .dfx of the mist off a fall" ) )
+        Assets::AssetHandle FallMist;
+
         // WATER-BUOYANCY: the fluid this body is, read by every BuoyancyComponent's pontoons in it (the one
         // source of the water's density - a body floats by the water it is in, not by a value of its own).
         PROPERTY( DisplayName( "Density" ), Category( "Fluid" ), Range( 1.0f, 20000.0f ), Units( "kg/m3" ),
