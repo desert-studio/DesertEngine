@@ -1,0 +1,12 @@
+{
+    "Header": {
+        "Kind": "InputAction",
+        "Guid": "0767e29e2f0947708b393a2ce6745026",
+        "Versions": {
+            "INAC": 1
+        },
+        "Dependencies": []
+    },
+    "ValueType": "Bool",
+    "ConsumeInput": true
+}

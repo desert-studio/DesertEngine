@@ -20,6 +20,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <algorithm>
 #include <format>
 #include <memory>
 
@@ -29,7 +30,7 @@ namespace Desert::Gameplay
     {
     public:
         // The probe capsule in @p world, sized and profiled as the pawn (UE ACharacter's CapsuleComponent, the
-        // "Pawn" profile); refused when the world's register has no such profile.
+        // "Pawn" profile), moved against the world alone; refused when the world's register has no such profile.
         [[nodiscard]] static Common::ResultStr<std::unique_ptr<PhysicsPawnMoveWorld>>
         Create( Physics::PhysicsWorld& world, const PawnMoveSettings& settings )
         {
@@ -44,25 +45,45 @@ namespace Desert::Gameplay
             auto character  = world.CreateCharacter( desc );
             if ( !character )
                 return Common::MakeError<Result>( std::format( "pawn move world: {}", character.GetError() ) );
-            return Common::MakeSuccess( Result( new PhysicsPawnMoveWorld( world, character.GetValue() ) ) );
+            return Common::MakeSuccess(
+                 Result( new PhysicsPawnMoveWorld( world, character.GetValue(), CapsuleOf( settings, false ),
+                                                   Physics::ECharacterContacts::WorldOnly, true ) ) );
+        }
+        // Standalone Play: the pawn's OWN capsule in the scene's world (UE: the CharacterMovementComponent's
+        // UpdatedComponent), whose shape is @p current now. It moves where it stands, against the world and the
+        // other characters, and is not removed with this view.
+        PhysicsPawnMoveWorld( Physics::PhysicsWorld& world, Physics::CharacterHandle character,
+                              const PawnCapsule& current )
+             : PhysicsPawnMoveWorld( world, character, current, Physics::ECharacterContacts::WithCharacters,
+                                     false )
+        {
         }
         ~PhysicsPawnMoveWorld() override
         {
-            m_World.RemoveCharacter( m_Character );
+            if ( m_Owned )
+                m_World.RemoveCharacter( m_Character );
         }
         PhysicsPawnMoveWorld( const PhysicsPawnMoveWorld& )            = delete;
         PhysicsPawnMoveWorld& operator=( const PhysicsPawnMoveWorld& ) = delete;
 
-        Outcome Move( const PawnMoveState& from, const NetVec3& velocity, const PawnMoveSettings& settings,
-                      float dtSeconds ) override
+        Outcome Move( const PawnMoveState& from, const NetVec3& velocity, const PawnCapsule& capsule,
+                      float gravity, float dtSeconds ) override
         {
-            const float     feetToCenter = settings.CapsuleHalfHeight + settings.CapsuleRadius;
+            // The step's capsule (standing or crouched): the shape changes before the move, the feet stay.
+            if ( ( capsule.Radius != m_Capsule.Radius || capsule.HalfHeight != m_Capsule.HalfHeight ) &&
+                 m_World.SetCharacterCapsule( m_Character, capsule.Radius, capsule.HalfHeight ) )
+                m_Capsule = capsule;
+            const float     feetToCenter = m_Capsule.HalfHeight + m_Capsule.Radius;
             const glm::vec3 start{ from.Position.X, from.Position.Y + feetToCenter, from.Position.Z };
-            m_World.TeleportCharacter( m_Character, start );
-            // World only: the server's collision world holds cells, no pawns - the client's scene pawns (its own
-            // drawn capsule first: it overlaps the probe at every step) would push the prediction off the server.
-            m_World.UpdateCharacter( m_Character, { velocity.X, velocity.Y, velocity.Z }, settings.Gravity,
-                                     dtSeconds, Physics::ECharacterContacts::WorldOnly );
+            if ( m_Owned )
+                m_World.TeleportCharacter( m_Character, start );
+            else
+                m_World.SetCharacterPosition( m_Character, start );
+            // The probe asks the world only: the server's collision world holds cells, no pawns - the client's
+            // scene pawns (its own drawn capsule first: it overlaps the probe at every step) would push the
+            // prediction off the server. A scene's own capsule meets the other characters too.
+            m_World.UpdateCharacter( m_Character, { velocity.X, velocity.Y, velocity.Z }, gravity, dtSeconds,
+                                     m_Contacts );
             const glm::vec3 end = m_World.GetCharacterPosition( m_Character );
             // The velocity after the walls: what the capsule actually travelled (UE: Velocity after the slide
             // is the moved delta over the step).
@@ -74,12 +95,27 @@ namespace Desert::Gameplay
             return outcome;
         }
 
+        // A probe 1 cm smaller (radius and half height) than @p capsule, so the floor it stands on does not count
+        // as an obstacle; a character's own capsule body is never found by the query.
+        bool Fits( const NetVec3& feet, const PawnCapsule& capsule ) const override
+        {
+            constexpr float kInset = 1.0f;
+            const glm::vec3 center{ feet.X, feet.Y + capsule.HalfHeight + capsule.Radius, feet.Z };
+            return !m_World.OverlapsCapsule( center, std::max( capsule.Radius - kInset, 1.0f ),
+                                             std::max( capsule.HalfHeight - kInset, 0.01f ) );
+        }
+
     private:
-        PhysicsPawnMoveWorld( Physics::PhysicsWorld& world, Physics::CharacterHandle character )
-             : m_World( world ), m_Character( character )
+        PhysicsPawnMoveWorld( Physics::PhysicsWorld& world, Physics::CharacterHandle character,
+                              const PawnCapsule& capsule, Physics::ECharacterContacts contacts, bool owned )
+             : m_World( world ), m_Character( character ), m_Capsule( capsule ), m_Contacts( contacts ),
+               m_Owned( owned )
         {
         }
-        Physics::PhysicsWorld&   m_World;
-        Physics::CharacterHandle m_Character;
+        Physics::PhysicsWorld&      m_World;
+        Physics::CharacterHandle    m_Character;
+        PawnCapsule                 m_Capsule;
+        Physics::ECharacterContacts m_Contacts;
+        bool                        m_Owned;
     };
 } // namespace Desert::Gameplay

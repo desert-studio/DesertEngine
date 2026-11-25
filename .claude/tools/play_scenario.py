@@ -101,6 +101,13 @@ def main():
     bindir = os.path.join(tree, "build", "Bin", dev_config(tree))
     editor, ctl = os.path.join(bindir, "Editor" + exe), os.path.join(bindir, "DesertCtl" + exe)
     lines = open(scn, encoding="utf-8").read().splitlines()
+    # NET-SCENARIO-PLAY (11-25): a scenario with role lines (server / editor client / bot) is a network run, UE
+    # Gauntlet's shape - played by the tree's own controller, same output (<scratch>/<CODE>/frames/scn-latest).
+    if any(l.strip().partition(" ")[0].lower() in ("роль", "role") for l in lines):
+        net = os.path.join(tree, "scripts", "Dev", "net_scenario.py")
+        if not os.path.isfile(net):
+            sys.exit(f"SCENARIO {code}: role lines need {net} - the tree predates NET-SCENARIO-PLAY")
+        sys.exit(subprocess.call([sys.executable, net, tree, scn]))
     named = project_line(tree, lines)
     proj, launch = named if named else (os.path.join(tree, "Projects", "Desert", "Desert.deproj"), [])
     for need in (scn, editor, ctl, proj):

@@ -13,6 +13,7 @@ LOG="$(dev_logdir compile_check)"
 start=$(date +%s)
 dev_configure "$LOG" "" || exit 1
 while pgrep -x ninja >/dev/null; do sleep 5; done
+dev_drop_foreign_pch
 cd "$DEV_BUILD" || exit 1
 
 ninja -f "build-$DEV_CONFIG.ninja" -t inputs "${TARGETS[@]}" 2>"$LOG/inputs.err" | grep -E '\.(o|obj)$' > "$LOG/objects.txt"

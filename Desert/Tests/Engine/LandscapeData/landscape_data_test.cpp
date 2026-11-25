@@ -20,7 +20,7 @@
 //      way a blob can be wrong is refused with the number that was wrong — including a dimension swap
 //      that keeps every length consistent, which only the header-covering checksum can see.
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 
 #include <Common/Utilities/Crc32c.hpp>
 

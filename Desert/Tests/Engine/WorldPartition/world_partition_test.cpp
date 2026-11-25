@@ -1469,7 +1469,7 @@ TEST( WorldPartitionLandscape, EveryTileIsItsOwnCompositeAtLevelZeroInItsOwnCell
     const auto               records = TwoByTwoLandscape();
     const WorldPartitionPlan plan    = PlanWorldPartition( records, Cells( kTileCm ) );
 
-    EXPECT_TRUE( plan.UnplacedLandscapeTiles.empty() );
+    EXPECT_TRUE( plan.UnplacedFramedRecords.empty() );
     ASSERT_EQ( plan.Composites.size(), 5u ) << "the root and four tiles, none joined to another";
     for ( std::size_t record = 0; record < records.size(); ++record )
         EXPECT_EQ( HeldBy( plan, record ).Members.size(), 1u ) << records[record].Tag.value_or( "" );
@@ -1554,7 +1554,7 @@ TEST( WorldPartitionLandscape, TilesArePlacedByTheirRootsWorldFrame )
     records.push_back( LandscapeTileRecord( 9002, 0, -1 ) ); // [-6300, 0] x [-6300, 0]
 
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( kTileCm ) );
-    EXPECT_TRUE( plan.UnplacedLandscapeTiles.empty() );
+    EXPECT_TRUE( plan.UnplacedFramedRecords.empty() );
     EXPECT_EQ( HeldBy( plan, 2 ).Level, 0 );
     EXPECT_EQ( HeldBy( plan, 2 ).Cell.X, -2 );
     EXPECT_EQ( HeldBy( plan, 2 ).Cell.Z, 0 );
@@ -1573,9 +1573,9 @@ TEST( WorldPartitionLandscape, ATileWithoutAPlaceableRootIsListedAndHasNoFootpri
     records.push_back( LandscapeTileRecord( 9002, 1, 0, 123456789 ) ); // root not in this file
 
     const WorldPartitionPlan plan = PlanWorldPartition( records, Cells( kTileCm ) );
-    ASSERT_EQ( plan.UnplacedLandscapeTiles.size(), 2u );
-    EXPECT_EQ( plan.UnplacedLandscapeTiles[0], 1u );
-    EXPECT_EQ( plan.UnplacedLandscapeTiles[1], 2u );
+    ASSERT_EQ( plan.UnplacedFramedRecords.size(), 2u );
+    EXPECT_EQ( plan.UnplacedFramedRecords[0], 1u );
+    EXPECT_EQ( plan.UnplacedFramedRecords[1], 2u );
     EXPECT_FALSE( HeldBy( plan, 1 ).Footprint.has_value() );
     EXPECT_FALSE( HeldBy( plan, 2 ).Footprint.has_value() );
 }
@@ -1950,7 +1950,7 @@ TEST( WorldPartitionReferences, EveryCorpusPointLiesInsideTheSquareOfItsComposit
 
 // A WRONG TYPE IS NEVER SILENT. A tile whose TileX is a string is read as the loader reads it — the default
 // coordinate is kept, so the tile is placed — and the planner names the value by its full path. Before the
-// facade it was silently dropped into UnplacedLandscapeTiles with nothing to say why.
+// facade it was silently dropped into UnplacedFramedRecords with nothing to say why.
 TEST( WorldPartitionLandscape, ATileCoordinateOfTheWrongTypeIsAnIssueAndKeepsItsDefault )
 {
     std::vector<EntityData> records;
@@ -1963,7 +1963,7 @@ TEST( WorldPartitionLandscape, ATileCoordinateOfTheWrongTypeIsAnIssueAndKeepsIts
     ASSERT_EQ( plan.Issues.size(), 1u );
     EXPECT_EQ( plan.Issues[0].Path, "Entities[id=2].LandscapeTile.TileX" );
     EXPECT_EQ( plan.Issues[0].Expected.rfind( "integer", 0 ), 0u ) << plan.Issues[0].Expected;
-    EXPECT_TRUE( plan.UnplacedLandscapeTiles.empty() );
+    EXPECT_TRUE( plan.UnplacedFramedRecords.empty() );
 }
 
 // ── PREFAB INSTANCES: PLACED BY THE TRANSFORM THEIR RECORD STATES (scene v37, PFX1) ─────────────────

@@ -98,7 +98,7 @@ namespace Desert::Net
                 F32( m.State.Velocity.Y );
                 F32( m.State.Velocity.Z );
                 F32( m.State.Yaw );
-                U8( m.State.Grounded ? 1 : 0 );
+                U8( MoveFlagsOf( m.State ) );
                 U8( m.Buffered );
             }
             void Value( const ReplicatedValue& value )
@@ -193,7 +193,7 @@ namespace Desert::Net
                         F32( m.State.Position.Z ) && F32( m.State.Velocity.X ) && F32( m.State.Velocity.Y ) &&
                         F32( m.State.Velocity.Z ) && F32( m.State.Yaw ) && U8( grounded ) && U8( m.Buffered ) ) )
                     return false;
-                m.State.Grounded = grounded != 0;
+                SetMoveFlags( m.State, grounded );
                 return true;
             }
             bool Value( ReplicatedValue& value )
@@ -340,7 +340,7 @@ namespace Desert::Net
             w.F32( move.Velocity.Y );
             w.F32( move.Velocity.Z );
             w.F32( move.Yaw );
-            w.U8( move.Grounded ? 1 : 0 );
+            w.U8( MoveFlagsOf( move ) );
         }
 
         bool ReadMoveState( Reader& r, PawnMoveState& move )
@@ -350,7 +350,7 @@ namespace Desert::Net
                     r.F32( move.Velocity.X ) && r.F32( move.Velocity.Y ) && r.F32( move.Velocity.Z ) &&
                     r.F32( move.Yaw ) && r.U8( grounded ) ) )
                 return false;
-            move.Grounded = grounded != 0;
+            SetMoveFlags( move, grounded );
             return true;
         }
 

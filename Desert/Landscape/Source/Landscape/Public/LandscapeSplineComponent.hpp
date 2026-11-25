@@ -20,7 +20,7 @@
 
 #include <CoreReflection/ReflectionMacros.hpp>
 
-#include <Engine/World/Landscape/LandscapeSplines.hpp>
+#include <LandscapeCore/Public/LandscapeSplines.hpp>
 
 namespace Desert::ECS
 {

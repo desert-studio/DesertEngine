@@ -1,7 +1,7 @@
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 
 #include <cmath>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 
 namespace Desert::World::Landscape
 {

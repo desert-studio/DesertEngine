@@ -3,10 +3,10 @@
 // base layer alone reproduces the tile byte for byte, an additive layer moves only where it holds a delta,
 // alpha scales it, an invisible layer does nothing, the stack's order decides the paint but not the height sum,
 // and a merge over a rectangle writes nothing outside it.
-#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
+#include <LandscapeCore/Public/LandscapeEditLayers.hpp>
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/World/Landscape/LandscapePaint.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
+#include <Landscape/Public/LandscapePaint.hpp>
 
 #include <Common/Utilities/Crc32c.hpp>
 

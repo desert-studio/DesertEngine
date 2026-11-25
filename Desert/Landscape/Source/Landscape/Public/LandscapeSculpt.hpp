@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include <Engine/World/Landscape/LandscapeBrush.hpp>
-#include <Engine/World/Landscape/LandscapeEditCache.hpp>
+#include <Landscape/Public/LandscapeBrush.hpp>
+#include <Landscape/Public/LandscapeEditCache.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

@@ -2,7 +2,7 @@
 
 #include <Landscape/Public/LandscapeLayerInfo.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 
 #include <Engine/ECS/System/System.hpp>
 

@@ -8,9 +8,9 @@
 // edit layers, no foliage, undo is not this task); a region with no tile behind it is REFUSED, where UE caches
 // zeros for it.
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeEditLayers.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

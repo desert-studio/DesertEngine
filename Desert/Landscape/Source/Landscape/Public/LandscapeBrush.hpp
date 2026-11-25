@@ -6,8 +6,8 @@
 // centimetre positions instead of reading UISettings and ULandscapeInfo; the per-tile view is added because
 // our tiles are separate blobs where UE addresses one landscape-wide vertex grid.
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

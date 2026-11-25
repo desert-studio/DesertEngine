@@ -28,6 +28,7 @@
 #include <Engine/Gameplay/PawnPrefabMovement.hpp>
 #include <Engine/Gameplay/PhysicsPawnMoveWorld.hpp>
 #include <Engine/Gameplay/ScriptedPawnInput.hpp>
+#include <Engine/Input/LocalPawnInput.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Net/ReplicationClient.hpp>
 
@@ -124,8 +125,9 @@ namespace Desert::Core
 
     struct ClientNetDriver::Prediction
     {
-        Net::MovePredictor     Predictor;
-        Gameplay::PawnMovement Movement; // the pawn prefab's settings and declared actions, as the server reads them
+        Net::MovePredictor Predictor;
+        Gameplay::PawnMovement
+             Movement; // the pawn prefab's settings and declared actions, as the server reads them
         // The scene's physics world the own pawn is predicted in: the same cells' colliders the server moves it
         // through (PhysicsPawnMoveWorld), and the game's mover over it - the step the server runs. Made with the
         // first prediction, dropped with the world it lives in.
@@ -160,8 +162,8 @@ namespace Desert::Core
                 }
                 m_Prediction->World   = made.ExtractValue();
                 m_Prediction->WorldOf = physics;
-                m_Prediction->Mover =
-                     std::make_unique<Gameplay::CharacterPawnMover>( m_Prediction->Movement, *m_Prediction->World );
+                m_Prediction->Mover   = std::make_unique<Gameplay::CharacterPawnMover>( m_Prediction->Movement,
+                                                                                        *m_Prediction->World );
             }
         }
         return m_Prediction->Mover.get();
@@ -203,8 +205,8 @@ namespace Desert::Core
         if ( !driver->m_Client->Connect( options.Address, error ) )
             return Common::MakeFormattedError<Result>( "connect {}: {}", options.Address, error );
         if ( options.WalkCm > 0.0f )
-            driver->m_Script = std::make_unique<Gameplay::ScriptedPawnInput>( Gameplay::ScriptedWalk{ options.WalkCm, options.WalkDir, options.WalkSprint,
-                                                              options.WalkJumpEverySeconds } );
+            driver->m_Script = std::make_unique<Gameplay::ScriptedPawnInput>( Gameplay::ScriptedWalk{
+                 options.WalkCm, options.WalkDir, options.WalkSprint, options.WalkJumpEverySeconds } );
         LOG_INFO( "[Net] Play as client: connecting to {} (cooked world hash {:016x})", options.Address,
                   CookHashOf( bytes ) );
         return Common::MakeSuccess( std::move( driver ) );
@@ -245,8 +247,8 @@ namespace Desert::Core
             // UE: the own pawn's CharacterMovement is the DefaultPawnClass's - the prefab the server named, read
             // as the server reads it (PawnPrefabMovement.hpp), so both sides step the same capsule.
             const std::string key      = Assets::ContentRegistry::KeyForHandle( m_Client->PawnPrefab() );
-            auto              movement = Gameplay::PrefabMovement::ReadPawnPrefabMovement(
-                 Common::AssetHandle::PathForStableKey( key ) );
+            auto              movement =
+                 Gameplay::PrefabMovement::ReadPawnPrefabMovement( Common::AssetHandle::PathForStableKey( key ) );
             if ( movement )
                 m_Prediction->Movement = movement.GetValue();
             else
@@ -787,17 +789,18 @@ namespace Desert::Core
 
     Net::InputStep ClientNetDriver::NextInput( Scene& scene )
     {
-        Net::InputStep             input;
+        Net::InputStep               input;
         const Gameplay::PawnActions& actions = m_Prediction->Movement.Actions;
-        glm::vec3                  move( 0.0f );
+        glm::vec3                    move( 0.0f );
         if ( m_Script )
         {
             // The scripted walk ends on the SERVER's newest position of the own pawn, not the interpolated one.
             std::optional<float> travelled;
             const auto           own = m_Client->Pawns().find( m_Client->OwnPawn() );
             if ( own != m_Client->Pawns().end() && m_OwnFirstServerPosition )
-                travelled = glm::length( ToGlm( own->second.History.Newest().Position ) - *m_OwnFirstServerPosition );
-            const bool                                 walking = m_Script->Walking();
+                travelled =
+                     glm::length( ToGlm( own->second.History.Newest().Position ) - *m_OwnFirstServerPosition );
+            const bool                               walking = m_Script->Walking();
             const Gameplay::ScriptedPawnInput::Frame frame   = m_Script->Next( m_Clock, travelled, actions );
             if ( walking && !m_Script->Walking() )
                 LOG_INFO( "[Net] walked {:.0f} cm (server position): stopping at t={:.1f}s", m_Options.WalkCm,
@@ -816,13 +819,10 @@ namespace Desert::Core
                 glm::vec3       forward, right;
                 NetMoveBasisOfView( scene, forward, right );
                 move = forward * intent.y + right * intent.x;
-                // The script's one-shot jump (self:jump) is this step's declared Jump action; the physics step
-                // that would consume it skips a replicated pawn.
-                if ( cc.JumpRequested )
-                {
-                    input.Actions |= actions.Bit( actions.Jump );
-                    cc.JumpRequested = false;
-                }
+                // The one local input builder standalone Play steps with: every declared action held in the
+                // player's Enhanced Input (IA_Sprint on Left Shift, ...) or pressed by the script (self:jump's
+                // one-shot is consumed here - the physics step skips a replicated pawn), the swim axis.
+                input = Input::LocalPawnInputStep( scene, pawn, cc, actions, move );
             }
         }
         input.Move = { move.x, move.y, move.z };
@@ -899,7 +899,8 @@ namespace Desert::Core
              mispredicted.Velocity.Z, mispredicted.Grounded ? "grounded" : "falling", authority->State.Velocity.X,
              authority->State.Velocity.Y, authority->State.Velocity.Z,
              authority->State.Grounded ? "grounded" : "falling", predictor.LastMispredictedInput().Move.X,
-             predictor.LastMispredictedInput().Move.Z, m_Prediction->Movement.Actions.Describe( predictor.LastMispredictedInput() ) );
+             predictor.LastMispredictedInput().Move.Z,
+             m_Prediction->Movement.Actions.Describe( predictor.LastMispredictedInput() ) );
     }
 
     void ClientNetDriver::Shutdown( Scene& scene )

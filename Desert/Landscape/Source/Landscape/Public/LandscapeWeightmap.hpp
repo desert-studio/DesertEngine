@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Common/Core/Core.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 
 #include <glm/glm.hpp>
 

@@ -17,7 +17,7 @@
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 #include <Landscape/Public/LandscapeWeightmap.hpp>
 #include <Common/Core/Logger.hpp>
 

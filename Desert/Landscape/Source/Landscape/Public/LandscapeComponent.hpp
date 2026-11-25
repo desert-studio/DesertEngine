@@ -21,8 +21,8 @@
 #include <CoreReflection/ReflectionMacros.hpp>
 
 #include <Engine/Assets/Common.hpp>
-#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeEditLayers.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 
 namespace Desert::ECS
 {

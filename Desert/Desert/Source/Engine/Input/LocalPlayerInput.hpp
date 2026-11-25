@@ -97,6 +97,9 @@ namespace Desert::Input
 
         /// The action a script calls @p name (IA_Jump), when a context that maps it was added.
         [[nodiscard]] std::optional<Common::Content::AssetGuid> ActionNamed( const std::string& name ) const;
+        /// Whether the action a script calls @p name is held this frame (UE ETriggerEvent::Triggered: a Bool
+        /// action with no triggers is Triggered every frame its key is down); false for an unmapped name.
+        [[nodiscard]] bool                                      ActionHeld( const std::string& name ) const;
         [[nodiscard]] std::optional<Common::Content::AssetGuid> ContextNamed( const std::string& name ) const;
 
         /// The player rebinds (UE MapPlayerKey): @p key in place of @p defaultKey for @p action in @p context,

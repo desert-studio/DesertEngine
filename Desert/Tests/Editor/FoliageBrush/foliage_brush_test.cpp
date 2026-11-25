@@ -3,7 +3,7 @@
 // stroke record that makes a stroke one undo step.
 
 #include <Editor/Panels/ViewportPanel/Tools/FoliageBrush.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Landscape/Public/LandscapeRaycast.hpp>
 
 #include <gtest/gtest.h>

@@ -9,7 +9,7 @@
 // The pawns move through this world (Gameplay::PhysicsPawnMoveWorld). Bodies leave with their records (Destroy).
 
 #include <Engine/Assets/Prefab/PrefabData.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 
 #include <cstddef>

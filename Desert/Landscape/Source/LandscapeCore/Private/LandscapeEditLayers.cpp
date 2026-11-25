@@ -1,7 +1,6 @@
-#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
+#include <LandscapeCore/Public/LandscapeEditLayers.hpp>
 
-#include <Engine/World/Landscape/LandscapeData.hpp>
-#include <Engine/World/Landscape/LandscapePaint.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 
 #include <algorithm>
 #include <cmath>

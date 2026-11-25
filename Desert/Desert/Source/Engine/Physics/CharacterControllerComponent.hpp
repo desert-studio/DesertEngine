@@ -104,12 +104,17 @@ namespace Desert::ECS
         // THE PAWN'S DECLARED ACTIONS the movement reads, by Enhanced Input action name (UE: the pawn's
         // SetupPlayerInputComponent bindings; Mover 2.0: the game's input struct). In this order they are the
         // pawn's replicated action set (Engine/Gameplay/CharacterMoveStep.hpp PawnActions): a network input step
-        // carries them as bits and the server's step reads them by these names. Empty: the pawn has no such action.
+        // carries them as bits and the server's step reads them by these names. Empty: the pawn has no such
+        // action.
         PROPERTY( DisplayName( "Jump Action" ), Category( "Input" ) )
         std::string JumpAction = "IA_Jump";
 
         PROPERTY( DisplayName( "Sprint Action" ), Category( "Input" ) )
         std::string SprintAction = "IA_Sprint";
+
+        // Held: the capsule crouches (UE bWantsToCrouch); while swimming it is not a crouch.
+        PROPERTY( DisplayName( "Crouch Action" ), Category( "Input" ) )
+        std::string CrouchAction = "IA_Crouch";
 
         // The capsule's profile in Config/CollisionProfiles.json (UE: the capsule's Collision Presets, "Pawn").
         PROPERTY( DisplayName( "Collision Profile" ), Category( "Collision" ) )
@@ -129,15 +134,19 @@ namespace Desert::ECS
         float                    CurrentSpeed     = 0.0f;  // planar |Velocity|, cm/s (drives locomotion)
         bool                     OnGround         = false; // last physics result (self:isOnGround())
         bool                     IsCrouched       = false; // UE bIsCrouched: the capsule IS the crouched one
+        bool JumpHeld = false; // the last step's Jump action (UE bPressedJump): one jump a press
 
-        // INTENT, written by the pawn's script each frame and executed by PhysicsECSSystem (UE: AddMovementInput,
-        // Jump, Crouch / UnCrouch). MoveInput is camera-relative (x = right, y = forward), length clamped to 1.
+        // INTENT, written by the pawn's script each frame (UE: AddMovementInput, Jump, Crouch / UnCrouch) and,
+        // with the possessed pawn's declared actions held in Enhanced Input, made into the step's input
+        // (Input/LocalPawnInput.cpp) that the one movement step runs (Gameplay::StepPawnMove). MoveInput is
+        // camera-relative (x = right, y = forward), length clamped to 1.
         glm::vec2 MoveInput       = { 0.0f, 0.0f };
         bool      JumpRequested   = false; // one-shot, consumed by the next physics step
         bool      CrouchRequested = false; // UE bWantsToCrouch: held; standing up waits for head room
 
-        // Swimming (set by the controller SCRIPT when it detects the body is below the water level): gravity is
-        // replaced by the swim intent (+1 up, -1 down) at Max Swim Speed.
+        // Swimming (set by the controller SCRIPT when it detects the body is below the water level - UE
+        // SetMovementMode(MOVE_Swimming)): gravity is replaced by the swim intent (+1 up, -1 down) at Max Swim
+        // Speed; the intent rides the input step as its swim axis (Gameplay::kSwimVerticalAxis).
         bool  Swimming     = false;
         float SwimVertical = 0.0f;
 

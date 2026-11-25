@@ -42,7 +42,7 @@
 #include <Engine/ECS/VisibilityComponent.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
 #include <Landscape/Public/LandscapeTileComponent.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 

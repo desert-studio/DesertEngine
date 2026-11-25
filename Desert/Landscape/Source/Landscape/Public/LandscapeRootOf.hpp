@@ -4,7 +4,7 @@
 // validates tiles against it, the renderer draws with it, picking and physics place the surface with it;
 // four copies of these five lines would be four chances for the surface to be in four places.
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 #include <Landscape/Public/LandscapeRaycast.hpp>
 
 #include <entt/entt.hpp>

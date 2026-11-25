@@ -72,6 +72,9 @@ Intermediate/
 # Authored content never lives there: the hand-authored skinned probes and clips that used to be
 # re-included here are content and sit under Projects/Desert/Content/Meshes/Skinned/ (AF8b).
 Cooked/
+# A cooked world (WorldCook <scene>.desce) sits beside its scene, where DesertServer and the clients read it
+# (Core::WorldCells::CookedWorldDirectory): derived, recooked by scripts/Dev/net_scenario.py on every run.
+*.dwworld/
 
 # Fetched by scripts/MacOS/Setup.sh (not a submodule)
 ThirdParty/meshoptimizer/

@@ -1,0 +1,33 @@
+# NET-GAMEMODE-LOCAL (pass 2, catalogue N-D): local Play moves the pawn by the same gameplay step as the server and the prediction (Gameplay::StepPawnMove).
+# WP_Protocol names no Default Pawn, so Play spawns the project's Pawn_Player (Character Controller + Enhanced Input IMC_Default + PlayerController.lua).
+# IMC_Default maps LeftShift -> IA_Sprint; the pawn's CharacterController names IA_Sprint as its Sprint Action, so the held key reaches the step as the Sprint bit.
+# editor.log prints "[Gameplay] local pawn (Gameplay::StepPawnMove): speed N cm/s, actions ..." once a second: about 600 walking, about 1000 sprinting, 300 crouched.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Когда run Action "Play"
+Когда advance 1.0
+# [netgm_local_sprint] W for 3 s (walk), then W + LeftShift for 3 s (sprint).
+Когда input keydown - - w
+Когда advance 1.5
+Когда advance 1.5
+Тогда-вид netgm_local_walk the Spring Arm camera behind the capsule on the landscape, the pawn moved forward from the spawn; editor.log reads "local pawn (Gameplay::StepPawnMove): speed 600 cm/s, actions none, grounded"
+Когда input keydown - - leftshift
+Когда advance 1.5
+Когда advance 1.5
+Тогда-вид netgm_local_sprint the capsule is further along than in netgm_local_walk; editor.log reads "speed 1000 cm/s, actions IA_Sprint#1, grounded" after the walk lines
+Когда input keyup - - leftshift
+Когда advance 1.0
+Тогда-вид netgm_local_walk_again editor.log is back to "speed 600 cm/s, actions none, grounded"
+Когда input keyup - - w
+Когда advance 1.0
+# [netgm_one_step] crouch through the same step: C held, then W crouched.
+Когда input keydown - - c
+Когда advance 0.5
+Тогда-вид netgm_crouch the capsule is shorter and the Spring Arm camera sits lower than in netgm_local_walk_again; editor.log reads ", crouched"
+Когда input keydown - - w
+Когда advance 1.5
+Тогда-вид netgm_crouch_walk the crouched pawn moved forward; editor.log reads "speed 300 cm/s, actions IA_Crouch#2, grounded, crouched"
+Когда input keyup - - w
+Когда input keyup - - c
+Когда advance 1.0
+Тогда-вид netgm_uncrouch the capsule stands again at full height; editor.log no longer reads "crouched"

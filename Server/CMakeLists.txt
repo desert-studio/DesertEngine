@@ -2,9 +2,11 @@
 #
 # A SEPARATE EXECUTABLE, NOT A FLAG OF THE CLIENT. It links the engine's render-free runtime core, the module Core
 # (cmake/DesertModuleTable.cmake: the cooked world and World Partition residency, scene/prefab serialization, the
-# landscape's data, the reflected-component table, the server-realm Luau runtime of NET-ARCH §7), and the modules
-# below it - never RenderCore/Renderer (RHI, Vulkan, shaders), ApplicationCore (window, input, GLFW), Audio, ImGui
-# or the editor. Engine links the same Core library, so no engine object is compiled twice. Core is RENDER_FREE:
+# reflected-component table, the server-realm Luau runtime of NET-ARCH §7), and the modules below it - among them
+# LandscapeCore, the landscape's runtime data its cells' collision stands pawns on (ServerCellCollision reads tiles
+# through LandscapeCore/Public/LandscapeTileFiles.hpp, as UE's dedicated server loads Runtime/Landscape) - never
+# RenderCore/Renderer (RHI, Vulkan, shaders), ApplicationCore (window, input, GLFW), Audio, ImGui or the editor.
+# Engine links the same Core library, so no engine object is compiled twice. Core is RENDER_FREE:
 # configure fails if any of its files reaches a render, window, Audio or ImGui header (cmake/DesertModules.cmake),
 # and the link proves the closure, because no render library is on this line to resolve a symbol from. Nothing here
 # names an Apple framework: the Linux build adds a platform, not a target.
@@ -34,8 +36,9 @@ desert_external_includes(DesertServer
 desert_config_platform_defines(DesertServer)
 
 # Core and its dependency closure, top of the table first (a static library before the ones it depends on).
-desert_module_closure(Core _server_modules)
-set(_server_libs ${DESERT_MODULE_Core_LIBRARIES})
+# LandscapeCore sits ABOVE Core (BUILD-MOD-6L): the server names it, as a UE server target names Landscape.
+desert_module_closure(LandscapeCore _server_modules)
+set(_server_libs ${DESERT_MODULE_LandscapeCore_LIBRARIES})
 set(_table ${DESERT_MODULES})
 list(REVERSE _table)
 foreach(name IN LISTS _table)

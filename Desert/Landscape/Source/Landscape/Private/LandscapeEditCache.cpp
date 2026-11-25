@@ -1,7 +1,7 @@
 // Ported from UE 5.8 Engine/Source/Editor/LandscapeEditor/Private/LandscapeEdModeTools.h:283-745 and
 // Engine/Source/Runtime/Landscape/Public/LandscapeEdit.h:361-480, adapted: see LandscapeEditCache.hpp.
 
-#include <Engine/World/Landscape/LandscapeEditCache.hpp>
+#include <Landscape/Public/LandscapeEditCache.hpp>
 
 #include <algorithm>
 #include <format>

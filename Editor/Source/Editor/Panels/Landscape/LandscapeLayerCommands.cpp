@@ -14,8 +14,8 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Landscape/Public/LandscapeRootOf.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
-#include <Engine/World/Landscape/LandscapeSplines.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeSplines.hpp>
 #include <Editor/Import/LandscapeHeightmapIO.hpp>
 
 #include <Common/Core/Constants.hpp>

@@ -23,7 +23,7 @@
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Landscape/Public/LandscapeRootOf.hpp>
-#include <Engine/World/Landscape/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeLayout.hpp>
 #include <Engine/World/Foliage/FoliageCells.hpp>
 #include <Landscape/Public/LandscapeLayerInfo.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
@@ -60,7 +60,7 @@
 #include <Engine/ECS/VisibilityComponent.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
 #include <Engine/World/Partition/RuntimeGridComponent.hpp>
-#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <LandscapeCore/Public/LandscapeData.hpp>
 #include <Engine/Core/Scene.hpp>
 
 namespace Desert::Editor::Tools
