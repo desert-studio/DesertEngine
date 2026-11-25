@@ -129,6 +129,8 @@ namespace Desert::Graphic::ViewTargetFormats
     // and the view depth (cm) of the surface that wrote it (the temporal pass's disocclusion test).
     inline constexpr ImageFormat kDenoiserSignal      = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kDenoiserSampleCount = ImageFormat::RG16F;
+    // The luminance moments beside a surface light's history: its mean and the root of its mean square.
+    inline constexpr ImageFormat kDenoiserMoments = ImageFormat::RG16F;
     // The traced GI's final gather, per pixel: diffuse irradiance and specular radiance (rgb), written by the
     // screen probe gather (GlobalIllumination::ScreenProbeGather: its temporal filter's output, which the view
     // keeps as the next frame's history, ScreenProbeGatherHistory) or the irradiance field gather

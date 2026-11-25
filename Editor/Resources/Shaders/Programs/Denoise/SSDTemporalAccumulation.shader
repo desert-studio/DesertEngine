@@ -21,6 +21,10 @@ Shader "SSDTemporalAccumulation"
     //     the specular lobe's footprint in pixels (a sharp lobe needs few samples, a mirror's would be one - it
     //     cannot average what it does not blur), floored at Params.w; diffuse light targets Params.z.
     //     new = (history * kept + current) / (kept + 1); count = kept + 1.
+    //  4) MOMENTS (UE MegaLightsDenoiserTemporal.usf, the second moment beside the lighting): the luminance's mean and
+    //     mean square accumulate with the same texels and the same count, UNCLAMPED - what the history convolution
+    //     reads the signal's own deviation from. One frame's neighbourhood cannot give it: where one pixel in
+    //     twenty is lit the 3x3 around an unlit one has no deviation at all, and the light would be weighed away.
     // Everything is premultiplied (rgb * a, a) - Common/ScreenSpaceDenoise.glslh.
 
     Compute
@@ -30,6 +34,7 @@ Shader "SSDTemporalAccumulation"
         // Declared before Common/ScreenSpaceDenoise.glslh, whose SSDLoadSceneInfo reads the G-buffer through PointClampSampler.
         Uniform sampler PointClampSampler;
         #include <Common/ScreenSpaceDenoise.glslh>
+        #include <Common/SSDHistoryDepth.glslh>
 
         Uniform(1) texture2D GBufferNormalTexture;   // rgb = world normal, a = roughness
         Uniform(2) texture2D GBufferDepthTexture;    // device depth (nearest)
@@ -47,6 +52,11 @@ Shader "SSDTemporalAccumulation"
         #define VelocityTexture sampler2D(VelocityTexture, PointClampSampler)
         layout(binding = 9, rgba16f) writeonly uniform image2D NewHistoryTexture;      // premultiplied
         layout(binding = 10, rg16f) writeonly uniform image2D NewHistoryCountTexture;
+        // Params2.y = 1: the signal's luminance moments beside its history, r = the mean, g = sqrt(the mean square)
+        // (a half holds a light's luminance, not its square); last frame's and this frame's.
+        Uniform(11) texture2D HistoryMomentsTexture;
+        #define HistoryMomentsTexture sampler2D(HistoryMomentsTexture, PointClampSampler)
+        layout(binding = 12, rg16f) writeonly uniform image2D NewHistoryMomentsTexture;
 
         // ScreenSpaceDenoiser::ViewUniforms (std140).
         Uniform(0) DenoiserViewUB
@@ -61,7 +71,8 @@ Shader "SSDTemporalAccumulation"
         	// x = 1 when AccumulatedSignalTexture holds the view's previous frame, y = signal (kSSDSignal*),
         	// z = the most frames a history may hold, w = the fewest a reflection targets
         	vec4 Params;
-        	// x = 1 under the traced reflections' gate (ScreenSpaceDenoiser::SignalGate; reflections only), yzw unused
+        	// x = 1 under the traced reflections' gate (ScreenSpaceDenoiser::SignalGate; reflections only),
+        	// y = 1 when the signal keeps its luminance moments (ScreenSpaceDenoiser::KeepsMoments), zw unused
         	vec4 Params2;
         };
 
@@ -77,9 +88,6 @@ Shader "SSDTemporalAccumulation"
         	ndc = clip.xy / clip.w;
         	return true;
         }
-
-        // The farthest view depth an rg16f texel holds (cm); farther surfaces compare as equal.
-        const float kMaxStoredDepth = 65000.0;
 
         vec4 ToRejectionSpace(vec4 s)
         {
@@ -97,6 +105,8 @@ Shader "SSDTemporalAccumulation"
         	{
         		imageStore(NewHistoryTexture, pixel, vec4(0.0));
         		imageStore(NewHistoryCountTexture, pixel, vec4(0.0));
+        		if (Params2.y >= 0.5)
+        			imageStore(NewHistoryMomentsTexture, pixel, vec4(0.0));
         		return;
         	}
         	const vec4 current = texelFetch(ReconstructedSignalTexture, pixel, 0);
@@ -129,7 +139,8 @@ Shader "SSDTemporalAccumulation"
 
         	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(sampler2D(GBufferDepthTexture, PointClampSampler), pixel, 0).r, ref.Position,
         	                                              1.0 / size, InverseJitteredViewProjection);
-        	const float viewDepth   = min((ViewProjection * vec4(ref.Position, 1.0)).w, kMaxStoredDepth);
+        	const float viewDepth   = SSDStoredDepth((ViewProjection * vec4(ref.Position, 1.0)).w);
+        	const bool  keepsMoments = Params2.y >= 0.5;
 
         	// --- The targeted sample count. ---
         	float target = Params.z;
@@ -144,6 +155,7 @@ Shader "SSDTemporalAccumulation"
         	// --- Reprojection: the reflected point (d = 0: the surface) plus the surface's own motion. ---
         	float historyCount = 0.0;
         	vec4  history      = vec4(0.0);
+        	vec2  moments      = vec2(0.0); // mean, mean square
         	if (Params.x > 0.5)
         	{
         		// The distance to what the pixel reflects: the hits of the 2x2 trace texels around it, weighed by
@@ -176,15 +188,15 @@ Shader "SSDTemporalAccumulation"
         			const vec2 prevUV       = vec2(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * 0.5); // Y-flipped
         			if (prevUV.x > 0.0 && prevUV.x < 1.0 && prevUV.y > 0.0 && prevUV.y < 1.0)
         			{
-        				// A depth within 2 %, or within what the jitter and the bilinear footprint (two pixels)
-        				// move a point along a surface seen at a grazing angle.
-        				const float previousDepth = min((PreviousViewProjection * vec4(ref.Position, 1.0)).w, kMaxStoredDepth);
-        				const float tolerance     = max(0.02 * previousDepth,
-        				                                2.0 * pixelRadius / max(abs(dot(ref.Normal, V)), 0.05));
+        				const float previousDepth =
+        				     SSDStoredDepth((PreviousViewProjection * vec4(ref.Position, 1.0)).w);
+        				const float tolerance =
+        				     SSDHistoryDepthTolerance(previousDepth, pixelRadius, dot(ref.Normal, V));
         				const vec2  texel         = prevUV * size - 0.5;
         				const ivec2 corner        = ivec2(floor(texel));
         				const vec2  f             = texel - vec2(corner);
         				vec4  historySum = vec4(0.0);
+        				vec2  momentSum  = vec2(0.0);
         				float countSum   = 0.0;
         				float weightSum  = 0.0;
         				for (int j = 0; j <= 1; ++j)
@@ -199,12 +211,18 @@ Shader "SSDTemporalAccumulation"
         							continue;
         						historySum += texelFetch(AccumulatedSignalTexture, t, 0) * w;
         						countSum   += stored.x * w;
+        						if (keepsMoments)
+        						{
+        							const vec2 m = texelFetch(HistoryMomentsTexture, t, 0).rg;
+        							momentSum += vec2(m.x, m.y * m.y) * w;
+        						}
         						weightSum  += w;
         					}
         				if (weightSum > 0.0)
         				{
         					history      = historySum / weightSum;
         					historyCount = countSum / weightSum;
+        					moments      = momentSum / weightSum;
         				}
         			}
         		}
@@ -231,6 +249,12 @@ Shader "SSDTemporalAccumulation"
         	const vec4  next = (history * kept + current) / (kept + 1.0);
         	imageStore(NewHistoryTexture, pixel, next);
         	imageStore(NewHistoryCountTexture, pixel, vec4(kept + 1.0, viewDepth, 0.0, 0.0));
+        	if (keepsMoments)
+        	{
+        		const float l = SSDLuminance(current.rgb);
+        		moments = (moments * kept + vec2(l, l * l)) / (kept + 1.0);
+        		imageStore(NewHistoryMomentsTexture, pixel, vec4(moments.x, sqrt(moments.y), 0.0, 0.0));
+        	}
         }
     }
 }

@@ -46,7 +46,7 @@ Shader "MegaLightsShadeSamples"
         	{
         		const MegaLightsSample light =
         		     MegaLightsUnpackSample(texelFetch(SamplesTexture, MegaLightsSampleTexel(samplePixel, k), 0).rg);
-        		const float weight = MegaLightsShadingWeight(light, Params);
+        		const float weight = light.Weight * light.Visibility;
         		if (light.Light < 0 || light.Light >= MegaLightsLightCount() || weight <= 0.0)
         			continue;
         		vec3 d;

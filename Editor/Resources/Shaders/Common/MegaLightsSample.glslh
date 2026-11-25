@@ -10,35 +10,41 @@
 
 struct MegaLightsSample
 {
-	int   Light;         // -1 = none
-	float Weight;        // 1 / sampling probability at the pixel that drew it
-	float Visibility;    // 0 or 1 times the light's contact shadow; 1 until "Trace Samples"
-	bool  GuidedVisible; // the tile's hash held the light (or it keeps none: a new light, an emissive triangle)
+	int   Light;      // -1 = none
+	float Weight;     // 1 / sampling probability at the pixel that drew it: the clamped selection weight
+	                  // (MegaLightsSelectionWeight) x 1 / the density its candidate was drawn with
+	float Visibility; // 0 or 1 times the light's contact shadow; 1 until "Trace Samples"
 };
 
-// RG32UI: x = (light + 1) | guided << 31, y = packHalf2x16(Weight, Visibility). 0 = no sample.
+// The selection's part of a sample's weight (sum of the candidates' weights / the chosen one's), clamped by @p
+// params.x (params.y for a light not guided as visible): UE MaxShadingWeight / MaxShadingWeightForHiddenLight, which
+// clamp the choice among the pixel's lights. The density a candidate was drawn with is no choice of the pixel - one
+// emissive triangle of thousands stands for them all - and is never clamped.
+float MegaLightsSelectionWeight(float weight, bool guidedVisible, vec4 params)
+{
+	return min(weight, guidedVisible ? params.x : params.y);
+}
+
+// RG32UI: x = light + 1, y = the weight's logarithm (16 bits over [-16, 32), 0.05 % a step) and the visibility
+// (unorm16). 0 = no sample.
+#define MEGALIGHTS_WEIGHT_LOG_MIN -16.0
+#define MEGALIGHTS_WEIGHT_LOG_RANGE 48.0
+
 uvec2 MegaLightsPackSample(MegaLightsSample s)
 {
 	if (s.Light < 0 || s.Weight <= 0.0)
 		return uvec2(0u);
-	const uint light = uint(s.Light + 1) & 0x7FFFFFFFu;
-	return uvec2(light | (s.GuidedVisible ? 0x80000000u : 0u),
-	             packHalf2x16(vec2(min(s.Weight, 65504.0), s.Visibility)));
+	const float weight = (log2(s.Weight) - MEGALIGHTS_WEIGHT_LOG_MIN) / MEGALIGHTS_WEIGHT_LOG_RANGE;
+	return uvec2(uint(s.Light + 1), packUnorm2x16(vec2(weight, s.Visibility)));
 }
 
 MegaLightsSample MegaLightsUnpackSample(uvec2 packedSample)
 {
-	const vec2 halves = unpackHalf2x16(packedSample.y);
-	return MegaLightsSample(int(packedSample.x & 0x7FFFFFFFu) - 1, halves.x, halves.y,
-	                        (packedSample.x & 0x80000000u) != 0u);
-}
-
-// What multiplies the light's unshadowed contribution at the pixel that shades the sample: the weight, clamped by
-// @p params.x (params.y for a light not guided as visible: UE MaxShadingWeight / MaxShadingWeightForHiddenLight),
-// times the visibility.
-float MegaLightsShadingWeight(MegaLightsSample s, vec4 params)
-{
-	return min(s.Weight, s.GuidedVisible ? params.x : params.y) * s.Visibility;
+	if (packedSample.x == 0u)
+		return MegaLightsSample(-1, 0.0, 0.0);
+	const vec2 fields = unpackUnorm2x16(packedSample.y);
+	return MegaLightsSample(int(packedSample.x) - 1,
+	                        exp2(MEGALIGHTS_WEIGHT_LOG_MIN + fields.x * MEGALIGHTS_WEIGHT_LOG_RANGE), fields.y);
 }
 
 // ---- The visible lights of a tile (UE MegaLightsVisibility.ush) ---------------------------------------------------

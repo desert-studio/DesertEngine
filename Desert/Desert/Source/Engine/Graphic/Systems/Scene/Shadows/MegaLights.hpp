@@ -78,6 +78,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageBuffer, HistoryVisibleLightsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, VisibleLightsUB );
         DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
+        DESERT_SHADER_PARAMETER( Texture, HistoryCountTexture );
         DESERT_SHADER_PARAMETER( Texture, HzbTexture );
         // The scene-lighting emissive triangles (Common/MegaLights.glslh bindings 60..66).
         DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveSegmentsUB );
@@ -95,8 +96,9 @@ namespace Desert::Graphic::System
     inline constexpr uint32_t kMegaLightsMaxSamplesPerPixel = 4;
     // The coarsest sample grid: one sample pixel per 2x2 render pixels (UE r.MegaLights.DownsampleFactor's range).
     inline constexpr uint32_t kMegaLightsMaxDownsampleFactor = 2;
-    // UE r.MegaLights.MaxShadingWeight / MaxShadingWeightForHiddenLight: the largest 1 / probability shaded, so one
-    // improbable light is not a firefly. The energy above it is lost, as UE's.
+    // UE r.MegaLights.MaxShadingWeight / MaxShadingWeightForHiddenLight: the largest 1 / probability of choosing one
+    // light of the pixel's candidates, so one improbable light is not a firefly. The energy above it is lost, as
+    // UE's; the density an emissive triangle was drawn with is no part of it (Common/MegaLightsSample.glslh).
     inline constexpr float kMegaLightsMaxShadingWeight       = 20.0f;
     inline constexpr float kMegaLightsMaxHiddenShadingWeight = 5.0f;
     // The visible-light hash: one filter of kMegaLightsHashWords words per tile of this many sample pixels per side
@@ -253,13 +255,19 @@ namespace Desert::Graphic::System
                  AcquireSlot( graph, next, 1u - m_Parity, sampleWidth, sampleHeight, hashBytes );
             m_Parity = 1u - m_Parity;
 
+            // The surfaces the hash was made of: the diffuse denoiser's previous count and view depth. Without them
+            // no reprojection into the hash can be told from a disocclusion.
+            const DenoiserHistory diffuseHistory =
+                 m_DiffuseDenoiser.AcquireHistory( graph, frame, in.Black, width, height );
+
             const MegaLightsViewUniforms uniforms{
                  .ViewProjection            = frame.ViewProjection,
                  .PrevViewProjection        = frame.PrevViewProjection,
                  .InvJitteredViewProjection = frame.InvJitteredViewProjection,
                  .JitteredViewProjection    = frame.JitteredViewProjection,
                  .CameraPosition            = glm::vec4( frame.CameraPosition, frame.PreExposure ),
-                 .Counts = glm::uvec4( in.PointLights, in.SpotLights, samples, readable ? 1u : 0u ),
+                 .Counts = glm::uvec4( in.PointLights, in.SpotLights, samples,
+                                      readable && diffuseHistory.Readable ? 1u : 0u ),
                  .Params = glm::vec4( kMegaLightsMaxShadingWeight, kMegaLightsMaxHiddenShadingWeight,
                                       kMegaLightsNormalBias, kMegaLightsHiddenLightShare ),
                  .Frame  = glm::uvec4( static_cast<uint32_t>( frame.FrameIndex ), width, height, factor ),
@@ -336,6 +344,8 @@ namespace Desert::Graphic::System
                       {
                           common( block, true );
                           read( block, MegaLightsShaderParameters::VelocityTexture, in.Velocity );
+                          read( block, MegaLightsShaderParameters::HistoryCountTexture,
+                                diffuseHistory.SampleCount );
                           block.Storage( kLightGridParamsBlock, in.Lights.GridParams, RDG::Access::StorageRead )
                                .Storage( kLightGridCellsBlock, in.Lights.GridCells, RDG::Access::StorageRead )
                                .Storage( MegaLightsShaderParameters::PreviousLightRowsUB, in.Lights.PreviousRow,
@@ -383,7 +393,8 @@ namespace Desert::Graphic::System
                     .Diffuse = m_DiffuseDenoiser.DenoiseDiffuseIndirect(
                       graph,
                       DiffuseIndirectDenoiserInputs{ .Signal               = diffuse,
-                                                        .ReconstructionRadius = quality.DenoiserRadius },
+                                                        .ReconstructionRadius = quality.DenoiserRadius,
+                                                        .History              = diffuseHistory },
                       scene, frame, width, height ),
                     .Specular = m_SpecularDenoiser.DenoiseDirectSpecular(
                       graph,

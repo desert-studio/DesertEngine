@@ -8,7 +8,11 @@ Shader "SSDHistoryConvolution"
     // it is further bounded by the specular lobe's footprint (a sharp reflection is not blurred wider than its
     // lobe). 3x3 taps that far apart, each weighed by the bilateral weight of its surface - distance off the
     // tangent plane (UE POSITION_BASED), normal agreement (UE BILATERAL_NORMAL), and for reflections the lobes'
-    // agreement (UE BILATERAL_TOKOYASHI) with Karis' inverse luminance. This is the denoiser's output; the history
+    // agreement (UE BILATERAL_TOKOYASHI) with Karis' inverse luminance, and for a signal that keeps its moments
+    // (Params.w; UE MegaLightsDenoiserSpatial.usf, which runs after the temporal pass for this reason) the
+    // brightness weight by the signal's accumulated deviation - a converged light keeps the edge it draws itself -
+    // or, while the history is too young to have one, Karis' weight against a lone bright sample (UE
+    // TonemapLighting by the disocclusion factor). This is the denoiser's output; the history
     // the next frame reads is the accumulation before it (the filter does not compound over frames).
     // Writes STRAIGHT (rgb, a): what the lighting composes (DeferredLighting.shader SsrTexture / Gi) - the
     // premultiplied accumulation divided by its coverage, or as it is where a is a signal of its own (Params.z).
@@ -27,6 +31,8 @@ Shader "SSDHistoryConvolution"
         #define AccumulatedSignalTexture sampler2D(AccumulatedSignalTexture, PointClampSampler)
         Uniform(4) texture2D HistoryCountTexture;    // its sample count
         #define HistoryCountTexture sampler2D(HistoryCountTexture, PointClampSampler)
+        Uniform(5) texture2D HistoryMomentsTexture;  // Params.w = 1: r = its luminance's mean, g = sqrt(mean square)
+        #define HistoryMomentsTexture sampler2D(HistoryMomentsTexture, PointClampSampler)
         layout(binding = 6, rgba16f) writeonly uniform image2D DenoisedSignalTexture; // straight (rgb, a)
 
         // ScreenSpaceDenoiser::ViewUniforms (std140).
@@ -42,13 +48,17 @@ Shader "SSDHistoryConvolution"
         	vec4 Params; // x = 1 under the traced reflections' gate (ScreenSpaceDenoiser::SignalGate), y = signal
         	             // (kSSDSignal*), z = 1 when a is a signal of its own carried straight (SSGI's sky
         	             // visibility, DiffuseIndirectAlpha::SkyVisibility; else a = the answered share and rgb is
-        	             // premultiplied by it), w unused
+        	             // premultiplied by it), w = 1 when the signal keeps its luminance moments
+        	             // (ScreenSpaceDenoiser::KeepsMoments)
         };
 
         LocalSize(8, 8, 1);
 
         // The radius, in pixels, of a pixel holding one frame.
         const float kMaxRadius = 3.0;
+        // The frames a history's moments need before its deviation is one (UE MegaLights' spatial filter in
+        // disoccluded areas).
+        const float kMinMomentFrames = 4.0;
 
         void main()
         {
@@ -83,12 +93,19 @@ Shader "SSDHistoryConvolution"
         		lobe   = SSDRoughnessLobe(ref.Roughness, ref.Normal, V);
         	}
 
+        	const bool  deviationKnown = Params.w >= 0.5 && count >= kMinMomentFrames;
+        	const float centreLight    = SSDLuminance(centre.rgb);
+        	const float deviation      =
+        	     deviationKnown ? SSDDeviation(texelFetch(HistoryMomentsTexture, pixel, 0).rg) : 0.0;
+
         	vec4 result = centre;
         	if (radius >= 0.75)
         	{
         		const float maxPlaneDistance = max(pixelRadius * radius * 2.0 * sqrt(2.0), 1e-3);
         		vec4  sum       = vec4(0.0); // premultiplied, Karis-weighted for reflections
         		float weightSum = 0.0;
+        		float alphaSum       = 0.0; // a that is a signal of its own: filtered by the surface alone
+        		float alphaWeightSum = 0.0;
         		for (int y = -1; y <= 1; ++y)
         			for (int x = -1; x <= 1; ++x)
         			{
@@ -108,11 +125,19 @@ Shader "SSDHistoryConvolution"
         					w *= SSDLobeSimilarity(lobe, SSDRoughnessLobe(other.Roughness, other.Normal, otherV));
         					w *= SSDKarisWeight(s.a > 0.0 ? s.rgb / s.a : vec3(0.0));
         				}
+        				alphaSum       += s.a * w;
+        				alphaWeightSum += w;
+        				if (deviationKnown)
+        					w *= SSDBrightnessWeight(s.rgb, centreLight, deviation);
+        				else if (signal == kSSDSignalDiffuseIndirect)
+        					w *= SSDKarisWeight(s.rgb); // a specular signal took it above
         				sum       += s * w;
         				weightSum += w;
         			}
         		if (weightSum > 0.0)
         			result = sum / weightSum;
+        		if (Params.z >= 0.5 && alphaWeightSum > 0.0)
+        			result.a = alphaSum / alphaWeightSum;
         	}
         	if (Params.z >= 0.5)
         		imageStore(DenoisedSignalTexture, pixel, result); // already straight: rgb and a filtered apart

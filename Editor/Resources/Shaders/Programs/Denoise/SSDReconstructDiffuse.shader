@@ -8,8 +8,8 @@ Shader "SSDReconstructDiffuse"
     // ReconstructionRadius, 2 = 5x5) where each tap is weighed by the BILATERAL weight of its surface
     // against this pixel's: its distance off this pixel's tangent plane (UE BILATERAL_POSITION_BASED(2)) and the
     // agreement of the normals (UE BILATERAL_NORMAL, N.N^4) - bounce light does not cross a crease or a depth
-    // edge - and by its light (Common/SSDWeights.glslh: the Karis weight, the brightness weight of the 3x3
-    // neighbourhood). A tap that answered nothing (a = 0) adds nothing and weighs nothing. Diffuse light carries no direction, so the lobe does not enter. Written premultiplied to ReconstructedSignalTexture
+    // edge. Its light does not weigh it: one frame's samples of a sparse light are its mean, spikes and zeros
+    // together (Common/SSDWeights.glslh). A tap that answered nothing (a = 0) adds nothing and weighs nothing. Diffuse light carries no direction, so the lobe does not enter. Written premultiplied to ReconstructedSignalTexture
     // - except SSGI's signal (rgb = the bounce over the whole pixel, a = the sky's visibility,
     // DiffuseIndirectAlpha::SkyVisibility), whose rgb and a are filtered straight, side by side (Reconstruction.y).
 
@@ -67,11 +67,8 @@ Shader "SSDReconstructDiffuse"
         	const float maxPlaneDistance = max(pixelRadius * 2.0 * float(radius) * sqrt(2.0), 1e-3);
         	const bool  alphaIsSignal    = Reconstruction.y >= 0.5;
 
-        	const vec2  brightness = SSDBrightnessStats(RawSignalTexture, pixel, viewSize, !alphaIsSignal);
         	vec4  sum       = vec4(0.0); // premultiplied (straight where alphaIsSignal)
         	float weightSum = 0.0;
-        	float alphaSum       = 0.0; // a that is a signal of its own: filtered by the surface alone
-        	float alphaWeightSum = 0.0;
         	for (int y = -radius; y <= radius; ++y)
         		for (int x = -radius; x <= radius; ++x)
         		{
@@ -80,20 +77,14 @@ Shader "SSDReconstructDiffuse"
         			                                            InverseJitteredViewProjection, p, size);
         			if (dot(other.Normal, other.Normal) <= 0.0)
         				continue; // sky
-        			const float surface = (float(radius + 1) - abs(float(x))) * (float(radius + 1) - abs(float(y))) *
+        			const float w = (float(radius + 1) - abs(float(x))) * (float(radius + 1) - abs(float(y))) *
         			                SSDPlaneWeight(ref, other.Position, maxPlaneDistance) *
         			                SSDNormalWeight(ref.Normal, other.Normal);
         			const vec4  s = texelFetch(sampler2D(RawSignalTexture, PointClampSampler), p, 0);
-        			const float w = surface * SSDKarisWeight(s.rgb) * SSDBrightnessWeight(s.rgb, brightness);
-        			sum            += (alphaIsSignal ? s : vec4(s.rgb * s.a, s.a)) * w;
-        			weightSum      += w;
-        			alphaSum       += s.a * surface;
-        			alphaWeightSum += surface;
+        			sum       += (alphaIsSignal ? s : vec4(s.rgb * s.a, s.a)) * w;
+        			weightSum += w;
         		}
-        	vec4 reconstructed = weightSum > 0.0 ? sum / weightSum : vec4(0.0);
-        	if (alphaIsSignal && alphaWeightSum > 0.0)
-        		reconstructed.a = alphaSum / alphaWeightSum;
-        	imageStore(ReconstructedSignalTexture, pixel, reconstructed);
+        	imageStore(ReconstructedSignalTexture, pixel, weightSum > 0.0 ? sum / weightSum : vec4(0.0));
         }
     }
 }

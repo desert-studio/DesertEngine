@@ -1,6 +1,7 @@
 // The screen-space denoiser's weights against an outlying sample (UE SSDSignalFramework.ush, KARIS_WEIGHTING;
-// MegaLightsDenoiserSpatial.usf, the brightness weight by the neighbourhood's deviation): the reconstruction of
-// the diffuse and the specular surface signals reads both. Declare PointClampSampler before including this.
+// MegaLightsDenoiserSpatial.usf, the brightness weight by the accumulated deviation). Neither is applied to one
+// frame's RAW samples of the surface signals: a light few pixels of a frame sample is bright in those and black in the
+// rest, its mean is the signal, and a weight against the bright ones takes the energy with the noise.
 
 float SSDLuminance(vec3 c)
 {
@@ -13,33 +14,16 @@ float SSDKarisWeight(vec3 c)
 	return 1.0 / (1.0 + SSDLuminance(c));
 }
 
-// x = the mean, y = the standard deviation of the 3x3 neighbourhood's luminance in @p signal; y < 0 when nothing
-// answered. @p answeredOnly: a = the answered share, a texel with none is not counted.
-vec2 SSDBrightnessStats(texture2D signal, ivec2 pixel, ivec2 size, bool answeredOnly)
+// The standard deviation of a signal's luminance from its accumulated moments (HistoryMomentsTexture: r = the mean,
+// g = sqrt(the mean square)).
+float SSDDeviation(vec2 moments)
 {
-	float m1 = 0.0, m2 = 0.0, count = 0.0;
-	for (int y = -1; y <= 1; ++y)
-		for (int x = -1; x <= 1; ++x)
-		{
-			const vec4 s = texelFetch(sampler2D(signal, PointClampSampler), clamp(pixel + ivec2(x, y), ivec2(0), size - 1), 0);
-			if (answeredOnly && s.a <= 0.0)
-				continue;
-			const float l = SSDLuminance(s.rgb);
-			m1 += l;
-			m2 += l * l;
-			count += 1.0;
-		}
-	if (count <= 0.0)
-		return vec2(0.0, -1.0);
-	m1 /= count;
-	return vec2(m1, sqrt(max(m2 / count - m1 * m1, 0.0)));
+	return sqrt(max(moments.y * moments.y - moments.x * moments.x, 0.0));
 }
 
-// exp2(-|dL| / sigma) of a tap against the neighbourhood: the edge the light itself draws (a lit leaf against a
-// dark one on the same plane) is kept, noise of the neighbourhood's own size is averaged.
-float SSDBrightnessWeight(vec3 tap, vec2 stats)
+// exp2(-|dL| / sigma) of a tap against the pixel: the edge the light itself draws (a lit leaf against a dark one on
+// the same plane) is kept, noise of the signal's own size is averaged.
+float SSDBrightnessWeight(vec3 tap, float centreLight, float deviation)
 {
-	if (stats.y < 0.0)
-		return 1.0;
-	return exp2(-abs(SSDLuminance(tap) - stats.x) / max(stats.y, 1e-4 + 0.01 * stats.x));
+	return exp2(-abs(SSDLuminance(tap) - centreLight) / max(deviation, 1e-4 + 0.01 * centreLight));
 }

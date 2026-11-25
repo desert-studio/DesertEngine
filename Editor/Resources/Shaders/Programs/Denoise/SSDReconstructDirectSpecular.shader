@@ -7,8 +7,7 @@ Shader "SSDReconstructDirectSpecular"
     // (2r+1)^2 bilateral kernel - tangent plane (UE BILATERAL_POSITION_BASED(2)), normals (UE BILATERAL_NORMAL) -
     // plus the agreement of the two texels' GGX lobes (UE BILATERAL_TOKOYASHI, SSDLobeSimilarity), and a kernel
     // no wider than the pixel's lobe on the screen (SSDLobePixelRadii): a mirror-like highlight is not spread over
-    // its neighbours, a rough one is. Each tap is weighed by its light (Common/SSDWeights.glslh: the Karis weight,
-    // the brightness weight of the 3x3 neighbourhood). A tap with a = 0 answered nothing and adds nothing. Written premultiplied
+    // its neighbours, a rough one is. A tap's light does not weigh it (Common/SSDWeights.glslh). A tap with a = 0 answered nothing and adds nothing. Written premultiplied
     // to ReconstructedSignalTexture.
 
     Compute
@@ -67,8 +66,7 @@ Shader "SSDReconstructDirectSpecular"
         	const int   radius           = clamp(int(lobeRadii.y + 0.5), 0, max(int(Reconstruction.x + 0.5), 1));
         	const float maxPlaneDistance = max(pixelRadius * 2.0 * float(max(radius, 1)) * sqrt(2.0), 1e-3);
 
-        	const vec2  brightness = SSDBrightnessStats(RawSignalTexture, pixel, viewSize, true);
-        	vec4  sum       = vec4(0.0); // premultiplied, Karis-weighted
+        	vec4  sum       = vec4(0.0); // premultiplied
         	float weightSum = 0.0;
         	for (int y = -radius; y <= radius; ++y)
         		for (int x = -radius; x <= radius; ++x)
@@ -84,8 +82,7 @@ Shader "SSDReconstructDirectSpecular"
         			const float w = (float(radius + 1) - abs(float(x))) * (float(radius + 1) - abs(float(y))) *
         			                SSDPlaneWeight(ref, other.Position, maxPlaneDistance) *
         			                SSDNormalWeight(ref.Normal, other.Normal) *
-        			                SSDLobeSimilarity(lobe, SSDRoughnessLobe(other.Roughness, other.Normal, otherV)) *
-        			                SSDKarisWeight(s.rgb) * SSDBrightnessWeight(s.rgb, brightness);
+        			                SSDLobeSimilarity(lobe, SSDRoughnessLobe(other.Roughness, other.Normal, otherV));
         			sum       += vec4(s.rgb * s.a, s.a) * w;
         			weightSum += w;
         		}
