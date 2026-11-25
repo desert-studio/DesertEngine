@@ -36,8 +36,9 @@ desert_external_includes(DesertServer
 desert_config_platform_defines(DesertServer)
 
 # Core and its dependency closure, top of the table first (a static library before the ones it depends on).
-desert_module_closure(Core _server_modules)
-set(_server_libs ${DESERT_MODULE_Core_LIBRARIES})
+# LandscapeCore sits ABOVE Core (BUILD-MOD-6L): the server names it, as a UE server target names Landscape.
+desert_module_closure(LandscapeCore _server_modules)
+set(_server_libs ${DESERT_MODULE_LandscapeCore_LIBRARIES})
 set(_table ${DESERT_MODULES})
 list(REVERSE _table)
 foreach(name IN LISTS _table)

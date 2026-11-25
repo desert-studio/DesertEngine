@@ -40,21 +40,22 @@ desert_module(AnimationCore DEPS GeometryCore CoreReflection UE "AnimationCore")
 # L3
 desert_module(Localization DEPS AssetCore UE "Internationalization")
 desert_module(ShaderCompiler DEPS ImageCore AssetCore UE "ShaderCore")
-# the landscape's render-free runtime data (BUILD-MOD-6L): the heightfield and weightmap tiles, their files, layout
-# and frame, the collision heightfield, the edit-layer stack and the splines - what the dedicated server loads to stand
-# pawns on the terrain (UE: the dedicated server loads Runtime/Landscape). Below Core because World Partition's rules
-# (Core/Serialize/WorldPartitionRules) still place landscape tiles and splines into cells by reading them.
-desert_module(LandscapeCore DEPS AssetCore GeometryCore PhysicsCore UE "Landscape (the heightfield data a dedicated server loads)" FOLDER "Desert/Landscape/Source/LandscapeCore" RENDER_FREE)
 # the render-free runtime core (NET-MESH-0, NET-ARCH.md sec. 6): the cooked world and its World Partition
 # residency, scene/prefab serialization, the reflected-component table and the Luau runtime.
 # Engine links it and the dedicated server (Server/) links ONLY it and its closure; a configure check
 # (cmake/DesertModules.cmake, "RENDER-FREE MODULES") fails if any of its files reaches Graphic/, RHI, a window,
 # Audio or ImGui through its includes.
-desert_module(Core DEPS Projects AssetCore GeometryCore PhysicsCore LandscapeCore UE "Engine (the part a dedicated server compiles)" RENDER_FREE)
+desert_module(Core DEPS Projects AssetCore GeometryCore PhysicsCore UE "Engine (the part a dedicated server compiles)" RENDER_FREE)
+# the landscape's render-free runtime data (BUILD-MOD-6L): the heightfield and weightmap tiles, their files, layout
+# and frame, the collision heightfield, the edit-layer stack, the splines and the World Partition descriptor of a tile,
+# a root and a spline (LandscapeWorldPartition.hpp) - what the dedicated server loads to stand pawns on the terrain.
+# ABOVE Core, as UE's Landscape module is above Engine: World Partition's rules never name the landscape, the module
+# registers its descriptor hook at StartupModule (UE FLandscapeActorDesc), and the server names the module itself.
+desert_module(LandscapeCore DEPS Core UE "Landscape (the heightfield data a dedicated server loads)" FOLDER "Desert/Landscape/Source/LandscapeCore" RENDER_FREE)
 # L4: RHI + VulkanRHI + RDG as one module (one backend, decision 09-27; plan sec. 3.1)
 desert_module(RenderCore DEPS ShaderCompiler ImageCore ApplicationCore Projects AssetCore GeometryCore UE "RHI + VulkanRHI + RenderCore")
 # L5
-desert_module(Engine DEPS Core RenderCore Render2DCore Localization PhysicsCore AnimationCore GeometryCore DesertUI TextCore Audio UE "Engine" REFLECTED)
+desert_module(Engine DEPS Core LandscapeCore RenderCore Render2DCore Localization PhysicsCore AnimationCore GeometryCore DesertUI TextCore Audio UE "Engine" REFLECTED)
 # L6: the renderer sits ABOVE Engine (UE layering, plan sec. 3.2); features are plugins over Engine
 desert_module(Renderer DEPS Engine UE "Renderer")
 desert_module(Media DEPS Engine Audio UE "MediaAssets")
