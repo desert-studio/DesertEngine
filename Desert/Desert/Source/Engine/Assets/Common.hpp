@@ -129,7 +129,7 @@ namespace Desert::Assets
         VFXDataChannel,
         // A LANDSCAPE GRASS TYPE (`.degrasstype`): UE's ULandscapeGrassType — the varieties (mesh, density,
         // scale, cull distances) a layer info grows. The instances are never stored: the GPU generates them
-        // around the camera every frame — see Engine/Assets/LandscapeGrassTypeAsset.hpp and
+        // around the camera every frame — see Landscape/Public/LandscapeGrassTypeAsset.hpp and
         // Graphic/Systems/Scene/Grass/GrassRenderer.hpp.
         LandscapeGrassType,
         // A WORLD PARAMETER COLLECTION (`.dworldparams`): UE's UMaterialParameterCollection — named world values
@@ -138,8 +138,8 @@ namespace Desert::Assets
         // A WEATHER PRESET (`.dweatherpreset`): one weather as data, named by weather zones and SetWeather.
         // See Engine/Assets/WeatherPresetAsset.hpp.
         WeatherPreset,
-        // A VFX EFFECT TYPE (`.dfxtype`): UE's UNiagaraEffectType - the per-Effects-level scalability (MaxDistance,
-        // SpawnCountScale) a family of VFX systems shares; a `.dfx` names it by stem. See
+        // A VFX EFFECT TYPE (`.dfxtype`): UE's UNiagaraEffectType - the per-Effects-level scalability
+        // (MaxDistance, SpawnCountScale) a family of VFX systems shares; a `.dfx` names it by stem. See
         // Engine/Assets/VFXEffectTypeAsset.hpp.
         VFXEffectType,
         // A SUBSURFACE PROFILE (`.dsssprofile`): UE USubsurfaceProfile - the Burley parameters a material of the

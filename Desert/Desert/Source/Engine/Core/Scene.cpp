@@ -42,7 +42,6 @@
 
 #include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
-#include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 #if DESERT_DEV_INSTRUMENTS
 #include <Engine/ECS/System/ScriptSystem.hpp>
@@ -55,7 +54,6 @@
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
-#include <Engine/World/Landscape/LandscapeRaycast.hpp>
 #include <Engine/World/Foliage/FoliagePrefabs.hpp>
 
 #include <algorithm>
@@ -114,7 +112,6 @@
 #include <Engine/Scripting/ScriptComponent.hpp>
 #include <Engine/UI/Ecs/UIAnimComponent.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
-#include <Engine/World/Landscape/LandscapeMaterialComponent.hpp>
 #include <Engine/World/Partition/HiddenByDataLayersComponent.hpp>
 #include <Engine/World/Partition/StreamingSourceComponent.hpp>
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
@@ -213,49 +210,47 @@ namespace Desert::Core
         return Raycast( ray, outHit, {} );
     }
 
-    // Every landscape tile that is drawn: loaded heights, under a loaded root they match — the renderer's
-    // own table (ECS::DrawableLandscapeTiles), so a tile the renderer refuses (LandscapeECSSystem warns why
-    // once) is not on screen and not pickable either, by the same test. Refreshing the table is a cache
-    // update, not a scene edit: the const_cast is the registry-ctx equivalent of a `mutable` cache.
-    Scene::RaycastLandscapeSet Scene::GatherRaycastLandscape() const
+    // Every module's surfaces as they are now (ModuleHooks().RaySurfaces). A module refreshing its table
+    // (the landscape's drawn tiles) updates a cache, not the scene: the const_cast is the registry-ctx
+    // equivalent of a `mutable` cache.
+    Scene::RaycastSurfaceSet Scene::GatherRaycastSurfaces() const
     {
-        const ECS::DrawableLandscape& drawable =
-             ECS::DrawableLandscapeTiles( const_cast<entt::registry&>( m_Registry ) );
-        RaycastLandscapeSet set;
-        set.Entities = drawable.RayEntities;
-        set.Tiles    = drawable.RayTiles;
+        RaycastSurfaceSet set;
+        for ( const RaySurfaceGather gather : ModuleHooks().RaySurfaces )
+            if ( RaySurfaceTrace trace = gather( const_cast<entt::registry&>( m_Registry ) ) )
+                set.Surfaces.push_back( std::move( trace ) );
         return set;
     }
 
     bool Scene::Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
                          const std::function<bool( const Common::UUID& )>& accept ) const
     {
-        return Raycast( ray, outHit, accept, GatherRaycastLandscape() );
+        return Raycast( ray, outHit, accept, GatherRaycastSurfaces() );
     }
 
     bool Scene::Raycast( const Common::Math::Ray& ray, RaycastHit& outHit,
                          const std::function<bool( const Common::UUID& )>& accept,
-                         const RaycastLandscapeSet&                        landscape ) const
+                         const RaycastSurfaceSet&                          surfaces ) const
     {
-        return Trace( ray, outHit, accept, landscape, false );
+        return Trace( ray, outHit, accept, surfaces, false );
     }
 
     bool Scene::RaycastComplex( const Common::Math::Ray& ray, RaycastHit& outHit,
                                 const std::function<bool( const Common::UUID& )>& accept ) const
     {
-        return Trace( ray, outHit, accept, GatherRaycastLandscape(), true );
+        return Trace( ray, outHit, accept, GatherRaycastSurfaces(), true );
     }
 
     bool Scene::RaycastComplex( const Common::Math::Ray& ray, RaycastHit& outHit,
                                 const std::function<bool( const Common::UUID& )>& accept,
-                                const RaycastLandscapeSet&                        landscape ) const
+                                const RaycastSurfaceSet&                          surfaces ) const
     {
-        return Trace( ray, outHit, accept, landscape, true );
+        return Trace( ray, outHit, accept, surfaces, true );
     }
 
     bool Scene::Trace( const Common::Math::Ray& ray, RaycastHit& outHit,
-                       const std::function<bool( const Common::UUID& )>& accept,
-                       const RaycastLandscapeSet& landscape, bool complex ) const
+                       const std::function<bool( const Common::UUID& )>& accept, const RaycastSurfaceSet& surfaces,
+                       bool complex ) const
     {
         float              closest = std::numeric_limits<float>::max();
         glm::mat4          bestXf( 1.0f );
@@ -426,24 +421,25 @@ namespace Desert::Core
             }
         }
 
-        // The landscape after the meshes, against the nearest mesh distance: a rock standing on a hill is
+        // The module surfaces after the meshes, against the nearest distance so far: a rock standing on a hill is
         // picked when the ray meets the rock first, the hill otherwise.
-        if ( !landscape.Tiles.empty() )
+        bool surfaceHit = false;
+        for ( const RaySurfaceTrace& trace : surfaces.Surfaces )
         {
-            const float limit = hit ? closest : std::numeric_limits<float>::max();
-            const auto  keep  = [&]( size_t i ) { return !accept || accept( landscape.Entities[i] ); };
-            if ( const auto terrain = World::Landscape::RaycastLandscape( landscape.Tiles, ray.Origin,
-                                                                          ray.Direction, limit, keep );
-                 terrain && terrain->Distance < limit )
+            const float limit = hit || surfaceHit ? closest : std::numeric_limits<float>::max();
+            if ( const auto met = trace( ray, limit, accept ); met && met->Distance < limit )
             {
                 outHit.Hit      = true;
-                outHit.Entity   = landscape.Entities[terrain->Tile];
-                outHit.Point    = terrain->Point;
-                outHit.Normal   = terrain->Normal;
-                outHit.Distance = terrain->Distance;
-                return true;
+                outHit.Entity   = met->Entity;
+                outHit.Point    = met->Point;
+                outHit.Normal   = met->Normal;
+                outHit.Distance = met->Distance;
+                closest         = met->Distance;
+                surfaceHit      = true;
             }
         }
+        if ( surfaceHit )
+            return true;
 
         outHit.Hit = hit;
         if ( !hit )
@@ -1413,7 +1409,6 @@ namespace Desert::Core
         // otherwise create this pool inside the parallel phase.
         r.prepare<ECS::LevelSequenceComponent>();
         r.prepare<ECS::TextComponent>();
-        r.prepare<ECS::LandscapeMaterialComponent>();
 
         // Lights and sky.
         r.prepare<ECS::DirectionLightComponent>();
@@ -1512,9 +1507,11 @@ namespace Desert::Core
                 runOne( i );
             else
             {
-                // The shared landscape tile table is brought up to date HERE, serially, so the group's
-                // readers (WaterZoneECSSystem) only read it (LandscapeRootOf.hpp, RefreshLandscapeTileTable).
-                ECS::RefreshLandscapeTileTable( m_Registry );
+                // The modules' shared tables are brought up to date HERE, serially, so the group's readers
+                // only read them (ModuleHooks().BeforeParallelGroup; the landscape's tile table, which
+                // WaterZoneECSSystem reads).
+                for ( const RegistryPrepare refresh : ModuleHooks().BeforeParallelGroup )
+                    refresh( m_Registry );
                 Common::JobSystem::Get().ParallelFor( count,
                                                       [&]( size_t local ) { runOne( i + local ); } );
             }

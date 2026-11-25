@@ -3,7 +3,8 @@
 // AN ENTITY DRAWN BY SOMETHING ELSE THAN ITS MESH (UE: a geometry collection's proxy replaces the static mesh's
 // while it is fractured). A feature module registers a stand-in draw; MeshECSSystem records every registered one
 // first, through the same instanced static path, and does not draw the static mesh of the entities it returns.
-// Destruction's fracture pieces are the first (Destruction/Public/FracturePieceDraw.hpp).
+// Destruction's fracture pieces are the first (Destruction/Public/FracturePieceDraw.hpp); the Landscape's spline
+// meshes (Landscape/Public/LandscapeSplineMeshDraw.hpp) draw beside every entity's and return none.
 
 #include <Engine/Assets/Common.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
@@ -22,6 +23,11 @@ namespace Desert::Graphic::Render
     class RenderCommandBuffer;
 }
 
+namespace Desert::Assets
+{
+    class StaticMeshAsset;
+}
+
 namespace Desert::ECS
 {
     class IMeshStandInDraw
@@ -35,6 +41,10 @@ namespace Desert::ECS
             std::function<Graphic::MaterialInstancePtr()>                                     DefaultInstance;
             std::function<Assets::AssetHandle( const Common::Content::AssetGuid& )>            MaterialByGuid;
             std::function<Graphic::Material*( const Graphic::MaterialInstance* )>              SlotMaterial;
+            /// The static mesh asset a handle names, parsed; null while it loads or when it names none.
+            std::function<const Assets::StaticMeshAsset*( const Assets::AssetHandle& mesh )> MeshAsset;
+            /// The material service's handle of a material asset named by its asset handle.
+            std::function<Assets::AssetHandle( const Assets::AssetHandle& external )> MaterialByExternal;
         };
 
         virtual ~IMeshStandInDraw() = default;

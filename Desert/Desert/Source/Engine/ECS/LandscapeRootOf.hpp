@@ -93,7 +93,7 @@ namespace Desert::ECS
     {
         std::vector<LandscapeTileRef>     Tiles;
         std::vector<RefusedLandscapeTile> Refused;
-        // The same `Tiles`, as the raycast reads them (Scene::GatherRaycastLandscape): index i is Tiles[i],
+        // The same `Tiles`, as the raycast reads them (Scene::GatherRaycastSurfaces): index i is Tiles[i],
         // RayEntities[i] its entity's UUID. Kept beside the table so a pick or a frame's water query borrows
         // them instead of walking every entity.
         std::vector<Common::UUID>                       RayEntities;

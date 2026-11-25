@@ -2,11 +2,13 @@
 // A LANDSCAPE SPLINE'S MESHES, RECORDED AS STATIC-MESH DRAWS (L9-MESHES; UE: the USplineMeshComponents
 // ULandscapeSplineSegment::UpdateSplineMeshes keeps on the ALandscapeSplineActor).
 //
-// Not a renderer: MeshECSSystem owns one of these and every segment's meshes go out as the DrawStaticMeshCommand
+// Not a renderer: a module draw MeshECSSystem records (ECS::IMeshStandInDraw, registered by
+// Landscape::StartupModule); every segment's meshes go out as the DrawStaticMeshCommand
 // a static mesh records, at the identity transform (the splines are world cm). The bent geometry is DERIVED
 // from each LandscapeSplineComponent's Splines and nothing else — it is rebuilt the frame the splines differ from
 // the ones it was built from (an edit, a drag preview, an undo, a load), so no edit path has to remember to
 // regenerate it, and it is never saved. A mesh asset still loading is retried every frame until it reads.
+#include <Engine/ECS/System/MeshStandInDraw.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Graphic/Render/Commands/DrawMeshCommand.hpp>
 #include <Engine/World/Landscape/LandscapeSplines.hpp>
@@ -35,28 +37,18 @@ namespace Desert::Assets
 
 namespace Desert::ECS
 {
-    class LandscapeSplineMeshDraw final
+    class LandscapeSplineMeshDraw final : public IMeshStandInDraw
     {
     public:
-        /// What the mesh system already knows how to do, handed in so the rules stay its own:
-        struct Services
-        {
-            /// The static mesh asset an id names, parsed; null while it loads or when it names none.
-            std::function<const Assets::StaticMeshAsset*( const Common::UUID& mesh )> MeshAsset;
-            /// A runtime instance of the material an asset id names; null when it cannot be made.
-            std::function<Graphic::MaterialInstancePtr( const Common::UUID& material )> Instance;
-            /// The default surface (a built-in shape, a mesh section with no material).
-            std::function<Graphic::MaterialInstancePtr()> DefaultInstance;
-        };
-
-        /// Records the spline meshes of every visible landscape.
+        /// Records every spline segment's meshes; returns no entity (the splines draw beside every mesh).
         void Record( entt::registry& registry, Graphic::Render::RenderCommandBuffer& commands,
-                     uint32_t materialsVersion, const Services& services );
+                     uint32_t materialsVersion, const Services& services,
+                     std::unordered_set<entt::entity>& drawnInstead ) override;
 
     private:
         struct Draw
         {
-            std::shared_ptr<DynamicMesh>   Mesh;
+            std::shared_ptr<DynamicMesh>    Mesh;
             Graphic::MaterialSlotBindingPtr Slots;
             uint32_t                        Part = 0u;
         };

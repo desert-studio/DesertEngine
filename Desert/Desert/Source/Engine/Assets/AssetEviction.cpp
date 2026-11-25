@@ -3,7 +3,6 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Assets/FoliageTypeAsset.hpp>
-#include <Engine/Assets/LandscapeGrassTypeAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -156,24 +155,11 @@ namespace Desert::Assets
                    why );
         };
         // A feature module's assets (ModuleHooks().AssetReferences; the Landscape module's layer infos name the
-        // grass types they grow).
+        // grass types they grow, its grass types the meshes and materials they draw with).
         for ( const Core::AssetReferenceVisitor& references : Core::ModuleHooks().AssetReferences )
             references.Visit( manager, static_cast<uint64_t>( handle ),
                               [&visitGuid]( const std::string& text, const char* why )
                               { visitGuid( text, why ); } );
-        if ( const auto grassType = manager.ProbeByHandle<LandscapeGrassTypeAsset>( handle ) )
-        {
-            if ( grassType->IsReadyForUse() )
-            {
-                for ( const auto& variety : grassType->GetData().GrassVarieties )
-                {
-                    if ( variety.Mesh )
-                        visitGuid( variety.Mesh->Guid, "a reachable grass type draws it" );
-                    if ( variety.Material )
-                        visitGuid( variety.Material->Guid, "a reachable grass type shades its blades with it" );
-                }
-            }
-        }
         if ( const auto foliageType = manager.ProbeByHandle<FoliageTypeAsset>( handle ) )
         {
             if ( foliageType->IsReadyForUse() )

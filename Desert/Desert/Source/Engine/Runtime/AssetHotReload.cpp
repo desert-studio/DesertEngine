@@ -8,7 +8,6 @@
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
-#include <Engine/Assets/LandscapeGrassTypeAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/VFXEffectTypeAsset.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
@@ -138,7 +137,6 @@ namespace Desert::Runtime
         AppendLoaded<Assets::CloudTypeAsset>( assetManager, m_WatchedAssets );
         AppendLoaded<Assets::CloudModellingVolumeAsset>( assetManager, m_WatchedAssets );
         AppendLoaded<Assets::UIThemeAsset>( assetManager, m_WatchedAssets );
-        AppendLoaded<Assets::LandscapeGrassTypeAsset>( assetManager, m_WatchedAssets );
         AppendLoaded<Assets::PrefabAsset>( assetManager, m_WatchedAssets );
         AppendLoaded<Assets::VFXEffectTypeAsset>( assetManager, m_WatchedAssets );
         // A feature module's assets (ModuleHooks().HotReloads; the VFX module's `.dfx` systems): its poll reloads
@@ -230,7 +228,6 @@ namespace Desert::Runtime
             PollCloudTypes( assetManager );
             PollCloudModellingVolumes( assetManager );
             PollUIThemes( assetManager );
-            PollLandscapeGrassTypes( assetManager );
             PollPrefabs( assetManager );
             PollVFXEffectTypes( assetManager );
             for ( const Core::HotReloadPoller& poller : Core::ModuleHooks().HotReloads )
@@ -391,32 +388,6 @@ namespace Desert::Runtime
             }
 
             LOG_INFO( "[HotReload] UI theme '{}' reloaded — the next frame draws it.", key );
-        }
-    }
-
-    void AssetHotReload::PollLandscapeGrassTypes( Assets::AssetManager& assetManager )
-    {
-        // No service to notify, for the layer info's reason: LandscapeGrassTypeService hands out the asset, the
-        // landscape system reads its varieties every frame and compares its Revision for what it derived from
-        // them.
-        for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::LandscapeGrassTypeAsset>() )
-        {
-            if ( !asset )
-                continue;
-
-            const auto& path = asset->GetMetadata().Filepath;
-            if ( !TouchWatched( path ) )
-                continue;
-
-            const std::string key = path.generic_string();
-            if ( const auto reloaded = asset->Load(); !reloaded )
-            {
-                LOG_ERROR( "[HotReload] Landscape grass type '{}' could not be re-read: {}", key,
-                           reloaded.GetError() );
-                continue;
-            }
-
-            LOG_INFO( "[HotReload] Landscape grass type '{}' reloaded — the next frame grows it.", key );
         }
     }
 

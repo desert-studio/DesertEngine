@@ -56,9 +56,10 @@ namespace Desert::Core
     // THE PROCESS'S HLOD BUILDERS (UE: every UHLODBuilder subclass of the loaded modules), registered on first
     // use: Instancing, MeshMerge, MeshSimplify and MeshApproximate (HLODApproximate.hpp; its Settings are
     // HLODApproximationSettings) under their type's name (Rules::kBuiltInHLODBuilders), the landscape builder
-    // (BuildLandscapeHLODMesh) and the landscape spline builder (BuildLandscapeSplineHLODMesh). A project or game
-    // module registers its own here, at startup, for a Custom layer to name
-    // (Rules::HLODBuilderRegistry::Register). The editor's Build HLODs builds with a copy of it.
+    // (BuildLandscapeHLODMesh) and the modules' builders (ModuleHooks().HLODBuilders; the Landscape module's
+    // spline builder, Landscape::BuildLandscapeSplineHLODMesh). A project or game module registers its own here,
+    // at startup, for a Custom layer to name (Rules::HLODBuilderRegistry::Register). The editor's Build HLODs
+    // builds with a copy of it.
     [[nodiscard]] Rules::HLODBuilderRegistry& HLODBuilders();
 
     // THE IMPOSTOR HLOD BUILDER (HLODLayerType::Impostor; UE ImpostorBaker + the HLOD "Instancing" batches): the
@@ -85,16 +86,6 @@ namespace Desert::Core
     private:
         HLODImpostorBaker m_Baker; // empty = this process cannot bake (the cook)
     };
-
-    // THE SPLINE MESHES OF ONE LANDSCAPE SPLINE (Rules::LandscapeSplineHLODRequest; UE: the spline's
-    // USplineMeshComponents in its cell's HLOD): its LandscapeSpline block read as the loader reads it, every
-    // segment's SplineMeshes bent by World::Landscape::BuildLandscapeSplineSegmentMeshes - the same function the
-    // editor and the game draw them with (LandscapeSplineMeshDraw) - from the built-in shape or the mesh asset
-    // (resolved by its handle in @p registries, read as BuildHLODMesh reads a part), one world-space EditMesh.
-    // Nullopt when the spline lays no mesh.
-    [[nodiscard]] Common::ResultStr<std::optional<Assets::StaticMeshComponentSer>>
-    BuildLandscapeSplineHLODMesh( const Rules::LandscapeSplineHLODRequest&      request,
-                                  std::span<const Common::Utils::AssetRegistry> registries );
 
     // The geometry of a MeshMerge / MeshSimplify HLOD, for one request; the builders pass the cook's @p
     // registries. A request with MergeMaterials answers BuildHLODMeshForBake's mesh: one section over the atlas and
