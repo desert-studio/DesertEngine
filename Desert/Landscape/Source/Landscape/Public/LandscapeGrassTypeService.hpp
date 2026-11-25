@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Assets/LandscapeGrassTypeAsset.hpp>
+#include <Landscape/Public/LandscapeGrassTypeAsset.hpp>
 #include <Engine/Runtime/Services/OnDemandAssets.hpp>
 
 #include <memory>

@@ -1,5 +1,6 @@
 #include <Landscape/Public/LandscapeCollision.hpp>
 #include <Landscape/Public/LandscapeECSSystem.hpp>
+#include <Landscape/Public/LandscapeGrassTypeAsset.hpp>
 #include <Landscape/Public/LandscapeGrassTypeService.hpp>
 #include <Landscape/Public/LandscapeLayerInfoService.hpp>
 
@@ -20,28 +21,31 @@
 
 // THE LANDSCAPE MODULE (UE: the Landscape runtime module's StartupModule). What the landscape adds to the engine
 // is registered here, through the engine's generic hooks: the layer-info and grass-type services, the
-// `.delayerinfo` hot reload, the grass types a layer info keeps reachable, the layer name a terrain material's
-// layer input is matched by, and the tiles' and grass's render collector. Engine names only
+// `.delayerinfo` / `.degrasstype` hot reload, the grass types a layer info keeps reachable, the layer name a
+// terrain material's layer input is matched by, and the tiles' and grass's render collector. Engine names only
 // Landscape::StartupModule (Engine/Core/Modules.cpp).
 
 namespace Desert::Landscape
 {
     namespace
     {
-        void WatchLayerInfos( Assets::AssetManager&                            assets,
-                              std::vector<std::shared_ptr<Assets::AssetBase>>& watched )
+        template <typename TAsset>
+        void WatchLoaded( Assets::AssetManager& assets, std::vector<std::shared_ptr<Assets::AssetBase>>& watched )
         {
-            for ( const auto& [handle, asset] : assets.FindAllByType<Assets::LandscapeLayerInfoAsset>() )
+            for ( const auto& [handle, asset] : assets.FindAllByType<TAsset>() )
                 if ( asset )
                     watched.push_back( asset );
         }
 
-        // No service to notify: LandscapeLayerInfoService hands out the asset's own data, and the landscape
-        // system and the paint tool read it every frame / every stroke, so re-reading the asset IS the reload.
-        void PollLayerInfos( Assets::AssetManager&                                      assets,
-                             const std::function<bool( const std::filesystem::path& )>& changed )
+        // No service to notify: LandscapeLayerInfoService and LandscapeGrassTypeService hand out the asset's own
+        // data, and the landscape system and the paint tool read it every frame / every stroke (the grass compares
+        // the type's Revision for what it derived from its varieties), so re-reading the asset IS the reload.
+        template <typename TAsset>
+        void PollReloaded( Assets::AssetManager&                                      assets,
+                           const std::function<bool( const std::filesystem::path& )>& changed, const char* what,
+                           const char* effect )
         {
-            for ( const auto& [handle, asset] : assets.FindAllByType<Assets::LandscapeLayerInfoAsset>() )
+            for ( const auto& [handle, asset] : assets.FindAllByType<TAsset>() )
             {
                 if ( !asset )
                     continue;
@@ -53,19 +57,33 @@ namespace Desert::Landscape
                 // succeeded): a poll can land mid-write.
                 if ( const auto reloaded = asset->Load(); !reloaded )
                 {
-                    LOG_ERROR( "[HotReload] Landscape layer info '{}' could not be re-read: {}", key,
+                    LOG_ERROR( "[HotReload] Landscape {} '{}' could not be re-read: {}", what, key,
                                reloaded.GetError() );
                     continue;
                 }
-                LOG_INFO( "[HotReload] Landscape layer info '{}' reloaded — the next frame and stroke use it.",
-                          key );
+                LOG_INFO( "[HotReload] Landscape {} '{}' reloaded — {}.", what, key, effect );
             }
+        }
+
+        void PollLayerInfos( Assets::AssetManager&                                      assets,
+                             const std::function<bool( const std::filesystem::path& )>& changed )
+        {
+            PollReloaded<Assets::LandscapeLayerInfoAsset>( assets, changed, "layer info",
+                                                           "the next frame and stroke use it" );
+        }
+
+        void PollGrassTypes( Assets::AssetManager&                                      assets,
+                             const std::function<bool( const std::filesystem::path& )>& changed )
+        {
+            PollReloaded<Assets::LandscapeGrassTypeAsset>( assets, changed, "grass type",
+                                                           "the next frame grows it" );
         }
 
         // THE GRASS A LAYER GROWS (JFA-OUTLINE-MISSING): a layer info is a root (a landscape paints with it), and
         // the grass types it names must stay with it, or the sweep releases them and every grass instance
-        // vanishes.
-        void VisitLayerInfoReferences( Assets::AssetManager& assets, std::uint64_t handle,
+        // vanishes; the grass type in turn keeps its meshes and materials.
+        void
+        VisitLandscapeAssetReferences( Assets::AssetManager& assets, std::uint64_t handle,
                                        const std::function<void( const std::string&, const char* )>& visitGuid )
         {
             if ( const auto layer =
@@ -73,6 +91,18 @@ namespace Desert::Landscape
                 if ( layer->IsReadyForUse() )
                     for ( const auto& grass : layer->GetData().GrassTypes )
                         visitGuid( grass.Guid, "a reachable landscape layer grows it" );
+            // A grass type keeps the meshes it draws and the materials its blades are shaded with.
+            if ( const auto grassType =
+                      assets.ProbeByHandle<Assets::LandscapeGrassTypeAsset>( Assets::AssetHandle( handle ) ) )
+                if ( grassType->IsReadyForUse() )
+                    for ( const auto& variety : grassType->GetData().GrassVarieties )
+                    {
+                        if ( variety.Mesh )
+                            visitGuid( variety.Mesh->Guid, "a reachable grass type draws it" );
+                        if ( variety.Material )
+                            visitGuid( variety.Material->Guid,
+                                       "a reachable grass type shades its blades with it" );
+                    }
         }
 
         const std::string* LayerNameOf( std::uint64_t handle )
@@ -135,8 +165,9 @@ namespace Desert::Landscape
         hooks.AssetRoots.push_back( &MarkLandscapeAssetRoots );
         ECS::RegisterPhysicsSceneFeature( []( Physics::PhysicsWorld& world ) -> std::unique_ptr<ECS::IPhysicsSceneFeature>
                                           { return std::make_unique<LandscapePhysicsFeature>( world ); } );
-        hooks.HotReloads.push_back( { &WatchLayerInfos, &PollLayerInfos } );
-        hooks.AssetReferences.push_back( { &VisitLayerInfoReferences } );
+        hooks.HotReloads.push_back( { &WatchLoaded<Assets::LandscapeLayerInfoAsset>, &PollLayerInfos } );
+        hooks.HotReloads.push_back( { &WatchLoaded<Assets::LandscapeGrassTypeAsset>, &PollGrassTypes } );
+        hooks.AssetReferences.push_back( { &VisitLandscapeAssetReferences } );
         hooks.AssetParamLabels.push_back( { "LandscapeLayerInfoAsset", &LayerNameOf } );
         // The tiles' GPU copies are the scene's ledger rows (Scene::GetLedgerInstance).
         hooks.RenderCollectors.push_back(
