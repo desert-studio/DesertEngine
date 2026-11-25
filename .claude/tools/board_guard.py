@@ -380,7 +380,18 @@ def push_refusal(cmd):
 
 def main():
     if "--session-start" in sys.argv:
-        session_start(load())
+        s = load()
+        try:
+            source = json.load(sys.stdin).get("source", "")
+        except (ValueError, OSError):
+            source = ""
+        # A new Claude process (startup, resume) ends every agent of the previous one without a SubagentStop; /clear and
+        # /compact keep them running (11-25: four agents were live after /clear).
+        if source in ("startup", "resume"):
+            now = time.time()
+            for aid in s["agents"]:
+                s["stopped"].setdefault(aid, now)
+        session_start(s)
         sys.exit(0)
     if "--owner-named-mirror" in sys.argv:
         # Notion's SQL allowance runs out (10-27): the unblock check is answered from the board mirror while it is fresh.
