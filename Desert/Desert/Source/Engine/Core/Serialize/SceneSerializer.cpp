@@ -495,13 +495,13 @@ namespace Desert::Core
                           scene.SceneName, partition.UnplacedPrefabInstances.size() );
             }
 
-            if ( !partition.UnplacedLandscapeTiles.empty() )
+            if ( !partition.UnplacedFramedRecords.empty() )
             {
                 // The same limitation from a different cause: a tile is placed by its root's frame, and
                 // these name a root the file does not contain or one that cannot be tiled.
                 LOG_WARN( "[WorldPartition] '{0}': {1} landscape tile(s) have no root this file can place "
                           "them by, so they contribute no footprint.",
-                          scene.SceneName, partition.UnplacedLandscapeTiles.size() );
+                          scene.SceneName, partition.UnplacedFramedRecords.size() );
             }
 
             LOG_INFO( "[WorldPartition] '{0}': {1}.", scene.SceneName,

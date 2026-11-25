@@ -1,3 +1,9 @@
+# BUILD-MOD-6L pass 8: Core stops knowing the landscape. World Partition's rules (Core/Serialize/WorldPartitionRules)
+# place a landscape tile and spline through a descriptor hook LandscapeCore registers (UE: FLandscapeActorDesc, the
+# Landscape module's FWorldPartitionActorDesc subclass); LandscapeCore sits ABOVE Core and the dedicated server names it.
+# The pass 6 lines below are rerun unchanged: WP_Protocol streams as on dev, G3_TwoTerrains draws its two landscapes.
+# [server_bc01] also: `grep -n Landscape` over Desert/Desert/Source/Engine/Core finds no #include of LandscapeCore in a
+# file of the module Core.
 # BUILD-MOD-6L pass 6: the last Engine/World/Landscape files left Core - the runtime data (Data, Layout, TileFiles,
 # Frame, LayerLimits, CollisionShape, Splines, SplinesJson, EditLayers, EditLayerStack) into the render-free module
 # LandscapeCore (Desert/Landscape/Source/LandscapeCore), the edit tools (Brush, Paint, EditCache) into Landscape.

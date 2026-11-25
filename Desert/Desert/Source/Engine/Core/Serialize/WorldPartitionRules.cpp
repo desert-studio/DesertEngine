@@ -1,7 +1,6 @@
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <Common/Json/DocumentStruct.hpp>
-#include <LandscapeCore/Public/LandscapeSplinesJson.hpp>
 
 namespace Desert::Core::Rules::Detail
 {
@@ -379,78 +378,47 @@ namespace Desert::Core::Rules
             return box;
         }
 
-        std::optional<Common::Math::AABB> LandscapeSplineBandOf( const Assets::EntityData& record,
-                                                                 Common::Json::Issues&     issues )
-        {
-            const auto block = BlockOf( record, kLandscapeSplineComponent, issues );
-            if ( !block.has_value() )
-                return std::nullopt;
-            World::Landscape::LandscapeSplines splines;
-            World::Landscape::ReadLandscapeSplinesJson( *block, splines, issues );
-            return World::Landscape::LandscapeSplinesBounds( splines );
-        }
-
-        void AppendSplineBand( const Common::Math::AABB& band, std::vector<glm::vec3>& out )
-        {
-            out.push_back( band.Min );
-            out.push_back( band.Max );
-        }
-
-        bool AppendFootprint( const Assets::EntityData& record, const glm::mat4& world,
-                              const AssetBoundsSource& bounds, std::vector<glm::vec3>& out,
-                              Common::Json::Issues& issues )
-        {
-            if ( const auto band = LandscapeSplineBandOf( record, issues ); band.has_value() )
-            {
-                AppendSplineBand( *band, out );
-                return true;
-            }
-            out.emplace_back( world[3].x, world[3].y, world[3].z );
-            const std::size_t before = out.size();
-
-            ForEachLocalBox( record, bounds, issues,
-                             [&]( const Common::Math::AABB& box ) { AppendBoundsCorners( world, box, out ); } );
-
-            AppendInstancePoints( record, out, issues );
-            return out.size() > before;
-        }
-
-        std::optional<World::Landscape::LandscapeTileRect>
-        LandscapeTileRectOf( const Assets::EntityData& tile, const std::vector<glm::mat4>& world,
-                             std::span<const Assets::EntityData>                  records,
-                             const std::unordered_map<Common::UUID, std::size_t>& byId,
-                             Common::Json::Issues&                                issues )
-        {
-            const auto tileBlock = BlockOf( tile, kLandscapeTileComponent, issues );
-            if ( !tileBlock.has_value() )
-                return std::nullopt;
-
-            Common::UUID rootId;
-            if ( !ReadReference( *tileBlock, "Landscape", rootId, issues ) || rootId.IsNull() )
-                return std::nullopt;
-            const auto found = byId.find( rootId );
-            if ( found == byId.end() )
-                return std::nullopt;
-            const auto rootBlock = BlockOf( records[found->second], kLandscapeRootComponent, issues );
-            if ( !rootBlock.has_value() )
-                return std::nullopt;
-
-            World::Landscape::LandscapeRoot root;
-            root.Origin = glm::vec3( world[found->second][3] );
-            rootBlock->ReadInto( "QuadsPerTile", root.QuadsPerTile, issues );
-            rootBlock->ReadInto( "SpacingCm", root.SpacingCm, issues );
-            rootBlock->ReadInto( "ZScale", root.ZScale, issues );
-            if ( !World::Landscape::ValidateLandscapeRoot( root ) )
-                return std::nullopt;
-
-            std::int32_t tileX = 0;
-            std::int32_t tileZ = 0;
-            tileBlock->ReadInto( "TileX", tileX, issues );
-            tileBlock->ReadInto( "TileZ", tileZ, issues );
-            return World::Landscape::LandscapeTileBounds( root, tileX, tileZ );
-        }
-
     } // namespace Detail
+
+    namespace
+    {
+        // The registered DescriptorHooks (UE: the loaded actor classes' descriptor types). Filled at module
+        // startup, read by DescribeEntity and the planner.
+        std::vector<DescriptorHook>& HookList()
+        {
+            static std::vector<DescriptorHook> hooks;
+            return hooks;
+        }
+
+        const DescriptorHook* FindHook( std::string_view component )
+        {
+            for ( const DescriptorHook& hook : HookList() )
+                if ( hook.Component == component )
+                    return &hook;
+            return nullptr;
+        }
+
+        const DescriptorFacts* FactsOf( const EntityDescriptor& descriptor, std::string_view component )
+        {
+            for ( const DescriptorFacts& facts : descriptor.Facts )
+                if ( facts.Component == component )
+                    return &facts;
+            return nullptr;
+        }
+    } // namespace
+
+    void RegisterDescriptorHook( const DescriptorHook& hook )
+    {
+        if ( hook.Component.empty() || hook.Describe == nullptr || FindHook( hook.Component ) != nullptr )
+            return;
+        HookList().push_back( hook );
+    }
+
+    std::span<const DescriptorHook> DescriptorHooks()
+    {
+        return HookList();
+    }
+
     [[nodiscard]] std::vector<UnregisteredReference>
     FindUnregisteredEntityReferences( std::span<const Assets::EntityData> records )
     {
@@ -678,26 +646,18 @@ namespace Desert::Core::Rules
             out.HLODLayer = std::move( name );
         }
 
-        if ( const auto tile = Detail::BlockOf( record, kLandscapeTileComponent, issues ); tile.has_value() )
+        // The components that describe their own record (DescriptorHook), in registration order. A record that
+        // carries the component with a payload that is not a block is handed over too (block null): the hook
+        // decides whether that is "no place" (a landscape tile) or nothing at all.
+        for ( const DescriptorHook& hook : DescriptorHooks() )
         {
-            DescriptorLandscapeTile placed;
-            Common::UUID            root;
-            if ( Detail::ReadReference( *tile, "Landscape", root, issues ) && !root.IsNull() )
-                placed.Root = static_cast<std::uint64_t>( root );
-            tile->ReadInto( "TileX", placed.X, issues );
-            tile->ReadInto( "TileZ", placed.Z, issues );
-            out.LandscapeTile = placed;
-        }
-        else if ( Detail::PayloadOf( record, kLandscapeTileComponent ).has_value() )
-            out.LandscapeTile = DescriptorLandscapeTile{}; // a tile whose block is unreadable: no place
-        out.LandscapeSpline = Detail::LandscapeSplineBandOf( record, issues );
-        if ( const auto root = Detail::BlockOf( record, kLandscapeRootComponent, issues ); root.has_value() )
-        {
-            DescriptorLandscapeRoot tiling;
-            root->ReadInto( "QuadsPerTile", tiling.QuadsPerTile, issues );
-            root->ReadInto( "SpacingCm", tiling.SpacingCm, issues );
-            root->ReadInto( "ZScale", tiling.ZScale, issues );
-            out.LandscapeRoot = tiling;
+            const auto block = Detail::BlockOf( record, hook.Component, issues );
+            if ( !block.has_value() && !Detail::PayloadOf( record, hook.Component ).has_value() )
+                continue;
+            DescriptorFacts facts;
+            facts.Component = std::string( hook.Component );
+            if ( hook.Describe( block.has_value() ? &*block : nullptr, facts, issues ) )
+                out.Facts.push_back( std::move( facts ) );
         }
         return out;
     }
@@ -865,11 +825,6 @@ namespace Desert::Core::Rules
         bool AppendFootprint( const EntityDescriptor& descriptor, const glm::mat4& world,
                               const AssetBoundsSource& bounds, std::vector<glm::vec3>& out )
         {
-            if ( descriptor.LandscapeSpline.has_value() )
-            {
-                AppendSplineBand( *descriptor.LandscapeSpline, out );
-                return true;
-            }
             out.emplace_back( world[3].x, world[3].y, world[3].z );
             const std::size_t before = out.size();
             for ( const Common::Math::AABB& box : descriptor.Boxes )
@@ -888,28 +843,30 @@ namespace Desert::Core::Rules
             return out.size() > before;
         }
 
-        std::optional<World::Landscape::LandscapeTileRect>
-        LandscapeTileRectOf( const EntityDescriptor& tile, const std::vector<glm::mat4>& world,
-                             std::span<const EntityDescriptor>                    descriptors,
-                             const std::unordered_map<Common::UUID, std::size_t>& byId )
+        HookedFootprint HookFootprintOf( std::size_t record, std::span<const EntityDescriptor> records,
+                                         const std::vector<glm::mat4>&                        world,
+                                         const std::unordered_map<Common::UUID, std::size_t>& byId )
         {
-            if ( !tile.LandscapeTile.has_value() || tile.LandscapeTile->Root == 0 )
-                return std::nullopt;
-            const auto found = byId.find( Common::UUID( tile.LandscapeTile->Root ) );
-            if ( found == byId.end() )
-                return std::nullopt;
-            const std::optional<DescriptorLandscapeRoot>& stated = descriptors[found->second].LandscapeRoot;
-            if ( !stated )
-                return std::nullopt;
-            const DescriptorLandscapeRoot&  tiling = *stated;
-            World::Landscape::LandscapeRoot root;
-            root.Origin       = glm::vec3( world[found->second][3] );
-            root.QuadsPerTile = tiling.QuadsPerTile;
-            root.SpacingCm    = tiling.SpacingCm;
-            root.ZScale       = tiling.ZScale;
-            if ( !World::Landscape::ValidateLandscapeRoot( root ) )
-                return std::nullopt;
-            return World::Landscape::LandscapeTileBounds( root, tile.LandscapeTile->X, tile.LandscapeTile->Z );
+            for ( const DescriptorFacts& own : records[record].Facts )
+            {
+                const DescriptorHook* hook = FindHook( own.Component );
+                if ( hook == nullptr || hook->Footprint == nullptr )
+                    continue;
+                const DescriptorFacts* frame      = nullptr;
+                glm::mat4              frameWorld = world[record];
+                if ( !hook->FrameComponent.empty() )
+                {
+                    frameWorld = glm::mat4( 1.0f );
+                    if ( own.Frame != 0 )
+                        if ( const auto found = byId.find( Common::UUID( own.Frame ) ); found != byId.end() )
+                        {
+                            frame      = FactsOf( records[found->second], hook->FrameComponent );
+                            frameWorld = world[found->second];
+                        }
+                }
+                return HookedFootprint{ true, hook->Footprint( own, frame, frameWorld ) };
+            }
+            return {};
         }
 
     } // namespace Detail
@@ -1481,16 +1438,19 @@ namespace Desert::Core::Rules
         // ── 1. World positions ────────────────────────────────────────────────────────────────────
         const std::vector<glm::mat4> world = Detail::ComposeWorld( records, byId );
 
-        // A landscape tile's footprint is its rectangle, from its root — after step 1, because the root's
-        // origin is the root's WORLD position.
-        std::vector<std::optional<World::Landscape::LandscapeTileRect>> tileRect( records.size() );
+        // A record a registered hook places (a landscape tile's rectangle from its root, a spline's band): after
+        // step 1, because a frame record's origin is its WORLD position.
+        std::vector<std::optional<Common::Math::AABB>> hookBox( records.size() );
         for ( std::size_t record = 0; record < records.size(); ++record )
         {
-            if ( !records[record].LandscapeTile.has_value() )
+            if ( records[record].Facts.empty() )
                 continue;
-            tileRect[record] = Detail::LandscapeTileRectOf( records[record], world, records, byId );
-            if ( !tileRect[record].has_value() )
-                plan.UnplacedLandscapeTiles.push_back( record );
+            const Detail::HookedFootprint hooked = Detail::HookFootprintOf( record, records, world, byId );
+            if ( !hooked.Hooked )
+                continue;
+            hookBox[record] = hooked.Box;
+            if ( !hooked.Box.has_value() )
+                plan.UnplacedFramedRecords.push_back( record );
         }
 
         // ── 2. Containment edges, then composites ─────────────────────────────────────────────────
@@ -1612,7 +1572,7 @@ namespace Desert::Core::Rules
         std::vector<bool> unplaced( records.size(), false );
         for ( const std::size_t record : plan.UnplacedPrefabInstances )
             unplaced[record] = true;
-        for ( const std::size_t record : plan.UnplacedLandscapeTiles )
+        for ( const std::size_t record : plan.UnplacedFramedRecords )
             unplaced[record] = true;
 
         std::vector<glm::vec3> points;
@@ -1637,13 +1597,11 @@ namespace Desert::Core::Rules
                     continue;
 
                 points.clear();
-                if ( const auto& rect = tileRect[member]; rect.has_value() )
+                if ( const auto& box = hookBox[member]; box.has_value() )
                 {
-                    // The four corners and NOT the entity's own position: nothing reads a tile's transform.
-                    points.emplace_back( rect->MinX, rect->MinY, rect->MinZ );
-                    points.emplace_back( rect->MaxX, rect->MinY, rect->MinZ );
-                    points.emplace_back( rect->MinX, rect->MaxY, rect->MaxZ );
-                    points.emplace_back( rect->MaxX, rect->MaxY, rect->MaxZ );
+                    // The hook's box and NOT the entity's own position: nothing reads a tile's transform.
+                    points.push_back( box->Min );
+                    points.push_back( box->Max );
                 }
                 else if ( !Detail::AppendFootprint( records[member], world[member], bounds, points ) )
                     ++plan.PointOnlyRecords;

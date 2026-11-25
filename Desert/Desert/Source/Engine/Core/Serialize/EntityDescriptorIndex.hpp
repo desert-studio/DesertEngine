@@ -56,7 +56,9 @@ namespace Desert::Core::DescriptorIndex
     // 6 (WP-LANDSCAPE-SPLINES): a descriptor states its LandscapeSpline band box - an index of 5 is rebuilt.
     // 7 (WP-SETTINGS-UI): a descriptor states its HLODLayer (the entity's HLOD layer override) - an index of 6 is
     // rebuilt, never read without it.
-    DESERT_JSON_STRUCT( DescriptorIndexFile, "EntityDescriptorIndex", 7 )
+    // 8 (BUILD-MOD-6L): a descriptor states its hooked components' Facts (DescriptorHook) in place of the
+    // landscape tile/root/spline fields; an index of 7 is rebuilt.
+    DESERT_JSON_STRUCT( DescriptorIndexFile, "EntityDescriptorIndex", 8 )
 
     // Where the index of the scene at `scenePath` lives.
     [[nodiscard]] std::filesystem::path PathOf( const std::filesystem::path& scenePath );
