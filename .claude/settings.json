@@ -144,10 +144,14 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/board_guard.py\""
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/auto_compact.py\""
           }
         ]
       }
     ]
   },
-  "autoCompactWindow": 133000
+  "autoCompactWindow": 200000
 }
