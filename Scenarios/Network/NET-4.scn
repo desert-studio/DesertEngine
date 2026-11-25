@@ -1,68 +1,50 @@
 # NET-4: own-character prediction + reconciliation (NET-ARCH §5.1). The client simulates every input step as it
 # sends it (Net::MovePredictor over Net::StepPawnMove, UE CharacterMovement walking/falling math); the server runs
-# the same step per received input (a starved pawn holds) and acks the step with its full movement state; the
-# client compares, and on a mismatch takes the server's state and replays its unacked moves (UE saved moves +
-# ClientAdjustPosition); the drawn pawn keeps a decaying offset (UE smoothing, drawn at once above 384 cm). Clock
-# sync: the snapshot carries the server's input queue; the client dilates its step rate +-3 % to keep it at 1..3.
-# Runner: DesertEngine-scratch/NET-PREDICT/run_all.sh (base NET-3): A = Editor, B = DesertNetProbe bot; both on a
-# simulated 75 ms each way (150 ms RTT) / 2 % loss link (GNS FakePacketLag/Loss).
-# Дано: DesertServer --role all + Editor client A + bot B from task/NET-PREDICT on WP_Protocol, link 150 ms / 2 % loss.
-# Когда: A sprints (--net-walk-mode sprint) 200 m along +X and jumps every 1.5 s (--net-jump-every 1.5).
-# Тогда [net4_predicted] net4/clientA_predicted.png: A's view moves with its input from the first step (log "predicting own pawn" before the server's first ack), no snap-back; A's log "corrections 0" over the run; B's log shows A's pawn moving.
-# Когда: the server console teleports A 250 cm sideways (`teleport 1 x y z+250`).
-# Тогда [net4_teleport] net4/clientA_teleport.png: A's log has exactly one "correction 1 ... smoothed" and the per-second line "corrections 1" after it.
-# Pass 1 result (logs/net4): corrections 0 over 19.7 s of sprint + jumps at 150 ms / 2 %; teleport -> "correction 1 ... drawn offset 252.5 cm smoothed". Floor plane only (server has no collision world): no fence.
-# Pass 5 (server collision world from the cells, pass 4): fence 300001 in WP_Protocol (__ExternalEntities__/e1,
-# static RigidBody + box Collider 20 x 180 x 600 cm at x=2500, 100 cm above the landscape there); the cook of the
-# scratch copy (NET-MESH-0.scn) carries it to the server, the client loads it from the scene. Spawns 0,-300,650 /
-# 500,-300,-200 (above the landscape, ~-420 there). Walk 300 m; the teleport sends A 200 m back (-X), 5 m up.
-# Дано: DesertServer --role all + Editor client A + bot B from task/NET-PREDICT on WP_Protocol, link 150 ms / 2 % loss.
-# Когда: A sprints and jumps the fence for 30 s.
-# Тогда [net4_fence] net4/clientA_fence_before.png, net4/clientA_fence_after.png: A clears the fence in A's frames and in B's log (A's x passes 2500 with its Y above the fence top, no stop at x~2470); A's per-second lines "corrections 0" over 30 s; clock near x1.00.
-# Когда: the server teleports A onto the landscape 200 m away (`teleport 1 x-20000 y+500 z`).
-# Тогда [net4_teleport_ground] net4/clientA_teleport_ground.png: one "correction 1 ... smoothed"; A stands on the terrain (B's log: A's Y settles at the ground there, does not keep falling), camera above ground.
-# Pass 8 (brief 11-23): no prediction before the first snapshot of the own pawn; the prediction probe ignores every
-# character capsule (the client's own drawn pawn overlapped it - the server's collision world has no pawns); clock
-# sync reads the server queue's window minimum (target 1, +-1 %/step, cap 2 %). A 200 m teleport is a relocation:
-# UE NetworkNoSmoothUpdateDistance (384 cm) - ONE correction, drawn at once, not smoothed over 200 m.
-# Дано: Editor + DesertServer from task/NET-PREDICT, `--role all`, WP_Protocol, clients A and B, link 150 ms / 2 % loss.
-# Когда: A sprints and jumps the fence for 30 s.
-# Тогда [net4_fence] net4/clientA_fence_after.png: A over the fence; HUD/log "corrections 0" over 30 s; clock x0.98-1.02.
-# Когда: A stands 10 s on a slope; then the server teleports A onto the landscape 200 m away.
-# Тогда [net4_teleport_ground] net4/clientA_teleport_ground.png: server drift < 1 cm over 10 s; exactly one correction; A stands on the terrain, camera above ground.
-# Pass 10 (brief 11-25): the one spawn correction (run 11: 8.5 cm at input step 15) was the start state, not the
-# probe: the server's pawn began GROUNDED (Net::PawnMoveState's default) while the client began falling - server vx
-# +22 = one ground-acceleration step, vy +16 = one gravity step. Both now start from the spawned state's movement
-# mode (falling; the snapshot carries it). Fence frames are picked after the run from A's own drawn x (shot_x.txt).
-# Дано: Editor + DesertServer from task/NET-PREDICT, `--role all`, WP_Protocol, clients A and B, link 150 ms / 2 % loss.
-# Когда: A sprints and jumps the fence for 30 s.
-# Тогда [net4_fence] net4/clientA_fence_after.png: A over the fence (first shot at A x >= 2500); HUD/log "corrections 0" over 30 s; clock x0.98-1.02.
-# Когда: A stands 10 s on a slope; then the server teleports A onto the landscape 200 m away.
-# Тогда [net4_teleport_ground] net4/clientA_teleport_ground.png: server drift < 1 cm over 10 s; one correction (snap beyond 384 cm, as UE); A stands on the terrain, camera above ground.
-# Pass 11 (brief 11-25): the "post-teleport slide y 1524 -> -192" was a FALL - Net coordinates are Y-up (X, Y, Z),
-# and the destination (old height + 5 m) stands ~17 m above the terrain 200 m back; the one-step log (correction 1,
-# run 12): server v (0, -229, 0) falling, input move (0, 0) buttons 0; the client's drawn Y 1495 -> 846 -> -192 in
-# ~1.9 s = free fall of 1716 cm at 980 cm/s2 (UE TeleportTo: the pawn falls to the floor there). Engine unchanged;
-# the runner measures the 10 s no-input stand from the landing. Fence proof: every frame shot near the fence, motion
-# blur off for the run by a run flag (not a renderer default).
-# Дано: Editor + DesertServer from task/NET-PREDICT, `--role all`, WP_Protocol, clients A and B, link 150 ms / 2 % loss.
-# Когда: A sprints and jumps the fence for 30 s.
-# Тогда [net4_fence] net4/clientA_fence_before.png, net4/clientA_fence_after.png: frames at A x 2400-2600 show the fence and A clearing it (motion blur off); HUD/log "corrections 0" over 30 s; clock x0.98-1.02.
-# Когда: A stands 10 s on a slope; then the server teleports A onto the landscape 200 m away; A gets no input.
-# Тогда [net4_teleport_ground] net4/clientA_teleport_ground.png: A falls and lands; from the landing server and client move < 1 cm over 10 s; one correction (snap beyond 384 cm, as UE); A stands on the terrain, camera above ground.
-# Pass 11 result (run 13, logs/net4): --quality PostProcess.MotionBlurQuality=0 applied ("machine.json untouched"),
-# frames sharp. Corrections 0 over the whole 300 m sprint, clock x1.00-1.01. Teleport: (10462,1524,806) -> falls ->
-# landed server (10466,-111,805) = client drawn (10466,-111,805); 10 s later both identical: drift 0 cm; corrections 1.
-# net4_teleport_ground PASS. net4_fence PARTIAL: frames at x 2305 / 2555 are sharp but the fence is not in them - A
-# runs at z 580-595, the fence (600 cm along Z) is beside that line (a green edge at the right border at x 2555).
-# Pass 12: the pass-11 reading was wrong - the fence spans z 350-950, A's line (z ~590) crosses it. The fence's TOP
-# was flush with the terrain: the net pawn position is the FEET (Net/PhysicsPawnMoveWorld.hpp:59-71, feetToCenter),
-# and pass 5 placed the fence centre 90 cm below a probe's rest height read as the capsule centre (ground probes at
-# z 650: x 2297 -94, 2415 -80, 2500 -64 = the fence top). Content fixed: fence 300001 Y -154 -> -34 (bottom 60 cm
-# in the slope, ~120 cm above it), HLODs of G0L0(1,0)/HLOD_Main rebuilt, the scratch world recooked. A's camera looks
-# -Z while A walks +X, so the fence frames come from a fixed side camera (--camera 2100,120,50) that sees A's capsule.
-# Quit: PlaySession::EndForExit ends the net client before EditorLayer::OnDetach tears the world down.
-# Дано: Editor + DesertServer from task/NET-PREDICT (= dev), `--role all`, WP_Protocol, clients A and B, link 150 ms / 2 % loss, `--quality PostProcess.MotionBlurQuality=0`.
-# Когда: A sprints along the fence's line and jumps it.
-# Тогда [net4_fence] net4/clientA_fence_x<X>.png: a frame at A x 2400-2600 shows the fence and A clearing it (or stopped by it on both sides); log "corrections 0" over 30 s; clock x0.98-1.02.
-# Тогда [net4_teleport_ground] run output: still PASS (landed server = client drawn, drift < 1 cm over 10 s, one correction); Editor exit 0.
+# the same step per received input and acks it with its full movement state; on a mismatch the client takes the
+# server's state and replays its unacked moves (UE saved moves + ClientAdjustPosition); the drawn pawn keeps a
+# decaying offset (UE smoothing; drawn at once beyond 384 cm, UE NetworkNoSmoothUpdateDistance). Clock sync: the
+# snapshot carries the server's input queue; the client dilates its step rate to keep it at 1.
+# Played by scripts/Dev/net_scenario.py (NET-SCENARIO-PLAY, UE Gauntlet's shape): DesertServer --role all + Editor
+# client A (headless --play, every frame shot, motion blur off for the run) + DesertNetProbe bot B, both clients on a
+# 75 ms each way (150 ms RTT) / 2 % loss link. Pass history (p1-p12, run_all.sh): git log of this file.
+# Fence 300001 in WP_Protocol: static box 20 x 180 x 600 cm at x=2500 (z 350-950), ~120 cm above the slope. A's
+# frames come from a FIXED side camera at (2100,120,50) that sees A's capsule approach the fence and cross it.
+# Net coordinates are Y-up (X, Y, Z); the net pawn position is the FEET.
+Мир Content/Scenes/WP_Protocol.desce
+Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Test.deprefab --spawn 0,-300,650 --spawn 500,-300,-200 --steps 864000
+Ждать server 60 \[Server\] listening on port
+Роль A editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --camera 2100,120,50 --look 0.595,-0.198,0.779 --quality PostProcess.MotionBlurQuality=0 --net-walk-cm 30000 --net-walk-dir 1,0,0 --net-walk-mode sprint --net-jump-every 1.5
+Ждать A 1800 \[Net\] in session
+Роль B bot account=2 lag=75 loss=2 --seconds 1500
+Ждать A 120 \[Net\] predicting own pawn
+# Дано: server + A + B on WP_Protocol, link 150 ms / 2 % loss. Когда: A sprints along +X and jumps every 1.5 s.
+Ждать A 900 drawn own \((2[4-9]\d\d|[3-9]\d\d\d|\d{5,}),
+Тогда A clientA_fence_before the fence (thin green box) beside the slope from the side camera, A's capsule at x >= 2400 next to it or crossing it; sharp (no motion blur)
+Ждать A 120 drawn own \((2[5-9]\d\d|[3-9]\d\d\d|\d{5,}),
+Тогда A clientA_fence_after A past the fence (x >= 2500), the fence intact behind it; no capsule stuck at x ~2470
+# Тогда [net4_fence]: corrections 0 over 30 s of sprint + jumps (the per-second line's counter is cumulative).
+Ждать A 900 \[Net\] t=(3\d|[4-9]\d|\d{3,})\.\ds unacked inputs \d+; corrections 0;
+Ждать A 900 \[Net\] walked \d+ cm \(server position\): stopping
+Ждать A 60 6x \[Net\] t=
+Нет A \[Net\] correction \d+ at
+# Когда: the server console relocates A 200 m back (-X) and 5 m up; it falls onto the landscape, no input.
+Ждать server 30 player 1 account 1 \(
+Запомнить p server player 1 account 1 \((-?\d+), (-?\d+), (-?\d+)\)
+Консоль server teleport 1 {p1-20000} {p2+500} {p3}
+Ждать server 30 \[Net\] player 1: pawn \d+ teleported to
+Ждать A 60 \[Net\] correction 1 at .*drawn at once
+Тогда A clientA_teleport the side camera's view right after the relocation: the fence scene, no A (it is 200 m away); the client keeps drawing
+# Тогда [net4_teleport_ground]: landed, server = client drawn; 10 s later both unchanged (< 1 cm); one correction.
+Ждать A 60 8x \[Net\] t=
+Ждать server 30 player 1 account 1 \(
+Запомнить s0 server player 1 account 1 \((-?\d+), (-?\d+), (-?\d+)\)
+Запомнить d0 A drawn own \((-?\d+),(-?\d+),(-?\d+)\)
+Сверить s0 d0 1
+Тогда A clientA_teleport_ground the side camera's view after A landed 200 m away: unchanged fence scene, no stray capsule
+Ждать A 60 10x \[Net\] t=
+Ждать server 30 player 1 account 1 \(
+Запомнить s1 server player 1 account 1 \((-?\d+), (-?\d+), (-?\d+)\)
+Запомнить d1 A drawn own \((-?\d+),(-?\d+),(-?\d+)\)
+Сверить s1 d1 1
+Сверить d0 d1 1
+Нет A \[Net\] correction ([2-9]|\d\d+) at
