@@ -3,6 +3,6 @@
 Дано run Action "Play from Here"
 Когда frames 60
 Когда profile-dump
-Тогда fpsmac2_mirage Mirage running in Play: its start scene drawn, no error toast; frame time in the stat line
+Тогда fpsmac2_mirage_preset Mirage in Play on the AppleUnified preset: ground and sky drawn, no error toast; GPU frame ms in the stat line
 Когда run Action "Stop"
 Когда frames 5
