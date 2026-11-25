@@ -98,9 +98,15 @@ endif()
 
 # ── THE INSTRUCTION SET (CPU-SIMD) ─────────────────────────────────────────────
 # UE: one vector layer (VectorRegister: SSE/AVX behind one header) over the baseline ISA the binary is built for.
-#   DESERT_AVX2      MSVC x64: /arch:AVX2 on every target in EVERY configuration, so Debug compiles the same
-#                    code paths as Release and Shipping (Common/Core/Math/Simd.hpp picks them at compile time
-#                    from _M_X64 / __AVX2__) and a Debug test exercises what ships. The compiler autovectorises
+#   DESERT_AVX2      x86-64: ONE minimum CPU for every compiler (UE MinCpuArchX64 = AVX2), so a Windows client
+#                    and a Linux server run the same code paths. MSVC takes /arch:AVX2; clang and gcc take
+#                    -march=x86-64-v3, the set /arch:AVX2 enables (AVX, AVX2, FMA, BMI1/2, F16C, LZCNT, MOVBE),
+#                    with -ffp-contract=off: clang and gcc would otherwise fuse a*b+c into an FMA, which MSVC's
+#                    /fp:precise does not, and a client and its server would round the same expression apart.
+#                    macOS is arm64 (CMAKE_SYSTEM_PROCESSOR there names the host, not CMAKE_OSX_ARCHITECTURES).
+#                    Every target in EVERY configuration, so Debug compiles the same code paths as Release and
+#                    Shipping (Common/Core/Math/Simd.hpp picks them at compile time from _M_X64 / __x86_64__ /
+#                    __AVX__) and a Debug test exercises what ships. The compiler autovectorises
 #                    with AVX2; the hot loops it cannot vectorise (frustum culling) are written by hand through
 #                    Simd.hpp. VS2022's /fp:precise does not contract a*b+c into an FMA (that is /fp:contract),
 #                    so a scalar and a SIMD path of the same arithmetic round alike. A vendored library with its
@@ -109,8 +115,9 @@ endif()
 #                    its own flags. glm does not follow /arch: its SIMD types switch on only with
 #                    GLM_FORCE_INTRINSICS / GLM_FORCE_*, which nothing defines, so __AVX2__ changes no glm
 #                    layout. clang (macOS ARM64) takes the scalar path.
-if(MSVC AND CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
-    option(DESERT_AVX2 "MSVC x64: /arch:AVX2 on every target without its own ISA dispatch" ON)
+if((MSVC AND CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64") OR
+   (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$"))
+    option(DESERT_AVX2 "x86-64: AVX2 (MSVC /arch:AVX2, clang/gcc -march=x86-64-v3) on every target without its own ISA dispatch" ON)
 endif()
 
 if(MSVC)
@@ -447,10 +454,15 @@ function(_desert_target_flags target warnings speed debug_opt)
     # DESERT_LTCG on a desert_ltcg target: whole-program code generation (/GL), global data in COMDATs the linker can
     # fold and drop (/Gw), the aggressive inliner (/Ob3, which pays across modules only with /GL). Its archive is
     # written by lib /LTCG, which otherwise restarts itself on the first /GL object.
-    # DESERT_AVX2: /arch:AVX2, every configuration, but not on a target with its own ISA dispatch.
+    # DESERT_AVX2: AVX2 (/arch:AVX2, -march=x86-64-v3 -ffp-contract=off), every configuration, but not on a target
+    # with its own ISA dispatch.
     get_target_property(_own_isa ${target} DESERT_OWN_ISA_DISPATCH)
-    if(MSVC AND DESERT_AVX2 AND NOT _own_isa)
-        target_compile_options(${target} PRIVATE "$<${_cc}:/arch:AVX2>")
+    if(DESERT_AVX2 AND NOT _own_isa)
+        if(MSVC)
+            target_compile_options(${target} PRIVATE "$<${_cc}:/arch:AVX2>")
+        else()
+            target_compile_options(${target} PRIVATE "$<${_cc}:-march=x86-64-v3;-ffp-contract=off>")
+        endif()
     endif()
     get_target_property(_ltcg ${target} DESERT_LTCG)
     if(MSVC AND DESERT_LTCG AND _ltcg)
@@ -797,7 +809,8 @@ function(desert_ltcg target)
 endfunction()
 
 # A vendored library that picks its instruction set itself (a cpuid dispatch, an ISA-specific build): no
-# /arch:AVX2 under DESERT_AVX2. Applied per target, with its split parts, by desert_finalize_targets().
+# /arch:AVX2 or -march=x86-64-v3 under DESERT_AVX2. Applied per target, with its split parts, by
+# desert_finalize_targets().
 function(desert_own_isa_dispatch target)
     set_property(TARGET ${target} PROPERTY DESERT_OWN_ISA_DISPATCH ON)
 endfunction()

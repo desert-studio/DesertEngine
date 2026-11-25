@@ -33,11 +33,11 @@ namespace Desert::Editor
     {
         // Frames recorded before the G-buffer is read: the source materials and their textures are resolved while
         // the scene draws (the landscape bake and AssetThumbnailRenderer warm the same way).
-        constexpr int kWarmFrames = 60;
+        constexpr int kHLODMaterialBakeWarmFrames = 60;
         // The camera hangs this high above the proxy (which lies at y = 0) and sees this deep.
-        constexpr float kEyeHeightCm = 1.0e4f;
-        constexpr float kNearCm      = 100.0f;
-        constexpr float kFarCm       = 2.0e4f;
+        constexpr float kHLODMaterialBakeEyeHeightCm = 1.0e4f;
+        constexpr float kHLODMaterialBakeNearCm      = 100.0f;
+        constexpr float kHLODMaterialBakeFarCm       = 2.0e4f;
         // MeshSimplify's projection reach, as a share of the source's bounding diagonal: a simplified texel looks
         // for the source surface this far out along its normal and as far in (UE ProjectionDistance; a simplified
         // HLOD strays from its source by a small share of the cell's own size).
@@ -225,13 +225,14 @@ namespace Desert::Editor
         world[0] = glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f );  // right
         world[1] = glm::vec4( 0.0f, 0.0f, -1.0f, 0.0f ); // up
         world[2] = glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f );  // backward (the camera looks down -Y)
-        world[3] = glm::vec4( ::Desert::Core::kHLODBakeProxySideCm * 0.5f, kEyeHeightCm,
+        world[3] = glm::vec4( ::Desert::Core::kHLODBakeProxySideCm * 0.5f, kHLODMaterialBakeEyeHeightCm,
                               ::Desert::Core::kHLODBakeProxySideCm * 0.5f, 1.0f );
         m_Camera->SetOrthoSize( ::Desert::Core::kHLODBakeProxySideCm * 0.5f );
-        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( world, 45.0f, kNearCm, kFarCm ), side, side,
-                           ::Desert::Core::Camera::kNoSourceEntity );
+        m_Camera->SetView(
+             ::Desert::Core::CameraEntityViewOf( world, 45.0f, kHLODMaterialBakeNearCm, kHLODMaterialBakeFarCm ),
+             side, side, ::Desert::Core::Camera::kNoSourceEntity );
         m_Scene->PinActiveCamera( m_Camera );
-        m_WarmFrames = kWarmFrames;
+        m_WarmFrames = kHLODMaterialBakeWarmFrames;
         m_Phase      = Phase::Frame;
         return BOOLSUCCESS;
     }

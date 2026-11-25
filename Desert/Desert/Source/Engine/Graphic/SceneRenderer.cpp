@@ -4768,11 +4768,11 @@ namespace Desert::Graphic
                 {
                     // One side of the pair per view: the card below the switch size, the source at or above.
                     const std::array<float, 2> switchSizes{ Geometry::kLOD0ScreenSize, section.ImpostorScreenSize };
-                    const bool                 far =
+                    const bool                 cardShown =
                          impostorView.has_value() &&
                          Geometry::SelectLODFromBounds( section.Transform, section.ImpostorBounds, *impostorView,
                                                         switchSizes, -1, 0 ) == 1u;
-                    if ( far != section.ImpostorCard )
+                    if ( cardShown != section.ImpostorCard )
                         continue;
                 }
                 if ( demandAsked )
