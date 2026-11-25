@@ -106,6 +106,7 @@ def deny(reason):
                                  "permissionDecisionReason": "[board_guard] " + reason}})
 
 
+NOT_WRITERS = ("explore", "board", "architect", "reviewer", "acceptance")
 RUNNING_MAX_AGE = 4 * 3600  # an agent with no SubagentStop older than this died with its session (crash, reboot)
 
 
@@ -423,7 +424,7 @@ def main():
         save(s)
         sys.exit(0)
 
-    if event == "SubagentStop" and (data.get("agent_type") or "").lower() in ("board", "architect", "reviewer", "acceptance"):
+    if event == "SubagentStop" and (data.get("agent_type") or "").lower() in NOT_WRITERS:
         sys.exit(0)  # nothing to accept
     if event == "SubagentStop":
         # A worker's nested child (an Explore it spawned) stops with the worker's agent_id; its own id is only in the
@@ -527,7 +528,8 @@ def main():
     if event == "PostToolUse" and tool == "Agent":
         code = code_from_text(str(tin.get("prompt") or ""))
         m = re.search(r"agentId\"?\s*[:=]\s*\"?([0-9a-z]{8,})", json.dumps(data.get("tool_response"), ensure_ascii=False))
-        if code and m:
+        # Only a writing agent takes a slot and is accepted; the others' stop is not tracked either.
+        if code and m and (tin.get("subagent_type") or "").lower() not in NOT_WRITERS:
             s["agents"][m.group(1)] = code
             s["launched"][m.group(1)] = time.time()
             save(s)
@@ -552,7 +554,7 @@ def main():
         sys.exit(0)
 
     if event == "PreToolUse" and tool in ("Agent", "SendMessage"):
-        if tool == "Agent" and (tin.get("subagent_type") or "").lower() in ("explore", "board", "architect", "reviewer", "acceptance"):
+        if tool == "Agent" and (tin.get("subagent_type") or "").lower() in NOT_WRITERS:
             sys.exit(0)
         late = unaccepted(s)
         if late:
