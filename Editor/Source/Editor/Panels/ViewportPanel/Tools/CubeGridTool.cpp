@@ -299,7 +299,7 @@ namespace Desert::Editor::Tools
                 }
         Geometry::RenderMeshData cutterQuads = box.Bake();
         // The bake is in the world; the boolean runs in the target's space.
-        const glm::mat4 world    = e.GetWorldTransform();
+        const glm::mat4 world    = e.GetWorldTransform().ToFloatMatrix();
         const glm::mat4 toLocal  = glm::inverse( world );
         const glm::mat3 vecLocal = glm::mat3( toLocal );
         const glm::mat3 nrmLocal = glm::transpose( glm::mat3( world ) );
@@ -496,8 +496,9 @@ namespace Desert::Editor::Tools
         auto open = [&]() -> Common::ResultStr<ReopenedBlockout>
         {
             if ( saved == nullptr && mesh )
-                return RecoverBlockout( name, *mesh, e.GetWorldTransform(), Core::ModelingState::MinCellSize );
-            return ReopenBlockout( name, saved, key, e.GetWorldTransform() );
+                return RecoverBlockout( name, *mesh, e.GetWorldTransform().ToFloatMatrix(),
+                                        Core::ModelingState::MinCellSize );
+            return ReopenBlockout( name, saved, key, e.GetWorldTransform().ToFloatMatrix() );
         };
         auto opened = open();
         if ( !opened.IsSuccess() )
@@ -599,7 +600,7 @@ namespace Desert::Editor::Tools
             if ( const auto& sel = Core::SelectionManager::GetSelected(); sel.has_value() )
                 if ( auto ref = scene.FindEntityByID( *sel ) )
                 {
-                    const glm::mat4 w = ref->get().GetWorldTransform();
+                    const glm::mat4 w = ref->get().GetWorldTransform().ToFloatMatrix();
                     const glm::mat3 r( glm::normalize( glm::vec3( w[0] ) ), glm::normalize( glm::vec3( w[1] ) ),
                                        glm::normalize( glm::vec3( w[2] ) ) );
                     ms.GridOrigin   = glm::vec3( w[3] );

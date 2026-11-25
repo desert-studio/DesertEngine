@@ -133,7 +133,7 @@ namespace Desert::Editor::Tools
         glm::mat4 WorldOf( ::Desert::Core::Scene& scene, const Common::UUID& id )
         {
             auto ref = scene.FindEntityByID( id );
-            return ref ? ref->get().GetWorldTransform() : glm::mat4( 1.0f );
+            return ref ? ref->get().GetWorldTransform().ToFloatMatrix() : glm::mat4( 1.0f );
         }
 
         // The Pattern session's operator (UE UPatternTool's preview): every copy of @p input at its pattern

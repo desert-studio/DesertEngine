@@ -37,8 +37,8 @@ namespace Desert::Editor
                 ++bounds.Missing;
                 return;
             }
-            const auto world =
-                 Geometry::TransformBounds( entity.GetWorldTransform(), Geometry::LocalBounds( *submeshes ) );
+            const auto world = Geometry::TransformBounds( entity.GetWorldTransform().ToFloatMatrix(),
+                                                          Geometry::LocalBounds( *submeshes ) );
             if ( Geometry::IsEmpty( world ) )
                 return;
             Grow( bounds, world );
@@ -165,7 +165,7 @@ namespace Desert::Editor
             if ( !extent )
                 continue;
             Grow( bounds, Assets::Serialization::VFXBoundsAt(
-                               *extent, ECS::Entity( handle, registry ).GetWorldTransform() ) );
+                               *extent, ECS::Entity( handle, registry ).GetWorldTransform().ToFloatMatrix() ) );
             ++bounds.Effects;
         }
         return bounds;

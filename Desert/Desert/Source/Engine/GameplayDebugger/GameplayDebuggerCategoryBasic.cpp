@@ -49,7 +49,7 @@ namespace Desert::Debug
             Row( out, "UUID  ", registry.get<ECS::UUIDComponent>( target ).UUID.ToString() );
 
         // The WORLD transform (a child's TransformComponent is its parent's space).
-        const glm::mat4 world = entity.GetWorldTransform();
+        const glm::mat4 world = entity.GetWorldTransform().ToFloatMatrix();
         glm::vec3       location( 0.0f ), scale( 1.0f ), skew( 0.0f );
         glm::vec4       perspective( 0.0f );
         glm::quat       rotation( 1.0f, 0.0f, 0.0f, 0.0f );

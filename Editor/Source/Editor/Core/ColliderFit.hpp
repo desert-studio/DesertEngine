@@ -18,7 +18,7 @@ namespace Desert::Editor::Core
     inline Common::ResultStr<ECS::ColliderData> FitEntityCollider( const ECS::Entity& entity,
                                                                    Physics::ShapeType shape )
     {
-        const glm::mat3 world( entity.GetWorldTransform() );
+        const glm::mat3 world( entity.GetWorldTransform().Basis );
         const glm::vec3 scale( glm::length( world[0] ), glm::length( world[1] ), glm::length( world[2] ) );
         auto            gathered =
              ECS::PhysicsECSSystem::GatherColliderMesh( *entity.GetRegistry(), entity.GetHandle(), scale );

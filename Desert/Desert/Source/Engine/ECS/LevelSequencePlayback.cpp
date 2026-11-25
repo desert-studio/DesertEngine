@@ -174,7 +174,10 @@ namespace Desert::ECS
                 refuse();
                 return;
             }
-            ( property == "Scale" ? transform.Scale : transform.Translation ) = *vector;
+            if ( property == "Scale" )
+                transform.Scale = *vector;
+            else
+                transform.Translation = glm::dvec3( *vector ); // LWC: a sequencer key is still a float vec3
         }
         else if ( property == "Rotation" )
         {

@@ -484,7 +484,7 @@ namespace Desert::Core
         {
             const auto& transform = registry.get<ECS::TransformComponent>( pawn );
             document.Set( "Pawn", Json::ObjectBuilder{}
-                                       .Set( "Translation", transform.GetTranslation() )
+                                       .Set( "Translation", glm::vec3( transform.GetTranslation() ) )
                                        .Set( "Rotation", transform.GetRotation() )
                                        .Set( "Scale", transform.GetScale() )
                                        .Set( "Components", CaptureBlocks( registry, pawn, schema.Types ) )
@@ -558,8 +558,8 @@ namespace Desert::Core
             {
                 auto&                         transform   = registry.get<ECS::TransformComponent>( pawn );
                 const ECS::TransformComponent before      = transform;
-                glm::vec3                     translation = transform.GetTranslation(), rotation = transform.GetRotation(),
-                          scale = transform.GetScale();
+                glm::vec3                     translation = glm::vec3( transform.GetTranslation() ),
+                          rotation = transform.GetRotation(), scale = transform.GetScale();
                 const auto t    = pawnRecord->Find( "Translation" );
                 const auto r    = pawnRecord->Find( "Rotation" );
                 const auto s    = pawnRecord->Find( "Scale" );

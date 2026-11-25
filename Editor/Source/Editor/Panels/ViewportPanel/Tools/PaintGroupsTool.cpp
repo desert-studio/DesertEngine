@@ -324,7 +324,7 @@ namespace Desert::Editor::Tools
         }
 
         const ECS::Entity* entity = EntityOf( scene, m_Session->Entity );
-        const glm::dmat4   world( entity->GetWorldTransform() );
+        const glm::dmat4   world( entity->GetWorldTransform().ToDoubleMatrix() );
         const glm::dmat4   toObject = glm::inverse( world );
         if ( m_TreeMesh != &mesh || m_TreeStamp != mesh.GetChangeStamp() )
         {

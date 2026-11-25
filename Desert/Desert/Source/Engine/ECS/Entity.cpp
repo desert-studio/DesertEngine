@@ -15,11 +15,11 @@ namespace Desert::ECS
         struct WorldStep
         {
             entt::entity Entity;
-            glm::mat4    ParentWorld;
+            WorldTransform ParentWorld;
         };
     } // namespace
 
-    glm::mat4 ParentWorldTransform( const entt::registry& registry, entt::entity entity )
+    WorldTransform ParentWorldTransform( const entt::registry& registry, entt::entity entity )
     {
         const auto*  relation = registry.try_get<RelationshipComponent>( entity );
         entt::entity parent   = entt::null;
@@ -34,7 +34,7 @@ namespace Desert::ECS
                 break;
             parent = up->Parent;
         }
-        return glm::mat4( 1.0f );
+        return WorldTransform{};
     }
 
     bool WorldTransformPending( const TransformComponent& transform )
@@ -55,10 +55,10 @@ namespace Desert::ECS
         {
             const WorldStep step = pending.back();
             pending.pop_back();
-            glm::mat4 world = step.ParentWorld;
+            WorldTransform world = step.ParentWorld;
             if ( auto* transform = registry.try_get<TransformComponent>( step.Entity ) )
             {
-                transform->m_World         = step.ParentWorld * transform->m_Local.GetTransform();
+                transform->m_World         = step.ParentWorld * transform->m_Local;
                 transform->m_WorldComposed = true;
                 world                      = transform->m_World;
             }
@@ -69,7 +69,7 @@ namespace Desert::ECS
         }
     }
 
-    glm::mat4 Entity::GetWorldTransform() const
+    WorldTransform Entity::GetWorldTransform() const
     {
         // A load of the cached world (UpdateWorldTransforms keeps it current); no allocation, no parent walk.
         if ( const auto* transform = m_Registry->try_get<TransformComponent>( m_Handle ) )
@@ -82,7 +82,7 @@ namespace Desert::ECS
     {
         return ECS::SetLocalTransform( *m_Registry, m_Handle, local );
     }
-    bool Entity::SetLocalTranslation( const glm::vec3& translation ) const
+    bool Entity::SetLocalTranslation( const glm::dvec3& translation ) const
     {
         return ECS::SetLocalTranslation( *m_Registry, m_Handle, translation );
     }

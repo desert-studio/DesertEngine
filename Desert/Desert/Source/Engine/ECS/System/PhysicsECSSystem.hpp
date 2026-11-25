@@ -556,7 +556,7 @@ namespace Desert::ECS
                 const auto& transform = registry.get<TransformComponent>( entity );
 
                 if ( const auto created = CharacterMovement::CreateCharacter(
-                          cc, *m_World, transform.GetTranslation() ); // capsule centre
+                          cc, *m_World, glm::vec3( transform.GetTranslation() ) ); // capsule centre
                      !created )
                 {
                     LOG_ERROR( "[Physics] entity {} has no character: {}", static_cast<uint32_t>( entity ),

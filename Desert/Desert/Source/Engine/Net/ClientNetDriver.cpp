@@ -296,7 +296,8 @@ namespace Desert::Core
             if ( const auto own = m_Entities.find( m_Client->OwnPawn() );
                  own != m_Entities.end() && scene.GetRegistry().valid( own->second ) )
             {
-                const glm::vec3 drawn = ECS::Entity( own->second, scene.GetRegistry() ).GetWorldTransform()[3];
+                const glm::vec3 drawn =
+                     glm::vec3( ECS::Entity( own->second, scene.GetRegistry() ).GetWorldTransform().Origin );
                 shown += std::format( "; drawn own ({:.0f},{:.0f},{:.0f})", drawn.x, drawn.y, drawn.z );
             }
             if ( const auto view = scene.PlayerViewPoint() )

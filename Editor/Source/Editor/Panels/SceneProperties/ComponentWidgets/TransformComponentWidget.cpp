@@ -24,8 +24,10 @@ namespace Desert::Editor
         // lines up with every other component instead of owning a 100px column of its own.
         Utils::ImGuiUtilities::ResetPropertyRows();
 
+        // Location is a double (LWC): the field drags and types doubles, so a block at 20 km moves by 0.5 cm
+        // and reads back what was typed; the shown precision widens to the value's own (shortest %g form).
         Utils::ImGuiUtilities::BeginPropertyRow( "Location", "World position in centimetres" );
-        changed |= Utils::ImGuiUtilities::VectorField( "loc", &transform.Translation.x, 3, 0.5f, "%.1f" );
+        changed |= Utils::ImGuiUtilities::VectorField( "loc", &transform.Translation.x, 3, 0.5f, "%.10g" );
         Utils::ImGuiUtilities::EndPropertyRow();
 
         // Stored in RADIANS (TransformComponent feeds glm::quat directly) but shown in degrees with the

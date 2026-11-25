@@ -377,7 +377,7 @@ namespace Desert::Editor
             }
 
             const auto&     tc    = entity.GetComponent<ECS::TransformComponent>();
-            const glm::mat4 world = entity.GetWorldTransform();
+            const glm::mat4 world = entity.GetWorldTransform().ToFloatMatrix();
             const auto      now   = ::Desert::Core::CameraEntityViewOf( world, lens.FOV, lens.Near, lens.Far );
 
             const glm::vec3           position = ( which == ViewportCameraWrite::Position )
@@ -1473,7 +1473,7 @@ namespace Desert::Editor
                     if ( m_Play.InPlayMode() && registry != nullptr && physics != nullptr &&
                          physics->GetPhysicsWorld() != nullptr && ECS::HasLivePhysics( *registry, entity.GetHandle() ) )
                         ECS::TeleportPhysics( *physics->GetPhysicsWorld(), *registry, entity.GetHandle(),
-                                              entity.GetWorldTransform() );
+                                              entity.GetWorldTransform().ToFloatMatrix() );
                     Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
                     return Control::Response::Success( request.Id );
                 }

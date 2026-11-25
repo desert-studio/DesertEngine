@@ -54,7 +54,7 @@ namespace Desert::Core
             {
                 if ( entity.HasComponent<ECS::LandscapeComponent>() )
                 {
-                    const glm::mat4 world = entity.GetWorldTransform();
+                    const glm::mat4 world = entity.GetWorldTransform().ToFloatMatrix();
                     const glm::vec3 x( world[0] );
                     const glm::vec3 y( world[1] );
                     const glm::vec3 z( world[2] );

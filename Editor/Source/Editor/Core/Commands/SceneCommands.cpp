@@ -344,8 +344,8 @@ namespace Desert::Editor::Commands
         class TransformCommand final : public ICommand
         {
         public:
-            TransformCommand( const Common::UUID& entity, const glm::vec3& oldT, const glm::vec3& oldR,
-                              const glm::vec3& oldS, const glm::vec3& newT, const glm::vec3& newR,
+            TransformCommand( const Common::UUID& entity, const glm::dvec3& oldT, const glm::vec3& oldR,
+                              const glm::vec3& oldS, const glm::dvec3& newT, const glm::vec3& newR,
                               const glm::vec3& newS )
                  : m_Entity( entity ), m_Old{ oldT, oldR, oldS }, m_New{ newT, newR, newS }
             {
@@ -368,7 +368,8 @@ namespace Desert::Editor::Commands
         private:
             struct TRS
             {
-                glm::vec3 T, R, S;
+                glm::dvec3 T;
+                glm::vec3  R, S;
             };
 
             bool Apply( const TRS& trs )
@@ -1497,7 +1498,7 @@ namespace Desert::Editor::Commands
         return Common::MakeSuccess( std::move( created ) );
     }
 
-    void RecordTransformEdit( const Common::UUID& uuid, const glm::vec3& oldTranslation,
+    void RecordTransformEdit( const Common::UUID& uuid, const glm::dvec3& oldTranslation,
                               const glm::vec3& oldRotation, const glm::vec3& oldScale )
     {
         if ( !Ready() )
@@ -1508,7 +1509,8 @@ namespace Desert::Editor::Commands
 
         const auto& tc      = e->GetComponent<ECS::TransformComponent>();
         const float epsilon = 1e-6f;
-        if ( glm::all( glm::epsilonEqual( tc.GetTranslation(), oldTranslation, epsilon ) ) &&
+        if ( glm::all(
+                  glm::epsilonEqual( tc.GetTranslation(), oldTranslation, static_cast<double>( epsilon ) ) ) &&
              glm::all( glm::epsilonEqual( tc.GetRotation(), oldRotation, epsilon ) ) &&
              glm::all( glm::epsilonEqual( tc.GetScale(), oldScale, epsilon ) ) )
             return; // click without an actual drag
@@ -1532,7 +1534,8 @@ namespace Desert::Editor::Commands
             if ( !e || !e->HasComponent<ECS::TransformComponent>() )
                 continue;
             const auto& tc = e->GetComponent<ECS::TransformComponent>();
-            if ( glm::all( glm::epsilonEqual( tc.GetTranslation(), snap.Translation, epsilon ) ) &&
+            if ( glm::all( glm::epsilonEqual( tc.GetTranslation(), snap.Translation,
+                                              static_cast<double>( epsilon ) ) ) &&
                  glm::all( glm::epsilonEqual( tc.GetRotation(), snap.Rotation, epsilon ) ) &&
                  glm::all( glm::epsilonEqual( tc.GetScale(), snap.Scale, epsilon ) ) )
                 continue;
@@ -1666,7 +1669,7 @@ namespace Desert::Editor::Commands
         // Keep the instance's place in the world: same translation, same parent.
         glm::vec3 translation( 0.0f );
         if ( root->HasComponent<ECS::TransformComponent>() )
-            translation = root->GetComponent<ECS::TransformComponent>().GetTranslation();
+            translation = glm::vec3( root->GetComponent<ECS::TransformComponent>().GetTranslation() );
         const Common::UUID parentId = ParentUUIDOf( *root );
 
         auto composite = std::make_unique<CompositeCommand>();
@@ -2138,7 +2141,7 @@ namespace Desert::Editor::Commands
             if ( old.HasComponent<ECS::TransformComponent>() )
             {
                 const auto& tc = old.GetComponent<ECS::TransformComponent>();
-                translation    = tc.GetTranslation();
+                translation    = glm::vec3( tc.GetTranslation() );
                 rotation       = tc.GetRotation();
                 scale          = tc.GetScale();
             }
@@ -2255,8 +2258,8 @@ namespace Desert::Editor::Commands
             glm::vec3 skew( 0.0f );
             glm::vec4 perspective( 0.0f );
             glm::quat rotation( 1.0f, 0.0f, 0.0f, 0.0f );
-            glm::decompose( toFrame * entity.GetWorldTransform(), scale, rotation, translation, skew,
-                            perspective );
+            glm::decompose( toFrame * entity.GetWorldTransform().ToFloatMatrix(), scale, rotation, translation,
+                            skew, perspective );
             return ECS::LocalTransform{ translation, glm::eulerAngles( rotation ), scale };
         }
 
@@ -2421,7 +2424,7 @@ namespace Desert::Editor::Commands
         const Common::UUID frameId = sharedParent ? ParentUUIDOf( entities.front() ) : Common::UUID::Null();
         glm::mat4          frameWorld( 1.0f );
         if ( const auto frame = FindEntity( frameId ) )
-            frameWorld = frame->GetWorldTransform();
+            frameWorld = frame->GetWorldTransform().ToFloatMatrix();
         const glm::mat4 toFrame = glm::inverse( frameWorld );
 
         std::vector<Assets::PrefabAsset::Member> members;
@@ -2459,7 +2462,7 @@ namespace Desert::Editor::Commands
                 if ( !chosen || !UnderAnyOf( *chosen, roots ) )
                     return Common::MakeError<Result>(
                          "Create Prefab from Selection: the pivot entity is not part of the selection" );
-                origin = glm::vec3( toFrame * chosen->GetWorldTransform()[3] );
+                origin = glm::vec3( toFrame * chosen->GetWorldTransform().ToFloatMatrix()[3] );
                 break;
             }
             case PrefabPivot::WorldOrigin:
@@ -2653,7 +2656,7 @@ namespace Desert::Editor::Commands
             candidate.Name     = entity.HasComponent<ECS::TagComponent>()
                                       ? entity.GetComponent<ECS::TagComponent>().Tag
                                       : std::string( "Entity" );
-            candidate.World    = entity.GetWorldTransform();
+            candidate.World    = entity.GetWorldTransform().ToFloatMatrix();
             candidate.Identity = *identity;
 
             // The static component's own fields that an ISM has no room for - THE ONE LIST the prefab packer asks

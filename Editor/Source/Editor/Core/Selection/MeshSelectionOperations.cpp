@@ -114,7 +114,7 @@ namespace Desert::Editor::Core
                 return Common::MakeSuccess( Geometry::MeshPlane{ glm::dvec3( origin ), glm::dvec3( axis ) } );
             // The WORLD transform, parent chain included: a child's local one would put the world plane at
             // its parent-relative image.
-            const glm::mat4 world = entity.GetWorldTransform();
+            const glm::mat4 world = entity.GetWorldTransform().ToFloatMatrix();
             const glm::mat3 linear( world );
             const glm::mat3 gram = glm::transpose( linear ) * linear;
             const float     s    = ( gram[0][0] + gram[1][1] + gram[2][2] ) / 3.0f;

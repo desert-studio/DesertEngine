@@ -362,7 +362,7 @@ namespace Desert::VFX
                  // is in the world, not at its parent-relative offset.
                  glm::mat4 world( 1.0f );
                  if ( const auto* transform = registry.try_get<ECS::TransformComponent>( entity ) )
-                     world = transform->GetWorldTransform();
+                     world = transform->GetWorldTransform().ToFloatMatrix();
                  const glm::vec3 emitterCm( world[3] );
                  system.Transform = world;
                  // What the tick reads of the system data, kept on the instance per data pointer (a new snapshot

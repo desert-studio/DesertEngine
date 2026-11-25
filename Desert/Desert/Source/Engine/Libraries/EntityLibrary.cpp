@@ -70,7 +70,7 @@ namespace Desert::Libraries
     glm::vec3 EntityLibrary::GetPosition( ECS::Entity entity )
     {
         const auto* t = Get<ECS::TransformComponent>( entity );
-        return t != nullptr ? t->GetTranslation() : glm::vec3( 0.0f );
+        return t != nullptr ? glm::vec3( t->GetTranslation() ) : glm::vec3( 0.0f );
     }
 
     // A script that moves an entity moves its live body / character with it (UE SetActorLocation moves the physics
@@ -85,7 +85,7 @@ namespace Desert::Libraries
         const auto* system = context->World->FindSystem<ECS::PhysicsECSSystem>();
         if ( system != nullptr && system->GetPhysicsWorld() != nullptr )
             ECS::TeleportPhysics( *system->GetPhysicsWorld(), *registry, entity.GetHandle(),
-                                  entity.GetWorldTransform() );
+                                  entity.GetWorldTransform().ToFloatMatrix() );
     }
 
     void EntityLibrary::SetPosition( ECS::Entity entity, const glm::vec3& position )
@@ -101,7 +101,7 @@ namespace Desert::Libraries
         const auto* t = Get<ECS::TransformComponent>( entity );
         if ( t == nullptr )
             return;
-        entity.SetLocalTranslation( t->GetTranslation() + offset );
+        entity.SetLocalTranslation( t->GetTranslation() + glm::dvec3( offset ) );
         MoveThroughPhysics( entity );
     }
 
@@ -149,7 +149,9 @@ namespace Desert::Libraries
     {
         const auto* a = Get<ECS::TransformComponent>( entity );
         const auto* b = Get<ECS::TransformComponent>( other );
-        return ( a != nullptr && b != nullptr ) ? glm::distance( a->GetTranslation(), b->GetTranslation() ) : -1.0f;
+        return ( a != nullptr && b != nullptr )
+                    ? static_cast<float>( glm::distance( a->GetTranslation(), b->GetTranslation() ) )
+                    : -1.0f;
     }
 
     // ── CharacterLibrary ──

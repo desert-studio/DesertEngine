@@ -312,7 +312,7 @@ namespace Desert::Debug
             for ( std::size_t s = 0; s < sources.size(); ++s )
                 probes.push_back( { std::format( "source {}", s ), sources[s].Position } );
             if ( target != nullptr )
-                probes.push_back( { "target", glm::vec3( target->GetWorldTransform()[3] ) } );
+                probes.push_back( { "target", glm::vec3( target->GetWorldTransform().Origin ) } );
         }
         // A cell under both the player and the target is listed for each, and labelled in the world once.
         std::vector<bool> labelled( plan.Cells.size(), false );

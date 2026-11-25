@@ -46,7 +46,7 @@ namespace Desert::ECS::SpringArm
         auto arms = registry.view<SpringArmComponent>();
         for ( const entt::entity entity : arms )
         {
-            const glm::mat4 armWorld = Entity( entity, registry ).GetWorldTransform();
+            const glm::mat4 armWorld = Entity( entity, registry ).GetWorldTransform().ToFloatMatrix();
             const glm::vec3 origin( armWorld[3] );
             const glm::mat3 basis( glm::normalize( glm::vec3( armWorld[0] ) ),
                                    glm::normalize( glm::vec3( armWorld[1] ) ),

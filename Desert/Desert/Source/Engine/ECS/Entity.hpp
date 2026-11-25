@@ -3,6 +3,8 @@
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>
 
+#include <Engine/ECS/Transform.hpp>
+
 // No component here (BUILD-MOD-2): an entity handle names no component type; callers include the
 // component headers they use (UE: AActor.h includes no UActorComponent subclass).
 
@@ -50,7 +52,7 @@ namespace Desert::ECS
 
         // The entity's TransformComponent writers: ECS::SetLocalTransform and its one-field forms.
         bool SetLocalTransform( const LocalTransform& local ) const;
-        bool SetLocalTranslation( const glm::vec3& translation ) const;
+        bool SetLocalTranslation( const glm::dvec3& translation ) const;
         bool SetLocalRotation( const glm::vec3& rotation ) const;
         bool SetLocalScale( const glm::vec3& scale ) const;
 
@@ -79,7 +81,7 @@ namespace Desert::ECS
             return m_Registry;
         }
 
-        glm::mat4 GetWorldTransform() const;
+        WorldTransform GetWorldTransform() const;
 
     private:
         entt::entity    m_Handle;

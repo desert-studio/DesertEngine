@@ -70,10 +70,11 @@ namespace Desert::Editor::Core
                     return Common::MakeFormattedError<Out>( "{}: entity {}: {}", ToString( op ),
                                                             static_cast<uint64_t>( id ), target.GetError() );
                 const auto& tc = e.GetComponent<ECS::TransformComponent>();
-                out.push_back( { id, e, target.GetValue().Mesh,
-                                 Geometry::Trs{ tc.GetTranslation(), tc.GetRotation(), tc.GetScale() },
-                                 e.HasComponent<ECS::TagComponent>() ? e.GetComponent<ECS::TagComponent>().Tag
-                                                                     : std::string( "Mesh" ) } );
+                out.push_back(
+                     { id, e, target.GetValue().Mesh,
+                       Geometry::Trs{ glm::vec3( tc.GetTranslation() ), tc.GetRotation(), tc.GetScale() },
+                       e.HasComponent<ECS::TagComponent>() ? e.GetComponent<ECS::TagComponent>().Tag
+                                                           : std::string( "Mesh" ) } );
             }
             return Common::MakeSuccess( std::move( out ) );
         }
@@ -113,7 +114,7 @@ namespace Desert::Editor::Core
                                                                 ToString( XformOperation::Merge ),
                                                                 targets.size() );
             const Target&   into   = targets.front();
-            const glm::mat4 toInto = glm::inverse( into.Entity.GetWorldTransform() );
+            const glm::mat4 toInto = glm::inverse( into.Entity.GetWorldTransform().ToFloatMatrix() );
             MergeInputs     out;
             out.IntoName      = into.Name;
             out.MaterialSlots = into.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
@@ -121,7 +122,7 @@ namespace Desert::Editor::Core
             {
                 out.Entities.push_back( t.Id );
                 out.Parts.push_back(
-                     { t.Mesh, toInto * t.Entity.GetWorldTransform(),
+                     { t.Mesh, toInto * t.Entity.GetWorldTransform().ToFloatMatrix(),
                        RemapInto( out.MaterialSlots,
                                   t.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots(),
                                   *t.Mesh ) } );
@@ -214,8 +215,8 @@ namespace Desert::Editor::Core
                 for ( const Target& t : targets )
                 {
                     // The world choices go through the WORLD transform: a child's pivot lands on the world point.
-                    auto pivot = Geometry::ResolvePivot( *t.Mesh, args.Pivot, t.Entity.GetWorldTransform(),
-                                                         args.PivotWorldPoint );
+                    auto pivot = Geometry::ResolvePivot(
+                         *t.Mesh, args.Pivot, t.Entity.GetWorldTransform().ToFloatMatrix(), args.PivotWorldPoint );
                     if ( !pivot.IsSuccess() )
                         return refuse( t, pivot.GetError() );
                     auto out = Geometry::EditPivot( *t.Mesh, t.Local, pivot.GetValue() );

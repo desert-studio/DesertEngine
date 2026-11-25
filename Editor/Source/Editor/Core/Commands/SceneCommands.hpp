@@ -105,7 +105,7 @@ namespace Desert::Editor::Commands
     {
         Common::UUID                                    Entity;
         std::shared_ptr<const Geometry::DynamicMesh3>   Mesh;
-        glm::vec3                                       Translation{ 0.0f };
+        glm::dvec3                                      Translation{ 0.0 };
         glm::vec3                                       Rotation{ 0.0f };
         glm::vec3                                       Scale{ 1.0f };
         std::optional<std::vector<Common::AssetHandle>> MaterialSlots;
@@ -130,14 +130,14 @@ namespace Desert::Editor::Commands
 
     // Record a finished transform edit (gizmo drag): oldT/R/S = values before the drag; the entity's
     // CURRENT transform is captured as the "new" state. No-ops if nothing actually changed.
-    void RecordTransformEdit( const Common::UUID& uuid, const glm::vec3& oldTranslation,
+    void RecordTransformEdit( const Common::UUID& uuid, const glm::dvec3& oldTranslation,
                               const glm::vec3& oldRotation, const glm::vec3& oldScale );
 
     // Pre-drag TRS of one entity (group gizmo drags capture one per selected root).
     struct TransformSnapshot
     {
         Common::UUID Entity;
-        glm::vec3    Translation{ 0.0f };
+        glm::dvec3   Translation{ 0.0 };
         glm::vec3    Rotation{ 0.0f };
         glm::vec3    Scale{ 1.0f };
     };

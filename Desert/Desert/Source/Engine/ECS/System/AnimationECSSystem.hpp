@@ -557,7 +557,7 @@ namespace Desert::ECS
             {
                 // Component -> world: the world matrix's linear part carries the component's rotation AND
                 // scale (a centimetre rig imported at 0.01 walks a hundredth of its track's units).
-                const glm::mat4 world     = ECS::Entity( entity, registry ).GetWorldTransform();
+                const glm::mat4 world     = ECS::Entity( entity, registry ).GetWorldTransform().ToFloatMatrix();
                 const glm::vec3 worldMove = glm::vec3( world * glm::vec4( delta.Translation, 0.0F ) );
                 const glm::mat3 linear( world );
                 const glm::quat worldRotation = glm::normalize( glm::quat_cast( glm::mat3(

@@ -539,7 +539,8 @@ TEST( NodeMeshSplit, APlacedSplitSourceStandsEveryNodeWhereTheFilePutIt )
         // The node mesh's vertex 0, derived (scaled) and placed, is the combined mesh's vertex 0 of that node,
         // scaled: the round trip split -> record -> placed entity loses no position.
         const glm::vec3 local = node.Mesh.StaticVertices[0].Position * settings.Mesh.UniformScale;
-        const glm::vec3 world = glm::vec3( children[i].GetWorldTransform() * glm::vec4( local, 1.0f ) );
+        const glm::vec3 world =
+             glm::vec3( children[i].GetWorldTransform().ToFloatMatrix() * glm::vec4( local, 1.0f ) );
         const glm::vec3 expected{ GrassProject::TuftX( node.Node ) * settings.Mesh.UniformScale,
                                   5.0f * settings.Mesh.UniformScale, 0.0f };
         EXPECT_NEAR( world.x, expected.x, 1e-3f ) << node.Node;

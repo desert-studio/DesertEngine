@@ -318,8 +318,29 @@ namespace Desert::Editor::Utils
         return clicked;
     }
 
+    namespace
+    {
+        template <typename T>
+        constexpr ImGuiDataType kVectorFieldDataType = ImGuiDataType_Float;
+        template <>
+        constexpr ImGuiDataType kVectorFieldDataType<double> = ImGuiDataType_Double;
+    } // namespace
+
     bool ImGuiUtilities::VectorField( const char* id, float* values, int components, float speed,
                                       const char* format )
+    {
+        return VectorFieldOf( id, values, components, speed, format );
+    }
+
+    bool ImGuiUtilities::VectorField( const char* id, double* values, int components, float speed,
+                                      const char* format )
+    {
+        return VectorFieldOf( id, values, components, speed, format );
+    }
+
+    template <typename T>
+    bool ImGuiUtilities::VectorFieldOf( const char* id, T* values, int components, float speed,
+                                        const char* format )
     {
         // The theme's axis colours — the same three the viewport gizmo and the CubeGrid handles use. A
         // fourth component (W) is deliberately neutral: it is not an axis in space.
@@ -352,7 +373,7 @@ namespace Desert::Editor::Utils
             const bool typing = ImGui::TempInputIsActive( ImGui::GetID( "##v" ) );
             if ( !typing )
                 ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.0f, 0.0f, 0.0f, 0.0f ) );
-            if ( ImGui::DragFloat( "##v", &values[i], speed, 0.0f, 0.0f, format ) )
+            if ( ImGui::DragScalar( "##v", kVectorFieldDataType<T>, &values[i], speed, nullptr, nullptr, format ) )
                 changed = true;
             if ( !typing )
                 ImGui::PopStyleColor();
@@ -368,7 +389,8 @@ namespace Desert::Editor::Utils
             if ( !ImGui::TempInputIsActive( ImGui::GetItemID() ) )
             {
                 char         text[64];
-                const int    length = ImFormatString( text, sizeof( text ), format, values[i] );
+                const int    length =
+                     ImFormatString( text, sizeof( text ), format, static_cast<double>( values[i] ) );
                 const char*  end    = text + length;
                 const ImVec2 size   = ImGui::CalcTextSize( text, end );
                 const ImVec4 clip( mn.x + kEdge + style.FramePadding.x, mn.y, mx.x - style.FramePadding.x, mx.y );

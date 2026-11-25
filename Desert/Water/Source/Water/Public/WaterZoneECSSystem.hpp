@@ -58,7 +58,7 @@ namespace Desert::ECS
             const auto view      = registry.view<WaterBodyComponent, TransformComponent>();
             const auto footprint = [&view]( const entt::entity entity )
             {
-                const glm::vec3& location = view.get<TransformComponent>( entity ).GetTranslation();
+                const glm::vec3  location = view.get<TransformComponent>( entity ).GetTranslation();
                 const glm::vec2  half     = 0.5f * view.get<WaterBodyComponent>( entity ).Data.OceanExtents;
                 const glm::vec2  centre( location.x, location.z );
                 return Water::WaterQuadTreeBody{
@@ -81,7 +81,7 @@ namespace Desert::ECS
                 }
                 const WaterBodyData&           data     = view.get<WaterBodyComponent>( entity ).Data;
                 const Water::WaterQuadTreeBody body     = footprint( entity );
-                const glm::vec3&               location = view.get<TransformComponent>( entity ).GetTranslation();
+                const glm::vec3                location = view.get<TransformComponent>( entity ).GetTranslation();
                 same                                    = body.FootprintMin == rows.Footprints[i].FootprintMin &&
                        body.FootprintMax == rows.Footprints[i].FootprintMax &&
                        body.SurfaceY == rows.Footprints[i].SurfaceY && data.WaterMaterial == rows.Materials[i] &&
@@ -97,7 +97,7 @@ namespace Desert::ECS
                     if ( ECS::IsHidden( registry, entity ) )
                         continue;
                     const WaterBodyData& data     = view.get<WaterBodyComponent>( entity ).Data;
-                    const glm::vec3&     location = view.get<TransformComponent>( entity ).GetTranslation();
+                    const glm::vec3      location = view.get<TransformComponent>( entity ).GetTranslation();
                     rows->Footprints.push_back( footprint( entity ) );
                     rows->Materials.push_back( data.WaterMaterial );
                     rows->Waves.push_back( data.WaterWaves );
@@ -144,7 +144,7 @@ namespace Desert::ECS
                 if ( ECS::IsHidden( registry, entity ) )
                     continue;
                 const WaterZoneData& data     = zones.get<WaterZoneComponent>( entity ).Data;
-                const glm::vec3&     location = zones.get<TransformComponent>( entity ).GetTranslation();
+                const glm::vec3      location = zones.get<TransformComponent>( entity ).GetTranslation();
 
                 Graphic::System::WaterZoneDraw draw;
                 draw.Zone.ZoneCenter         = glm::vec2( location.x, location.z );

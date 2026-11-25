@@ -226,7 +226,7 @@ namespace Desert::Assets
 
         std::optional<std::string> Tag;
 
-        std::optional<glm::vec3> Translation;
+        std::optional<glm::dvec3> Translation;
         std::optional<glm::vec3> Rotation;
         std::optional<glm::vec3> Scale;
 
@@ -252,7 +252,7 @@ namespace Desert::Assets
         std::optional<std::string> Tag;
 
         // Transform
-        std::optional<glm::vec3>   Translation;
+        std::optional<glm::dvec3>  Translation;
         std::optional<glm::vec3>   Rotation;
         std::optional<glm::vec3>   Scale;
 
@@ -311,7 +311,7 @@ namespace Desert::Assets
     // it. PURE: the scene saver and the v36->v37 migrator run this one rule.
     struct RootTransformOverride
     {
-        std::optional<glm::vec3> Translation;
+        std::optional<glm::dvec3> Translation;
         std::optional<glm::vec3> Rotation;
         std::optional<glm::vec3> Scale;
     };
@@ -373,9 +373,9 @@ namespace Desert::Assets
     // than put it where the prefab's own root happens to stand.
     struct InstanceRootTransform
     {
-        glm::vec3 Translation{ 0.0f };
-        glm::vec3 Rotation{ 0.0f };
-        glm::vec3 Scale{ 1.0f };
+        glm::dvec3 Translation{ 0.0 };
+        glm::vec3  Rotation{ 0.0f };
+        glm::vec3  Scale{ 1.0f };
     };
     inline Common::ResultStr<InstanceRootTransform> StatedInstanceTransform( const EntityData& record )
     {

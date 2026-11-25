@@ -528,7 +528,7 @@ namespace Desert::Editor
                 if ( auto cam = m_Scene->GetMainCamera().lock() )
                     if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( cam.get() ) )
                         if ( auto ref = m_Scene->FindEntityByID( UUID ) )
-                            editorCam->Focus( glm::vec3( ref->get().GetWorldTransform()[3] ) );
+                            editorCam->Focus( glm::vec3( ref->get().GetWorldTransform().Origin ) );
             }
         }
         // UE's unsaved marker on an actor whose own package is dirty (One File Per Actor): this entity differs

@@ -651,6 +651,9 @@ namespace
                                 report.StatedLightVersion,
                                 Desert::Migration::kLightVersionRotation, report.SunRotation.Aimed,
                                 report.SunRotation.Overrides, report.SunRotation.Undirected );
+        if ( report.DoubleTranslationRaised )
+            out << " scene ->v" << Desert::Migration::kSceneVersionDoubleTranslation
+                << " (Translation is a double; the stated numbers are unchanged)";
         if ( report.VolumetricFogRaised )
             out << " scene ->v" << Desert::Migration::kSceneVersionVolumetricFog
                 << " (fog and lights state the Volumetric Fog fields at their defaults)";

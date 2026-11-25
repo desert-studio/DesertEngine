@@ -631,7 +631,7 @@ namespace Desert::Core
             const ECS::StreamingSourceData& data = registry.get<ECS::StreamingSourceComponent>( entity ).Data;
             if ( !data.Enabled )
                 continue;
-            const glm::mat4        world = ECS::Entity( entity, registry ).GetWorldTransform();
+            const glm::mat4        world = ECS::Entity( entity, registry ).GetWorldTransform().ToFloatMatrix();
             Rules::StreamingSource source;
             source.Position = glm::vec3( world[3] );
             // The entity's forward is its local −Z (the camera's convention), in world axes.

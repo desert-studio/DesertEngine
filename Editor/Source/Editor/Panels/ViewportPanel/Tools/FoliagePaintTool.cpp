@@ -1004,7 +1004,7 @@ namespace Desert::Editor::Tools
             const auto& instances = field.GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms();
             if ( instances.empty() )
             {
-                const auto& at = field.GetComponent<ECS::TransformComponent>().GetTranslation();
+                const glm::vec3 at = glm::vec3( field.GetComponent<ECS::TransformComponent>().GetTranslation() );
                 return ::Desert::Core::Rules::CellOf( at.x, at.z, cellSize );
             }
             std::map<std::pair<int32_t, int32_t>, std::size_t> counts;
@@ -1233,7 +1233,8 @@ namespace Desert::Editor::Tools
                 // The field is now its cell's (a field whose grid changed was filed by its instances): its entity
                 // moves into that cell (FoliageCells.hpp, THE INVARIANT) and a cell field's name follows the cell.
                 const auto& cell        = out[*slotOf[i]].Cell;
-                const glm::vec3 translation = ref->get().GetComponent<ECS::TransformComponent>().GetTranslation();
+                const glm::vec3 translation =
+                     glm::vec3( ref->get().GetComponent<ECS::TransformComponent>().GetTranslation() );
                 auto&       tag         = ref->get().GetComponent<ECS::TagComponent>().Tag;
                 const FoliageFieldPlace now{ translation, tag };
                 FoliageFieldPlace       wanted = now;
@@ -1285,8 +1286,9 @@ namespace Desert::Editor::Tools
                      const auto ref = scene.FindEntityByID( uuid );
                      if ( !ref )
                          return std::nullopt;
-                     return FoliageFieldPlace{ ref->get().GetComponent<ECS::TransformComponent>().GetTranslation(),
-                                               ref->get().GetComponent<ECS::TagComponent>().Tag };
+                     return FoliageFieldPlace{
+                          glm::vec3( ref->get().GetComponent<ECS::TransformComponent>().GetTranslation() ),
+                          ref->get().GetComponent<ECS::TagComponent>().Tag };
                  } );
         }
 
@@ -1326,7 +1328,8 @@ namespace Desert::Editor::Tools
         // Copies: creating a field may move the registry's storage under a reference.
         const ECS::ProceduralFoliageData volume =
              found->get().GetComponent<ECS::ProceduralFoliageComponent>().Data;
-        const glm::vec3 center = found->get().GetComponent<ECS::TransformComponent>().GetTranslation();
+        const glm::vec3 center =
+             glm::vec3( found->get().GetComponent<ECS::TransformComponent>().GetTranslation() );
 
         std::vector<Assets::Asset<Assets::FoliageTypeAsset>> assets;
         std::vector<Assets::Serialization::FoliageTypeData>  types;
@@ -1846,7 +1849,7 @@ namespace Desert::Editor::Tools
                 auto&             registry = scene.GetRegistry();
                 const ECS::Entity first( ref->get().GetComponent<ECS::RelationshipComponent>().Children.front(),
                                          registry );
-                const glm::mat4   toInstance = glm::inverse( first.GetWorldTransform() );
+                const glm::mat4   toInstance = glm::inverse( first.GetWorldTransform().ToFloatMatrix() );
                 std::optional<Common::Math::AABB> box;
                 std::vector<entt::entity>         walk{ first.GetHandle() };
                 while ( !walk.empty() )
@@ -1863,7 +1866,7 @@ namespace Desert::Editor::Tools
                     if ( !part )
                         continue;
                     const Common::Math::AABB local = Geometry::LocalBounds( part->GetSubmeshes() );
-                    const glm::mat4          m     = toInstance * e.GetWorldTransform();
+                    const glm::mat4          m     = toInstance * e.GetWorldTransform().ToFloatMatrix();
                     for ( int corner = 0; corner < 8; ++corner )
                     {
                         const glm::vec3 p( corner & 1 ? local.Max.x : local.Min.x,
@@ -2020,7 +2023,7 @@ namespace Desert::Editor::Tools
             return Common::MakeError( "foliage fill: no foliage type is checked in the palette" );
 
         // The mesh's triangles in the world (UE FFoliagePaintBucketTriangle over LocalToWorld).
-        const glm::mat4                  toWorld = target->get().GetWorldTransform();
+        const glm::mat4                  toWorld = target->get().GetWorldTransform().ToFloatMatrix();
         const Geometry::DynamicMesh3&    dm      = *mesh.GetValue().Mesh;
         std::vector<FoliageFillTriangle> triangles;
         triangles.reserve( static_cast<size_t>( dm.TriangleCount() ) );

@@ -96,8 +96,8 @@ namespace Desert::Editor::Core
         {
             if ( !other.Mesh )
                 return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}' has no mesh", name, other.Name );
-            const glm::mat4 toOperated =
-                 glm::inverse( operated.Entity.GetWorldTransform() ) * other.Entity.GetWorldTransform();
+            const glm::mat4 toOperated = glm::inverse( operated.Entity.GetWorldTransform().ToFloatMatrix() ) *
+                                         other.Entity.GetWorldTransform().ToFloatMatrix();
             auto moved = Geometry::TransformMesh( *other.Mesh, toOperated );
             if ( !moved.IsSuccess() )
                 return Common::MakeFormattedError<OperandMeshPtr>( "{}: '{}' into the space of '{}': {}", name,
@@ -288,8 +288,9 @@ namespace Desert::Editor::Core
             slots = inputs.MaterialSlots; // both meshes' triangles: the whole table
         if ( bOnB )
         {
-            auto moved = Geometry::TransformMesh( *resultInA, glm::inverse( eB.GetWorldTransform() ) *
-                                                                   eA.GetWorldTransform() );
+            auto moved =
+                 Geometry::TransformMesh( *resultInA, glm::inverse( eB.GetWorldTransform().ToFloatMatrix() ) *
+                                                           eA.GetWorldTransform().ToFloatMatrix() );
             if ( !moved.IsSuccess() )
                 return Common::MakeFormattedError<Out>( "{}: the result into the space of '{}': {}", label, opName,
                                                         moved.GetError() );

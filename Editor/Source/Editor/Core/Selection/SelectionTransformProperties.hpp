@@ -34,7 +34,7 @@ namespace Desert::Editor::Core
 
     struct SelectionTransform
     {
-        glm::vec3 Translation{ 0.0f };
+        glm::dvec3 Translation{ 0.0 }; // LWC p2: the entity's own double, so a write keeps 2000000.5 exact
         glm::vec3 Rotation{ 0.0f };
         glm::vec3 Scale{ 1.0f };
     };
@@ -53,7 +53,7 @@ namespace Desert::Editor::Core
             property.Value      = { value.x, value.y, value.z, 0.0f };
             census.push_back( property );
         };
-        row( kSelectionTranslation, "Location (cm)", trs.Translation );
+        row( kSelectionTranslation, "Location (cm)", glm::vec3( trs.Translation ) ); // LWC: display narrowing
         row( kSelectionRotation, "Rotation (radians)", trs.Rotation );
         row( kSelectionScale, "Scale", trs.Scale );
         return census;
@@ -69,9 +69,10 @@ namespace Desert::Editor::Core
     WriteSelectionTransform( SelectionTransform current, const std::string& property,
                              const std::vector<float>& value )
     {
-        glm::vec3* field = nullptr;
-        if ( property == kSelectionTranslation )
-            field = &current.Translation;
+        glm::vec3* field     = nullptr;
+        const bool translate = property == kSelectionTranslation;
+        if ( translate )
+            field = &current.Rotation; // placeholder so the checks below run once; the double is written below
         else if ( property == kSelectionRotation )
             field = &current.Rotation;
         else if ( property == kSelectionScale )
@@ -90,7 +91,10 @@ namespace Desert::Editor::Core
                      "'{}' was given a component that is not a finite number; it would reach the entity's world "
                      "matrix and the entity would vanish.",
                      property );
-        *field = glm::vec3( value[0], value[1], value[2] );
+        if ( translate )
+            current.Translation = glm::dvec3( value[0], value[1], value[2] );
+        else
+            *field = glm::vec3( value[0], value[1], value[2] );
         return Common::MakeSuccess( current );
     }
 } // namespace Desert::Editor::Core

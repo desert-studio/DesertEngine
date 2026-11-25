@@ -169,6 +169,23 @@ namespace rfl
         }
     };
 
+    // A world position (LWC, scene v77): three doubles, written as the shortest text that reads back bit-exact.
+    template <>
+    struct Reflector<glm::dvec3>
+    {
+        using ReflType = std::array<double, 3>;
+
+        static inline glm::dvec3 to( const ReflType& arr ) noexcept
+        {
+            return glm::dvec3( arr[0], arr[1], arr[2] );
+        }
+
+        static inline ReflType from( const glm::dvec3& v )
+        {
+            return { v.x, v.y, v.z };
+        }
+    };
+
     template <>
     struct Reflector<glm::vec4>
     {

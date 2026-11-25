@@ -57,7 +57,7 @@ namespace Desert::World::Foliage
 
             // Unchanged since the last realization: nothing to do (an edit moves the revision, the child count,
             // the field's transform, its type or the prefab asset).
-            const glm::mat4 fieldWorld = fieldEntity.GetWorldTransform();
+            const glm::mat4 fieldWorld = fieldEntity.GetWorldTransform().ToFloatMatrix();
             {
                 const auto& foliage = registry.get<ECS::FoliageComponent>( field );
                 const auto& last    = foliage.RuntimePrefabRealized;

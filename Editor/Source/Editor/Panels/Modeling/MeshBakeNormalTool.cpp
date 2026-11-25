@@ -82,8 +82,9 @@ namespace Desert::Editor::Core
             auto render = Geometry::ToRenderMesh( *mesh.GetValue().Mesh );
             if ( !render.IsSuccess() )
                 return Common::MakeFormattedError<Out>( "{} '{}': {}", role, name, render.GetError() );
-            auto surface = Geometry::BakeSurfaceFromRender( render.GetValue(), glm::dmat4( e.GetWorldTransform() ),
-                                                            /*needTangentFrame=*/target );
+            auto surface =
+                 Geometry::BakeSurfaceFromRender( render.GetValue(), e.GetWorldTransform().ToDoubleMatrix(),
+                                                  /*needTangentFrame=*/target );
             if ( !surface.IsSuccess() )
                 return Common::MakeFormattedError<Out>( "{} '{}': {}", role, name, surface.GetError() );
             return Common::MakeSuccess( Out{ id, e, name, surface.ExtractValue() } );

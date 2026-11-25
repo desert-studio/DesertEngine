@@ -105,7 +105,7 @@ namespace Desert::Editor::Tools
         // shape's centre.
         void ShowPreview( ::Desert::Core::Scene& scene, const Session& session, const ECS::Entity& entity )
         {
-            const auto        world = ECS::Rules::DecomposeTransform( entity.GetWorldTransform() );
+            const auto        world = ECS::Rules::DecomposeTransform( entity.GetWorldTransform().ToFloatMatrix() );
             const glm::mat3   R     = glm::mat3_cast( glm::quat( world.Rotation ) );
             ECS::ColliderData shape = session.Collider;
             if ( session.Tool == MS::Tool::MeshToVolume )
@@ -153,7 +153,7 @@ namespace Desert::Editor::Tools
             if ( !ref )
                 return Common::MakeFormattedError<bool>( "entity {} is not in the scene",
                                                          static_cast<uint64_t>( id ) );
-            const auto        world    = ECS::Rules::DecomposeTransform( ref->get().GetWorldTransform() );
+            const auto world = ECS::Rules::DecomposeTransform( ref->get().GetWorldTransform().ToFloatMatrix() );
             const std::string name     = session.VolumeName + "Volume";
             const auto        replaced = Commands::ReplaceWithNewEntity(
                  id, name,
@@ -205,7 +205,8 @@ namespace Desert::Editor::Tools
         session.Collider = fit.GetValue();
         if ( shape == Physics::ShapeType::ConvexHull || shape == Physics::ShapeType::Mesh )
         {
-            auto hull = HullOf( entity, ECS::Rules::DecomposeTransform( entity.GetWorldTransform() ).Scale );
+            auto hull = HullOf(
+                 entity, ECS::Rules::DecomposeTransform( entity.GetWorldTransform().ToFloatMatrix() ).Scale );
             if ( !hull.IsSuccess() )
                 return Common::MakeFormattedError<bool>( "entity {}: {}", id, hull.GetError() );
             session.Hull = std::move( hull.GetValue() );
@@ -228,7 +229,8 @@ namespace Desert::Editor::Tools
 
         // UE's AVolume brush is the CONVEX HULL of the mesh (UMeshToVolumeTool, ConvexHull), not its triangles:
         // the outline drawn is the region Jolt simulates.
-        auto hull = HullOf( entity, ECS::Rules::DecomposeTransform( entity.GetWorldTransform() ).Scale );
+        auto hull =
+             HullOf( entity, ECS::Rules::DecomposeTransform( entity.GetWorldTransform().ToFloatMatrix() ).Scale );
         if ( !hull.IsSuccess() )
             return Common::MakeFormattedError<bool>( "entity {}: {}", id, hull.GetError() );
         Session session;

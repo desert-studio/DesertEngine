@@ -19,34 +19,10 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <CoreReflection/ReflectionMacros.hpp>
+#include <Engine/ECS/Transform.hpp>
 
 namespace Desert::ECS
 {
-    // A parent-relative transform AS A VALUE: what a TransformComponent holds, what a caller builds before
-    // handing it to SetLocalTransform, and what code that never touches a registry (gizmo maths, prefab
-    // records, tests) passes around. UE's FTransform next to USceneComponent::RelativeLocation/Rotation/Scale.
-    struct LocalTransform
-    {
-        glm::vec3 Translation = { 0.0f, 0.0f, 0.0f };
-        glm::vec3 Rotation    = { 0.0f, 0.0f, 0.0f };
-        glm::vec3 Scale       = { 1.0f, 1.0f, 1.0f };
-
-        [[nodiscard]] glm::mat4 GetTransform() const
-        {
-            return glm::translate( glm::mat4( 1.0f ), Translation ) * glm::toMat4( glm::quat( Rotation ) ) *
-                   glm::scale( glm::mat4( 1.0f ), Scale );
-        }
-
-        [[nodiscard]] bool operator==( const LocalTransform& other ) const
-        {
-            return Translation == other.Translation && Rotation == other.Rotation && Scale == other.Scale;
-        }
-        [[nodiscard]] bool operator!=( const LocalTransform& other ) const
-        {
-            return !( *this == other );
-        }
-    };
-
     class TransformComponent;
     bool SetLocalTransform( entt::registry& registry, entt::entity entity, const LocalTransform& local );
 
@@ -60,7 +36,7 @@ namespace Desert::ECS
     [[nodiscard]] bool WorldTransformPending( const TransformComponent& transform );
     // The cached world transform of the nearest ancestor of `entity` that has a TransformComponent (identity
     // at a root): what a child composes under, and what an entity without a transform of its own stands at.
-    [[nodiscard]] glm::mat4 ParentWorldTransform( const entt::registry& registry, entt::entity entity );
+    [[nodiscard]] WorldTransform ParentWorldTransform( const entt::registry& registry, entt::entity entity );
 
     // THE ENTITY'S LOCAL TRANSFORM, READ-ONLY. Nothing may write it in place: every write goes through
     // SetLocalTransform (below), which is a registry.patch, so EnTT's on_update<TransformComponent> fires for
@@ -73,13 +49,16 @@ namespace Desert::ECS
     {
     public:
         TransformComponent() = default;
-        TransformComponent( const LocalTransform& local ) : m_Local( local ), m_World( local.GetTransform() ) {}
+        TransformComponent( const LocalTransform& local )
+             : m_Local( local ), m_World( WorldTransform::FromLocal( local ) )
+        {
+        }
 
         [[nodiscard]] const LocalTransform& GetLocal() const
         {
             return m_Local;
         }
-        [[nodiscard]] const glm::vec3& GetTranslation() const
+        [[nodiscard]] const glm::dvec3& GetTranslation() const
         {
             return m_Local.Translation;
         }
@@ -98,14 +77,14 @@ namespace Desert::ECS
         // THE CACHED WORLD TRANSFORM (UE USceneComponent::ComponentToWorld): parent world x local, kept current
         // by UpdateWorldTransforms on every hierarchy write, so a reader neither walks the parent chain nor
         // recomposes a TRS. Copies with the component (registry copy, duplicate) stay consistent with it.
-        [[nodiscard]] const glm::mat4& GetWorldTransform() const
+        [[nodiscard]] const WorldTransform& GetWorldTransform() const
         {
             return m_World;
         }
 
     private:
         LocalTransform m_Local;
-        glm::mat4      m_World = glm::mat4( 1.0f );
+        WorldTransform m_World;
         // False until UpdateWorldTransforms composed the parent chain in; a constructed component holds the
         // root-only world (local), which is right for an unparented entity in a registry without hooks.
         bool m_WorldComposed = false;
@@ -135,7 +114,7 @@ namespace Desert::ECS
     }
 
     // One field of the local transform; each is SetLocalTransform with the other two fields kept.
-    inline bool SetLocalTranslation( entt::registry& registry, entt::entity entity, const glm::vec3& translation )
+    inline bool SetLocalTranslation( entt::registry& registry, entt::entity entity, const glm::dvec3& translation )
     {
         LocalTransform local = registry.get<TransformComponent>( entity ).GetLocal();
         local.Translation    = translation;

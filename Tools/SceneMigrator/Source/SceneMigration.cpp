@@ -6332,6 +6332,9 @@ namespace Desert::Migration
         // makes the file count as raised (SceneMigrator writes it, --check reports it).
         if ( statedSceneVersion < kSceneVersionVolumetricFog )
             report.VolumetricFogRaised = true;
+        // Additive as well (WP-LWC): Translation is read as a double; the save states it as one.
+        if ( statedSceneVersion < kSceneVersionDoubleTranslation )
+            report.DoubleTranslationRaised = true;
 
         // World Partition's own chain, after the scene's: its numbers are its tag's (kWorldPartitionVersion*).
         RunWorldPartitionSteps( scene.Header, scene, nullptr, scene.SceneName, report );
@@ -6442,6 +6445,8 @@ namespace Desert::Migration
             if ( !outcome.Steps.LandscapeSplineEntities.Refused.empty() )
                 outcome.Steps.Refused = RefusedWhole( prefab.Name, outcome.Steps.LandscapeSplineEntities.Refused );
         }
+        if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionDoubleTranslation )
+            outcome.Steps.DoubleTranslationRaised = true; // additive: Translation read and stated as a double
         if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionAssetKeys )
         {
             outcome.Steps.AssetKeysRaised = true;

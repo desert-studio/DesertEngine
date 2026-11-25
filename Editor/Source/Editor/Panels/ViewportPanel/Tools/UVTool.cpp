@@ -50,7 +50,7 @@ namespace Desert::Editor::Tools
         glm::dmat4 WorldOfDouble( ::Desert::Core::Scene& scene, const Common::UUID& id )
         {
             auto ref = scene.FindEntityByID( id );
-            return ref ? glm::dmat4( ref->get().GetWorldTransform() ) : glm::dmat4( 1.0 );
+            return ref ? ref->get().GetWorldTransform().ToDoubleMatrix() : glm::dmat4( 1.0 );
         }
 
         // ---- The checker preview (UE's Checkerboard material mode) ----

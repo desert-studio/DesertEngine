@@ -29,7 +29,7 @@ namespace Desert::ECS
     {
         const auto&                     component = entity.GetComponent<LandscapeComponent>();
         World::Landscape::LandscapeRoot root;
-        root.Origin       = glm::vec3( entity.GetWorldTransform()[3] );
+        root.Origin       = glm::vec3( entity.GetWorldTransform().Origin );
         root.QuadsPerTile = component.QuadsPerTile;
         root.SpacingCm    = component.SpacingCm;
         root.ZScale       = component.ZScale;

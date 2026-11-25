@@ -13,7 +13,7 @@ namespace Desert::ECS
         if ( !registry.valid( entity ) )
             return Common::MakeError<uint32_t>( "the field entity does not exist" );
 
-        const glm::mat4 pose   = Entity( entity, registry ).GetWorldTransform();
+        const glm::mat4 pose   = Entity( entity, registry ).GetWorldTransform().ToFloatMatrix();
         const glm::vec3 centre = glm::vec3( pose[3] );
         uint32_t        acted  = 0u;
         bool            fired  = false;

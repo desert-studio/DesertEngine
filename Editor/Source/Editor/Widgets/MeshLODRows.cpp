@@ -51,7 +51,7 @@ namespace Desert::Editor::MeshLODRows
         if ( !camera )
             return std::nullopt;
         const std::size_t level =
-             Geometry::SelectLOD( entity.GetWorldTransform(), mesh.GetSubmeshes(),
+             Geometry::SelectLOD( entity.GetWorldTransform().ToFloatMatrix(), mesh.GetSubmeshes(),
                                   Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
                                   mesh.GetLODScreenSizes(), forcedLOD, lodBias );
         return level < levels ? level : levels - 1;

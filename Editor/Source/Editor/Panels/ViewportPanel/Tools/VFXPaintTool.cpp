@@ -157,7 +157,7 @@ namespace Desert::Editor::Tools
         // the surfaces, topped up only to the density the disc should hold, so painting over a spot again adds
         // nothing. The set's points are its "instances".
         auto&           entity  = ref->get();
-        const glm::mat4 toWorld = entity.GetWorldTransform();
+        const glm::mat4 toWorld = entity.GetWorldTransform().ToFloatMatrix();
         const glm::mat4 toLocal = glm::inverse( toWorld );
         auto&           set     = SetOf( entity.GetComponent<ECS::VFXComponent>().Data, Brush().Set );
 
@@ -231,7 +231,7 @@ namespace Desert::Editor::Tools
         if ( !target.IsSuccess() )
             return;
         const auto&     entity  = scene.FindEntityByID( target.GetValue() )->get();
-        const glm::mat4 toWorld = entity.GetWorldTransform();
+        const glm::mat4 toWorld = entity.GetWorldTransform().ToFloatMatrix();
         ImDrawList*     dl      = ImGui::GetWindowDrawList();
         for ( const ECS::VFXPointSet& set : entity.GetComponent<ECS::VFXComponent>().Data.PointSets )
             for ( const glm::vec4& p : set.Points )

@@ -80,6 +80,9 @@ namespace Desert::Editor::Utils
         // Returns true while the value is being edited.
         static bool VectorField( const char* id, float* values, int components, float speed = 0.1f,
                                  const char* format = "%.3f" );
+        // The same field over doubles (ImGuiDataType_Double): a world position (LWC, UE's double FVector Details).
+        static bool VectorField( const char* id, double* values, int components, float speed = 0.1f,
+                                 const char* format = "%.3f" );
 
         // An asset slot drawn the way UE draws one: a SUNK, full-width field carrying the asset's name
         // with a chevron at its right edge — not a raised push button. The distinction is the whole
@@ -135,5 +138,10 @@ namespace Desert::Editor::Utils
         // One row; the value's full text is the tooltip, since a narrow panel clips it.
         static void FactRow( const char* label, const std::string& value );
         static void EndFactTable();
+
+    private:
+        // VectorField's body for float and double values.
+        template <typename T>
+        static bool VectorFieldOf( const char* id, T* values, int components, float speed, const char* format );
     };
 } // namespace Desert::Editor::Utils

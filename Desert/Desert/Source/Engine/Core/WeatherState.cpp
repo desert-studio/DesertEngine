@@ -43,7 +43,7 @@ namespace Desert::Core
 
         glm::vec3 PositionOf( entt::registry& registry, const entt::entity entity )
         {
-            return glm::vec3( ECS::Entity( entity, registry ).GetWorldTransform()[3] );
+            return glm::vec3( ECS::Entity( entity, registry ).GetWorldTransform().Origin );
         }
 
         Common::ResultStr<const Assets::Serialization::WeatherPresetData*>

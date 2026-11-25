@@ -329,7 +329,7 @@ namespace Desert::Core
             if ( accept && !accept( entity.GetComponent<ECS::UUIDComponent>().UUID ) )
                 continue;
 
-            const glm::mat4 xf       = entity.GetWorldTransform();
+            const glm::mat4 xf       = entity.GetWorldTransform().ToFloatMatrix();
             const auto      localRay = ray.ToLocalSpace( xf );
 
             if ( complex && !skinned )
@@ -761,7 +761,7 @@ namespace Desert::Core
             return std::nullopt;
         if ( m_ViewTarget != entt::null && m_Registry.valid( m_ViewTarget ) &&
              m_Registry.has<ECS::TransformComponent>( m_ViewTarget ) )
-            return ECS::Entity( m_ViewTarget, m_Registry ).GetWorldTransform();
+            return ECS::Entity( m_ViewTarget, m_Registry ).GetWorldTransform().ToFloatMatrix();
         const std::shared_ptr<Camera> camera = GetActiveCamera();
         if ( !camera )
             return std::nullopt;
@@ -788,7 +788,8 @@ namespace Desert::Core
                 // WORLD transform of the camera entity (the cached one), so a camera parented to a moving
                 // entity (e.g. a child of the character controller) follows it — 1st/3rd person is just the
                 // child's local offset.
-                const glm::mat4 world = m_Registry.get<ECS::TransformComponent>( mainEntity ).GetWorldTransform();
+                const glm::mat4 world =
+                     m_Registry.get<ECS::TransformComponent>( mainEntity ).GetWorldTransform().ToFloatMatrix();
                 if ( !m_GameplayCamera )
                     m_GameplayCamera = std::make_shared<GameplayCamera>();
                 static_cast<GameplayCamera*>( m_GameplayCamera.get() )

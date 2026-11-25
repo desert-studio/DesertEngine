@@ -618,7 +618,7 @@ namespace Desert::Editor
                 // closure was awaited), so its box - skinned ones in their baked bind pose - is known. An
                 // entity the user already moved off the drop point keeps where they put it.
                 const auto& transform = e.GetComponent<ECS::TransformComponent>();
-                if ( dropTarget && transform.GetTranslation() == dropTarget->Point )
+                if ( dropTarget && transform.GetTranslation() == glm::dvec3( dropTarget->Point ) )
                     if ( const auto* meshAsset =
                               Runtime::ResourceRegistry::GetMeshService()->GetAsset( resolved.Handle ) )
                         e.SetLocalTranslation( ActorDrop::PlacedOrigin(
@@ -1040,7 +1040,7 @@ namespace Desert::Editor
                 if ( !entity )
                     return Common::MakeError<bool>(
                          "Focus Selected: the selected entity is not in this viewport's scene." );
-                editorCamera->Focus( glm::vec3( entity->get().GetWorldTransform()[3] ) );
+                editorCamera->Focus( glm::vec3( entity->get().GetWorldTransform().Origin ) );
                 return Common::MakeSuccess( true );
             }
         }
@@ -3257,7 +3257,7 @@ namespace Desert::Editor
         // its placement, in the engine's space (ImportRecord.hpp `Bounds`). A root the user already moved keeps
         // where they put it.
         const auto& transform = root.GetComponent<ECS::TransformComponent>();
-        if ( !dropTarget || transform.GetTranslation() != dropTarget->Point )
+        if ( !dropTarget || transform.GetTranslation() != glm::dvec3( dropTarget->Point ) )
             return;
         const auto record = Assets::Serialization::ReadImportRecord( sourcePath );
         if ( !record )

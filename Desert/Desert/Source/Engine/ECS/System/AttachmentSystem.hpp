@@ -104,12 +104,12 @@ namespace Desert::ECS
                     if ( parent != entt::null )
                     {
                         ECS::Entity parentEnt{ parent, registry };
-                        parentWorld = parentEnt.GetWorldTransform();
+                        parentWorld = parentEnt.GetWorldTransform().ToFloatMatrix();
                     }
                 }
 
                 const glm::mat4 local = Rules::SocketLocalTransform(
-                     target.GetWorldTransform(),
+                     target.GetWorldTransform().ToFloatMatrix(),
                      anim.Animator->GetBoneModelMatrix( boneIdx ) * resolved.Point->SocketLocal,
                      socket.OffsetTranslation, socket.OffsetRotation, socket.OffsetScale, parentWorld );
 

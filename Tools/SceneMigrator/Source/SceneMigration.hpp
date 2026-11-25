@@ -523,7 +523,15 @@ namespace Desert::Migration
     //       become an entity of an instance (MigrateLandscapeSplineEntitiesV75ToV76).
     inline constexpr int kSceneVersionLandscapeSplineEntities = 76;
 
-    static_assert( kSceneVersionLandscapeSplineEntities == kSceneVersion,
+    //  77 - A POSITION IS A DOUBLE (WP-LWC pass 2, Docs/contracts/LWC.md; UE5 LWC: FVector is double). Every
+    //       record's (and every prefab record's / override's) Translation is read and written as a double - the
+    //       writer states the shortest text that reads back bit-exact, so 2000000.5 stays 2000000.5. The stored
+    //       numbers do not change (a float-era value is exactly representable in a double), so the step has no
+    //       transform of its own; the number moves so an older, float build refuses a file whose positions it
+    //       would silently round (0.125 cm at 20 km). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionDoubleTranslation = 77;
+
+    static_assert( kSceneVersionDoubleTranslation == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -1568,6 +1576,8 @@ namespace Desert::Migration
         GrassRasterPathReport GrassRasterPath;
         bool                  LandscapeSplineEntitiesRaised = false; // below kSceneVersionLandscapeSplineEntities
         LandscapeSplineEntitiesReport LandscapeSplineEntities;
+        // v76 -> v77 is additive (the stated numbers are already exact doubles); its own flag, as VolumetricFog's.
+        bool DoubleTranslationRaised = false; // below kSceneVersionDoubleTranslation
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -1591,7 +1601,7 @@ namespace Desert::Migration
                    ReflectedAssetRefsRaised || SunRotationRaised || VolumetricFogRaised || TracedRequestRaised ||
                    ComposedGIRaised || FilmicDefaultRaised || GrassRasterPathRaised || HLODMergeMaterialsRaised ||
                    DebugColorsRaised || MiniMapRaised || LandscapeSplineEntitiesRaised ||
-                   HLODBuilderSettingsRaised || EntityHLODLayerRaised ||
+                   DoubleTranslationRaised || HLODBuilderSettingsRaised || EntityHLODLayerRaised ||
                    ImpostorLayersRaised;
         }
     };

@@ -37,7 +37,7 @@ namespace Desert::ECS::ProjectileMovement
             const auto* relation = registry.try_get<RelationshipComponent>( entity );
             if ( relation == nullptr || relation->Parent == entt::null || !registry.valid( relation->Parent ) )
                 return glm::mat4( 1.0f );
-            return Entity( relation->Parent, registry ).GetWorldTransform();
+            return Entity( relation->Parent, registry ).GetWorldTransform().ToFloatMatrix();
         }
 
         Physics::BodyHandle BodyOf( const entt::registry& registry, entt::entity entity )

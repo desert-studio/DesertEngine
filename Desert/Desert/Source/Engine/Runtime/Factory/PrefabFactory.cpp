@@ -562,7 +562,7 @@ namespace Desert::Runtime::Factory
             }
 
             auto&           packed = registry.get<PackedPrefabComponent>( handle );
-            const glm::mat4 world  = root.GetWorldTransform();
+            const glm::mat4 world  = root.GetWorldTransform().ToFloatMatrix();
             if ( packed.Form && world != packed.PlacedAt )
                 PlacePackedGroups( registry, packed, world );
         }

@@ -101,7 +101,7 @@ namespace Desert::ECS
                     renderCommandBuffer.Emplace<Graphic::Render::LocalWindSourceCommand>(
                          Graphic::LocalWindCandidate{
                               static_cast<uint32_t>( source ),
-                              glm::vec3( Entity( source, registry ).GetWorldTransform()[3] ), data.Radius,
+                              glm::vec3( Entity( source, registry ).GetWorldTransform().Origin ), data.Radius,
                               data.Speed } );
                 }
             }
@@ -279,7 +279,7 @@ namespace Desert::ECS
                          // WORLD transform (the cached one) — a skinned mesh parented to e.g. the character
                          // controller must follow it; using the local transform left it behind at the origin
                          // while the (parent-aware) camera moved away. Mirrors the static path.
-                         const glm::mat4& worldTransform = transform.GetWorldTransform();
+                         const glm::mat4& worldTransform = transform.GetWorldTransform().ToFloatMatrix();
 
                          // Morph weights blend before skinning (MeshRenderer::UpdateMorphTargets), only for a
                          // mesh that has targets to blend.
@@ -1644,7 +1644,7 @@ namespace Desert::ECS
 
             // The world transform: the cached one (TransformComponent::GetWorldTransform, kept current by every
             // hierarchy write), a load rather than a parent walk with a TRS recompose per ancestor.
-            const glm::mat4& worldTransform = transform.GetWorldTransform();
+            const glm::mat4& worldTransform = transform.GetWorldTransform().ToFloatMatrix();
 
             // Outline: editor selection (this entity or any ancestor — selecting a prefab root outlines all its
             // mesh children) OR the per-entity "Draw outline" toggle. A selection change rebuilds the slots whose

@@ -701,7 +701,7 @@ namespace Desert::Editor
             }
 
             auto&           light    = entity.GetComponent<ECS::PointLightComponent>().Data;
-            const glm::vec3 worldPos = glm::vec3( entity.GetWorldTransform()[3] ); // parent-composed position
+            const glm::vec3 worldPos = glm::vec3( entity.GetWorldTransform().Origin ); // parent-composed position
 
             const auto mvp = camera->GetProjectionMatrix() * camera->GetViewMatrix();
 
@@ -870,7 +870,7 @@ namespace Desert::Editor
                 continue;
 
             auto&           light    = entity.GetComponent<ECS::SpotLightComponent>().Data;
-            const glm::mat4 worldXf  = entity.GetWorldTransform(); // parent-composed
+            const glm::mat4 worldXf  = entity.GetWorldTransform().ToFloatMatrix(); // parent-composed
             const glm::vec3 worldPos = glm::vec3( worldXf[3] );
 
             const auto mvp = camera->GetProjectionMatrix() * camera->GetViewMatrix();
@@ -988,8 +988,8 @@ namespace Desert::Editor
             // THE RECT THE RENDERER LIGHTS BY (ECS::RectLightGeometryOf, RectLightSystem's own call), so the
             // outline cannot face one way while the light faces another.
             const ECS::RectLightGeometry rect =
-                 ECS::RectLightGeometryOf( entity.GetWorldTransform(), light.SourceWidth, light.SourceHeight,
-                                           light.BarnDoorAngle, light.BarnDoorLength );
+                 ECS::RectLightGeometryOf( entity.GetWorldTransform().ToFloatMatrix(), light.SourceWidth,
+                                           light.SourceHeight, light.BarnDoorAngle, light.BarnDoorLength );
 
             // In the light's own colour, lifted so a dark light still has a visible outline (the spot's rule).
             const glm::vec3 lifted( std::max( light.Color.r, 0.25f ), std::max( light.Color.g, 0.25f ),
@@ -1119,7 +1119,7 @@ namespace Desert::Editor
             const auto& cam = entity.GetComponent<ECS::CameraComponent>().Data;
             // WORLD transform (walks parents) — a camera parented to e.g. a character must draw its icon and
             // frustum at the parent-composed position, not its local offset.
-            const glm::mat4 worldXf  = entity.GetWorldTransform();
+            const glm::mat4 worldXf  = entity.GetWorldTransform().ToFloatMatrix();
             const glm::vec3 worldPos = glm::vec3( worldXf[3] );
             const bool      selected = IsSelected( entity );
 
@@ -1555,7 +1555,7 @@ namespace Desert::Editor
             }
             const char* const label = GizmoIconRowOf( role ).Label;
 
-            const glm::vec3 worldPos = glm::vec3( entity.GetWorldTransform()[3] );
+            const glm::vec3 worldPos = glm::vec3( entity.GetWorldTransform().Origin );
             glm::vec2       screenPos;
             if ( !ProjectToScreen( worldPos, mvp, width, height, screenPos ) )
                 continue;
@@ -1568,8 +1568,8 @@ namespace Desert::Editor
             // below is the third component. The capsule is the level's Default Pawn's CharacterController.
             const bool isStart = entity.HasComponent<ECS::PlayerStartComponent>();
             if ( isStart )
-                DrawPlayerStartBody( drawList, entity.GetWorldTransform(), mvp, camera->GetPosition(), width,
-                                     height, windowPos, IsSelected( entity ), pawn );
+                DrawPlayerStartBody( drawList, entity.GetWorldTransform().ToFloatMatrix(), mvp,
+                                     camera->GetPosition(), width, height, windowPos, IsSelected( entity ), pawn );
 
             if ( DrawBillboardIcon( drawList, ImVec2( ax, ay ), role, color, IsSelected( entity ), m_UIHelper ) )
             {
@@ -1674,7 +1674,7 @@ namespace Desert::Editor
             if ( !entity.HasComponent<ECS::TextComponent>() )
                 continue;
 
-            const glm::vec3 worldPos = glm::vec3( entity.GetWorldTransform()[3] );
+            const glm::vec3 worldPos = glm::vec3( entity.GetWorldTransform().Origin );
             glm::vec2       screenPos;
             if ( !ProjectToScreen( worldPos, mvp, width, height, screenPos ) )
                 continue;

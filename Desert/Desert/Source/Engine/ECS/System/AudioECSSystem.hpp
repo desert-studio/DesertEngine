@@ -102,7 +102,7 @@ namespace Desert::ECS
 
                 audio.SetVoiceVolume( it->second, source.Volume );
                 if ( source.Spatial )
-                    audio.SetVoicePosition( it->second, glm::vec3( transform.GetWorldTransform()[3] ) );
+                    audio.SetVoicePosition( it->second, glm::vec3( transform.GetWorldTransform().Origin ) );
             }
 
             PlaySequenceAudio( registry, audio );

@@ -42,7 +42,7 @@ namespace Desert::ECS
     Animation::BoneTransform EntityPose( const TransformComponent& transform )
     {
         Animation::BoneTransform pose;
-        pose.Translation = transform.GetTranslation();
+        pose.Translation = glm::vec3( transform.GetTranslation() );
         pose.Rotation    = glm::quat( transform.GetRotation() );
         pose.Scale       = transform.GetScale();
         return pose;

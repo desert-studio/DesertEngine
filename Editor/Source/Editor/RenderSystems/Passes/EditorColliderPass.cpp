@@ -276,7 +276,7 @@ namespace Desert::Editor::Render
                     hull.push_back( ECS::VolumeCorner( volume->Data, i ) * transform.GetScale() );
                 indices = volume->Data.HullIndices;
             }
-            AppendColliderLines( outLines, collider, transform.GetTranslation(), R, hull, indices,
+            AppendColliderLines( outLines, collider, glm::vec3( transform.GetTranslation() ), R, hull, indices,
                                  kColliderColor );
         }
     }

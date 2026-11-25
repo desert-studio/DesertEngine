@@ -139,7 +139,7 @@ namespace Desert::Debug
         const auto*                  system = scene.FindSystem<ECS::PhysicsECSSystem>();
         const Physics::PhysicsWorld* world  = system != nullptr ? system->GetPhysicsWorld() : nullptr;
 
-        const glm::vec3     location = glm::vec3( targetEntity->GetWorldTransform()[3] );
+        const glm::vec3     location = glm::vec3( targetEntity->GetWorldTransform().Origin );
         Physics::BodyHandle body     = Physics::kInvalidBody;
         if ( rigidBody != nullptr )
         {

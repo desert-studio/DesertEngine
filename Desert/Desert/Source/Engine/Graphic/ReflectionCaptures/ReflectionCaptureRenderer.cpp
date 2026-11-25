@@ -311,15 +311,15 @@ namespace Desert::Graphic
             const bool      box        = data.Shape == ECS::ReflectionCaptureShape::Box;
             const glm::vec3 extent     = glm::max( data.BoxExtent, glm::vec3( 1.0f ) );
             const float     radius     = box ? glm::length( extent ) : std::max( data.InfluenceRadius, 1.0f );
-            const glm::mat4 boxToWorld = glm::translate( glm::mat4( 1.0f ), transform.GetTranslation() ) *
-                                         glm::toMat4( glm::quat( transform.GetRotation() ) ) *
-                                         glm::scale( glm::mat4( 1.0f ), extent );
+            const glm::mat4 boxToWorld =
+                 glm::translate( glm::mat4( 1.0f ), glm::vec3( transform.GetTranslation() ) ) *
+                 glm::toMat4( glm::quat( transform.GetRotation() ) ) * glm::scale( glm::mat4( 1.0f ), extent );
 
             ReflectionCaptureEntry entry;
             entry.Entity                      = entity;
             entry.InfluenceRadius             = radius;
-            entry.CapturePosition             = transform.GetTranslation() + data.CaptureOffset;
-            entry.Gpu.PositionRadius          = glm::vec4( transform.GetTranslation(), radius );
+            entry.CapturePosition             = glm::vec3( transform.GetTranslation() ) + data.CaptureOffset;
+            entry.Gpu.PositionRadius          = glm::vec4( glm::vec3( transform.GetTranslation() ), radius );
             entry.Gpu.CaptureOffsetBrightness = glm::vec4( data.CaptureOffset, std::max( data.Brightness, 0.0f ) );
             entry.Gpu.BoxExtentTransition     = glm::vec4( extent, std::max( data.BoxTransitionDistance, 0.0f ) );
             entry.Gpu.ShapeCube               = glm::uvec4( box ? 1u : 0u, 0u, 0u, 0u );

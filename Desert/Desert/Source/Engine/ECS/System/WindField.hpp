@@ -21,7 +21,7 @@ namespace Desert::ECS
         WindAtPoint wind;
         for ( const entt::entity entity : registry.view<WindSourceComponent>() )
         {
-            const glm::mat4        pose   = Entity( entity, registry ).GetWorldTransform();
+            const glm::mat4        pose   = Entity( entity, registry ).GetWorldTransform().ToFloatMatrix();
             const WindSourceSample source = { registry.get<WindSourceComponent>( entity ).Data,
                                               glm::vec3( pose[3] ) };
             wind.Velocity += WindVelocityFrom( source, position );
