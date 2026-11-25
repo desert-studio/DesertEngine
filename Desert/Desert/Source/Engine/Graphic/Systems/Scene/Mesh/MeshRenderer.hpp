@@ -1660,8 +1660,16 @@ namespace Desert::Graphic::System
         }
         [[nodiscard]] RainOcclusionUniforms GetRainOcclusionUniforms() const
         {
-            return m_RainOcclusionBox ? PackRainOcclusion( *m_RainOcclusionBox, m_RainOcclusionQuality )
-                                      : RainOcclusionUniforms{};
+            RainOcclusionUniforms u = m_RainOcclusionBox
+                                           ? PackRainOcclusion( *m_RainOcclusionBox, m_RainOcclusionQuality )
+                                           : RainOcclusionUniforms{};
+            u.Shore = m_ShoreFoam;
+            return u;
+        }
+        // The water's foam map this frame's ground reads (ISingleLayerWaterPass::GetShoreFoamUniforms).
+        void SetShoreFoam( const ShoreFoamUniforms& shore )
+        {
+            m_ShoreFoam = shore;
         }
 
         // EVERY SHADOW VIEW THIS RENDERER DRAWS, by one index. The FIXED views first, a known count per renderer:
@@ -3964,6 +3972,7 @@ namespace Desert::Graphic::System
         RainOcclusionQuality                                           m_RainOcclusionQuality;
         std::shared_ptr<Framebuffer>                                   m_RainOcclusionFB;
         std::optional<RainOcclusionBox>                                m_RainOcclusionBox;
+        ShoreFoamUniforms m_ShoreFoam; // SetShoreFoam
         std::optional<uint64_t>                                        m_RainOcclusionSignature;
         bool                                                           m_RainOcclusionRedraw = false;
         MeshRendererDetail::MeshDrawList                               m_RainOcclusionDraws;

@@ -153,14 +153,6 @@ TEST( WaterWaves, ASwellIsACosineAndItsNormalIsTheGradients )
     EXPECT_NEAR( glm::length( s.Normal - expected ), 0.0f, 1e-5f );
 }
 
-TEST( WaterWaves, DepthAttenuationIsUEs )
-{
-    EXPECT_EQ( WaveDepthAttenuation( 0.0f, 2000.0f ), 0.0f );
-    EXPECT_EQ( WaveDepthAttenuation( -50.0f, 2000.0f ), 0.0f );
-    EXPECT_NEAR( WaveDepthAttenuation( 2000.0f, 2000.0f ), 1.0f - std::exp( -2.0f ), 1e-6f );
-    EXPECT_NEAR( WaveDepthAttenuation( 1e6f, 2000.0f ), 1.0f, 1e-6f );
-}
-
 // The header the CPU evaluates compiles as GLSL, every function called, warnings as errors.
 TEST( WaterWaves, TheSharedHeaderCompilesAsGlsl )
 {
@@ -178,8 +170,7 @@ TEST( WaterWaves, TheSharedHeaderCompilesAsGlsl )
                                      "    vec4 h = GerstnerWaveHeightAt( p, d, 500.0, 20.0, 0.3, 1.5 );\n"
                                      "    vec3 n = GerstnerFinalizeNormal( h.xyz );\n"
                                      "    float s = GerstnerWaveSimpleHeight( p, d, 500.0, 20.0, 1.5 );\n"
-                                     "    float a = GerstnerDepthAttenuation( 300.0, 2000.0 );\n"
-                                     "    O[gl_GlobalInvocationID.x] = vec4( o + n, h.w + s * a );\n"
+                                     "    O[gl_GlobalInvocationID.x] = vec4( o + n, h.w + s );\n"
                                      "}\n";
     const shaderc::Compiler compiler;
     shaderc::CompileOptions options;
@@ -255,45 +246,12 @@ TEST( WaterQuery, AFlatOceanIsItsPlaneAndImmersionIsTheDistanceBelowIt )
 {
     Desert::Water::WaterBodyState body;
     body.Location = glm::vec3( 0.0f, 50.0f, 0.0f );
-    const auto r  = Desert::Water::QueryWaterBody( body, glm::vec3( 10.0f, 20.0f, 30.0f ), 3.0f, 0.0f );
+    const auto r  = Desert::Water::QueryWaterBody( body, glm::vec3( 10.0f, 20.0f, 30.0f ), 3.0f, nullptr );
     EXPECT_FLOAT_EQ( r.SurfaceLocation.y, 50.0f );
-    EXPECT_FLOAT_EQ( r.PlaneDepth, 50.0f );
     EXPECT_FLOAT_EQ( r.ImmersionDepth, 30.0f );
     EXPECT_TRUE( r.IsInWater() );
     EXPECT_FLOAT_EQ( r.WaveHeight, 0.0f );
     EXPECT_EQ( r.SurfaceNormal, glm::vec3( 0.0f, 1.0f, 0.0f ) );
-}
-
-TEST( WaterQuery, NoGroundOrGroundAboveThePlaneGivesTheFallbackDepth )
-{
-    const auto body  = WavedOcean( 0.0f );
-    const auto none  = Desert::Water::QueryWaterBody( body, glm::vec3( 0.0f ), 1.0f, std::nullopt );
-    const auto above = Desert::Water::QueryWaterBody( body, glm::vec3( 0.0f ), 1.0f, 40.0f );
-    EXPECT_FLOAT_EQ( none.PlaneDepth, Desert::Water::kOceanFallbackDepthCm );
-    EXPECT_FLOAT_EQ( above.PlaneDepth, Desert::Water::kOceanFallbackDepthCm );
-    // Under-landscape ocean: the waves are cancelled (UE :763-767).
-    EXPECT_FLOAT_EQ( above.WaveHeight, 0.0f );
-    EXPECT_FLOAT_EQ( above.WaveAttenuation, 0.0f );
-}
-
-TEST( WaterQuery, TheWavedSurfaceIsTheWaveHeightAtThePlanePointAttenuatedByDepth )
-{
-    const auto      body = WavedOcean( 25.0f );
-    const glm::vec3 point( 350.0f, -40.0f, 75.0f );
-    const float     time   = 2.5f;
-    const float     ground = -175.0f; // 200 cm of water
-    const auto      r      = Desert::Water::QueryWaterBody( body, point, time, ground );
-
-    const float att    = Desert::Water::WaveDepthAttenuation( 200.0f, body.TargetWaveMaskDepth );
-    const auto  sample = Desert::Water::WaveHeightAt(
-         *body.Waves, glm::vec2( point.x - body.Location.x, point.z - body.Location.z ), time );
-    EXPECT_FLOAT_EQ( r.WaveAttenuation, att );
-    EXPECT_FLOAT_EQ( r.WaveHeight, sample.Height * att );
-    EXPECT_FLOAT_EQ( r.SurfaceLocation.y, 25.0f + sample.Height * att );
-    EXPECT_FLOAT_EQ( r.SurfaceDepth, 200.0f + sample.Height * att );
-    EXPECT_FLOAT_EQ( r.ImmersionDepth, r.SurfaceLocation.y - point.y );
-    EXPECT_NEAR( glm::length( r.SurfaceNormal ), 1.0f, 1e-5f );
-    EXPECT_LE( std::abs( r.WaveHeight ), r.MaxWaveHeight + 1e-3f );
 }
 
 TEST( WaterQuery, ThePointIsAnsweredByTheBodyItIsDeepestInAndNoneOutsideEveryFootprint )

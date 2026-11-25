@@ -41,17 +41,27 @@ void main()
     // both the same way, WaterBankClipped).
     if ( WaterBankClipped( i.WorldPosition.xz, i.VertexColor.b ) )
         discard;
-    // The FFT ocean's normal per pixel, as Pass_SingleLayerWater shades with (WaterPixelWaveFrame): the trace
-    // starts from the normal the water mirrors with.
-    mat3 waveTBN;
-    if ( WaterPixelWaveFrame( i.UV1, i.VertexColor, i.CameraPosition, i.Time, waveTBN ) )
+    // The surface per pixel, as Pass_SingleLayerWater shades with (WaterPixelSurface): the trace starts from the
+    // normal and the lobe the water mirrors with.
+    float waterVariance = 0.0;
+    if ( !WaterTileIsFall( i.VertexColor.b ) )
     {
-        const float facing = gl_FrontFacing ? 1.0 : -1.0; // DesertSurfaceInput's two-sided turn
-        i.TBN              = waveTBN * facing;
-        i.Normal           = i.TBN[2];
+        const float footprint = sqrt( length( dFdx( i.WorldPosition.xz ) ) * length( dFdy( i.WorldPosition.xz ) ) );
+        const WaterSurface field = WaterPixelSurface( i.UV1, i.VertexColor, i.Time, i.Time, footprint );
+        if ( WaterWaveSetOf( WaterFragmentTile( i.VertexColor ).Body.z ) >= 0 && field.Depth + field.Displacement.y < 0.0 )
+            discard;
+        vec3 waveN = WaterSurfaceNormal( field.Slope );
+        if ( i.VertexColor.b > 0.5 )
+        {
+            const vec3 riverN = WaterRiverSurfaceNormal( i.WorldPosition.xz );
+            waveN = normalize( vec3( waveN.xz / max( waveN.y, 0.05 ) + riverN.xz / max( riverN.y, 0.05 ), 1.0 ).xzy );
+        }
+        i.TBN         = WaterSurfaceFrame( waveN ) * ( gl_FrontFacing ? 1.0 : -1.0 );
+        i.Normal      = i.TBN[2];
+        waterVariance = field.Variance;
     }
 #endif
-    const SurfaceOutput s = EvaluateSurface( i );
+    SurfaceOutput s = EvaluateSurface( i );
     // UE clips a zero-opacity texel out of the front layer: nothing is seen there to reflect from.
     if ( s.Opacity <= 0.0 )
         discard;
@@ -59,6 +69,8 @@ void main()
 #ifdef DESERT_SURFACE_PATH_WaterMesh
     const vec3 V = normalize( i.CameraPosition - i.WorldPosition );
     N            = WaterMirrorNormal( WaterFacingNormal( N, V ), V );
+    const float alpha = s.Roughness * s.Roughness;
+    s.Roughness       = sqrt( sqrt( alpha * alpha + 2.0 * waterVariance ) );
 #endif
     oFrontLayerNormal   = vec4( N, max( s.Roughness, kDesertMinRoughness ) );
     oFrontLayerVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip, v_Surface.ObjectMoved );

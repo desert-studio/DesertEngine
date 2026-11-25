@@ -589,7 +589,6 @@
                     51200.0,
                     51200.0
                 ],
-                "TargetWaveMaskDepth": 2048.0,
                 "WaterMaterial": {
                     "Guid": "7012a81f62884202b922e14c2317132a",
                     "Path": "assets:Water/Materials/M_Water_River.demat"
@@ -723,7 +722,6 @@
                     6400.0,
                     6400.0
                 ],
-                "TargetWaveMaskDepth": 2048.0,
                 "WaterMaterial": {
                     "Guid": "d73a046d0e3147928403692c8ea26f73",
                     "Path": "assets:Water/Materials/M_Water_Lake.demat"

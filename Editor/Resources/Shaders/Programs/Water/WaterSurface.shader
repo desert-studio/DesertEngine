@@ -6,7 +6,7 @@ Shader "WaterSurface"
     // the water quadtree selected, drawn by Graphic::System::WaterRenderer with Mesh/Surface/Pass_SingleLayerWater.glslh
     // - the physics of light in water. The LOOK is the body's `.demat` of this template: the ripple normal maps and
     // their scroll, roughness and specular (EvaluateSurface), the volume's scattering, absorption, phase and the tint
-    // behind (EvaluateSingleLayerWater), the foam's texture, tint and thresholds. Nothing here states a colour of its own.
+    // behind (EvaluateSingleLayerWater), the foam's structure, albedo, thresholds and decays. Nothing here states a colour of its own.
     Domain Surface
     Usage WaterMesh
     TwoSided
@@ -21,7 +21,6 @@ Shader "WaterSurface"
         Color       ColorScaleBehindWater ("Color Scale Behind Water", Category("Water")) = (1, 1, 1, 1)
         Float       Roughness ("Roughness", Range(0.02,1), Category("Surface")) = 0.05
         Float       Specular ("Specular", Range(0,1), Category("Surface")) = 0.255
-        Float       RefractionStrength ("Refraction Strength (cm)", Range(0,200), Category("Surface")) = 40
         Texture2D   RippleNormalA ("Ripple Normal A", Category("Ripples"), Intent(NormalMap)) = "normal"
         Texture2D   RippleNormalB ("Ripple Normal B", Category("Ripples"), Intent(NormalMap)) = "normal"
         Float       RippleTileSizeA ("Ripple Tile Size A (cm)", Range(10,10000), Category("Ripples")) = 400
@@ -32,15 +31,16 @@ Shader "WaterSurface"
         Float       RippleStrength ("Ripple Strength", Range(0,4), Category("Ripples")) = 1
         Float       RippleSlopeRms ("Ripple Maps' Slope RMS", Range(0,1), Category("Ripples")) = 0.1
         Float       WindRippleMaxGain ("Wind Ripple Max Gain", Range(1,4), Category("Ripples")) = 2
-        Texture2D   FoamTexture ("Foam Colour", Category("Foam"), Intent(Colour)) = "white"
-        Texture2D   FoamStructure ("Foam Structure", Category("Foam"), Intent(Mask)) = "white"
-        Color       FoamTint ("Foam Tint", Category("Foam")) = (1, 1, 1, 1)
+        Texture2D   FoamHeight ("Foam Height (R cells, G bubbles)", Category("Foam"), Intent(Mask)) = "white"
+        Texture2D   FoamNormal ("Foam Normal", Category("Foam"), Intent(NormalMap)) = "normal"
+        Float       FoamAlbedo ("Foam Albedo", Range(0,1), Category("Foam")) = 0.85
         Float       FoamTileSize ("Foam Tile Size (cm)", Range(10,10000), Category("Foam")) = 300
-        Float       FoamJacobianThreshold ("Whitecap Jacobian Threshold", Range(-1,1), Category("Foam")) = 0.5
+        Float       FoamJacobianThreshold ("Whitecap Jacobian Threshold", Range(-1,1), Category("Foam")) = 0.62
         Float       FoamJacobianSoftness ("Whitecap Jacobian Softness", Range(0.01,1), Category("Foam")) = 0.25
-        Float       FoamDecaySeconds ("Foam Decay (s)", Range(0.1,30), Category("Foam")) = 3
-        Float       FoamBreakerIndex ("Breaker Index H/d", Range(0.4,1.5), Category("Foam")) = 0.78
-        Float       ShoreFadeCm ("Shore Fade Depth (cm)", Range(0,500), Category("Shore")) = 40
+        Float       WhitecapGain ("Whitecap Gain", Range(0,4), Category("Foam")) = 1
+        Float       FoamDecaySeconds ("Foam Decay (s)", Range(0.1,60), Category("Foam")) = 6
+        Float       BubbleDecaySeconds ("Bubble Decay (s)", Range(0.1,60), Category("Foam")) = 3
+        Float       WetDrySeconds ("Wet Sand Drying (s)", Range(0.1,600), Category("Shore")) = 40
         Float       DebugFoamMask ("Debug: Foam Mask Only", Range(0,1), Category("Debug")) = 0
     }
 
@@ -118,14 +118,17 @@ Shader "WaterSurface"
             return s;
         }
 
-        // The foam sheet at a still-water (X, Z), at two scales so it does not repeat: rgb = albedo, a = coverage.
-        vec4 WaterFoamSheet( vec2 stillXZ )
+        // The foam's structure at a still-water (X, Z), at two scales so it does not repeat: xy = the tangent normal's
+        // slope, z = the height (the large cells, the small bubbles broken into their walls).
+        vec3 WaterFoamSheet( vec2 stillXZ )
         {
-            const vec2 foamUv  = vec2( stillXZ.x, -stillXZ.y ) / max( Material.FoamTileSize, 1.0 );
-            const vec2 foamUv2 = mat2( 0.8, -0.6, 0.6, 0.8 ) * foamUv * 0.37 + vec2( 0.31, 0.17 );
-            return vec4( SurfaceSampleMaterial( Material.FoamTexture, foamUv ).rgb * Material.FoamTint.rgb,
-                         0.5 * ( SurfaceSampleMaterial( Material.FoamStructure, foamUv ).r +
-                                 SurfaceSampleMaterial( Material.FoamStructure, foamUv2 ).r ) );
+            const vec2 uv  = vec2( stillXZ.x, -stillXZ.y ) / max( Material.FoamTileSize, 1.0 );
+            const mat2 turn = mat2( 0.8, -0.6, 0.6, 0.8 );
+            const vec2 uv2 = turn * uv * 0.37 + vec2( 0.31, 0.17 );
+            const vec4 a = SurfaceSampleMaterial( Material.FoamHeight, uv );
+            const vec4 b = SurfaceSampleMaterial( Material.FoamHeight, uv2 );
+            const vec3 n = SurfaceSampleTangentNormal( Material.FoamNormal, uv );
+            return vec3( n.xy / max( n.z, 0.1 ), clamp( 0.5 * ( a.r + b.r ) + 0.3 * ( a.g - 0.5 ), 0.0, 1.0 ) );
         }
 
         SingleLayerWaterOutput EvaluateSingleLayerWater( SurfaceInput i )
@@ -135,7 +138,6 @@ Shader "WaterSurface"
             w.AbsorptionCoefficients = Material.AbsorptionCoefficients.rgb;
             w.PhaseG                 = Material.PhaseG;
             w.ColorScaleBehindWater  = Material.ColorScaleBehindWater.rgb;
-            w.RefractionOffset       = Material.RefractionStrength;
             // The foam rides the water particle (UV1 = its still-water X, Z; Vertex_WaterMesh.glslh), at two scales
             // so the sheet does not repeat.
             // On a river the sheet is carried by the flow, two-phase as the normals (EvaluateSurface).
@@ -146,15 +148,12 @@ Shader "WaterSurface"
             foam0 = WaterFlowCoord( i.UV1, i.UV0, i.VertexColor );
             WaterFlowPhases( foam0, i.VertexColor, i.Time, foam0, foam1, foamW1 );
 #endif
-            const vec4 sheet0        = WaterFoamSheet( foam0 );
-            const vec4 sheet         = foamW1 > 0.0 ? mix( sheet0, WaterFoamSheet( foam1 ), foamW1 ) : sheet0;
-            w.FoamAlbedo             = sheet.rgb;
-            w.FoamCoverage           = sheet.a;
-            w.FoamJacobianThreshold  = Material.FoamJacobianThreshold;
-            w.FoamJacobianSoftness   = Material.FoamJacobianSoftness;
-            w.FoamDecaySeconds       = Material.FoamDecaySeconds;
-            w.FoamBreakerIndex       = Material.FoamBreakerIndex;
-            w.ShoreFadeCm            = Material.ShoreFadeCm;
+            vec3 sheet = WaterFoamSheet( foam0 );
+            if ( foamW1 > 0.0 )
+                sheet = mix( sheet, WaterFoamSheet( foam1 ), foamW1 );
+            w.FoamNormal             = normalize( vec3( sheet.xy, 1.0 ) );
+            w.FoamHeight             = sheet.z;
+            w.FoamAlbedo             = Material.FoamAlbedo;
             w.DebugFoamMask          = Material.DebugFoamMask;
             w.WindRippleMaxGain      = Material.WindRippleMaxGain;
             return w;

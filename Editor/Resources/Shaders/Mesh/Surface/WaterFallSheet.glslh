@@ -1,0 +1,70 @@
+#ifndef DESERT_WATER_FALL_SHEET_GLSLH
+#define DESERT_WATER_FALL_SHEET_GLSLH
+
+// A RIVER'S FALL (Water::RiverFall): a sheet that thins as it speeds up, tears into strands and whitens with them.
+// Included after Mesh/Surface/WaterMeshTiles.glslh (WaterFlowCoord, WaterFlowPhases, the tile's Medium.zw speeds).
+struct WaterFallSheet
+{
+    vec3  Normal;      // in the sheet's own frame
+    float ThicknessCm; // of the water the light crosses
+    float Opacity;     // 0 where the sheet is torn
+    float Foam;        // 0..1 white water
+};
+
+WaterFallSheet WaterFallSheetNone()
+{
+    WaterFallSheet f;
+    f.Normal      = vec3( 0.0, 0.0, 1.0 );
+    f.ThicknessCm = 0.0;
+    f.Opacity     = 1.0;
+    f.Foam        = 0.0;
+    return f;
+}
+
+float WaterFallHash( vec2 p )
+{
+    const vec3 q = fract( vec3( p.xyx ) * 0.1031 );
+    const vec3 r = q + dot( q, q.yzx + 33.33 );
+    return fract( ( r.x + r.y ) * r.z );
+}
+
+float WaterFallNoise( vec2 p )
+{
+    const vec2 i = floor( p );
+    const vec2 f = p - i;
+    const vec2 u = f * f * ( 3.0 - 2.0 * f );
+    return mix( mix( WaterFallHash( i ), WaterFallHash( i + vec2( 1.0, 0.0 ) ), u.x ),
+                mix( WaterFallHash( i + vec2( 0.0, 1.0 ) ), WaterFallHash( i + vec2( 1.0, 1.0 ) ), u.x ), u.y );
+}
+
+// The strands' profile across the sheet, 0..1: 40 cm ropes of 15 cm of 6 cm threads, each several times as long.
+float WaterFallStrands( vec2 p )
+{
+    return 0.5 * WaterFallNoise( p / vec2( 40.0, 90.0 ) ) + 0.3 * WaterFallNoise( p / vec2( 15.0, 45.0 ) + 17.0 ) +
+           0.2 * WaterFallNoise( p / vec2( 6.0, 24.0 ) + 41.0 );
+}
+
+WaterFallSheet WaterFallSheetAt( vec2 uv0, vec4 vertexColor, float time )
+{
+    const WaterTileRow row   = WaterFragmentTile( vertexColor );
+    const float        along = clamp( ( uv0.y * 100.0 - row.Lod.w ) / max( row.Zone.z, 1.0 ), 0.0, 1.0 );
+    const float        speed = mix( row.Medium.z, row.Medium.w, along );
+    const float        torn  = smoothstep( 250.0, 900.0, speed );
+    vec2  p0, p1;
+    float w1;
+    WaterFlowPhases( WaterFlowCoord( vec2( 0.0 ), uv0, vertexColor ), vertexColor, time, p0, p1, w1 );
+    const vec2  e = vec2( 3.0, 0.0 );
+    const float h = mix( WaterFallStrands( p0 ), WaterFallStrands( p1 ), w1 );
+    const float x = mix( WaterFallStrands( p0 + e ), WaterFallStrands( p1 + e ), w1 );
+
+    WaterFallSheet f;
+    // Continuity: the flow at the lip, thinned by the speed it gains; the ropes take it from the gaps.
+    f.ThicknessCm = 25.0 * max( row.Medium.z, 1.0 ) / max( speed, 1.0 ) * ( 0.4 + 1.2 * h );
+    f.Normal      = normalize( vec3( ( h - x ) * 20.0 / e.x * ( 0.3 + 0.7 * torn ), 0.0, 1.0 ) );
+    const float cut = mix( -0.3, 0.45, torn );
+    f.Opacity     = smoothstep( cut, cut + 0.2, h );
+    f.Foam        = torn * ( 0.35 + 0.65 * smoothstep( 0.35, 0.7, h ) );
+    return f;
+}
+
+#endif

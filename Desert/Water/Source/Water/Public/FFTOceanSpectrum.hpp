@@ -91,7 +91,7 @@ namespace Desert::Water
         /// 4 cm was below it, so every wave set - authored FFT block or not - was refused (WATER-UNDERWATER).
         float ShortestWavelength = 14.0f;
         // THE WHITECAPS' LIFETIME is not here (WATER-UNDERWATER pass 4): it is the body material's
-        // FoamDecaySeconds for the FFT foam history (WaterRenderer::PrepareFFTFrame) and the Gerstner foam alike.
+        // FoamDecaySeconds, which the view's foam map decays by (WaterRenderer::PrepareFoam).
         /// The patch side of each cascade, cm, largest first.
         std::array<float, kFFTOceanCascades> CascadeSizes{ 100000.0f, 23700.0f, 5300.0f, 1130.0f };
         int32_t                              Seed = 0;

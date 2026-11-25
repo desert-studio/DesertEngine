@@ -22,6 +22,8 @@ namespace Desert::Graphic::RayTracing
         RDG::TextureRef RainOcclusionMap;
         /// Its RainOcclusionUB (RainOcclusionUniforms; Params.y = 0: no map), uploaded this frame.
         RDG::BufferRef RainOcclusion;
+        /// The water's foam map its shore half names (bindless); invalid: none.
+        RDG::TextureRef ShoreFoam;
 
         [[nodiscard]] bool IsValid() const noexcept
         {
@@ -43,6 +45,7 @@ namespace Desert::Graphic::RayTracing
     template <typename Parameters, typename Block>
     Block& BindRayTracingSceneReads( Block& block, const RayTracingSceneReadsInputs& reads )
     {
+        block.BindlessRead( reads.ShoreFoam, RDG::Access::SampledCompute );
         return block.Storage( Parameters::WorldParameters, reads.WorldParameters, RDG::Access::StorageRead )
              .Texture( Parameters::RainOcclusionMapTexture, reads.RainOcclusionMap, RDG::Access::SampledCompute,
                        RDG::SubresourceRange::All() )

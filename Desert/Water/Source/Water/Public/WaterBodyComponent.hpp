@@ -108,7 +108,7 @@ namespace Desert::ECS
 
     struct WaterBodyComponent
     {
-        COMPONENT( Key( "WaterBody" ), Block( Data ), Run( SkyAndAtmosphere ) )
+        COMPONENT( Key( "WaterBody" ), Block( Data ), Run( SkyAndAtmosphere ), Version( 2 ) )
         WaterBodyData Data;
     };
 } // namespace Desert::ECS

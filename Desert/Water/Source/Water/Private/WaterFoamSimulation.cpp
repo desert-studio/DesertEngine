@@ -3,6 +3,7 @@
 // THE FOAM OF ONE VIEW (Water/WaterFoamField.glslh, Programs/Water/WaterFoamUpdate.shader): a clipmap that remembers
 // where the waves broke, where the beach is wet and what the currents carried.
 
+#include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -124,9 +125,9 @@ namespace Desert::Graphic::System
     {
         const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
         m_RetiredFoam.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
-        const auto side = static_cast<uint32_t>( Common::Scalability::QualityState::Resolved().Get(
-             Common::Scalability::Parameter::EffectsWaterFoamSize ) );
-        if ( !EnsureFoam( side ) )
+        const auto side = Common::Scalability::QualityState::Resolved().As<uint32_t>(
+             Common::Scalability::Parameter::EffectsWaterFoamSize );
+        if ( !EnsureFoam( side ) || m_FrameBodies.empty() )
             return;
         // The frame that recorded the pass is over: what it wrote is the history now.
         if ( m_FoamRecorded )
@@ -147,15 +148,19 @@ namespace Desert::Graphic::System
         {
             m_FoamMaterial.Material = static_cast<uint64_t>( material );
             m_FoamMaterial.Stamp    = stamp;
-            constexpr std::array<std::string_view, 4> kNames{ "FoamDecaySeconds", "BubbleDecaySeconds",
-                                                              "WetDrySeconds", "WhitecapGain" };
-            std::array<glm::vec4, 4>                  values{};
+            constexpr std::array<std::string_view, 6> kNames{ "FoamDecaySeconds", "BubbleDecaySeconds",
+                                                              "WetDrySeconds",    "WhitecapGain",
+                                                              "FoamJacobianThreshold",
+                                                              "FoamJacobianSoftness" };
+            std::array<glm::vec4, 6>                  values{};
             if ( ReadMaterialValues( material, stamp, kNames, values ) )
             {
                 m_FoamMaterial.Params.FoamDecaySeconds   = std::max( values[0].x, 0.1f );
                 m_FoamMaterial.Params.BubbleDecaySeconds = std::max( values[1].x, 0.1f );
                 m_FoamMaterial.Params.WetDrySeconds      = std::max( values[2].x, 0.1f );
                 m_FoamMaterial.Params.WhitecapGain       = std::max( values[3].x, 0.0f );
+                m_FoamMaterial.Params.JacobianThreshold  = values[4].x;
+                m_FoamMaterial.Params.JacobianSoftness   = std::max( values[5].x, 0.01f );
             }
         }
 
@@ -181,15 +186,14 @@ namespace Desert::Graphic::System
 
     ShoreFoamUniforms WaterRenderer::GetShoreFoamUniforms() const
     {
-        // Before the pass of this frame: the ground reads what the last frame wrote, where it wrote it.
+        // The ground reads what the last frame wrote, where it wrote it.
         ShoreFoamUniforms uniforms;
-        const auto&       image = m_Foam[m_FoamRecorded ? m_FoamWritten ^ 1u : m_FoamWritten];
-        if ( image == nullptr || !( m_FoamRecorded || m_FoamState.Valid ) )
+        const auto&       image = m_Foam[m_FoamWritten];
+        if ( image == nullptr || !m_FoamState.Valid )
             return uniforms;
         const Water::WaterFoamClipmapDesc desc{ .Size = m_FoamSide };
-        const auto&                       origins = m_FoamRecorded ? *m_FoamRecorded : m_FoamState.Origin;
         for ( uint32_t l = 0; l < Water::kFoamLevels; ++l )
-            uniforms.Origin[l] = glm::vec4( glm::vec2( origins[l] ), 1.0f / desc.TexelCm( l ), 0.0f );
+            uniforms.Origin[l] = glm::vec4( glm::vec2( m_FoamState.Origin[l] ), 1.0f / desc.TexelCm( l ), 0.0f );
         uniforms.Shape = glm::vec4( static_cast<float>( m_FoamSide ), 1.0f,
                                     static_cast<float>( image->GetBindlessSlot().Index ), 0.0f );
         return uniforms;
@@ -226,7 +230,7 @@ namespace Desert::Graphic::System
              "Water: Foam", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.ColorTarget( 0, imports.FoamTarget, RDG::LoadOp::Clear( glm::vec4( 0.0f ) ) );
+                 pass.ColorTarget( 0, imports.FoamTarget, RDG::LoadOp::DontCare() );
                  pass.Bindings( m_FoamLayout.Get( m_FoamPipeline->GetSpecification().Shader ), RDG::NoOtherRouteFill() )
                       .Storage( P::WaterTiles, tiles, RDG::Access::StorageRead )
                       .Texture( P::WaterShoreTexture, water.Shore, RDG::Access::SampledGraphics,

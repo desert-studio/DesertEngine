@@ -970,6 +970,10 @@ namespace Desert::Graphic
         // is the water module's, SingleLayerWaterPass.hpp) or with Effects.WaterCaustics 0 - the latter imports
         // nothing, so its graph is the graph without caustics.
         System::ISingleLayerWaterPass* const water = m_Systems.Water.get();
+        // The foam map the ground finds its wet sand in (RainOcclusionUB's shore half).
+        if ( water != nullptr && water->GetShoreFoamUniforms().Shape.y > 0.5f )
+            textures.Transients.ShoreFoam =
+                 textures.Import( water->GetFoamHistory(), "Water.FoamHistory", RDG::Access::SampledGraphics );
         if ( m_ViewProfile.SceneCapture || water == nullptr || !water->CausticsEnabled() )
             return;
         System::ISingleLayerWaterPass::CausticsInputs caustics{ .SunTravel = glm::vec3( GetFrameSun().Direction ),

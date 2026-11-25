@@ -959,7 +959,6 @@ namespace
     constexpr Row         kWaterBodyRows[] = {
          { "WaterWaves", kWaterBodyGather },
          { "OceanExtents", kWaterBodyGather },
-         { "TargetWaveMaskDepth", kWaterBodyGather },
     };
     // A water zone (WATER-W6): every field is read by ECS::WaterZoneECSSystem into the quadtree description the
     // water renderer walks.

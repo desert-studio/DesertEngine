@@ -225,18 +225,6 @@ vec2 WaterFlowCoord( vec2 worldXZ, vec2 uv0, vec4 vertexColor )
     return vec2( uv0.x, uv0.y * WATER_FALL_STREAK ) * 100.0;
 }
 
-// The fall's white water: the sheet aerates as it speeds up (UE's waterfall material: foam by flow speed), from
-// clear at the lip to white below. 0 off a fall.
-float WaterFallFoam( vec2 uv0, vec4 vertexColor )
-{
-    if ( !WaterTileIsFall( vertexColor.b ) )
-        return 0.0;
-    const WaterTileRow row   = WaterFragmentTile( vertexColor );
-    const float        along = clamp( ( uv0.y * 100.0 - row.Lod.w ) / max( row.Zone.z, 1.0 ), 0.0, 1.0 );
-    const float        speed = mix( row.Medium.z, row.Medium.w, along );
-    return smoothstep( 250.0, 900.0, speed );
-}
-
 bool WaterBankClipped( vec2 worldXZ, float riverTile )
 {
     if ( riverTile < -0.5 )
