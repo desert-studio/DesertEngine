@@ -93,8 +93,9 @@ Shader "FoliageSurface"
         // Receive Shadows toggle is off, so a surface skips the sun shadow when EITHER says so.
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
         Float       ReceiveDecals ("Receive Decals", Range(0,1), Category("Decals")) = 1
-        // The light a leaf lets through, as a tint of its own albedo: SubsurfaceColor = albedo * this (white = the
-        // leaf transmits the colour it reflects). UE's SubsurfaceColor pin; the model reads it from the payload.
+        // The light a leaf lets through against the light it reflects (white = as much through as back, black = an
+        // opaque leaf): the albedo is split between the two (Common/FoliageEnergy.glslh), the model reads the
+        // transmitted part from the payload.
         Color       SubsurfaceColor ("Subsurface Color", Category("Foliage")) = (1, 1, 1, 1)
         Texture2D   AlbedoTexture ("Albedo Map", Category("Textures"), Intent(Colour))
         // The ONE slot whose empty state is not white. A normal map is unpacked with `2*t - 1`, so a
@@ -145,9 +146,11 @@ Shader "FoliageSurface"
             // The renderer zeroes this row field for objects that must not take the sun's shadow.
             s.ReceiveSunShadows = Material.ReceiveSunShadows;
             s.ReceiveDecals     = Material.ReceiveDecals;
-            // TwoSidedFoliage's payload: SubsurfaceColor stored as its square root (UE EncodeSubsurfaceColor; the
+            // TwoSidedFoliage's payload: the transmitted albedo stored as its square root (UE EncodeSubsurfaceColor; the
             // model squares it back), clamped to the payload's [0, 1].
-            const vec3 subsurface = sqrt( clamp( s.BaseColor * Material.SubsurfaceColor.rgb, 0.0, 1.0 ) );
+            vec3 transmitted;
+            FoliageSplitAlbedo( s.BaseColor, Material.SubsurfaceColor.rgb, transmitted );
+            const vec3 subsurface = sqrt( clamp( transmitted, 0.0, 1.0 ) );
             s.CustomData0       = subsurface.r;
             s.CustomData1       = subsurface.g;
             s.CustomData2       = subsurface.b;

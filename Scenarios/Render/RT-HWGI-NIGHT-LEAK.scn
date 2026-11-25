@@ -1,0 +1,28 @@
+# RT-HWGI-NIGHT-LEAK: Bistro night under hardware traced GI against the path tracer (shield) and against the
+# leaf's own albedo (cypress; the path tracer has no foliage transmission, so it is no reference there).
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+Когда frames 60
+Тогда-вид a_default the same view without hardware tracing, the comparison base
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда frames 60
+Тогда-вид b_hwrefl hardware reflections alone: the shield is not blue
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда frames 90
+Тогда-вид hwgi_shield the shield is teal as in the path tracer, not blue
+Когда run Quality "Quality: Shadows.Method HardwareTraced"
+Когда frames 60
+Тогда-вид hwgi_cypress the cypress reflects and transmits no more energy than its albedo allows: not brighter than in a_default by the second albedo
+Когда run View "View mode: Base Color"
+Когда frames 8
+Тогда-вид e_basecolor the cypress base colour is its reflected part, half its albedo map at the default tint
+Когда run View "View mode: Lit"
+Когда run Quality "Quality: Shadows.Method Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Resolution.Percent Level"
+Тогда z the levels are restored
