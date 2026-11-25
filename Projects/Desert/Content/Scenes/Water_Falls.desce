@@ -11,9 +11,10 @@
         },
         "Dependencies": [
             "04da1260a1004ee3892601d1e8d34153",
-            "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
+            "7012a81f62884202b922e14c2317132a",
             "75f3d199ad6c44c3acd9d50988339f63",
             "b8d47d86f4c2452cb46af076e682368b",
+            "d73a046d0e3147928403692c8ea26f73",
             "e04d99eaf3ddd30e0184e38e5c3bcc57"
         ]
     },
@@ -590,8 +591,8 @@
                 ],
                 "TargetWaveMaskDepth": 2048.0,
                 "WaterMaterial": {
-                    "Guid": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
-                    "Path": "assets:Water/Materials/M_Water_Ocean.demat"
+                    "Guid": "7012a81f62884202b922e14c2317132a",
+                    "Path": "assets:Water/Materials/M_Water_River.demat"
                 },
                 "Type": 1,
                 "RiverSpline": [
@@ -724,8 +725,8 @@
                 ],
                 "TargetWaveMaskDepth": 2048.0,
                 "WaterMaterial": {
-                    "Guid": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
-                    "Path": "assets:Water/Materials/M_Water_Ocean.demat"
+                    "Guid": "d73a046d0e3147928403692c8ea26f73",
+                    "Path": "assets:Water/Materials/M_Water_Lake.demat"
                 },
                 "Type": 0,
                 "RiverSpline": [],

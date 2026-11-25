@@ -9,7 +9,7 @@
             "UNIT": 1,
             "WPAR": 14
         },
-        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "07d47b430fcb4f73ad47488a19c6b5b8", "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91", "c41f7a92e6d84b0f9a3c5d2e8b7016f4", "df51ca6ed9cb71779a9b5634db0863bc"]
+        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "07d47b430fcb4f73ad47488a19c6b5b8", "c41f7a92e6d84b0f9a3c5d2e8b7016f4", "d73a046d0e3147928403692c8ea26f73", "df51ca6ed9cb71779a9b5634db0863bc"]
     },
     "SceneName": "Water_Buoyancy",
     "Entities": [
@@ -58,8 +58,8 @@
                 "OceanExtents": [4096000.0, 4096000.0],
                 "TargetWaveMaskDepth": 200.0,
                 "WaterMaterial": {
-                    "Guid": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
-                    "Path": "assets:Water/Materials/M_Water_Ocean.demat"
+                    "Guid": "d73a046d0e3147928403692c8ea26f73",
+                    "Path": "assets:Water/Materials/M_Water_Lake.demat"
                 }
             }
         },
