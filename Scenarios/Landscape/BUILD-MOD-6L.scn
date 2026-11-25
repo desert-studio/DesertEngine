@@ -4,7 +4,7 @@
 # WP_Protocol must stream as on dev; G3_TwoTerrains (two sculpted landscapes, Ground layer, tile height files) must draw
 # exactly as the same scene on the dev Editor (frames/dev, shot before the move); saved as a new scene (tile height files
 # written beside it by the module's save hook) and reopened, it draws the same (no lost layers or tiles).
-# The dedicated server reaches the tiles through LandscapeCore: runner <scratch>/BUILD-MOD-6L/run_server6.sh (DesertServer
+# The dedicated server reaches the tiles through LandscapeCore: runner <scratch>/BUILD-MOD-6L/run_server7.sh (Release DesertServer
 # --role all on the cooked WP_Protocol + one DesertNetProbe bot spawned 20 m over the terrain).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
@@ -22,6 +22,6 @@
 Когда --subject viewport set Camera.Direction 0,-0.5,-0.866
 Когда frames 60
 Тогда-вид 2_saved_reopened G3_TwoTerrains, сохранённая как G3_TwoTerrains_6L и открытая заново: оба ландшафта с тем же рельефом и слоем Ground, что в 1_landscape (тайлы и слои не потеряны); в editor.log нет ошибки сохранения ландшафта и отказа тайла
-# [B-C01] server_collision (run_server6.sh, not a DesertCtl step): server.log residency-union lines carry
+# [B-C01] server_collision (run_server7.sh, not a DesertCtl step): server.log residency-union lines carry
 # "collision N body(ies) (N landscape tile(s))" with N > 0 and no "[Server] landscape" error; the bot's pawn,
 # spawned 20 m over the terrain at (2500, 2000, 650), lands and then stands at one height (no fall through).
