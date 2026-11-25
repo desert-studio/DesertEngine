@@ -297,7 +297,7 @@ namespace Desert::Editor
         world[2] = glm::vec4( -view.Forward, 0.0f ); // backward: the camera looks down its -Z
         world[3] = glm::vec4( view.Eye, 1.0f );
         m_Camera->SetOrthoSize( view.HalfExtent );
-        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( world, 45.0f, view.NearCm, view.FarCm ), side, side,
+        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( ::Desert::ECS::WorldTransform::FromFloatMatrix( world ), 45.0f, view.NearCm, view.FarCm ), side, side,
                            ::Desert::Core::Camera::kNoSourceEntity );
         m_Scene->PinActiveCamera( m_Camera );
         m_WarmFrames = m_FirstFrame ? kFirstWarmFrames : kViewWarmFrames;

@@ -65,6 +65,11 @@ namespace Desert::ECS
         {
             return WorldTransform{ local.Translation, local.GetBasis() };
         }
+        // EXPLICIT WIDENING of a float-authored matrix (an ortho bake camera placed in float): origin = column 3.
+        [[nodiscard]] static WorldTransform FromFloatMatrix( const glm::mat4& matrix )
+        {
+            return WorldTransform{ glm::dvec3( glm::vec3( matrix[3] ) ), glm::mat3( matrix ) };
+        }
         // parent * child: child's origin goes through the parent's basis in double.
         [[nodiscard]] WorldTransform operator*( const LocalTransform& local ) const
         {

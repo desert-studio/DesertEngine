@@ -458,7 +458,7 @@ namespace Desert::Core
     {
         // The rotation alone goes through the matrix; the eye stays the double it was given (LWC).
         CameraEntityView view =
-             CameraEntityViewOf( glm::toMat4( glm::quat( eulerRotation ) ), fovDegrees, nearPlane, farPlane );
+             CameraEntityViewOf( ECS::WorldTransform{ glm::dvec3( 0.0 ), glm::toMat3( glm::quat( eulerRotation ) ) }, fovDegrees, nearPlane, farPlane );
         view.Position = position;
         SetView( view, width, height, kNoSourceEntity );
     }

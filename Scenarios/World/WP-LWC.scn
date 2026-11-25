@@ -43,9 +43,9 @@
 Когда --subject viewport set Camera.Position 2000000,140,430
 Когда --subject viewport set Camera.Direction 0.00000,-0.13820,-0.99040
 Когда frames 90
-Тогда-вид f_n 20 km set, still camera 4.3 m out, frame N: CesiumMan (frozen pose), white block, thin blade, flat landscape, sun shadows of all three
+Тогда-вид f_n [lwc_far_equals_origin] 20 km set, still camera 4.3 m out, frame N: drawn as o_n (camera-relative upload) - same block/blade/CesiumMan/shadows; pixel diff vs o_n named
 Когда frames 1
-Тогда-вид f_n1 20 km frame N+1: vs f_n: vertex jitter on blade/block edges and skin (L-A01), shadow-edge swim (L-A02), TAA smear/shimmer (L-A03)
+Тогда-вид f_n1 [lwc_far_equals_origin] 20 km frame N+1: identical to f_n - no vertex jitter (L-A01), shadow swim (L-A02), TAA smear (L-A03)
 Когда frames 1
 Тогда-вид f_s1 20 km frame N+2 (strip 1/3): vs f_n: vertex jitter on blade/block edges and skin (L-A01), shadow-edge swim (L-A02), TAA smear/shimmer (L-A03)
 Когда frames 1
@@ -55,9 +55,9 @@
 Когда --subject viewport set Camera.Position 1999940,120,110
 Когда --subject viewport set Camera.Direction -0.47673,-0.19069,-0.85812
 Когда frames 60
-Тогда-вид f_close 20 km close-up ~1 m from the blade edge and its shadow on the landscape: stair-stepped/wobbling edge, blocky or acne shadow = float world position at 20 km
+Тогда-вид f_close [lwc_far_equals_origin] 20 km close-up ~1 m from the blade edge: straight edge, clean shadow, drawn as o_close; pixel diff vs o_close named
 Когда frames 1
-Тогда-вид f_close1 20 km close-up next frame: vs f_close: edge or shadow pixels that changed at a still camera
+Тогда-вид f_close1 [lwc_far_equals_origin] 20 km close-up next frame: identical to f_close - no edge or shadow pixel changed at a still camera
 Когда --subject viewport set Camera.Position 2000000,140,430
 Когда --subject viewport set Camera.Direction 0.00000,-0.13820,-0.99040
 Когда frames 2
@@ -94,6 +94,29 @@
 Когда frames 2
 Когда --subject viewport properties
 Тогда-вид c_3 [lwc_cam_step] L-A04 camera X = 2000001.3 exactly (census; a float eye would read 2000001.25)
+# Pass 4 (11-25): [lwc_play_cam] L-A05 Play at 20 km through LWC_PlayCam (AutoActivateForPlayer, X = 2000000): every 0.5 cm
+# viewport write in Play goes WritePlayViewCamera -> CameraLocalTransformFor in double, so the next frame's view moved.
+Когда run Action "Play from Here"
+Когда frames 30
+Когда --subject viewport set Camera.Position 2000000,140,430
+Когда --subject viewport set Camera.Direction 0.00000,-0.13820,-0.99040
+Когда frames 30
+Когда --subject viewport properties
+Тогда-вид p_0 [lwc_play_cam] L-A05 in Play the view target at X = 2000000: the 20 km set framed as f_n
+Когда --subject viewport set Camera.Position 2000000.5,140,430
+Когда frames 2
+Когда --subject viewport properties
+Тогда-вид p_1 [lwc_play_cam] L-A05 in Play the view target at X = 2000000.5: the set 0.5 cm further left than p_0 (the view moved)
+Когда --subject viewport set Camera.Position 2000001,140,430
+Когда frames 2
+Когда --subject viewport properties
+Тогда-вид p_2 [lwc_play_cam] L-A05 in Play the view target at X = 2000001: the set 0.5 cm further left than p_1 (the view moved)
+Когда --subject viewport set Camera.Position 2000001.5,140,430
+Когда frames 2
+Когда --subject viewport properties
+Тогда-вид p_3 [lwc_play_cam] L-A05 in Play the view target at X = 2000001.5: the set 0.5 cm further left than p_2 (the view moved)
+Когда run Action "Stop"
+Когда frames 10
 Когда select 7700000000000204
 Когда --subject selection set Translation 2000150.5,100,-60
 Когда frames 2

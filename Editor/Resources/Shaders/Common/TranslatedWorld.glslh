@@ -1,0 +1,29 @@
+#ifndef DESERT_TRANSLATED_WORLD_GLSLH
+#define DESERT_TRANSLATED_WORLD_GLSLH
+
+// LARGE WORLD COORDINATES (UE5 DFFastToTranslatedWorld; C++ ViewFrame::ViewOrigin, ShaderProtocols::MakeCameraUB).
+// Raster geometry is placed in TRANSLATED world = world - ViewOrigin and projected with CameraUB's Translated*
+// matrices. A float position 20 km out is ~2e6 cm with a 0.125 cm step; projecting it with a view matrix whose
+// translation is another ~2e6 cancels the two and the error is what is left - vertex wobble that changes with the
+// camera. Here the local-to-world's ORIGIN meets PreViewTranslation first, as a double-float: High = float(-origin)
+// cancels a world origin within 2x of the eye EXACTLY (Sterbenz), Low adds the double's remainder, and the sum is
+// the metres between the object and the eye. Rotation and scale are untouched, so normals and the shading frame
+// read the absolute matrix as before. Include after the camera block (CameraUB) is declared.
+mat4 DesertTranslatedWorld( const mat4 world )
+{
+    precise const vec3 nearEye = world[3].xyz + cameraUB.PreViewTranslationHigh.xyz;
+    precise const vec3 origin  = nearEye + cameraUB.PreViewTranslationLow.xyz;
+    mat4 translated = world;
+    translated[3]   = vec4( origin, world[3].w );
+    return translated;
+}
+
+// A world position that is already a float (a debug line's vertex): translated by the same double-float.
+vec3 DesertTranslatedPosition( const vec3 world )
+{
+    precise const vec3 nearEye = world + cameraUB.PreViewTranslationHigh.xyz;
+    precise const vec3 origin  = nearEye + cameraUB.PreViewTranslationLow.xyz;
+    return origin;
+}
+
+#endif

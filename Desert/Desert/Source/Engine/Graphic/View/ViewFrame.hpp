@@ -219,6 +219,16 @@ namespace Desert::Graphic
         glm::mat4 JitteredViewProjection{ 1.0f }; // JitteredProjection * View
         glm::mat4 InvJitteredViewProjection{ 1.0f };
         glm::vec3 CameraPosition{ 0.0f }; // world, cm
+        // LARGE WORLD COORDINATES (UE FViewMatrices: ViewOrigin / PreViewTranslation = -ViewOrigin). Raster
+        // geometry goes through TRANSLATED world = world - ViewOrigin: a vertex 20 km out reaches the GPU as the
+        // few metres it is from the eye, so it is drawn as precisely as one at the origin. The Translated*
+        // matrices take a translated position; each is its absolute twin x translate(ViewOrigin), formed in double
+        // (TranslatedMatrix). TranslatedPrevViewProjection takes a position translated by THIS frame's origin.
+        glm::dvec3 ViewOrigin{ 0.0 };
+        glm::mat4  TranslatedView{ 1.0f };
+        glm::mat4  TranslatedViewProjection{ 1.0f };
+        glm::mat4  TranslatedJitteredViewProjection{ 1.0f };
+        glm::mat4  TranslatedPrevViewProjection{ 1.0f };
         float     NearPlane = 0.0f;       // cm, as the camera gave it (the projection holds it reversed)
         float     FarPlane  = 0.0f;
 
@@ -347,6 +357,19 @@ namespace Desert::Graphic
     // preview drawing one overlay with no temporal history: no jitter (the jittered matrices are the unjittered
     // ones), no previous frame (every Prev* equals the current value, HistoryReset FirstFrame), MaterialMipBias 0.
     // It exists so the camera block has ONE writer (ShaderProtocols::MakeCameraUB) whatever drives the camera.
+    // PURE. @p matrix x translate(@p origin), formed in double and narrowed once: the matrix that takes a position
+    // translated by -origin (UE: FTranslationMatrix(-PreViewTranslation) * ViewProjection).
+    [[nodiscard]] inline glm::mat4 TranslatedMatrix( const glm::mat4& matrix, const glm::dvec3& origin )
+    {
+        glm::dmat4 m( matrix );
+        m[3] = m * glm::dvec4( origin, 1.0 );
+        return glm::mat4( m );
+    }
+
+    // PURE. The frame's translated matrices (ViewFrame::ViewOrigin) from its absolute ones; @p previous is the
+    // committed frame the Prev* matrices came from (the frame itself when it has none).
+    void SetTranslatedMatrices( ViewFrame& frame, const glm::dvec3& viewOrigin, const ViewFrame& previous );
+
     [[nodiscard]] ViewFrame MakeStillViewFrame( const glm::mat4& view, const glm::mat4& projection,
                                                 const glm::vec3& cameraPosition, double timeSeconds );
 } // namespace Desert::Graphic

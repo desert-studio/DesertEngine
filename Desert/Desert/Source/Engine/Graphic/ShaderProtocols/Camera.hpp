@@ -85,7 +85,15 @@
     FIELD( CameraLocalWindSpeeds, LocalWindSpeed, LocalWindSpeed[2], {} )         /* offset 720 */                \
     FIELD( CameraLocalWindSources, PrevLocalWind, PrevLocalWind[8], {} )          /* offset 752 */                \
     FIELD( CameraLocalWindSpeeds, PrevLocalWindSpeed, PrevLocalWindSpeed[2], {} ) /* offset 880 */                \
-    /* block size 912 */
+    /* LWC (ViewFrame::ViewOrigin; UE View.TranslatedWorldToClip, View.PreViewTranslation as a double-float): */  \
+    /* raster geometry takes TRANSLATED world (Common/TranslatedWorld.glslh); PreViewTranslation = -ViewOrigin */ \
+    /* split High = float(-origin), Low = float(-origin - High), so High + Low carries the double */            \
+    FIELD( glm::mat4, TranslatedViewProjection, TranslatedViewProjection, { 1.0f } )                 /* 912 */  \
+    FIELD( glm::mat4, TranslatedJitteredViewProjection, TranslatedJitteredViewProjection, { 1.0f } ) /* 976 */  \
+    FIELD( glm::mat4, TranslatedPrevViewProjection, TranslatedPrevViewProjection, { 1.0f } )         /* 1040 */ \
+    FIELD( glm::vec4, PreViewTranslationHigh, PreViewTranslationHigh, { 0.0f } )                     /* 1104 */ \
+    FIELD( glm::vec4, PreViewTranslationLow, PreViewTranslationLow, { 0.0f } )                       /* 1120 */ \
+    /* block size 1136 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -101,7 +109,7 @@ namespace Desert::Graphic::ShaderProtocols
     static_assert( Std140LayoutMatches( kCameraFields, sizeof( Camera ) ),
                    "ShaderProtocols::Camera is not laid out as std140 places the generated CameraUB block: "
                    "reorder or pad DESERT_CAMERA_UB_FIELDS" );
-    static_assert( sizeof( Camera ) == 912 );
+    static_assert( sizeof( Camera ) == 1136 );
 
     /// PURE. CameraUB::PixelToNdc of a raster viewport @p rect (x, y its origin, z, w its size, target pixels),
     /// drawn as the engine draws every view - negative height, +Y up (VulkanRendererAPI::SetViewportRegion,
@@ -169,6 +177,13 @@ namespace Desert::Graphic::ShaderProtocols
         ub.LocalWindSpeed            = frame.LocalWind.Speed;
         ub.PrevLocalWind             = frame.PrevLocalWind.Source;
         ub.PrevLocalWindSpeed        = frame.PrevLocalWind.Speed;
+        ub.TranslatedViewProjection         = frame.TranslatedViewProjection;
+        ub.TranslatedJitteredViewProjection = frame.TranslatedJitteredViewProjection;
+        ub.TranslatedPrevViewProjection     = frame.TranslatedPrevViewProjection;
+        const glm::dvec3 preViewTranslation = -frame.ViewOrigin;
+        const glm::vec3  high( preViewTranslation );
+        ub.PreViewTranslationHigh = glm::vec4( high, 0.0f );
+        ub.PreViewTranslationLow  = glm::vec4( glm::vec3( preViewTranslation - glm::dvec3( high ) ), 0.0f );
         return ub;
     }
 } // namespace Desert::Graphic::ShaderProtocols

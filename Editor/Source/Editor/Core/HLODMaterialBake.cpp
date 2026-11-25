@@ -228,7 +228,7 @@ namespace Desert::Editor
         world[3] = glm::vec4( ::Desert::Core::kHLODBakeProxySideCm * 0.5f, kEyeHeightCm,
                               ::Desert::Core::kHLODBakeProxySideCm * 0.5f, 1.0f );
         m_Camera->SetOrthoSize( ::Desert::Core::kHLODBakeProxySideCm * 0.5f );
-        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( world, 45.0f, kNearCm, kFarCm ), side, side,
+        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( ::Desert::ECS::WorldTransform::FromFloatMatrix( world ), 45.0f, kNearCm, kFarCm ), side, side,
                            ::Desert::Core::Camera::kNoSourceEntity );
         m_Scene->PinActiveCamera( m_Camera );
         m_WarmFrames = kWarmFrames;

@@ -208,7 +208,7 @@ namespace Desert::Core::Rules
 
         [[nodiscard]] glm::mat4 ComposeLocal( const Assets::EntityData& record )
         {
-            const glm::vec3 translation = record.Translation.value_or( glm::vec3( 0.0f ) );
+            const glm::vec3 translation = glm::vec3( record.Translation.value_or( glm::dvec3( 0.0 ) ) );
             const glm::vec3 rotation    = record.Rotation.value_or( glm::vec3( 0.0f ) );
             const glm::vec3 scale       = record.Scale.value_or( glm::vec3( 1.0f ) );
             return glm::translate( glm::mat4( 1.0f ), translation ) * glm::toMat4( glm::quat( rotation ) ) *

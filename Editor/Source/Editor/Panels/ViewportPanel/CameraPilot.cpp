@@ -21,10 +21,10 @@ namespace Desert::Editor
         constexpr float kMovedDistance = 1.0e-3f; // cm
         constexpr float kMovedCosine   = 1.0e-7f; // 1 - cos(angle)
 
-        bool Moved( const glm::vec3& position, const ::Desert::Core::ViewBasis& basis,
-                    const glm::vec3& lastPosition, const ::Desert::Core::ViewBasis& lastBasis )
+        bool Moved( const glm::dvec3& position, const ::Desert::Core::ViewBasis& basis,
+                    const glm::dvec3& lastPosition, const ::Desert::Core::ViewBasis& lastBasis )
         {
-            return glm::length( position - lastPosition ) > kMovedDistance ||
+            return glm::length( position - lastPosition ) > double( kMovedDistance ) ||
                    1.0f - glm::dot( glm::normalize( basis.Forward ), lastBasis.Forward ) > kMovedCosine ||
                    1.0f - glm::dot( glm::normalize( basis.Up ), lastBasis.Up ) > kMovedCosine;
         }
@@ -63,7 +63,7 @@ namespace Desert::Editor
 
         // Place first, so the very first Update sees no motion and does not write the entity.
         const auto& data = entity->GetComponent<ECS::CameraComponent>().Data;
-        const auto  view = ::Desert::Core::CameraEntityViewOf( entity->GetWorldTransform().ToFloatMatrix(),
+        const auto  view = ::Desert::Core::CameraEntityViewOf( entity->GetWorldTransform(),
                                                                data.FOV, data.Near, data.Far );
         camera.PlaceAt( view.Position, view.Basis );
         camera.SetFOV( view.FovYDegrees );
@@ -113,34 +113,22 @@ namespace Desert::Editor
 
         const auto& tc = entity->GetComponent<ECS::TransformComponent>();
 
-        const glm::vec3                 position = camera.GetPosition();
+        const glm::dvec3                position = camera.GetPosition();
         const ::Desert::Core::ViewBasis basis    = camera.GetBasis();
         if ( Moved( position, basis, m_LastPosition, m_LastBasis ) )
         {
             if ( !m_InSegment )
             {
                 m_InSegment          = true;
-                m_SegmentTranslation = glm::vec3( tc.GetTranslation() );
+                m_SegmentTranslation = tc.GetTranslation();
                 m_SegmentRotation    = tc.GetRotation();
                 m_SegmentScale       = tc.GetScale();
             }
 
             // The viewport's pose becomes the entity's WORLD pose; the parent chain is peeled off so the
             // stored LOCAL transform produces it. Scale is the entity's own and is not touched.
-            const glm::mat4 world       = entity->GetWorldTransform().ToFloatMatrix();
-            const glm::mat4 parentWorld = world * glm::inverse( tc.GetTransform() );
-            const glm::vec3 worldScale( glm::length( glm::vec3( world[0] ) ), glm::length( glm::vec3( world[1] ) ),
-                                        glm::length( glm::vec3( world[2] ) ) );
-            const glm::mat4 local = glm::inverse( parentWorld ) *
-                                    ::Desert::Core::CameraWorldTransformFor( position, basis, worldScale );
-
-            const glm::mat3 rotation( glm::normalize( glm::vec3( local[0] ) ),
-                                      glm::normalize( glm::vec3( local[1] ) ),
-                                      glm::normalize( glm::vec3( local[2] ) ) );
-            ECS::LocalTransform posed = tc.GetLocal();
-            posed.Translation         = glm::vec3( local[3] );
-            posed.Rotation            = glm::eulerAngles( glm::quat_cast( rotation ) );
-            entity->SetLocalTransform( posed );
+            entity->SetLocalTransform( ::Desert::Core::CameraLocalTransformFor( entity->GetWorldTransform(), tc.GetLocal(),
+                                                                                 position, basis ) );
         }
         else
         {
@@ -150,7 +138,7 @@ namespace Desert::Editor
         // The entity is the source of truth: whatever it says now — after the flight above, or after an
         // edit in the Details panel, or an undo — is what the viewport shows.
         const auto& data = entity->GetComponent<ECS::CameraComponent>().Data;
-        const auto  view = ::Desert::Core::CameraEntityViewOf( entity->GetWorldTransform().ToFloatMatrix(),
+        const auto  view = ::Desert::Core::CameraEntityViewOf( entity->GetWorldTransform(),
                                                                data.FOV, data.Near, data.Far );
         camera.PlaceAt( view.Position, view.Basis );
         if ( camera.GetFOV() != view.FovYDegrees )

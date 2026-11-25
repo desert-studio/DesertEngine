@@ -566,7 +566,7 @@ namespace Desert::Core
                 if ( t && r && s && ReadVec3( *t, translation ) && ReadVec3( *r, rotation ) &&
                      ReadVec3( *s, scale ) )
                 {
-                    ECS::SetLocalTransform( registry, pawn, ECS::LocalTransform{ translation, rotation, scale } );
+                    ECS::SetLocalTransform( registry, pawn, ECS::LocalTransform{ glm::dvec3( translation ), rotation, scale } );
                     report.PawnRestored   = true;
                 }
                 else

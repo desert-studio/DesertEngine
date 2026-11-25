@@ -172,6 +172,21 @@ namespace Desert::Graphic
         return glm::translate( glm::mat4( 1.0f ), glm::vec3( ndc.x, ndc.y, 0.0f ) ) * projection;
     }
 
+    void SetTranslatedMatrices( ViewFrame& frame, const glm::dvec3& viewOrigin, const ViewFrame& previous )
+    {
+        frame.ViewOrigin                       = viewOrigin;
+        frame.TranslatedView                   = TranslatedMatrix( frame.View, viewOrigin );
+        frame.TranslatedViewProjection         = frame.Projection * frame.TranslatedView;
+        frame.TranslatedJitteredViewProjection = frame.JitteredProjection * frame.TranslatedView;
+        // The previous view through its own translated view, then moved by how far the origin moved: every term
+        // is metres, none is the 20 km that cancels (UE PrevTranslatedWorldToClip).
+        const glm::mat4 previousTranslated =
+             &previous == &frame ? frame.TranslatedViewProjection
+                                 : previous.Projection * previous.TranslatedView;
+        frame.TranslatedPrevViewProjection =
+             TranslatedMatrix( previousTranslated, viewOrigin - ( &previous == &frame ? viewOrigin : previous.ViewOrigin ) );
+    }
+
     ViewFrame MakeStillViewFrame( const glm::mat4& view, const glm::mat4& projection,
                                   const glm::vec3& cameraPosition, const double timeSeconds )
     {
@@ -193,6 +208,7 @@ namespace Desert::Graphic
         f.PrevInvViewProjection      = f.InvViewProjection;
         f.PrevJitteredViewProjection = f.JitteredViewProjection;
         f.PrevCameraPosition         = f.CameraPosition;
+        SetTranslatedMatrices( f, glm::dvec3( cameraPosition ), f );
 
         f.TimeSeconds     = timeSeconds;
         f.PrevTimeSeconds = timeSeconds;

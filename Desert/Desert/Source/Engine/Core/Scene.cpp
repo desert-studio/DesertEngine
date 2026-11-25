@@ -788,8 +788,8 @@ namespace Desert::Core
                 // WORLD transform of the camera entity (the cached one), so a camera parented to a moving
                 // entity (e.g. a child of the character controller) follows it — 1st/3rd person is just the
                 // child's local offset.
-                const glm::mat4 world =
-                     m_Registry.get<ECS::TransformComponent>( mainEntity ).GetWorldTransform().ToFloatMatrix();
+                const ECS::WorldTransform world =
+                     m_Registry.get<ECS::TransformComponent>( mainEntity ).GetWorldTransform();
                 if ( !m_GameplayCamera )
                     m_GameplayCamera = std::make_shared<GameplayCamera>();
                 static_cast<GameplayCamera*>( m_GameplayCamera.get() )
@@ -961,7 +961,7 @@ namespace Desert::Core
         if ( const auto primary = GetActiveCamera() )
         {
             const glm::mat4 camView = primary->GetViewMatrix();
-            const glm::vec3 camPos  = primary->GetPosition();
+            const glm::vec3 camPos  = glm::vec3( primary->GetPosition() );
             for ( auto& system : m_Systems )
                 system->SetCameraSnapshot( camView, camPos );
         }
@@ -992,7 +992,7 @@ namespace Desert::Core
             DESERT_PROFILE_SCOPE( "Weather" );
             m_Weather->Tick( m_Registry, gameplayTs.GetSeconds() );
             if ( const auto observer = GetActiveCamera() )
-                m_Weather->Apply( m_Registry, *m_WorldParameters, observer->GetPosition() );
+                m_Weather->Apply( m_Registry, *m_WorldParameters, glm::vec3( observer->GetPosition() ) );
         }
         // THE DEBUG DRAWING AGES before the systems draw this frame's (scripts run in them): last frame's
         // one-frame items go unless the world is paused, timed items count down by the scene's time - the editor's

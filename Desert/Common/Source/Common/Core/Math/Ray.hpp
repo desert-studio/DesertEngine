@@ -95,7 +95,7 @@ namespace Common::Math
         {
             glm::mat4 invTransform = glm::inverse( transform );
             // Transform origin as point (w=1), including translation
-            glm::vec3 localOrigin = invTransform * glm::vec4( Origin, 1.0f );
+            glm::vec3 localOrigin = glm::vec3( invTransform * glm::vec4( Origin, 1.0f ) );
             // Transform direction as vector (w=0), ignoring translation
             glm::vec3 localDirection = glm::mat3( invTransform ) * Direction;
             return Ray( localOrigin, localDirection );
@@ -107,7 +107,7 @@ namespace Common::Math
         // objects' local t cannot be compared to find the nearer one.
         [[nodiscard]] float WorldDistanceOf( const Ray& local, float localT, const glm::mat4& transform ) const
         {
-            const glm::vec3 point = transform * glm::vec4( local.GetPoint( localT ), 1.0f );
+            const glm::vec3 point = glm::vec3( transform * glm::vec4( local.GetPoint( localT ), 1.0f ) );
             return glm::dot( point - Origin, Direction );
         }
 
@@ -119,9 +119,9 @@ namespace Common::Math
         Ray ToWorldSpace( const glm::mat4& transform ) const
         {
             // Transform origin as point (w=1)
-            glm::vec3 worldOrigin = transform * glm::vec4( Origin, 1.0f );
+            glm::vec3 worldOrigin = glm::vec3( transform * glm::vec4( Origin, 1.0f ) );
             // Transform direction as vector (w=0)
-            glm::vec3 worldDirection = transform * glm::vec4( Direction, 0.0f );
+            glm::vec3 worldDirection = glm::vec3( transform * glm::vec4( Direction, 0.0f ) );
             return Ray( worldOrigin, worldDirection );
         }
 

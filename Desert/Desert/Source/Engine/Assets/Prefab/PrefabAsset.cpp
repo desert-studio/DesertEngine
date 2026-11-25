@@ -500,11 +500,11 @@ namespace Desert::Assets
         {
             if ( rootEntity.HasComponent<ECS::TransformComponent>() )
             {
-                rootEntity.SetLocalTranslation( *position );
+                rootEntity.SetLocalTranslation( glm::dvec3( *position ) );
             }
             else
             {
-                rootEntity.AddComponent<ECS::TransformComponent>( ECS::LocalTransform{ .Translation = *position } );
+                rootEntity.AddComponent<ECS::TransformComponent>( ECS::LocalTransform{ .Translation = glm::dvec3( *position ) } );
             }
         }
 

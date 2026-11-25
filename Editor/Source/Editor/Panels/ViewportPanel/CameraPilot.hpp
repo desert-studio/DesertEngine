@@ -69,12 +69,12 @@ namespace Desert::Editor
         ::Desert::Core::EditorCamera::Pose m_Saved;
 
         // The pose this wrote onto the camera last frame; a difference is the user's flight.
-        glm::vec3                 m_LastPosition{ 0.0f };
+        glm::dvec3                m_LastPosition{ 0.0 };
         ::Desert::Core::ViewBasis m_LastBasis;
 
         // One undo step per stretch of motion: the entity's transform when the stretch began.
         bool      m_InSegment = false;
-        glm::vec3 m_SegmentTranslation{ 0.0f };
+        glm::dvec3 m_SegmentTranslation{ 0.0 };
         glm::vec3 m_SegmentRotation{ 0.0f };
         glm::vec3 m_SegmentScale{ 1.0f };
     };

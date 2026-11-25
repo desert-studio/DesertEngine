@@ -377,8 +377,8 @@ namespace Desert::Editor
             }
 
             const auto&     tc    = entity.GetComponent<ECS::TransformComponent>();
-            const glm::mat4 world = entity.GetWorldTransform().ToFloatMatrix();
-            const auto      now   = ::Desert::Core::CameraEntityViewOf( world, lens.FOV, lens.Near, lens.Far );
+            const ECS::WorldTransform world = entity.GetWorldTransform();
+            const auto now = ::Desert::Core::CameraEntityViewOf( world, lens.FOV, lens.Near, lens.Far );
 
             const glm::dvec3          position = ( which == ViewportCameraWrite::Position )
                                                       ? glm::dvec3( value[0], value[1], value[2] )
@@ -393,18 +393,8 @@ namespace Desert::Editor
                                                                           : glm::vec3( 0.0f, 1.0f, 0.0f );
             }
 
-            const glm::mat4 parentWorld = world * glm::inverse( tc.GetTransform() );
-            const glm::vec3 worldScale( glm::length( glm::vec3( world[0] ) ), glm::length( glm::vec3( world[1] ) ),
-                                        glm::length( glm::vec3( world[2] ) ) );
-            const glm::mat4 local = glm::inverse( parentWorld ) *
-                                    ::Desert::Core::CameraWorldTransformFor( glm::vec3( position ), basis, worldScale );
-            const glm::mat3 rotation( glm::normalize( glm::vec3( local[0] ) ),
-                                      glm::normalize( glm::vec3( local[1] ) ),
-                                      glm::normalize( glm::vec3( local[2] ) ) );
-            ECS::LocalTransform posed = tc.GetLocal();
-            posed.Translation         = glm::vec3( local[3] );
-            posed.Rotation            = glm::eulerAngles( glm::quat_cast( rotation ) );
-            entity.SetLocalTransform( posed );
+            // The parent chain is peeled off in double (LWC p4): a Play camera 20 km out steps the 0.5 cm asked.
+            entity.SetLocalTransform( ::Desert::Core::CameraLocalTransformFor( world, tc.GetLocal(), position, basis ) );
             return Common::MakeSuccess( true );
         }
     } // namespace

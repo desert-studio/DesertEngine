@@ -520,6 +520,7 @@ namespace Desert::Graphic
         f.PrevJitteredViewProjection = previous.JitteredViewProjection;
         f.PrevCameraPosition         = previous.CameraPosition;
         f.PrevJitterNdc              = previous.JitterNdc;
+        SetTranslatedMatrices( f, inputs.ViewOrigin, previous );
 
         f.TimeSeconds     = inputs.TimeSeconds;
         f.PrevTimeSeconds = isReset ? inputs.TimeSeconds : m_Committed.TimeSeconds;

@@ -70,6 +70,9 @@ namespace Desert::Graphic
         glm::mat4 View{ 1.0f };
         glm::mat4 Projection{ 1.0f }; // the camera's, unjittered (Core::MakePerspective / MakeOrthographic)
         glm::vec3 CameraPosition{ 0.0f };
+        // The camera's eye in double (Core::Camera::GetPosition): the origin of the view's translated world
+        // (ViewFrame::ViewOrigin, LWC).
+        glm::dvec3 ViewOrigin{ 0.0 };
         float     NearPlane = 0.0f;
         float     FarPlane  = 0.0f;
 

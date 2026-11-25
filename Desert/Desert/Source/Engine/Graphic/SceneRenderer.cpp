@@ -1867,7 +1867,8 @@ namespace Desert::Graphic
         {
             inputs.View           = cam->GetViewMatrix();
             inputs.Projection     = cam->GetProjectionMatrix();
-            inputs.CameraPosition = cam->GetPosition();
+            inputs.CameraPosition = glm::vec3( cam->GetPosition() );
+            inputs.ViewOrigin     = cam->GetPosition(); // LWC: the translated world's origin, in double
             inputs.NearPlane      = cam->GetNear();
             inputs.FarPlane       = cam->GetFar();
             inputs.CameraIdentity = MakeViewCameraIdentity( m_SceneGeneration, cam->GetSourceId() );

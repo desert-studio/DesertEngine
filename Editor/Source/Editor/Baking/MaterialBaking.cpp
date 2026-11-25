@@ -372,7 +372,7 @@ namespace Desert::Editor::Baking
         m_Camera = std::make_shared<::Desert::Core::GameplayCamera>();
         m_Camera->SetProjectionType( ::Desert::Core::ProjectionType::Orthographic );
         m_Camera->SetOrthoSize( kProxyExtentCm * 0.5f );
-        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( world, 45.0f, kNearCm, kFarCm ), m_Request.Size,
+        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( ::Desert::ECS::WorldTransform::FromFloatMatrix( world ), 45.0f, kNearCm, kFarCm ), m_Request.Size,
                            m_Request.Size, ::Desert::Core::Camera::kNoSourceEntity );
         m_Scene->PinActiveCamera( m_Camera );
         return BOOLSUCCESS;

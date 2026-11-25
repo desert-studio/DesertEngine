@@ -25,6 +25,7 @@
 
 #include <Engine/Core/EditorCameraBasis.hpp>
 #include <Engine/Core/Projection.hpp>
+#include <Engine/ECS/Transform.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -46,18 +47,19 @@ namespace Desert::Core
     /**
      * @brief The view a camera entity renders, from its WORLD transform and its lens.
      *
-     * The matrix's columns 0/1/2 are the entity's right/up/backward axes. They are normalised (entity
-     * scale is not an optic) and the up axis is re-orthogonalised against forward, so a sheared parent
-     * chain still yields a basis ViewMatrixFrom can use.
+     * LWC: the eye is the transform's double Origin, never a float matrix's column (UE: the view origin is
+     * the component's FVector). The basis columns 0/1/2 are the entity's right/up/backward axes. They are
+     * normalised (entity scale is not an optic) and the up axis is re-orthogonalised against forward, so a
+     * sheared parent chain still yields a basis ViewMatrixFrom can use.
      */
-    [[nodiscard]] inline CameraEntityView CameraEntityViewOf( const glm::mat4& world, float fovYDegrees,
+    [[nodiscard]] inline CameraEntityView CameraEntityViewOf( const ECS::WorldTransform& world, float fovYDegrees,
                                                               float nearPlane, float farPlane )
     {
         CameraEntityView out;
-        out.Position = glm::dvec3( world[3] );
+        out.Position = world.Origin;
 
-        const glm::vec3 forward = -glm::normalize( glm::vec3( world[2] ) );
-        const glm::vec3 rawUp   = glm::normalize( glm::vec3( world[1] ) );
+        const glm::vec3 forward = -glm::normalize( world.Basis[2] );
+        const glm::vec3 rawUp   = glm::normalize( world.Basis[1] );
         out.Basis.Forward       = forward;
         out.Basis.Up            = glm::normalize( rawUp - forward * glm::dot( rawUp, forward ) );
 
@@ -89,18 +91,38 @@ namespace Desert::Core
      * The pilot mode uses it to write the viewport's pose back into the entity. The scale is the
      * entity's own, passed through untouched: flying a camera must not rescale it.
      */
-    [[nodiscard]] inline glm::mat4 CameraWorldTransformFor( const glm::vec3& position, const ViewBasis& basis,
-                                                            const glm::vec3& scale )
+    [[nodiscard]] inline ECS::WorldTransform CameraWorldTransformFor( const glm::dvec3& position, const ViewBasis& basis,
+                                                                      const glm::vec3& scale )
     {
         const glm::vec3 f = glm::normalize( basis.Forward );
         const glm::vec3 u = glm::normalize( basis.Up - f * glm::dot( basis.Up, f ) );
         const glm::vec3 r = glm::cross( f, u );
+        return ECS::WorldTransform{ position, glm::mat3( r * scale.x, u * scale.y, -f * scale.z ) };
+    }
 
-        glm::mat4 m( 1.0f );
-        m[0] = glm::vec4( r * scale.x, 0.0f );
-        m[1] = glm::vec4( u * scale.y, 0.0f );
-        m[2] = glm::vec4( -f * scale.z, 0.0f );
-        m[3] = glm::vec4( position, 1.0f );
-        return m;
+    /**
+     * @brief The LOCAL transform that puts a camera entity's eye at @p position looking along @p basis: the
+     *        entity's parent chain (@p entityWorld x inverse(@p entityLocal)) is peeled off IN DOUBLE, so a
+     *        camera 20 km out moves by the 0.5 cm it was asked to (LWC; Play-view writes and the pilot mode).
+     *        The entity's world scale is kept; only Translation and Rotation of @p entityLocal change.
+     */
+    [[nodiscard]] inline ECS::LocalTransform CameraLocalTransformFor( const ECS::WorldTransform& entityWorld,
+                                                                      const ECS::LocalTransform& entityLocal,
+                                                                      const glm::dvec3&          position,
+                                                                      const ViewBasis&           basis )
+    {
+        glm::dmat4 localMatrix = glm::dmat4( glm::dmat3( entityLocal.GetBasis() ) );
+        localMatrix[3]         = glm::dvec4( entityLocal.Translation, 1.0 );
+        const glm::dmat4 parentWorld = entityWorld.ToDoubleMatrix() * glm::inverse( localMatrix );
+        const glm::vec3  worldScale( glm::length( entityWorld.Basis[0] ), glm::length( entityWorld.Basis[1] ),
+                                     glm::length( entityWorld.Basis[2] ) );
+        const glm::dmat4 local =
+             glm::inverse( parentWorld ) * CameraWorldTransformFor( position, basis, worldScale ).ToDoubleMatrix();
+        const glm::mat3 rotation( glm::normalize( glm::vec3( local[0] ) ), glm::normalize( glm::vec3( local[1] ) ),
+                                  glm::normalize( glm::vec3( local[2] ) ) );
+        ECS::LocalTransform posed = entityLocal;
+        posed.Translation         = glm::dvec3( local[3] );
+        posed.Rotation            = glm::eulerAngles( glm::quat_cast( rotation ) );
+        return posed;
     }
 } // namespace Desert::Core

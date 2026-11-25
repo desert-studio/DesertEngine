@@ -282,7 +282,7 @@ namespace Desert::ECS
                 if ( cc.RuntimeCharacter == Physics::kInvalidCharacter || registry.has<NetRoleComponent>( entity ) )
                     continue;
                 SetLocalTranslation( registry, entity,
-                                     m_World->GetInterpolatedCharacterPosition( cc.RuntimeCharacter ) );
+                                     glm::dvec3( m_World->GetInterpolatedCharacterPosition( cc.RuntimeCharacter ) ) );
             }
 
             // Projectiles after the step and its writeback (UE: UProjectileMovementComponent ticks in the frame

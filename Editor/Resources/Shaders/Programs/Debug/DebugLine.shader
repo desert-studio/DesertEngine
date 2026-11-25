@@ -9,6 +9,7 @@ Shader "DebugLine"
         // A Triangles-topology pipeline draws the same list three vertices per triangle (tool preview meshes).
 
         #include <Common/CameraUB.glslh>
+        #include <Common/TranslatedWorld.glslh>
 
         struct LineVertex
         {
@@ -26,7 +27,8 @@ Shader "DebugLine"
         void main()
         {
             LineVertex lv = LinesData[gl_VertexIndex];
-            gl_Position   = cameraUB.Projection * cameraUB.View * vec4(lv.PositionWS.xyz, 1.0);
+            // LWC: projected from translated world (Common/TranslatedWorld.glslh), as the scene it overlays.
+            gl_Position   = cameraUB.TranslatedViewProjection * vec4(DesertTranslatedPosition(lv.PositionWS.xyz), 1.0);
             v_Color       = lv.Color;
         }
     }
