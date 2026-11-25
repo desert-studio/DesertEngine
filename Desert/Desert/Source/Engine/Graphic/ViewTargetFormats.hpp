@@ -41,6 +41,7 @@ namespace Desert::Graphic::ViewTargetFormats
     // GBufferD CustomData), texture count and the no-sun-shadows bit, as a uvec2. World position is NOT stored:
     // every reader rebuilds it from kGBufferDepth (Common/ReconstructPosition.glslh).
     inline constexpr ImageFormat kGBufferShadingWord = ImageFormat::RG32_UINT;
+    // Emissive.rgb; a = the material AO and, in its sign, the model's far side (Common/GBufferOcclusion.glslh).
     inline constexpr ImageFormat kGBufferEmissive = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGBufferDepth    = ImageFormat::DEPTH32F;
     // The view's DBuffer (DECALS-DBUFFER, Common/DBuffer.glslh; UE DBufferA/B/C, all RGBA8): premultiplied base

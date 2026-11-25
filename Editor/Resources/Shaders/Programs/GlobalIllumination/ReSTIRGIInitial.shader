@@ -62,7 +62,7 @@ Shader "ReSTIRGIInitial"
 
         // The hit's lighting reads exactly what the screen probes' cache-miss leg reads (ScreenProbeTrace.shader
         // SP_TRACE_LIGHTS_HITS / SP_TRACE_READS_CACHE): the G-buffer (GIHitLighting.glslh's screen tolerance and
-        // EMISSION_IS_LIGHT), the sky and the radiance cache's bounce.
+        // the word's far-side colour and EMISSION_IS_LIGHT), the sky and the radiance cache's bounce.
         Uniform sampler PointClampSampler;
         Uniform sampler LinearClampSampler;
         Uniform(9) textureCube EnvironmentSpecularTexture;

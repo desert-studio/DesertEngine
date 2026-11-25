@@ -21,6 +21,7 @@
 // The shading word's packing and the SHADING_MODEL_INDEX_<NAME> that DESERT_SHADING_MODEL_INDEX names: the closest
 // hit writes the template's model into the payload as the G-buffer pass writes it into its word.
 #include <Generated/ShadingModels.glslh>
+#include <Mesh/Surface/SurfacePayload.glslh>
 // THE WORLD'S WEATHER at the hit (Mesh/Surface/SurfaceWeather.glslh, the raster's own call): a template whose row
 // carries the weather response is wetted (film, puddles, ripples and streaks at the cone's mip) and snowed in its
 // hit as in its G-buffer, so a reflection, the hit-lit GI and the path tracer see the surface the raster draws. The
@@ -88,7 +89,9 @@ void main()
     const SurfaceOutput s = EvaluateSurface( i );
 #endif
     payload.HitT          = gl_HitTEXT;
-    payload.BaseColor     = s.BaseColor;
+    vec3                baseColor = s.BaseColor;
+    const DesertPayload stored    = DesertEncodeSurfacePayload( s, baseColor );
+    payload.BaseColor     = baseColor;
     payload.Metallic      = s.Metallic;
     payload.Roughness     = max( s.Roughness, kDesertMinRoughness );
     payload.Emissive      = s.Emissive;
@@ -99,9 +102,7 @@ void main()
     // The template's shading model with its payload and Specular, the G-buffer word's fields (GBufferOutputs.glslh
     // packs the same call): hit lighting and the path tracer dispatch on it. The Anisotropic tangent angle is
     // relative to the normal above, as the raster's is to its N.
-    payload.ShadingWord = DesertPackShadingWord(
-         DESERT_SHADING_MODEL_INDEX, 0.0, s.Specular,
-         DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );
+    payload.ShadingWord = DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, 0.0, s.Specular, stored );
 #ifdef DESERT_SURFACE_TRANSLUCENT
     // A Translucent template: the dielectric interface the raster's glass pass draws (Pass_Forward_Translucent.glslh
     // reads the same two inputs: the tint the scene behind is seen through and the IOR it bends by).

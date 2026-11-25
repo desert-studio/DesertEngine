@@ -146,11 +146,9 @@ Shader "FoliageSurface"
             // The renderer zeroes this row field for objects that must not take the sun's shadow.
             s.ReceiveSunShadows = Material.ReceiveSunShadows;
             s.ReceiveDecals     = Material.ReceiveDecals;
-            // TwoSidedFoliage's payload: the transmitted albedo stored as its square root (UE EncodeSubsurfaceColor; the
-            // model squares it back), clamped to the payload's [0, 1].
-            vec3 transmitted;
-            FoliageSplitAlbedo( s.BaseColor, Material.SubsurfaceColor.rgb, transmitted );
-            const vec3 subsurface = sqrt( clamp( transmitted, 0.0, 1.0 ) );
+            // TwoSidedFoliage's payload: the far side's tint as its square root; the pass splits the whole albedo by it
+            // (Mesh/Surface/SurfacePayload.glslh).
+            const vec3 subsurface = sqrt( clamp( Material.SubsurfaceColor.rgb, 0.0, 1.0 ) );
             s.CustomData0       = subsurface.r;
             s.CustomData1       = subsurface.g;
             s.CustomData2       = subsurface.b;

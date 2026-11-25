@@ -140,7 +140,7 @@ Shader "TerrainGBuffer"
         Out(0) vec4 oGBufferA;        // Albedo.rgb, Metallic.a
         Out(1) vec4 oGBufferB;        // Normal.rgb, Roughness.a
         Out(2) uvec2 oGBufferShadingWord; // shading word (DefaultLit; TwoSidedFoliage under the grass cover); no world position
-        Out(3) vec4 oGBufferEmissive; // Emissive.rgb
+        Out(3) vec4 oGBufferEmissive; // Emissive.rgb; a = AO and the model's far side (GBufferOcclusion.glslh)
         Out(4) vec4 oVelocity;        // the view's velocity, slot 4 of the G-buffer target (TerrainSurface.glslh)
         Out(5) float oThinGeometryCoverage; // slot 5 of the G-buffer target (Common/ThinGeometryCoverage.glslh)
 
@@ -152,6 +152,7 @@ Shader "TerrainGBuffer"
 
         #include <Programs/Terrain/TerrainSurface.glslh>
         #include <Generated/ShadingModels.glslh>
+        #include <Common/GBufferOcclusion.glslh>
         #include <Common/WeatherSnow.glslh>
         #include <Programs/Terrain/TerrainRain.glslh>
         #include <Common/ThinGeometryCoverage.glslh>
@@ -216,7 +217,7 @@ Shader "TerrainGBuffer"
                                        : DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, specular,
                                                                 DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
             oGBufferShadingWord = DesertMarkLandscape( oGBufferShadingWord ); // the ground mask (bit 26)
-            oGBufferEmissive = vec4( 0.0, 0.0, 0.0, s.AO ); // no emission; material AO from the layers' ARM maps
+            oGBufferEmissive = vec4( 0.0, 0.0, 0.0, PackGBufferOcclusion( s.AO, cover > 0.0 ) ); // no emission
             oVelocity        = TerrainVelocity();
             oThinGeometryCoverage = DesertThinGeometryCoverage( SHADING_MODEL_INDEX_DEFAULT_LIT );
         }

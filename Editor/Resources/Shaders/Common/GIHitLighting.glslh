@@ -35,7 +35,8 @@
 // spot rows (`pointLights[]`, `spotLights[]`), the world light grid (`lightGrid` + LIGHT_GRID_WORLD_CELLS, read
 // section included), the radiance cache read (Common/RadianceCache.glslh, read section included), samplers
 // EnvironmentSpecularTexture, GBufferDepthTexture, GBufferATexture, GBufferEmissiveTexture, GBufferShadingWordTexture
-// (a usampler2D, texelFetch: the model, its subsurface colour, the EMISSION_IS_LIGHT mark), includes the tracer
+// (a usampler2D, texelFetch, only where the emissive texel has emission or marks a model that lights its far side:
+// the subsurface colour, the EMISSION_IS_LIGHT mark), includes the tracer
 // (Common/GITracer.glslh), and defines GI_SURFACE_CACHE_BINDING (the surface cache's seven bindings). Nothing here
 // knows which tracer that is. Optionally GI_HIT_DIRECTIONAL_CASCADES with Mesh/CascadedShadow.glslh included (its
 // bindings declared): a global-field hit inside a directional slot's cascades takes that light's shadow from the
@@ -57,6 +58,7 @@
 // The shading models' direct-light dispatch and the shading word's decode: a closest-hit material is lit by its
 // own model (GIHitLightResponse), the word the hit group packed (DesertRayPayload.ShadingWord).
 #include <Generated/ShadingModels.glslh>
+#include <Common/GBufferOcclusion.glslh>
 
 // The albedo of a hit the view does not see and no card holds (no material on a distance-field surface):
 // photographic middle grey, 0.18 linear.
@@ -87,20 +89,26 @@ void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emis
     if ( distance( seen, hit.position ) > GIRayBias( hit.position, hit.normal ).screenTolerance )
         return;
     albedo = textureLod( GBufferATexture, uv, 0.0 ).rgb;
-    const ivec2 extent = textureSize( GBufferShadingWordTexture, 0 );
-    const ivec2 texel  = min( ivec2( uv * vec2( extent ) ), extent - ivec2( 1 ) );
-    const uvec2 word   = texelFetch( GBufferShadingWordTexture, texel, 0 ).rg;
-    subsurface         = DesertSubsurfaceColor( DesertShadingModelIndex( word ), DesertUnpackPayload( word ) );
+    const ivec2 extent    = textureSize( GBufferShadingWordTexture, 0 );
+    const ivec2 texel     = min( ivec2( uv * vec2( extent ) ), extent - ivec2( 1 ) );
+    const vec4  stored    = texelFetch( GBufferEmissiveTexture, texel, 0 );
+    const bool  transmits = GBufferTransmits( stored.a );
 #if defined( GI_HIT_EXCLUDES_EMISSION )
     // The includer counts the emitter -> origin path by light sampling (Common/SurfaceCacheSampling.glslh).
-    emissive = vec3( 0.0 );
+    const bool emits = false;
 #else
+    const bool emits = any( greaterThan( stored.rgb, vec3( 0.0 ) ) );
+#endif
+    // The word is a fetch of its own (FPS-RC-TRACE-2): only the few texels it can say something about read it.
+    if ( !transmits && !emits )
+        return;
+    const uvec2 word = texelFetch( GBufferShadingWordTexture, texel, 0 ).rg;
+    if ( transmits )
+        subsurface = DesertSubsurfaceColor( DesertShadingModelIndex( word ), DesertUnpackPayload( word ) );
     // A MegaLights emissive light source (EMISSION_IS_LIGHT, ShadingModels/ShadingModelContract.glslh) is counted
     // by MegaLights' own samples of it: the screen hit takes none of it, or the lamp would light the room twice.
-    emissive = textureLod( GBufferEmissiveTexture, uv, 0.0 ).rgb;
-    if ( DesertEmissionIsLight( word ) )
-        emissive = vec3( 0.0 );
-#endif
+    if ( emits && !DesertEmissionIsLight( word ) )
+        emissive = stored.rgb;
 }
 
 #endif // GI_HIT_LIGHTING_NONE

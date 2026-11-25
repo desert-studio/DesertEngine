@@ -72,6 +72,7 @@ Shader "DeferredLighting"
         // World position from the G-buffer depth (GBufferDepthTexture below): the one reconstruction every deferred
         // reader shares.
         #include <Common/ReconstructPosition.glslh>
+        #include <Common/GBufferOcclusion.glslh>
 
         In(0) vec2 v_TexCoord;
 
@@ -106,7 +107,7 @@ Shader "DeferredLighting"
         #ifndef DESERT_DEFERRED_DIRECT // the composite's inputs: AO, emissive, sky, GI, reflections
         layout(set = 0, binding = 8) uniform texture2D SsaoTexture; // GTAO: rgb = bent normal 0.5+0.5n, a = AO (1 = lit)
         #define SsaoTexture sampler2D(SsaoTexture, LinearRepeatSampler)
-        layout(set = 0, binding = 9) uniform texture2D GBufferEmissiveTexture; // rgb = HDR emissive, a = material AO
+        layout(set = 0, binding = 9) uniform texture2D GBufferEmissiveTexture; // rgb = HDR emissive, a = Common/GBufferOcclusion.glslh
         #define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, LinearRepeatSampler)
 
         // THE BAKED ENVIRONMENT — the same trio the forward mesh shaders bind, and the whole point of
@@ -715,7 +716,8 @@ Shader "DeferredLighting"
         		discard;
         	}
 
-        	const vec4          ge           = texture(GBufferEmissiveTexture, v_TexCoord);
+        	const vec4          ge           = texelFetch(GBufferEmissiveTexture, ivec2(gl_FragCoord.xy), 0);
+        	const float         materialAO   = GBufferOcclusion(ge.a);
         	const uvec2         word         = texelFetch(GBufferShadingWordTexture, ivec2(gl_FragCoord.xy), 0).rg;
         	const int           shadingModel = DESERT_DEFERRED_SHADING_MODEL(word);
         	const DesertPayload payload      = DesertUnpackPayload(word);
@@ -731,7 +733,7 @@ Shader "DeferredLighting"
         	const vec4  ssaoTexel = gtao ? texelFetch(SsaoTexture, ivec2(gl_FragCoord.xy), 0)
         	                             : vec4(0.5, 0.5, 0.5, 1.0);
         	const float ssao      = ssaoTexel.a;
-        	float       ao       = ge.a * ssao;
+        	float       ao       = materialAO * ssao;
 
         	// --- Debug channels (shown on the geometry, over the sky) ---
         	// Each is stored pre-exposed like the lit result (x CompositeView.y = PreExposure): the tonemap's
@@ -851,14 +853,16 @@ Shader "DeferredLighting"
         	}
         	if (giMode >= 2)
         	{
-        		// The traced gather replaced the sky terms; a two-sided leaf's far side is lit by its -N gather.
+        		// The traced gather replaced the sky terms, the far side's included: its backface irradiance counts
+        		// only the sky its rays from -N reached, so nothing multiplies it by a screen-space sky visibility
+        		// (UE DiffuseIndirectComposite.usf: BackfaceDiffuseIndirect x SubsurfaceColor, no sky occlusion).
         		sampled.Traced         = 1.0;
         		sampled.BackIrradiance = texelFetch(GiBackfaceTexture, ivec2(gl_FragCoord.xy), 0).rgb;
         		// giMode 3: the gather carries its own short-range AO (bent normal, ScreenProbeShortRangeAO), so only
         		// the material's occlusion is left to apply (UE r.Lumen.DiffuseIndirect.SSAO 0 — no SSAO on Lumen's
         		// indirect). giMode 2 (the irradiance field, or the short-range AO off): SSAO occludes it, as before.
         		if (giMode == 3)
-        			sampled.Occlusion = ge.a;
+        			sampled.Occlusion = materialAO;
         	}
         	else
         		// The sky behind a leaf is occluded as the sky in front of it.

@@ -444,6 +444,15 @@ namespace Common::Settings
             constexpr std::string_view kOldHistory = "Shadows.MegaLightsMaxHistory";
             constexpr std::string_view kNewHistory = "Shadows.MegaLightsVolumeMaxHistory";
 
+            // An array that already holds the new key keeps that value: the old one would be a second owner.
+            bool holdsNew = false;
+            overrides.ForEachElement(
+                 [&]( std::size_t, const Json::Node& entry )
+                 {
+                     const auto value = entry.As<Scalability::ParameterOverride>();
+                     holdsNew         = holdsNew || ( value && value.GetValue().Key == kNewHistory );
+                 } );
+
             Json::Value::Array kept;
             bool               retired = false;
             overrides.ForEachElement(
@@ -456,7 +465,7 @@ namespace Common::Settings
                          return;
                      }
                      const Scalability::ParameterOverride& read = value.GetValue();
-                     if ( read.Key == kOldSpatial )
+                     if ( read.Key == kOldSpatial || ( read.Key == kOldHistory && holdsNew ) )
                      {
                          retired = true;
                          return;

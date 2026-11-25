@@ -72,10 +72,8 @@ Shader "GrassBladeSurface"
             s.AmbientOcclusion  = orm.x * mix( Material.RootOcclusion, 1.0, i.UV1.y );
             s.ReceiveSunShadows = Material.ReceiveSunShadows;
             s.ReceiveDecals     = Material.ReceiveDecals;
-            // TwoSidedFoliage's payload: the transmitted albedo as its square root (UE EncodeSubsurfaceColor).
-            vec3 transmitted;
-            FoliageSplitAlbedo( s.BaseColor, Material.SubsurfaceColor.rgb, transmitted );
-            const vec3 subsurface = sqrt( clamp( transmitted, 0.0, 1.0 ) );
+            // TwoSidedFoliage's payload: the far side's tint as its square root (SurfacePayload.glslh splits).
+            const vec3 subsurface = sqrt( clamp( Material.SubsurfaceColor.rgb, 0.0, 1.0 ) );
             s.CustomData0       = subsurface.r;
             s.CustomData1       = subsurface.g;
             s.CustomData2       = subsurface.b;
