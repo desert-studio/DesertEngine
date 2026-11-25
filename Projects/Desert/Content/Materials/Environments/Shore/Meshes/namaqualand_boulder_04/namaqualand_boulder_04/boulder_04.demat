@@ -1,0 +1,55 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "cc6c2dc86583afd44d178e19d142f4f2",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "83b0ff0ffcec3483c0f0b367eb1e035b", "2da36738da78e113d5a588c81bd2bfb4", "f6138730e788c765db510156f0c6d08d"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "NormalScale",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [0.0, 0.0, 0.0, 1.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "83b0ff0ffcec3483c0f0b367eb1e035b",
+            "Path": "assets:Environments/Shore/Meshes/namaqualand_boulder_04/textures/namaqualand_boulder_04_diff_2k.detex"
+        },
+        {
+            "Name": "OrmTexture",
+            "Guid": "2da36738da78e113d5a588c81bd2bfb4",
+            "Path": "assets:Environments/Shore/Meshes/namaqualand_boulder_04/textures/namaqualand_boulder_04_arm_2k_ORMTexture.detex"
+        },
+        {
+            "Name": "NormalTexture",
+            "Guid": "f6138730e788c765db510156f0c6d08d",
+            "Path": "assets:Environments/Shore/Meshes/namaqualand_boulder_04/textures/namaqualand_boulder_04_nor_gl_2k.detex"
+        }
+    ],
+    "CloudAssets": [],
+    "TwoSided": true
+}

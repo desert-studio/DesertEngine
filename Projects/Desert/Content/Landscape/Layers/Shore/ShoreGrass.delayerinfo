@@ -1,0 +1,20 @@
+{
+    "Header": {
+        "Kind": "LandscapeLayerInfo",
+        "Guid": "187c2731ad67c094f076a4af077341bd",
+        "Versions": {
+            "LLYI": 4
+        },
+        "Dependencies": ["cd954e9721e2b0589a41bf336f1ab699"]
+    },
+    "LayerName": "ShoreGrass",
+    "Hardness": 0.5,
+    "NoWeightBlend": false,
+    "LayerUsageDebugColor": [0.11, 0.17, 0.045],
+    "GrassTypes": [
+        {
+            "Guid": "cd954e9721e2b0589a41bf336f1ab699",
+            "Path": "Landscape/Grass/Shore/DuneGrass.degrasstype"
+        }
+    ]
+}

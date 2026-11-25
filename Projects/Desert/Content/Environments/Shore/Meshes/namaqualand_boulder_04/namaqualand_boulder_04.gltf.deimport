@@ -1,0 +1,22 @@
+{
+    "Header": {
+        "Kind": "StaticMesh",
+        "Guid": "ed5e11470b2b8d64afeb6938b5cdce3b",
+        "Versions": {
+            "DIMP": 2
+        },
+        "Dependencies": []
+    },
+    "Source": "namaqualand_boulder_04.gltf",
+    "Bounds": {
+        "Min": [-134.03, -2.94, -103.1],
+        "Max": [118.19, 187.10999999999999, 146.54]
+    },
+    "Settings": {
+        "CombineMeshes": false,
+        "UniformScale": 1.0,
+        "UpAxis": "FromFile",
+        "LodPolicy": "Generate",
+        "VirtualGeometry": true
+    }
+}
