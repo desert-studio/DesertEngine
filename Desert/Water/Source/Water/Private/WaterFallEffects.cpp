@@ -1,6 +1,7 @@
 #include <Water/Public/WaterFallEffects.hpp>
 
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
