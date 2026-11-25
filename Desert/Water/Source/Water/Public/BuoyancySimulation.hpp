@@ -40,11 +40,13 @@ namespace Desert::Water
     [[nodiscard]] bool CutColliderPontoons( const ECS::ColliderData& collider, int cellsPerAxis,
                                             std::vector<glm::vec4>& out, std::string& error );
 
-    /// A pontoon's last answer from a surface that was ready: what it floats on while the surface is not (the body's
-    /// wave set is being read, or its ocean's first read-back has not landed), instead of dropping to the still plane.
+    /// A pontoon's last answer from a surface that was ready, for the water body that gave it alone: what it floats
+    /// on while that body's surface is not (its wave set is being read, or its ocean's first read-back has not
+    /// landed), instead of dropping to the still plane.
     struct PontoonHold
     {
         bool      Valid    = false;
+        uint32_t  Body     = 0;    // WaterBodyState::Id
         float     SurfaceY = 0.0f; // cm
         float     Density  = 0.0f; // the water's, kg/m^3
         float     Drag     = 0.0f; // 1/s

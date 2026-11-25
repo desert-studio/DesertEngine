@@ -157,12 +157,12 @@ namespace Desert::Editor
                                   return PaletteCommandDone();
                               } } );
         // UE's viewport "Realtime" under two names: a scenario compares two frames of one world time, and a toggle
-        // would depend on what the user's editor.json says.
+        // would depend on what the user's editor.json says. The session's alone: editor.json keeps the
+        // user's answer.
         for ( const bool on : { true, false } )
             commands.push_back( { "View", on ? "Realtime: On" : "Realtime: Off", [on]
                                   {
-                                      EditorPreferences::Get().ViewportRealtime = on;
-                                      EditorPreferences::Save();
+                                      Core::UIPreview::Get().Realtime = on;
                                       return PaletteCommandDone();
                                   } } );
         // The surface-cache card placement under a name: the frame that shows cards covering walls and kerbs has

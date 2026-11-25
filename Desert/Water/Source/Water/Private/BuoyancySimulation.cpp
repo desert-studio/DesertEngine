@@ -125,11 +125,13 @@ namespace Desert::Water
                 hold.Valid = false;
                 continue;
             }
-            if ( hit->Result.SurfaceReady || !hold.Valid )
+            const WaterBodyState& over = bodies[hit->Body];
+            if ( hit->Result.SurfaceReady || !hold.Valid || hold.Body != over.Id )
                 hold = PontoonHold{ .Valid    = hit->Result.SurfaceReady,
+                                    .Body     = over.Id,
                                     .SurfaceY = bottom.y + hit->Result.ImmersionDepth,
-                                    .Density  = bodies[hit->Body].Density,
-                                    .Drag     = bodies[hit->Body].Drag,
+                                    .Density  = over.Density,
+                                    .Drag     = over.Drag,
                                     .Velocity = hit->Result.Velocity };
             const float displaced = SubmergedSphereVolume( radius, hold.SurfaceY - bottom.y );
             if ( displaced <= 0.0f )

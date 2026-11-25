@@ -77,31 +77,38 @@ namespace Desert::ECS
     {
         StateWinds( registry );
 
-        m_Seen.clear();
-        const auto view = registry.view<WaterBodyComponent, TransformComponent>();
-        for ( const entt::entity entity : view )
-        {
-            const auto* const id = registry.try_get<UUIDComponent>( entity );
-            m_Seen.push_back(
-                 Row{ .Entity = entity,
-                      .Waves  = static_cast<uint64_t>( view.get<WaterBodyComponent>( entity ).Data.WaterWaves ),
-                      .UUID   = id != nullptr ? static_cast<uint64_t>( id->UUID )
-                                              : std::numeric_limits<uint64_t>::max() } );
-        }
-        std::sort( m_Seen.begin(), m_Seen.end(),
-                   []( const Row& a, const Row& b ) { return a.Entity < b.Entity; } );
-
-        // The membership, each body's set (edited in place, without a signal) and what the sets are.
+        // The decision stands while the membership (the revision), what the sets are (the serial) and each body's
+        // own row (its set and id are edited in place, without a signal) do. The revision is asked first: the rows'
+        // entities are alive only under it.
         const uint64_t revision = WaterBodyRevisionOf( registry );
         const uint64_t serial   = Runtime::GetWaterWavesService()->ShapeSerial();
-        if ( revision != m_Revision || serial != m_ShapeSerial || m_Seen != m_Rows )
+        if ( revision != m_Revision || serial != m_ShapeSerial || !RowsStand( registry ) )
         {
-            m_Rows        = m_Seen;
+            m_Rows.clear();
+            for ( const entt::entity entity : registry.view<WaterBodyComponent, TransformComponent>() )
+                m_Rows.push_back( RowOf( registry, entity ) );
+            std::sort( m_Rows.begin(), m_Rows.end(),
+                       []( const Row& a, const Row& b ) { return a.Entity < b.Entity; } );
             m_Revision    = revision;
             m_ShapeSerial = serial;
             Decide( registry );
         }
         BuildLanes( registry );
+    }
+
+    WaterWaveSources::Row WaterWaveSources::RowOf( const entt::registry& registry, const entt::entity entity )
+    {
+        const auto* const id = registry.try_get<UUIDComponent>( entity );
+        return Row{ .Entity = entity,
+                    .Waves  = static_cast<uint64_t>( registry.get<WaterBodyComponent>( entity ).Data.WaterWaves ),
+                    .UUID   = id != nullptr ? static_cast<uint64_t>( id->UUID )
+                                            : std::numeric_limits<uint64_t>::max() };
+    }
+
+    bool WaterWaveSources::RowsStand( const entt::registry& registry ) const
+    {
+        return std::all_of( m_Rows.begin(), m_Rows.end(),
+                            [&registry]( const Row& row ) { return RowOf( registry, row.Entity ) == row; } );
     }
 
     // THE OCEAN'S WIND (WATER-UNDERWATER): one truth, the scene's ECS::WindAt - the query foliage, clouds, cloth

@@ -52,7 +52,8 @@ namespace Desert::ECS
             return sources != nullptr ? sources->get() : nullptr;
         }
 
-        // Every visible body's footprint; a body the record refuses is no water and lowers no shore. A river's is its ribbon's box; it has a floor but no still shore.
+        // Every visible body's footprint; a body the record refuses is no water and lowers no shore. A river's is
+        // its ribbon's box; it has a floor but no still shore.
         void GatherLevels( entt::registry& registry, std::vector<Water::WaterBodyLevel>& out )
         {
             out.clear();
@@ -168,17 +169,9 @@ namespace Desert::ECS
         }
     }
 
-    bool WaterShoreFieldSource::ReadWorld( entt::registry&                         registry,
+    void WaterShoreFieldSource::ReadWorld( entt::registry&                         registry,
                                            const std::span<const LandscapeTileRef> tiles )
     {
-        GatherLevels( registry, m_Bodies );
-        if ( m_Bodies.empty() )
-        {
-            m_Field = nullptr;
-            m_Job   = nullptr; // its worker finishes into a promise nobody reads
-            m_Key   = 0;
-            return false;
-        }
         Key key;
         for ( const Water::WaterBodyLevel& body : m_Bodies )
         {
@@ -201,7 +194,6 @@ namespace Desert::ECS
             key.MixFloat( m_Offsets.at( static_cast<uint64_t>( Common::UUID( tile.Component->Landscape ) ) ) );
         }
         m_WorldKey = key.Value();
-        return true;
     }
 
     WaterShoreFieldSource::Input WaterShoreFieldSource::CopyInput( const std::span<const LandscapeTileRef> tiles )
@@ -225,9 +217,17 @@ namespace Desert::ECS
     {
         if ( m_Job != nullptr && m_Job->Done.wait_for( std::chrono::seconds( 0 ) ) == std::future_status::ready )
             AdoptDone();
-        const auto& gathered = DrawableLandscapeTiles( registry );
-        if ( !ReadWorld( registry, gathered.Tiles ) )
+        // A world whose bodies are all hidden or refused walks no landscape.
+        GatherLevels( registry, m_Bodies );
+        if ( m_Bodies.empty() )
+        {
+            m_Field = nullptr;
+            m_Job   = nullptr; // its worker finishes into a promise nobody reads
+            m_Key   = 0;
             return false;
+        }
+        const auto& gathered = DrawableLandscapeTiles( registry );
+        ReadWorld( registry, gathered.Tiles );
         // A refused world keeps its key: it is baked again when it changes, not every step.
         if ( m_WorldKey == m_Key || m_Job != nullptr )
             return true;

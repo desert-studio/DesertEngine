@@ -10,6 +10,7 @@
 #include "Editor/Panels/ViewportPanel/ViewportCameraPreset.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include <Editor/Core/Selection/SelectionManager.hpp>
+#include <Editor/Core/Selection/UIPreview.hpp>
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -34,6 +35,7 @@
 
 #include <array>
 #include <format>
+#include <optional>
 
 namespace Desert::Editor
 {
@@ -671,6 +673,8 @@ namespace Desert::Editor
         // clock and `ts` is already the fixed step (ShotOptions::FrameSeconds), so the clock just follows it.
         // Outside a capture the measured step drives it, and the viewport's Realtime toggle decides whether
         // preview time moves while editing.
+        // A command's Realtime (a scenario's frozen clock) is over both.
+        const std::optional<bool> realtime = Core::UIPreview::Get().Realtime;
         if ( const auto& shot = ShotOptions::Get(); shot.Active() )
         {
             const bool counting = shotCounting;
@@ -680,12 +684,12 @@ namespace Desert::Editor
             {
                 scene.GetWorldTime().Reset();
             }
-            scene.SetPreviewRealtime( counting && !shot.PlayActive() );
+            scene.SetPreviewRealtime( counting && !shot.PlayActive() && realtime.value_or( true ) );
         }
         else
         {
             scene.GetWorldTime().SetFixedStep( std::nullopt );
-            scene.SetPreviewRealtime( EditorPreferences::Get().ViewportRealtime );
+            scene.SetPreviewRealtime( realtime.value_or( EditorPreferences::Get().ViewportRealtime ) );
         }
 
         // BEFORE the scene's frame, not between its phases: the scene opens and closes each view's

@@ -212,14 +212,20 @@ namespace Desert::Water
             std::unordered_set<entt::entity> m_Refused;
         };
 
-        // The world's wave record ends with its entities (Scene::Clear): the next scene's ocean is another one.
+        // The world's wave record: made with the scene, in its registry's context, for every reader. It ends with
+        // the world's entities (Scene::Clear): the next scene's ocean is another one.
         class WaterWaveSceneState final : public Core::ISceneModuleState
         {
         public:
-            void Tick( Core::Scene& /*scene*/, entt::registry& registry, double /*seconds*/ ) override
+            explicit WaterWaveSceneState( entt::registry& registry )
+                 : m_Sources( std::make_shared<ECS::WaterWaveSources>() )
             {
-                if ( const auto* const sources = registry.try_ctx<std::shared_ptr<ECS::WaterWaveSources>>() )
-                    m_Sources = *sources;
+                registry.set<std::shared_ptr<ECS::WaterWaveSources>>( m_Sources );
+            }
+
+            // Refreshed by the module's Prepares hook, before the frame's systems.
+            void Tick( Core::Scene& /*scene*/, entt::registry& /*registry*/, double /*seconds*/ ) override
+            {
             }
 
             void Reset() override
@@ -228,8 +234,7 @@ namespace Desert::Water
 
             void Clear() override
             {
-                if ( m_Sources != nullptr )
-                    m_Sources->Reset();
+                m_Sources->Reset();
             }
 
         private:
@@ -289,8 +294,6 @@ namespace Desert::Water
                  if ( r.try_ctx<std::shared_ptr<ECS::WaterShoreFieldSource>>() == nullptr )
                      r.set<std::shared_ptr<ECS::WaterShoreFieldSource>>(
                           std::make_shared<ECS::WaterShoreFieldSource>() );
-                 if ( r.try_ctx<std::shared_ptr<ECS::WaterWaveSources>>() == nullptr )
-                     r.set<std::shared_ptr<ECS::WaterWaveSources>>( std::make_shared<ECS::WaterWaveSources>() );
                  // Once a frame, serially and before any system: the record every reader of the frame sees - a
                  // paste, an undo and a scene without a zone are validated here like a load.
                  r.ctx<std::shared_ptr<ECS::WaterWaveSources>>()->Refresh( r );
@@ -302,10 +305,10 @@ namespace Desert::Water
                  if ( const auto* const sources = r.try_ctx<std::shared_ptr<ECS::WaterWaveSources>>() )
                      ( *sources )->SceneLoaded( r );
              } );
-        hooks.SceneStates.push_back( []() -> std::unique_ptr<Core::ISceneModuleState>
-                                     { return std::make_unique<WaterWaveSceneState>(); } );
+        hooks.SceneStates.push_back( []( entt::registry& registry ) -> std::unique_ptr<Core::ISceneModuleState>
+                                     { return std::make_unique<WaterWaveSceneState>( registry ); } );
         // The foam, spray and mist at the foot of every river's falls.
-        hooks.SceneStates.push_back( []() -> std::unique_ptr<Core::ISceneModuleState>
+        hooks.SceneStates.push_back( []( entt::registry& /*registry*/ ) -> std::unique_ptr<Core::ISceneModuleState>
                                      { return std::make_unique<WaterFallEffects>(); } );
         // The water zones and the bodies inside them (WATER-W6): one command per zone.
         hooks.RenderCollectors.push_back( []( Core::Scene& scene )

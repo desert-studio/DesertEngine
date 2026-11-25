@@ -26,6 +26,7 @@ namespace Desert::Graphic::System
     struct WaterZoneBodies
     {
         std::vector<Water::WaterQuadTreeBody> Footprints;
+        std::vector<uint32_t>                 Ids; // Water::WaterBodyState::Id, in Footprints' order
         // Each body's water material (ECS::WaterBodyData::WaterMaterial), in Footprints' order.
         std::vector<Assets::AssetHandle> Materials;
         // Each body's lane in WaterZoneDraw::Waves (-1 = a flat body), in Footprints' order.

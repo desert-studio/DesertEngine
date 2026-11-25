@@ -79,7 +79,8 @@ namespace Desert::Core
         virtual void Reset()                                                        = 0;
         virtual void Clear()                                                        = 0;
     };
-    using SceneModuleStateMaker = std::unique_ptr<ISceneModuleState> ( * )();
+    /// Makes a scene's state over the scene's registry, which outlives it.
+    using SceneModuleStateMaker = std::unique_ptr<ISceneModuleState> ( * )( entt::registry& registry );
 
     /// The assets a module's asset names (Assets/AssetEviction.cpp's reachability walk): Visit calls @p visitGuid
     /// with each asset-GUID text the asset under @p handle stores, when that asset is the module's type.

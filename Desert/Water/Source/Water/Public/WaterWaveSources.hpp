@@ -24,8 +24,9 @@ namespace Desert::ECS
      * set is refused - an error naming both, once per change - and is no water for anybody. While the lowest
      * body's set is still being read, the other FFT bodies wait (Pending) rather than be handed the ocean.
      *
-     * Lives in the registry's context as a shared_ptr, made by the module's Prepares hook, which refreshes it once
-     * a frame, serially and before any system: every reader of the frame then sees the same record and only reads.
+     * Lives in the registry's context as a shared_ptr, made with the scene by the module's scene state
+     * (ModuleHooks::SceneStates). The module's Prepares hook refreshes it once a frame, serially and before any
+     * system: every reader of the frame then sees the same record and only reads.
      */
     class WaterWaveSources final
     {
@@ -85,13 +86,15 @@ namespace Desert::ECS
             int32_t      Lane   = -1;
         };
 
+        // The body's row as the registry states it now; whether every row of m_Rows still is (its revision stands).
+        [[nodiscard]] static Row    RowOf( const entt::registry& registry, entt::entity entity );
+        [[nodiscard]] bool          RowsStand( const entt::registry& registry ) const;
         void                        StateWinds( entt::registry& registry );
         void                        Decide( const entt::registry& registry );
         void                        BuildLanes( const entt::registry& registry );
         [[nodiscard]] const Answer* Find( entt::entity entity ) const noexcept;
 
         std::vector<Row>    m_Rows;         // by entity: what m_Answers was decided for
-        std::vector<Row>    m_Seen;         // this refresh's rows, storage reused
         std::vector<Answer> m_Answers;      // by entity
         uint64_t            m_Revision = 0; // WaterBodyRevision and WaterWavesService::ShapeSerial of the decision
         uint64_t            m_ShapeSerial = 0;

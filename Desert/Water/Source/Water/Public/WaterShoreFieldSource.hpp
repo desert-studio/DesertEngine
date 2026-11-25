@@ -86,8 +86,8 @@ namespace Desert::ECS
         // @p now: a first bake is left unsubmitted, for the caller to run.
         bool  Refresh( entt::registry& registry, bool now );
         void  AdoptDone();
-        // Fills m_Bodies, m_Offsets and m_WorldKey, reading only. False: no body.
-        bool  ReadWorld( entt::registry& registry, std::span<const LandscapeTileRef> tiles );
+        // Fills m_Offsets and m_WorldKey for m_Bodies over @p tiles, reading only.
+        void  ReadWorld( entt::registry& registry, std::span<const LandscapeTileRef> tiles );
         Input CopyInput( std::span<const LandscapeTileRef> tiles );
         // Fills m_Offsets for this call's tiles: each root is looked up once.
         void  ResolveRootOffsets( entt::registry& registry, std::span<const LandscapeTileRef> tiles );

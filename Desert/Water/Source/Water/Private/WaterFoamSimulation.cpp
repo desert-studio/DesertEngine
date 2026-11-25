@@ -148,12 +148,20 @@ namespace Desert::Graphic::System
             values.Foam.JacobianThreshold  = foam[4].x;
             values.Foam.JacobianSoftness   = std::max( foam[5].x, 0.01f );
         }
+        else if ( ProgramFor( material, stamp ) != nullptr ) // no program is named by ProgramFor itself
+            WarnOnce( material, WaterWarning::FoamMissing,
+                      "its program declares no FoamDecaySeconds / BubbleDecaySeconds / WetDrySeconds / WhitecapGain "
+                      "/ FoamJacobianThreshold / FoamJacobianSoftness: its foam runs on the simulation's values" );
         constexpr std::array<std::string_view, 3> kCaustics{ "CausticsOnsetDepth", "CausticsFadeDepth",
                                                              "CausticsStrength" };
         std::array<glm::vec4, 3>                  caustics{};
         if ( ReadMaterialValues( material, stamp, kCaustics, caustics ) )
             values.Caustics = glm::vec3( std::max( caustics[0].x, 1.0f ), std::max( caustics[1].x, 1.0f ),
                                          std::clamp( caustics[2].x, 0.0f, 1.0f ) );
+        else if ( ProgramFor( material, stamp ) != nullptr )
+            WarnOnce( material, WaterWarning::CausticsMissing,
+                      "its program declares no CausticsOnsetDepth / CausticsFadeDepth / CausticsStrength: it casts "
+                      "no caustics" );
         return values;
     }
 

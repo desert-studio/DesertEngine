@@ -7,10 +7,10 @@
 //
 // RETAINED (UE: FWaterBodyManager registers a body on add/remove, the per-frame path reads the list): which
 // entities are water bodies is kept between gathers and walked again only when a WaterBodyComponent was
-// constructed, patched or destroyed (WaterBodyRevision in the registry's context, raised by its signals) or the
-// registry is another one. The body's VALUES are read from its components every gather - its transform and its
-// fields are edited in place (gizmo, inspector) without a signal - into storage the gather keeps, so a steady
-// frame allocates nothing.
+// constructed, patched or destroyed, or gained or lost its TransformComponent (WaterBodyRevision in the registry's
+// context, raised by their signals), or the registry is another one. The body's VALUES are read from its
+// components every gather - its transform and its fields are edited in place (gizmo, inspector) without a signal -
+// into storage the gather keeps, so a steady frame allocates nothing.
 
 #include <Water/Public/WaterBodyQuery.hpp>
 

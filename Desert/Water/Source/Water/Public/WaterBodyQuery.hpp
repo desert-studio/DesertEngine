@@ -34,6 +34,8 @@ namespace Desert::Water
     /// game thread.
     struct WaterBodyState
     {
+        /// The body's identity in its world (its entity): what a kept answer is kept for.
+        std::uint32_t Id = 0;
         /// The body's world location: Y is the still water level, (X, Z) the centre of the footprint and, unless
         /// WaveOrigin says another, the origin the waves are evaluated relative to.
         glm::vec3 Location{ 0.0f };

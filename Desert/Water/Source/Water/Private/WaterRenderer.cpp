@@ -35,6 +35,7 @@
 #include <cstring>
 #include <format>
 #include <algorithm>
+#include <utility>
 #include <array>
 #include <string>
 #include <string_view>
@@ -746,9 +747,7 @@ namespace Desert::Graphic::System
                 continue;
             // The verdict is the world's: every reader takes the new state with the next frame's table.
             const bool drawable = PrepareFFTFrame( lane.Asset, lane.Spectrum );
-            table->Surface->Verdict.store( drawable ? Water::WaterFFTVerdict::Drawable
-                                                    : Water::WaterFFTVerdict::Refused,
-                                           std::memory_order_release );
+            table->Surface->Report( drawable );
             if ( drawable && lane.State == Water::WaterWaveState::FFT )
             {
                 fft                                   = true;
@@ -936,6 +935,8 @@ namespace Desert::Graphic::System
         float               best     = 0.0f; // how far the near plane reaches under the chosen body's surface, cm
         Assets::AssetHandle chosen   = Assets::AssetHandle::Null();
         float               surfaceY = 0.0f;
+        std::swap( m_SurfaceHolds, m_LastSurfaceHolds );
+        m_SurfaceHolds.clear();
         for ( const WaterZoneDraw& zone : m_Queue )
         {
             const WaterZoneBodies& bodies = *zone.Bodies;
@@ -963,13 +964,25 @@ namespace Desert::Graphic::System
                                         *zone.Waves->Surface );
                 if ( !Water::WaterBodyCovers( state, camera ) )
                     continue;
-                const Water::WaterQueryResult hit   = Water::QueryWaterBody( state, camera, time, zone.Shore.get() );
-                const float                   reach = hit.SurfaceLocation.y - nearLow;
+                state.Id                          = bodies.Ids[b];
+                const Water::WaterQueryResult hit = Water::QueryWaterBody( state, camera, time, zone.Shore.get() );
+                // A surface that is not ready answers its still plane: the body's last ready height over it stands.
+                const auto kept = std::find_if( m_LastSurfaceHolds.begin(), m_LastSurfaceHolds.end(),
+                                                [&]( const SurfaceHold& hold ) {
+                                                    return hold.Body == state.Id &&
+                                                           hold.Surface == zone.Waves->Surface;
+                                                } );
+                const bool  held = !hit.SurfaceReady && kept != m_LastSurfaceHolds.end();
+                const float wave = held ? kept->WaveHeight : hit.SurfaceLocation.y - hit.PlaneLocation.y;
+                if ( held || hit.SurfaceReady )
+                    m_SurfaceHolds.push_back( { zone.Waves->Surface, state.Id, wave } );
+                const float surface = hit.PlaneLocation.y + wave;
+                const float reach   = surface - nearLow;
                 if ( reach > best )
                 {
                     best     = reach;
                     chosen   = bodies.Materials[b];
-                    surfaceY = hit.SurfaceLocation.y;
+                    surfaceY = surface;
                 }
             }
         }

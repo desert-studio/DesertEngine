@@ -15,6 +15,13 @@ namespace Desert::ECS
             if ( auto* revision = registry.try_ctx<WaterBodyRevision>() )
                 ++revision->Value;
         }
+
+        // A body without a transform is no water: gaining or losing one is a change of membership.
+        void RaiseForPlacement( entt::registry& registry, entt::entity entity )
+        {
+            if ( registry.try_get<WaterBodyComponent>( entity ) != nullptr )
+                RaiseWaterBodyRevision( registry, entity );
+        }
     } // namespace
 
     uint64_t WaterBodyRevisionOf( entt::registry& registry )
@@ -26,6 +33,8 @@ namespace Desert::ECS
             registry.on_construct<WaterBodyComponent>().connect<&RaiseWaterBodyRevision>();
             registry.on_update<WaterBodyComponent>().connect<&RaiseWaterBodyRevision>();
             registry.on_destroy<WaterBodyComponent>().connect<&RaiseWaterBodyRevision>();
+            registry.on_construct<TransformComponent>().connect<&RaiseForPlacement>();
+            registry.on_destroy<TransformComponent>().connect<&RaiseForPlacement>();
         }
         return found->Value;
     }
@@ -49,13 +58,14 @@ namespace Desert::ECS
         {
             if ( sources.IsRefused( entity ) )
                 continue; // a second ocean is no water
-            // A body whose TransformComponent went (no signal of this list's) is no water until it has one.
+            // A body without a TransformComponent is no water until it has one.
             const auto* transform = registry.try_get<TransformComponent>( entity );
             if ( transform == nullptr )
                 continue;
             const WaterBodyData& data = registry.get<WaterBodyComponent>( entity ).Data;
 
             Water::WaterBodyState body;
+            body.Id = static_cast<uint32_t>( entity );
             // The entity's position is the still water level (Y) and the WaveOrigin (X, Z), as UE's ocean
             // actor location is.
             body.Location = transform->GetTranslation();

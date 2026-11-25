@@ -32,6 +32,7 @@ namespace Desert::Water
 
     /// Whether this world's renderers can draw the FFT ocean: Unknown until the first one tried (and for ever in a
     /// world nobody draws), and the sea is then the set's Gerstner generator for everybody.
+    /// One renderer's refusal is the world's, for as long as its surface lives (WaterFFTSurface::Report).
     enum class WaterFFTVerdict : uint8_t
     {
         Unknown,
@@ -44,6 +45,20 @@ namespace Desert::Water
     {
         std::atomic<WaterFFTVerdict> Verdict{ WaterFFTVerdict::Unknown };
         FFTSurfaceMirror             Mirror;
+
+        /// A renderer's answer. A refusal stands whoever answers after it, so the sea's waves do not depend on the
+        /// order a world's renderers answer in.
+        void Report( const bool drawable ) noexcept
+        {
+            if ( !drawable )
+            {
+                Verdict.store( WaterFFTVerdict::Refused, std::memory_order_release );
+                return;
+            }
+            WaterFFTVerdict unknown = WaterFFTVerdict::Unknown;
+            Verdict.compare_exchange_strong( unknown, WaterFFTVerdict::Drawable, std::memory_order_acq_rel,
+                                             std::memory_order_acquire );
+        }
     };
 
     struct WaterWaveLane

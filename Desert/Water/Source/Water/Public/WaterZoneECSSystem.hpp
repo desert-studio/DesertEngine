@@ -106,7 +106,8 @@ namespace Desert::ECS
                 }
                 const WaterBodyData& data     = view.get<WaterBodyComponent>( entity ).Data;
                 const glm::vec3&     location = view.get<TransformComponent>( entity ).GetTranslation();
-                same = data.Type == rows.Types[i] && data.WaterMaterial == rows.Materials[i] &&
+                same = static_cast<uint32_t>( entity ) == rows.Ids[i] && data.Type == rows.Types[i] &&
+                       data.WaterMaterial == rows.Materials[i] &&
                        waves.LaneOf( entity ) == rows.WaveLanes[i] &&
                        glm::vec2( location.x, location.z ) == rows.WaveOrigins[i];
                 if ( same && data.Type == Water::WaterBodyType::River )
@@ -149,6 +150,7 @@ namespace Desert::ECS
                              .Ribbon       = flow };
                     }
                     rows->Footprints.push_back( std::move( body ) );
+                    rows->Ids.push_back( static_cast<uint32_t>( entity ) );
                     rows->Types.push_back( data.Type );
                     rows->Flows.push_back( std::move( flow ) );
                     rows->RiverKeys.push_back( key );

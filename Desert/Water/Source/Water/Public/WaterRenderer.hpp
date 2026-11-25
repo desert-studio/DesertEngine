@@ -361,6 +361,8 @@ namespace Desert::Graphic::System
             FFTReadbackUnreadable,
             UnderwaterMediumMissing,
             UnderwaterPipelineMissing,
+            FoamMissing,
+            CausticsMissing,
         };
         [[nodiscard]] bool FirstWarning( const Assets::AssetHandle& material, WaterWarning cause );
         void        WarnOnce( const Assets::AssetHandle& material, WaterWarning cause, std::string_view why );
@@ -519,6 +521,16 @@ namespace Desert::Graphic::System
             glm::vec4 SkyGain{ 1.0f };
         };
         UnderwaterFrame m_Underwater;
+        // Each body the camera is over, as it last answered ready: its waves' height over its plane, kept while it
+        // answers not ready (its read-back has not landed). The record's Surface names the world.
+        struct SurfaceHold
+        {
+            std::shared_ptr<const Water::WaterFFTSurface> Surface;
+            uint32_t                                      Body       = 0;    // WaterBodyState::Id
+            float                                         WaveHeight = 0.0f; // cm
+        };
+        std::vector<SurfaceHold> m_SurfaceHolds;
+        std::vector<SurfaceHold> m_LastSurfaceHolds; // the last frame's
         // The medium read from a body `.demat` (its named values), re-read only when that material or the
         // material stamp moved (UE: the underwater post process MID's parameters copied from the water MID).
         struct UnderwaterMedium
