@@ -5,6 +5,7 @@
 #include <Water/Public/WaterBodyQuery.hpp>
 #include <Water/Public/WaterFallEffects.hpp>
 #include <Water/Public/WaterRenderer.hpp>
+#include <Water/Public/WaterShoreFieldSource.hpp>
 #include <Water/Public/WaterWavesAsset.hpp>
 #include <Water/Public/WaterWavesService.hpp>
 #include <Water/Public/WaterZoneCommand.hpp>
@@ -14,7 +15,6 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Landscape/Public/LandscapeRootOf.hpp>
 #include <Engine/ECS/System/PhysicsSceneFeature.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/SingleLayerWaterPass.hpp>
@@ -87,7 +87,7 @@ namespace Desert::Water
                                   return nullptr;
                               return service->Surfaces().Latest( spectrum.GetValue().get() );
                           } ),
-                     ECS::DrawableLandscapeTiles( registry ).RayTiles );
+                     ShoreField( registry ) );
                 SyncBuoyant( registry );
             }
 
@@ -132,6 +132,13 @@ namespace Desert::Water
                 std::size_t         PontoonCount   = 0;
                 float               SubmergedShare = 0.0f;
             };
+
+            // The field the water is drawn over, baked here when the world has none yet.
+            static std::shared_ptr<const WaterShoreField> ShoreField( entt::registry& registry )
+            {
+                const auto* const source = registry.try_ctx<std::shared_ptr<ECS::WaterShoreFieldSource>>();
+                return source != nullptr ? ( *source )->UpdateNow( registry ) : nullptr;
+            }
 
             // This frame's buoyant bodies, read from their components here (on the frame, before the steps) so
             // the pre-step reads no registry. A dynamic body only: a static or kinematic one ignores forces. The
@@ -237,6 +244,10 @@ namespace Desert::Water
                  r.prepare<ECS::WaterBodyComponent>();
                  r.prepare<ECS::BuoyancyComponent>();
                  r.prepare<ECS::WaterZoneComponent>();
+                 // Its one creation, before the parallel readers (WaterShoreFieldSource).
+                 if ( r.try_ctx<std::shared_ptr<ECS::WaterShoreFieldSource>>() == nullptr )
+                     r.set<std::shared_ptr<ECS::WaterShoreFieldSource>>(
+                          std::make_shared<ECS::WaterShoreFieldSource>() );
              } );
         // The foam, spray and mist at the foot of every river's falls.
         hooks.SceneStates.push_back( []() -> std::unique_ptr<Core::ISceneModuleState>

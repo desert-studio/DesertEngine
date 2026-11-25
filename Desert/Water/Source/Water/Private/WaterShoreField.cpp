@@ -147,14 +147,13 @@ namespace Desert::Water
         {
             std::optional<float> level;
             for ( const WaterBodyLevel& body : bodies )
-                if ( at.x >= body.FootprintMinMax.x && at.y >= body.FootprintMinMax.y &&
+                if ( body.HasShore && at.x >= body.FootprintMinMax.x && at.y >= body.FootprintMinMax.y &&
                      at.x <= body.FootprintMinMax.z && at.y <= body.FootprintMinMax.w )
                     level = level ? std::max( *level, body.StillLevelCm ) : body.StillLevelCm;
             return level.value_or( reference );
         }
 
-        void BakeGround( WaterShoreField& field, const std::span<const World::Landscape::LandscapeRayTile> ground,
-                         const float offsetCm )
+        void BakeGround( WaterShoreField& field, const std::span<const World::Landscape::LandscapeRayTile> ground )
         {
             std::vector<uint8_t> covered( field.Texels.size(), 0u );
             for ( const World::Landscape::LandscapeRayTile& tile : ground )
@@ -183,7 +182,7 @@ namespace Desert::Water
                         if ( const std::optional<float> height = World::Landscape::SampleLandscapeHeight(
                                   *tile.Heights, tile.Frame, at.x, at.y ) )
                         {
-                            field.Texels[i].GroundCm = *height + offsetCm;
+                            field.Texels[i].GroundCm = *height;
                             covered[i]               = 1u;
                         }
                     }
@@ -262,8 +261,7 @@ namespace Desert::Water
 
     Common::ResultStr<std::shared_ptr<const WaterShoreField>>
     BakeWaterShoreField( const std::span<const World::Landscape::LandscapeRayTile> ground,
-                         const std::span<const WaterBodyLevel> bodies, const float spacingCm,
-                         const float groundOffsetCm )
+                         const std::span<const WaterBodyLevel> bodies, const float spacingCm )
     {
         using Field = std::shared_ptr<const WaterShoreField>;
         if ( bodies.empty() )
@@ -278,6 +276,7 @@ namespace Desert::Water
         Bounds bodyBounds;
         float  lowest = std::numeric_limits<float>::max();
         float  widest = -1.0f;
+        bool anyShore = false;
         for ( const WaterBodyLevel& body : bodies )
         {
             const glm::vec2 low( body.FootprintMinMax.x, body.FootprintMinMax.y );
@@ -285,8 +284,10 @@ namespace Desert::Water
             bodyBounds.Add( low, high );
             lowest           = std::min( lowest, body.StillLevelCm );
             const float area = ( high.x - low.x ) * ( high.y - low.y );
-            if ( area > widest )
+            // The widest standing water; of a world of rivers alone, the widest river.
+            if ( ( body.HasShore && !anyShore ) || ( body.HasShore == anyShore && area > widest ) )
             {
+                anyShore                = body.HasShore;
                 widest                  = area;
                 field->ReferenceLevelCm = body.StillLevelCm;
             }
@@ -322,7 +323,7 @@ namespace Desert::Water
         field->Width  = count( extent.x );
         field->Height = count( extent.y );
         field->Texels.resize( static_cast<std::size_t>( field->Width ) * field->Height );
-        BakeGround( *field, ground, groundOffsetCm );
+        BakeGround( *field, ground );
         BakeShore( *field, bodies );
         return Common::MakeSuccess( Field( std::move( field ) ) );
     }

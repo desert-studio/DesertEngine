@@ -19,8 +19,8 @@ namespace Desert::Water
 
         // One read's displacement of cascade @p cascade at the plane point @p plane, bilinear and periodic over
         // the cascade's patch, whose lattice is turned by kFFTOceanLatticeDegrees: the point is turned into the
-        // lattice and the sampled horizontal displacement back. The GPU samples its 256^2 texels with their centres at (i + 0.5) / 256 of the
-        // patch; read texel j is GPU texel j * kFFTReadbackStride.
+        // lattice and the sampled horizontal displacement back. The GPU
+        // samples its 256^2 texels with their centres at (i + 0.5) / 256 of the patch; read texel j is GPU texel j * kFFTReadbackStride.
         glm::vec3 CascadeAt( const std::vector<glm::vec4>& texels, const uint32_t cascade, const float patch,
                              const glm::vec2 plane ) noexcept
         {

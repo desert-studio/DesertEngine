@@ -58,14 +58,16 @@ namespace Desert::Water
     {
         glm::vec4 FootprintMinMax{ 0.0f }; // min X, min Z, max X, max Z, cm
         float     StillLevelCm = 0.0f;
+        bool      HasShore     = true; // false: a river - a floor under its ribbon, but no still shore
     };
 
-    /// A world with no landscape bakes a 1 x 1 field of the open sea. @p groundOffsetCm: the mean of the landscape
-    /// material's displacement (M_*_Landscape), so the drawn sand and the water's floor are one height.
+    /// A world with no landscape bakes a 1 x 1 field of the open sea. @p ground: every tile's frame
+    /// already raised by its root material's mean displacement (ECS::WaterShoreFieldSource), so the drawn sand and
+    /// the water's floor are one height.
     /// Fails (named) on a non-positive spacing or no body.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const WaterShoreField>>
     BakeWaterShoreField( std::span<const World::Landscape::LandscapeRayTile> ground,
-                         std::span<const WaterBodyLevel> bodies, float spacingCm, float groundOffsetCm );
+                         std::span<const WaterBodyLevel> bodies, float spacingCm );
 
     [[nodiscard]] WaterShoreSample SampleWaterShoreField( const WaterShoreField& field,
                                                           glm::vec2              worldXZ ) noexcept;

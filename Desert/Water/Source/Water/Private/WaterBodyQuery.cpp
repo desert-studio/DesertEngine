@@ -171,7 +171,7 @@ namespace Desert::Water
         result.SurfaceDepth = result.PlaneDepth;
 
         const Waves waves      = WavesOver( body, glm::vec2( point.x, point.z ), time, result.PlaneDepth, at,
-                                            shore != nullptr ? shore->BeachSlope : 0.0f );
+                                            shore != nullptr && body.Type != WaterBodyType::River ? shore->BeachSlope : 0.0f );
         result.WaveAttenuation = waves.Attenuation;
         result.MaxWaveHeight   = waves.MaxHeight;
         result.WaveHeight      = waves.Height;

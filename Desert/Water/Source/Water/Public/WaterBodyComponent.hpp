@@ -32,11 +32,6 @@ namespace Desert::ECS
                            "outside it is not in this body." ) )
         glm::vec2 OceanExtents{ 51200.0f, 51200.0f };
 
-        PROPERTY( DisplayName( "Target Wave Mask Depth" ), Category( "Wave" ), Length, Range( 1.0f, 100000.0f ),
-                  Tooltip( "Water depth at which the waves reach their full height; shallower water damps "
-                           "them (UE TargetWaveMaskDepth)." ) )
-        float TargetWaveMaskDepth = 2048.0f;
-
         PROPERTY( DisplayName( "Water Material" ), Category( "Rendering" ), Summary, Asset<MaterialAsset>,
                   Role( WaterMaterial ),
                   Tooltip( "The look of this body (UE UWaterBodyComponent::WaterMaterial): a .demat of a "

@@ -109,7 +109,7 @@ namespace Desert::World::Landscape
         Weights, ///< LandscapeECSSystem: the RGBA8 weightmap copy. Told about weight writes ONLY — a paint
                  ///< stroke changes no height, so neither the R16 copy nor the heightfield is re-sent for it.
         Grass,   ///< LandscapeECSSystem: the grass field (heights and grass-layer weights) the grass grows from.
-        Water,   ///< WaterZoneECSSystem: the WaterInfo ground (the zone's bottom seen from above, UE WaterInfo).
+        Water,   ///< WaterShoreFieldSource: the water's floor and shore (WaterShoreField).
     };
     inline constexpr size_t kLandscapeDirtyConsumerCount = 5u;
 

@@ -84,7 +84,4 @@ namespace Desert::Water
     /// The sum of A cos(phase) at the plane point, without the sideways correction (UE
     /// GetSimpleWaveHeightAtPosition).
     [[nodiscard]] float WaveSimpleHeightAt( std::span<const GerstnerWave> waves, glm::vec2 plane, float time );
-
-    /// The share of the waves that survives over water `depth` cm deep (UE GetWaveAttenuationFactor).
-    [[nodiscard]] float WaveDepthAttenuation( float depth, float targetWaveMaskDepth );
 } // namespace Desert::Water

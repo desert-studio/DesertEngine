@@ -10,7 +10,7 @@
 // Ported from UE 5.8 Engine/Plugins/Experimental/Water:
 //   Source/Runtime/Private/GerstnerWaterWaves.cpp:14-22 (FGerstnerWave::Recompute: k, speed, WKA, Q),
 //   Source/Runtime/Private/GerstnerWaveEvaluation.cpp:32-55 (one wave's offset), :73-135 (height at a point of
-//   the plane), :149-153 (depth attenuation),
+//   the plane),
 //   Shaders/Private/GerstnerWaveFunctions.ush:101-170 (the same wave on the GPU), :276-279 (normal finalize).
 // Adapted:
 //   * AXES. This project is Y-up: UE's (X, Y) plane is our (X, Z) and UE's Z (up) is our Y. `plane` below is

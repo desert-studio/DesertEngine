@@ -57,11 +57,11 @@ namespace Desert::ECS
             Water::WaterBodyState body;
             // The entity's position is the still water level (Y) and the WaveOrigin (X, Z), as UE's ocean
             // actor location is.
-            body.Location            = transform->GetTranslation();
-            body.Extents             = data.OceanExtents;
-                    body.Type                = data.Type;
-            body.Density             = data.Density;
-            body.Drag                = data.Drag;
+            body.Location = transform->GetTranslation();
+            body.Extents  = data.OceanExtents;
+            body.Type     = data.Type;
+            body.Density  = data.Density;
+            body.Drag     = data.Drag;
             if ( data.Type == Water::WaterBodyType::River )
             {
                 // A river is its ribbon: its footprint's centre at its mean level, its bounds the extents.
