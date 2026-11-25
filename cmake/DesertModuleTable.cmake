@@ -110,7 +110,7 @@ desert_placement(Media [[Engine/Media/]])
 # and the headers no lower module includes; these rows hold the headers Engine/Core still include (Scene raycast,
 # serializers, HLOD builder, physics, spline-mesh draw) until those includes are cut with hooks; pass 2 cut the
 # services, the render collector, hot reload, eviction and the terrain's layer names (Landscape::StartupModule).
-desert_placement(Landscape [[Engine/World/Landscape/|Engine/Assets/(LandscapeLayerInfoAsset|Serialization/LandscapeLayerInfo)\.hpp|Engine/ECS/(System/(LandscapeCollision|LandscapeSplineMeshDraw)|LandscapeRootOf)\.hpp]])
+desert_placement(Landscape [[Engine/World/Landscape/|Engine/Assets/(LandscapeLayerInfoAsset|Serialization/LandscapeLayerInfo)\.hpp|Engine/ECS/(System/LandscapeSplineMeshDraw|LandscapeRootOf)\.hpp]])
 desert_placement(Foliage [[Engine/World/Foliage/|Engine/Assets/(FoliageTypeAsset|Serialization/FoliageType)\.|Engine/Runtime/Services/Foliage/|Engine/ECS/ProceduralFoliageComponent\.]])
 desert_placement(ScriptLuau [[Engine/Scripting/Luau/]])
 desert_placement(Scripting [[Engine/Scripting/]])

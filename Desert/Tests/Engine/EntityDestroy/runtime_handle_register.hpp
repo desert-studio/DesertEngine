@@ -143,8 +143,8 @@ namespace Desert::Tests::RuntimeHandles
            "Desert/Landscape/Source/Landscape/Private/LandscapeECSSystem.cpp", "m_Tiles.erase( it )",
            "the tile's R16 heightmap; the per-frame pass drops tiles that are gone, lost the component or "
            "were unloaded" },
-         { "Desert/Desert/Source/Engine/ECS/System/LandscapeCollision.hpp", "m_Bodies", Release::Listener,
-           "Desert/Desert/Source/Engine/ECS/System/LandscapeCollision.cpp",
+         { "Desert/Landscape/Source/Landscape/Public/LandscapeCollision.hpp", "m_Bodies", Release::Listener,
+           "Desert/Landscape/Source/Landscape/Private/LandscapeCollision.cpp",
            "on_destroy<LandscapeTileComponent>().connect",
            "the tile's Jolt heightfield body (LS-7); Sync also drops tiles that stopped being drawable" },
          { "Desert/Desert/Source/Engine/ECS/System/FoliageCollision.hpp", "m_Bodies", Release::Listener,
