@@ -1,7 +1,7 @@
 {
     "id": 300001,
     "Tag": "NET4 Fence",
-    "Translation": [2500.0, -154.0, 650.0],
+    "Translation": [2500.0, -34.0, 650.0],
     "Rotation": [0.0, 0.0, 0.0],
     "Scale": [0.2, 1.8, 6.0],
     "Collider": {

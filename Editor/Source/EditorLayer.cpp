@@ -1009,6 +1009,12 @@ namespace Desert::Editor
         // is currently in use by VkCommandBuffer" validation errors on quit. Idle first, then tear down.
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
 
+        // Play ends first: its net client's predicted pawn is a character in the played world's physics and the
+        // world streamer names that world's cells, and the world goes in m_Workspace.Teardown() below (UE destroys
+        // a world's NetDriver before the world). Left to ~EditorLayer -> ~PlaySession it ran after the teardown:
+        // SIGSEGV in PhysicsWorld::RemoveCharacter from ~PhysicsPawnMoveWorld on every quit of a net client.
+        m_Play.EndForExit();
+
         // The thumbnail service is NOT one of the panels, and the sentence above is why that matters: it
         // names "asset thumbnails" among the GPU objects this teardown covers, but m_Panels.clear() cannot
         // reach a function-static that the panels merely talk to. Left to itself the service is destroyed at

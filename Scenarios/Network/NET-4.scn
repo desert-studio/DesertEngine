@@ -55,3 +55,14 @@
 # landed server (10466,-111,805) = client drawn (10466,-111,805); 10 s later both identical: drift 0 cm; corrections 1.
 # net4_teleport_ground PASS. net4_fence PARTIAL: frames at x 2305 / 2555 are sharp but the fence is not in them - A
 # runs at z 580-595, the fence (600 cm along Z) is beside that line (a green edge at the right border at x 2555).
+# Pass 12: the pass-11 reading was wrong - the fence spans z 350-950, A's line (z ~590) crosses it. The fence's TOP
+# was flush with the terrain: the net pawn position is the FEET (Net/PhysicsPawnMoveWorld.hpp:59-71, feetToCenter),
+# and pass 5 placed the fence centre 90 cm below a probe's rest height read as the capsule centre (ground probes at
+# z 650: x 2297 -94, 2415 -80, 2500 -64 = the fence top). Content fixed: fence 300001 Y -154 -> -34 (bottom 60 cm
+# in the slope, ~120 cm above it), HLODs of G0L0(1,0)/HLOD_Main rebuilt, the scratch world recooked. A's camera looks
+# -Z while A walks +X, so the fence frames come from a fixed side camera (--camera 2100,120,50) that sees A's capsule.
+# Quit: PlaySession::EndForExit ends the net client before EditorLayer::OnDetach tears the world down.
+# Дано: Editor + DesertServer from task/NET-PREDICT (= dev), `--role all`, WP_Protocol, clients A and B, link 150 ms / 2 % loss, `--quality PostProcess.MotionBlurQuality=0`.
+# Когда: A sprints along the fence's line and jumps it.
+# Тогда [net4_fence] net4/clientA_fence_x<X>.png: a frame at A x 2400-2600 shows the fence and A clearing it (or stopped by it on both sides); log "corrections 0" over 30 s; clock x0.98-1.02.
+# Тогда [net4_teleport_ground] run output: still PASS (landed server = client drawn, drift < 1 cm over 10 s, one correction); Editor exit 0.

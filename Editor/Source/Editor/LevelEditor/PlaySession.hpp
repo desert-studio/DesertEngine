@@ -41,6 +41,11 @@ namespace Desert::Editor
         void Simulate();
         // Restores the authored snapshot. Called between frames only — see RequestStop.
         void Stop();
+        // The editor is closing (EditorLayer::OnDetach): what Play holds INTO the played world - the server
+        // session, whose predicted pawn is a character in that world's physics, and the world streamer - goes now,
+        // before the workspace tears the world down (UE: a world's NetDriver is destroyed before the world,
+        // UWorld::DestroyWorld). No snapshot restore: nothing is left to edit.
+        void EndForExit();
         // The one executor the toolbar, the palette and the control channel share.
         [[nodiscard]] Common::BoolResultStr Run( PlayWorldCommand command );
 
@@ -100,6 +105,10 @@ namespace Desert::Editor
         // A Play refused after the world was completed from disk: the scene goes back to the edit world's
         // snapshot and packages.
         void RestoreEditWorld( const std::string& snapshot );
+        // The session with the server ends while the world it plays in still exists: its remote pawns leave the
+        // active scene's players and its predicted pawn's character leaves that scene's physics world. Every end
+        // of Play (Stop, travel, the playing view closed, the editor closing) goes through here.
+        void EndNetClient();
 
         enum class State
         {
