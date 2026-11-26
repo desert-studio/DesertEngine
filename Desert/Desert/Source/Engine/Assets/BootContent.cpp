@@ -10,6 +10,10 @@
 #include <Projects/ProjectContext.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
+#include <Common/Content/ContentScan.hpp>
+#include <Common/Core/Constants.hpp>
+
+#include <algorithm>
 #include <chrono>
 #include <format>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
@@ -35,8 +39,15 @@ namespace Desert::Assets
         const auto start   = std::chrono::steady_clock::now();
         double     assetMs = 0.0;
 
-        // 1. THE ASSETS, on this thread and in registry order: AssetManager is not for workers.
-        const auto rows = ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader );
+        // 1. THE ASSETS, on this thread: AssetManager is not for workers. The engine root's rows first, then the
+        // project's, each in registry order. Who holds a program name is ShaderService::Register's rule whatever
+        // the order (an engine file takes its name from a project file); registering the engine first only means
+        // a colliding project file is refused outright here, never registered and then evicted.
+        auto rows = ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader );
+        std::stable_partition( rows.begin(), rows.end(),
+                               []( const std::filesystem::path& row ) {
+                                   return Common::Content::IsUnder( row, Common::Constants::Path::SHADERDIR_PATH );
+                               } );
         std::vector<std::shared_ptr<ShaderAsset>> shaders;
         shaders.reserve( rows.size() );
         for ( const auto& path : rows )
@@ -119,8 +130,10 @@ namespace Desert::Assets
             // A refusal (a program name another file already owns) is said here, naming the file, and the
             // program is not counted: the ready line below counts what was registered, nothing else.
             if ( auto registered = Runtime::ResourceRegistry::GetShaderService()->Register( shader ); !registered )
+            {
                 LOG_ERROR( "[BootContent] shader {} not registered: {}",
                            shader->GetMetadata().Filepath.generic_string(), registered.GetError() );
+            }
             else
                 ++count;
         }

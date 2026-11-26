@@ -37,28 +37,30 @@ namespace Desert::Editor::ThumbnailSubject
         // AN INSTANCE STATES NO TEMPLATE: its program is its base's, found through the parent chain by the
         // same walk the scene draws it with (MaterialService::ShaderHandleOf). Asking the instance's own
         // empty name refused every `_Inst` material as "shader '' is not registered" (THM1n-10).
-        std::string shaderName = asset.GetShaderName();
+        // A TEMPLATE IS ITS OWN FILE'S PROGRAM: asked by the template's handle (ShaderService::GetByNameOwnedBy),
+        // so a template whose name another file holds is refused, not photographed as that file.
+        std::shared_ptr<Graphic::Shader> shader;
         if ( asset.Data().InstanceParentId().has_value() )
         {
-            auto name = Runtime::MaterialTemplateNameOf( asset.GetMetadata().Handle );
-            if ( !name.IsSuccess() )
-                return Common::MakeFormattedError<Preview>( "it is a material instance and {}", name.GetError() );
-            shaderName = name.GetValue();
-            if ( shaderName.empty() )
-                return Common::MakeFormattedError<Preview>(
-                     "it is a material instance and its parent chain reaches no template (a parent missing, "
-                     "unreadable or naming no loaded shader)" );
+            auto program = Runtime::MaterialTemplateProgramOf( asset.GetMetadata().Handle );
+            if ( !program.IsSuccess() )
+                return Common::MakeFormattedError<Preview>( "it is a material instance and {}",
+                                                            program.GetError() );
+            shader = program.GetValue();
         }
-        const auto shader = shaders->GetByName( shaderName );
-        if ( !shader )
+        else
         {
-            return Common::MakeFormattedError<Preview>(
-                 "its shader '{}' is not registered, so the domain that decides how to photograph it "
-                 "cannot be read",
-                 shaderName );
+            auto program = shaders->GetByNameOwnedBy( asset.GetShaderName(), asset.GetShaderHandle() );
+            if ( !program.IsSuccess() )
+                return Common::MakeFormattedError<Preview>(
+                     "its shader '{}' cannot be read, so neither can the domain that decides how to photograph "
+                     "it: {}",
+                     asset.GetShaderName(), program.GetError() );
+            shader = program.GetValue();
         }
 
-        const ::Desert::Core::Formats::ShaderDomain domain = shader->GetProgramMeta().Domain;
+        const std::string                           shaderName = shader->GetName();
+        const ::Desert::Core::Formats::ShaderDomain domain     = shader->GetProgramMeta().Domain;
 
         // The domain alone decides. A masked material is NOT flattened onto a card: it goes on the ball
         // like any other surface and the mesh path's alpha discard cuts it (StaticMeshLit.shader).
@@ -86,15 +88,12 @@ namespace Desert::Editor::ThumbnailSubject
         auto* shaders = Runtime::ResourceRegistry::GetShaderService();
         if ( shaders == nullptr )
             return Common::MakeFormattedError<Answer>( "there is no shader service to read its sky" );
-        auto templateName = Runtime::MaterialTemplateNameOf( Assets::AssetHandle( material ) );
-        if ( !templateName.IsSuccess() )
-            return Common::MakeFormattedError<Answer>( "{}", templateName.GetError() );
+        auto program = Runtime::MaterialTemplateProgramOf( Assets::AssetHandle( material ) );
+        if ( !program.IsSuccess() )
+            return Common::MakeFormattedError<Answer>( "{}", program.GetError() );
 
-        const std::string& shaderName = templateName.GetValue();
-        const auto         shader     = shaders->GetByName( shaderName );
-        if ( !shader )
-            return Common::MakeFormattedError<Answer>( "its template '{}' is not a registered shader",
-                                                       shaderName );
+        const auto&       shader     = program.GetValue();
+        const std::string shaderName = shader->GetName();
         const auto& meta = shader->GetProgramMeta();
         if ( meta.Domain != ::Desert::Core::Formats::ShaderDomain::Skybox )
             return Common::MakeSuccess( Answer{} );

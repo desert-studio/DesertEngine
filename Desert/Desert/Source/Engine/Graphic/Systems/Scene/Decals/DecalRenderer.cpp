@@ -286,8 +286,17 @@ namespace Desert::Graphic::System
             return Common::MakeError( "no shader service" );
         auto* materials = Runtime::ResourceRegistry::GetMaterialService();
 
-        std::string shaderName = kDefaultDecalShaderName;
-        if ( !material.IsNull() )
+        std::string                      shaderName = kDefaultDecalShaderName;
+        std::shared_ptr<Graphic::Shader> shader;
+        if ( material.IsNull() )
+        {
+            shader = shaders->GetByName( shaderName );
+            if ( !shader )
+                return Common::MakeFormattedError( "no shader named '{}' is registered (the default decal is "
+                                                   "Editor/Resources/Shaders/Programs/Decals/DefaultDecal.shader)",
+                                                   shaderName );
+        }
+        else
         {
             if ( materials == nullptr )
                 return Common::MakeError( "no material service" );
@@ -295,13 +304,13 @@ namespace Desert::Graphic::System
             if ( materialTemplate.Shader.IsNull() || materialTemplate.CompileName.empty() )
                 return Common::MakeError( "the handle names no material asset with a loaded template" );
             shaderName = materialTemplate.CompileName;
+            // The program of the material's OWN template file: a stem held by another file is a refusal.
+            auto owned = shaders->GetByNameOwnedBy( shaderName, materialTemplate.Shader );
+            if ( !owned )
+                return Common::MakeFormattedError( "the material's template is not drawable: {}",
+                                                   owned.GetError() );
+            shader = owned.GetValue();
         }
-
-        const auto shader = shaders->GetByName( shaderName );
-        if ( !shader )
-            return Common::MakeFormattedError( "no shader named '{}' is registered (the default decal is "
-                                               "Editor/Resources/Shaders/Programs/Decals/DefaultDecal.shader)",
-                                               shaderName );
         // Recorded before any check can refuse: a refused program is retried when this generation moves.
         program.BuiltShader = shader;
         program.Generation  = shader->GetCodeGeneration();
