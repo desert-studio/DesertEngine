@@ -29,11 +29,11 @@
 Тогда A net_bytes the side camera: A's mannequin (grey body, dark joints, head, arms, legs) sprinting along +X on the slope before the fence, sharp (no motion blur), one mannequin of A
 # Тогда [net_burst]: the session's longest run (the message with the most steps) carried >= 17 steps (the loading burst) and
 # still fit < 1000 B, one MTU; no Input message of the session reached 1000 B.
+Ждать A 900 \[Net\] walked \d+ cm \(server position\): stopping
 Ждать A 60 longest run (1[7-9]|[2-9]\d|1[01]\d|12[0-8]) steps \(\d{1,3} B\)
 Нет A largest message \d{4,} B
-Тогда A net_burst the side camera, the same run: A's mannequin on the slope or at the fence, whole, sharp; one mannequin of A
+Тогда A net_burst the side camera, the same run: A's mannequin past the fence (the walk has stopped), whole, sharp; one mannequin of A
 # Тогда [net_zero_corrections]: past the fence, the walk stops; no correction over the whole sprint, every Input decoded, no step lost.
-Ждать A 900 \[Net\] walked \d+ cm \(server position\): stopping
 Ждать A 900 drawn own \((2[5-9]\d\d|[3-9]\d\d\d|\d{5,}),
 Нет A \[Net\] correction \d+ at
 Нет server malformed Input
