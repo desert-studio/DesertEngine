@@ -653,6 +653,11 @@ namespace
                                 report.Upgrade.From.Light,
                                 Desert::Migration::kLightVersionRotation, report.Upgrade.SunRotation.Aimed,
                                 report.Upgrade.SunRotation.Overrides, report.Upgrade.SunRotation.Undirected );
+        if ( report.Upgrade.PostProcessBloomRaised && report.Upgrade.PostProcessBloom.Restated > 0 )
+            out << std::format( " post process v{}->v{} ({} PostProcessVolume setting(s) re-stated as UE bloom / auto "
+                                "exposure, {} EnableBloom false as BloomIntensity 0)",
+                                report.Upgrade.From.PostProcess, Desert::Migration::kPostProcessVersionBloom,
+                                report.Upgrade.PostProcessBloom.Restated, report.Upgrade.PostProcessBloom.BloomOff );
         if ( report.Upgrade.VolumetricFogRaised )
             out << " scene ->v" << Desert::Migration::kSceneVersionVolumetricFog
                 << " (fog and lights state the Volumetric Fog fields at their defaults)";
@@ -676,11 +681,6 @@ namespace
         if ( report.Upgrade.TubeSourceLengthRaised && report.Upgrade.TubeSourceLengthsStated > 0 )
             out << std::format( " scene ->v{} ({} PointLight / SpotLight block(s) given SourceLength 0)",
                                 Desert::Migration::kSceneVersionTubeSourceLength, report.Upgrade.TubeSourceLengthsStated );
-        if ( report.Upgrade.BloomUERaised && report.Upgrade.BloomUE.Restated > 0 )
-            out << std::format( " scene ->v{} ({} PostProcessVolume setting(s) re-stated as UE bloom / auto exposure, "
-                                "{} EnableBloom false as BloomIntensity 0)",
-                                Desert::Migration::kSceneVersionBloomUE, report.Upgrade.BloomUE.Restated,
-                                report.Upgrade.BloomUE.BloomOff );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

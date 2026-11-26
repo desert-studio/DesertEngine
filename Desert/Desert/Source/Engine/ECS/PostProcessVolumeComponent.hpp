@@ -46,9 +46,10 @@ namespace Desert::ECS
     };
 
     // Version 2 (RENDER-BLOOM-UE): Settings lost EnableBloom and AutoExposureSpeed. The upgrade step from 1 is
-    // the scene format's v78 step, Core::MigrateBloomUEV77ToV78 (Core/Serialize/SceneUpgrade.hpp) - the one copy
-    // of the mapping: EnableBloom false -> BloomIntensity 0, AutoExposureSpeed -> AutoExposureSpeedUp and
-    // AutoExposureSpeedDown. Every file below scene v78 stores this block at Version 1.
+    // the post-process settings' v1 step, Core::MigratePostProcessBloomV0ToV1 (Core/Serialize/SceneUpgrade.hpp) -
+    // the one copy of the mapping: EnableBloom false -> BloomIntensity 0, AutoExposureSpeed -> AutoExposureSpeedUp
+    // and AutoExposureSpeedDown. Every file at post process v0 (Assets::kPostProcessSchemaTag) stores this block
+    // at Version 1.
     struct PostProcessVolumeComponent
     {
         COMPONENT( Key( "PostProcessVolume" ), Block( Data ), Run( SkyAndAtmosphere ), Version( 2 ) )

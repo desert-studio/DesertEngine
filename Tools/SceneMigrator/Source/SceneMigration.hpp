@@ -469,10 +469,9 @@ namespace Desert::Migration
     //       Load All. A ROOT record of a scene with a WorldPartition block states no siblingIndex; children keep
     //       theirs (MigrateRootSiblingIndexV69ToV70, this tool's last step). Scenes only.
     //
-    //  71 .. 78 - THE ENGINE'S (SCENE-UPGRADE-ON-LOAD): every step at or above Core::kSceneUpgradeFloor (70) lives
+    //  71 .. 77 - THE ENGINE'S (SCENE-UPGRADE-ON-LOAD): every step at or above Core::kSceneUpgradeFloor (70) lives
     //       in Engine/Core/Serialize/SceneUpgrade.hpp, the one copy the loader raises a file with in memory. This
     //       tool is the resave: it runs its own steps up to the floor, then Core::UpgradeSceneRecords, then writes.
-    using Core::kSceneVersionBloomUE;
     using Core::kSceneVersionComposedGI;
     using Core::kSceneVersionFilmicDefault;
     using Core::kSceneVersionGrassRasterPath;
@@ -584,12 +583,16 @@ namespace Desert::Migration
     using Core::kWorldPartitionVersionHLODBuilderSettings;
     using Core::kWorldPartitionVersionImpostorLayers;
 
-    // THE ASSET-REFERENCE AND LIGHT CHAINS (kAssetRefVersionReflected, kLightVersionRotation) are the engine's
+    // THE ASSET-REFERENCE, LIGHT AND POST-PROCESS CHAINS (kAssetRefVersionReflected, kLightVersionRotation,
+    // kPostProcessVersionBloom) are the engine's
     // whole (SceneUpgrade.hpp): Core::UpgradeSceneRecords runs them, this tool hands it a MaterialGuidLookup over
     // its assets root.
     using Core::kAssetRefVersionReflected;
     using Core::kLightVersionRotation;
+    using Core::kPostProcessVersionBloom;
     using Core::MigrateLightRotationV0ToV1;
+    using Core::MigratePostProcessBloomV0ToV1;
+    using Core::PostProcessBloomReport;
     using Core::MigrateReflectedAssetRefsV0ToV1;
     using Core::ReflectedAssetRefsReport;
     using Core::SunRotationReport;
@@ -653,8 +656,6 @@ namespace Desert::Migration
     std::size_t MigrateSourceAngleV54ToV55( std::vector<Assets::EntityData>& entities );
 
     using Core::MigrateTubeSourceLengthV76ToV77;
-    using Core::BloomUEReport;
-    using Core::MigrateBloomUEV77ToV78;
 
     // The keys MigrateLandscapeLayerModesV37ToV38 takes out of every LandscapeMaterial block.
     inline constexpr std::array<const char*, 3> kRetiredLandscapeLayerModeKeys = { "GrassMode", "RockMode",

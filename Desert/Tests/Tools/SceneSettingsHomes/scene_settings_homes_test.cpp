@@ -286,9 +286,9 @@ TEST( SceneSettingsHomesMigration, TheMigratedSceneResolvesToThePreviousValues )
     // shadow maps (GI-PROBE-SW); EnableSSR true as the screen-space method.
     EXPECT_EQ( v.Post.GlobalIlluminationMethod, Common::Scalability::GIRequest::ProbeVolume );
     EXPECT_EQ( v.Post.ReflectionsMethod, Common::Scalability::ReflectionRequest::ScreenSpace );
-    EXPECT_TRUE( Graphic::BloomGaussian::BloomOn( v.Post ) ) << "EnableBloom true keeps the intensity (v78)";
+    EXPECT_TRUE( Graphic::BloomGaussian::BloomOn( v.Post ) ) << "EnableBloom true keeps the intensity (post process v1)";
     EXPECT_TRUE( v.Post.AutoExposure );
-    EXPECT_EQ( v.Post.BloomThreshold, 2.0f ) << "unstated = the v77 default, stated by the v78 step";
+    EXPECT_EQ( v.Post.BloomThreshold, 2.0f ) << "unstated = the post process v0 default, stated by its v1 step";
     EXPECT_FALSE( v.Shadows.Enabled );
     EXPECT_EQ( v.Shadows.Bias.BiasCm, Migration::kShadowBiasCentimetresDefault );
     EXPECT_EQ( v.Shadows.CascadeSplitLambda, 0.85f );

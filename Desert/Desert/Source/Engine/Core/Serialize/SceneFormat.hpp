@@ -146,9 +146,7 @@ namespace Desert::Core
     // (Core/Serialize/SceneUpgrade.hpp, MigrateLandscapeSplineEntitiesV75ToV76).
     // v77 (NG-AREA-LIGHTS): UE SourceLength - PointLight / SpotLight state SourceLength (cm; 0 = a sphere), the
     // capsule ("tube") emitter along the light's forward (Core/Serialize/SceneUpgrade.hpp, MigrateTubeSourceLengthV76ToV77).
-    // v78 (RENDER-BLOOM-UE): UE's Gaussian bloom and histogram auto exposure as PostProcessSettings fields -
-    // EnableBloom and AutoExposureSpeed are gone (Core/Serialize/SceneUpgrade.hpp, MigrateBloomUEV77ToV78).
-    inline constexpr int kSceneVersion = 78;
+    inline constexpr int kSceneVersion = 77;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Core/Serialize/SceneUpgrade.hpp, MigrateReflectedAssetRefsV0ToV1). v1 (STATICMESH-FORMAT): static meshes and materials are
@@ -161,6 +159,12 @@ namespace Desert::Core
     // (forward -Z), as in UE; before it, its Translation was the direction it travelled. The step restates every
     // directional light's Translation as a Rotation and zeroes the Translation. A file stating no tag is v0.
     inline constexpr int kLightVersion = 1;
+
+    // The post-process settings' own format generation, stated under Assets::kPostProcessSchemaTag (its steps:
+    // Core/Serialize/SceneUpgrade.hpp, MigratePostProcessBloomV0ToV1). v1 (RENDER-BLOOM-UE): UE's Gaussian bloom
+    // and histogram auto exposure as PostProcessSettings fields - EnableBloom and AutoExposureSpeed are gone. A
+    // file stating no tag is v0.
+    inline constexpr int kPostProcessVersion = 1;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator
@@ -196,20 +200,23 @@ namespace Desert::Core
                Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ) == kUnitVersion &&
                Assets::StatedVersion( scene.Header, Assets::kWorldPartitionSchemaTag ) == kWorldPartitionVersion &&
                Assets::StatedVersion( scene.Header, Assets::kAssetRefSchemaTag ) == kAssetRefVersion &&
-               Assets::StatedVersion( scene.Header, Assets::kLightSchemaTag ) == kLightVersion;
+               Assets::StatedVersion( scene.Header, Assets::kLightSchemaTag ) == kLightVersion &&
+               Assets::StatedVersion( scene.Header, Assets::kPostProcessSchemaTag ) == kPostProcessVersion;
     }
 
     // The subsystem versions a .desce / .deprefab of this build states, and the reading context built on them.
     [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> SceneTextSubsystems()
     {
-        static const std::array<Common::Content::SubsystemVersion, 5> versions = {
+        static const std::array<Common::Content::SubsystemVersion, 6> versions = {
              Common::Content::SubsystemVersion{ Assets::kSceneSchemaTag, static_cast<uint32_t>( kSceneVersion ) },
              Common::Content::SubsystemVersion{ Assets::kUnitSchemaTag, static_cast<uint32_t>( kUnitVersion ) },
              Common::Content::SubsystemVersion{ Assets::kWorldPartitionSchemaTag,
                                                 static_cast<uint32_t>( kWorldPartitionVersion ) },
              Common::Content::SubsystemVersion{ Assets::kAssetRefSchemaTag,
                                                 static_cast<uint32_t>( kAssetRefVersion ) },
-             Common::Content::SubsystemVersion{ Assets::kLightSchemaTag, static_cast<uint32_t>( kLightVersion ) } };
+             Common::Content::SubsystemVersion{ Assets::kLightSchemaTag, static_cast<uint32_t>( kLightVersion ) },
+             Common::Content::SubsystemVersion{ Assets::kPostProcessSchemaTag,
+                                                static_cast<uint32_t>( kPostProcessVersion ) } };
         return versions;
     }
 
@@ -222,7 +229,8 @@ namespace Desert::Core
     // repository, and they have one action to take.
     [[nodiscard]] std::string RefuseSceneVersion( std::string_view source, int foundSceneVersion,
                                                   int foundUnitVersion, int foundWorldPartitionVersion,
-                                                  int foundAssetRefVersion, int foundLightVersion );
+                                                  int foundAssetRefVersion, int foundLightVersion,
+                                                  int foundPostProcessVersion );
 
     // Same, read straight off the parsed tree (absent integers become 0 - see SceneIsAtCurrentVersion).
     [[nodiscard]] std::string RefuseSceneVersion( std::string_view source, const SceneSerialized& scene );

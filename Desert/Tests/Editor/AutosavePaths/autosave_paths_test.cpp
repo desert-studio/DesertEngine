@@ -119,6 +119,7 @@ namespace
     constexpr uint32_t kWorldPartition = Common::Content::FourCC( "WPAR" );
     constexpr uint32_t kAssetRef       = Common::Content::FourCC( "AREF" );
     constexpr uint32_t kLight          = Common::Content::FourCC( "LGHT" );
+    constexpr uint32_t kPostProcess    = Common::Content::FourCC( "PPRO" );
     // The generation this "build" opens; the suite does not link the engine, so the numbers are its own.
     constexpr AS::StatedGenerations kCurrent{ 39, 1 };
 
@@ -153,10 +154,10 @@ TEST( AutosavePaths, StatedInReadsBothGenerationsFromTheHeader )
 {
     const fs::path copy = TempProject( "Stated" ) / "A_autosave.desce";
     WriteCopy( copy, 38, 1 );
-    EXPECT_EQ( AS::StatedIn( copy, kScene, kUnit, kWorldPartition, kAssetRef, kLight ),
+    EXPECT_EQ( AS::StatedIn( copy, kScene, kUnit, kWorldPartition, kAssetRef, kLight, kPostProcess ),
                ( AS::StatedGenerations{ 38, 1 } ) );
     std::ofstream( copy ) << "{}";
-    EXPECT_EQ( AS::StatedIn( copy, kScene, kUnit, kWorldPartition, kAssetRef, kLight ),
+    EXPECT_EQ( AS::StatedIn( copy, kScene, kUnit, kWorldPartition, kAssetRef, kLight, kPostProcess ),
                ( AS::StatedGenerations{ 0, 0 } ) )
          << "absent is 0";
 }
@@ -172,7 +173,7 @@ TEST( AutosavePaths, RecoveryOffersTheNewestCopyAtTheCurrentVersion )
     WriteCopy( AS::Dir() / "Scenes" / "NotACopy.desce", kCurrent.Scene, kCurrent.Unit );
 
     const AS::RecoveryChoice choice =
-         AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef, kLight );
+         AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef, kLight, kPostProcess );
     EXPECT_EQ( choice.Offered, newer );
     EXPECT_TRUE( choice.NotOffered.empty() );
     EXPECT_FALSE( IsUnder( Path::ASSETS_PATH, choice.Offered ) );
@@ -197,7 +198,7 @@ TEST( AutosavePaths, AnOlderCopyIsReportedNotOfferedAndNotMigrated )
     const std::string staleBytes = BytesOf( stale );
 
     const AS::RecoveryChoice choice =
-         AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef, kLight );
+         AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef, kLight, kPostProcess );
     EXPECT_EQ( choice.Offered, current )
          << "the newest file on disk is at an older version and must not be offered";
     ASSERT_EQ( choice.NotOffered.size(), 2u );
@@ -219,7 +220,7 @@ TEST( AutosavePaths, AnOlderCopyIsReportedNotOfferedAndNotMigrated )
 
     // Only older copies left: nothing is offered at all.
     fs::remove( current );
-    EXPECT_TRUE( AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef, kLight )
+    EXPECT_TRUE( AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef, kLight, kPostProcess )
                       .Offered.empty() );
 }
 
