@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Projects/NetSettings.hpp>
 #include <Projects/RendererSettings.hpp>
 #include <Projects/WorldPartitionSettings.hpp>
 
@@ -14,7 +15,7 @@ namespace Desert::Project
 {
     // `<project>/Config/Engine.json`, UE's DefaultEngine.ini: the engine settings a PROJECT decides, one file with
     // a section per subsystem. The renderer's keys sit at the top level (the file's first layout, kept as it was),
-    // the streaming ones under "WorldPartition".
+    // the streaming ones under "WorldPartition", the server's replication-by-distance ones under "Net" (WP-FAR-15).
     //
     // THE PLATFORM LAYER (UE's Config/<Platform>/<Platform>Engine.ini): `<project>/Config/<Platform>/Engine.json`,
     // <Platform> = Mac, Windows or Linux, the host this binary is built for. It states only the keys it changes:
@@ -24,6 +25,7 @@ namespace Desert::Project
     {
         rfl::Flatten<RendererSettings> Renderer;
         WorldPartitionSettings         WorldPartition;
+        NetSettings                    Net;
     };
 
     struct EngineConfigLayers
