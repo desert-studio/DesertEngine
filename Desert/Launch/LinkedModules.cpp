@@ -14,6 +14,11 @@ namespace Desert::Core
     void StartupEngineModules();
 } // namespace Desert::Core
 
+namespace Desert::Graphic
+{
+    void StartupRendererModule();
+} // namespace Desert::Graphic
+
 namespace Desert::Destruction
 {
     void StartupModule();
@@ -44,17 +49,24 @@ namespace Desert::ScriptLuau
     void StartupModule();
 } // namespace Desert::ScriptLuau
 
+namespace Desert::World::Foliage
+{
+    void StartupModule();
+} // namespace Desert::World::Foliage
+
 namespace
 {
     bool StartupLinkedModules()
     {
         Desert::Core::StartupEngineModules();
+        Desert::Graphic::StartupRendererModule();
         Desert::Destruction::StartupModule();
         Desert::Landscape::StartupModule();
         Desert::VFX::StartupModule();
         Desert::Water::StartupModule();
         Desert::Media::StartupModule();
         Desert::ScriptLuau::StartupModule();
+        Desert::World::Foliage::StartupModule();
         return true;
     }
 

@@ -2,7 +2,8 @@
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/Runtime/Services/Foliage/FoliageTypeService.hpp>
+#include <Engine/Core/ModuleHooks.hpp>
+#include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Common/Core/Logger.hpp>
 
@@ -60,7 +61,7 @@ namespace Desert::ECS
 
     void FoliageCollision::Sync( entt::registry& registry )
     {
-        auto* types  = Runtime::ResourceRegistry::GetFoliageTypeService();
+        const Core::FoliageTypeLookup types = Core::ModuleHooks().FoliageTypes;
         auto* meshes = Runtime::ResourceRegistry::GetMeshService();
 
         std::vector<entt::entity>&       live   = m_Live;
@@ -71,7 +72,7 @@ namespace Desert::ECS
             const auto& foliage = fields.get<FoliageComponent>( entity );
             const auto& ism     = fields.get<InstancedStaticMeshComponent>( entity );
 
-            const Assets::Serialization::FoliageTypeData* type = types ? types->Get( foliage.FoliageType ) : nullptr;
+            const Assets::Serialization::FoliageTypeData* type = types ? types( foliage.FoliageType ) : nullptr;
             if ( type == nullptr )
             {
                 // Still being read (or failed, said by the service): keep what stands until the type is known.

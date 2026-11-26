@@ -12,6 +12,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Graphic/SceneRenderState.hpp>
 #include <Engine/Assets/GrassCoverLook.hpp>
 #include <Editor/Import/GrassCoverLookBuilder.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -528,7 +529,8 @@ namespace Desert::Editor
     bool EditorStartup::ReflectionCapturesFilling() const
     {
         const auto& scene = m_Workspace.ActiveScene();
-        return scene && scene->GetReflectionCaptures().FirstFillPending();
+        return scene && scene->GetRenderState() != nullptr &&
+               Graphic::RenderStateOf( *scene ).GetReflectionCaptures().FirstFillPending();
     }
 
     void EditorStartup::ReportUnproducedThumbnailKinds()

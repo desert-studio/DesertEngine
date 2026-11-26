@@ -12,6 +12,7 @@
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/UIPreview.hpp>
 
+#include <Engine/Graphic/SceneRenderState.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldSystems.hpp>
@@ -74,7 +75,7 @@ namespace Desert::Editor
             if ( viewport->Renderer )
                 sources.Renderers.push_back( viewport->Renderer.get() );
         if ( m_ActiveScene )
-            sources.Displacement = &m_ActiveScene->GetRayTracingCache().GetDisplacement();
+            sources.Displacement = &Graphic::RenderStateOf( *m_ActiveScene ).GetRayTracingCache().GetDisplacement();
         return sources;
     }
 
