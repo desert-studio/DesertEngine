@@ -43,6 +43,7 @@
 #include <vector>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Water/Public/WaterWaveTable.hpp>
+#include <Water/Private/WaterLayout.hpp>
 #include <Common/Settings/Scalability.hpp>
 
 #include <span>
@@ -81,61 +82,6 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        // One drawn quadtree tile, std430 (Mesh/Surface/WaterMeshTiles.glslh WaterTileRow).
-        struct WaterTileRow
-        {
-            glm::vec4 Tile; // xy = lower (X, Z) corner relative to the zone origin, z = still level Y, w = side
-            glm::vec4 Lod;  // x = LOD level, y = morphs, z = can morph twice, w = height LOD factor
-            glm::vec4 Zone; // xy = the zone's world (X, Z) origin, z = LOD scale (cm), w = quads per side
-            // The tile's body (UE WaterBodyIndex; TileWalk::Bodies): x = its material's row, y = 1 for a river,
-            // -1 for an ocean drawn under a river's cut leaf (Water::WaterTileInstance::UnderRiver),
-            // z = 1 + its wave set in WaterWavesBlock::Sets (0 = flat), w = the body's index in its zone.
-            glm::vec4 Body;
-            // The tile's body's medium (WaterBodyLane::Medium): y = its river's two-phase flow period (s; 0 off a
-            // river); on a river's tile x = its mouth's radius (cm; 0 = no receiver's waves, Water::RiverMouth) and
-            // zw = the mouth's world (X, Z); on a fall's row zw = the water's speeds at its two samples (cm/s).
-            glm::vec4 Medium;
-        };
-        static_assert( sizeof( WaterTileRow ) == 5 * sizeof( glm::vec4 ), "std430 rows of five vec4" );
-
-        // One Gerstner wave, std430 (Mesh/Surface/WaterMeshTiles.glslh WaterWaveRow).
-        struct WaterWaveRow
-        {
-            glm::vec4 Wave; // xy = direction, z = wavelength (cm), w = amplitude (cm)
-            glm::vec4 Form; // x = steepness
-        };
-        static_assert( sizeof( WaterWaveRow ) == 2 * sizeof( glm::vec4 ), "std430 rows of two vec4" );
-
-        // WATER_MAX_WAVES / WATER_MAX_WAVE_SETS (WaterMeshTiles.glslh): the wave sets lead the tile buffer.
-        constexpr auto     kMaxWaves    = static_cast<uint32_t>( Water::kMaxDrawnWaves );
-        constexpr auto kMaxWaveSets = static_cast<uint32_t>( Water::kMaxWaveLanes );
-        // One body wave set, std430 (WaterMeshTiles.glslh WaterWaveSet; UE: a water body's wave buffer).
-        struct WaterWaveSet
-        {
-            // x = count, y = 1 if it IS the frame's FFT ocean, zw = WaveOrigin
-            glm::vec4                           Header{ 0.0f };
-            glm::vec4                           Swell{ 0.0f }; // x = peak omega (rad/s), y = significant height (cm)
-            std::array<WaterWaveRow, kMaxWaves> Rows{};
-        };
-        static_assert( sizeof( WaterWaveSet ) == ( 2 + 2 * kMaxWaves ) * sizeof( glm::vec4 ) );
-        struct WaterWavesBlock
-        {
-            // Member for member WaterMeshTiles.glslh's WaterTiles head.
-            glm::vec4                Header{ 0.0f };     // x = the set count, y = 1 when a set IS the FFT ocean, z = its choppiness
-            glm::vec4                ShoreFrame{ 0.0f }; // xy = lower (X, Z), z = 1 / texel, w = the level its heights are over
-            glm::vec4                ShoreShape{ 0.0f }; // x = open sea floor, y = beach slope, z = skirt slope
-            std::array<glm::vec4, 4> FFTCascade{};       // x = 1 / patch, y = significant height, z = peak omega
-            std::array<glm::vec4, 4> FFTTurn{};          // xy = cos, sin of the lattice's turn
-            glm::vec4                Flow{ 0.0f };       // x = 1 when a river is in the frame, zw = the river texture's size
-            glm::vec4                River{ 0.0f };      // xy = the river texture's lower (X, Z), zw = 1 / texel
-            std::array<glm::vec4, 3> FoamOrigin{};       // xy = the level's lower texel, z = 1 / texel
-            glm::vec4                FoamShape{ 0.0f };  // x = a level's side in texels, y = 1 when the map holds foam
-            std::array<WaterWaveSet, kMaxWaveSets> Sets{};
-        };
-        static_assert( sizeof( WaterWavesBlock ) ==
-                       ( 17 + kMaxWaveSets * ( 2 + 2 * kMaxWaves ) ) * sizeof( glm::vec4 ) );
-        static_assert( sizeof( WaterWavesBlock ) == WaterRenderer::kWavesBlockBytes, "WATER-CAUSTICS reads the head" );
-
         std::shared_ptr<Image2D> CreateFloatImage( const char* tag, const uint32_t width, const uint32_t height,
                                                    const Core::Formats::ImageFormat format,
                                                    std::vector<unsigned char>       bytes )
@@ -740,11 +686,11 @@ namespace Desert::Graphic::System
             if ( lane.Waves != nullptr )
             {
                 const std::vector<Water::GerstnerWave>& rows = *lane.Waves;
-                if ( rows.size() > kMaxWaves && FirstWarning( lane.Asset, WaterWarning::TooManyWaves ) )
+                if ( rows.size() > kWaterMaxWaves && FirstWarning( lane.Asset, WaterWarning::TooManyWaves ) )
                     Warn( lane.Asset, std::format( "the wave set has {} waves - the water mesh draws the first {} "
                                                    "(WATER_MAX_WAVES)",
-                                                   rows.size(), kMaxWaves ) );
-                const size_t count = std::min<size_t>( rows.size(), kMaxWaves );
+                                                   rows.size(), kWaterMaxWaves ) );
+                const size_t count = std::min<size_t>( rows.size(), kWaterMaxWaves );
                 for ( size_t k = 0; k < count; ++k )
                 {
                     const Water::GerstnerWave& wave = rows[k];
@@ -853,20 +799,6 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( Texture, EnvironmentIrradianceTexture );
             DESERT_SHADER_PARAMETER( UniformBuffer, UnderwaterUB );
         };
-        // WaterUnderwater.shader's UnderwaterUB (std140: every member 16-byte aligned).
-        struct UnderwaterUBData
-        {
-            glm::mat4 InvViewProjection;
-            glm::vec4 CameraSurface;
-            glm::vec4 Scattering;
-            glm::vec4 Absorption;
-            glm::vec4 ToSun;
-            glm::vec4 SunRadiance;
-            glm::vec4 SkyYawCosSin;
-            glm::vec4 SkyGain;
-        };
-        static_assert( sizeof( UnderwaterUBData ) == 176u, "UnderwaterUB: std140 size" );
-
         // RecordDraws' per-draw push block, a thread's scratch (CPU-FRAME-ARENA 3, as TerrainRenderer's
         // t_TerrainRecordPush): "Water: Surface" and "Water: Front Layer" are recorded on two graph chunks at
         // once (RDG ChunkTasks), so one renderer-owned block was rewritten by the other chunk between a draw's

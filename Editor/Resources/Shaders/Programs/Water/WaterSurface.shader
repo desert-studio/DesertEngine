@@ -99,7 +99,7 @@ Shader "WaterSurface"
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
             SurfaceOutput s = DefaultSurfaceOutput();
-#ifdef WATER_MAX_WAVES
+#ifdef DESERT_WATER_MESH_TILES_GLSLH
             // A river's surface flows along its spline (WaterRiver.glslh WaterFlowPhases: two copies advected
             // half a period apart, each faded out as it resets); still water reads one copy.
             vec2  p0, p1;
@@ -153,7 +153,7 @@ Shader "WaterSurface"
             // On a river the sheet is carried by the flow, two-phase as the normals (EvaluateSurface).
             vec2  foam0 = i.UV1, foam1 = i.UV1;
             float foamW1 = 0.0;
-#ifdef WATER_MAX_WAVES
+#ifdef DESERT_WATER_MESH_TILES_GLSLH
             // A fall's foam streaks down its sheet (WaterFlowCoord: the sheet's coordinate, stretched along the flow).
             foam0 = WaterFlowCoord( i.UV1, i.UV0, i.VertexColor );
             WaterFlowPhases( foam0, i.VertexColor, i.Time, foam0, foam1, foamW1 );
@@ -171,7 +171,7 @@ Shader "WaterSurface"
             w.FallStrands = vec2( 0.5, 0.0 );
             w.FallShape   = vec4( Material.FallTearStartSpeed, Material.FallTearEndSpeed, Material.FallLipThickness,
                                   Material.FallEdgeFray );
-#ifdef WATER_MAX_WAVES
+#ifdef DESERT_WATER_MESH_TILES_GLSLH
             if ( WaterTileIsFall( i.VertexColor.b ) )
             {
                 const vec2  tile = max( vec2( Material.FallStrandTileWidth, Material.FallStrandTileLength ), vec2( 1.0 ) );

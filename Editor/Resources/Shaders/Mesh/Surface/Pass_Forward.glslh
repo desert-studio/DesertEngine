@@ -129,11 +129,11 @@ layout( binding = 21 ) uniform CloudShadowUB
 // WaterCausticsFrame, bound by name). Set 1 after ViewIndirect's 0..6.
 layout( set = 1, binding = 7 ) uniform texture2D WaterCausticsTexture;
 #define WaterCausticsTexture sampler2D(WaterCausticsTexture, LinearRepeatSampler)
+#include <Generated/Water/WaterCaustics.glslh>
 layout( std430, set = 1, binding = 8 ) readonly buffer WaterCausticsFrameUB
 {
-    vec4 WaterCausticsWindow;
-    vec4 WaterCausticsShape;
-    vec4 WaterCausticsBodies[];
+    DESERT_WaterCausticsFrameHead_MEMBERS
+    WaterCausticsBody WaterCausticsBodies[];
 };
 #define WATER_CAUSTICS_FRAME
 #include <Common/WaterCaustics.glslh>

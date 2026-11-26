@@ -1,4 +1,5 @@
 #include <Water/Public/WaterRenderer.hpp>
+#include <Water/Private/WaterLayout.hpp>
 
 // THE FFT OCEAN OF ONE VIEW (Tessendorf 2001): the spectrum's upload, the passes that bring it to the view's time,
 // its mips and the CPU mirror's read-back. The surface that samples the result is WaterRenderer.cpp's.
@@ -65,14 +66,6 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        // Water/WaterFFT.glslh WaterFFTParams, std430.
-        struct WaterFFTParams
-        {
-            glm::vec4 Cascade{ 0.0f }; // the patch sides (cm)
-            // x = choppiness, y = IFFT direction, z = the view's time (s), w = what the array holds
-            glm::vec4 Shape{ 0.0f };
-        };
-        static_assert( sizeof( WaterFFTParams ) == 2 * sizeof( glm::vec4 ) );
         constexpr uint32_t kFFTN       = Water::kFFTOceanResolution;
         constexpr uint32_t kFFTGroups8 = kFFTN / 8; // LocalSize(8, 8, 1)
         // WATER_WAVES_LAYERS / WATER_WAVES_MIPS.

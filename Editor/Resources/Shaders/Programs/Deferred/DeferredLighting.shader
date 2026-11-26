@@ -355,11 +355,11 @@ Shader "DeferredLighting"
         // composite's and the direct's own targets 7..10). The forward receivers hold them at set 1 7 / 8.
         layout(set = 1, binding = 11) uniform texture2D WaterCausticsTexture;
         #define WaterCausticsTexture sampler2D(WaterCausticsTexture, LinearRepeatSampler)
+        #include <Generated/Water/WaterCaustics.glslh>
         layout(std430, set = 1, binding = 12) readonly buffer WaterCausticsFrameUB
         {
-        	vec4 WaterCausticsWindow;
-        	vec4 WaterCausticsShape;
-        	vec4 WaterCausticsBodies[];
+        	DESERT_WaterCausticsFrameHead_MEMBERS
+        	WaterCausticsBody WaterCausticsBodies[];
         };
         #define WATER_CAUSTICS_FRAME
         #include <Common/WaterCaustics.glslh>

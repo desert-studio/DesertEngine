@@ -7,6 +7,7 @@
 
 #include <Engine/Assets/Common.hpp>
 #include <Water/Public/FFTSurfaceMirror.hpp>
+#include <Water/Public/WaterLayout.hpp> // kMaxWaveLanes
 
 #include <glm/vec2.hpp>
 
@@ -19,9 +20,6 @@
 namespace Desert::Water
 {
     struct GerstnerWave; // Water/Public/GerstnerWaterWaves.hpp
-
-    /// The wave lanes a frame draws. The C++ twin of Water/WaterMeshTiles.glslh WATER_MAX_WAVE_SETS.
-    inline constexpr std::size_t kMaxWaveLanes = 4;
 
     enum class WaterWaveState : uint8_t
     {

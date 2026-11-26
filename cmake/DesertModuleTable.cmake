@@ -115,7 +115,7 @@ desert_placement(RenderCore [[Engine/Graphic/(Image|ImageFactory|ImageTraits|Ind
 # the RHI's ray-tracing interfaces (BLAS geometry, skinned / procedural BLAS, the view's TLAS) + the dynamic-BLAS
 # pass (RDG only); the Vulkan side implements them, the renderer's caches drive them
 desert_placement(RenderCore [[Engine/Graphic/Systems/RayTracing/(RayTracingSbtWrites\.|RayTracingGeometry\.hpp|RayTracingDynamicGeometry\.|SkinnedRayTracingGeometry\.hpp|ProceduralRayTracingGeometry\.hpp|RayTracingSceneTarget\.hpp|RayTracingHitGroupTable\.hpp)]])
-desert_placement(RenderCore [[Engine/Graphic/Materials/(MaterialBackend|SceneResources|MaterialExecutor|Mesh/MeshVertexLayout)\.|Engine/Graphic/ShaderProtocols/|Engine/Graphic/(BRDFLut|SkyPayload)\.|Engine/Graphic/Materials/Properties/|Engine/Graphic/Environment/SkyLook\.]])
+desert_placement(RenderCore [[Engine/Graphic/Materials/(MaterialBackend|SceneResources|MaterialExecutor|Mesh/MeshVertexLayout)\.|Engine/Graphic/ShaderProtocols/|Engine/Graphic/(BRDFLut|SkyPayload|SkyLayout)\.|Engine/Graphic/Materials/Properties/|Engine/Graphic/Environment/(SkyLook|SkyLookLayout)\.]])
 # what the RHI and the Renderer call (BINT-RC): the display output, the video-memory budget, the engine-client
 # interface the Renderer drives its frame slot and teardown through, the indirect submission mode, the virtual
 # mesh table, and the image registry every Texture2D registers in

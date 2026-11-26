@@ -13,34 +13,16 @@ Shader "WaterFoamUpdate"
         In(0) vec2 v_TexCoord;
         Out(0) vec4 o_Foam;
 
-        Uniform(0) WaterFoamUB
-        {
-            vec4 FoamPrevious[3]; // xy = the history's window origins
-            vec4 FoamTime;        // x = the time (s), y = since the history (s), z = 1 with a history, w = the bodies
-            vec4 FoamChanged;     // the world rectangle the history does not stand in (min, max); min > max: none
-            vec4 FoamPlungeCount; // x = the plunges in FoamPlunges
-        };
+        // The block and the rows: Water/Private/WaterLayout.hpp WaterFoamUBData, Water/Public/WaterLayout.hpp
+        // WaterFoamBody / WaterFoamPlunge.
+        #include <Generated/Water/WaterFoamUpdate.glslh>
+        #include <Generated/Water/WaterFoamRows.glslh>
+        Uniform(0) WaterFoamUB { DESERT_WaterFoamUniforms_MEMBERS };
         Uniform(1) texture2D FoamHistoryTexture;
 
-        // One body of the frame (System::WaterRenderer::FoamBody).
-        struct WaterFoamBody
-        {
-            vec4 Footprint; // min X, min Z, max X, max Z
-            vec4 Level;     // x = still Y, y = its wave set (-1: none), z = 1 + its river of the frame (0: no river), w = its beach's slope
-            vec4 Source;    // x = jacobian threshold, y = softness, z = gain
-            vec4 Decay;     // x = foam, y = bubbles, z = wetness (s)
-            vec4 Drift;     // xy = the wind's surface drift (cm/s)
-        };
         layout( std430, binding = 2 ) readonly buffer WaterFoamBodies
         {
             WaterFoamBody FoamBodies[];
-        };
-        // One fall's plunge (Water::FallPlunge, System::WaterRenderer::FoamPlunge): the white boil and its outflow.
-        struct WaterFoamPlunge
-        {
-            vec4 FootRadius; // xyz = Foot, w = Radius (cm)
-            vec4 AcrossHalf; // xy = Across.xz, z = HalfWidth (cm), w = OutflowSpeed (cm/s)
-            vec4 Landing;    // xy = Downstream, z = LandingSpeed (cm/s), w = 0
         };
         layout( std430, binding = 3 ) readonly buffer WaterFoamPlunges
         {

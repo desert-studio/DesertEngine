@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Landscape/Public/LandscapeRaycast.hpp>
+#include <Water/Public/WaterLayout.hpp> // WaterShoreSample
 
 #include <glm/glm.hpp>
 
@@ -71,13 +72,6 @@ namespace Desert::Water
         Rect     ChangedGround; // texels whose ground does
         /// The GPU's texels (RGBA16F, PackShoreTexel), made by the bake so that no frame packs them.
         std::vector<uint64_t> Packed;
-    };
-
-    struct WaterShoreSample
-    {
-        float     GroundCm        = 0.0f;
-        float     ShoreDistanceCm = 0.0f;
-        glm::vec2 ShoreDirection{ 0.0f };
     };
 
     struct WaterBodyLevel
