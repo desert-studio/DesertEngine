@@ -69,7 +69,8 @@ namespace Desert::Net
         void FlushInputs();
         // THE INPUT UPLINK (UE `stat net` Out bytes, this lane's share): the Input messages' bytes and count over
         // the last whole second of NetClock (0 before one has passed), and the largest message this session with
-        // the number of steps it carried (a starved client's burst; {0, 0} before the first).
+        // the number of steps it carried, and the message with the most steps (ties: the more bytes) - a starved
+        // client's burst; {0, 0} before the first.
         struct InputMessageSize
         {
             std::size_t Bytes = 0;
@@ -86,6 +87,10 @@ namespace Desert::Net
         [[nodiscard]] InputMessageSize LargestInputMessage() const
         {
             return m_LargestInput;
+        }
+        [[nodiscard]] InputMessageSize LongestInputRun() const
+        {
+            return m_LongestInput;
         }
         // RecordInput + FlushInputs: a frame of one step.
         std::optional<InputStep> SendInput( InputStep input );
@@ -242,7 +247,9 @@ namespace Desert::Net
         double           m_InputWindowStart = 0.0;
         std::size_t      m_InputWindowBytes = 0, m_InputWindowMessages = 0;
         std::size_t      m_InputBytesPerSecond = 0, m_InputMessagesPerSecond = 0;
-        InputMessageSize m_LargestInput;
+        InputMessageSize m_LargestInput, m_LongestInput;
+        // The first step of the last refused run: a refusal is logged once per run start, not every frame.
+        std::optional<std::uint32_t> m_RefusedFrom;
         // The last view shape sent (ReportView) and when, in local seconds.
         std::optional<ViewReport>                m_SentView;
         double                                   m_ViewSentAt = 0.0;

@@ -360,12 +360,14 @@ namespace Desert::Core
             // The input uplink (NET-INPUT-PACK): the Input messages' bytes and count over the last second, and the
             // largest one this session with its step count (a starved client's burst must fit one UDP MTU).
             const Net::ReplicationClient::InputMessageSize largest = m_Client->LargestInputMessage();
+            const Net::ReplicationClient::InputMessageSize longest = m_Client->LongestInputRun();
             LOG_INFO( "[Net] t={:.1f}s pawns{}; scene players {}; unacked inputs {}; corrections {}; server input "
-                      "queue {:.1f}, clock x{:.2f}; input {} B/s, {} msgs; largest message {} B ({} steps){}",
+                      "queue {:.1f}, clock x{:.2f}; input {} B/s, {} msgs; largest message {} B ({} steps); "
+                      "longest run {} steps ({} B){}",
                       m_Clock, line.empty() ? std::string( " none" ) : line, scene.GetPlayers().size(),
                       m_Client->PendingInputs(), predictor.Corrections(), m_ServerQueue, 1.0 / m_Dilation,
                       m_Client->InputBytesPerSecond(), m_Client->InputMessagesPerSecond(), largest.Bytes,
-                      largest.Steps, shown );
+                      largest.Steps, longest.Steps, longest.Bytes, shown );
             LogPawnRates();
         }
     }

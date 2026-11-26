@@ -174,6 +174,9 @@ namespace Desert::Net
         const std::vector<std::byte> bytes = EncodeInput( message );
         if ( bytes.empty() )
         {
+            if ( m_RefusedFrom == message.Steps.front().Step )
+                return;
+            m_RefusedFrom = message.Steps.front().Step;
             m_Log( std::format( "input run refused: steps not consecutive or over the wire's limits ({} step(s), "
                                 "{}..{}); nothing sent",
                                 message.Steps.size(), message.Steps.front().Step, message.Steps.back().Step ) );
@@ -184,6 +187,9 @@ namespace Desert::Net
         ++m_InputWindowMessages;
         if ( bytes.size() > m_LargestInput.Bytes )
             m_LargestInput = { bytes.size(), message.Steps.size() };
+        if ( message.Steps.size() > m_LongestInput.Steps ||
+             ( message.Steps.size() == m_LongestInput.Steps && bytes.size() > m_LongestInput.Bytes ) )
+            m_LongestInput = { bytes.size(), message.Steps.size() };
         m_Transport.Send( m_Connection, bytes, ENetLane::State );
     }
 
