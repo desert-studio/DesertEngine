@@ -4,6 +4,7 @@
 #include <span>
 #include <string_view>
 #include <Common/Core/Memory/CommandBuffer.hpp>
+#include <Common/Core/Singleton.hpp>
 
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 

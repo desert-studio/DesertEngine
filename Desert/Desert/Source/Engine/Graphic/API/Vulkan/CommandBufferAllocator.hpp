@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
+#include <Common/Core/Singleton.hpp>
 
 #include <atomic>
 #include <condition_variable>

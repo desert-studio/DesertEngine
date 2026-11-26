@@ -1,11 +1,16 @@
-# Common: the Common static library (module "Common", own project).
+# Common: the Common module library (a DLL in Development/DebugGame, static in Shipping: desert_module_library).
 desert_glob(_sources "Source/Common/*.cpp" "Source/Common/*.hpp")
-desert_add_library(Common SOURCES
+desert_module_library(Common SOURCES
     ${_sources}
     "${DESERT_ROOT}/ThirdParty/desert-shared/Source/ProjectFormat.cpp"
     "${DESERT_ROOT}/ThirdParty/desert-shared/Source/EngineRegistry.cpp")
 desert_enable_unity(Common)
 desert_ltcg(Common)
+# The first PCH of the chain (Common -> engine pch.hpp -> EditorPCH.hpp): Common is the group's donor, DesertUI and
+# Render2DCore reuse it (Desert/CMakeLists.txt declares Common first).
+desert_shared_pch(Common Common "${DESERT_ROOT}/Desert/Common/Source/Common/CommonPCH.hpp")
+desert_unity_exclude(REASON "anonymous-namespace kMagic / kFormatVersion also in Utilities/PakFile.cpp"
+    "Source/Common/Utilities/ContentManifest.cpp")
 
 # Core/Version.gen.hpp is written before every build (only when its text changed).
 if(DESERT_IS_WINDOWS)

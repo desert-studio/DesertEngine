@@ -29,6 +29,31 @@ endfunction()
 
 desert_header_tool_roots(context _context_roots)
 
+# What every editor layer's code calls besides the layers below it and the engine: as DLLs (Development/DebugGame)
+# each layer resolves its own imports; in the Shipping monolith these travel to the executable with the archives.
+set(_editor_thirdparty
+    GLFW ${DESERT_OPTICK} MeshOptimizer Voro Compressonator OpenSubdiv Embree ImGui ImGuiNodeEditor Assimp OpenEXRCore
+    Dav1d Opus)
+if(IS_DIRECTORY "${DESERT_ROOT}/ThirdParty/dlib")
+    list(APPEND _editor_thirdparty Dlib)
+endif()
+
+desert_unity_exclude(REASON "anonymous-namespace SlicePreviewHelper also in Panels/Clouds/CloudModellingVolumePanel.cpp"
+    "Source/Editor/Panels/Clouds/CloudNoiseVolumePanel.cpp")
+desert_unity_exclude(REASON "defines IMGUI_DEFINE_MATH_OPERATORS / NOMINMAX before its includes"
+    "Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp" "Source/EditorLayer.cpp")
+desert_unity_exclude(REASON "defines DE_POSIX_PROC before its includes"
+    "Source/Editor/Panels/Photogrammetry/PhotogrammetryPanel.cpp")
+desert_unity_exclude(REASON "anonymous-namespace AddCategory / kAddCategories also in the component widget registry"
+    "Source/Editor/Panels/SceneHierarchy/SceneHierarchyPanel.cpp")
+desert_unity_exclude(REASON "anonymous-namespace Target / edges also in the modeling operations"
+    "Source/Editor/Panels/ViewportPanel/Tools/ElementSelectTool.cpp")
+desert_unity_exclude(REASON "anonymous-namespace kTraceDistanceCm / TraceLandscape() also in LandscapePaintTool.cpp"
+    "Source/Editor/Panels/ViewportPanel/Tools/LandscapeSculptTool.cpp")
+desert_unity_exclude(REASON "anonymous-namespace kDome* camera constants also in AssetThumbnailRenderer.cpp"
+    "Source/Editor/Widgets/PreviewViewport.cpp")
+
+set(_lower_layers "")
 set(_first_layer ON)
 foreach(layer IN LISTS DESERT_EDITOR_LAYERS)
     set(_files ${DESERT_EDITOR_LAYER_${layer}_FILES})
@@ -38,7 +63,7 @@ foreach(layer IN LISTS DESERT_EDITOR_LAYERS)
         desert_platform_foreign_sources(${_foreign})
         list(FILTER _files EXCLUDE REGEX "/Source/Editor/(Splash|Platform)/Windows/")
     endif()
-    desert_add_library(${layer} SOURCES "Source/EditorPCH.cpp" "Source/EditorPCH.hpp" ${_files})
+    desert_module_library(${layer} SOURCES "Source/EditorPCH.cpp" "Source/EditorPCH.hpp" ${_files})
     if(_first_layer)
         target_sources(${layer} PRIVATE "ThirdParty/ImGuizmo/ImGuizmo.cpp")
         set(_first_layer OFF)
@@ -60,6 +85,10 @@ foreach(layer IN LISTS DESERT_EDITOR_LAYERS)
             COMMENT "DesertHeaderTool: editor subsystem codegen")
     endif()
     _desert_editor_compile_settings(${layer})
+    # A layer calls the layers below it, never above (DESERT_EDITOR_LAYERS is bottom first).
+    target_link_libraries(${layer} PRIVATE ${_lower_layers} ${_editor_thirdparty})
+    desert_link_engine(${layer})
+    list(APPEND _lower_layers ${layer})
 endforeach()
 
 # The Windows system libraries EditorCore's own sources call, on EditorCore and not on one executable: the
@@ -83,13 +112,9 @@ set_target_properties(Editor PROPERTIES
     VS_DEBUGGER_COMMAND_ARGUMENTS "--project ../Projects/Desert/Desert.deproj")
 _desert_editor_compile_settings(Editor)
 desert_link_mimalloc(Editor)
-desert_link_editor_libs(Editor WHOLE_ARCHIVE)
-target_link_libraries(Editor PRIVATE
-    GLFW ${DESERT_OPTICK} MeshOptimizer Voro Compressonator OpenSubdiv Embree ImGui ImGuiNodeEditor Assimp OpenEXRCore Dav1d Opus)
+desert_link_editor_libs(Editor)
+target_link_libraries(Editor PRIVATE ${_editor_thirdparty})
 desert_link_engine(Editor)
-if(IS_DIRECTORY "${DESERT_ROOT}/ThirdParty/dlib")
-    target_link_libraries(Editor PRIVATE Dlib)
-endif()
 if(DESERT_IS_WINDOWS)
     # A windowed app that still enters through main() (WINDOWED + /ENTRY:mainCRTStartup).
     target_link_options(Editor PRIVATE /ENTRY:mainCRTStartup)

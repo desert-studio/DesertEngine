@@ -43,7 +43,7 @@ function(_desert_runner_settings target)
         "${DESERT_ROOT}/ThirdParty/GLFW/include/" "${DESERT_ROOT}/ThirdParty/" "${DESERT_ROOT}/ThirdParty/luau"
         ${DESERT_DESERTSPECIFIC_INCLUDE_DIRS})
     target_compile_definitions(${target} PRIVATE
-        $<$<CONFIG:Debug>:DESERT_CONFIG_DEBUG> $<$<CONFIG:Release>:DESERT_CONFIG_RELEASE>)
+        $<$<CONFIG:DebugGame>:DESERT_CONFIG_DEBUG> $<$<CONFIG:Development>:DESERT_CONFIG_RELEASE>)
     desert_link_engine(${target})
     target_link_libraries(${target} PRIVATE
         GLFW ${DESERT_OPTICK} MeshOptimizer OpenSubdiv Embree ImGui Assimp OpenEXRCore Dav1d Opus Voro Compressonator)
@@ -153,7 +153,7 @@ endfunction()
 
 function(_desert_runner_Editor target)
     # Whole, as the Editor links them, and ahead of the engine on the link line.
-    desert_link_editor_libs(${target} WHOLE_ARCHIVE)
+    desert_link_editor_libs(${target})
     _desert_runner_settings(${target})
     target_sources(${target} PRIVATE "${DESERT_ROOT}/Runtime/Source/PackagedContent.cpp")
     target_include_directories(${target} PRIVATE
