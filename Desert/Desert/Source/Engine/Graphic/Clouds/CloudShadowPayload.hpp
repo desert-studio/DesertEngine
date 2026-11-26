@@ -145,7 +145,7 @@ namespace Desert::Graphic
 
     // The shadow map march's per-dispatch push (map-to-world, trace, depth band, wind) is ShaderPush::CloudShadowMap, CloudShadowMap.shader's PushConstants block.
 
-
+    /**
      * WHAT A RENDERER GATHERED ABOUT THIS FRAME'S MAP, before any material has been told about it — the
      * single payload every consumer of the cloud shadow receives.
      *
