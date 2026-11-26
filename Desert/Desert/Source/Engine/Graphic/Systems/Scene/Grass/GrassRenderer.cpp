@@ -1935,24 +1935,17 @@ namespace Desert::Graphic::System
     {
         if ( range.Bytes == 0u )
             return;
-        m_Retired.push_back(
-             RetiredRange{ .Range = range, .Frame = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() } );
+        m_Retired.Park( range, ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
         range = PoolRange{};
     }
 
     void GrassRenderer::BufferPool::ReclaimRetired()
     {
         const ::Desert::Engine::FrameManager& frames = ::Desert::Engine::FrameManager::GetInstance();
-        const uint64_t      now    = frames.GetAbsoluteFrameCount();
-        const uint64_t      margin = frames.GetMaxFramesInFlight();
-        std::erase_if( m_Retired,
-                       [&]( const RetiredRange& retired )
-                       {
-                           if ( retired.Frame + margin > now )
-                               return false;
-                           FreeNow( retired.Range );
-                           return true;
-                       } );
+        m_Due.clear();
+        m_Retired.TakeDue( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight(), m_Due );
+        for ( const PoolRange& range : m_Due )
+            FreeNow( range );
     }
 
     void GrassRenderer::BufferPool::FreeNow( const PoolRange& range )
@@ -2221,6 +2214,7 @@ namespace Desert::Graphic::System
 
     bool GrassRenderer::TakeTileSegment( uint32_t& index )
     {
+        ReclaimTileSegments();
         if ( m_FreeTileSegments.empty() )
         {
             m_TileSegments.emplace_back();
@@ -2257,18 +2251,29 @@ namespace Desert::Graphic::System
 
     void GrassRenderer::ReleaseTileSegments( VarietyGpu& gpu )
     {
+        const uint64_t frame = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         for ( const uint32_t index : gpu.TileSegments )
         {
             m_TileSegments[index].Held = false;
             m_TileSegments[index].Ref  = {};
-            m_FreeTileSegments.push_back( index );
+            m_RetiredTileSegments.Park( index, frame );
         }
         m_TileSegmentCount -= static_cast<uint64_t>( gpu.TileSegments.size() );
         gpu.TileSegments.clear();
     }
 
+    void GrassRenderer::ReclaimTileSegments()
+    {
+        const ::Desert::Engine::FrameManager& frames = ::Desert::Engine::FrameManager::GetInstance();
+        m_DueTileSegments.clear();
+        m_RetiredTileSegments.TakeDue( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight(),
+                                       m_DueTileSegments );
+        m_FreeTileSegments.insert( m_FreeTileSegments.end(), m_DueTileSegments.begin(), m_DueTileSegments.end() );
+    }
+
     void GrassRenderer::TrimTileSegments()
     {
+        ReclaimTileSegments();
         // As a pool's own segments were before CPU-GRASS-POOL-2: a released buffer is deleted once no frame in
         // flight holds it. The index stays free and takes a new buffer when a pool grows.
         for ( const uint32_t index : m_FreeTileSegments )
