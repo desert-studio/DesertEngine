@@ -12,6 +12,7 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <format>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -235,8 +236,10 @@ namespace Desert::ECS
             }
             actor.Playback        = std::make_unique<LevelSequencePlayback>( actor.Asset->GetSequence() );
             actor.Playback->Asset = actor.Asset->Guid();
-            // The bone layer's owner on an Animator: the sequence asset, one identity however it is named.
-            actor.Playback->Writer = Common::Content::AssetGuidToText( actor.Asset->Guid() );
+            // The bone layer's owner on an Animator: THIS Level Sequence actor, not its asset — two actors playing
+            // one sequence on one character are two writers, and the second is refused by name.
+            actor.Playback->Writer = std::format( "Level Sequence '{}' (entity {})", actor.Name,
+                                                  static_cast<uint32_t>( entt::to_integral( entity ) ) );
             ApplyLevelSequencePlaySettings( actor.Playback->Player, component );
             if ( component.AutoPlay )
                 actor.Playback->Player.Play();

@@ -182,6 +182,17 @@ namespace Desert::Editor
 
     void SequencerPanel::PreviewLevelIfChanged( const LevelTL::Sequence& sequence )
     {
+        // PLAY OWNS THE SCENE (UE: the editor's preview poses the editor world, not PIE). The preview's bone
+        // layers come off so a playing Level Sequence actor writes its own (an Animator holds one writer),
+        // and the next Edit frame scrubs afresh.
+        if ( const auto scene = m_Scene.lock();
+             scene && scene->GetState() == ::Desert::Core::Scene::SceneState::Play )
+        {
+            m_LevelPreview.ReleaseBoneLayers( scene->GetRegistry() );
+            m_LevelTickShown     = INT32_MIN;
+            m_LevelRevisionShown = UINT32_MAX;
+            return;
+        }
         // NOT EVERY FRAME: a per-frame pose would fight the gizmo the user moves an actor with before keying
         // it. The scene is posed when the playhead moved or the sequence changed (every edit, undo and redo
         // bumps Revision).

@@ -18,6 +18,7 @@
 #include <glm/glm.hpp>
 
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
+#include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
@@ -400,6 +401,7 @@ namespace Desert::Editor
         void UpdateLevelBoneGizmo( Animation::Timeline::Sequence& sequence );
         Animation::Timeline::BindingGuid m_LevelSelBone;
         bool                             m_LevelBoneHeld = false;
+        Animation::LocalPose             m_LevelShownPose; ///< UpdateLevelBoneGizmo's copy of the shown pose
 
         /// The curve view of a Transform track — the selected key's binding, else the first keyed one.
         void DrawLevelCurve( Animation::Timeline::Sequence& sequence, float contentX0, float gutter, float laneW );

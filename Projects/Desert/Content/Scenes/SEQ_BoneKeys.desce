@@ -11,7 +11,8 @@
         },
         "Dependencies": [
             "40e8fc4221d33289cca9e025f87dab0a",
-            "6d3a1f0e2b8c4e579a41c7d25e0b3f18"
+            "6d3a1f0e2b8c4e579a41c7d25e0b3f18",
+            "b07e5a1c4d2f4e8a9c3b6d1e0f2a4c57"
         ]
     },
     "SceneName": "Sequencer Bone Keys (SEQ-BONE-KEYS)",
@@ -314,7 +315,7 @@
             "Translation": [
                 0.0,
                 160.0,
-                350.0
+                800.0
             ],
             "Rotation": [
                 0.0,
@@ -587,6 +588,34 @@
                     "SubsurfaceScattering": true,
                     "SubsurfaceScale": 1.0
                 }
+            }
+        },
+        {
+            "id": 3003,
+            "siblingIndex": 7,
+            "Tag": "BoneKeysSequence",
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "LevelSequence": {
+                "SequenceGuid": "b07e5a1c4d2f4e8a9c3b6d1e0f2a4c57",
+                "SequencePath": "assets:Sequences/SEQ_BoneKeys.dseq",
+                "Loop": "Once",
+                "AutoPlay": true,
+                "PlayRate": 1.0,
+                "BindingOverrides": []
             }
         }
     ],

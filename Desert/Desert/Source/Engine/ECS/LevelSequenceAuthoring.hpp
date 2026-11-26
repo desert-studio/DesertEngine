@@ -456,6 +456,9 @@ namespace Desert::ECS
                                  const LevelSequenceSubsequenceSource& subsequences = {},
                                  const Common::Content::AssetGuid&     asset        = {} );
         void              Restore( entt::registry& registry );
+        /// Takes the preview's bone layers off (they are the Edit scene's; Play's sequences write their own),
+        /// leaving every other recorded state for `Restore`.
+        void ReleaseBoneLayers( entt::registry& registry );
 
         [[nodiscard]] bool Active() const
         {

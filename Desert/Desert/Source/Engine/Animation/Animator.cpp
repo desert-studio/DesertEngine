@@ -258,6 +258,10 @@ namespace Desert::Animation
                                            m_PhysicsScratch );
         if ( !applied.IsSuccess() )
             return applied;
+        // Kept until the next evaluation: a sequencer layer set later this frame refolds from the pre-layer
+        // pose and writes these back over it, so the ragdoll wins over a bone key (UE: physics blends after
+        // the sequencer's animation).
+        m_PhysicsOverrides.assign( componentOverrides.begin(), componentOverrides.end() );
         PublishPose();
         return Common::MakeSuccess( true );
     }
@@ -511,6 +515,8 @@ namespace Desert::Animation
             m_Component.Reset( m_EvaluatedPose.Size() );
         }
         m_StepRootMotion = NoRootMotion();
+        // A fresh animated pose: the last physics write-back belongs to the pose it was written over.
+        m_PhysicsOverrides.clear();
 
         for ( const PoseStage stage : m_Stages )
         {
@@ -605,6 +611,17 @@ namespace Desert::Animation
         }
         // Bones were checked against the skeleton when the layer was set (SetSequencerLayer).
         static_cast<void>( Timeline::FoldBoneLayer( m_Layer, m_EvaluatedPose, m_RequiredMask ) );
+        if ( !m_PhysicsOverrides.empty() )
+        {
+            // The ragdoll wins: its bodies go back over the folded layer and the evaluated pose is published,
+            // as ApplyPhysicsPose publishes it. These overrides were applied to this skeleton and pose size
+            // this frame already, so the second write cannot refuse.
+            m_Component.Invalidate();
+            static_cast<void>( ApplyBoneOverrides( m_Skeleton, m_EvaluatedPose, m_Component, m_PhysicsOverrides,
+                                                   1.0f, m_PhysicsScratch ) );
+            PublishPose();
+            return;
+        }
         if ( m_InterpolateSkipped )
         {
             m_Component.Invalidate();
@@ -620,14 +637,31 @@ namespace Desert::Animation
         {
             return BoneTransform{}; // GetBoneModelMatrix's rule: identity out of range
         }
-        if ( !m_InterpolateSkipped || m_DisplayPose.Size() != m_EvaluatedPose.Size() )
+        if ( PublishesEvaluatedPose() )
         {
-            return m_EvaluatedPose[bone]; // what PublishPose wrote, the layer folded in
+            return m_EvaluatedPose[bone];
+        }
+        LocalPose shown;
+        CopyPublishedPose( shown );
+        return shown[bone];
+    }
+
+    bool Animator::PublishesEvaluatedPose() const noexcept
+    {
+        return !m_InterpolateSkipped || !m_PhysicsOverrides.empty() ||
+               m_DisplayPose.Size() != m_EvaluatedPose.Size();
+    }
+
+    void Animator::CopyPublishedPose( LocalPose& out ) const
+    {
+        if ( PublishesEvaluatedPose() )
+        {
+            out = m_EvaluatedPose; // what PublishPose wrote, the layer (and a ragdoll) folded in
+            return;
         }
         // PublishDisplay's write, recomputed: the display pose keeps no layer between frames.
-        LocalPose shown = m_DisplayPose;
-        static_cast<void>( Timeline::FoldBoneLayer( m_Layer, shown, m_RequiredMask ) );
-        return shown[bone];
+        out = m_DisplayPose;
+        static_cast<void>( Timeline::FoldBoneLayer( m_Layer, out, m_RequiredMask ) );
     }
 
     void Animator::EvaluateSource( LocalPose& pose )

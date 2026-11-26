@@ -1378,6 +1378,11 @@ namespace Desert::ECS
         return step;
     }
 
+    void LevelSequencePreview::ReleaseBoneLayers( entt::registry& registry )
+    {
+        ClearLevelSequenceBoneLayers( registry, m_Layered, kLevelSequencePreviewWriter );
+    }
+
     void LevelSequencePreview::Restore( entt::registry& registry )
     {
         // The bone layers first: the Animator's restored clip and tick then publish the scene's own pose.

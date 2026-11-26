@@ -558,8 +558,12 @@ namespace Desert::Animation
         {
             return m_LayerWriter.empty() ? m_EvaluatedPose : m_PreLayerPose;
         }
-        /// Bone @p bone's local transform as it is PUBLISHED to skinning this frame: the interpolated pose
-        /// while skipped frames are interpolated, the evaluated one otherwise, the layer included either way.
+        /// The local pose as it is PUBLISHED to skinning this frame, into @p out (resized to the skeleton, its
+        /// storage reused): the interpolated pose while skipped frames are interpolated, the evaluated one
+        /// otherwise or while a ragdoll writes it, the layer included either way. One copy for the whole pose.
+        void CopyPublishedPose( LocalPose& out ) const;
+        /// Bone @p bone's local transform of `CopyPublishedPose` (identity out of range); a whole pose is read
+        /// with `CopyPublishedPose`, not bone by bone.
         [[nodiscard]] BoneTransform GetPublishedLocal( uint32_t bone ) const;
 
     private:
@@ -673,6 +677,9 @@ namespace Desert::Animation
         /// m_PreLayerPose → m_EvaluatedPose, the layer folded over it, then published — through the display
         /// pose while skipped frames are interpolated (PublishDisplay), so the body keeps its interpolation.
         void FoldSequencerLayer();
+        /// Whether skinning shows m_EvaluatedPose (no interpolation, or a ragdoll writes it) rather than the
+        /// interpolated display pose.
+        [[nodiscard]] bool PublishesEvaluatedPose() const noexcept;
         /// m_DisplayPose with the layer folded over it → m_Skinning. The layer is folded AFTER the
         /// interpolation (UE: the rig layer runs after the pose's URO interpolation) and the display pose
         /// itself stays layer-free, so the next interpolation step blends animation and nothing else.
@@ -899,6 +906,9 @@ namespace Desert::Animation
         ComponentPose m_Component;
         // ApplyPhysicsPose's pre-write locals, reused so a simulated ragdoll allocates nothing per frame.
         std::vector<BoneTransform> m_PhysicsScratch;
+        // ApplyPhysicsPose's overrides since the last evaluation; FoldSequencerLayer writes them back over the
+        // layer so a simulated ragdoll wins over a bone key. Cleared by EvaluatePipeline.
+        std::vector<BoneOverride> m_PhysicsOverrides;
 
         SkinningMatrices m_Skinning;
         uint64_t         m_SkinningRevision = 0; // GetPoseRevision

@@ -523,11 +523,8 @@ namespace Desert::Editor
         }
         // Between drags the gizmo's buffer is the pose on screen, so a grab starts from what the viewer sees
         // (the authoring pose is a separate buffer, Animator::ApplyLocalPose).
-        const size_t         count = animator->GetSkeleton().GetBones().size();
-        Animation::LocalPose shown( count );
-        for ( uint32_t i = 0; i < count; ++i )
-            shown[i] = animator->GetPublishedLocal( i );
-        if ( const auto seeded = animator->SetAuthoringPose( shown ); !seeded )
+        animator->CopyPublishedPose( m_LevelShownPose );
+        if ( const auto seeded = animator->SetAuthoringPose( m_LevelShownPose ); !seeded )
             LOG_WARN( "[Sequencer] the bone gizmo cannot start from the shown pose: {}", seeded.GetError() );
     }
 } // namespace Desert::Editor

@@ -364,11 +364,14 @@ namespace Desert::ECS
         if ( cache->Table.Revision != sequence.Revision || cache->Skeleton != &skeleton ||
              cache->BoneCount != skeleton.GetBones().size() )
         {
-            cache->Skeleton  = &skeleton;
-            cache->BoneCount = skeleton.GetBones().size();
-            cache->Table     = T::BindBones( sequence, skeleton, parentGuid );
+            cache->Skeleton        = &skeleton;
+            cache->BoneCount       = skeleton.GetBones().size();
+            cache->Table           = T::BindBones( sequence, skeleton, parentGuid );
+            cache->MissingReported = false;
         }
-        if ( cache->Table.Missing > 0 )
+        if ( cache->Table.Missing > 0 && !cache->MissingReported )
+        {
+            cache->MissingReported = true;
             for ( size_t i = 0; i < sequence.Tracks.size(); ++i )
             {
                 const T::Binding* bone = T::FindBinding( sequence, sequence.Tracks[i].Binding );
@@ -378,20 +381,39 @@ namespace Desert::ECS
                     m_Refusals.push_back(
                          std::format( "{}: the skeleton of {} has no such bone", bone->Locator, actor ) );
             }
+        }
 
-        m_Samples.clear();
-        if ( const auto sampled = T::SampleBoneLayer( sequence, cache->Table, at, m_Samples ); !sampled )
+        auto pending = std::find_if( m_Pending.begin(), m_Pending.end(),
+                                     [entity]( const PendingLayer& p ) { return p.Entity == entity; } );
+        if ( pending == m_Pending.end() )
         {
+            m_Pending.push_back( PendingLayer{ entity, actor, m_Writer, {} } );
+            pending = std::prev( m_Pending.end() );
+        }
+        // SampleBoneLayer appends, and refuses before appending anything: a refused table leaves the samples
+        // gathered so far for this actor as they were.
+        if ( const auto sampled = T::SampleBoneLayer( sequence, cache->Table, at, pending->Samples ); !sampled )
             m_Refusals.push_back( std::format( "bone tracks of {}: {}", actor, sampled.GetError() ) );
-            return;
-        }
-        if ( const auto set = animator.SetSequencerLayer( m_Writer, m_Samples ); !set )
+    }
+
+    void LevelSequenceEntityHost::CommitBoneLayers()
+    {
+        for ( const PendingLayer& pending : m_Pending )
         {
-            m_Refusals.push_back( std::format( "bone tracks of {}: {}", actor, set.GetError() ) );
-            return;
+            if ( !m_Registry.valid( pending.Entity ) )
+                continue;
+            auto* animation = m_Registry.try_get<AnimationComponent>( pending.Entity );
+            if ( animation == nullptr || !animation->Animator )
+                continue; // PoseBones refused it by name before gathering anything
+            if ( const auto set = animation->Animator->SetSequencerLayer( pending.Writer, pending.Samples ); !set )
+            {
+                m_Refusals.push_back( std::format( "bone tracks of {}: {}", pending.Actor, set.GetError() ) );
+                continue;
+            }
+            if ( std::find( m_Layered.begin(), m_Layered.end(), pending.Entity ) == m_Layered.end() )
+                m_Layered.push_back( pending.Entity );
         }
-        if ( std::find( m_Layered.begin(), m_Layered.end(), entity ) == m_Layered.end() )
-            m_Layered.push_back( entity );
+        m_Pending.clear();
     }
 
     void ClearLevelSequenceBoneLayers( entt::registry& registry, std::vector<entt::entity>& entities,
@@ -536,6 +558,8 @@ namespace Desert::ECS
         if ( !playback.Asset.IsNull() )
             path.push_back( playback.Asset );
         StepSubsequences( host, playback, true, subsequences, path, out );
+        // Every bone binding of the master and its subsequences was gathered: one layer per actor, set once.
+        host.CommitBoneLayers();
 
         // A layer the previous step set and this one did not reach (its section ended, its track was muted or
         // removed) comes off: the actor shows its animation again, not the last keyed bone.
