@@ -33,7 +33,7 @@ namespace Desert::Water
         // Its falls are their sheets (RiverFallAt): the water a point meets where the river drops off a lip.
         if ( body.Type == WaterBodyType::River )
             return body.Flow != nullptr && ( RiverInsideBank( *body.Flow, glm::vec2( point.x, point.z ) ) ||
-                                             RiverFallAt( *body.Flow, point, body.Gravity ).has_value() );
+                                             RiverFallAt( *body.Flow, point ).has_value() );
         return true;
     }
 
@@ -189,12 +189,12 @@ namespace Desert::Water
 
         // A river's fall (WaterRiver.hpp RiverFall): off the banks the point is in the falling sheet, if anywhere -
         // the sheet is the surface (its mid-plane and normal), the water column is the sheet's thickness, and the
-        // current is the falling water's (RiverFallSpeed: the river's flow gaining by free fall down the slope), so
-        // a floating body caught by the fall is dragged down it (BuoyancySimulation's drag on the relative velocity).
+        // current is the falling water's (the baked flight's speed, RiverFallSample::Speed), so a floating body
+        // caught by the fall is dragged down it (BuoyancySimulation's drag on the relative velocity).
         if ( body.Type == WaterBodyType::River && body.Flow != nullptr &&
              !RiverInsideBank( *body.Flow, glm::vec2( point.x, point.z ) ) )
         {
-            if ( const std::optional<RiverFallHit> fall = RiverFallAt( *body.Flow, point, body.Gravity ) )
+            if ( const std::optional<RiverFallHit> fall = RiverFallAt( *body.Flow, point ) )
             {
                 result.PlaneLocation   = fall->SheetPoint;
                 result.SurfaceLocation = fall->SheetPoint;
@@ -247,9 +247,19 @@ namespace Desert::Water
         result.PlaneDepth   = result.PlaneLocation.y - at.GroundCm;
         result.SurfaceDepth = result.PlaneDepth;
 
-        const Waves waves = WavesOver( body, glm::vec2( point.x, point.z ), result.PlaneLocation.y, time, shore,
-                                       shore != nullptr && body.Type != WaterBodyType::River ? shore->BeachSlope
-                                                                                             : 0.0f );
+        Waves waves = WavesOver( body, glm::vec2( point.x, point.z ), result.PlaneLocation.y, time, shore,
+                                 shore != nullptr && body.Type != WaterBodyType::River ? shore->BeachSlope : 0.0f );
+        // A river has no waves of its own: near its mouth it carries its receiver's (the lane SetWaveLane gave it),
+        // fading to none Mouth.Radius upstream (RiverMouthWeight, the GPU's WaterMouthWeight).
+        if ( body.Type == WaterBodyType::River )
+        {
+            const float weight =
+                 body.Flow != nullptr ? RiverMouthWeight( *body.Flow, glm::vec2( point.x, point.z ) ) : 0.0f;
+            waves.Height *= weight;
+            waves.MaxHeight *= weight;
+            waves.Normal =
+                 glm::normalize( glm::vec3( waves.Normal.x * weight, waves.Normal.y, waves.Normal.z * weight ) );
+        }
         result.SurfaceReady    = waves.Ready;
         result.WaveAttenuation = waves.Attenuation;
         result.MaxWaveHeight   = waves.MaxHeight;
@@ -266,6 +276,14 @@ namespace Desert::Water
         // No water stands where the surface is under the ground (the beach between two run-ups).
         result.ImmersionDepth =
              result.SurfaceDepth > 0.0f ? result.SurfaceLocation.y - point.y : -std::abs( result.SurfaceDepth );
+
+        // The boil under every fall that lands in this body pushes its water outward (PlungeVelocityAt, the foam
+        // field's WaterPlungeAt): what carries a floating body away from the foot of a fall, river or ocean.
+        for ( const FallPlunge& plunge : body.Plunges )
+        {
+            const glm::vec2 push = PlungeVelocityAt( plunge, glm::vec2( point.x, point.z ) );
+            result.Velocity += glm::vec3( push.x, 0.0f, push.y );
+        }
         return result;
     }
 
@@ -315,8 +333,6 @@ namespace Desert::Water
                                    std::shared_ptr<const WaterShoreField> shore )
     {
         m_Bodies.assign( bodies.begin(), bodies.end() );
-        for ( WaterBodyState& body : m_Bodies )
-            body.Gravity = m_Gravity;
         m_Shore = std::move( shore );
     }
 

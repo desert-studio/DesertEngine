@@ -18,10 +18,11 @@
             "94456c88cf0e495e9396474e052d53bd",
             "9488cdf80a5f4f4fba16c02d431bc8e0",
             "bd19bb728e4646919475240f1a19369d",
-            "cf51fea773c548b58ab3c1eca8387601",
             "d1378c9a2062498ab14e47e7ef29cccb",
+            "dd5d7185bfac4adf9d6d3e705f5c7bd1",
             "dff69e4e958a45f5a4fd4f19ba7de22c",
-            "e64f581d72684d28ab4dc2f70e9c807a"
+            "e64f581d72684d28ab4dc2f70e9c807a",
+            "e9f40e7b3dae4463a5a47d725c82a1bb"
         ]
     },
     "Category": "Water",
@@ -483,6 +484,81 @@
                     },
                     {
                         "Module": {
+                            "Guid": "e9f40e7b3dae4463a5a47d725c82a1bb",
+                            "Path": "engine:Engine/VFX/Modules/Collision.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Radius",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    2.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Thickness",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    50.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Restitution",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.4,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "Friction",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.2,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "KillOnCollision",
+                                "Type": "Bool",
+                                "Source": "Value",
+                                "Value": [
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            },
+                            {
+                                "Name": "MinimumTimeBetweenEvents",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.25,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": {
                             "Guid": "240adf0c6a0f407489419764780491eb",
                             "Path": "engine:Engine/VFX/Modules/SizeOverLife.dfxmod"
                         },
@@ -636,8 +712,11 @@
                     "Kind": "Sprite",
                     "Enabled": true,
                     "Material": {
-                        "Guid": "cf51fea773c548b58ab3c1eca8387601",
-                        "Path": "engine:Engine/Materials/M_ParticleLit.demat"
+                        "Guid": "dd5d7185bfac4adf9d6d3e705f5c7bd1",
+                        "Path": "assets:VFX/Water/Materials/M_FallSpray.demat"
+                    },
+                    "Sprite": {
+                        "Alignment": "VelocityAligned"
                     }
                 }
             ],

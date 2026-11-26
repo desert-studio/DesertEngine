@@ -61,9 +61,9 @@ namespace Desert::Water
         /// pontoons in this body are pushed up and held back by (BuoyancySimulation.hpp).
         float Density = 1000.0f;
         float Drag    = 1.5f;
-        /// The scene's gravity, cm/s^2 (SceneSettings::Gravity, the physics world's): what a river's falling water
-        /// accelerates by down its sheet (RiverFallSpeed). WaterSubsystem::SetWorld stamps it on every body.
-        float Gravity = 0.0f;
+        /// The plunges that land in this body (WaterBodyGather: the highest-priority body covering each foot): their
+        /// boil adds to the body's current (PlungeVelocityAt).
+        std::vector<FallPlunge> Plunges;
     };
 
     /// Gives the body its lane's waves: what the renderer draws it with.
@@ -91,7 +91,7 @@ namespace Desert::Water
         /// How far below the surface the point is; negative above it.
         float ImmersionDepth = 0.0f;
         /// The water's current at the point, cm/s (UE FWaterQueryResult::Velocity): a river's baked flow on the
-        /// (X, Z) plane, zero for an ocean.
+        /// (X, Z) plane, plus the outward push of every fall's plunge landing in the body (WaterBodyState::Plunges).
         glm::vec3 Velocity{ 0.0f };
 
         [[nodiscard]] bool IsInWater() const
@@ -136,13 +136,6 @@ namespace Desert::Water
     public:
         void Advance( double stepSeconds );
         void SetTime( double seconds );
-        /// The scene's gravity (cm/s^2) the bodies' falls accelerate by (WaterBodyState::Gravity); the next SetWorld
-        /// stamps it on the bodies.
-        void SetGravity( float gravity ) noexcept
-        {
-            m_Gravity = gravity;
-        }
-
         [[nodiscard]] float Time() const
         {
             return static_cast<float>( m_Time );
@@ -161,8 +154,7 @@ namespace Desert::Water
         [[nodiscard]] std::optional<WaterQueryHit> Query( const glm::vec3& point, bool andUnready = false ) const;
 
     private:
-        double                                 m_Time    = 0.0;
-        float                                  m_Gravity = 0.0f;
+        double                                 m_Time = 0.0;
         std::vector<WaterBodyState>            m_Bodies;
         std::shared_ptr<const WaterShoreField> m_Shore;
     };

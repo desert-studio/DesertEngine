@@ -901,7 +901,7 @@ VolumeResolution: int32_t
 WindOffset: vec3
 Drift: bool
 
-[WaterBody] Version 2
+[WaterBody] Version 3
 WaterWaves: AssetHandle
 OceanExtents: vec2
 WaterMaterial: AssetHandle
@@ -910,9 +910,9 @@ RiverSpline: vector<float>
 RiverWidth: float
 RiverFlowSpeed: float
 RiverFlowPeriod: float
-FallFoam: AssetHandle
 FallSpray: AssetHandle
 FallMist: AssetHandle
+FallSound: AssetHandle
 Density: float
 Drag: float
 

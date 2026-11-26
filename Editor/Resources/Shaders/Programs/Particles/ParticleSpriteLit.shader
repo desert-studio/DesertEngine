@@ -6,7 +6,9 @@
 // BaseColor through the view's translucency lighting volume (sun through its cascades and the cloud shadow, the
 // light grid's local lights through their shadows, the sky through its occlusion), so a puff in the barn's shade
 // is darker than one in the sun. BlendMode Translucent = laid OVER the scene (SrcAlpha, OneMinusSrcAlpha).
-// The shape is the default sprite's radial soft dot; Emissive adds a glow of its own on top of the light.
+// The shape is the material's SpriteTexture (R = coverage; the engine's lit material binds T_ParticleSoftDisc, a soft
+// round dot), faded out where it nears the scene behind over DepthFadeDistance (UE's DepthFade: no hard line where
+// a puff meets the ground or the water); Emissive adds a glow of its own on top of the light.
 Shader "ParticleSpriteLit"
 {
     Domain Surface
@@ -21,6 +23,10 @@ Shader "ParticleSpriteLit"
         Color Tint ("Tint", Category("Surface")) = (1, 1, 1, 1)
         // Self-emission added to the scattered light (0 = lit only, UE's lit smoke).
         Float EmissiveScale ("Emissive", Range(0,64), Category("Surface")) = 0
+        // The sprite's shape: its R is the coverage across the quad (Mask: one channel).
+        Texture2D SpriteTexture ("Sprite (R = shape)", Category("Textures"), Intent(Mask)) = "white"
+        // How far in front of the scene behind (cm) the sprite fades out; 0 = a hard edge where it meets it.
+        Float DepthFadeDistance ("Depth Fade (cm)", Range(0,2000), Category("Surface")) = 0
     }
 
     State
@@ -36,14 +42,12 @@ Shader "ParticleSpriteLit"
     {
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
-            // 1 at the centre of the quad, 0 at its inscribed circle, smooth in between.
-            const float r       = length( i.UV0 * 2.0 - 1.0 );
-            const float disc    = 1.0 - smoothstep( 0.0, 1.0, r );
-            const vec4  colour  = i.Particle.Color * Material.Tint;
-            SurfaceOutput s     = DefaultSurfaceOutput();
-            s.BaseColor         = clamp( colour.rgb, vec3( 0.0 ), vec3( 1.0 ) );
-            s.Emissive          = colour.rgb * Material.EmissiveScale;
-            s.Opacity           = colour.a * disc;
+            const float   shape  = SurfaceSampleMaterial( Material.SpriteTexture, i.UV0 ).r;
+            const vec4    colour = i.Particle.Color * Material.Tint;
+            SurfaceOutput s      = DefaultSurfaceOutput();
+            s.BaseColor          = clamp( colour.rgb, vec3( 0.0 ), vec3( 1.0 ) );
+            s.Emissive           = colour.rgb * Material.EmissiveScale;
+            s.Opacity            = DesertDepthFade( i.WorldPosition, colour.a * shape, Material.DepthFadeDistance );
             return s;
         }
     }

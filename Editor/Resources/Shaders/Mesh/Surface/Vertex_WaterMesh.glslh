@@ -122,10 +122,13 @@ void main()
     const int          waveSet = WaterWaveSetOf( t.Body.z );
     const WaterSurface water   = WaterSurfaceAt( waveSet, restXZ, restPos.y, cameraUB.Time, cameraUB.PrevTime, quadSize,
                                                  riverTile ? 0.0 : WaterShoreShape.y );
+    // A river has no waves of its own: near its mouth it carries the receiver's set (Body.z), faded in over the
+    // mouth's radius (WaterMouthWeight, the CPU query's RiverMouthWeight); elsewhere it is still.
+    const float waveShare = riverTile ? WaterMouthWeight( t.Medium, restXZ ) : 1.0;
     // Pressed onto the floor, never under it: a thin film runs up the beach and drains off it.
     const float ground   = restPos.y - water.Depth;
-    vec3        offset   = water.Displacement;
-    vec3        before   = water.Previous;
+    vec3        offset   = water.Displacement * waveShare;
+    vec3        before   = water.Previous * waveShare;
     if ( !riverTile && waveSet >= 0 )
     {
         offset.y = max( offset.y, ground - restPos.y );
@@ -135,7 +138,9 @@ void main()
 
     // The still surface's own normal: up, or a river's slope (WaterRiverSurfaceNormal, the CPU's PlaneNormal).
     const vec3 stillN = riverTile ? WaterRiverSurfaceNormal( restXZ ) : vec3( 0.0, 1.0, 0.0 );
-    const vec3 N      = waveSet >= 0 ? WaterSurfaceNormal( water.Slope ) : stillN;
+    const vec3 N      = waveSet < 0     ? stillN
+                        : riverTile     ? normalize( mix( stillN, WaterSurfaceNormal( water.Slope ), waveShare ) )
+                                        : WaterSurfaceNormal( water.Slope );
     const mat3 frame  = WaterSurfaceFrame( N );
     v_Surface.WorldPosition = worldPos.xyz;
     v_Surface.Normal        = N;
