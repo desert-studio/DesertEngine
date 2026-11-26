@@ -7,7 +7,8 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Ocean.desce
 Дано run View "View mode: Lit"
 Дано run View "Realtime: On"
-Дано --subject viewport set Camera.Position 0,180,-2500
+# 4 m up: the near frames look down on the surf; at 1.8 m the bores ran over the camera (b_wf8 1_near_b/c teal).
+Дано --subject viewport set Camera.Position 0,400,-2500
 Дано --subject viewport set Camera.Direction 0,-0.2,1
 Когда frames 64
 Тогда-вид 1_near_a нет отвесной стены и вытянутых полос; пена - белое кружево, между ячейками видно дно
@@ -41,13 +42,17 @@
 Когда frames 1
 Тогда-вид 3_above_c полоса мокрого песка шире и темнее сухого, край пены мягкий; дно видно между бурунами; камень в воде без ореола
 Когда frames 1
-Дано --subject viewport set Camera.Position 0,170,-900
-Дано --subject viewport set Camera.Direction 0,-0.45,0.9
+# The swash frames advance simulated time, so the sea runs under Simulate; 3.5 m up, above the run-up (b_wf8 4_swash_a was
+# shot from under the water at 1.7 m).
+Когда run Action "Simulate"
+Дано --subject viewport set Camera.Position 0,350,-900
+Дано --subject viewport set Camera.Direction 0,-0.5,0.85
 Тогда-вид 4_swash_a урез виден, песок за ним мокрый и темнее сухого
 Когда advance 2
 Тогда-вид 4_swash_b урез сдвинулся, мокрый след остался
 Когда advance 2
 Тогда-вид 4_swash_c урез снова сдвинулся, след сохнет
+Когда run Action "Stop"
 Дано --subject viewport set Camera.Position 0,400,-200
 Дано --subject viewport set Camera.Direction 0,-0.1,1
 Тогда-вид 5_behind за пляжем ландшафт: сухой песок, галька, дюны с травой, холмы; примитивов нет, воды за берегом нет
