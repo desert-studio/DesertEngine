@@ -31,7 +31,7 @@
                 "JumpZVelocity": 700.0,
                 "AirControl": 0.3499999940395355,
                 "GravityScale": 1.0,
-                "MaxWalkSpeedCrouched": 300.0,
+                "MaxWalkSpeedCrouched": 150.0,
                 "CrouchedHeight": 120.0,
                 "MaxSwimSpeed": 300.0,
                 "CollisionProfile": "Pawn"

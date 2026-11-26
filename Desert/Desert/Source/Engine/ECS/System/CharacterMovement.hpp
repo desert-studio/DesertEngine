@@ -11,6 +11,7 @@
 namespace Desert::Net
 {
     struct InputStep;
+    struct PawnMoveState;
 }
 
 // THE SCENE CHARACTER'S MOVEMENT (GP2a, NET-GAMEMODE) - the character's capsule in the scene's PhysicsWorld moved
@@ -40,6 +41,15 @@ namespace Desert::ECS::CharacterMovement
      */
     void Step( CharacterControllerComponent& cc, Physics::PhysicsWorld& world, const Net::InputStep& input,
                float dt );
+
+    /**
+     * @brief THE ONE WRITER of a character's movement state (UE: the CharacterMovementComponent the AnimBP reads,
+     * on the authority, the autonomous proxy and the simulated proxy alike): Velocity, CurrentSpeed (planar),
+     * OnGround, IsCrouched, Swimming and JumpHeld from one move state (Gameplay::kMode* bits in Mode). Fed by
+     * Step (standalone Play), by the predictor's current state (the own net pawn) and by the interpolated
+     * replicated sample (a proxy, ClientNetDriver). LocomotionSystem publishes what it wrote to the graph.
+     */
+    void ApplyMoveState( CharacterControllerComponent& cc, const Net::PawnMoveState& state );
     /// The AnimGraph parameters the movement state is published under (UE: the AnimBP's Speed / IsFalling /
     /// IsCrouching read from the CharacterMovementComponent each update). A graph that wants locomotion
     /// declares them: Speed a Float in cm/s (planar), IsFalling and IsCrouched Bools.

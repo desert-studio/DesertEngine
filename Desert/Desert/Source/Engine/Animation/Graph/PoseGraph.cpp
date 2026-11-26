@@ -159,6 +159,8 @@ namespace Desert::Animation::Graph
                 return std::format( "sample {} names no clip", i );
             if ( !std::isfinite( sample.Value ) )
                 return std::format( "sample {} ('{}') has a value that is not a number", i, sample.Clip );
+            if ( !( std::isfinite( sample.RateScale ) && sample.RateScale > 0.0F ) )
+                return std::format( "blend sample '{}' RateScale {} must be > 0", sample.Clip, sample.RateScale );
             if ( i > 0 && !( sample.Value > node.Samples[i - 1].Value ) )
                 return std::format(
                      "sample {} ('{}', {}) does not lie above sample {} ('{}', {}); the samples are "

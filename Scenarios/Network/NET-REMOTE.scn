@@ -9,20 +9,25 @@
 # |dir| 0.02 moves A ~6 cm per wall second: the remote pawn is interpolated on the network's wall clock.
 # Pass history (p5-p10, run_net5b.sh): git log of this file.
 Мир Content/Scenes/WP_Protocol.desce
-Роль server server lag=75 jitter=30 loss=2 --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Character.deprefab --spawn 0,92,650 --spawn 0,92,150 --steps 1000000
+Роль server server lag=75 jitter=30 loss=2 --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,92,650 --spawn 0,92,150 --steps 1000000
 Ждать server 60 \[Server\] listening on port
 Роль B editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --shot-player-view --quality PostProcess.MotionBlurQuality=0
 Ждать B 1800 \[Net\] in session
 Ждать B 600 drawn own \(-?0,-4\d\d,650\)
 # Когда: A walks the shuttle across B's view (B's pawn camera faces -Z at the segment's middle).
-Роль A bot account=2 lag=75 loss=2 --seconds 15000 --waypoints "-200,-440,150;200,-440,150" --dir 0.02,0,0
+Роль A bot account=2 lag=75 loss=2 --seconds 15000 --waypoints "-200,-440,150;200,-440,150" --dir 0.02,0,0 --hold-actions 4 --hold-from 6 --hold-until 10
 Ждать B 120 \[Net\] remote pawn net id \d+ \(player \d+\) spawned
 Ждать B 60 3x \[Net\] t=
-Тогда B net5_remote_walk1 B's view: A as one solid grey mannequin (head, body, arms) on the slope 5 m ahead, its shadow at its feet; no ghost, no trail
+Тогда B net5_remote_walk1 B's view: A as one solid mannequin (grey body, dark joints, head, arms, legs) on the slope 5 m ahead, walking FACING the waypoint it walks to, its feet on the ground (none sunk, none hanging), not in a jump pose; its shadow at its feet; no ghost, no trail
 Ждать B 60 5x \[Net\] t=
-Тогда B net5_remote_walk2 A a few cm further along the shuttle, still one solid mannequin with its shadow at its feet; no stray shadow elsewhere
+Тогда B net5_remote_walk2 A a few cm further along the shuttle, still one solid mannequin facing its walk, feet on the ground, not in a jump pose, its shadow at its feet; no stray shadow elsewhere
 Ждать B 60 5x \[Net\] t=
-Тогда B net5_remote_walk3 A further along again, same: solid, shadow at its feet, no ghost/trail
+Тогда B net5_remote_walk3 A further along again, same: solid mannequin facing its walk, feet on the ground, not in a jump pose, shadow at its feet, no ghost/trail
+# [pawn_mannequin_proxy] the bot holds IA_Crouch (mask 4 = PawnActions bit 2) from 6 s to 10 s of its run; the server
+# replicates the crouched mode bit, B's WriteMoveState sets IsCrouched, Mannequin_Locomotion enters Crouch.
+Ждать A 60 \] actions 4 at
+Ждать B 30 2x \[Net\] t=
+Тогда B pawn_mannequin_proxy B's view inside the bot's crouch window: A walks crouched (pelvis visibly lower, knees bent, crouch-walk step), facing its walk, its feet on the ground - not sunk, not hanging; no capsule anywhere
 # Тогда [net5_remote_shadow]: interpolation delay 100-200 ms, 0 snaps.
 Ждать B 30 \[Net\] interpolation buffer: delay 1\d\d ms .*\(0 snap\(s\)\)
 Нет B \(([1-9]\d*) snap\(s\)\)

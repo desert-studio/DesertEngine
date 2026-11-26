@@ -114,12 +114,10 @@ namespace Desert::Core
         bool      PawnClosureLanded();
         void      ApplySpawnsAndDestroys( Scene& scene, Assets::AssetManager& assets );
         void      WriteTransforms( Scene& scene );
-        // NET-5: a remote pawn's locomotion variables from its interpolated replicated movement - the proxy's
-        // CharacterControllerComponent Velocity/CurrentSpeed and the anim graph parameters kLocomotion* of every
-        // AnimationComponent in its hierarchy.
-        void      WriteLocomotion( Scene& scene, entt::entity pawn, const Net::PawnState& sample );
-        static constexpr std::string_view kLocomotionSpeed   = "Speed";     // planar cm/s
-        static constexpr std::string_view kLocomotionFalling = "IsFalling"; // not on the ground
+        // NET-5: a remote pawn's movement state from its interpolated replicated sample (UE: the simulated
+        // proxy's replicated Velocity / MovementMode / bIsCrouched) into its CharacterControllerComponent through
+        // CharacterMovement::ApplyMoveState; LocomotionSystem publishes it to the pawn's graph, as for every pawn.
+        void WriteMoveState( Scene& scene, entt::entity pawn, const Net::PawnState& sample );
         // NET-2: the server's state of stable objects (cooked records, never spawned) written into the entities
         // this client's streamer made from the same records; a change whose entity is not streamed in waits for
         // it.

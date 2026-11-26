@@ -10,9 +10,7 @@
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/CookHash.hpp>
-#include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/ECS/RelationshipComponent.hpp>
 #include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/Net/NetRoleComponent.hpp>
@@ -135,6 +133,19 @@ namespace Desert::Core
             Net::PawnMoveState move;
             Net::SetMoveFlags( move, state.Movement );
             return move.Mode;
+        }
+
+        // A replicated sample as a move state (CharacterMovement::ApplyMoveState's input): its interpolated
+        // velocity - the Hermite's derivative, so the walk cycle's rate follows the path drawn - Grounded and the
+        // game's mode bits.
+        Net::PawnMoveState MoveStateOf( const Net::PawnState& sample )
+        {
+            Net::PawnMoveState move;
+            Net::SetMoveFlags( move, sample.Movement );
+            move.Position = sample.Position;
+            move.Velocity = sample.Velocity;
+            move.Yaw      = sample.Yaw;
+            return move;
         }
 
         // UE ACharacter on the owner and the proxies alike (Gameplay::DrawnPawn): the pawn's entity at its
@@ -316,8 +327,13 @@ namespace Desert::Core
         if ( predictor.Started() )
             if ( const auto own = m_Entities.find( m_Client->OwnPawn() ); own != m_Entities.end() &&
                                                                           scene.GetRegistry().valid( own->second ) )
+            {
                 PlaceNetPawn( scene.GetRegistry(), own->second, m_Prediction->Movement.Settings, OwnDrawnFeet(),
                               predictor.Current().Mode );
+                // The predicted movement is the own pawn's state (UE: the autonomous proxy's CharacterMovement).
+                if ( auto* cc = scene.GetRegistry().try_get<ECS::CharacterControllerComponent>( own->second ) )
+                    ECS::CharacterMovement::ApplyMoveState( *cc, predictor.Current() );
+            }
         StatsSlot() = NetPredictionStats{ predictor.Corrections(), predictor.Unacked(), 1.0 / m_Dilation };
 
         if ( m_Clock >= m_NextLog )
@@ -588,59 +604,30 @@ namespace Desert::Core
             {
                 if ( !m_OwnFirstServerPosition )
                     m_OwnFirstServerPosition = position;
-                // Predicted: Tick draws it after this frame's steps. It faces where its controller script turns it.
+                // Predicted: Tick draws it after this frame's steps. It faces where its controller script turns
+                // it. Until the prediction starts it is drawn - and moves - as the server's sample says.
                 if ( !m_Prediction->Predictor.Started() )
+                {
                     PlaceNetPawn( reg, entity, m_Prediction->Movement.Settings, position, ModeOf( *sample ) );
+                    WriteMoveState( scene, entity, *sample );
+                }
                 continue;
             }
             ECS::LocalTransform local = reg.get<ECS::TransformComponent>( entity ).GetLocal();
             local.Rotation            = { 0.0f, sample->Yaw, 0.0f };
             ECS::SetLocalTransform( reg, entity, local );
             PlaceNetPawn( reg, entity, m_Prediction->Movement.Settings, position, ModeOf( *sample ) );
-            WriteLocomotion( scene, entity, *sample );
+            WriteMoveState( scene, entity, *sample );
         }
     }
 
-    void ClientNetDriver::WriteLocomotion( Scene& scene, entt::entity pawn, const Net::PawnState& sample )
+    void ClientNetDriver::WriteMoveState( Scene& scene, entt::entity pawn, const Net::PawnState& sample )
     {
         // NET-5 (§5.3): a simulated proxy's animation runs locally from its replicated movement, never from
-        // replicated poses (UE: the proxy's CharacterMovement Velocity is replicated and its AnimInstance reads it).
-        // The interpolated velocity is the Hermite's derivative, so the walk cycle's rate follows the path drawn.
-        auto&           reg      = scene.GetRegistry();
-        const glm::vec3 velocity = ToGlm( sample.Velocity );
-        const float     speed    = glm::length( glm::vec2( velocity.x, velocity.z ) );
-        const bool      falling  = ( sample.Movement & Net::kPawnGrounded ) == 0;
-        if ( auto* character = reg.try_get<ECS::CharacterControllerComponent>( pawn ) )
-        {
-            character->Velocity     = velocity;
-            character->CurrentSpeed = speed;
-        }
-        // The locomotion variables go to every anim graph of the pawn's hierarchy (the body is a child of the
-        // capsule) by the names the locomotion graphs declare.
-        std::vector<entt::entity> open{ pawn };
-        while ( !open.empty() )
-        {
-            const entt::entity entity = open.back();
-            open.pop_back();
-            if ( auto* anim = reg.try_get<ECS::AnimationComponent>( entity ) )
-            {
-                // One pending value per name: a graph that is not built yet does not drain the queue.
-                const auto write = [&]( std::string_view name, float value )
-                {
-                    auto& pending = anim->PendingGraphParams;
-                    const auto it = std::find_if( pending.begin(), pending.end(),
-                                                  [&]( const auto& p ) { return p.Name == name; } );
-                    if ( it != pending.end() )
-                        it->Value = value;
-                    else
-                        pending.push_back( { std::string( name ), value } );
-                };
-                write( kLocomotionSpeed, speed );
-                write( kLocomotionFalling, falling ? 1.0f : 0.0f );
-            }
-            if ( const auto* relation = reg.try_get<ECS::RelationshipComponent>( entity ) )
-                open.insert( open.end(), relation->Children.begin(), relation->Children.end() );
-        }
+        // replicated poses (UE: the proxy's CharacterMovement is filled by replication and its AnimInstance reads
+        // it). The graph is LocomotionSystem's, as for every character.
+        if ( auto* cc = scene.GetRegistry().try_get<ECS::CharacterControllerComponent>( pawn ) )
+            ECS::CharacterMovement::ApplyMoveState( *cc, MoveStateOf( sample ) );
     }
 
     struct ClientNetDriver::PendingStable

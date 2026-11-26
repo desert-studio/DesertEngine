@@ -137,8 +137,9 @@ namespace Desert::Assets
     // StateMachine node wired to Output Pose, in the files. v3 (TAIL-ANIM): the Output Pose node's canvas
     // position (OutputPoseX/Y, graph and every layer graph); Tools/SceneMigrator raises v2 through
     // Migration::MigrateAnimGraphV2ToV3 at Animation::Graph::DefaultOutputPosePosition. v4 (ANIM-SKELREF): the
-    // graph states its TargetSkeleton {Guid, Path} (UE UAnimBlueprint::TargetSkeleton).
-    inline constexpr uint32_t kAnimGraphSchemaVersion = 4;
+    // graph states its TargetSkeleton {Guid, Path} (UE UAnimBlueprint::TargetSkeleton). v5 (PAWN-MANNEQUIN): every
+    // blend sample states its RateScale (UE FBlendSample::RateScale); Migration::MigrateAnimGraphV4ToV5.
+    inline constexpr uint32_t kAnimGraphSchemaVersion = 5;
     // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
     // version at all - that generation is 0, and a file of it is refused by name. v2 (SKEL-TREE): PreviewMesh
     // and CompatibleSkeletons, as GUID references. v3 (SKEL-eng2): the dead `Import` provenance is gone (the

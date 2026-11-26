@@ -1,0 +1,21 @@
+# PAWN-MANNEQUIN-IMPORT: import the Quaternius Universal Animation Library mannequin (CC0, Characters/Mannequin/Mannequin.glb,
+# 6 671 104 B: one mesh, 2 primitives M_Main + M_Joints, 53 bones, 46 clips) through the Import Options window, as
+# DISPLACE-IMPORT does. The scene is not saved: the import writes beside the source.
+# After the run (the lead, in the same branch):
+#   git status Projects/Desert/Content/Characters/Mannequin -> Mannequin.glb.deimport, Mannequin.skeleton, Mannequin.skmesh,
+#     46 Mannequin_*.anim (names verbatim from the glb: Mannequin_Idle_Loop.anim, Mannequin_Walk_Loop.anim,
+#     Mannequin_Jog_Fwd_Loop.anim, Mannequin_Sprint_Loop.anim, Mannequin_Crouch_Idle_Loop.anim, Mannequin_Crouch_Fwd_Loop.anim,
+#     Mannequin_Jump_Loop.anim, ...);
+#   the imported Content/Materials/Characters/Mannequin/*.demat are deleted (the pawn names M_Mannequin + M_Mannequin_Joints);
+#   du -sh Projects/Desert/Content/Characters/Mannequin is recorded;
+#   python3 <scratch>/PAWN-MANNEQUIN/fill_mannequin_guids.py <tree> writes the .skeleton / .skmesh header GUIDs into
+#     Mannequin_Locomotion.danimgraph (TargetSkeleton) and Pawn_Player.deprefab (Body: SkinnedMesh + Animation, Dependencies).
+# [pawn_mannequin_reimport] Reimport keeps identity: a second "Import Options: Import" of the same glb leaves the
+# .skeleton / .skmesh header GUIDs and every .anim byte-identical (shasum before = after).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Когда run Assets "Drop into the viewport: Characters/Mannequin/Mannequin.glb"
+Когда run Assets "Import Options: Import"
+Тогда-вид pawn_mannequin_imported the mannequin placed in the viewport, standing at full height (about 183 cm against the editor grid), feet on the ground plane; editor.log 0 import errors, 46 clips imported, a 53-bone skeleton
+Когда run Assets "Drop into the viewport: Characters/Mannequin/Mannequin.glb"
+Когда run Assets "Import Options: Import"
+Тогда-вид pawn_mannequin_reimport a second mannequin placed; editor.log 0 import errors; the .skeleton / .skmesh header GUIDs are the ones the first import wrote (shasum of Characters/Mannequin/*.anim *.skeleton unchanged)

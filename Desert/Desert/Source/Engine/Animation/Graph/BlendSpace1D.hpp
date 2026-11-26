@@ -36,6 +36,9 @@ namespace Desert::Animation::Graph
     {
         std::string Clip;
         float       Value = 0.0F;
+        /// Playback rate of this sample relative to its clip (UE FBlendSample::RateScale): matches the clip's
+        /// native ground speed to the row value (a 107 cm/s walk at Value 150 plays at 1.4). > 0 and finite.
+        float RateScale = 1.0F;
     };
 
     /// The payload of a BlendSpace1D node.
@@ -51,7 +54,7 @@ namespace Desert::Animation::Graph
     };
 
     /// Empty when `node` can be played; otherwise what is wrong: no sample, a sample naming no clip, values not
-    /// strictly ascending, a negative or non-finite WeightSpeed.
+    /// strictly ascending, a RateScale not > 0 and finite, a negative or non-finite WeightSpeed.
     [[nodiscard]] std::string BlendSpace1DError( const BlendSpace1DNode& node );
 
     /// The weights the samples of `node` take at axis value `x` (one per sample into `out`, sized by the caller):
