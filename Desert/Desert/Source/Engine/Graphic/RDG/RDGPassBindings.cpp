@@ -699,6 +699,12 @@ namespace Desert::Graphic::RDG
         GiveVector( storage.Push, m_PushConstants );
     }
 
+    OpenBindingBlocks::ThreadSlots& OpenBindingBlocks::Slots() noexcept
+    {
+        thread_local ThreadSlots t_Slots;
+        return t_Slots;
+    }
+
     OpenBindingBlocks::OpenBindingBlocks( const PassContext& context, const uint32_t first, const size_t count )
          : m_Base( Slots().Used ), m_Count( count )
     {

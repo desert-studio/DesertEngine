@@ -269,11 +269,9 @@ namespace Desert::Graphic::RDG
             std::vector<std::unique_ptr<std::optional<PassBindings>>> Slots;
             size_t                                                     Used = 0;
         };
-        [[nodiscard]] static ThreadSlots& Slots() noexcept
-        {
-            thread_local ThreadSlots t_Slots;
-            return t_Slots;
-        }
+        // Out of line: an inline function's thread_local is one object per DLL that inlines it, so the
+        // constructor (DesertRenderCore) and a record's At (DesertRenderer) would see different slot lists.
+        [[nodiscard]] static ThreadSlots& Slots() noexcept;
 
         size_t m_Base  = 0;
         size_t m_Count = 0;
