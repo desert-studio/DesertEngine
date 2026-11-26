@@ -3,7 +3,7 @@
         "Kind": "AnimGraph",
         "Guid": "5533f20f4432c76df2f0d7515450000b",
         "Versions": {
-            "ANGR": 4
+            "ANGR": 5
         },
         "Dependencies": []
     },

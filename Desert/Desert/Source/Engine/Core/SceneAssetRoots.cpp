@@ -5,6 +5,7 @@
 #include <Engine/Core/TextTemplate.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/AudioSourceComponent.hpp>
 #include <Engine/ECS/ControlRigComponent.hpp>
@@ -168,6 +169,14 @@ namespace Desert::Core
             roots.Mark( anim.GraphAsset, "an entity is animated by it" );
             for ( const Assets::AssetHandle linked : anim.LinkedLayerGraphs )
                 roots.Mark( linked, "its layers are linked on an animated entity" );
+            // THE GRAPH'S CLIPS (UE: an AnimBP's hard references to its sequences). A graph names its clips by
+            // name, so no asset edge reaches them: unmarked, every sweep released them, the state they belonged
+            // to sampled nothing until the re-read landed, and the character stood in its bind pose
+            // (PAWN-MANNEQUIN, netgm_local_sprint).
+            if ( anim.ClipBindings )
+                anim.ClipBindings->ForEachHeldClip(
+                     [&roots]( const Common::UUID& clip )
+                     { roots.Mark( clip, "an animated entity's graph plays it" ); } );
         }
 
         // ── THE INTERFACE ─────────────────────────────────────────────────────────────────────────────

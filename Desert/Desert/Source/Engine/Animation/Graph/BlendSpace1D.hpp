@@ -13,9 +13,10 @@
  * `WeightSpeed` per second and the weights are renormalised to sum 1; 0 means the weights follow the axis at once.
  *
  * SYNC BY NORMALIZED TIME (UE's sync of a blend space's samples, the marker-less sync group): every sample plays
- * at ONE shared phase in [0, 1) of its own length, so a 1.0 s walk and a 0.7 s run cycle put the same foot down
- * at the same phase. The phase advances by dt over the weight-averaged length of the weighted samples, so the
- * blend's cycle stretches smoothly from one sample's length to the next.
+ * at ONE shared phase in [0, 1) of its own length - DurationSeconds / RateScale, the sample's playback rate
+ * (UE FBlendSample::RateScale; Animator.cpp AdvanceBlendRun) - so a 1.0 s walk and a 0.7 s run cycle put the same
+ * foot down at the same phase. The phase advances by dt over the weight-averaged length of the weighted samples,
+ * so the blend's cycle stretches smoothly from one sample's length to the next.
  *
  * The functions are defined in PoseGraph.cpp (compiled wherever the pose graph is).
  */
@@ -36,6 +37,9 @@ namespace Desert::Animation::Graph
     {
         std::string Clip;
         float       Value = 0.0F;
+        /// Playback rate of this sample relative to its clip (UE FBlendSample::RateScale): matches the clip's
+        /// native ground speed to the row value (a 107 cm/s walk at Value 150 plays at 1.4). > 0 and finite.
+        float RateScale = 1.0F;
     };
 
     /// The payload of a BlendSpace1D node.
@@ -51,7 +55,7 @@ namespace Desert::Animation::Graph
     };
 
     /// Empty when `node` can be played; otherwise what is wrong: no sample, a sample naming no clip, values not
-    /// strictly ascending, a negative or non-finite WeightSpeed.
+    /// strictly ascending, a RateScale not > 0 and finite, a negative or non-finite WeightSpeed.
     [[nodiscard]] std::string BlendSpace1DError( const BlendSpace1DNode& node );
 
     /// The weights the samples of `node` take at axis value `x` (one per sample into `out`, sized by the caller):

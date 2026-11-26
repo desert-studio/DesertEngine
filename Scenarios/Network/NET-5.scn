@@ -3,16 +3,16 @@
 # at most 10 % time dilation, Overwatch-style), cubic Hermite between snapshots with the replicated velocity as
 # tangents, extrapolation past the newest snapshot capped at 250 ms, teleports cut (replicated teleport count).
 # Replicated locomotion (velocity, movement mode) drives the remote pawn's AnimGraph locally (Speed / IsFalling of
-# Humanoid_Locomotion's blend space), never replicated poses (UE simulated proxy).
+# the pawn's graph Mannequin_Locomotion: Speed / IsFalling / IsCrouched), never replicated poses (UE simulated proxy).
 # Runner: <scratch>/NET-REMOTE/run_all.sh (base NET-3 run_all.sh). Server sends with 75 ms lag + 30 ms jitter
-# (--lag-ms/--jitter-ms), clients send with 75 ms: 150 ms round trip. Pawn = Prefabs/Pawn_Character.deprefab
-# (engine Humanoid skinned mesh + Humanoid_Locomotion graph).
+# (--lag-ms/--jitter-ms), clients send with 75 ms: 150 ms round trip. Pawn = Prefabs/Pawn_Player.deprefab
+# (Characters/Mannequin skinned mesh + Mannequin_Locomotion graph).
 # Дано: DesertServer --role all on WP_Protocol + Editor client B (observer, player 1, --shot-player-view) + probe A
 #       (DesertNetProbe --bot, player 2) from task/NET-REMOTE; 150 ms + 30 ms jitter.
 # Когда: A walks a circle (r 477 cm, 300 cm/s, --dir 0,0,-0.5 --turn-deg-s 36) in front of B for 20 s.
 # Тогда [net5_remote_walk] net5/strip.png: B's consecutive sequence frames show A's skinned character on a smooth
 #       arc, facing its walk, walk cycle matching speed (no foot skating, no jumps between frames); B's log
 #       "interpolation buffer: delay ... arrival jitter p95 ..." settles at 100-200 ms (not at the 350 cap), p95 jitter
-#       60-100 ms (GNS jitter avg 30 is an exponential mean, p95 ~90), 0 snap(s). A is the Humanoid mannequin
-#       (Materials/M_Mannequin.demat) playing walk. Frame-to-frame motion is judged only at a real-time frame rate: the
+#       60-100 ms (GNS jitter avg 30 is an exponential mean, p95 ~90), 0 snap(s). A is the Quaternius mannequin
+#       (Materials/M_Mannequin.demat + M_Mannequin_Joints.demat) playing walk. Frame-to-frame motion is judged only at a real-time frame rate: the
 #       Debug editor's --play renders a fixed 1/60 s per frame at <1 fps while the network moves on the wall clock.

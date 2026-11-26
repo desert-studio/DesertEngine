@@ -3085,6 +3085,79 @@ namespace Desert::Migration
         }
     } // namespace TargetSkeletonStep
 
+    namespace BlendSampleRateStep
+    {
+        // ANGR 5: every Blend Space 1D sample (an object with "Clip" and "Value" in a "Samples" array; a 2D
+        // sample states X / Y, not Value) states RateScale, 1.0 where the file had none.
+        rfl::Generic StateRateScale( const rfl::Generic& node )
+        {
+            if ( const auto array = node.to_array(); array.has_value() )
+            {
+                rfl::Generic::Array raised;
+                for ( const auto& item : array.value() )
+                    raised.push_back( StateRateScale( item ) );
+                return rfl::Generic( std::move( raised ) );
+            }
+            const auto object = node.to_object();
+            if ( !object.has_value() )
+                return node;
+            rfl::Generic::Object raised;
+            for ( const auto& [key, field] : object.value() )
+            {
+                if ( key == "Samples" && field.to_array().has_value() )
+                {
+                    rfl::Generic::Array samples;
+                    for ( const auto& item : field.to_array().value() )
+                    {
+                        auto sample = item.to_object();
+                        if ( sample.has_value() && sample.value().get( "Clip" ).has_value() &&
+                             sample.value().get( "Value" ).has_value() &&
+                             !sample.value().get( "RateScale" ).has_value() )
+                        {
+                            sample.value()["RateScale"] = rfl::Generic( 1.0 );
+                            samples.push_back( rfl::Generic( std::move( sample.value() ) ) );
+                        }
+                        else
+                            samples.push_back( item );
+                    }
+                    raised[key] = rfl::Generic( std::move( samples ) );
+                    continue;
+                }
+                raised[key] = key == "Header" ? field : StateRateScale( field );
+            }
+            return rfl::Generic( std::move( raised ) );
+        }
+    } // namespace BlendSampleRateStep
+
+    Common::ResultStr<std::string> MigrateAnimGraphV4ToV5( const std::string& text )
+    {
+        auto read = rfl::json::read<rfl::Generic::Object>( text );
+        if ( !read )
+            return Common::MakeFormattedError<std::string>( "ANGR 4 body does not read: {}", read.error().what() );
+        auto header = read.value().get( "Header" ).value_or( rfl::Generic() ).to_object();
+        if ( !header.has_value() )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+        auto      versions = header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object();
+        const int stated   = versions.has_value()
+                                  ? versions.value().get( "ANGR" ).value_or( rfl::Generic() ).to_int().value_or( -1 )
+                                  : -1;
+        if ( stated != 4 )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states ANGR {}, and this step raises ANGR 4 only",
+                 stated < 0 ? std::string( "nothing" ) : std::to_string( stated ) );
+        auto raised = BlendSampleRateStep::StateRateScale( rfl::Generic( std::move( read.value() ) ) ).to_object();
+        if ( !raised.has_value() )
+            return Common::MakeFormattedError<std::string>( "the raised graph is not an object" );
+        versions.value()["ANGR"]   = rfl::Generic( 5 );
+        header.value()["Versions"] = rfl::Generic( std::move( versions.value() ) );
+        raised.value()["Header"]   = rfl::Generic( std::move( header.value() ) );
+        const auto written         = TargetSkeletonStep::Canonical( "ANGR", rfl::json::write( raised.value() ) );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as ANGR 5: {}",
+                                                            written.GetError() );
+        return written;
+    }
+
     Common::ResultStr<std::string> MigrateControlRigToV4( const std::string& text )
     {
         auto read = rfl::json::read<rfl::Generic::Object>( text );
@@ -3229,6 +3302,14 @@ namespace Desert::Migration
         target["Guid"]             = rfl::Generic( fits.front()->Guid );
         target["Path"]             = rfl::Generic( fits.front()->Path );
         document["TargetSkeleton"] = rfl::Generic( std::move( target ) );
+        // ANGR 3 is raised to the current generation in one step: ANGR 5's RateScale on every blend sample too.
+        if ( tag == "ANGR" )
+        {
+            auto rated = BlendSampleRateStep::StateRateScale( rfl::Generic( std::move( document ) ) ).to_object();
+            if ( !rated.has_value() )
+                return Common::MakeFormattedError<std::string>( "the raised graph is not an object" );
+            document = std::move( rated.value() );
+        }
 
         const auto written = TargetSkeletonStep::Canonical( tag, rfl::json::write( document ) );
         if ( !written )

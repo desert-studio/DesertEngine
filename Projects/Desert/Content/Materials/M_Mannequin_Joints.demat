@@ -1,0 +1,26 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "8884199cca56479eb74dbb6bc00eaccc",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [0.12, 0.12, 0.13, 1.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [0.5, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [],
+    "CloudAssets": []
+}
