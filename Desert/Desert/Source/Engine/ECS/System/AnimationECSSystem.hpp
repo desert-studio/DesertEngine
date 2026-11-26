@@ -169,7 +169,26 @@ namespace Desert::ECS
                     anim.BuiltRigRevision  = 0;
                     anim.BuiltRigSignature = 0;
                 }
+                // A RELOCATION (MarkPoseTeleported, before this tick's systems): what the renderer saw at the old
+                // place - its level, screen size, the baked crowd - says nothing of the new one, so it is dropped
+                // (as before the renderer first saw the instance: every bone, every frame) and this tick
+                // evaluates (UE: a teleport refreshes the skeletal pose before the render). The renderer then
+                // draws this tick's pose at the new place in the same frame.
+                const bool teleported = anim.PendingTeleport;
+                anim.PendingTeleport  = false;
+                if ( teleported && anim.LodFeedback )
+                {
+                    anim.LodFeedback->Seen.store( false, std::memory_order_relaxed );
+                    anim.LodFeedback->Vat.store( false, std::memory_order_relaxed );
+                }
                 ConfigureLodAndRate( entity, anim, *skinnedMeshPtr );
+                if ( teleported )
+                {
+                    anim.UpdateRate.SetRate( anim.UpdateRate.Rate, true );
+                    LOG_INFO( "[SkinnedLOD] entity {} anim: teleported - the old place's level and baked crowd "
+                              "dropped, the pose evaluates at every bone this tick",
+                              static_cast<uint32_t>( entity ) );
+                }
                 // A FAR-CROWD FIGURE ALREADY ON ITS BAKED ANIMATION has no anim tick (UE AnimToTexture: the VAT
                 // instance is a static mesh): only its clip clock runs (StepAnimator's Vat branch), none of the
                 // retarget / clip resolution / pose stages below. Back to skeletal, the full tick resumes.
@@ -486,8 +505,17 @@ namespace Desert::ECS
                 {
                     // Back to skeletal: this tick evaluates (whatever the rate's countdown says) and the shown
                     // pose snaps to it - the renderer draws the baked frame until this pose is published.
+                    // The baked clock is the playhead of the clip it ran on (VatClip); when the machine entered
+                    // another state on this tick (a relocation lands the pawn in another state), that state plays
+                    // from its entry - the old clip's time is not a moment of it.
                     feedback.VatClockRunning = false;
-                    anim.Animator->SetTime( feedback.VatClock );
+                    const void* bakedClip    = feedback.VatClip.load( std::memory_order_relaxed );
+                    if ( bakedClip != nullptr && bakedClip == anim.Animator->GetCurrentClip() )
+                        anim.Animator->SetTime( feedback.VatClock );
+                    else
+                        LOG_INFO( "[SkinnedLOD] back to skeletal in another state than the baked clock ran: the "
+                                  "state plays from its entry, not from the baked time {:.2f} s",
+                                  feedback.VatClock );
                     anim.UpdateRate.SetRate( anim.UpdateRate.Rate, true );
                 }
             }

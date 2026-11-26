@@ -10,6 +10,7 @@
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/CookHash.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
@@ -932,6 +933,12 @@ namespace Desert::Core
         const glm::vec3 offset = drawnBefore - ( OwnDrawnFeet() - m_SmoothOffset );
         const bool      smooth = glm::length( offset ) <= kNoSmoothDistanceCm;
         m_SmoothOffset         = smooth ? offset : glm::vec3( 0.0f );
+        // Beyond the smoothing distance the pawn is relocated (UE ETeleportType::TeleportPhysics): its meshes
+        // refresh their pose on this tick, before the frame at the new place is drawn (Tick places it below,
+        // before the scene's systems run).
+        if ( !smooth )
+            if ( const auto own = m_Entities.find( m_Client->OwnPawn() ); own != m_Entities.end() )
+                ECS::MarkPoseTeleported( scene.GetRegistry(), own->second );
         LOG_INFO(
              "[Net] correction {} at input step {}: the server has the own pawn at ({:.1f}, {:.1f}, {:.1f}) cm; "
              "{} unacked step(s) replayed; drawn offset {:.1f} cm {}; predicted ({:.1f}, {:.1f}, {:.1f}) v "
