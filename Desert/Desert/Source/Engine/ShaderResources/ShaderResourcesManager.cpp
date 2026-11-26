@@ -46,8 +46,8 @@ namespace Desert::ShaderResources
     // rule for buffers and these two did the opposite: they registered whatever they were handed,
     // null included, so `GetUniformImage2D(name)` answered SUCCESS holding nullptr — a successful
     // answer carrying nothing, which is the one shape the delivery contract §1.4 names outright.
-    // `UniformImage2D::Create`/`UniformImageCube::Create` do return nullptr (the `RendererAPIType::None`
-    // arm), so the null is reachable, and MaterialExecutor unwraps these lookups without a check.
+    // `UniformImage2D::Create`/`UniformImageCube::Create` can return nullptr (a backend that refuses
+    // the image), so the null is reachable, and MaterialExecutor unwraps these lookups without a check.
     void ShaderResourcesManager::AddImageCube( std::shared_ptr<UniformImageCube>&& buffer,
                                                const std::string&                  name )
     {

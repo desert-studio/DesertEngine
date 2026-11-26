@@ -62,7 +62,7 @@ namespace Desert::Assets
         { "IconCache",        DDCBucketReach::Shipped,    "Vector/IconBake.cpp kIconDeriver - in-game UI icon rendering reads this at runtime" },
         { "EnvironmentCache", DDCBucketReach::Shipped,    "Graphic/Environment/EnvironmentBake.cpp kEnvironmentDeriver - sky/reflection rendering reads this at runtime" },
         { "ShaderCache",      DDCBucketReach::Shipped,    "Core/ShaderCompiler/ShaderSpirvCache.cpp kSpirvDeriver - compiled SPIR-V the material pipelines read at runtime" },
-        { "ShaderMap",        DDCBucketReach::Shipped,    "Core/ShaderCompiler/ShaderMapCache.cpp kShaderMapDeriver - VulkanShader::Reload reads this at runtime" },
+        { "ShaderMap",        DDCBucketReach::Shipped,    "Core/ShaderCompiler/ShaderMapCache.cpp kShaderMapDeriver - the backend shader's Reload reads this at runtime" },
         { "Thumbnails",       DDCBucketReach::EditorOnly, "no Common::DDC::Deriver; Editor/Widgets/ThumbnailCache.cpp - asset-browser previews, no runtime reader" },
     };
     // clang-format on

@@ -103,6 +103,10 @@ namespace Desert::Graphic
         virtual uint32_t GetHeight() const       = 0;
         virtual uint32_t GetMipmapLevels() const = 0;
 
+        // Re-point this image at the sampler the current RenderConfig filter names (live filter swap,
+        // Renderer::RecreateImageSamplers).
+        virtual void RecreateSampler() = 0;
+
         // GetImageFormat / IsLoaded / GetImagePixels USED TO SIT HERE and Г12 removed all three, because
         // a dead pure virtual is not inert: it is a standing instruction to every future implementer to
         // write a body, and the three bodies these already had are the argument. GetImagePixels was
@@ -297,6 +301,11 @@ namespace Desert::Graphic
 
         static std::shared_ptr<ImageCube> Create( const Core::Formats::ImageCubeSpecification& spec,
                                                   const std::unique_ptr<MipMapCubeGenerator>&  mipGenerator );
+
+        /// Submits a copy of every level of every face, in the image's OWN format, tightly packed in table
+        /// order (level 0's six faces, then level 1's), and does not wait: poll the readback, then
+        /// ReadBytes() - on any thread.
+        NO_DISCARD virtual Common::ResultStr<std::shared_ptr<ImageReadback>> RT_BeginReadAllLevels() = 0;
         // `Copy()` was declared here and is gone — Image.cpp records what it did and why restoring it in
         // that shape would be a double free rather than a copy.
     };

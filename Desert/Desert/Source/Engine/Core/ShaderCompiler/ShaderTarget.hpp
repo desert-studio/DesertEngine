@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderTargetVersion.hpp>
 
 #include <shaderc/shaderc.h>
 
@@ -17,7 +17,7 @@ namespace Desert::Core
     // and its OpRayQuery* instructions are rejected below it).
     [[nodiscard]] constexpr shaderc_env_version ShaderTargetEnvVersion( uint32_t apiVersion )
     {
-        switch ( VK_API_VERSION_MINOR( apiVersion ) )
+        switch ( ApiVersionMinor( apiVersion ) )
         {
             case 0:
                 return shaderc_env_version_vulkan_1_0;
@@ -30,7 +30,7 @@ namespace Desert::Core
         }
     }
 
-    inline constexpr uint32_t            kShaderTargetApiVersion = Graphic::API::Vulkan::kMinimumDeviceApiVersion;
+    inline constexpr uint32_t            kShaderTargetApiVersion = kMinimumDeviceApiVersion;
     inline constexpr shaderc_env_version kShaderTargetEnvVersion =
          ShaderTargetEnvVersion( kShaderTargetApiVersion );
 } // namespace Desert::Core

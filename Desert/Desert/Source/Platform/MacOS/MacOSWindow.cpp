@@ -41,9 +41,9 @@ namespace Desert::Platform::MacOS
             // /usr/lib — so a start without DYLD_FALLBACK_LIBRARY_PATH failed glfwVulkanSupported() even
             // though the linked loader and the driver manifest were both in hand (ENG-ROOT-6). The linked
             // entry point is handed over instead, as VulkanContext hands it to vk-bootstrap. Must precede
-            // glfwInit: GLFW reads it there.
-            if ( Graphic::RendererAPI::GetAPIType() == Graphic::RendererAPIType::Vulkan )
-                glfwInitVulkanLoader( vkGetInstanceProcAddr );
+            // glfwInit: GLFW reads it there. Unconditional: Vulkan is the only backend on macOS (RhiSelection
+            // refuses d3d12 off Windows).
+            glfwInitVulkanLoader( vkGetInstanceProcAddr );
             int success = glfwInit();
             if ( !success )
             {
@@ -58,8 +58,8 @@ namespace Desert::Platform::MacOS
             m_HoldsGLFW = true;
         }
 
-        if ( Graphic::RendererAPI::GetAPIType() == Graphic::RendererAPIType::Vulkan )
-            glfwWindowHint( GLFW_CLIENT_API, GLFW_NO_API );
+        // No GL context for any backend: Vulkan and D3D12 both present through their own swap chain.
+        glfwWindowHint( GLFW_CLIENT_API, GLFW_NO_API );
 
         auto width  = m_Data.Specification.Width;
         auto height = m_Data.Specification.Height;

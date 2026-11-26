@@ -8,7 +8,7 @@
 // and `<project>/.thumbnail.png` for the launcher tile. A member of EditorLayer BY VALUE, declared after the
 // SceneWorkspace whose active scene it reads.
 
-#include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // the shot's detached staging (WindowPngWrite)
+#include <Engine/Graphic/SwapChain.hpp> // the shot's capture ticket (WindowPngWrite)
 
 #include <chrono>
 #include <cstdint>
@@ -68,8 +68,10 @@ namespace Desert::Editor
             double                                JoinMs    = 0.0; // on the frame: the render task join
             double                                WaitMs    = 0.0; // on the frame: the device idle wait
             double                                CollectMs = 0.0; // on the frame: staging detach (read, pack: worker)
-            // The capture's staging, read by the worker, released by FinishWindowPng.
-            Graphic::API::Vulkan::VulkanSwapChain::CapturedStaging Staging;
+            // The capture's ticket and the swap chain holding it: resolved by the worker, released by
+            // FinishWindowPng. The pointer keeps the readback alive while the worker reads it.
+            std::shared_ptr<Graphic::SwapChain> Source;
+            Graphic::CapturedFrameTicket        Ticket;
             std::chrono::steady_clock::time_point Started;
             std::future<std::string>              Encode;
         };

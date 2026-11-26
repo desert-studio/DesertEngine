@@ -5,7 +5,9 @@
 #include <Common/Core/Core.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Engine/Core/RenderTask.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // reading the PRESENTED frame back (shot.window)
+#include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/Window.hpp>
+#include <Engine/Graphic/SwapChain.hpp> // reading the PRESENTED frame back (shot.window)
 #include <Engine/Graphic/SceneRenderer.hpp>              // the view's HDR scene colour (--shot-hdr)
 #include <Engine/Graphic/DisplayOutput.hpp>
 #include <stb_image/stb_image_write.h>
@@ -285,16 +287,15 @@ namespace Desert::Editor
     // present. On the render task, behind the frame's interface.
     void ViewportCapture::RecordWindowCapture( const uint64_t frame )
     {
-        auto swapChain = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanSwapChain>(
-             EngineContext::GetInstance().GetWindow()->GetWindowSwapChain() );
+        const auto          swapChain = EngineContext::GetInstance().GetWindow()->GetWindowSwapChain();
         WindowCaptureRecord record{ .Frame = frame };
         if ( !swapChain )
-            record.Error = "there is no Vulkan swapchain to capture the presented frame from.";
+            record.Error = "there is no swapchain to capture the presented frame from.";
         // ONE COPY AT A TIME, AND THE EARLIER FRAME KEEPS IT. With GameRenderPipelining this frame is built before
         // the previous one is announced, so the previous frame's copy may still wait for its judgement: that copy
         // is the one a discharge on the previous frame will collect. This frame records nothing - it is not a
         // refusal, the frame simply holds no capture and cannot be the answer (PendingWork::WindowCapture).
-        else if ( swapChain->HasPendingCapture() )
+        else if ( swapChain->HasPendingFrameCapture() )
             return;
         else if ( const auto recorded = swapChain->RecordFrameCapture(); !recorded )
             record.Error = recorded.GetError();
@@ -325,8 +326,7 @@ namespace Desert::Editor
         // anyway, because the device-idle wait below must not race a submit on the render task.
         ::Desert::Engine::RenderTask::Get().Join();
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
-        if ( auto swapChain = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanSwapChain>(
-                  EngineContext::GetInstance().GetWindow()->GetWindowSwapChain() ) )
+        if ( const auto swapChain = EngineContext::GetInstance().GetWindow()->GetWindowSwapChain() )
             swapChain->DiscardFrameCapture();
         const std::scoped_lock lock( m_WindowRecordLock );
         m_WindowRecord.InFlight = false;
@@ -363,11 +363,10 @@ namespace Desert::Editor
             return false;
         }
 
-        auto swapChain = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanSwapChain>(
-             EngineContext::GetInstance().GetWindow()->GetWindowSwapChain() );
+        const auto swapChain = EngineContext::GetInstance().GetWindow()->GetWindowSwapChain();
         if ( !swapChain )
         {
-            outError = "there is no Vulkan swapchain to collect the captured frame from.";
+            outError = "there is no swapchain to collect the captured frame from.";
             return false;
         }
 
@@ -390,9 +389,9 @@ namespace Desert::Editor
         // the worker is done (FinishWindowPng). UE: FRHIGPUTextureReadback - enqueue the copy, read once IsReady.
         const auto collectStart  = std::chrono::steady_clock::now();
         const auto readbackStart = collectStart;
-        auto       captured      = swapChain->DetachCapturedFrame();
+        auto       captured      = swapChain->TakeCapturedFrameTicket();
         {
-            // Collected: DetachCapturedFrame takes or releases the staging on every path. A return above leaves the copy
+            // Collected: TakeCapturedFrameTicket takes or releases the staging on every path. A return above leaves the copy
             // in flight, and the frame's announcement discards it (ControlService::OnFramePresented).
             const std::scoped_lock lock( m_WindowRecordLock );
             m_WindowRecord.InFlight = false;
@@ -404,7 +403,8 @@ namespace Desert::Editor
         }
         const uint32_t width  = captured.GetValue().Width;
         const uint32_t height = captured.GetValue().Height;
-        out.Staging           = captured.GetValue();
+        out.Source            = swapChain;
+        out.Ticket            = captured.GetValue();
 
         // WQH (11-22): the PNG encode of a 4112x2580 window was the whole frame's cost - seconds on the game
         // thread, the "worst frame" the profiler showed after every scenario step that took a shot. The bytes
@@ -417,13 +417,9 @@ namespace Desert::Editor
         out.WaitMs    = std::chrono::duration<double, std::milli>( readbackStart - collectStart ).count();
         out.CollectMs = std::chrono::duration<double, std::milli>( out.Started - readbackStart ).count();
         out.Encode    = Common::JobSystem::Get().Async(
-             [path, width, height, staging = out.Staging]() noexcept -> std::string
+             [path, width, height, source = out.Source, ticket = out.Ticket]() noexcept -> std::string
              {
-                 using Graphic::API::Vulkan::VulkanSwapChain;
-                 const auto raw = VulkanSwapChain::ReadCapturedStaging( staging );
-                 if ( !raw )
-                     return raw.GetError();
-                 const auto rgba = VulkanSwapChain::PackCapturedFrame( raw.GetValue() );
+                 const auto rgba = source->ResolveCapturedFrame( ticket );
                  if ( !rgba )
                      return rgba.GetError();
                  if ( WritePngRGBA8( path, width, height, rgba.GetValue().data() ) )
@@ -438,8 +434,9 @@ namespace Desert::Editor
     std::string ViewportCapture::FinishWindowPng( WindowPngWrite& write ) const
     {
         std::string error = write.Encode.get();
-        // The worker is done reading the staging: it goes to the allocator's deferred deletion.
-        Graphic::API::Vulkan::VulkanSwapChain::ReleaseCapturedStaging( write.Staging );
+        // The worker is done reading the readback: it goes to the backend's deferred deletion.
+        if ( write.Source )
+            write.Source->ReleaseCapturedFrame( write.Ticket );
         if ( !error.empty() )
             return error;
         const double encodeMs =

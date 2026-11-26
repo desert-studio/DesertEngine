@@ -9,8 +9,8 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Formats/MaterialLayout.hpp>
 
-#include <Engine/Graphic/API/Vulkan/VulkanMaterialBackend.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
+#include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/Rhi/Rhi.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/ShaderResources/ShaderResourcesManager.hpp>
@@ -21,20 +21,6 @@
 
 namespace Desert::Graphic
 {
-    namespace
-    {
-        // The push block of a Vulkan program, by the one function its pipeline's layout range uses.
-        uint32_t VulkanPushBlockSize( const std::shared_ptr<Shader>& shader )
-        {
-            if ( !shader )
-            {
-                return 0u;
-            }
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): Vulkan branch, Vulkan shader
-            auto* vulkanShader = static_cast<API::Vulkan::VulkanShader*>( shader.get() );
-            return ShaderResources::ShaderLayout::PushBlockSize( vulkanShader->GetShaderPushConstant() );
-        }
-    } // namespace
 
     MaterialExecutor::MaterialExecutor( std::string&& debugName, const std::shared_ptr<Shader>& shader,
                                         const Core::Formats::ShaderProgramMeta& parameterSchema,
@@ -499,42 +485,20 @@ namespace Desert::Graphic
             DESERT_VERIFY( false );
         }
 
-        switch ( RendererAPI::GetAPIType() )
-        {
-            case RendererAPIType::None:
-                return nullptr;
-            case RendererAPIType::Vulkan:
-            {
-                return std::make_unique<MaterialExecutor>(
-                     std::move( debugName ), resolvedShader,
-                     parameterSchema != nullptr ? *parameterSchema : resolvedShader->GetProgramMeta(),
-                     std::make_unique<API::Vulkan::VulkanMaterialBackend>( resolvedShader ),
-                     VulkanPushBlockSize( resolvedShader ) );
-            }
-        }
-        DESERT_VERIFY( false, "Unknown RendererAPI" );
-        return nullptr;
+        return std::make_unique<MaterialExecutor>(
+             std::move( debugName ), resolvedShader,
+             parameterSchema != nullptr ? *parameterSchema : resolvedShader->GetProgramMeta(),
+             Renderer::GetInstance().Rhi().CreateMaterialBackend( resolvedShader ),
+             resolvedShader->GetPushBlockSize() );
     }
 
     std::unique_ptr<MaterialExecutor>
     MaterialExecutor::Create( std::string&& debugName, const std::shared_ptr<Shader>& shader,
                               const Core::Formats::ShaderProgramMeta* parameterSchema )
     {
-        switch ( RendererAPI::GetAPIType() )
-        {
-            case RendererAPIType::None:
-                return nullptr;
-            case RendererAPIType::Vulkan:
-            {
-                return std::make_unique<MaterialExecutor>(
-                     std::move( debugName ), shader,
-                     parameterSchema != nullptr ? *parameterSchema : shader->GetProgramMeta(),
-                     std::make_unique<API::Vulkan::VulkanMaterialBackend>( shader ),
-                     VulkanPushBlockSize( shader ) );
-            }
-        }
-        DESERT_VERIFY( false, "Unknown RendererAPI" );
-        return nullptr;
+        return std::make_unique<MaterialExecutor>(
+             std::move( debugName ), shader, parameterSchema != nullptr ? *parameterSchema : shader->GetProgramMeta(),
+             Renderer::GetInstance().Rhi().CreateMaterialBackend( shader ), shader->GetPushBlockSize() );
     }
 
     std::shared_ptr<UniformBufferProperty>

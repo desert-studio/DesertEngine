@@ -514,6 +514,16 @@ namespace Desert::Graphic::API::D3D12
         [[nodiscard]] Common::BoolResultStr RecordFrameCapture() override;
         [[nodiscard]] Common::ResultStr<std::vector<uint8_t>>
         TakeCapturedFrameRGBA8( uint32_t& outWidth, uint32_t& outHeight ) override;
+        // Nothing is ever recorded (RecordFrameCapture refuses), so nothing is pending, discarded or released.
+        [[nodiscard]] bool HasPendingFrameCapture() const noexcept override
+        {
+            return false;
+        }
+        void                                          DiscardFrameCapture() override {}
+        [[nodiscard]] Common::ResultStr<CapturedFrameTicket> TakeCapturedFrameTicket() override;
+        [[nodiscard]] Common::ResultStr<std::vector<uint8_t>>
+        ResolveCapturedFrame( const CapturedFrameTicket& ticket ) override;
+        void ReleaseCapturedFrame( const CapturedFrameTicket& ) override {}
 
         // Resizes the buffers to the pending size. Every queue must be idle (the caller's frame boundary).
         [[nodiscard]] Common::BoolResultStr ApplyRebuild() noexcept;

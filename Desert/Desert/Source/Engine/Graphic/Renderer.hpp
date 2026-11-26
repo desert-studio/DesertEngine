@@ -29,6 +29,7 @@ namespace Desert::ShaderResources
 namespace Desert::Graphic
 {
     class RendererAPI;
+    class IRhi; // Rhi/Rhi.hpp
     class EnvironmentCacheWriter; // Environment/EnvironmentBake.hpp
     struct BinDraw; // RendererAPI.hpp: a caller of RenderMeshIndirectCountBins includes it
     class RayTracingPipeline;
@@ -296,6 +297,12 @@ namespace Desert::Graphic
 
         RendererAPI* GetRendererAPI() const;
 
+        // THE BACKEND (IRhi): attached once by the Application from the RhiSelection, before the window and the
+        // device; every static X::Create forwards to it. Owned here, so it outlives every resource the renderer
+        // releases in Shutdown.
+        void AttachRhi( std::unique_ptr<IRhi> rhi );
+        [[nodiscard]] IRhi& Rhi();
+
         // The writes of baked environments in flight: pumped in WaitFrameSlot, drained in Shutdown.
         [[nodiscard]] EnvironmentCacheWriter& GetEnvironmentCache()
         {
@@ -320,8 +327,11 @@ namespace Desert::Graphic
         static Common::Memory::CommandBuffer& GetRenderCommandQueue();
 
     private:
+        // Declared first, destroyed last: everything below (and the fallback set it owns) is the backend's.
+        std::unique_ptr<IRhi>                   m_Rhi;
         std::shared_ptr<Texture2D>              m_BRDFTexture;
         std::unique_ptr<EnvironmentCacheWriter> m_EnvironmentCache;
+        std::unique_ptr<RendererAPI>            m_RendererAPI;
     };
 } // namespace Desert::Graphic
 

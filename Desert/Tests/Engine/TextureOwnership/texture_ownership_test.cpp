@@ -45,6 +45,10 @@ namespace
         {
             return 1;
         }
+        // A fake has no sampler to re-point.
+        void RecreateSampler() override
+        {
+        }
         Desert::Core::Formats::Image2DSpecification& GetImageSpecification() override
         {
             return m_Spec;

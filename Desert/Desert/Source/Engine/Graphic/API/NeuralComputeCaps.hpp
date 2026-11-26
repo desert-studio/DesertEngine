@@ -63,7 +63,7 @@ namespace Desert::Engine
         bool StorageBuffer8BitAccess  = false; ///< int8 weights in storage buffers
         bool SubgroupSizeControl      = false; ///< subgroupSizeControl + computeFullSubgroups
         bool CooperativeMatrix        = false; ///< VK_KHR_cooperative_matrix, feature cooperativeMatrix
-        bool VulkanMemoryModel        = false; ///< vulkanMemoryModel: every coopmat module glslang emits uses it
+        bool MemoryModel              = false; ///< the API memory model (Vulkan vulkanMemoryModel): every coopmat module uses it
 
         // Device limits (VkPhysicalDeviceLimits / subgroup properties).
         uint32_t SubgroupSize                  = 0;     ///< VkPhysicalDeviceSubgroupProperties::subgroupSize
@@ -88,7 +88,7 @@ namespace Desert::Engine
     [[nodiscard]] const char* NeuralScalarName( NeuralScalar scalar );
 
     // PURE. Sets Path, Tile and Reason from the fields above:
-    //   CoopMatFp16 iff CooperativeMatrix, VulkanMemoryModel, CooperativeMatrixInCompute, ShaderFloat16,
+    //   CoopMatFp16 iff CooperativeMatrix, MemoryModel, CooperativeMatrixInCompute, ShaderFloat16,
     //               StorageBuffer16BitAccess and
     //   a
     //               subgroup-scope shape with A = B = fp16 and C = Result = fp32 or fp16 (fp32 accumulation

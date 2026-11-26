@@ -17,8 +17,8 @@
 #include <Engine/Core/WorldSystems.hpp>
 #include <Engine/Core/WorldTime.hpp>
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/Rhi/Rhi.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Animation/AnimationLibrary.hpp>
@@ -108,26 +108,14 @@ namespace Desert::Editor
         *registry = std::make_unique<Render::RenderRegistry>( scene );
     }
 
-    namespace
-    {
-        Graphic::API::Vulkan::VulkanAllocator* DeviceAllocator()
-        {
-            const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
-                 EngineContext::GetInstance().GetRendererContext() );
-            return context ? context->GetVulkanAllocator().get() : nullptr;
-        }
-    } // namespace
-
     void SceneWorkspace::BeginSceneOpenMeasure( std::string_view scene )
     {
-        if ( auto* allocator = DeviceAllocator() )
-            allocator->BeginSceneOpen( scene );
+        Graphic::Renderer::GetInstance().Rhi().BeginSceneOpenMeasure( scene );
     }
 
     void SceneWorkspace::SampleSceneOpenMeasure()
     {
-        if ( auto* allocator = DeviceAllocator() )
-            allocator->SampleSceneOpen();
+        Graphic::Renderer::GetInstance().Rhi().SampleSceneOpenMeasure();
     }
 
     void SceneWorkspace::ReleaseWorld( const std::shared_ptr<Desert::Core::Scene>& scene )
@@ -158,10 +146,7 @@ namespace Desert::Editor
         // frame ring comes round, beside the one the next world builds (FOLIAGE-LOOK-8: SurfaceCache.* x2 at
         // Stop).
         scene->ReleaseParkedRenderers();
-        const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
-             EngineContext::GetInstance().GetRendererContext() );
-        const std::size_t drained =
-             context && context->GetVulkanAllocator() ? context->GetVulkanAllocator()->DrainDeletionQueue() : 0;
+        const std::size_t drained = Graphic::Renderer::GetInstance().Rhi().DrainDeferredDestruction();
         LOG_INFO( "[SceneLoad] the old world released: {} view(s), {} deferred GPU destruction(s) drained before "
                   "the next world loads",
                   views, drained );
