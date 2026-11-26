@@ -1,0 +1,15 @@
+# TwinCheck's known false matches (Tools/ShaderProtocolGen/Source/TwinCheck.hpp): `path:Name - reason`, paths
+# relative to Editor/Resources/Shaders. scripts/Dev/arch_census.py counts the entries (rule shader-twin): the list
+# may only shrink. Lines starting with # are comments.
+Common/DBuffer.glslh:DesertDBufferTexel — a shader-local value of three decoded DBuffer targets; no buffer carries it and no C++ type mirrors it
+Common/ScreenSpaceDenoise.glslh:SSDSceneInfo — a per-pixel value the bilateral weight builds from the GBuffer; never stored, no C++ side
+Common/SkyScattering.glslh:SkyViewReferential — an orthonormal frame computed per invocation; a basis, not a buffer layout
+Common/SurfaceLayer.glslh:DesertSurfaceLayerOutput — the return value of a surface-layer function; material outputs, never uploaded
+Common/VFXEvents.glslh:VFXEventChannel — offsets decoded from the event buffer's header words in the shader; the buffer itself is a uint array
+Common/VFXParticleContract.glslh:VFXEventSpawn — a spawn record the handler reads back from event rows; a shader value assembled from uints
+Mesh/LightGrid.glslh:LightGridWorldRange — a lookup result with a bool member; GLSL-only, no buffer holds it
+Programs/PathTracing/PathTracer.shader:PathTracingDenoiseSample — the per-path auxiliary outputs written to images, not a buffer layout
+Programs/PathTracing/PathTracerDenoise.shader:Gathered — an accumulator of one denoise gather loop; function-local
+Programs/PathTracing/PathTracerDenoise.shader:DenoiseSurface — a per-pixel value read from the GBuffer for edge stops; function-local
+Common/WorldParameters.glslh:WorldParameterSlot — a key/value pair of the world-parameter table, declared only in GLSL; matches by its two member names alone
+Common/SkyMedium.glslh:SkyAtmParams — atmosphere constants the shader derives from the sky look (km); the GlslAsCpp sky tests compile this very text, there is no C++ copy

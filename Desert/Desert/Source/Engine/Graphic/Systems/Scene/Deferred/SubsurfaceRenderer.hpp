@@ -17,6 +17,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/SubsurfaceLayout.hpp>
 
 #include <glm/glm.hpp>
 
@@ -59,20 +60,6 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageBuffer, SubsurfaceProfileAtlasUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, DeferredTilesUB ); // the tiled permutation's vertex stage only
     };
-
-    // SubsurfaceBurley.shader's SubsurfaceViewUB (std430).
-    struct SubsurfaceViewGpu
-    {
-        glm::mat4 WorldToClip{ 1.0f };
-        glm::mat4 ClipToWorld{ 1.0f };
-        glm::vec4 Params{ 0.0f }; // x scale, y most samples, z frame index, w fewest samples
-        glm::mat4 PrevWorldToClip{ 1.0f };
-        glm::mat4 PrevClipToWorld{ 1.0f };
-        // x history readable, y PreExposure / PrevPreExposure, z most frames, w the stamp the read history carries
-        glm::vec4 HistoryParams{ 0.0f };
-        glm::vec4 StampParams{ 0.0f }; // x this scatter's stamp, written into every moments texel it writes
-    };
-    static_assert( sizeof( SubsurfaceViewGpu ) == 304 );
 
     // What the passes read, as refs of THIS frame's graph (CONTRACT §3.5).
     struct SubsurfaceInputs

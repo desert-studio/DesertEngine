@@ -429,27 +429,7 @@ vec3 FilmColorCorrect(vec3 workingColor, vec4 saturation, vec4 contrast, vec4 ga
 // only, so both are 25 packed vec4s), and the thumbnail compiles this file against it by name - hence declared here
 // for GLSL only.
 #ifndef __cplusplus
-struct FilmColorRange
-{
-    vec4 Saturation;
-    vec4 Contrast;
-    vec4 Gamma;
-    vec4 Gain;
-    vec4 Offset;
-};
-
-struct FilmGradeParams
-{
-    vec4           Curve;        // FilmSlope, FilmToe, FilmShoulder, FilmBlackClip
-    vec4           Look;         // FilmWhiteClip, BlueCorrection, ExpandGamut, ToneCurveAmount
-    vec4           WhiteBalance; // WhiteTemp, WhiteTint, z > 0.5 = not the identity (6500 / 0), so it applies
-    vec4           Output;       // headroom (1 = SDR), Core::TonemapOperator (0 ACES 1 Reinhard 2 Filmic), WhitePoint
-    vec4           Ranges;       // ColorCorrectionShadowsMax, HighlightsMin, HighlightsMax
-    FilmColorRange Global;
-    FilmColorRange Shadows;
-    FilmColorRange Midtones;
-    FilmColorRange Highlights;
-};
+#include <Generated/Post/FilmGradeParams.glslh>
 #endif
 
 // UE's ColorCorrectAll (PostProcessCombineLUTs.usf:105-138): the shadow, midtone and highlight corrections, each

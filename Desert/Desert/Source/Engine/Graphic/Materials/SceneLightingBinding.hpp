@@ -73,7 +73,7 @@ namespace Desert::Graphic
             return;
 
         const auto& blocks = material->GetSceneBlocks();
-        if ( auto* ub = material->GetResolved( blocks.Camera, ShaderProtocols::Camera::Parameter ) )
+        if ( auto* ub = material->GetResolved( blocks.Camera, ShaderProtocols::kCameraUBParameter ) )
         {
             const auto data  = ShaderProtocols::MakeCameraUB( frame );
             const auto bytes = std::as_bytes( std::span{ &data, 1 } );

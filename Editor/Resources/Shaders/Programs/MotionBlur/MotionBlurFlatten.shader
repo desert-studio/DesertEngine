@@ -29,19 +29,8 @@ Shader "MotionBlurFlatten"
         layout(binding = 2, rgba16f) restrict writeonly uniform image2D FlattenedVelocityTexture;
 
         // The C++ side is Graphic::MotionBlurParams (View/MotionBlur.hpp), offsets pinned by static_asserts.
-        layout(std430, binding = 3) readonly buffer MotionBlurBuffer
-        {
-            vec2  RenderSize;
-            vec2  OutputSize;
-            vec2  TileCount;
-            float VelocityScale;
-            float MaxPixels;
-            int   Samples;
-            float Pad0;
-            float Pad1;
-            float Pad2;
-            mat4  ClipToPrevClip; // ViewFrame::ClipToPrevClip (unjittered); Flatten's sky branch
-        };
+        #include <Generated/Post/MotionBlurParams.glslh>
+        layout(std430, binding = 3) readonly buffer MotionBlurBuffer { DESERT_MotionBlurParams_MEMBERS };
 
         void main()
         {

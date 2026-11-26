@@ -116,6 +116,9 @@ set(DESERT_ENGINE_GENERATED_FILES ${DESERT_EXECUTABLE_GENERATED})
 foreach(name IN LISTS DESERT_MODULES)
     list(APPEND DESERT_ENGINE_GENERATED_FILES ${DESERT_MODULE_${name}_GENERATED})
 endforeach()
+# Written by Tools/ShaderProtocolGen (its own prebuild step, Desert/Desert/CMakeLists.txt), appended after the
+# header tool's byproduct list so one file has one writer.
+list(APPEND DESERT_MODULE_ShaderCompiler_GENERATED "${DESERT_ENGINE_GENERATED_DIR}/GeneratedShaderIncludes.gen.cpp")
 
 # Placement rows of the legacy root: the table's rows in order.
 list(APPEND DESERT_PLACEMENT_MODULES ${_desert_table_placement_modules})
@@ -165,7 +168,8 @@ set(_render_legacy "")
 foreach(_m IN LISTS _render_modules)
     list(APPEND _render_legacy ${DESERT_MODULE_${_m}_LEGACY})
 endforeach()
-set(_include_roots "${DESERT_ROOT}/${DESERT_LEGACY_ROOT}" "${DESERT_ROOT}/Editor/Resources/Shaders")
+set(_include_roots "${DESERT_ROOT}/${DESERT_LEGACY_ROOT}" "${DESERT_ROOT}/Editor/Resources/Shaders"
+    "${DESERT_GENERATED_DIR}/Shaders")
 foreach(_m IN LISTS DESERT_MODULES)
     list(APPEND _include_roots "${DESERT_ROOT}/${DESERT_MODULE_${_m}_SOURCE_ROOT}")
 endforeach()

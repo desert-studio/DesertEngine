@@ -132,12 +132,30 @@ function(_desert_engine_module_library name)
         desert_depend_on_codegen(${target})
     endif()
 
+    # The generated shader includes (Tools/ShaderProtocolGen): the table compiled into this module and the same
+    # texts as files under ${DESERT_GENERATED_DIR}/Shaders. The hand-written shaders are inputs too: TwinCheck
+    # refuses a twin added to one of them at the next build.
+    if(name STREQUAL "ShaderCompiler")
+        add_dependencies(${target} ShaderProtocolGen)
+        desert_sources(_shaders "${DESERT_ROOT}/Editor/Resources/Shaders" MATCHING "\\.(glslh|shader|glsl)$")
+        desert_prebuild(${target} ShaderProtocolGen
+            COMMAND $<TARGET_FILE:ShaderProtocolGen>
+                --root "${DESERT_ROOT}"
+                --out-cpp "${DESERT_ENGINE_GENERATED_DIR}/GeneratedShaderIncludes.gen.cpp"
+                --out-dir "${DESERT_GENERATED_DIR}/Shaders"
+                --allow "${DESERT_ROOT}/Tools/ShaderProtocolGen/TwinAllowList.txt"
+            DEPENDS ShaderProtocolGen "${DESERT_ROOT}/Tools/ShaderProtocolGen/TwinAllowList.txt" ${_shaders}
+            BYPRODUCTS "${DESERT_ENGINE_GENERATED_DIR}/GeneratedShaderIncludes.gen.cpp"
+            COMMENT "ShaderProtocolGen: generated shader includes and the twin check")
+    endif()
+
     # Closure-only (UBT): the module's own FOLDER and its dependency closure's, so an include of a module it does
     # not depend on does not compile (cmake/DesertModules.cmake, MODULE BOUNDARY, refuses it at configure first).
     desert_module_includes(${target} ${name})
     target_include_directories(${target} PRIVATE
         "${DESERT_ROOT}/ThirdParty/mikktspace"
-        "${DESERT_ROOT}/Editor/Resources/Shaders")
+        "${DESERT_ROOT}/Editor/Resources/Shaders"
+        "${DESERT_GENERATED_DIR}/Shaders")
     desert_external_includes(${target}
         "${DESERT_ROOT}/ThirdParty/voro++/src"
         "${DESERT_ROOT}/ThirdParty/dav1d/include"

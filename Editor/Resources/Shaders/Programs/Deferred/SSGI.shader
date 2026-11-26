@@ -49,15 +49,8 @@ Shader "SSGI"
         #include <Common/HZBTrace.glslh>
 
         // SSGIRenderer::Uniforms, from the ViewFrame and the scalability once per frame.
-        Uniform(8) SSGIUB
-        {
-        	mat4 InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
-        	mat4 JitteredViewProjection;    // that matrix: rays are projected with it, in the depth's own space
-        	vec4 Trace;                     // x = rays per pixel, y = HZB iterations per ray, z = thickness (world,
-        	                                //     cm), w = this frame's seed (ray sequence)
-        	vec4 History;                   // x = 1 when SceneColorHistoryTexture holds last frame, y = 1 /
-        	                                //     PrevPreExposure (the history's scale), zw unused
-        };
+        #include <Generated/Post/SSGIUniforms.glslh>
+        Uniform(8) SSGIUB { DESERT_SSGIUniforms_MEMBERS };
 
         LocalSize(8, 8, 1);
 

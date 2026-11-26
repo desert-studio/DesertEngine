@@ -107,6 +107,7 @@ desert_placement(Engine [[Engine/Animation/(AnimationLibrary\.|Graph/AnimGraphSe
 desert_placement(AnimationCore [[Engine/Animation/]])
 # RHI + RDG
 desert_placement(ShaderCompiler [[Engine/Core/ShaderCompiler/]])
+desert_placement(RenderCore [[Engine/Graphic/ShaderDataType\.hpp]])
 # EngineContext (window, device, renderer context, frame manager) is read by the Vulkan RHI throughout, so its one
 # instance lives in RenderCore, the lowest module that reads it (BINT-STATE).
 desert_placement(RenderCore [[Engine/Graphic/API/|Engine/Graphic/Rhi/|Engine/Graphic/RDG/|Engine/ShaderResources/|Engine/Core/(Device|GpuBenchmark|FrameManager|EngineContext|RenderTask|Window|GlfwWindowMode)\.|^Platform/(Windows/WindowsWindow|MacOS/MacOSWindow)\.]])

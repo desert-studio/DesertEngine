@@ -148,12 +148,12 @@ namespace Desert::Graphic
         namespace SR = SceneResources;
         namespace SP = ShaderProtocols;
         m_SceneBlocks = SceneBlocks{
-             .Camera             = FindUniformBufferProperty( SP::Camera::Parameter.Name ),
+             .Camera             = FindUniformBufferProperty( SP::kCameraUBParameter.Name ),
              .Time               = FindUniformBufferProperty( SR::kTimeBlock.Name ),
              .PointLights        = FindStorageBufferProperty( SP::PointLight::Parameter.Name ),
              .SpotLights         = FindStorageBufferProperty( SP::SpotLight::Parameter.Name ),
              .DirectionLights    = FindUniformBufferProperty( SP::DirectionLight::Parameter.Name ),
-             .LightsMetadata     = FindUniformBufferProperty( SP::LightsMetadata::Parameter.Name ),
+             .LightsMetadata     = FindUniformBufferProperty( SP::kLightsMetadataParameter.Name ),
              .Shadow             = FindUniformBufferProperty( SR::kShadowBlock.Name ),
              .SkyLook            = FindUniformBufferProperty( kSkyLookBlock.Name ),
              .CloudShadow        = FindUniformBufferProperty( SR::kCloudShadowBlock.Name ),

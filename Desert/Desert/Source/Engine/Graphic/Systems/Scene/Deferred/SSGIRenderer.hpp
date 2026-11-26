@@ -10,6 +10,7 @@
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/SSGILayout.hpp>
 
 #include <glm/glm.hpp>
 
@@ -69,15 +70,6 @@ namespace Desert::Graphic::System
             bool            SceneHistoryReadable = false; // FrameScreenTrace::SceneHistoryReadable
         };
 
-        // SSGI.shader SSGIUB (std140: two mat4, two vec4).
-        struct Uniforms
-        {
-            glm::mat4 InvJitteredViewProjection;
-            glm::mat4 JitteredViewProjection;
-            glm::vec4 Trace;   // x = rays, y = iterations, z = thickness (cm), w = seed
-            glm::vec4 History; // x = 1 when the scene colour history is last frame's, y = 1 / PrevPreExposure
-        };
-
         // The trace's program and the denoiser's. An error names the program that did not build; the view then
         // refuses GIMethod::ScreenSpace (SceneRenderer::EnsureSSGIResources).
         [[nodiscard]] Common::BoolResultStr Initialize()
@@ -118,15 +110,15 @@ namespace Desert::Graphic::System
             const float          readable = in.SceneHistoryReadable ? 1.0f : 0.0f;
             const float          invPrev  = frame.PrevPreExposure > 0.0f ? 1.0f / frame.PrevPreExposure : 1.0f;
             const float          seed     = static_cast<float>( frame.FrameIndex % 1024u );
-            const Uniforms       data{ .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+            const SSGIUniforms   data{ .InvJitteredViewProjection = frame.InvJitteredViewProjection,
                                        .JitteredViewProjection    = frame.JitteredViewProjection,
                                        .Trace   = glm::vec4( static_cast<float>( settings.RaysPerPixel ),
                                                              static_cast<float>( settings.Iterations ),
                                                              settings.Thickness,
                                                              seed ),
                                        .History = glm::vec4( readable, invPrev, 0.0f, 0.0f ) };
-            const RDG::BufferRef uniforms = graph.CreateBuffer( RDG::BufferDesc{ sizeof( Uniforms ) }, "SSGI.UB" );
-            graph.QueueBufferUpload( uniforms, std::as_bytes( std::span<const Uniforms>( &data, 1 ) ) );
+            const RDG::BufferRef uniforms = graph.CreateBuffer( RDG::BufferDesc{ sizeof( SSGIUniforms ) }, "SSGI.UB" );
+            graph.QueueBufferUpload( uniforms, std::as_bytes( std::span<const SSGIUniforms>( &data, 1 ) ) );
 
             graph.AddPass(
                  "SSGI: Trace", RDG::PassFlags::Compute,

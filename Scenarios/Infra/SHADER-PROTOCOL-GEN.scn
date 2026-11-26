@@ -1,0 +1,24 @@
+# SHADER-PROTOCOL-GEN (run A): every GPU block the C++ and the shaders share is declared once, in a C++ *Layout.hpp,
+# and Tools/ShaderProtocolGen generates the GLSL (Generated/*.glslh) the shaders include; the hand twins and their
+# offsetof/sizeof asserts are gone. Run A moved the scene protocols (camera, lights, skinning, vertex inputs, the
+# slot table) and the post ones (film grade, GTAO, SSGI, subsurface, translucency lighting volume, depth of field,
+# motion blur, TAA, TSR: Generated/Post/*.glslh, e.g. Generated/Post/DofParams.glslh from View/DepthOfFieldLayout.hpp).
+# The build proves the layouts: DESERT_SHADER_STRUCT static_asserts each C++ offset against the GLSL rule. The frames
+# prove the shaders compile against the generated text (a missing include or a renamed member = a dropped program =
+# a black or missing pass) and that the bytes the C++ uploads land in the members the shaders read (a swapped member
+# = a wrong exposure, blur or GI). Every frame is compared with the same frame on dev.
+# Outside the editor: python scripts/Dev/arch_census.py exits 0; Generated/ holds the .glslh the tool wrote.
+Проект Projects/Desert/Desert.deproj
+Дано state
+Когда run View "View mode: Lit"
+Когда frames 120
+Тогда 0_lit сцена Projects/Desert в Lit как на dev (пиксельное сравнение): свет точечных, прожекторных и направленного источников, тени, скин-меши, тон-маппинг и грейд (FilmGradeParams) на месте; в editor.log нет "failed to compile", "Reflect" отказа программы, ошибки валидации и строки "Generated/" с "not found"
+Когда frames 30
+Тогда 1_post тот же вид после 30 кадров: DOF, motion blur, TAA/TSR и GTAO как на dev - без чёрных или пропущенных проходов, без смещённой резкости и полос; editor.log без ошибок компиляции программ DepthOfField*, MotionBlur*, TemporalAA, TSR*, SSAO
+Когда frames 30
+Тогда 2_gi SSGI, subsurface и translucency lighting volume (туман, облака, полупрозрачное) как на dev: GI не пропал и не пересвечен, полупрозрачное освещено; editor.log без ошибок SSGI, SubsurfaceBurley, TranslucencyLightingVolume
+Когда run View "View mode: Wireframe"
+Когда frames 30
+Когда run View "View mode: Lit"
+Когда frames 60
+Тогда 3_lit_back снова Lit, равен 0_lit; после выхода редактора в editor.log нет ошибки завершения

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/ShaderDataType.hpp>
-#include <Engine/Graphic/ShaderProtocols/Std140Block.hpp>
+#include <Engine/Graphic/ShaderProtocols/ShaderProtocol.hpp>
 
 #include <array>
 #include <cstdint>
@@ -12,13 +12,14 @@
 
 // ONE TRUTH FOR A VERTEX INPUT (UE's FVertexFactory declaration + FVertexFactoryInput): the C++ list is the source
 // and the shader's `layout( location = N ) in` lines are GENERATED from it, the way the uniform blocks are
-// (Std140Block.hpp). A vertex format lists its attributes once (an X-macro), the list expands into an array of
+// (ShaderLayout.hpp). A vertex format lists its attributes once (an X-macro), the list expands into an array of
 // VertexInputField — name, type, location, binding — and:
 //
 //   * the C++ VertexBufferLayout the pipeline is built with is made from that array (MeshVertexLayout.hpp,
 //     Render2D.cpp), so the vertex-input state and the shader declaration cannot disagree;
-//   * GenerateVertexInputsGlsl writes the shader's inputs from the same array, and the shader includer serves that
-//     text for the format's include path (GeneratedProtocolIncludes.hpp) — no hand-written twin to drift;
+//   * GenerateVertexInputsGlsl writes the shader's inputs from the same array: Tools/ShaderProtocolGen runs it (the
+//     include declarations' Text below) and the shader includer serves the generated text for the format's
+//     include path (Core::FindGeneratedShaderInclude) — no hand-written twin to drift;
 //   * the DSL parser refuses a vertex stage that declares its own inputs (`In(N)` or `layout(location) in`), so a
 //     second spelling does not compile, and VulkanShaderReflection checks every input a stage reads against the
 //     layout field at its location by name and type.
@@ -239,17 +240,14 @@ namespace Desert::Graphic::ShaderProtocols
                         VertexInputsAreDistinct( kMeshSkinnedVertexInputs ),
                    "the mesh streams' first location falls inside binding 0's attributes" );
 
-    inline constexpr std::string_view kMeshVertexInputsInclude        = "Mesh/MeshVertexInputs.glslh";
-    inline constexpr std::string_view kMeshSkinnedVertexInputsInclude = "Mesh/MeshVertexInputsSkinned.glslh";
-    inline constexpr std::string_view kMeshVertexAccessInclude        = "Mesh/MeshVertexAccess.glslh";
-
     /// THE ONE MESH UV CONVENTION, beside the attribute it reads. A mesh vertex stores its texture coordinates as
     /// imported (origin bottom-left, V up); a texture is addressed from its top-left. Every reader of a mesh
     /// vertex's UV turns the stored value into the texture's coordinate with this function: the raster vertex
     /// paths (through the vertex inputs, which carry it) and the ray-traced readers that fetch the vertex from its
-    /// buffer (Mesh/Surface/Pass_RayHit.glslh, Common/RayQueryVisibility.glslh, through kMeshVertexAccessInclude).
+    /// buffer (Mesh/Surface/Pass_RayHit.glslh, Common/RayQueryVisibility.glslh, through Mesh/MeshVertexAccess.glslh).
     /// A second spelling of it is how the hit group sampled an atlas mirrored (PT-PARITY-2). Not for geometry with
-    /// its own vertex convention (landscape tiles); 3D text stores this one (TextECSSystem).
+    /// its own vertex convention (landscape tiles); 3D text stores this one (TextECSSystem). Its own guard: the
+    /// access include and a vertex-input include may both reach one program.
     [[nodiscard]] inline std::string MeshVertexAccessGlsl()
     {
         return "#ifndef DESERT_MESH_VERTEX_ACCESS\n#define DESERT_MESH_VERTEX_ACCESS\n"
@@ -257,29 +255,25 @@ namespace Desert::Graphic::ShaderProtocols
                "#endif\n";
     }
 
-    [[nodiscard]] inline const std::string& MeshVertexAccessIncludeGlsl()
+    [[nodiscard]] inline std::string MeshVertexInputsGlsl()
     {
-        static const std::string glsl =
-             GenerateGuardedGlsl( "DESERT_MESH_VERTEX_ACCESS_GLSLH",
-                                  "Engine/Graphic/ShaderProtocols/VertexInputs.hpp", MeshVertexAccessGlsl() );
-        return glsl;
+        return GenerateVertexInputsGlsl( kMeshVertexInputs ) + MeshVertexAccessGlsl();
     }
 
-    [[nodiscard]] inline const std::string& MeshVertexInputsGlsl()
+    [[nodiscard]] inline std::string MeshSkinnedVertexInputsGlsl()
     {
-        static const std::string glsl = GenerateGuardedGlsl(
-             "DESERT_MESH_VERTEX_INPUTS_GLSLH", "Engine/Graphic/ShaderProtocols/VertexInputs.hpp",
-             GenerateVertexInputsGlsl( kMeshVertexInputs ) + MeshVertexAccessGlsl() );
-        return glsl;
+        return GenerateVertexInputsGlsl( kMeshSkinnedVertexInputs ) + MeshVertexAccessGlsl();
     }
 
-    [[nodiscard]] inline const std::string& MeshSkinnedVertexInputsGlsl()
-    {
-        static const std::string glsl = GenerateGuardedGlsl(
-             "DESERT_MESH_VERTEX_INPUTS_SKINNED_GLSLH", "Engine/Graphic/ShaderProtocols/VertexInputs.hpp",
-             GenerateVertexInputsGlsl( kMeshSkinnedVertexInputs ) + MeshVertexAccessGlsl() );
-        return glsl;
-    }
+    // The texts above are run by Tools/ShaderProtocolGen only (ShaderIncludeDecl::Text), never at engine run time.
+    inline constexpr ShaderIncludeDecl kMeshVertexAccessShaderInclude{ .Path         = "Mesh/MeshVertexAccess.glslh",
+                                                                        .SourceHeader = "Desert/Desert/Source/Engine/Graphic/ShaderProtocols/VertexInputs.hpp",
+                                                                        .Text         = &MeshVertexAccessGlsl };
+    inline constexpr ShaderIncludeDecl kMeshVertexInputsShaderInclude{ .Path         = "Mesh/MeshVertexInputs.glslh",
+                                                                        .SourceHeader = "Desert/Desert/Source/Engine/Graphic/ShaderProtocols/VertexInputs.hpp",
+                                                                        .Text         = &MeshVertexInputsGlsl };
+    inline constexpr ShaderIncludeDecl kMeshSkinnedVertexInputsShaderInclude{
+         .Path = "Mesh/MeshVertexInputsSkinned.glslh", .SourceHeader = "Desert/Desert/Source/Engine/Graphic/ShaderProtocols/VertexInputs.hpp", .Text = &MeshSkinnedVertexInputsGlsl };
 
     // ---------------------------------------------------------------------------------------------------------
     // THE 2D VERTEX (Render2D::Vertex2D) — the batcher's pixel-space corners, drawn by every UI pipeline.
@@ -293,26 +287,12 @@ namespace Desert::Graphic::ShaderProtocols
          MakeVertexInputs( DESERT_VERTEX_INPUT_SPECS( DESERT_UI_VERTEX_FIELDS ) );
     static_assert( VertexInputsAreDistinct( kUIVertexInputs ) );
 
-    inline constexpr std::string_view kUIVertexInputsInclude = "Common/UIVertexInputs.glslh";
-
-    [[nodiscard]] inline const std::string& UIVertexInputsGlsl()
+    [[nodiscard]] inline std::string UIVertexInputsGlsl()
     {
-        static const std::string glsl = GenerateGuardedGlsl( "DESERT_UI_VERTEX_INPUTS_GLSLH",
-                                                             "Engine/Graphic/ShaderProtocols/VertexInputs.hpp",
-                                                             GenerateVertexInputsGlsl( kUIVertexInputs ) );
-        return glsl;
+        return GenerateVertexInputsGlsl( kUIVertexInputs );
     }
 
-    /// True for a name a generated vertex format owns. The shader includer refuses a header that declares one as
-    /// an input by hand: that would be a second spelling of the format beside the generated one.
-    [[nodiscard]] constexpr bool IsGeneratedVertexInputName( const std::string_view name )
-    {
-        for ( const VertexInputField& field : kMeshSkinnedVertexInputs )
-            if ( field.Name == name )
-                return true;
-        for ( const VertexInputField& field : kUIVertexInputs )
-            if ( field.Name == name )
-                return true;
-        return false;
-    }
+    inline constexpr ShaderIncludeDecl kUIVertexInputsShaderInclude{ .Path         = "Common/UIVertexInputs.glslh",
+                                                                      .SourceHeader = "Desert/Desert/Source/Engine/Graphic/ShaderProtocols/VertexInputs.hpp",
+                                                                      .Text         = &UIVertexInputsGlsl };
 } // namespace Desert::Graphic::ShaderProtocols

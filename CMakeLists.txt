@@ -105,6 +105,9 @@ add_subdirectory(ThirdParty)
 # Tools that need nothing of the engine. The header tool is the one the server build needs: it runs before the
 # engine's codegen library compiles.
 add_subdirectory(Tools/DesertHeaderTool)
+# Writes the generated shader includes before the ShaderCompiler module compiles; the server build compiles
+# that module too.
+add_subdirectory(Tools/ShaderProtocolGen)
 if(NOT DESERT_SERVER_ONLY)
     add_subdirectory(Tools/FbxMeshSplitter)
     add_subdirectory(Tools/PakTool)
