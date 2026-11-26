@@ -21,11 +21,11 @@
 //
 // WHY IT LIVES IN COMMON. It is engine-core DATA — no Vulkan, no ImGui, no Editor type. The resolver that turns
 // a saved choice into an effective one lives in Common/Settings next to machine.json (the packaged Runtime runs
-// it too), and Common does not link the engine; so the TYPE is here and the engine's DeviceCapabilities carries
+// it too), and Common does not link the engine; so the TYPE is here and the engine's GpuCapabilities carries
 // one (Engine/Core/Device.hpp). Filled by a backend through a pure function of probed facts
 // (Graphic/API/Vulkan/VulkanCapabilityCatalog.hpp), never by a renderer.
 //
-// THE FIELD RULE OF DeviceCapabilities APPLIES: a list belongs here only once something reads it. Each list
+// THE FIELD RULE OF GpuCapabilities APPLIES: a list belongs here only once something reads it. Each list
 // below names its reader. A list added "for completeness" is a dead setting (contract §1.3).
 //
 // MAC (MoltenVK) COLUMN. Each list says what a MoltenVK device fills, because the catalog is the one place the

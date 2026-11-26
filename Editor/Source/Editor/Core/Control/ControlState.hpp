@@ -147,7 +147,7 @@ namespace Desert::Editor::Control
         bool        PreviewsBindPose = false; ///< Skeleton only — 07 §1.3; the scene render shows it
     };
 
-    /// THE GPU AND WHAT ITS NEURAL-NETWORK KERNELS RUN ON (NN-RUNTIME): Engine::DeviceCapabilities::Neural as
+    /// THE GPU AND WHAT ITS NEURAL-NETWORK KERNELS RUN ON (NN-RUNTIME): Engine::GpuCapabilities::Neural as
     /// plain values, so a scenario reads the kernel path and the fields it was chosen from beside the "[nn_caps]"
     /// log line, not from a log tail that may have scrolled past it.
     struct DeviceSnapshot
@@ -191,7 +191,7 @@ namespace Desert::Editor::Control
 
         // RAY TRACING (NO-RT): what the device offers and what the main viewport resolved to, so a scenario on a
         // card without RT (or with it hidden by machine.json) reads the fallback from one source.
-        /// bufferDeviceAddress row (DeviceCapabilities::SupportsBufferDeviceAddress): independent of `Rt`; the GI
+        /// bufferDeviceAddress row (GpuCapabilities::SupportsBufferDeviceAddress): independent of `Rt`; the GI
         /// emissive light list needs only this.
         bool                     BufferDeviceAddress = false;
         std::string              Rt;      ///< "on" | "off" (the device has none) | "hidden" (machine.json HideRayTracing)

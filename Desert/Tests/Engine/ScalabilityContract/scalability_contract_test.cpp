@@ -885,7 +885,7 @@ TEST( ScalabilityContract, APassThatIsNotARateIsAnErrorNotAnIndex )
 
 TEST( ScalabilityContract, TheCacheKeyIsTheCreatedDevicesIdentityAndATableChangeInvalidatesIt )
 {
-    Desert::Engine::DeviceCapabilities caps;
+    Desert::Engine::GpuCapabilities caps;
     caps.VendorId               = 0x10DE;
     caps.DeviceId               = 0x2482;
     caps.DriverVersion          = 0x93C00000u;
@@ -897,7 +897,7 @@ TEST( ScalabilityContract, TheCacheKeyIsTheCreatedDevicesIdentityAndATableChange
     cached.Key = key;
     EXPECT_TRUE( CacheValid( cached, Desert::Engine::MakeBenchmarkCacheKey( caps, 3 ) ) );
     EXPECT_FALSE( CacheValid( cached, Desert::Engine::MakeBenchmarkCacheKey( caps, 4 ) ) );
-    Desert::Engine::DeviceCapabilities otherGpu = caps;
+    Desert::Engine::GpuCapabilities otherGpu = caps;
     otherGpu.DeviceId                           = 0x2484;
     EXPECT_FALSE( CacheValid( cached, Desert::Engine::MakeBenchmarkCacheKey( otherGpu, 3 ) ) );
 }

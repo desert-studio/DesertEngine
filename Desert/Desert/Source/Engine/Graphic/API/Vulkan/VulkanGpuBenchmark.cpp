@@ -121,7 +121,7 @@ namespace Desert::Graphic::API::Vulkan
 
         Result VulkanGpuBenchmark::Run( Engine::Device& engineDevice )
         {
-            const Engine::DeviceCapabilities&    caps = engineDevice.GetCapabilities();
+            const Engine::GpuCapabilities&    caps = engineDevice.GetCapabilities();
             Common::Scalability::BenchmarkResult result;
             result.Class       = caps.Catalog.Class;
             result.VideoMemory = caps.Catalog.VideoMemory;

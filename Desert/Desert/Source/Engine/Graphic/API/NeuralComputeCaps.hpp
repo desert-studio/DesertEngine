@@ -19,7 +19,7 @@
 // logged at start-up ("[nn_caps] ...").
 //
 // Backend-neutral on purpose: no Vulkan types. The Vulkan probe (DeviceCapsProbe.cpp) fills it; Device.hpp's
-// DeviceCapabilities carries it to the NN layer and to the editor's control channel.
+// GpuCapabilities carries it to the NN layer and to the editor's control channel.
 namespace Desert::Engine
 {
     // A cooperative-matrix component type (VkComponentTypeKHR, the subset a network can use; anything else is

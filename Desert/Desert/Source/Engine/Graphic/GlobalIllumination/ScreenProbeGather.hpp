@@ -185,7 +185,7 @@ namespace Desert::Graphic::GlobalIllumination
     // @p adaptivePercent: adaptive probes per uniform probe, percent (Scalability
     // GlobalIllumination.AdaptiveProbeAllocationPercent, UE AdaptiveProbeAllocationFraction x 100);
     // @p downsample / @p tracedTexels: ScreenProbeLayoutSupported; @p maxImageDimension: the device's
-    // maxImageDimension2D (DeviceCapabilities::MaxTexture2DSize), which bounds both atlas sides.
+    // maxImageDimension2D (GpuCapabilities::MaxTexture2DSize), which bounds both atlas sides.
     //
     // THE IMAGE-LIMIT CLAMP. The widest atlas texel a probe takes is the filtered one, side = TracedTexels + 2, so
     // the atlas holds at most C = (maxImageDimension / side)² probes. The row is widened first:

@@ -47,7 +47,7 @@ namespace Desert::Graphic::GpuDriven
     };
 
     // The device facts the choice reads: VkPhysicalDeviceFeatures::multiDrawIndirect and
-    // VkPhysicalDeviceLimits::maxDrawIndirectCount. Filled from Engine::DeviceCapabilities by its owner (this
+    // VkPhysicalDeviceLimits::maxDrawIndirectCount. Filled from Engine::GpuCapabilities by its owner (this
     // struct is how they reach the selection, never a second query of the device).
     struct IndirectDrawCapabilities
     {

@@ -39,7 +39,7 @@ namespace Desert::Graphic::API::Vulkan
                              properties.limits.maxViewportDimensions[0], properties.limits.maxViewportDimensions[1] } );
         probe.TimestampComputeAndGraphics = properties.limits.timestampComputeAndGraphics == VK_TRUE;
 
-        // The largest device-local heap, as DeviceCapabilities::VideoMemory counts it.
+        // The largest device-local heap, as GpuCapabilities::VideoMemory counts it.
         VkPhysicalDeviceMemoryProperties memory{};
         vkGetPhysicalDeviceMemoryProperties( physicalDevice, &memory );
         for ( uint32_t i = 0; i < memory.memoryHeapCount; ++i )

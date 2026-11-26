@@ -2423,9 +2423,9 @@ namespace Desert::Editor
         }
 
         {
-            // The NN layer's device facts and kernel path (Engine::DeviceCapabilities::Neural), as chosen at
+            // The NN layer's device facts and kernel path (Engine::GpuCapabilities::Neural), as chosen at
             // start-up.
-            const Engine::DeviceCapabilities& capabilities = EngineContext::GetInstance().GetCapabilities();
+            const Engine::GpuCapabilities& capabilities = EngineContext::GetInstance().GetCapabilities();
             const Engine::NeuralComputeCaps&  neural       = capabilities.Neural;
             Control::DeviceSnapshot&          device       = snapshot.Device;
             device.Name                                    = capabilities.Name;

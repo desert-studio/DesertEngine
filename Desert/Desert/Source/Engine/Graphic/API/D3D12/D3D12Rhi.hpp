@@ -388,7 +388,7 @@ namespace Desert::Graphic::API::D3D12
         [[nodiscard]] static Common::ResultStr<std::shared_ptr<D3D12Device>> Create() noexcept;
         ~D3D12Device() override;
 
-        [[nodiscard]] const Engine::DeviceCapabilities& GetCapabilities() const override
+        [[nodiscard]] const Engine::GpuCapabilities& GetCapabilities() const override
         {
             return m_Caps;
         }
@@ -460,7 +460,7 @@ namespace Desert::Graphic::API::D3D12
         D3D12BindlessHeap                                                        m_BindlessResources;
         D3D12BindlessHeap                                                        m_BindlessSamplers;
 
-        Engine::DeviceCapabilities m_Caps;
+        Engine::GpuCapabilities m_Caps;
         D3D_SHADER_MODEL           m_ShaderModel        = D3D_SHADER_MODEL_6_0;
         D3D12_RAYTRACING_TIER      m_RaytracingTier     = D3D12_RAYTRACING_TIER_NOT_SUPPORTED;
         D3D12_RESOURCE_HEAP_TIER   m_ResourceHeapTier   = D3D12_RESOURCE_HEAP_TIER_1;
