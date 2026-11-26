@@ -62,7 +62,7 @@
   { include: ["@<glm/(vec2|vec3|vec4|mat2x2|mat3x3|mat4x4|common|exponential|geometric|matrix|trigonometric|vector_relational|integer|packing)\\.hpp>", "private", "<glm/glm.hpp>", "public"] },
 
   # EnTT: the project includes the single umbrella header.
-  { include: ["@<entt/(config|container|core|entity|graph|locator|meta|poly|process|resource|signal)/.*>", "private", "<entt/entt.hpp>", "public"] },
+  { include: ["@<entt/(config|container|core|entity|graph|locator|meta|poly|process|resource|signal)/.*>", "private", "<Common/Core/Entt.hpp>", "public"] },
 
   # Logging: spdlog/fmt are reached through the project's logger.
   { include: ["@<spdlog/.*>", "private", "<Common/Core/Logger.hpp>", "public"] },

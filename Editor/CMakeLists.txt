@@ -66,6 +66,10 @@ foreach(layer IN LISTS DESERT_EDITOR_LAYERS)
     desert_module_library(${layer} SOURCES "Source/EditorPCH.cpp" "Source/EditorPCH.hpp" ${_files})
     if(_first_layer)
         target_sources(${layer} PRIVATE "ThirdParty/ImGuizmo/ImGuizmo.cpp")
+        # ImGuizmo marks its own functions IMGUI_API, which is dllimport outside the ImGui DLL; its
+        # definitions live in this layer, so they compile with IMGUI_API empty.
+        set_source_files_properties("ThirdParty/ImGuizmo/ImGuizmo.cpp" TARGET_DIRECTORY ${layer}
+            PROPERTIES COMPILE_DEFINITIONS "IMGUI_API=" SKIP_UNITY_BUILD_INCLUSION ON)
         set(_first_layer OFF)
     endif()
     desert_enable_unity(${layer})
