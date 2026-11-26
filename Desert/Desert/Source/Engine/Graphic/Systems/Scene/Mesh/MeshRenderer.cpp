@@ -1658,7 +1658,7 @@ namespace Desert::Graphic::System
 
         // The active IBL environment (diffuse irradiance + prefiltered specular) and the split-sum BRDF
         // LUT, resolved once so each lit object samples real ambient/reflections instead of the dummy cube.
-        auto* imageService = Runtime::ResourceRegistry::GetImageService();
+        auto* imageService = Runtime::GetImageService();
         if ( const auto& env = m_SceneRenderer->GetEnvironment(); env.has_value() )
         {
             frame.EnvironmentLook = env->Look;

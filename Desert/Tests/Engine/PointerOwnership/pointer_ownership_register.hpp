@@ -834,11 +834,11 @@ namespace Desert::Tests::PointerCensus
           "Render2D::ResolvedCommand, what ONE drawn command binds: made by Render2D::Resolve once per command in the setup (DeclareInto) and kept in m_Prepared (PreparedDraws) only until that frame's Flush records it; m_Prepared is Reset by BeginFrame and at the end of Flush, so the pointer never outlives the frame that prepared it. One of this Render2D's ShaderBindingLayoutCache members (m_PlainLayout / m_TextLayout / m_GlassLayout) or the mutable Layout of the UIMaterialCache entry the draw binds -- members of objects that outlive the walk, by the same rules as the Pipeline row" },
         { "Desert/Desert/Source/Engine/Graphic/Texture.hpp",
           "Texture2D", "m_Service", Guard::StaticStorage,
-          "ResourceRegistry::GetImageService's function-local static; ResourceRegistry.cpp constructs it before "
+          "Runtime::GetImageService's function-local static (ImageService.cpp); ResourceRegistry.cpp constructs it before "
           "every registry service that holds a Texture2D, so it is destroyed after all of them" },
         { "Desert/Desert/Source/Engine/Graphic/Environment/OwnedEnvironment.hpp",
           "OwnedEnvironment", "m_Service", Guard::StaticStorage,
-          "ResourceRegistry::GetImageService's function-local static, which outlives every view that owns an environment" },
+          "Runtime::GetImageService's function-local static (ImageService.cpp), which outlives every view that owns an environment" },
         { "Desert/Desert/Source/Engine/Graphic/Render2D/Render2D.hpp",
           "RetainedJob", "Owner", Guard::CallScoped,
           "the Render2D whose list holds the command: this, or a pooled RetainedTarget::Renderer (unique_ptr in m_RetainedPool, which nothing releases inside AddRetainedPassesOf). The job lives in AddRetainedPassesOf's local vector and is consumed before it returns" },

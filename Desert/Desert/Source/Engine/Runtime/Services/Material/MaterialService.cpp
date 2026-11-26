@@ -57,7 +57,7 @@ namespace Desert::Runtime
                      const auto slotTexture = textures->Require( Common::UUID( handle ) );
                      if ( auto* tex = slotTexture.Get() )
                      {
-                         if ( auto* image = ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() );
+                         if ( auto* image = GetImageService()->Resolve( tex->GetImageHandle() );
                               image != nullptr )
                          {
                              auto* img = dynamic_cast<Graphic::Image2D*>( image );

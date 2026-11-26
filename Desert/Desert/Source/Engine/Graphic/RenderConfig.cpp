@@ -5,7 +5,7 @@ namespace Desert::Graphic
     RDG::SamplerDesc GlobalTextureFilterSampler()
     {
         using FM                      = Common::Settings::TextureFilter;
-        const int                mode = RenderConfig::TextureFilter.load();
+        const int                mode = RenderConfig::TextureFilter();
         const RDG::SamplerFilter filter =
              mode == static_cast<int>( FM::Nearest ) ? RDG::SamplerFilter::Nearest : RDG::SamplerFilter::Linear;
         const RDG::SamplerMipMode mip =
@@ -20,15 +20,70 @@ namespace Desert::Graphic
                  RDG::SamplerAddress::Repeat };
     }
 
-    std::atomic<int> RenderConfig::TextureFilter{ 2 /* Trilinear */ };
+    std::atomic<int>  RenderConfig::s_TextureFilter{ 2 /* Trilinear */ };
+    std::atomic<int>  RenderConfig::s_AnisotropyLevel{ 8 };
+    std::atomic<bool> RenderConfig::s_WideLines{ false };
+    std::atomic<int>  RenderConfig::s_CloudVisualize{ 0 };
+    std::atomic<bool> RenderConfig::s_RdgCompileCache{ true };
+    std::atomic<int>  RenderConfig::s_ParallelSetupOverride{ -1 };
 
-    std::atomic<int> RenderConfig::AnisotropyLevel{ 8 };
+    int RenderConfig::TextureFilter()
+    {
+        return s_TextureFilter.load();
+    }
 
-    std::atomic<bool> RenderConfig::WideLines{ false };
+    int RenderConfig::AnisotropyLevel()
+    {
+        return s_AnisotropyLevel.load();
+    }
 
-    std::atomic<int> RenderConfig::CloudVisualize{ 0 };
+    bool RenderConfig::SetTextureFilter( const int filter )
+    {
+        return s_TextureFilter.exchange( filter ) != filter;
+    }
 
-    std::atomic<bool> RenderConfig::RdgCompileCache{ true };
+    bool RenderConfig::SetAnisotropyLevel( const int anisotropy )
+    {
+        return s_AnisotropyLevel.exchange( anisotropy ) != anisotropy;
+    }
 
-    std::atomic<int> RenderConfig::ParallelSetupOverride{ -1 };
-}
+    bool RenderConfig::WideLines()
+    {
+        return s_WideLines.load();
+    }
+
+    void RenderConfig::SetWideLines( const bool supported )
+    {
+        s_WideLines.store( supported );
+    }
+
+    int RenderConfig::CloudVisualize()
+    {
+        return s_CloudVisualize.load();
+    }
+
+    void RenderConfig::SetCloudVisualize( const int mode )
+    {
+        s_CloudVisualize.store( mode );
+    }
+
+    bool RenderConfig::RdgCompileCache()
+    {
+        return s_RdgCompileCache.load( std::memory_order_relaxed );
+    }
+
+    void RenderConfig::SetRdgCompileCache( const bool enabled )
+    {
+        s_RdgCompileCache.store( enabled );
+    }
+
+    int RenderConfig::ParallelSetupOverride()
+    {
+        return s_ParallelSetupOverride.load();
+    }
+
+    void RenderConfig::SetParallelSetupOverride( const int value )
+    {
+        s_ParallelSetupOverride.store( value );
+    }
+} // namespace Desert::Graphic

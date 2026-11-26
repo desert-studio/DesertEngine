@@ -30,7 +30,7 @@ namespace Desert::Graphic
 {
     class RendererAPI;
     class IRhi; // Rhi/Rhi.hpp
-    class EnvironmentCacheWriter; // Environment/EnvironmentBake.hpp
+    class IRendererClient; // RendererClient.hpp
     struct BinDraw; // RendererAPI.hpp: a caller of RenderMeshIndirectCountBins includes it
     class RayTracingPipeline;
     class GraphicsPipeline; // Pipeline.hpp: callers that build/bind pipelines include it
@@ -303,11 +303,9 @@ namespace Desert::Graphic
         void AttachRhi( std::unique_ptr<IRhi> rhi );
         [[nodiscard]] IRhi& Rhi();
 
-        // The writes of baked environments in flight: pumped in WaitFrameSlot, drained in Shutdown.
-        [[nodiscard]] EnvironmentCacheWriter& GetEnvironmentCache()
-        {
-            return *m_EnvironmentCache;
-        }
+        // THE ENGINE'S HOOKS (IRendererClient): attached once by the Application before Init (Init refuses to
+        // start without one); called in WaitFrameSlot after the frame slot and twice in Shutdown. Owned here.
+        void AttachClient( std::unique_ptr<IRendererClient> client );
 
         const std::shared_ptr<Graphic::Texture2D>& GetBRDFTexture() const;
 
@@ -330,7 +328,7 @@ namespace Desert::Graphic
         // Declared first, destroyed last: everything below (and the fallback set it owns) is the backend's.
         std::unique_ptr<IRhi>                   m_Rhi;
         std::shared_ptr<Texture2D>              m_BRDFTexture;
-        std::unique_ptr<EnvironmentCacheWriter> m_EnvironmentCache;
+        std::unique_ptr<IRendererClient>        m_Client;
         std::unique_ptr<RendererAPI>            m_RendererAPI;
     };
 } // namespace Desert::Graphic

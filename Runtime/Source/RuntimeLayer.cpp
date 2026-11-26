@@ -115,7 +115,7 @@ namespace
         auto* tex = textures->Get( handle );
         if ( tex == nullptr )
             return nullptr;
-        auto* images = Desert::Runtime::ResourceRegistry::GetImageService();
+        auto* images = Desert::Runtime::GetImageService();
         if ( images == nullptr )
             return nullptr;
         auto* img = dynamic_cast<Desert::Graphic::Image2D*>( images->Resolve( tex->GetImageHandle() ) );

@@ -121,8 +121,8 @@ TEST( TextureOwnership, DroppingAProceduralTextureReleasesItsImage )
 
 // RELATION: the same for the asset factory, which is every material texture a scene loads and the cooked
 // panorama SceneEnvironment builds and drops inside one function. Its GPU half -- CreateFromCooked, where the
-// image is made and adopted -- is driven from a decoded texture; CreateFromAsset is ReadCooked (CPU only, no
-// image) followed by exactly this call.
+// image is made and adopted -- is driven from a decoded texture; Assets::CreateTextureFromAsset is
+// Assets::ReadCookedTexture (CPU only, no image) followed by exactly this call.
 TEST( TextureOwnership, DroppingAnAssetTextureReleasesItsImage )
 {
     const int before  = s_LiveImages;

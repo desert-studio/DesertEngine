@@ -172,7 +172,7 @@ namespace Desert::Graphic::System
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact
                 // type
                 auto* img = static_cast<Image2D*>(
-                     Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
+                     Runtime::GetImageService()->Resolve( tex->GetImageHandle() ) );
                 if ( img == nullptr || material.SetTexture( material.OverrideTextureHandle( index ), name, img ) )
                     continue;
                 if ( logRefused )

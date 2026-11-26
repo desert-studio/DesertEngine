@@ -5,6 +5,8 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Graphic/Rhi/Rhi.hpp>
+#include <Engine/Core/EngineRendererClient.hpp>
+#include <Engine/Reflection/ReflectionRegistry.hpp>
 
 #include <functional>
 #include <mutex>
@@ -137,6 +139,15 @@ namespace Desert::Engine
         // matter — no rendering API was selected, and the BRDF LUT could not be created — after either of
         // which every frame below is drawn against half a renderer. Same instrument as the swapchain line
         // above it, and for the same reason: there is no partially-working renderer to continue with.
+        //
+        // Init order (BINT-RC moved the first two steps up from Renderer::Init, unchanged): the generated
+        // reflection TU is linked (a static lib would otherwise strip it) so every REFLECT()-annotated type is
+        // registered before any editor / shader-upload use; the engine's renderer client is attached; then the
+        // renderer starts (API, BRDF LUT).
+        Reflection::ForceLinkGeneratedReflection();
+        LOG_INFO( "[Reflection] {} reflected type(s) registered",
+                  Reflection::ReflectionRegistry::Get().All().size() );
+        Graphic::Renderer::GetInstance().AttachClient( std::make_unique<EngineRendererClient>() );
         const auto rendererReady = Graphic::Renderer::GetInstance().Init();
         DESERT_VERIFY( rendererReady.IsSuccess(), "Failed to initialize the renderer: {}",
                        rendererReady.GetError() );

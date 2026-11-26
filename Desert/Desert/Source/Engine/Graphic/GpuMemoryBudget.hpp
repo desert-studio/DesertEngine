@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -64,6 +65,21 @@ namespace Desert::Graphic
         /// The frame's reading. Called once a frame, in every configuration.
         void Update( const Engine::DeviceMemoryReport& report );
 
+        /// THE TEXTURE STREAMING POOL'S ROW IN THE MEMORY CENSUS (TEX-STREAMING). Written by the texture service
+        /// each frame, read by the allocator's census (any thread), so the census can say what the pool holds
+        /// against its budget. Kept here, beside the budget the census reports, and not with the streaming
+        /// demand: the allocator that prints it is RenderCore's (BINT-RC).
+        struct StreamingPoolStats
+        {
+            std::atomic<uint64_t> ResidentBytes{ 0 };
+            std::atomic<uint64_t> WantedBytes{ 0 };
+            std::atomic<uint64_t> BudgetBytes{ 0 };
+            std::atomic<uint64_t> FullChainBytes{ 0 };
+            std::atomic<uint32_t> Textures{ 0 };
+            std::atomic<uint32_t> Streaming{ 0 };
+        };
+        [[nodiscard]] StreamingPoolStats& TextureStreamingPool();
+
     private:
         struct Row
         {
@@ -102,5 +118,7 @@ namespace Desert::Graphic
         uint32_t         m_LogWaitFrames  = 0; // frames left before a limited/unlimited flip may be logged
         bool             m_WarnedMinimums = false;
         bool             m_WarnedUnknown  = false;
+
+        StreamingPoolStats m_TextureStreamingPool; // atomics, outside m_Lock
     };
 } // namespace Desert::Graphic

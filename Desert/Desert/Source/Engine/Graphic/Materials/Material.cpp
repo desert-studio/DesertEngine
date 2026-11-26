@@ -2,6 +2,8 @@
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
 #include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -11,6 +13,21 @@ namespace Desert::Graphic
 {
     namespace
     {
+        // The by-name constructor's shader: the ShaderService is Engine's, so the name is resolved here rather
+        // than by MaterialExecutor (RenderCore) - BINT-RC. A missing shader is the programming error it always
+        // was.
+        std::shared_ptr<Shader> ShaderByName( const std::string& shaderName )
+        {
+            std::shared_ptr<Shader> resolvedShader =
+                 Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName );
+            if ( !resolvedShader )
+            {
+                LOG_ERROR( "Could not find the shader: {}", shaderName );
+                DESERT_VERIFY( false );
+            }
+            return resolvedShader;
+        }
+
         // Material::EmissiveLightsGeneration: any thread may set the flag (an asset load, an instance build), a
         // view reads it at its sync.
         std::atomic<uint64_t>& EmissiveLightsCounter() noexcept
@@ -160,8 +177,8 @@ namespace Desert::Graphic
 
     Material::Material( std::string&& debugName, std::string&& shaderName,
                         const Core::Formats::ShaderProgramMeta* parameterSchema )
-         : m_MaterialExecutor( Graphic::MaterialExecutor::Create( std::move( debugName ), std::move( shaderName ),
-                                                                  parameterSchema ) ),
+         : m_MaterialExecutor( Graphic::MaterialExecutor::Create( std::move( debugName ),
+                                                                  ShaderByName( shaderName ), parameterSchema ) ),
            // The ledger row — see Engine/Graphic/ResourceLedger.hpp. A Material is the single most
            // expensive row in it: on the Vulkan backend one carries its own VkDescriptorPool, a
            // frames x slots grid of descriptor sets, and one uniform/storage buffer object per block its

@@ -103,22 +103,6 @@ namespace Desert::Graphic
         TextureStreamingDemand( const TextureStreamingDemand& )            = delete;
         TextureStreamingDemand& operator=( const TextureStreamingDemand& ) = delete;
 
-        /// THE POOL'S ROW IN THE MEMORY CENSUS. Written by the texture service each frame, read by the
-        /// allocator's census (any thread), so the census can say what the pool holds against its budget.
-        struct PoolStats
-        {
-            std::atomic<uint64_t> ResidentBytes{ 0 };
-            std::atomic<uint64_t> WantedBytes{ 0 };
-            std::atomic<uint64_t> BudgetBytes{ 0 };
-            std::atomic<uint64_t> FullChainBytes{ 0 };
-            std::atomic<uint32_t> Textures{ 0 };
-            std::atomic<uint32_t> Streaming{ 0 };
-        };
-        [[nodiscard]] PoolStats& Pool()
-        {
-            return m_Pool;
-        }
-
     private:
         /// This thread's buffer, claimed from m_Buffers on its first note (a buffer of an exited thread is
         /// reused by the next new one).
@@ -138,7 +122,6 @@ namespace Desert::Graphic
         /// next insert). Looked up shared; built once per snapshot.
         std::shared_mutex                                                     m_FieldsLock;
         std::unordered_map<const void*, std::shared_ptr<InstanceFieldBounds>> m_Fields;
-        PoolStats                                                             m_Pool;
         /// The standing warmup asks, by owner (SetWarmups); read by NoteWarmups.
         struct OwnedWarmups
         {

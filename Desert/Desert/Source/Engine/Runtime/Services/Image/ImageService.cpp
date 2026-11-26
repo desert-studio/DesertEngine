@@ -169,4 +169,10 @@ namespace Desert::Runtime
         return m_Images[handle.Value.Index] != nullptr;
     }
 
+    ImageService* GetImageService()
+    {
+        static ImageService imageService;
+        return &imageService;
+    }
+
 } // namespace Desert::Runtime

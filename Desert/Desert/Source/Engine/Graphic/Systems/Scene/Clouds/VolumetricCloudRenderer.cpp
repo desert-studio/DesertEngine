@@ -1940,7 +1940,7 @@ namespace Desert::Graphic::System
         }
 
         auto* textures = Runtime::ResourceRegistry::GetTextureService();
-        auto* images   = Runtime::ResourceRegistry::GetImageService();
+        auto* images   = Runtime::GetImageService();
         for ( std::size_t slot = 0; slot < m_MediumValues.Textures.size(); ++slot )
         {
             const Assets::AssetHandle handle = m_MediumValues.Textures[slot];
@@ -2465,7 +2465,7 @@ namespace Desert::Graphic::System
                         atmosphere.TransmittanceLutBottomRadiusKm, atmosphere.TransmittanceLutTopRadiusKm );
         // z: the footprint step's gate (Scalability Effects.CloudFootprintSteps, CloudFootprintStepKm).
         const float footprintSteps = m_FootprintSteps ? 1.0f : 0.0f;
-        push.CloudVisualize             = glm::vec4( static_cast<float>( RenderConfig::CloudVisualize.load() ),
+        push.CloudVisualize             = glm::vec4( static_cast<float>( RenderConfig::CloudVisualize() ),
                                                 static_cast<float>( gridPhase.Index() ), footprintSteps, 0.0f );
 
         // The march: samples the scene depth, the cloud volumes, the sky occlusion written above and the

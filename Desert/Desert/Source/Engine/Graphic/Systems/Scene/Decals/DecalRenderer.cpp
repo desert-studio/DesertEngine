@@ -48,7 +48,7 @@ namespace Desert::Graphic::System
             if ( textureHandle == 0 )
                 return nullptr;
             auto* textures = Runtime::ResourceRegistry::GetTextureService();
-            auto* images   = Runtime::ResourceRegistry::GetImageService();
+            auto* images   = Runtime::GetImageService();
             if ( textures == nullptr || images == nullptr )
                 return nullptr;
             auto* texture = textures->Get( Assets::AssetHandle( textureHandle ) );

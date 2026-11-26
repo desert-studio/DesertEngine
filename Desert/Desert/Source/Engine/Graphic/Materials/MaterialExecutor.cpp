@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
-#include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Core/FrameManager.hpp>
@@ -11,13 +10,11 @@
 
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Rhi/Rhi.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/ShaderResources/ShaderResourcesManager.hpp>
 
 #include <cstring>
 #include <format>
-#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic
 {
@@ -472,24 +469,6 @@ namespace Desert::Graphic
                                                "travels by value with the draw (DrawPushFields)",
                                                m_DebugName );
         return Common::MakeSuccess( true );
-    }
-
-    std::unique_ptr<MaterialExecutor>
-    MaterialExecutor::Create( std::string&& debugName, const std::string& shaderName,
-                              const Core::Formats::ShaderProgramMeta* parameterSchema )
-    {
-        const auto& resolvedShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName );
-        if ( !resolvedShader )
-        {
-            LOG_ERROR( "Could not find the shader: {}", shaderName );
-            DESERT_VERIFY( false );
-        }
-
-        return std::make_unique<MaterialExecutor>(
-             std::move( debugName ), resolvedShader,
-             parameterSchema != nullptr ? *parameterSchema : resolvedShader->GetProgramMeta(),
-             Renderer::GetInstance().Rhi().CreateMaterialBackend( resolvedShader ),
-             resolvedShader->GetPushBlockSize() );
     }
 
     std::unique_ptr<MaterialExecutor>

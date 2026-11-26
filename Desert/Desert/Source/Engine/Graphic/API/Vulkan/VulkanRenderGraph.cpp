@@ -3681,7 +3681,7 @@ namespace Desert::Graphic::API::Vulkan
 
     RDG::CompileCache* VulkanRdgBackend::GetCompileCache()
     {
-        if ( !::Desert::Graphic::RenderConfig::RdgCompileCache.load( std::memory_order_relaxed ) )
+        if ( !::Desert::Graphic::RenderConfig::RdgCompileCache() )
             return nullptr;
         return &m_CompileCache;
     }

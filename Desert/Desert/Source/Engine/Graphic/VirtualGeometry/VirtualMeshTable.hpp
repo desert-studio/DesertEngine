@@ -13,7 +13,12 @@
 
 namespace Desert
 {
-    class Mesh;
+    struct Submesh;
+}
+
+namespace Desert::Graphic
+{
+    struct MeshGeometry;
 }
 
 namespace Desert::Geometry
@@ -116,14 +121,15 @@ namespace Desert::Graphic::VirtualGeometry
         VirtualMeshTable( const VirtualMeshTable& )            = delete;
         VirtualMeshTable& operator=( const VirtualMeshTable& ) = delete;
 
-        // Registers @p mesh's submesh DAGs (one per submesh, in submesh order) once its pool spans exist; the
-        // GpuClusterDag addresses come from the mesh's MeshGeometry (its cluster words after its indices, every
+        // Registers a mesh's submesh DAGs (one per submesh, in submesh order) once its pool spans exist; the
+        // GpuClusterDag addresses come from the mesh's @p geometry and @p submeshes (its cluster words after its indices, every
         // DAG's VertexRefs then Triangles in submesh order). @p name names the mesh in the log and the refusals.
         // Refused: a mesh that is not pooled, a DAG count other than the submesh count, an empty DAG, words that
         // do not match the mesh's ClusterWordCount, a buffer with no device address (0), a cluster past the
         // caps, a hierarchy child naming a group or node the DAG does not have.
         [[nodiscard]] Common::ResultStr<VirtualMeshRegistration>
-        RT_Register( const Mesh& mesh, std::span<const Geometry::ClusterDag> dags, std::string_view name );
+        RT_Register( const MeshGeometry& geometry, std::span<const Submesh> submeshes,
+                     std::span<const Geometry::ClusterDag> dags, std::string_view name );
 
         // Once per frame before the graph records (VulkanRenderer::BeginFrame, after GeometryPool::BeginFrame):
         // returns rows released kRetireFrames ago to the free lists and uploads the rows registered since the

@@ -118,7 +118,7 @@ namespace Desert
         // The DAG rows point into the span just uploaded. A refusal leaves the mesh drawing its discrete LOD
         // chain (cut from the same DAG at cook), named in the log; the CPU DAGs are dropped either way.
         auto registered = Graphic::VirtualGeometry::VirtualMeshTable::Get().RT_Register(
-             *this, m_VirtualGeometrySource.Dags, m_VirtualGeometrySource.Name );
+             GetGeometry(), GetSubmeshes(), m_VirtualGeometrySource.Dags, m_VirtualGeometrySource.Name );
         if ( registered.IsSuccess() )
             m_VirtualMesh =
                  std::make_shared<Graphic::VirtualGeometry::VirtualMeshRegistration>( registered.ExtractValue() );

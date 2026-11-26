@@ -371,7 +371,7 @@ namespace Desert::Graphic
                  *desc, kernel, named ? textureService->GetSourcePath( kernelHandle ) : std::string{} );
             if ( convolution )
                 kernelImage = textures.Import(
-                     Runtime::ResourceRegistry::GetImageService()->Share( kernel->GetImageHandle() ), "Bloom.Kernel" );
+                     Runtime::GetImageService()->Share( kernel->GetImageHandle() ), "Bloom.Kernel" );
             if ( convolution )
                 kernelSpectrum = textures.Import( bloom->GetKernelSpectrum(), "Bloom.KernelSpectrum" );
             if ( convolution && ( !kernelImage.IsValid() || !kernelSpectrum.IsValid() ) )

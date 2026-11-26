@@ -91,6 +91,8 @@ namespace
 
     const std::string kService = "Desert/Desert/Source/Engine/Runtime/Services/Texture/TextureService.cpp";
     const std::string kTexture = "Desert/Desert/Source/Engine/Graphic/Texture.cpp";
+    // The CPU half (BINT-RC): the cooked read is Engine's asset policy, above Texture2D in RenderCore.
+    const std::string kCookedLoad = "Desert/Desert/Source/Engine/Assets/CookedTextureLoad.cpp";
     const std::string kLoop    = "Desert/Desert/Source/Engine/Core/Application.cpp";
 } // namespace
 
@@ -271,15 +273,15 @@ TEST( TextureUploadBudgetCensus, TheServiceNeverReadsPlatformDataOnTheMainThread
                std::string::npos )
          << "the pump never frees an admission slot: after CooksInFlight cooks nothing would start again";
 
-    // The GPU half runs from the budgeted pump only, and the eager Create2D stays in Register (import-made
+    // The GPU half runs from the budgeted pump only, and the eager CreateTexture2D stays in Register (import-made
     // assets whose DDC entry the importer has just written).
     EXPECT_EQ( Count( service, "CreateFromCooked" ), 1u );
     EXPECT_NE( Body( service, "TextureService::FinishCook" ).find( "CreateFromCooked" ), std::string::npos );
     EXPECT_NE( Body( service, "TextureService::PumpUploads" ).find( "FinishCook" ), std::string::npos );
     EXPECT_NE( Body( service, "TextureService::PumpUploads" ).find( "TakeWithinBudget" ), std::string::npos )
          << "the pump no longer respects the per-frame budget";
-    EXPECT_EQ( Count( service, "Create2D" ), 1u );
-    EXPECT_NE( Body( service, "TextureService::Register" ).find( "Create2D" ), std::string::npos );
+    EXPECT_EQ( Count( service, "CreateTexture2D" ), 1u );
+    EXPECT_NE( Body( service, "TextureService::Register" ).find( "CreateTexture2D" ), std::string::npos );
 }
 
 TEST( TextureUploadBudgetCensus, TheGpuHalfDoesNotReadAndTheFrameLoopPumps )
@@ -291,7 +293,12 @@ TEST( TextureUploadBudgetCensus, TheGpuHalfDoesNotReadAndTheFrameLoopPumps )
     ASSERT_FALSE( gpuHalf.empty() );
     EXPECT_EQ( gpuHalf.find( "LoadTexturePlatformData" ), std::string::npos );
     EXPECT_EQ( gpuHalf.find( "DecodeTextureBinary" ), std::string::npos );
-    EXPECT_NE( Body( texture, "Texture2D::ReadCooked" ).find( "LoadTexturePlatformData" ), std::string::npos )
+    EXPECT_EQ( texture.find( "LoadTexturePlatformData" ), std::string::npos )
+         << "Texture2D (RenderCore) reads a cooked asset itself: the read is Engine's, CookedTextureLoad.cpp";
+    const std::string cookedLoad = ReadAll( root / kCookedLoad );
+    ASSERT_FALSE( cookedLoad.empty() ) << kCookedLoad;
+    EXPECT_NE( Body( cookedLoad, "CookedTexture2D> ReadCookedTexture" ).find( "LoadTexturePlatformData" ),
+               std::string::npos )
          << "positive control: the CPU half is where the read lives";
 
     const std::string loop = ReadAll( root / kLoop );

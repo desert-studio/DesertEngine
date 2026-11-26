@@ -108,18 +108,19 @@ namespace Desert::Graphic
     /// were the blocking readback plus the BC6H encode plus the file write, all on the main thread, for a
     /// file that only the NEXT run reads. Now the readback is submitted without a wait, the fence is polled
     /// once a frame by `Pump`, and the encode and write run on a JobSystem worker; the environment is in
-    /// use from the GPU cubes the whole time. Owned by the Renderer (GetEnvironmentCache). Main-thread only,
+    /// use from the GPU cubes the whole time. Owned by Runtime::SkyboxService (EnvironmentCache), driven through the
+    /// renderer's client (Core/EngineRendererClient: Pump after the frame slot, Drain first at shutdown). Main-thread only,
     /// except the job it starts.
     class EnvironmentCacheWriter
     {
     public:
         /// Submits the readback of @p cube; the bytes become @p entry's file some ticks later.
         [[nodiscard]] Common::BoolResultStr Begin( ImageCube& cube, EnvironmentCacheEntry entry );
-        /// Once a frame, when the Renderer has its frame slot: starts the encode of a landed readback, retires a
+        /// Once a frame, when the Renderer has its frame slot (IRendererClient::OnFrameSlot): starts the encode of a landed readback, retires a
         /// finished write with one line naming the file and its latency, and puts the cube read back out of
         /// that file behind the entry's `Live` handle, so from then on this run draws what the next one loads.
         void Pump();
-        /// Renderer::Shutdown, while the device is alive: finishes every write in flight and releases the readbacks.
+        /// Renderer::Shutdown (IRendererClient::OnShutdownDrain), while the device is alive: finishes every write in flight and releases the readbacks.
         /// Nothing is adopted here -- no frame follows.
         void                 Drain();
         [[nodiscard]] size_t InFlight() const

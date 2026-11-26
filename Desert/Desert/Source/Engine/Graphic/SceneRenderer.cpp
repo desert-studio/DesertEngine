@@ -1038,7 +1038,7 @@ namespace Desert::Graphic
             const Texture2D* texture = Runtime::ResourceRegistry::GetTextureService()->Get( value.Texture );
             // The bindless slot lives on the texture's image (as Texture2DProperty::GetBindlessSlot reads it).
             const auto* image = texture != nullptr && texture->GetImageHandle().IsValid()
-                                     ? dynamic_cast<const Image2D*>( Runtime::ResourceRegistry::GetImageService()->Resolve(
+                                     ? dynamic_cast<const Image2D*>( Runtime::GetImageService()->Resolve(
                                             texture->GetImageHandle() ) )
                                      : nullptr;
             if ( image != nullptr && image->GetBindlessSlot().IsValid() )
@@ -1904,7 +1904,7 @@ namespace Desert::Graphic
         }
         // RenderPipeline.ParallelSetup (RENDER-PARALLEL-SETUP): the view's pure setup on Common::TaskGroup tasks;
         // the Editor's --parallel-setup overrides it for the session (RenderConfig::ParallelSetupOverride).
-        const int  setupOverride = ::Desert::Graphic::RenderConfig::ParallelSetupOverride.load();
+        const int  setupOverride = ::Desert::Graphic::RenderConfig::ParallelSetupOverride();
         const int  setupQuality  = m_Quality.As<int>( Common::Scalability::Parameter::ParallelSetup );
         const bool parallelSetup = ( setupOverride >= 0 ? setupOverride : setupQuality ) != 0;
         m_ParallelSetup          = parallelSetup; // ParallelSetup(): the passes' own setup tasks

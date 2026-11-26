@@ -140,8 +140,9 @@ namespace Desert::Graphic::API::Vulkan
 
         /// Destroys every thread's command pools, and with them every command buffer ever allocated from one.
         /// No thread may be recording a one-off buffer by then.
-        /// EXPLICIT, because this object is a Common::Singleton: its unique_ptr is a namespace-scope
-        /// static, so a destructor would run at __cxa_finalize, long after vkDestroyDevice. Called from
+        /// EXPLICIT, because this object is a Common::Singleton: its unique_ptr is the function-local static
+        /// of Singleton<CommandBufferAllocator>::Instance() in CommandBufferAllocator.cpp, so a destructor
+        /// would run at static destruction, long after vkDestroyDevice. Called from
         /// VulkanContext::Shutdown, which the device's own teardown reaches while the device is alive.
         void Destroy();
 

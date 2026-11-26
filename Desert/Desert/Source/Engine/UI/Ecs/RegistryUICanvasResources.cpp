@@ -31,7 +31,7 @@ namespace Desert::UI
         if ( texture == nullptr )
             return {};
         return RefOf( dynamic_cast<Graphic::Image2D*>(
-             Runtime::ResourceRegistry::GetImageService()->Resolve( texture->GetImageHandle() ) ) );
+             Runtime::GetImageService()->Resolve( texture->GetImageHandle() ) ) );
     }
 
     uint64_t RegistryUICanvasResources::ImageAtPath( const std::string& path )
