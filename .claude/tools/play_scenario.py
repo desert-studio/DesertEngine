@@ -100,7 +100,9 @@ def main():
     exe = ".exe" if WIN else ""
     # The newest built config: a Debug editor left from September silently failed six scenarios on 11-24.
     built = []
-    for config in ("Debug", "Release"):
+    # The dev pipeline's own configuration (dev_config.txt) first: a Development build (B-INT #25, 11-26) is
+    # invisible to a Debug/Release-only pick, which would play an older editor and report it as the new one.
+    for config in dict.fromkeys((dev_config(tree), "Debug", "Release")):
         pair = [os.path.join(tree, "build", "Bin", config, n + exe) for n in ("Editor", "DesertCtl")]
         if all(os.path.exists(f) for f in pair):
             built.append((os.path.getmtime(pair[0]), config, pair))
