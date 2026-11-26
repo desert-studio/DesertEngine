@@ -21,6 +21,7 @@ set(DESERT_SOURCES
     "Private/VFXWorld.cpp"
     "Public/ParticleEmitterRetire.hpp"
     "Public/ParticleGpuLayout.hpp"
+    "Public/ParticleLayout.hpp"
     "Public/ParticlePool.hpp"
     "Public/ParticleRenderer.hpp"
     "Public/ParticleSortGraph.hpp"

@@ -35,15 +35,7 @@ Shader "ParticleSimulate"
             ParticleSlot PoolSlotsData[];
         };
 
-        struct VFXStep
-        {
-            uint IdBase; // id of the first particle this step may spawn
-            uint Seed;   // the emitter instance's seed (system xor entity xor emitter)
-            uint Budget; // how many particles this step spawns
-            uint ChannelFirst; // VFX-10: spawn t < ChannelCount is Spawn from Channel particle ChannelFirst + t
-            uint ChannelCount;
-        };
-
+        // struct VFXStep and struct VFXChannelSpawn (VFX/Public/ParticleLayout.hpp, through ParticlePool.glslh).
         ReadBuffer(1) StepTable
         {
             VFXStep Steps[];
@@ -65,15 +57,6 @@ Shader "ParticleSimulate"
         };
 
         // VFX-10: this tick's Spawn from Channel particles, one record per particle (VFXWorld PlanEmitterSteps).
-        struct VFXChannelSpawn
-        {
-            vec4 Position;  // xyz world cm, w = 1 when the module binds a Position field
-            vec4 Direction; // xyz start velocity direction, w = 1 when bound
-            vec4 Color;     // linear rgba, bound when Scalars.z = 1
-            vec4 Scalars;   // x = lifetime seconds, y = base-size scale (1 when unbound), z = 1 when the colour is
-                            // bound, w = 1 when the lifetime is
-        };
-
         ReadBuffer(5) ChannelSpawns
         {
             VFXChannelSpawn ChannelSpawnsData[];
@@ -204,10 +187,7 @@ Shader "ParticleSimulate"
 
         ReadBuffer(16) SceneWind
         {
-            vec4 SceneWindDirectional; // xz the directional velocity (cm/s), w = cm/s per local unit
-            vec4 SceneWindGust;        // CameraUB::WindGust: the gust fronts (Common/WindGust.glslh)
-            vec4 SceneWindSource[8];   // CameraUB::LocalWind: (world position cm, 1 / Radius)
-            vec4 SceneWindSpeed[2];    // CameraUB::LocalWindSpeed: slot i at [i / 4][i % 4], 0 = empty
+            DESERT_ParticleSceneWind_MEMBERS
         };
 
         vec3 VFX_SceneWind( in VFXSim sim, vec3 position )
@@ -240,9 +220,7 @@ Shader "ParticleSimulate"
         // depth (0: the frame has none, nothing collides).
         ReadBuffer(11) CollisionView
         {
-            mat4 CollisionViewProjection;
-            mat4 CollisionInvViewProjection;
-            vec4 CollisionCamera;
+            DESERT_ParticleCollisionView_MEMBERS
         };
 
         // The single-sample scene depth of this frame (SceneRenderer::AddFrameSceneDepthResolve), reversed Z. Read

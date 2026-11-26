@@ -12,6 +12,7 @@
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 #include <VFX/Public/ParticleGpuLayout.hpp>
+#include <VFX/Public/ParticleLayout.hpp>
 #include <VFX/Public/ParticlePool.hpp>
 
 #include <glm/glm.hpp>
@@ -83,70 +84,6 @@ namespace Desert::Graphic::System
         std::vector<float>                   Floats;   // RowIndex.size() x FloatColumns, row-major
         std::vector<int32_t>                 Ints;     // RowIndex.size() x IntColumns, row-major
     };
-
-    // One element of ParticleSimulate's step table (`struct VFXStep`).
-    struct ParticleStepGpu
-    {
-        uint32_t IdBase       = 0;
-        uint32_t Seed         = 0;
-        uint32_t Budget       = 0;
-        uint32_t ChannelFirst = 0;
-        uint32_t ChannelCount = 0;
-    };
-    static_assert( sizeof( ParticleStepGpu ) == kParticleStepStride );
-
-    // One Spawn from Channel particle (ParticleSimulate `struct VFXChannelSpawn`), the payload bound to it.
-    struct ParticleChannelSpawnGpu
-    {
-        glm::vec4 Position  = glm::vec4( 0.0f ); // xyz world cm, w = 1 when the module binds a Position field
-        glm::vec4 Direction = glm::vec4( 0.0f ); // xyz start velocity direction, w = 1 when bound
-        glm::vec4 Color     = glm::vec4( 1.0f ); // linear rgba -> InitializeColor when Scalars.z = 1
-        glm::vec4 Scalars   = glm::vec4( 0.0f ); // x = lifetime s, z = 1 colour bound, w = 1 lifetime bound
-    };
-    static_assert( sizeof( ParticleChannelSpawnGpu ) == kParticleChannelSpawnStride );
-
-    // One slot of an emitter's Counters (Common/ParticlePool.glslh ParticleDrawSlot); the first four members are
-    // the VkDrawIndirectCommand the billboard draw reads.
-    struct ParticleDrawSlotGpu
-    {
-        uint32_t VertexCount   = 0;
-        uint32_t InstanceCount = 1;
-        uint32_t FirstVertex   = 0;
-        uint32_t FirstInstance = 0;
-        uint32_t FreeCount     = 0;
-        uint32_t Touched       = 0;
-        uint32_t Pad[2]        = {};
-    };
-    static_assert( sizeof( ParticleDrawSlotGpu ) == kParticleDrawSlotStride );
-
-    // Where a renderer finds an emitter's particle (Common/ParticleDrawLayout.glslh `struct ParticleDrawLayout`;
-    // UE FNiagaraSpriteUniformParameters' data offsets): the first float column of each drawn attribute in the
-    // emitter's SoA columns (kParticleAttrNone = the stack does not declare it, the reader's default), the range
-    // the columns are strided by, and the emitter's world position a Local emitter's particles are drawn around.
-    constexpr std::uint32_t kParticleAttrNone = 0xFFFFFFFFu;
-    struct ParticleDrawLayoutGpu
-    {
-        // x = range count (column stride), y = pool base, z = 1 local, w = the emitter's Sprite row alignment
-        // (0 Unaligned, 1 VelocityAligned; Vertex_ParticleSprite.glslh)
-        glm::uvec4 Range    = glm::uvec4( 0u );
-        glm::uvec4 Columns0 = glm::uvec4( kParticleAttrNone ); // Position, SpriteSize, Color, SpriteRotation
-        glm::uvec4 Columns1 = glm::uvec4( kParticleAttrNone ); // Age, Lifetime, RibbonWidth, RibbonLinkOrder
-        // The entity's full transform (cm): a Local emitter's particles are drawn through it (UE: a local-space
-        // emitter's LocalToWorld in the sprite / mesh vertex factory).
-        glm::mat4 LocalToWorld = glm::mat4( 1.0f );
-        // x = the Ribbon row's RibbonIdBinding attribute (an Int; none = one ribbon), y = Scale, z =
-        // MeshOrientation, w = Velocity (a VelocityAligned sprite's axis).
-        glm::uvec4 Columns2 = glm::uvec4( kParticleAttrNone );
-        // The emitter's Ribbon row (Vertex_ParticleRibbon.glslh): x = Width (cm), y = UV mode (0 Stretch,
-        // 1 TileByDistance), z = UVTileDistance (cm); zero without a Ribbon row.
-        glm::vec4 Ribbon = glm::vec4( 0.0f );
-        // The entity's transform of the tick before (UE PrevLocalToWorld): a Local emitter's previous positions
-        // are drawn through it; a first tick's is LocalToWorld.
-        glm::mat4 PrevLocalToWorld = glm::mat4( 1.0f );
-        // x = the PreviousPosition column (UE Particles.Previous.Position; PreviousPositionColumn), yzw none.
-        glm::uvec4 Columns3 = glm::uvec4( kParticleAttrNone );
-    };
-    static_assert( sizeof( ParticleDrawLayoutGpu ) == kParticleDrawLayoutSize );
 
     // One emitter's GPU state in the scene's pool, cached across ticks by entity id. Its particles are Range of
     // the pool; its alive lists are the two halves [2 Base + h Count, 2 Base + (h + 1) Count) of the alive list.

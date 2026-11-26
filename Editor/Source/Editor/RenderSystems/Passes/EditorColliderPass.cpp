@@ -28,7 +28,7 @@ namespace Desert::Editor::Render
 
         constexpr int kCircleSegments = 32;
 
-        using LineVertex = Graphic::MaterialDebugLine::LineVertex;
+        using LineVertex = Graphic::DebugLineVertex;
 
         void AddLine( std::vector<LineVertex>& out, const glm::vec3& a, const glm::vec3& b,
                       const glm::vec4& colour )
@@ -67,7 +67,7 @@ namespace Desert::Editor::Render
         }
     } // namespace
 
-    void AppendColliderLines( std::vector<Graphic::MaterialDebugLine::LineVertex>& out,
+    void AppendColliderLines( std::vector<Graphic::DebugLineVertex>& out,
                               const ECS::ColliderData& collider, const glm::vec3& translation, const glm::mat3& R,
                               std::span<const glm::vec3> hullPoints, std::span<const uint32_t> hullIndices,
                               const glm::vec4& colour )

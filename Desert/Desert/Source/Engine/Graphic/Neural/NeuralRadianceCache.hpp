@@ -2,6 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/API/NeuralComputeCaps.hpp>
+#include <Engine/Graphic/Neural/NeuralRadianceCacheLayout.hpp>
 #include <Engine/Graphic/Neural/FusedMlpCompute.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
@@ -187,47 +188,7 @@ namespace Desert::Engine::Neural
         Segments      = 4, ///< + s: the slots path s of the frame claimed in its segment (may exceed the capacity)
     };
 
-    // GLSL mirrors (Common/NeuralRadianceCache.glslh), std430.
-    // NrcVertex: A.xyz = floatBitsToUint(world position cm), A.w = packUnorm2x16(octahedral(w_o) * 0.5 + 0.5);
-    // B.x = packUnorm2x16(octahedral(normal) * 0.5 + 0.5), B.y = packUnorm2x16(vec2(roughness, 0)),
-    // B.z = packUnorm4x8(vec4(D_d, 0)), B.w = packUnorm4x8(vec4(D_s, 0)).
-    struct NrcVertexGpu
-    {
-        glm::uvec4 A;
-        glm::uvec4 B;
-    };
-    // NrcQuery (64 B, halves packed by packHalf2x16, saturated at 65504): the vertex; Lobes.xy = DiffuseWeight
-    // (rgb T * (1 - share) / D_d1, a lum(I_d) of the path before the cache), Lobes.zw = SpecularWeight (rgb
-    // T * share / D_s1, a lum(I_s) before the cache) (share = the first surface's bounce specular share, D_x1 its
-    // guides: Common/PathTracingDenoise.glslh; both 0 when the path had no first-surface bounce); Weight.xy = T
-    // (0: a path dropped after its claim adds nothing), Weight.z = the pixel y * width + x, Weight.w = 0.
-    struct NrcQueryGpu
-    {
-        NrcVertexGpu Vertex;
-        glm::uvec4   Lobes;
-        glm::uvec4   Weight;
-    };
-    // NrcTrainingSample: the vertex, Radiance.rgb = (R_end - R_i) / T_i, Radiance.a = uintBitsToFloat(the self
-    // query index, 0xFFFFFFFF none), Throughput.rgb = T_end / T_i.
-    struct NrcTrainingSampleGpu
-    {
-        NrcVertexGpu Vertex;
-        glm::vec4    Radiance;
-        glm::vec4    Throughput;
-    };
-    static_assert( sizeof( NrcVertexGpu ) == 32 && sizeof( NrcQueryGpu ) == 64 &&
-                   sizeof( NrcTrainingSampleGpu ) == 64 );
-
-    // The trace's NRC parameters: the contents of NrcTraceTargets::Params, read by the PATH_TRACING_NRC trace as
-    // PathTracer.shader NrcTraceParamsUB (NrcParams / NrcSpread). A buffer, not the trace's push: the push is full
-    // (ShaderPush::PathTracer is Vulkan's guaranteed 128 bytes with the light grid's descriptor).
-    struct NrcTraceParams
-    {
-        glm::uvec4 Params; ///< x = each segment's query capacity (> 0: Nrc), y = training tile side, z / w = this
-                           ///< frame's pixel offset in the tile
-        glm::vec4 Spread; ///< x = kNrcSpreadThreshold, y = kNrcUnbiasedTrainingPaths, z = kNrcMinThroughput, w = 0
-    };
-    static_assert( sizeof( NrcTraceParams ) == 32, "PathTracer.shader NrcTraceParamsUB (std430: uvec4, vec4)" );
+    // The records (NrcVertexGpu, NrcQueryGpu, NrcTrainingSampleGpu, NrcTraceParams): NeuralRadianceCacheLayout.hpp.
 
     // This frame's buffers the trace writes (AddTraceTargets) and the cache passes read.
     struct NrcTraceTargets

@@ -340,7 +340,7 @@ namespace Desert::Graphic::System
                                                { 7, 6 }, { 6, 4 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
             const glm::vec4  color( m_BoundingBoxColor, 1.0f );
 
-            std::vector<MaterialDebugLine::LineVertex> lines;
+            std::vector<DebugLineVertex> lines;
             const auto addBox = [&lines]( const glm::vec3& mn, const glm::vec3& mx, const glm::mat4& world,
                                           const glm::vec4& boxColor )
             {

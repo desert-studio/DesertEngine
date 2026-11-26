@@ -21,40 +21,7 @@
 // includes after declaring the seven buffers under these member names (emissiveSegments, emissiveTriangles,
 // emissivePower, emissiveDynamicSegments, emissiveDynamicTriangles, emissiveDynamicPower, emissiveLookup).
 
-// std430, 160 B: RayTracing::EmissiveSegmentGpu.
-struct EmissiveSegment
-{
-    vec4  ObjectToWorld[3]; // row-major 3x4
-    vec4  Radiance;         // rgb: the material's emissive colour x intensity; w: its luminance
-    vec4  UvTransform;      // xy: UV offset, zw: UV tiling (KHR_texture_transform, Common/SurfaceInputs.glslh)
-    uvec2 VertexAddress;    // (lo, hi): the positions the BLAS was built from
-    uvec2 IndexAddress;
-    uvec2 AttributeAddress; // the mesh's own vertex stream: the UVs (they do not deform)
-    uint  VertexStride;
-    uint  PositionOffset;
-    uint  FirstVertex;
-    uint  FirstIndex; // in indices
-    uint  FirstTriangle; // in its part
-    uint  TriangleCount;
-    uint  GpuSceneRow;  // the row the segment is drawn on (a TLAS hit's custom index)
-    uint  SubmeshIndex; // the submesh the segment is
-    uint  AttributeStride;
-    uint  UvOffset;
-    uint  EmissiveTexture; // bindless table slot; kEmissiveNoTexture: none
-    uint  EmissiveSampler; // bindless sampler index
-    float UvRotation;      // radians
-    uint  Reserved;
-};
-
-// One run of tree nodes a Build or Reduce dispatch writes (RayTracing::EmissiveNodeRunGpu): its threads
-// [ThreadPrefix, ThreadPrefix + Count) write nodes [First, First + Count) of their level.
-struct EmissiveNodeRun
-{
-    uint First;
-    uint Count;
-    uint ThreadPrefix;
-    uint Reserved;
-};
+#include <Generated/RayTracing/EmissiveLights.glslh> // Systems/RayTracing/RayTracingLayout.hpp
 
 struct EmissiveTriangle
 {

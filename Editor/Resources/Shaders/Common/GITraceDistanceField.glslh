@@ -334,16 +334,16 @@ float GIFarFieldOccupiedExit( vec3 start, vec3 direction )
 // A column whose ceiling a ray stays above over its whole crossing holds no sample in the march's band (the occupied
 // box's proof, per column), so past the last column the ray is not above the march finds nothing: a sky-bound ray
 // stops over the field, not at the top of the box; a ray skimming the field stops past the last tree it passes under.
-const int GI_GDF_CEILING_CELLS = 32; // kGdfCeilingCells
-const int GI_GDF_CEILING_MIP   = 4;  // kGdfCeilingMip
+// GdfCeilingCells, GdfCeilingMip: DistanceField/GlobalDistanceFieldCeiling.hpp.
+#include <Generated/DistanceField/DistanceField.glslh>
 
 // The columns of one level crossed by start + direction x t, t in [0, tEnd], walked back from tEnd (2D DDA): the far
 // end (t) of the last one whose ceiling the ray is not above over its crossing, 0 when it is above every one.
 float GIFarFieldCeilingWalk( vec3 start, vec3 direction, float tEnd, bool coarse )
 {
     const vec4  grid  = GI_TRACE_GDF_CEILING_GRID;
-    const int   cells = coarse ? GI_GDF_CEILING_CELLS / GI_GDF_CEILING_MIP : GI_GDF_CEILING_CELLS;
-    const vec2  perCm = coarse ? grid.zw / float( GI_GDF_CEILING_MIP ) : grid.zw;
+    const int   cells = coarse ? GdfCeilingCells / GdfCeilingMip : GdfCeilingCells;
+    const vec2  perCm = coarse ? grid.zw / float( GdfCeilingMip ) : grid.zw;
     // Grid coordinates at tEnd, and their rate per cm walked back (s = tEnd - t).
     const vec2  g0    = ( start.xz + direction.xz * tEnd - grid.xy ) * perCm;
     const vec2  dg    = -direction.xz * perCm;

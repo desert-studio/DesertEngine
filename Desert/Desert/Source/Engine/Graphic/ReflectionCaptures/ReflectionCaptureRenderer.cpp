@@ -114,12 +114,6 @@ namespace Desert::Graphic
         };
 
 
-        struct DiffusePointGpu
-        {
-            glm::vec4  Point{ 0.0f };    // xyz = the capture point (world cm)
-            glm::uvec4 CubeForced{ 0u }; // x = cube index, y = 1 measure unconditionally (the cube being written)
-        };
-
         [[nodiscard]] uint32_t GroupCount( uint32_t texels )
         {
             return ( std::max( texels, 1u ) + kCaptureGroupSize - 1u ) / kCaptureGroupSize;
@@ -931,13 +925,13 @@ namespace Desert::Graphic
         if ( forcedCube == kNoCapture && !stagingForced && !forceAll )
             return;
         // The written cubes (a cube nothing captured is black and never read: its diffuse means nothing).
-        std::vector<DiffusePointGpu> points;
+        std::vector<ReflectionCaptureDiffusePoint> points;
         for ( const ReflectionCaptureEntry& capture : m_Captures )
         {
             const uint32_t cube = capture.Gpu.ShapeCube.y;
             if ( cube != forcedCube && !( cube < m_Captured.size() && m_Captured[cube] ) )
                 continue;
-            DiffusePointGpu row;
+            ReflectionCaptureDiffusePoint row;
             row.Point      = glm::vec4( capture.CapturePosition, 1.0f );
             row.CubeForced = glm::uvec4( cube, forceAll || cube == forcedCube ? 1u : 0u, 0u, 0u );
             points.push_back( row );
@@ -946,7 +940,7 @@ namespace Desert::Graphic
         // layer, when written or when the estimator changed (it is blended into the live cube with that measure).
         if ( stagingSource < m_Captures.size() && ( stagingForced || forceAll ) )
         {
-            DiffusePointGpu row;
+            ReflectionCaptureDiffusePoint row;
             row.Point      = glm::vec4( m_Captures[stagingSource].CapturePosition, 1.0f );
             row.CubeForced = glm::uvec4( static_cast<uint32_t>( m_Captures.size() ), 1u, 0u, 0u );
             points.push_back( row );
@@ -956,7 +950,7 @@ namespace Desert::Graphic
 
         const FrameGraphRefs refs         = textures.GraphRefs();
         const RDG::BufferRef pointsBuffer = graph.CreateBuffer(
-             RDG::BufferDesc{ points.size() * sizeof( DiffusePointGpu ) }, "ReflectionCapture.DiffusePoints" );
+             RDG::BufferDesc{ points.size() * sizeof( ReflectionCaptureDiffusePoint ) }, "ReflectionCapture.DiffusePoints" );
         graph.QueueBufferUpload( pointsBuffer, std::as_bytes( std::span( points ) ) );
         ShaderPush::ReflectionCaptureDiffuse push;
         push.EstimatorParams =

@@ -30,7 +30,7 @@ namespace Desert::Editor::Render
     // @p collider at @p translation and rotation @p R (world units, no scale - what Jolt is fed); a Mesh /
     // ConvexHull shape from @p hullPoints (body-local, scale already applied) and @p hullIndices (three per
     // triangle). Modeling's Mesh To Collision / Mesh To Volume preview their result with the same lines.
-    void AppendColliderLines( std::vector<Graphic::MaterialDebugLine::LineVertex>& out,
+    void AppendColliderLines( std::vector<Graphic::DebugLineVertex>& out,
                               const ECS::ColliderData& collider, const glm::vec3& translation, const glm::mat3& R,
                               std::span<const glm::vec3> hullPoints, std::span<const uint32_t> hullIndices,
                               const glm::vec4& colour );
@@ -53,13 +53,13 @@ namespace Desert::Editor::Render
     private:
         // Volumes always (UE: SHOW_Volumes is on in the editor, the brush outline is all a volume shows); every
         // other collider only with the view's Colliders toggle.
-        void BuildLines( std::vector<Graphic::MaterialDebugLine::LineVertex>& outLines, bool showColliders ) const;
+        void BuildLines( std::vector<Graphic::DebugLineVertex>& outLines, bool showColliders ) const;
 
         std::weak_ptr<::Desert::Core::Scene>        m_Scene;
         std::shared_ptr<Graphic::GraphicsPipeline>  m_Pipeline;
         std::unique_ptr<Graphic::MaterialDebugLine> m_Material;
         // The lines Gather built from the registry on the game thread for this view's frame (empty = none).
-        std::vector<Graphic::MaterialDebugLine::LineVertex> m_GatheredLines;
+        std::vector<Graphic::DebugLineVertex> m_GatheredLines;
         // The vertices this view's Declare uploaded (0 = nothing to draw).
         uint32_t m_LineVertices = 0;
     };

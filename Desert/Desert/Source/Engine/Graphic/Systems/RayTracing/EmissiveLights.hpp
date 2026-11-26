@@ -5,6 +5,7 @@
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingLayout.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
 
 #include <glm/glm.hpp>
@@ -82,34 +83,7 @@ namespace Desert::Graphic::RayTracing
     inline constexpr std::string_view kSurfaceUvTilingParam        = "UVTiling";
     inline constexpr std::string_view kSurfaceUvRotationParam      = "UVRotation";
 
-    // A segment whose material has no emissive texture (its estimate is the colour x intensity alone).
-    inline constexpr uint32_t kNoEmissiveTexture = 0xFFFFFFFFu;
-
-    // std430, 160 B: Common/EmissiveLights.glslh's EmissiveSegment. One scene row's emissive segment.
-    struct EmissiveSegmentGpu
-    {
-        std::array<glm::vec4, 3> ObjectToWorld{}; // the row's world, row-major 3x4 (RayTracingPrimitive::World)
-        glm::vec4 Radiance{ 0.0f };     // rgb: the material's emissive colour x intensity; w: its luminance
-        glm::vec4 UvTransform{ 0.0f, 0.0f, 1.0f, 1.0f }; // xy: UV offset, zw: UV tiling (KHR_texture_transform)
-        uint64_t  VertexAddress    = 0; // the positions the BLAS was built from (mesh stream / skin-cache stream)
-        uint64_t  IndexAddress     = 0; // uint32 indices
-        uint64_t  AttributeAddress = 0; // the mesh's own vertex stream (Desert::Vertex): the UVs (they do not deform)
-        uint32_t  VertexStride     = 0;
-        uint32_t  PositionOffset   = 0; // bytes from a vertex's start to its position (RayTracingGeometrySegment)
-        uint32_t  FirstVertex      = 0;
-        uint32_t  FirstIndex       = 0; // in indices
-        uint32_t  FirstTriangle    = 0; // the segment's first row in its part's triangle list
-        uint32_t  TriangleCount    = 0;
-        uint32_t  GpuSceneRow      = 0; // the row the segment is drawn on (a TLAS hit's custom index)
-        uint32_t  SubmeshIndex     = 0; // the submesh the segment is
-        uint32_t  AttributeStride  = 0; // bytes between two attribute-stream vertices
-        uint32_t  UvOffset         = 0; // bytes from an attribute vertex's start to its UV
-        uint32_t  EmissiveTexture  = kNoEmissiveTexture; // the bindless table slot of the emissive map
-        uint32_t  EmissiveSampler  = 0;                  // its bindless sampler index
-        float     UvRotation       = 0.0f;               // radians (KHR_texture_transform)
-        uint32_t  Reserved         = 0;
-    };
-    static_assert( sizeof( EmissiveSegmentGpu ) == 160 );
+    // kNoEmissiveTexture and the segment record EmissiveSegmentGpu: RayTracingLayout.hpp.
 
     // What a segment emits as its material states it (the surface templates' EvaluateSurface: SurfaceEmission(
     // EmissiveTexture texel at the transformed UV, EmissiveColor, EmissiveIntensity)): the estimate the tree's powers
@@ -562,18 +536,6 @@ namespace Desert::Graphic::RayTracing
         uint64_t              m_Builds = 0;
         uint64_t              m_Moves  = 0;
     };
-
-    // One run of tree nodes a Build or Reduce dispatch writes: its threads [ThreadPrefix, ThreadPrefix + Count)
-    // write nodes [First, First + Count) of their level. std430 16 B: Common/EmissiveLights.glslh's
-    // EmissiveNodeRun.
-    struct EmissiveNodeRunGpu
-    {
-        uint32_t First        = 0;
-        uint32_t Count        = 0;
-        uint32_t ThreadPrefix = 0;
-        uint32_t Reserved     = 0;
-    };
-    static_assert( sizeof( EmissiveNodeRunGpu ) == 16 );
 
     // One tree level's runs in EmissiveTreeRuns::Runs.
     struct EmissiveLevelRuns

@@ -238,13 +238,6 @@ Shader "EmissiveLights"
 
             #include <Common/EmissiveLights.glslh>
 
-            // RayTracing::EmissiveMoveGpu: a static row whose transform moved, and its new one.
-            struct EmissiveMove
-            {
-                uvec4 Row; // x: the static segment row
-                vec4  ObjectToWorld[3];
-            };
-
             layout(std430, binding = 0) buffer EmissiveSegmentsUB
             {
                 EmissiveSegment emissiveSegments[];

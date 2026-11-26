@@ -20,15 +20,7 @@ Shader "ParticleDispatchArgs"
 
         #include <Common/ParticlePool.glslh>
 
-        struct VFXStep
-        {
-            uint IdBase;
-            uint Seed;
-            uint Budget;
-            uint ChannelFirst; // ParticleSimulate's step layout (kParticleStepStride 20); Budget includes them
-            uint ChannelCount;
-        };
-
+        // struct VFXStep: ParticleSimulate's step table (VFX/Public/ParticleLayout.hpp, through ParticlePool.glslh).
         ReadBuffer(0) StepTable
         {
             VFXStep Steps[];

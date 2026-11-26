@@ -13,16 +13,12 @@
 // the value. Capacity is a power of two at least twice the parameter count; key 0 is an empty slot.
 //
 // Binding 35 is the scene-read range's eleventh slot (Core::kWorldParametersBinding, ShaderGraphBindings.hpp).
-struct WorldParameterSlot
-{
-    uvec4 Key; // x = the key, yzw = 0
-    vec4  Value;
-};
+#include <Generated/WorldParameters.glslh> // WorldParameterLayout.hpp
 
 layout( std430, binding = kWorldParametersBinding ) readonly buffer WorldParameters
 {
-    uvec4              Header; // x = capacity (a power of two), y = parameter count
-    WorldParameterSlot Slots[];
+    WorldParameterHeader Header;
+    WorldParameterSlot   Slots[];
 }
 worldParameters;
 
@@ -31,12 +27,12 @@ worldParameters;
 // property of the level, not of the material).
 vec4 DesertWorldParameter( uint key )
 {
-    const uint capacity = worldParameters.Header.x;
+    const uint capacity = worldParameters.Header.Capacity;
     const uint mask     = capacity - 1u;
     uint       slot     = key & mask;
     for ( uint probe = 0u; probe < capacity; ++probe )
     {
-        const uint stored = worldParameters.Slots[slot].Key.x;
+        const uint stored = worldParameters.Slots[slot].Key;
         if ( stored == key )
             return worldParameters.Slots[slot].Value;
         if ( stored == 0u )

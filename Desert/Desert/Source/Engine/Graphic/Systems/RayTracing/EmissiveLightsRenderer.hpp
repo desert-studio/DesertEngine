@@ -74,14 +74,6 @@ namespace Desert::Graphic::RayTracing
         DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveMovesUB );
     };
 
-    // std430, 64 B: EmissiveLights.shader "Move"'s EmissiveMove - a kept static row whose transform moved.
-    struct EmissiveMoveGpu
-    {
-        glm::uvec4               Row{ 0u }; // x: the static segment row
-        std::array<glm::vec4, 3> ObjectToWorld{};
-    };
-    static_assert( sizeof( EmissiveMoveGpu ) == 64 );
-
     inline constexpr std::string_view kEmissiveSegmentsName          = "EmissiveLights.Segments";
     inline constexpr std::string_view kEmissiveLookupName            = "EmissiveLights.Lookup";
     inline constexpr std::string_view kEmissiveMoveAckName           = "EmissiveLights.MoveAck";

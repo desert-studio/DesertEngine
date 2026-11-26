@@ -8,16 +8,16 @@
 // DesertReflectionEnvironment with the ray they could not resolve.
 //
 // THE INCLUDER DECLARES THE TWO BINDINGS (the slots are its layout's), before including this file:
-//   #include <Common/ReflectionCaptureGpu.glslh>
+//   #include <Generated/ReflectionCaptures/ReflectionCaptures.glslh>
 //   ReadBuffer(n) ReflectionCapturesUB { uvec4 ReflectionCaptureHeader; ReflectionCaptureGpu ReflectionCaptures[]; };
 //   Uniform(m) samplerCubeArray ReflectionCaptureCubesTexture;
 // The CPU side of both is
-// Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp (ReflectionCaptureGpu, the same layout, std430).
+// Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp; ReflectionCaptureGpu is generated (ReflectionCaptureLayout.hpp).
 //
 // ReflectionCaptureHeader.x = capture count. The captures are sorted SMALLEST INFLUENCE FIRST: the loop
 // composites front to back with UE's under-operator, so the most local capture wins where several overlap.
 
-#include <Common/ReflectionCaptureGpu.glslh>
+#include <Generated/ReflectionCaptures/ReflectionCaptures.glslh> // ReflectionCaptures/ReflectionCaptureLayout.hpp
 #include <Common/ReflectionCaptureMip.glslh>
 
 // UE r.ReflectionEnvironmentBeginMixingRoughness 0.1 / EndMixingRoughness 0.3 / LightmapMixLargestWeight 10000:

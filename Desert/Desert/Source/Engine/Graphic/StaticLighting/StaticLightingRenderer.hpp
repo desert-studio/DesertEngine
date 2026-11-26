@@ -48,7 +48,7 @@
 namespace Desert::Graphic::StaticLighting
 {
     // Per GPU-scene row of a lightmapped primitive (UE FLightmapSceneShaderData): uploaded once at registration.
-    // shader mirror: ShaderProtocols/StaticLighting.glslh (new with the implementation).
+    // No GLSL struct declares it.
     struct LightmapRowGpu
     {
         glm::vec4  LightmapScaleBias{ 0.0f }; // xy scale, zw bias into the page

@@ -1043,8 +1043,7 @@ Shader "PathTracer"
             // y never stops on the spread rule, z = the throughput below which a training vertex gives no sample.
             layout(std430, binding = 34) readonly buffer NrcTraceParamsUB
             {
-                uvec4 NrcParams;
-                vec4  NrcSpread;
+                DESERT_NrcTraceParams_MEMBERS
             };
 
             // Where the last traced path ended in the cache (PathTracingTracePath -> main, which writes the query once

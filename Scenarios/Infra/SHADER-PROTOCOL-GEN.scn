@@ -7,6 +7,10 @@
 # prove the shaders compile against the generated text (a missing include or a renamed member = a dropped program =
 # a black or missing pass) and that the bytes the C++ uploads land in the members the shaders read (a swapped member
 # = a wrong exposure, blur or GI). Every frame is compared with the same frame on dev.
+# Run C moved GI (frame, tracer, radiance cache, ReSTIR, screen probes), the surface cache, the global distance field,
+# the ray-tracing records and emissive lights, the neural radiance cache, reflection captures, the world parameter
+# table, the debug line / grid materials and the particle programs (Generated/GI, DistanceField, RayTracing, Neural,
+# ReflectionCaptures, Debug, VFX, WorldParameters.glslh); statement 2c_lighting checks them.
 # Outside the editor: python scripts/Dev/arch_census.py exits 0; Generated/ holds the .glslh the tool wrote.
 Проект Projects/Desert/Desert.deproj
 Дано state
@@ -17,6 +21,8 @@
 Тогда 1_post тот же вид после 30 кадров: DOF, motion blur, TAA/TSR и GTAO как на dev - без чёрных или пропущенных проходов, без смещённой резкости и полос; editor.log без ошибок компиляции программ DepthOfField*, MotionBlur*, TemporalAA, TSR*, SSAO
 Когда frames 30
 Тогда 2_gi SSGI, subsurface и translucency lighting volume (туман, облака, полупрозрачное) как на dev: GI не пропал и не пересвечен, полупрозрачное освещено; editor.log без ошибок SSGI, SubsurfaceBurley, TranslucencyLightingVolume
+Когда frames 30
+Тогда 2c_lighting косвенный свет (surface cache, radiance cache, screen probes, ReSTIR, трассировка по distance field), отражения reflection captures, эмиссивные источники, параметры мира, частицы, сетка редактора и отладочные линии как на dev (пиксельное сравнение): нет чёрных, пересвеченных или пропавших отражений и частиц; editor.log без ошибок компиляции программ GI*, SurfaceCache*, RadianceCache*, ScreenProbe*, GlobalDistanceField*, ReflectionCapture*, EmissiveLights, Particle*, Grid, DebugLine, PathTracer и без строк "Generated/GI", "Generated/RayTracing", "Generated/VFX", "Generated/ReflectionCaptures" с "not found"
 Когда run View "View mode: Wireframe"
 Когда frames 30
 Когда run View "View mode: Lit"
