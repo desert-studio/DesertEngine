@@ -457,6 +457,10 @@ namespace Desert::Editor
     {
         DESERT_PROFILE_SCOPE( "Layer::OnUpdate" );
 
+        // LIVE CODING AT THE FRAME BOUNDARY, before anything of this frame runs: a patch prepared on a worker
+        // redirects its functions here, with every other thread suspended, so no frame sees old and new code mixed.
+        m_LiveCoding.ApplyPending();
+
         // THE CONTROL CHANNEL GOES FIRST, ahead of the startup-loading return below and not after it.
         //
         // A client connects while the editor is still cooking assets — that is the normal case, since it
@@ -763,7 +767,7 @@ namespace Desert::Editor
                                                                 m_WorldPartitionPanel->HLODBuildProgress(),
                                                                 m_WorldPartitionPanel->HLODBuildOutcome() }
                                    : Control::BackgroundReport{},
-             m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingMiniMap(),
+             m_LiveCoding.Report(), m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingMiniMap(),
              ViewportPanel::AnyMeshDropLoading(),
              m_WorldPartitionPanel && m_WorldPartitionPanel->IsReadingEditorHLODs(),
              ViewportPanel::ModelingPreviewOutstanding() );

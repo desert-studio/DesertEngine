@@ -54,6 +54,11 @@ namespace Desert::Editor
         class WindowChrome;
     }
 
+    namespace LiveCoding
+    {
+        class LiveCodingSession;
+    }
+
     class LevelEditorCommands
     {
     public:
@@ -71,6 +76,7 @@ namespace Desert::Editor
             DockLayout&                                  Dock;
             MainMenu&                                    Menu;
             AssetCompiling&                              Compiling;
+            LiveCoding::LiveCodingSession&               LiveCoding;
             const PanelRegistry&                         Panels;
             const std::shared_ptr<Assets::AssetManager>& AssetsSlot;
             FileExplorerPanel* const&                    FileExplorer;

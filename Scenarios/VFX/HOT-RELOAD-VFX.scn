@@ -1,0 +1,20 @@
+# HOT-RELOAD-VFX (owner: «hot reload тогда можно сразу добавить?»): Live Coding patches DesertVFX's
+# SpawnState::Step (VFXEmitterSpawn.cpp:376-413, called from VFXWorld.cpp:170 in another unity batch) to give
+# no births. The Starter Campfire stops spawning, its live particles die within their lifetime (<= 1.2 s), the
+# scene is not reopened; the reverted patch brings the flames back.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce
+Дано run View "View mode: Lit"
+Дано run Open "VFX/Campfire.dfx"
+Когда 120 frames render
+Тогда 0_before the .dfx preview and the level viewport behind it both show the Campfire flames
+Когда-файл apply Scenarios/VFX/HOT-RELOAD-VFX.patch
+Когда run "Live Coding" "Patch changed sources"
+Когда wait-idle
+Когда state
+Когда 400 frames render
+Тогда 1_after no flames in the preview and none at the level Campfire; the logs and the rest of the scene are as in 0_before; the Campfire.dfx tab is still open (no reload, no reopen); editor.log has one "[LiveCoding] patched" line naming VFXEmitterSpawn.cpp and no scene open after it
+Когда-файл revert Scenarios/VFX/HOT-RELOAD-VFX.patch
+Когда run "Live Coding" "Patch changed sources"
+Когда wait-idle
+Когда 120 frames render
+Тогда 2_back the flames burn again in the preview and at the level Campfire, as in 0_before

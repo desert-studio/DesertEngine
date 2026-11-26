@@ -1,0 +1,13 @@
+diff --git a/Editor/Source/Editor/Panels/History/HistoryPanel.cpp b/Editor/Source/Editor/Panels/History/HistoryPanel.cpp
+index c8bda63fd..fb2b6d608 100644
+--- a/Editor/Source/Editor/Panels/History/HistoryPanel.cpp
++++ b/Editor/Source/Editor/Panels/History/HistoryPanel.cpp
+@@ -14,7 +14,7 @@ namespace Desert::Editor
+         const auto& undo    = history.UndoStack();
+         const auto& redo    = history.RedoStack();
+ 
+-        ImGui::Text( "Revision %llu", static_cast<unsigned long long>( history.Revision() ) );
++        ImGui::Text( "Revision (live) %llu", static_cast<unsigned long long>( history.Revision() ) );
+         ImGui::SameLine();
+         ImGui::TextDisabled( "(%zu undo / %zu redo)", undo.size(), redo.size() );
+ 

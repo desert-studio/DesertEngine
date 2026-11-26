@@ -504,6 +504,8 @@ function(desert_module_library name)
     else()
         add_library(${name} SHARED ${ARG_SOURCES})
         set_target_properties(${name} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON DEFINE_SYMBOL "")
+        # A module DLL is an image Live Coding may patch: desert_finalize_targets lists it in LiveCoding.json.
+        set_property(GLOBAL APPEND PROPERTY DESERT_LIVE_CODING_TARGETS ${name})
     endif()
     if(ARG_FOLDER)
         set_target_properties(${name} PROPERTIES FOLDER "${ARG_FOLDER}")

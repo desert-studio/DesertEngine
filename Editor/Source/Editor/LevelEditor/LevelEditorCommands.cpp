@@ -20,6 +20,7 @@
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/ViewportCommands.hpp"
+#include "Editor/LiveCoding/LiveCodingSession.hpp"
 #include "Editor/Panels/Build/BuildCommands.hpp"
 #include "Editor/Panels/Clouds/CloudCommands.hpp"
 #include "Editor/Panels/Foliage/FoliageCommands.hpp"
@@ -206,6 +207,7 @@ namespace Desert::Editor
         m_Commands.Register( "Play", [this]( Out& out ) { m_Modules.Play.AppendPlayCommands( out ); } );
         m_Commands.Register( "Script Debugger",
                              [this]( Out& out ) { m_Modules.ScriptDebug.AppendCommands( out ); } );
+        m_Commands.Register( "Live Coding", [this]( Out& out ) { m_Modules.LiveCoding.AppendCommands( out ); } );
         m_Commands.Register( "Edit (Undo, Redo)", []( Out& out ) { MainMenu::AppendUndoRedoCommands( out ); } );
         m_Commands.Register( "Documents (close all)",
                              [&documents]( Out& out ) { documents.AppendCloseAllCommand( out ); } );
@@ -225,6 +227,19 @@ namespace Desert::Editor
 
     void LevelEditorCommands::HandleShortcuts( const ImGuiIO& io )
     {
+        // ---- Live Coding: Ctrl+Alt+F11 (UE Live Coding's chord) ----
+        // In Edit and in Play alike (PIE runs in this process, so its code is patched too). The session writes
+        // the refusal or the outcome to editor.log and to `state`; the key press answers in a toast, as UE's
+        // Live Coding notification does.
+        if ( io.KeyCtrl && io.KeyAlt && ::ImGui::IsKeyPressed( ImGuiKey_F11, false ) )
+        {
+            const Common::BoolResultStr requested = m_Modules.LiveCoding.RequestPatch();
+            if ( requested )
+                ToastManager::Push( "Live Coding: patch started", ToastLevel::Info );
+            else
+                ToastManager::Push( "Live Coding refused: " + requested.GetError(), ToastLevel::Warning );
+        }
+
         // ---- Global editing shortcuts ----
         // Edit mode only (Play discards its changes on Stop anyway) and never while a text field owns the
         // keyboard. Runs at frame start, before any panel iterates the scene.
