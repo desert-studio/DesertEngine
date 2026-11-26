@@ -1,5 +1,7 @@
 #include "ReplicationClient.hpp"
 
+#include <Net/InputWire.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -24,6 +26,23 @@ namespace Desert::Net
     {
         m_Transport.Poll( *this );
         AdvanceRenderClock();
+        RollInputWindow( LocalSeconds() );
+    }
+
+    void ReplicationClient::RollInputWindow( double local )
+    {
+        const double elapsed = local - m_InputWindowStart;
+        if ( elapsed < 1.0 )
+            return;
+        // Per second of the window as it ran: a frame stall that stretched it past one second is not counted as
+        // one second's worth.
+        m_InputBytesPerSecond =
+             static_cast<std::size_t>( std::lround( static_cast<double>( m_InputWindowBytes ) / elapsed ) );
+        m_InputMessagesPerSecond =
+             static_cast<std::size_t>( std::lround( static_cast<double>( m_InputWindowMessages ) / elapsed ) );
+        m_InputWindowStart    = local;
+        m_InputWindowBytes    = 0;
+        m_InputWindowMessages = 0;
     }
 
     double ReplicationClient::LocalSeconds() const
@@ -134,6 +153,9 @@ namespace Desert::Net
     {
         if ( m_State != EState::InSession )
             return std::nullopt;
+        // The one place a step gets its number is the one place it is snapped: the ring, the prediction and the
+        // server all step the lattice value (NET-INPUT-PACK D7).
+        input      = OnWireLattice( input );
         input.Step = m_NextStep++;
         m_Inputs.Push( input );
         return input;
@@ -147,8 +169,22 @@ namespace Desert::Net
         message.Steps = m_Inputs.Unacked(); // each unacked step again, until the ack drops it (UE ServerMove)
         if ( message.Steps.empty() )
             return;
-        message.Sequence = m_NextSequence++;
-        m_Transport.Send( m_Connection, EncodeInput( message ), ENetLane::State );
+        // A refused run burns its sequence id: the server reads sequence gaps as lost packets.
+        message.Sequence                   = m_NextSequence++;
+        const std::vector<std::byte> bytes = EncodeInput( message );
+        if ( bytes.empty() )
+        {
+            m_Log( std::format( "input run refused: steps not consecutive or over the wire's limits ({} step(s), "
+                                "{}..{}); nothing sent",
+                                message.Steps.size(), message.Steps.front().Step, message.Steps.back().Step ) );
+            return;
+        }
+        RollInputWindow( LocalSeconds() );
+        m_InputWindowBytes += bytes.size();
+        ++m_InputWindowMessages;
+        if ( bytes.size() > m_LargestInput.Bytes )
+            m_LargestInput = { bytes.size(), message.Steps.size() };
+        m_Transport.Send( m_Connection, bytes, ENetLane::State );
     }
 
     std::optional<InputStep> ReplicationClient::SendInput( InputStep input )

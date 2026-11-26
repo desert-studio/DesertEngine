@@ -357,10 +357,15 @@ namespace Desert::Core
             }
             if ( const auto view = scene.PlayerViewPoint() )
                 shown += std::format( "; view ({:.0f},{:.0f},{:.0f})", ( *view )[3].x, ( *view )[3].y, ( *view )[3].z );
+            // The input uplink (NET-INPUT-PACK): the Input messages' bytes and count over the last second, and the
+            // largest one this session with its step count (a starved client's burst must fit one UDP MTU).
+            const Net::ReplicationClient::InputMessageSize largest = m_Client->LargestInputMessage();
             LOG_INFO( "[Net] t={:.1f}s pawns{}; scene players {}; unacked inputs {}; corrections {}; server input "
-                      "queue {:.1f}, clock x{:.2f}{}",
+                      "queue {:.1f}, clock x{:.2f}; input {} B/s, {} msgs; largest message {} B ({} steps){}",
                       m_Clock, line.empty() ? std::string( " none" ) : line, scene.GetPlayers().size(),
-                      m_Client->PendingInputs(), predictor.Corrections(), m_ServerQueue, 1.0 / m_Dilation, shown );
+                      m_Client->PendingInputs(), predictor.Corrections(), m_ServerQueue, 1.0 / m_Dilation,
+                      m_Client->InputBytesPerSecond(), m_Client->InputMessagesPerSecond(), largest.Bytes,
+                      largest.Steps, shown );
             LogPawnRates();
         }
     }
