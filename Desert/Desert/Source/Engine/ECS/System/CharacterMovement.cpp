@@ -2,6 +2,10 @@
 
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
+#include <Engine/ECS/RelationshipComponent.hpp>
+#include <Engine/ECS/SkinnedMeshComponent.hpp>
+#include <Engine/ECS/StaticMeshComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/Gameplay/CharacterMoveStep.hpp>
 #include <Engine/Gameplay/PawnPrefabMovement.hpp>
 #include <Engine/Gameplay/PhysicsPawnMoveWorld.hpp>
@@ -70,6 +74,40 @@ namespace Desert::ECS::CharacterMovement
         cc.OnGround     = to.Grounded;
         cc.Velocity     = glm::vec3( to.Velocity.X, to.Velocity.Y, to.Velocity.Z );
         cc.CurrentSpeed = glm::length( glm::vec2( cc.Velocity.x, cc.Velocity.z ) );
+    }
+
+    void PlaceDrawnPawn( entt::registry& registry, entt::entity pawn, CharacterControllerComponent& cc,
+                         const glm::vec3& center, float meshLift )
+    {
+        ECS::SetLocalTranslation( registry, pawn, center );
+        const float delta = meshLift - cc.MeshLift;
+        if ( delta == 0.0f )
+            return;
+        cc.MeshLift = meshLift;
+        const auto* family = registry.try_get<RelationshipComponent>( pawn );
+        if ( !family )
+            return;
+        for ( const entt::entity child : family->Children )
+        {
+            if ( !registry.valid( child ) || !registry.has<TransformComponent>( child ) )
+                continue;
+            if ( !registry.has<StaticMeshComponent>( child ) && !registry.has<SkinnedMeshComponent>( child ) )
+                continue;
+            LocalTransform local = registry.get<TransformComponent>( child ).GetLocal();
+            local.Translation.y += delta;
+            ECS::SetLocalTransform( registry, child, local );
+        }
+    }
+
+    void PlaceDrawnCharacter( entt::registry& registry, entt::entity pawn, CharacterControllerComponent& cc,
+                              const Physics::PhysicsWorld& world )
+    {
+        const Physics::CharacterCapsule held  = world.GetCharacterCapsule( cc.RuntimeCharacter );
+        const Gameplay::DrawnPawn       drawn = Gameplay::DrawnPawnOf(
+             Gameplay::PrefabMovement::ToPawnMoveSettings( cc.Data ),
+             Gameplay::PawnCapsule{ held.Radius, held.HalfHeight } );
+        PlaceDrawnPawn( registry, pawn, cc, world.GetInterpolatedCharacterPosition( cc.RuntimeCharacter ),
+                        drawn.MeshLift );
     }
 
     void PublishAnimGraphParameters( const CharacterControllerComponent& cc, AnimationComponent& anim )

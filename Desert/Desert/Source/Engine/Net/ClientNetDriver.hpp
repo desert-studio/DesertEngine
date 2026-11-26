@@ -138,7 +138,8 @@ namespace Desert::Core
         // The collision world the own pawn is predicted in: the physics world of the scene this driver ticks
         // (UE: the CharacterMovement of the pawn's own UWorld). Null, said once, while that scene runs none.
         Net::IPawnMover*        PredictionMover( Scene& scene );
-        [[nodiscard]] glm::vec3 OwnDrawnPosition() const;
+        // The own pawn's drawn FEET: between its last two predicted steps, plus a correction's decaying offset.
+        [[nodiscard]] glm::vec3 OwnDrawnFeet() const;
 
         ClientNetOptions                        m_Options;
         std::unique_ptr<Net::INetTransport>     m_Transport;

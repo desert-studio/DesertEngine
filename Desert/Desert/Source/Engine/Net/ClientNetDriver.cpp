@@ -33,6 +33,7 @@
 #include <Engine/Input/LocalPawnInput.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
+#include <Engine/ECS/System/CharacterMovement.hpp>
 #include <Net/ReplicationClient.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -123,6 +124,32 @@ namespace Desert::Core
         {
             static std::optional<NetPredictionStats> stats;
             return stats;
+        }
+    } // namespace
+
+    namespace
+    {
+        // The game's mode bits of a replicated state (Net::SetMoveFlags: Grounded is bit 0, the mode above it).
+        std::uint8_t ModeOf( const Net::PawnState& state )
+        {
+            Net::PawnMoveState move;
+            Net::SetMoveFlags( move, state.Movement );
+            return move.Mode;
+        }
+
+        // UE ACharacter on the owner and the proxies alike (Gameplay::DrawnPawn): the pawn's entity at its
+        // capsule's CENTRE above the FEET the net layer carries, its meshes lifted while the move mode is crouched.
+        // The lift lives on the pawn root's CharacterController (the pawn prefab's; a root without one is drawn
+        // at the centre and has no meshes to lift for a crouch it cannot have).
+        void PlaceNetPawn( entt::registry& reg, entt::entity pawn, const Gameplay::PawnMoveSettings& settings,
+                           const glm::vec3& feet, std::uint8_t mode )
+        {
+            const Gameplay::DrawnPawn drawn  = Gameplay::DrawnPawnOf( settings, mode );
+            const glm::vec3           center = feet + glm::vec3( 0.0f, drawn.CenterAboveFeet, 0.0f );
+            if ( auto* cc = reg.try_get<ECS::CharacterControllerComponent>( pawn ) )
+                ECS::CharacterMovement::PlaceDrawnPawn( reg, pawn, *cc, center, drawn.MeshLift );
+            else
+                ECS::SetLocalTranslation( reg, pawn, center );
         }
     } // namespace
 
@@ -289,7 +316,8 @@ namespace Desert::Core
         if ( predictor.Started() )
             if ( const auto own = m_Entities.find( m_Client->OwnPawn() ); own != m_Entities.end() &&
                                                                           scene.GetRegistry().valid( own->second ) )
-                ECS::SetLocalTranslation( scene.GetRegistry(), own->second, OwnDrawnPosition() );
+                PlaceNetPawn( scene.GetRegistry(), own->second, m_Prediction->Movement.Settings, OwnDrawnFeet(),
+                              predictor.Current().Mode );
         StatsSlot() = NetPredictionStats{ predictor.Corrections(), predictor.Unacked(), 1.0 / m_Dilation };
 
         if ( m_Clock >= m_NextLog )
@@ -306,8 +334,15 @@ namespace Desert::Core
             if ( const auto own = m_Entities.find( m_Client->OwnPawn() );
                  own != m_Entities.end() && scene.GetRegistry().valid( own->second ) )
             {
-                const glm::vec3 drawn = ECS::Entity( own->second, scene.GetRegistry() ).GetWorldTransform()[3];
-                shown += std::format( "; drawn own ({:.0f},{:.0f},{:.0f})", drawn.x, drawn.y, drawn.z );
+                // The entity is the capsule's centre; "drawn own" reads its feet, as the server's position is.
+                std::uint8_t mode = predictor.Current().Mode;
+                if ( !predictor.Started() )
+                    if ( const auto sample = m_Client->Sample( m_Client->OwnPawn() ) )
+                        mode = ModeOf( *sample );
+                const glm::vec3 center = ECS::Entity( own->second, scene.GetRegistry() ).GetWorldTransform()[3];
+                const float above = Gameplay::DrawnPawnOf( m_Prediction->Movement.Settings, mode ).CenterAboveFeet;
+                shown += std::format( "; drawn own ({:.0f},{:.0f},{:.0f}) centre y {:.0f}", center.x,
+                                      center.y - above, center.z, center.y );
             }
             if ( const auto view = scene.PlayerViewPoint() )
                 shown += std::format( "; view ({:.0f},{:.0f},{:.0f})", ( *view )[3].x, ( *view )[3].y, ( *view )[3].z );
@@ -443,6 +478,13 @@ namespace Desert::Core
             const auto      sample     = m_Client->Sample( id );
             const glm::vec3 at =
                  sample ? ToGlm( sample->Position ) : ToGlm( replicated.History.Newest().Position );
+            // UE ACharacter: the pawn spawns at its capsule's centre; the replicated position is its feet.
+            const glm::vec3 center =
+                 at + glm::vec3( 0.0f,
+                                 Gameplay::DrawnPawnOf( m_Prediction->Movement.Settings,
+                                                        ModeOf( sample ? *sample : replicated.History.Newest() ) )
+                                      .CenterAboveFeet,
+                                 0.0f );
             if ( replicated.Owned )
             {
                 // The own pawn: the one Play spawned from the level's GameMode, at the server's position; a level
@@ -452,7 +494,7 @@ namespace Desert::Core
                 if ( pawn == entt::null || !reg.valid( pawn ) )
                 {
                     const auto own =
-                         SpawnPawnPrefabAt( scene, assets, m_PawnPrefab, glm::translate( glm::mat4( 1.0f ), at ) );
+                         SpawnPawnPrefabAt( scene, assets, m_PawnPrefab, glm::translate( glm::mat4( 1.0f ), center ) );
                     if ( !own )
                     {
                         LOG_ERROR( "[Net] own pawn {} (player {}): the server's pawn prefab {:016x}: {}", id,
@@ -496,7 +538,7 @@ namespace Desert::Core
                 continue;
             }
             const auto spawned =
-                 SpawnPawnPrefabAt( scene, assets, m_PawnPrefab, glm::translate( glm::mat4( 1.0f ), at ) );
+                 SpawnPawnPrefabAt( scene, assets, m_PawnPrefab, glm::translate( glm::mat4( 1.0f ), center ) );
             if ( !spawned )
             {
                 LOG_ERROR( "[Net] remote pawn {} (player {}): {}", id, replicated.Player, spawned.GetError() );
@@ -548,13 +590,13 @@ namespace Desert::Core
                     m_OwnFirstServerPosition = position;
                 // Predicted: Tick draws it after this frame's steps. It faces where its controller script turns it.
                 if ( !m_Prediction->Predictor.Started() )
-                    ECS::SetLocalTranslation( reg, entity, position );
+                    PlaceNetPawn( reg, entity, m_Prediction->Movement.Settings, position, ModeOf( *sample ) );
                 continue;
             }
             ECS::LocalTransform local = reg.get<ECS::TransformComponent>( entity ).GetLocal();
-            local.Translation         = position;
             local.Rotation            = { 0.0f, sample->Yaw, 0.0f };
             ECS::SetLocalTransform( reg, entity, local );
+            PlaceNetPawn( reg, entity, m_Prediction->Movement.Settings, position, ModeOf( *sample ) );
             WriteLocomotion( scene, entity, *sample );
         }
     }
@@ -852,7 +894,7 @@ namespace Desert::Core
         return input;
     }
 
-    glm::vec3 ClientNetDriver::OwnDrawnPosition() const
+    glm::vec3 ClientNetDriver::OwnDrawnFeet() const
     {
         const Net::MovePredictor& predictor = m_Prediction->Predictor;
         const float alpha = static_cast<float>( std::clamp( m_StepClock * Net::kNetStepHz / m_Dilation, 0.0, 1.0 ) );
@@ -897,7 +939,7 @@ namespace Desert::Core
             m_QueueWindowMin = 1e9;
             m_QueueWindowEnd = m_Clock + kQueueWindowSeconds;
         }
-        const glm::vec3 drawnBefore = OwnDrawnPosition();
+        const glm::vec3 drawnBefore = OwnDrawnFeet();
         Net::IPawnMover* mover       = PredictionMover( scene );
         if ( mover == nullptr )
             return;
@@ -906,7 +948,7 @@ namespace Desert::Core
         if ( outcome != Net::MovePredictor::EReconcile::Corrected )
             return;
         const Net::PawnMoveState& mispredicted = predictor.LastMispredicted();
-        const glm::vec3 offset = drawnBefore - ( OwnDrawnPosition() - m_SmoothOffset );
+        const glm::vec3 offset = drawnBefore - ( OwnDrawnFeet() - m_SmoothOffset );
         const bool      smooth = glm::length( offset ) <= kNoSmoothDistanceCm;
         m_SmoothOffset         = smooth ? offset : glm::vec3( 0.0f );
         LOG_INFO(

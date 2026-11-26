@@ -181,7 +181,7 @@ namespace Desert::Net
         pawn.State.Position = pawn.Move.Position;
         pawn.State.Yaw      = pawn.Move.Yaw;
         pawn.State.Velocity = pawn.Move.Velocity;
-        pawn.State.Movement = pawn.Move.Grounded ? kPawnGrounded : std::uint8_t{ 0 };
+        pawn.State.Movement = MoveFlagsOf( pawn.Move ); // Grounded and the game's mode (a proxy's crouch)
     }
 
     void PawnSimulation::Step()

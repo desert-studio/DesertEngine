@@ -31,10 +31,10 @@
 # [netgm_one_step] crouch through the same step: C held, then W crouched.
 Когда input keydown - - c
 Когда advance 0.5
-Тогда-вид netgm_crouch the capsule is shorter and the Spring Arm camera sits lower than in netgm_local_walk_again; editor.log reads ", crouched" with the centre where the walk stopped (W released) and lower
+Тогда-вид netgm_crouch the body keeps its full height with its feet on the landscape - as many rows tall as in netgm_local_walk_again, its lowest row where the ground starts, nothing of it sunk into the ground (UE ACharacter: the mesh is lifted by the 28 cm half-height difference while the capsule shrinks); the Spring Arm camera rides the capsule's centre, 28 cm lower, so the body and the ground sit a little higher in the frame; editor.log reads ", crouched" with the centre where the walk stopped (W released) and 28 lower
 Когда input keydown - - w
 Когда advance 1.5
-Тогда-вид netgm_crouch_walk the crouched pawn moved forward; editor.log reads "speed 300 cm/s, actions IA_Crouch#2, grounded, crouched", the centre advancing about 300 cm a line
+Тогда-вид netgm_crouch_walk the crouched pawn moved forward, its body whole with its feet on the ground; editor.log reads "speed 300 cm/s, actions IA_Crouch#2, grounded, crouched", the centre advancing about 300 cm a line
 Когда input keyup - - w
 Когда input keyup - - c
 Когда advance 1.0
