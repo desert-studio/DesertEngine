@@ -97,7 +97,7 @@ namespace
         {
             const auto set = Anim.SetPoseGraph( MachineGraph() );
             EXPECT_TRUE( set ) << ( set ? std::string() : set.GetError() );
-            Anim.SetPoseGraphParameter( "Speed", speed );
+            Anim.SetGraphParameter( "Speed", speed );
             Anim.PlayBlendSpace( Row(), Clips );
         }
     };
@@ -111,7 +111,7 @@ TEST( AnimatorStateBlendSpace, AStateBlendSpacePlaysTheWeightedMixOfItsSamples )
     played.Anim.Update( Timestep( 0.0F ) );
     EXPECT_NEAR( SpineHeight( played.Anim ), 50.0F, 1e-3F ) << "Speed 150 is the half mix of Walk and Run";
 
-    played.Anim.SetPoseGraphParameter( "Speed", 300.0F );
+    played.Anim.SetGraphParameter( "Speed", 300.0F );
     played.Anim.Update( Timestep( 0.0F ) );
     EXPECT_NEAR( SpineHeight( played.Anim ), 100.0F, 1e-3F ) << "the axis is read every update, not on entry";
     ASSERT_NE( played.Anim.GetCurrentBlendSpace(), nullptr );
@@ -135,7 +135,7 @@ TEST( AnimatorStateBlendSpace, TheHeaviestSampleAtTheSharedPhaseIsTheStatesClock
          << "the exit-time fraction is the shared phase";
 
     // Past the middle of the axis the heaviest sample, and so the clock, becomes Walk at the same phase.
-    played.Anim.SetPoseGraphParameter( "Speed", 60.0F );
+    played.Anim.SetGraphParameter( "Speed", 60.0F );
     played.Anim.Update( Timestep( 0.0F ) );
     EXPECT_EQ( played.Anim.GetCurrentClip(), &played.Walk );
     EXPECT_NEAR( played.Anim.GetCurrentTime() / played.Anim.GetDuration(), run->Phase, 1e-3F );

@@ -323,6 +323,11 @@ namespace Desert::ECS
                             PlaySequence( anim, clipRig, baseSource->Name, *baseSequence );
                         }
 
+                        // THE GRAPH'S PARAMETERS, EVERY GRAPH: a blend-space state's axis reads them as a pose
+                        // graph pin does, and a graph whose Output Pose is its state machine has no pose graph.
+                        for ( const Animation::Graph::Parameter& parameter : anim.GraphEvaluator->Graph().Parameters )
+                            anim.Animator->SetGraphParameter( parameter.Name,
+                                                              anim.GraphEvaluator->GetFloat( parameter.Name ) );
                         DrivePoseGraph( anim, clipRig, graphRebuilt );
                         const Common::Timestep animTs( Animation::AnimationAdvanceSeconds(
                              gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) );
@@ -712,11 +717,11 @@ namespace Desert::ECS
         /**
          * @brief The graph's pose graph -> the Animator's Graph stage: the graph (its per-bone tables built only
          *        when the graph was rebuilt or the Animator lost it), then this tick's clip of every source
-         *        node other than the base — a machine's running state's, a sequence player's — and the
-         *        parameters its pins read.
+         *        node other than the base — a machine's running state's, a sequence player's.
          *
          * The base source is not here: `Update` reported it (or PlaySequence played it) into the Source stage
-         * above. A graph whose Output Pose IS a source has nothing to blend and clears the stage.
+         * above. A graph whose Output Pose IS a source has nothing to blend and clears the stage. The parameters
+         * its pins read were fed to the Animator above, for every graph.
          */
         void DrivePoseGraph( ECS::AnimationComponent& anim, const Animation::MeshSkeletonIdentity& clipRig,
                              bool graphRebuilt )
@@ -741,8 +746,6 @@ namespace Desert::ECS
                 }
                 poseGraphSet = true;
             }
-            for ( const AG::Parameter& parameter : graph.Parameters )
-                anim.Animator->SetPoseGraphParameter( parameter.Name, evaluator.GetFloat( parameter.Name ) );
             for ( size_t n = 0; n < graph.Nodes.size(); ++n )
             {
                 const AG::PoseNode* node = &graph.Nodes[n];
