@@ -1525,11 +1525,12 @@ namespace Desert::Graphic
 
         // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
         // UE's Exposure Compensation applies to the manual exposure too (2^AutoExposureBias).
-        const float manualExposure = ManualExposureScale( post.ManualExposureEV100, post.AutoExposureKey ) *
-                                     std::exp2( post.AutoExposureBias );
+        const float manualExposure =
+             ManualExposureScale( post.ManualExposureEV100 ) * std::exp2( post.AutoExposureBias );
         m_Systems.Tonemap->SetParams( manualExposure );
         // ScenePreExposure's source (UE FViewInfo::UpdatePreExposure): the exposure this view tonemaps with as the
-        // CPU knows it — manual: the scale above; auto: key / the adapted luminance read back FramesInFlight
+        // CPU knows it — manual: the scale above; auto: middle grey / the adapted luminance (over 2^compensation,
+        // AEAverage.shader) read back FramesInFlight
         // frames ago (0 until the first copy is written). A capture view keeps 0 -> 1.0: its output is stored
         // absolute.
         m_LastExposure = 0.0f;
@@ -1540,7 +1541,7 @@ namespace Desert::Graphic
             else if ( auto* ae = m_Systems.AutoExposure.get() )
             {
                 const float lum = ae->ReadBackAdaptedLuminance();
-                m_LastExposure  = lum > 0.0f ? post.AutoExposureKey / std::max( lum, 1e-4f ) : 0.0f;
+                m_LastExposure  = lum > 0.0f ? kExposureMiddleGrey / std::max( lum, 1e-4f ) : 0.0f;
                 LOG_TRACE( "[PreExposure] {}: read-back adapted luminance {} -> exposure {}",
                            m_ViewResources.GetName(), lum, m_LastExposure );
                 // UE UpdatePreExposure x AverageLocalExposure (PostProcessEyeAdaptation.cpp:1559,1587): the
@@ -1553,21 +1554,20 @@ namespace Desert::Graphic
         {
             const LocalExposureParams localExposure = ResolveLocalExposure( post );
             const float               logMiddleGrey = LocalExposureLogMiddleGrey(
-                 post.AutoExposureKey, localExposure.MiddleGreyBiasEV, !post.AutoExposure );
+                 post.AutoExposureBias, localExposure.MiddleGreyBiasEV, !post.AutoExposure );
             if ( auto* le = m_Systems.LocalExposure.get() )
                 le->SetParams( localExposure, logMiddleGrey, m_LastExposure > 0.0f ? m_LastExposure : manualExposure );
             if ( auto* ae = m_Systems.AutoExposure.get() )
-                ae->SetLocalExposure( localExposure, logMiddleGrey, post.AutoExposureKey );
+                ae->SetLocalExposure( localExposure, logMiddleGrey );
         }
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
         // or the meter clamped at Max EV100 — so a sky the exposure can show is never cut (SkyLuminanceCeiling).
-        // The compensation moves it too: the bias and the curve's lowest key (AutoExposureRules.hpp).
+        // The compensation moves it too: the bias and the curve's lowest point (AutoExposureRules.hpp).
         const float lowestCompensation =
              post.AutoExposureBias +
              LowestExposureCompensationCurveBias( post.AutoExposureCurveKeyCount, &post.AutoExposureCurveBias.x );
         const float lowestAutoExposure =
-             LowestAutoExposureScale( post.AutoExposureMaxEV100, post.AutoExposureKey ) *
-             std::exp2( lowestCompensation );
+             LowestAutoExposureScale( post.AutoExposureMaxEV100 ) * std::exp2( lowestCompensation );
         const float lowestExposure = post.AutoExposure ? lowestAutoExposure : manualExposure;
         m_Systems.Skybox->SetSkyLuminanceCeiling( SkyLuminanceCeiling( lowestExposure ) );
         m_Systems.Tonemap->SetTonemapOperator( post.Tonemapper );
@@ -1687,10 +1687,10 @@ namespace Desert::Graphic
                                            EV100ToLuminance( post.AutoExposureMaxEV100 ) );
         m_Systems.AutoExposure->SetCompensation( post.AutoExposureBias, post.AutoExposureCurveKeyCount,
                                                  post.AutoExposureCurveEV100, post.AutoExposureCurveBias );
-        m_Systems.Tonemap->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
+        m_Systems.Tonemap->SetAutoExposure( post.AutoExposure );
         // The view's buffer visualization is drawn display-referred, whatever the view's exposure (GP1 p8).
         m_Systems.Tonemap->SetVisualizeBuffer( IsDisplayReferredView( m_DebugView.DeferredDebug ) );
-        m_Systems.Bloom->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
+        m_Systems.Bloom->SetAutoExposure( post.AutoExposure );
 
         return BOOLSUCCESS;
     }
@@ -3749,7 +3749,7 @@ namespace Desert::Graphic
 
     void SceneRendererImpl::AssignLocalShadowMaskSlots( const Core::Frustum& view )
     {
-        // ShadowCaster is UpdateLocalShadows' answer "this light casts in this view" (CastShadows, and the view
+        // ShadowFlags' kLightShadowInView is UpdateLocalShadows' answer "this light casts in this view" (CastShadows, and the view
         // draws shadows), whether or not a map was drawn for it.
         m_LocalShadowMaskLights.clear();
         m_StochasticLightMethods.clear();
@@ -3814,7 +3814,7 @@ namespace Desert::Graphic
             point.ShadowVisibility = static_cast<int32_t>( m_RenderMethods.Visibility );
             // Per-light view cull (UE: a light whose bounds miss the view frustum renders no shadow): no pixel of
             // the view is inside its attenuation sphere, so no slot, no trace, no pack.
-            if ( point.ShadowCaster == 0 || ( ( pointsIn >> ( i & 3u ) ) & 1u ) == 0u )
+            if ( ( point.ShadowFlags & ShaderProtocols::kLightShadowInView ) == 0 || ( ( pointsIn >> ( i & 3u ) ) & 1u ) == 0u )
                 continue;
             bool slotted = screenMask;
             if ( stochastic )
@@ -3848,7 +3848,7 @@ namespace Desert::Graphic
             auto& spot          = m_SpotLight.SpotLights[i];
             spot.ShadowMaskSlot   = -1;
             spot.ShadowVisibility = static_cast<int32_t>( m_RenderMethods.Visibility );
-            if ( spot.ShadowCaster == 0 || ( ( spotsIn >> ( i & 3u ) ) & 1u ) == 0u )
+            if ( ( spot.ShadowFlags & ShaderProtocols::kLightShadowInView ) == 0 || ( ( spotsIn >> ( i & 3u ) ) & 1u ) == 0u )
                 continue;
             bool slotted = screenMask;
             if ( stochastic )

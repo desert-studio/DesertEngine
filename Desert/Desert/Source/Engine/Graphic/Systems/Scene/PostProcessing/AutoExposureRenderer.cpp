@@ -209,7 +209,7 @@ namespace Desert::Graphic::System
                                          IsLocalExposureIdentity( le ) ? 0.0f : 1.0f ),
                               glm::vec4( le.HighlightThreshold, le.ShadowThreshold, le.HighlightThresholdStrength,
                                          le.ShadowThresholdStrength ),
-                              m_LocalExposureLogGrey, m_LocalExposureKey, m_CompensationBias,
+                              m_LocalExposureLogGrey, kExposureMiddleGrey, m_CompensationBias,
                               static_cast<float>( m_CurveKeys ), m_CurveEV100, m_CurveBias };
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( ap );

@@ -47,7 +47,7 @@ namespace Desert::ECS
 
     struct PostProcessVolumeComponent
     {
-        COMPONENT( Key( "PostProcessVolume" ), Block( Data ), Run( SkyAndAtmosphere ) )
+        COMPONENT( Key( "PostProcessVolume" ), Block( Data ), Run( SkyAndAtmosphere ), Version( 2 ) )
         PostProcessVolumeData Data;
     };
 } // namespace Desert::ECS

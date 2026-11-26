@@ -13,3 +13,6 @@ struct SpotLight
     DESERT_SPOT_LIGHT_FIELDS( DESERT_GLSL_AS_CPP_LIGHT_MEMBER )
 };
 #undef DESERT_GLSL_AS_CPP_LIGHT_MEMBER
+// The ShadowFlags bits, as the includer generates them from the same constants.
+const int kLightShadowInView = ::Desert::Graphic::ShaderProtocols::kLightShadowInView;
+const int kLightShadowCasts  = ::Desert::Graphic::ShaderProtocols::kLightShadowCasts;

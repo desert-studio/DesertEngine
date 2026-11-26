@@ -13,6 +13,7 @@
 //  4. the blur radius is not clamped to 31 texels, so the kernel is the same fraction of the view at any size.
 
 #include <Engine/Core/PostProcessSettings.hpp>
+#include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 
 #include <glm/glm.hpp>
 
@@ -73,14 +74,15 @@ namespace Desert::Graphic
                p.BlurredLumBlend > 0.0f;
     }
 
-    // log2 of the EXPOSED middle grey the base layer is pulled toward. Auto: log2(key) + bias (our key is UE's
-    // 0.18 x ExposureCompensation, PostProcessTonemap.usf:419); manual: log2(0.18) + bias (UE cancels the
-    // compensation under manual metering, PostProcessLocalExposure.cpp:201-207).
-    [[nodiscard]] inline float LocalExposureLogMiddleGrey( float autoExposureKey, float middleGreyBiasEV,
+    // log2 of the EXPOSED middle grey the base layer is pulled toward. Auto: log2(0.18 x 2^compensation) + bias
+    // (UE's 0.18 x ExposureCompensation, PostProcessTonemap.usf:419; @p compensationEV is AutoExposureBias);
+    // manual: log2(0.18) + bias (UE cancels the compensation under manual metering,
+    // PostProcessLocalExposure.cpp:201-207).
+    [[nodiscard]] inline float LocalExposureLogMiddleGrey( float compensationEV, float middleGreyBiasEV,
                                                            bool manualExposure )
     {
-        const float grey = manualExposure ? 0.18f : std::max( autoExposureKey, 1.0e-4f );
-        return std::log2( grey ) + middleGreyBiasEV;
+        const float compensation = manualExposure ? 0.0f : compensationEV;
+        return std::log2( kExposureMiddleGrey ) + compensation + middleGreyBiasEV;
     }
 
     // Dispatch geometry = UE's default path (r.PostProcessing.QuarterResolutionDownsample 0).

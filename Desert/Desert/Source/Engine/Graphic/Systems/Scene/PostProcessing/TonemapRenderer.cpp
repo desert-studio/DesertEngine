@@ -126,7 +126,7 @@ namespace Desert::Graphic::System
         const float lensFlareIntensity  = inputs.LensFlareProduced ? m_LensFlareIntensity : 0.0f;
 
         MaterialTonemap::Params params{
-             m_TonemapOperator,     m_Exposure,         bloomIntensity, m_ExposureKey,
+             m_TonemapOperator,     m_Exposure,         bloomIntensity,
              m_AutoExposureEnabled, m_ChromaticBloom, lightShaftIntensity,
              m_LightShaftTint,      lensFlareIntensity, m_LensFlareTint,    m_PreExposure };
         // Local exposure: identity values + enabled 0 when its nodes did not run (the inputs are then black).

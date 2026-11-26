@@ -276,7 +276,8 @@ TEST( SceneSettingsHomesMigration, TheMigratedSceneResolvesToThePreviousValues )
     const auto           v   = Graphic::ResolveViewSettings( reg, std::nullopt );
     EXPECT_NEAR( v.Post.ManualExposureEV100, std::log2( 0.21 / 2.5 ) + 3.0, 1e-5 );
     EXPECT_EQ( v.Post.WhitePoint, 11.0f );
-    EXPECT_EQ( v.Post.AutoExposureKey, 0.21f );
+    // v78: the stated key 0.21 is the compensation log2(0.21 / 0.18).
+    EXPECT_NEAR( v.Post.AutoExposureBias, std::log2( 0.21 / 0.18 ), 1e-5 );
     EXPECT_EQ( v.Post.BloomIntensity, 1.3f );
     EXPECT_EQ( v.Post.SSRMaxDistance, 2500.0f );
     EXPECT_EQ( v.Post.LensFlareTint, glm::vec3( 0.5f, 0.25f, 1.0f ) );

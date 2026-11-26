@@ -379,7 +379,7 @@ int PointShadowFace(vec3 fromLight)
 }
 
 // Whether a light has a map to answer a receiver (its transmission is the map's alone), and whether it has any shadow
-// source here (the map, or its screen mask). A casting light (shadowCaster) with none got no room this frame: the
+// source here (the map, or its screen mask). A casting light (kLightShadowInView) with none got no room this frame: the
 // readers below answer 1 for it and the surface readers (Mesh/LocalLightShadow.glslh) trace the screen instead.
 bool LocalLightHasShadowMap(int shadowView, int shadowMaskSlot)
 {

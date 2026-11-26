@@ -20,7 +20,8 @@ namespace Desert::Graphic::ShaderProtocols
 {
     /// The include path of the analytic sources' std430 structs (`struct PointLight`, `struct SpotLight`):
     /// declared with no binding, so the binding-free Mesh/LightSources.glslh includes them and the storage buffers
-    /// (Mesh/PointLightsUB.glslh, Mesh/SpotLightsUB.glslh) hold arrays of them.
+    /// (Mesh/PointLightsUB.glslh, Mesh/SpotLightsUB.glslh) hold arrays of them. Their ShadowFlags bits
+    /// (kLightShadowInView, kLightShadowCasts, PointLight.hpp) are generated beside them as GLSL constants.
     inline constexpr std::string_view kLightSourceLayoutsInclude = "Mesh/LightSourceLayouts.glslh";
 
     [[nodiscard]] inline const std::string& LightSourceLayoutsGlsl()
@@ -29,7 +30,10 @@ namespace Desert::Graphic::ShaderProtocols
              GenerateGuardedGlsl( "DESERT_LIGHT_SOURCE_LAYOUTS_GLSLH",
                                   "Engine/Graphic/ShaderProtocols/PointLight.hpp and SpotLight.hpp",
                                   GenerateGlslStruct( "PointLight", kPointLightPayloadFields ) + "\n" +
-                                       GenerateGlslStruct( "SpotLight", kSpotLightPayloadFields ) );
+                                       GenerateGlslStruct( "SpotLight", kSpotLightPayloadFields ) + "\n" +
+                                       std::format( "const int kLightShadowInView = {};\n"
+                                                    "const int kLightShadowCasts = {};\n",
+                                                    kLightShadowInView, kLightShadowCasts ) );
         return glsl;
     }
 

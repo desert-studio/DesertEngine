@@ -815,25 +815,32 @@ Shader "PathTracer"
                 DesertLight light;
                 vec3        position;
                 float       sourceRadius;
+                int         shadowFlags;
                 if (i < Counts.x)
                 {
                     light        = DesertPointLightAt(pointLights[i], P);
                     position     = pointLights[i].position;
                     sourceRadius = pointLights[i].sourceRadius;
+                    shadowFlags  = pointLights[i].shadowFlags;
                 }
                 else
                 {
                     light        = DesertSpotLightAt(spotLights[i - Counts.x], P);
                     position     = spotLights[i - Counts.x].position;
                     sourceRadius = spotLights[i - Counts.x].sourceRadius;
+                    shadowFlags  = spotLights[i - Counts.x].shadowFlags;
                 }
                 float      reach;
                 const vec3 toLight = SampleLightSourceSphere(normalize(position - origin), distance(position, origin),
                                                              sourceRadius, u, reach);
                 if (!PathTracingReaches(m, dot(N, toLight)))
                     return vec3(0.0);
+                // A light with CastShadows off has no shadow ray (UE PATHTRACER_FLAG_CAST_SHADOW_MASK), as in the
+                // raster and the GI hits.
                 const vec3 transmittance =
-                    PathTracingTransmittance(PathTracingOriginToward(m, origin, N, toLight), toLight, reach);
+                    DesertLightCastsShadows(shadowFlags)
+                        ? PathTracingTransmittance(PathTracingOriginToward(m, origin, N, toLight), toLight, reach)
+                        : vec3(1.0);
                 return PathTracingBsdfCos(m, N, V, toLight) * light.Radiance * transmittance / pickPdf;
             }
 
@@ -870,7 +877,10 @@ Shader "PathTracer"
                 const float cosEmit   = -dot(L, normal);
                 if (cosEmit <= 0.0 || !PathTracingReaches(m, dot(N, L)))
                     return vec3(0.0);
-                const vec3 transmittance = PathTracingTransmittance(PathTracingOriginToward(m, origin, N, L), L, dist);
+                const vec3 transmittance =
+                    DesertLightCastsShadows(source.shadowFlags)
+                        ? PathTracingTransmittance(PathTracingOriginToward(m, origin, N, L), L, dist)
+                        : vec3(1.0);
                 if (all(lessThanEqual(transmittance, vec3(0.0))))
                     return vec3(0.0);
                 const float area   = (x1 - x0) * (y1 - y0);

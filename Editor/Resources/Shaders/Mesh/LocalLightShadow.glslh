@@ -71,7 +71,7 @@ DesertLight DesertShadowedPointLightAt(PointLight source, vec3 worldPosition, ve
         // Only a term the light has no shadow source for pays the trace.
         const bool shadowed = LocalLightHasShadow(source.shadowView, source.shadowMaskSlot);
         const bool mapped   = LocalLightHasShadowMap(source.shadowView, source.shadowMaskSlot);
-        const bool traced   = source.shadowCaster != 0 && (!shadowed || (subsurfaceOpacity >= 0.0 && !mapped));
+        const bool traced   = DesertLightShadowsInView(source.shadowFlags) && (!shadowed || (subsurfaceOpacity >= 0.0 && !mapped));
         const float screen = traced ? LocalLightScreenShadow(worldPosition, N, source.position, source.sourceRadius) : 1.0;
         light.Shadow = PointLightShadow(source, worldPosition, N) * contact;
         if (!shadowed)
@@ -96,7 +96,7 @@ DesertLight DesertShadowedSpotLightAt(SpotLight source, vec3 worldPosition, vec3
         // Only a term the light has no shadow source for pays the trace.
         const bool shadowed = LocalLightHasShadow(source.shadowView, source.shadowMaskSlot);
         const bool mapped   = LocalLightHasShadowMap(source.shadowView, source.shadowMaskSlot);
-        const bool traced   = source.shadowCaster != 0 && (!shadowed || (subsurfaceOpacity >= 0.0 && !mapped));
+        const bool traced   = DesertLightShadowsInView(source.shadowFlags) && (!shadowed || (subsurfaceOpacity >= 0.0 && !mapped));
         const float screen = traced ? LocalLightScreenShadow(worldPosition, N, source.position, source.sourceRadius) : 1.0;
         light.Shadow = SpotLightShadow(source, worldPosition, N) * contact;
         if (!shadowed)
