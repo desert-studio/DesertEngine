@@ -2045,6 +2045,14 @@ namespace Desert::Physics
         character->SetInnerBodyShape( capsule );
         return true;
     }
+    CharacterCapsule PhysicsWorld::GetCharacterCapsule( CharacterHandle handle ) const
+    {
+        if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
+            return {};
+        // Every character shape is a CapsuleShape: CreateCharacter and SetCharacterCapsule make no other.
+        const auto* capsule = static_cast<const JPH::CapsuleShape*>( m_Impl->Characters[handle]->GetShape() );
+        return { capsule->GetRadius(), capsule->GetHalfHeightOfCylinder() };
+    }
 
     void PhysicsWorld::TeleportCharacter( CharacterHandle handle, const glm::vec3& position )
     {
