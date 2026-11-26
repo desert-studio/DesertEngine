@@ -736,8 +736,16 @@ namespace Desert::Graphic::API::Vulkan
                     std::error_code removeEc;
                     if ( std::filesystem::remove( stale.Path, removeEc ) )
                     {
-                        LOG_INFO( "[PipelineCache] '{}' deleted ({} bytes): {}", stale.Path.string(),
-                                  sizeEc ? 0 : bytes, stale.Reason );
+                        if ( sizeEc )
+                        {
+                            LOG_INFO( "[PipelineCache] '{}' deleted (size unknown: {}): {}", stale.Path.string(),
+                                      sizeEc.message(), stale.Reason );
+                        }
+                        else
+                        {
+                            LOG_INFO( "[PipelineCache] '{}' deleted ({} bytes): {}", stale.Path.string(), bytes,
+                                      stale.Reason );
+                        }
                     }
                     else
                     {
