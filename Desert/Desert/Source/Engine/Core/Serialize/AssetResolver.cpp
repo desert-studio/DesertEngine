@@ -499,7 +499,14 @@ namespace Desert::Core::Serialize
             }
             if ( type == "VideoAsset" )
             {
-                return Runtime::ResourceRegistry::GetVideoService()->RegisterVideo( ServicePathForKey( path ) );
+                auto* videos = Runtime::ResourceRegistry::GetVideoService();
+                if ( videos == nullptr )
+                {
+                    LOG_ERROR( "[AssetResolver] video '{}': this executable links no Media module to play it",
+                               path );
+                    return 0;
+                }
+                return videos->RegisterVideo( ServicePathForKey( path ) );
             }
             if ( type == "IconAsset" )
             {

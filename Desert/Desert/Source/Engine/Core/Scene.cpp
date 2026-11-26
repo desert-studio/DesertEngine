@@ -48,7 +48,8 @@
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 #if DESERT_DEV_INSTRUMENTS
-#include <Engine/ECS/System/ScriptSystem.hpp>
+#include <Engine/Core/WorldContext.hpp>
+#include <Engine/Input/LocalPlayerInput.hpp>
 #endif
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
@@ -1033,8 +1034,8 @@ namespace Desert::Core
             DESERT_PROFILE_SCOPE( "Gameplay Debugger" );
             const Input::LocalPlayerInput* playerInput = nullptr;
             if ( m_State != SceneState::Edit )
-                if ( auto* scripts = FindSystem<ECS::ScriptSystem>() )
-                    playerInput = &scripts->PlayerInput();
+                if ( auto* scripts = FindSystem<Core::ScriptHostSystem>() )
+                    playerInput = &scripts->Host().PlayerInput();
             m_GameplayDebugger->Tick( *this, playerInput,
                                      m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
                                      m_State != SceneState::Paused || TicksGameplay() );

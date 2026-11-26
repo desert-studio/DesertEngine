@@ -2,7 +2,8 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/System/CharacterMovement.hpp>
-#include <Engine/ECS/System/ScriptSystem.hpp>
+#include <Engine/Core/WorldContext.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Engine/Gameplay/CharacterMoveStep.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/Physics/CharacterControllerComponent.hpp>
@@ -22,9 +23,9 @@ namespace Desert::Input
         input.Yaw  = glm::length( worldMove ) > 1e-4f ? std::atan2( -worldMove.x, -worldMove.z ) : 0.0f;
         // The possessed pawn reads the local player's devices (UE: only the controlled pawn's input component).
         if ( entity != entt::null && entity == scene.GetPlayerPawn() )
-            if ( auto* scripts = scene.FindSystem<ECS::ScriptSystem>() )
+            if ( auto* scripts = scene.FindSystem<Core::ScriptHostSystem>() )
             {
-                const LocalPlayerInput& player = scripts->PlayerInput();
+                const LocalPlayerInput& player = scripts->Host().PlayerInput();
                 for ( std::size_t i = 0; i < actions.Names.size(); ++i )
                     if ( player.ActionHeld( actions.Names[i] ) )
                         input.Actions |= 1u << i;

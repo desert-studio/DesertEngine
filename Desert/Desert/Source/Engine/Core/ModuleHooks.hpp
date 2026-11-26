@@ -4,6 +4,7 @@
 // plugin's subsystems, component classes and asset types; the engine then calls through these, never naming the
 // module). The registration point is Engine/Core/Modules.cpp; the lists are read by the engine code named per hook.
 
+#include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Common/Core/Math/Ray.hpp>
 #include <Engine/Core/WorldSystems.hpp>
@@ -31,6 +32,11 @@ namespace Desert::Core::Rules
 {
     class HLODBuilderRegistry;
 } // namespace Desert::Core::Rules
+
+namespace Desert::Debug
+{
+    class IGameplayDebuggerCategory;
+} // namespace Desert::Debug
 
 namespace Desert::Core
 {
@@ -132,6 +138,18 @@ namespace Desert::Core
     using SceneSaveWriter =
          std::function<std::optional<std::string>( Scene& scene, const std::filesystem::path& scenePath )>;
 
+    /// A module's gameplay-debugger category (UE: IGameplayDebugger::RegisterCategory from a module's
+    /// StartupModule): every GameplayDebugger makes one, at its digit Key among the engine's own (1 Basic,
+    /// 2 Physics, 4 Rendering, 5 WorldPartition). Read only where DESERT_DEV_INSTRUMENTS builds the debugger.
+    struct GameplayDebuggerCategoryMaker
+    {
+        std::uint8_t Key = 0;
+        std::unique_ptr<Debug::IGameplayDebuggerCategory> ( *Make )() = nullptr;
+    };
+    /// The script language's reader of a script file's SaveGame property names (Core::ScriptFileSaveGameLookup;
+    /// UE: the script class's SaveGame-flagged properties).
+    using ScriptSaveGameReader = Common::ResultStr<std::vector<std::string>> ( * )( const std::string& scriptPath );
+
     struct ModuleHookLists
     {
         std::vector<ModuleService>   Services;
@@ -150,6 +168,10 @@ namespace Desert::Core
         /// A module's shared tables brought up to date serially before each parallel system group, so the
         /// group's readers only read them (Scene's update; the landscape's tile table).
         std::vector<RegistryPrepare> BeforeParallelGroup;
+        std::vector<GameplayDebuggerCategoryMaker> DebuggerCategories;
+        /// One per process: set by the script language module's StartupModule; SaveGame refuses a script
+        /// lookup while it is unset.
+        ScriptSaveGameReader ScriptSaveGameNames = nullptr;
     };
 
     ModuleHookLists& ModuleHooks();

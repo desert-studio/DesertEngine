@@ -1,15 +1,12 @@
 #pragma once
 
+#include <Engine/Runtime/Services/IVideoService.hpp>
+
 #include <cstdint>
 #include <chrono>
 #include <memory>
 #include <string>
 #include <unordered_map>
-
-namespace Desert::Graphic
-{
-    class Image2D;
-}
 
 namespace Desert::Media
 {
@@ -48,10 +45,11 @@ namespace Desert::Runtime
     // plays it through its own MediaAudioOutput (UE: MediaSoundComponent), whose consumed-sample count is
     // the player's master clock; each panel asks for its volume (UIPanelComponent::VideoVolume/VideoMuted)
     // when it draws. A machine without an audio device plays the picture only, and says so in the log.
-    class VideoService
+    // The Media module's (cmake/DesertModuleTable.cmake); Engine sees it only as IVideoService.
+    class VideoService final : public IVideoService
     {
     public:
-        ~VideoService();
+        ~VideoService() override;
 
         // --- Videos as ASSETS (handle-referenced, mirrors FontService) ----------------------------------
         // UI references a video by an AssetHandle, never a raw path: the user drags a .webm from the Content
@@ -60,28 +58,21 @@ namespace Desert::Runtime
         // file always maps to the same handle and a saved scene resolves without an import step.
 
         // Record handle=FromKey(path) -> path and return the handle (idempotent). "" -> 0.
-        uint64_t RegisterVideo( const std::string& path );
+        uint64_t RegisterVideo( const std::string& path ) override;
 
         // Reverse lookup for display / serialization. "" if unknown.
-        std::string PathForHandle( uint64_t handle ) const;
-
-        // What a panel that draws a clip asks of its sound. Muted is the explicit "picture only" switch.
-        struct SoundRequest
-        {
-            float Volume = 1.0f;
-            bool  Muted  = false;
-        };
+        [[nodiscard]] std::string PathForHandle( uint64_t handle ) const override;
 
         // GPU image for `handle`'s current video frame, opening the file on first use. nullptr when the
         // handle is unregistered / the file can't be opened (negatively cached so the check stays cheap).
         // `sound` is this drawer's audio request, applied (loudest unmuted wins) at the next UpdateAll.
-        Graphic::Image2D* Resolve( uint64_t handle, SoundRequest sound );
+        Graphic::Image2D* Resolve( uint64_t handle, SoundRequest sound ) override;
 
         // Advance every open video by real elapsed time, apply the volume its panels asked for, and convert
         // its newest frame. Call once per frame from the host update loop (runtime layer + editor).
-        void UpdateAll();
+        void UpdateAll() override;
 
-        void Clear();
+        void Clear() override;
 
     private:
         VideoPlayback* GetOrOpen( const std::string& path );

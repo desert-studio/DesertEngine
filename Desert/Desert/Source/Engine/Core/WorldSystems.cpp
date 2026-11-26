@@ -15,7 +15,6 @@
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Engine/ECS/System/PointLightSystem.hpp>
 #include <Engine/ECS/System/RectLightSystem.hpp>
-#include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
 #include <Engine/ECS/System/SpotLightSystem.hpp>
 #include <Engine/ECS/System/TextECSSystem.hpp>
@@ -68,9 +67,6 @@ namespace Desert::Core
              { "Attachment", WorldStage::Pose, 20, kAnimatedWorlds, false, false,
                []( Scene& scene, const WorldServices& /*services*/ )
                { scene.AddSystem<ECS::AttachmentSystem>( &scene ); } },
-             { "Script", WorldStage::Think, 10, kPlayedWorlds, true, false,
-               []( Scene& scene, const WorldServices& services )
-               { scene.AddSystem<ECS::ScriptSystem>( &scene, services.Assets ); } },
              { "GameMode", WorldStage::Think, 20, kPlayedWorlds, true, false,
                []( Scene& scene, const WorldServices& services )
                { scene.AddSystem<ECS::GameModeSystem>( &scene, services.Assets ); } },

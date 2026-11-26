@@ -34,6 +34,16 @@ namespace Desert::Water
     void StartupModule();
 } // namespace Desert::Water
 
+namespace Desert::Media
+{
+    void StartupModule();
+} // namespace Desert::Media
+
+namespace Desert::ScriptLuau
+{
+    void StartupModule();
+} // namespace Desert::ScriptLuau
+
 namespace
 {
     bool StartupLinkedModules()
@@ -43,6 +53,8 @@ namespace
         Desert::Landscape::StartupModule();
         Desert::VFX::StartupModule();
         Desert::Water::StartupModule();
+        Desert::Media::StartupModule();
+        Desert::ScriptLuau::StartupModule();
         return true;
     }
 

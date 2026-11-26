@@ -164,7 +164,7 @@
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
-#include <Engine/Runtime/Services/Video/VideoService.hpp>
+#include <Engine/Runtime/Services/IVideoService.hpp>
 #include <Landscape/Public/LandscapeGenerator.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
