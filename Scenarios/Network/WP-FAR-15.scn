@@ -33,14 +33,15 @@
 Консоль server teleport {c1} {a2} {a3+2000} {a4-30000}
 Ждать server 30 player \d+: pawn \d+ teleported to
 # Дано: server + A + B (20 m) + C (300 m) on WP_Protocol; both bots walk a circle.
-Ждать server 60 pawn \d+ relevant \(player \d+\): (?:29\d|3[01]\d) m inside circle 500 m
-Ждать A 60 \[Net\] pawn \d+ \(player \d+\): (?:[1-3]\d) m, period 2 \(30 Hz\), delay 0\.(?:1\d|20) s
-Ждать A 60 \[Net\] pawn \d+ \(player \d+\): (?:29\d|3[01]\d) m, period 10 \(6 Hz\), delay 0\.(?:3[5-9]|4\d|50) s
-# Snapshot bytes/s to A 1.4-1.6 times below dev's for the same two bots (35 B x (30 + 6) against dev's 34 B x 60 =
-# 2040 B/s): the band is that ratio applied to dev's figure, 1275-1457 B/s.
-Ждать server 30 \[Server\] net rates.*player \d+: 1(?:2[7-9]\d|3\d\d|4[0-5]\d) B/s, pawns by band \[30 Hz 1, 15 Hz 0, 6 Hz 1, 3 Hz 0\]
-Ждать A 30 \[Net\] pawn \d+ \(player \d+\): (?:29\d|3[01]\d) m, period 10
-Тогда A far15_two_tiers A's frame shows B near (a whole mannequin ~20 m ahead on the ground) and C small at 300 m over the HLOD/landscape (dev has no C at all - 200 m LoadingRange; the same frame from dev sits beside it); A's log "pawn <B>: 20 m, period 2 (30 Hz), delay 0.10-0.20 s" and "pawn <C>: 300 m, period 10 (6 Hz), delay 0.35-0.50 s"; server log "pawns by band [30 Hz 1, 15 Hz 0, 6 Hz 1, 3 Hz 0]"
+# The spawns are 3-6 m apart, so every pawn is relevant from its spawn and a teleport inside the 625 m exit prints no
+# new "relevant": the state is read off the per-pawn distance/period lines (ACCEPT-1126-NETPACK). B's circle keeps it
+# 30-50 m from A (period 2), C walks 300-308 m (period 10).
+Ждать A 60 \[Net\] pawn \d+ \(player \d+\): (?:[1-4]\d) m, period 2 \(30 Hz\), delay 0\.(?:1\d|20) s
+Ждать A 60 \[Net\] pawn \d+ \(player \d+\): (?:29\d|30\d) m, period 10 \(6 Hz\), delay 0\.(?:3[5-9]|4\d|50) s
+# Snapshot bytes/s to A: 35 B x (30 + 6) = 1260 B/s (dev: 34 B x 60 = 2040 B/s for the same two bots), 1200-1500.
+Ждать server 30 \[Server\] net rates.*player \d+: 1(?:[2-4]\d\d|500) B/s, pawns by band \[30 Hz 1, 15 Hz 0, 6 Hz 1, 3 Hz 0\]
+Ждать A 30 \[Net\] pawn \d+ \(player \d+\): (?:29\d|30\d) m, period 10
+Тогда A far15_two_tiers A's frame shows B near (a whole mannequin 20-50 m ahead on the ground) and C small at 300 m over the HLOD/landscape (dev has no C at all - 200 m LoadingRange; the same frame from dev sits beside it); A's log "pawn <B>: 20 m, period 2 (30 Hz), delay 0.10-0.20 s" and "pawn <C>: 300 m, period 10 (6 Hz), delay 0.35-0.50 s"; server log "pawns by band [30 Hz 1, 15 Hz 0, 6 Hz 1, 3 Hz 0]"
 # Тогда [far15_far_smooth]: three frames of A one second apart (each with its _next frame) - C walks an arc with no
 # jump back and no freeze longer than one frame; B as in NET-5 net5_remote_walk; A's log "0 snap(s)". The client logs
 # no "hold" line at all (no such log exists), so "no hold for C" is judged on the frames.
@@ -72,25 +73,26 @@
 Ждать server 30 pawn \d+ relevant \(player \d+\): (?:4[6-9]\d) m inside circle 500 m
 Ждать server 30 \[Server\] net rates
 Нет server pawn \d+ left: (?:[0-5]\d\d|6[01]\d|62[0-4]) m past
-# Когда: a pawn stops (far15_dormant). D is that pawn: a bot that never walks (--walk-cm 0), put 45 m from A (band
-# 30 Hz, beyond B's circle so its log lines are told apart by distance).
+# Когда: a pawn stops (far15_dormant). D is that pawn: a bot that never walks (--walk-cm 0), put 10 m from A (band
+# 30 Hz; B's circle stays 30-51 m from A, so D's log lines are told apart by distance).
 Роль D bot account=4 lag=75 loss=2 --seconds 15000
 Ждать server 60 player \d+ account 4 \(
 Запомнить d server player (\d+) account 4 \(
-Консоль server teleport {d1} {a2+1000} {a3+300} {a4-4500}
+Консоль server teleport {d1} {a2+600} {a3+300} {a4-800}
 Ждать server 30 player \d+: pawn \d+ teleported to
-# Тогда [far15_dormant]: the server log "pawn <D> dormant" and the counter "dormant 1"; D's entries leave every 60
+# Тогда [far15_dormant]: the server log "pawn <D> dormant" and the counter "dormant 1" (A's view: B and D at
+# 30 Hz/15 Hz, C at ~480 m at 3 Hz; a bot's view also counts A standing, dormant 2); D's entries leave every 60
 # steps but carry the period of its band (A's log "period 2"); D's delay in A's log does not grow while D stands.
 Ждать server 60 player \d+: pawn \d+ dormant - unchanged, sent every 60 steps \(1 Hz\), period 2
-Ждать server 30 \[Server\] net rates.*pawns by band \[[^\]]*\], dormant 1, deferred
-Ждать A 30 \[Net\] pawn \d+ \(player \d+\): 4[3-7] m, period 2 \(30 Hz\), delay
-Запомнить dd0 A \[Net\] pawn \d+ \(player \d+\): 4[3-7] m, period 2 \(30 Hz\), delay (\d+\.\d+) s
-Тогда A far15_dormant D stands ~45 m ahead, one solid mannequin on the ground, no drift; B and C walk as before
+Ждать server 30 \[Server\] net rates.*pawns by band \[30 Hz [12], 15 Hz [01], 6 Hz 0, 3 Hz 1\], dormant 1, deferred
+Ждать A 30 \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 2 \(30 Hz\), delay
+Запомнить dd0 A \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 2 \(30 Hz\), delay (\d+\.\d+) s
+Тогда A far15_dormant D stands ~10 m ahead, one solid mannequin on the ground, no drift; B and C walk as before
 Ждать A 30 5x \[Net\] interpolation buffer:
-Запомнить dd1 A \[Net\] pawn \d+ \(player \d+\): 4[3-7] m, period 2 \(30 Hz\), delay (\d+\.\d+) s
+Запомнить dd1 A \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 2 \(30 Hz\), delay (\d+\.\d+) s
 Сверить dd0 dd1 0.03
 Тогда A far15_dormant_5s D in the same place as far15_dormant (no drift, the same pixels within a few px), still one solid mannequin on the ground
-Нет A \[Net\] pawn \d+ \(player \d+\): 4[3-7] m, period 60
+Нет A \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 60
 # MISSING VERB (bot pause/resume): "B stops for 5 s, then walks" and "on B's first moving step B walks with no lag
 # and no jump (A's log: B's delay is the same as before the stop)" need a bot that stops and walks again on a
 # controller command; DesertNetProbe --bot reads no console and has no stop/resume window, and a server teleport
