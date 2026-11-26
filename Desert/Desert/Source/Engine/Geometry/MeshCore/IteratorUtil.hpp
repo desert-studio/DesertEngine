@@ -8,7 +8,9 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <cstddef>
 #include <functional>
+#include <iterator>
 
 namespace Desert::Geometry
 {
@@ -26,6 +28,14 @@ namespace Desert::Geometry
         using MapFunctionT = std::function<ToType( FromType )>;
 
     public:
+        // Every iterator here is a standard input iterator (each value is produced by the step, so it is read
+        // by value): the std algorithms dispatch on iterator_category, which libstdc++ requires (Linux server).
+        using iterator_category = std::input_iterator_tag;
+        using value_type        = ToType;
+        using difference_type   = std::ptrdiff_t;
+        using pointer           = void;
+        using reference         = ToType;
+
         MappedIterator() = default;
 
         bool operator==( const MappedIterator& Other ) const
@@ -42,10 +52,16 @@ namespace Desert::Geometry
             return m_MapFunction( *m_Cur );
         }
 
-        const MappedIterator& operator++() // prefix
+        MappedIterator& operator++() // prefix
         {
-            m_Cur++;
+            ++m_Cur;
             return *this;
+        }
+        MappedIterator operator++( int ) // postfix
+        {
+            MappedIterator Prev = *this;
+            ++*this;
+            return Prev;
         }
 
         MappedIterator( const IteratorT& CurItr, const MapFunctionT& MapFunctionIn )
@@ -67,6 +83,12 @@ namespace Desert::Geometry
         using FilterFunctionT = std::function<bool( ValueType )>;
 
     public:
+        using iterator_category = std::input_iterator_tag;
+        using value_type        = ValueType;
+        using difference_type   = std::ptrdiff_t;
+        using pointer           = void;
+        using reference         = ValueType;
+
         FilteredIterator() = default;
 
         bool operator==( const FilteredIterator& Other ) const
@@ -83,17 +105,23 @@ namespace Desert::Geometry
             return *m_Cur;
         }
 
-        const FilteredIterator& operator++() // prefix
+        FilteredIterator& operator++() // prefix
         {
             GotoNextElement();
             return *this;
+        }
+        FilteredIterator operator++( int ) // postfix
+        {
+            FilteredIterator Prev = *this;
+            ++*this;
+            return Prev;
         }
 
         void GotoNextElement()
         {
             do
             {
-                m_Cur++;
+                ++m_Cur;
             } while ( m_Cur != m_End && !static_cast<bool>( m_FilterFunc( *m_Cur ) ) );
         }
 
@@ -139,6 +167,12 @@ namespace Desert::Geometry
         using ExpandFunctionT = std::function<OutputType( InputType, int& )>;
 
     public:
+        using iterator_category = std::input_iterator_tag;
+        using value_type        = OutputType;
+        using difference_type   = std::ptrdiff_t;
+        using pointer           = void;
+        using reference         = OutputType;
+
         ExpandIterator() = default;
 
         bool operator==( const ExpandIterator& Other ) const
@@ -155,17 +189,23 @@ namespace Desert::Geometry
             return m_CurValue;
         }
 
-        const ExpandIterator& operator++() // prefix
+        ExpandIterator& operator++() // prefix
         {
             goto_next();
             return *this;
+        }
+        ExpandIterator operator++( int ) // postfix
+        {
+            ExpandIterator Prev = *this;
+            ++*this;
+            return Prev;
         }
 
         void goto_next()
         {
             while ( m_Cur != m_End )
             {
-                m_CurValue = ExpandFunc( *m_Cur, m_CurExpandI );
+                m_CurValue = m_ExpandFunc( *m_Cur, m_CurExpandI );
                 if ( m_CurExpandI == -1 )
                 {
                     ++m_Cur; // done with this base value
@@ -251,6 +291,12 @@ namespace Desert::Geometry
         using PairExpandFunctionT = std::function<Index2i( int )>;
 
     public:
+        using iterator_category = std::input_iterator_tag;
+        using value_type        = int;
+        using difference_type   = std::ptrdiff_t;
+        using pointer           = void;
+        using reference         = int;
+
         PairExpandIterator() = default;
 
         bool operator==( const PairExpandIterator& Other ) const
@@ -267,10 +313,16 @@ namespace Desert::Geometry
             return m_CurValue;
         }
 
-        const PairExpandIterator& operator++() // prefix
+        PairExpandIterator& operator++() // prefix
         {
             goto_next();
             return *this;
+        }
+        PairExpandIterator operator++( int ) // postfix
+        {
+            PairExpandIterator Prev = *this;
+            ++*this;
+            return Prev;
         }
 
         void goto_next()

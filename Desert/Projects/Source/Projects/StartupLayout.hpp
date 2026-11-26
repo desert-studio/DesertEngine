@@ -2,6 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 
@@ -123,6 +124,20 @@ namespace Desert::Project
     // `Resources/Shaders` rather than `Resources` is the marker on purpose: an empty `Resources`
     // directory would satisfy the weaker test and then fail 43 shaders later, with a message about
     // a shader rather than about a layout.
+    //
+    // THE MARKER IS WHAT THE PROCESS READS, so a process that can never render has none (UE: a
+    // dedicated server runs NullRHI, FApp::CanEverRender() is false, it loads no shader and its staged
+    // build carries none, while FPaths::EngineDir is still answered from the binary's position). For
+    // EngineResourceNeed::None the order is: `--engine-dir` (must be a directory), the checkout's
+    // Editor/ for a `<checkout>/build/Bin/<config>/` binary (the same answer the editor gets), else the
+    // executable's own directory - a server drop that ships no Resources/ at all.
+    enum class EngineResourceNeed : std::uint8_t
+    {
+        Shaders, // a process that renders, or cooks/packages what is rendered: `Resources/Shaders` proves the dir
+        None,    // a process that links no RHI (DesertServer): it reads no engine resource
+    };
+
     [[nodiscard]] EngineDirLookup ResolveEngineDir( const std::filesystem::path& executableDirectory,
-                                                    const std::filesystem::path& overrideDir );
+                                                    const std::filesystem::path& overrideDir,
+                                                    EngineResourceNeed need = EngineResourceNeed::Shaders );
 } // namespace Desert::Project

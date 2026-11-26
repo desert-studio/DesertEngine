@@ -15,8 +15,6 @@ description: >
 
 # The delivery contract
 
-**A feature goes whole and once** (`DEV_CONTRACT.md` 00e, owner 2026-11-25): skill `desert-engine-feature`.
-
 **This applies to the whole repository, not to one programme.** The rules were first written down
 for the sky-and-clouds work, which is where the defects that motivate them were paid for, but every
 one of them is about how code is delivered here and none of them is about clouds.

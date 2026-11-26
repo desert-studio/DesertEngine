@@ -32,7 +32,7 @@
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/project_scope.hpp"
 
-#include <GLFW/glfw3.h>
+#include <Engine/Core/Glfw.hpp>
 #include <gtest/gtest.h>
 #include "../../TestSupport/runner.hpp"
 

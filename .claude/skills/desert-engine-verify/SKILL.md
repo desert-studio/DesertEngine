@@ -20,13 +20,9 @@ identity, a radiance five thousand times too large, a cloud shadow map marching 
 side of the planet, and an empty sky at 50% coverage — all shipped **built, tested, and unseen**.
 None was catchable by a unit test. Each was a minute's work for anyone looking at a frame.
 
-This skill is the counter-measure. Commands with brew, `/opt/homebrew`, MoltenVK or `scripts/MacOS` are macOS only;
-on Windows agents never build and the lead plays the scenarios.
+This skill is the counter-measure. It is short on purpose.
 
 ## 1. Render it and look
-
-**Windows:** the editor runs only through a scenario (`.claude/tools/play_scenario.py`), one at a time; the rest of this
-section is macOS. Writing and running tests is off until the owner re-enables it.
 
 **The editor runs on this machine.** (A project memory said otherwise for a long time; that was
 wrong and it cost a lot.) Vulkan works through MoltenVK, and the engine can render a scene to a

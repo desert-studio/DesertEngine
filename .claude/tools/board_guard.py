@@ -106,7 +106,6 @@ def deny(reason):
                                  "permissionDecisionReason": "[board_guard] " + reason}})
 
 
-NOT_WRITERS = ("explore", "board", "architect", "reviewer", "acceptance")
 RUNNING_MAX_AGE = 4 * 3600  # an agent with no SubagentStop older than this died with its session (crash, reboot)
 
 
@@ -424,7 +423,7 @@ def main():
         save(s)
         sys.exit(0)
 
-    if event == "SubagentStop" and (data.get("agent_type") or "").lower() in NOT_WRITERS:
+    if event == "SubagentStop" and (data.get("agent_type") or "").lower() == "board":
         sys.exit(0)  # nothing to accept
     if event == "SubagentStop":
         # A worker's nested child (an Explore it spawned) stops with the worker's agent_id; its own id is only in the
@@ -528,8 +527,7 @@ def main():
     if event == "PostToolUse" and tool == "Agent":
         code = code_from_text(str(tin.get("prompt") or ""))
         m = re.search(r"agentId\"?\s*[:=]\s*\"?([0-9a-z]{8,})", json.dumps(data.get("tool_response"), ensure_ascii=False))
-        # Only a writing agent takes a slot and is accepted; the others' stop is not tracked either.
-        if code and m and (tin.get("subagent_type") or "").lower() not in NOT_WRITERS:
+        if code and m:
             s["agents"][m.group(1)] = code
             s["launched"][m.group(1)] = time.time()
             save(s)
@@ -554,7 +552,7 @@ def main():
         sys.exit(0)
 
     if event == "PreToolUse" and tool in ("Agent", "SendMessage"):
-        if tool == "Agent" and (tin.get("subagent_type") or "").lower() in NOT_WRITERS:
+        if tool == "Agent" and (tin.get("subagent_type") or "").lower() in ("explore", "board"):
             sys.exit(0)
         late = unaccepted(s)
         if late:
@@ -579,7 +577,7 @@ def main():
                      "без кода карточку не сверить. Первая строка промпта: «You are agent <КОД>».")
             busy = running_count(s)
             if busy >= MAX_AGENTS:
-                deny(f"работает агентов {busy}, максимум {MAX_AGENTS} (владелец 10-30: от двух до четырёх). "
+                deny(f"работает агентов {busy}, максимум {MAX_AGENTS} (владелец 10-29 «минимум 3, а максимум 5»). "
                      "Дождись сдачи одного, прими его, потом запускай.")
             alive = running_agent(s, code)
             if alive:

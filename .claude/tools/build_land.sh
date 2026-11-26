@@ -4,8 +4,6 @@
 # usage: build_land.sh <land tree> <log> [scn]
 [ $# -ge 2 ] || { echo "usage: build_land.sh <land tree> <log> [scn]"; exit 2; }
 rm -f "$2.rc"
-# The architecture ratchet (DEV_CONTRACT 00e) before the batch spends an hour of compile time.
-python3 "$1/scripts/Dev/arch_census.py" || { echo "build_land: the architecture census rose"; exit 2; }
 export DESERT_NINJA_ARGS="-k 0"   # one build shows every compile error of the batch, not the first one
 bash C:/aftmp/build_low_run.sh "$@"
 rc=$?

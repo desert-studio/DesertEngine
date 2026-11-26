@@ -1,7 +1,7 @@
 #include <Engine/Graphic/DisplayOutput.hpp>
 
 #define GLFW_EXPOSE_NATIVE_COCOA
-#include <GLFW/glfw3.h>
+#include <Engine/Core/Glfw.hpp>
 #include <GLFW/glfw3native.h>
 
 #import <AppKit/AppKit.h>

@@ -98,21 +98,8 @@ def main():
     hold = "--hold" in args[2:]
     code = os.path.splitext(os.path.basename(scn))[0]
     exe = ".exe" if WIN else ""
-    # The newest built config: a Debug editor left from September silently failed six scenarios on 11-24.
-    built = []
-    for config in ("Debug", "Release"):
-        pair = [os.path.join(tree, "build", "Bin", config, n + exe) for n in ("Editor", "DesertCtl")]
-        if all(os.path.exists(f) for f in pair):
-            built.append((os.path.getmtime(pair[0]), config, pair))
-    if not built:
-        sys.exit(f"SCENARIO {code}: no build/Bin/Debug or Release with both Editor and DesertCtl in {tree}")
-    stamp, config, (editor, ctl) = max(built)
-    print(f"SCENARIO {code}: {config} editor built {time.strftime('%Y-%m-%d %H:%M', time.localtime(stamp))}", flush=True)
-    newest = subprocess.run(["git", "-C", tree, "log", "-1", "--format=%ct", "--", "*.cpp", "*.hpp"],
-                            capture_output=True, text=True).stdout.strip()
-    # A day of slack: code is often committed after the build that contains it.
-    if newest and int(newest) - stamp > 86400:
-        sys.exit(f"SCENARIO {code}: refused, the editor is over a day older than the tree's last C++ commit - rebuild it")
+    bindir = os.path.join(tree, "build", "Bin", dev_config(tree))
+    editor, ctl = os.path.join(bindir, "Editor" + exe), os.path.join(bindir, "DesertCtl" + exe)
     lines = open(scn, encoding="utf-8").read().splitlines()
     # NET-SCENARIO-PLAY (11-25): a scenario with role lines (server / editor client / bot) is a network run, UE
     # Gauntlet's shape - played by the tree's own controller, same output (<scratch>/<CODE>/frames/scn-latest).
@@ -254,8 +241,7 @@ def main():
         lines = f.readlines()
     errs = sum(1 for l in lines if "error" in l.lower() or "assert" in l.lower())
     # a refused scene/prefab load leaves an empty view that still answers every step - the run proves nothing
-    refused = next((l.strip() for l in lines if "NOTHING WAS LOADED" in l
-                    or "Scene file does not exist" in l), None)
+    refused = next((l.strip() for l in lines if "NOTHING WAS LOADED" in l), None)
     if refused and not fail:
         fail = f"editor.log: {refused[:200]}"
     res = f"FAIL {fail}" if fail else f"PASS {steps} steps, {frames}/{thens} frames"

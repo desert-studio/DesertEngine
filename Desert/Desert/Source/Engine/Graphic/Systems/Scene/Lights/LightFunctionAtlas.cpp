@@ -32,11 +32,10 @@ namespace Desert::Graphic::System
         constexpr uint32_t    kQuadVertexCount                = 6u;
         // Both stages share the engine push block (Common/MaterialTransport.glslh, 128 bytes): the material's
         // values as its executor pushed them, the draw's first row in PrimitiveIndex (offset 72).
-        constexpr std::size_t kLightFunctionPushBytes  = 128u;
-        constexpr std::size_t kMaxPushBytes            = 128u;
+        constexpr std::size_t kLightFunctionPushBytes       = 128u;
         constexpr std::size_t kLightFunctionFirstRowAt = 72u;
         constexpr std::size_t kInitialTiles           = 64u;
-        constexpr std::size_t kInitialPrograms        = 8u;
+        constexpr std::size_t kLightFunctionInitialPrograms = 8u;
         constexpr float       kKindSpot               = 0.0f;
         constexpr float       kKindOmni               = 1.0f;
 
@@ -59,8 +58,8 @@ namespace Desert::Graphic::System
         m_Frame.reserve( kInitialTiles );
         m_Rows.reserve( kInitialTiles );
         m_Draws.reserve( kInitialTiles );
-        m_Programs.reserve( kInitialPrograms );
-        m_ProgramsByMaterial.reserve( kInitialPrograms );
+        m_Programs.reserve( kLightFunctionInitialPrograms );
+        m_ProgramsByMaterial.reserve( kLightFunctionInitialPrograms );
     }
 
     int32_t LightFunctionAtlas::Push( const LightFunctionProxy& proxy, const LightFunctionRowGpu& row )
@@ -359,12 +358,12 @@ namespace Desert::Graphic::System
             const RDG::PassBindings       bindings( context, context.GetBindingBlock( program.Block ) );
             const MaterialExecutor*       executor = program.Material->GetMaterialExecutor();
             const Common::Memory::Buffer& pushed   = executor->GetPushConstantBuffer();
-            if ( pushed.Size > kMaxPushBytes )
+            if ( pushed.Size > kLightFunctionPushBytes )
                 return Common::MakeFormattedError( "{}: light function shader '{}' has a {}-byte push block (at "
                                                    "most {})",
                                                    context.GetPassName(), program.Material->GetShaderName(),
-                                                   pushed.Size, kMaxPushBytes );
-            std::array<std::byte, kMaxPushBytes> push{};
+                                                   pushed.Size, kLightFunctionPushBytes );
+            std::array<std::byte, kLightFunctionPushBytes> push{};
             if ( pushed.Data != nullptr && pushed.Size != 0u )
                 std::memcpy( push.data(), pushed.Data, pushed.Size );
             std::memcpy( push.data() + kLightFunctionFirstRowAt, &draw.FirstRow, sizeof( draw.FirstRow ) );
