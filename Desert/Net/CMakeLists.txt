@@ -5,6 +5,8 @@ desert_glob(_sources "Source/*.cpp" "Source/*.hpp")
 desert_add_library(DesertNet FOLDER Engine SOURCES ${_sources})
 target_include_directories(DesertNet PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/Source")
 target_link_libraries(DesertNet PRIVATE GameNetworkingSockets)
+# Common headers only: the wire shares header-only constants with the engine (Common/Core/SimulationStep.hpp).
+target_include_directories(DesertNet PUBLIC "${DESERT_ROOT}/Desert/Common/Source")
 desert_platform_defines(DesertNet)
 # The mesh CA (MeshCertificates.cpp) signs and trusts GNS certificates, and the connect token (ConnectToken.cpp)
 # signs and verifies its Ed25519 envelope, with GNS's own internals: those files alone see GNS's private headers
