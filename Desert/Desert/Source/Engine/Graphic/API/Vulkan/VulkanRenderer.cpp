@@ -5,6 +5,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
+#include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <span>
