@@ -187,6 +187,9 @@ namespace Desert::Editor
         // the timeline header (Panels/Sequencer/LevelSequenceTimeline.cpp); the rule is Sequencer/TrackFilter.hpp.
         bool SequencerFilterSelected = false;
         bool SequencerFilterKeyed    = false;
+        // UE's "Lock Viewport to Camera Cuts" (the camera icon on the Camera Cuts track): while on, every
+        // viewport that allows cinematic control looks through the cut in force under the playhead.
+        bool SequencerLockViewportToCameraCuts = true;
 
         // --- Details panel ------------------------------------------------------------------------
         // Fields the user pinned to the top of Details, as "TypeName.FieldName" (e.g. "PointLightData.

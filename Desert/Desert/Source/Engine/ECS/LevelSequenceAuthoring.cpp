@@ -440,8 +440,12 @@ namespace Desert::ECS
     }
 
     Common::BoolResultStr AddCameraCut( T::Sequence& sequence, const T::BindingGuid& camera,
-                                        const Animation::FrameNumber start, const Animation::FrameNumber end )
+                                        const Animation::FrameNumber start )
     {
+        // The playback range is where a new cut may begin: its end is derived from it (or from the next cut).
+        if ( start < sequence.Start || sequence.End < start )
+            return Common::MakeError<bool>( "Camera Cut: the playhead is outside the sequence's playback range" );
+
         // Edited on a copy and kept only when the whole sequence still validates: "leaves it as it was" is
         // then true of every refusal, including the ones Validate states and this function does not repeat.
         T::Sequence edited = sequence;
@@ -463,11 +467,36 @@ namespace Desert::ECS
             edited.Tracks.push_back( std::move( created ) );
             track = &edited.Tracks.back();
         }
-        T::Section section;
-        section.Start   = start;
-        section.End     = end;
-        section.Content = T::CameraCutSectionContent{ camera };
-        track->Sections.push_back( std::move( section ) );
+        // UE AddNewCameraCut: cuts never overlap and a new one is never refused for overlapping. A cut that
+        // already begins at @p start is re-pointed; otherwise the new one runs to the next cut (or the End)
+        // and the cut in force at @p start ends one tick before it.
+        const auto isRowZeroCut = []( const T::Section& existing )
+        { return existing.Row == 0 && std::holds_alternative<T::CameraCutSectionContent>( existing.Content ); };
+        const auto startsHere =
+             std::find_if( track->Sections.begin(), track->Sections.end(), [&]( const T::Section& existing )
+                           { return isRowZeroCut( existing ) && existing.Start == start; } );
+        if ( startsHere != track->Sections.end() )
+        {
+            std::get<T::CameraCutSectionContent>( startsHere->Content ).Camera = camera;
+        }
+        else
+        {
+            Animation::FrameNumber end = edited.End;
+            for ( T::Section& existing : track->Sections )
+            {
+                if ( !isRowZeroCut( existing ) )
+                    continue;
+                if ( start < existing.Start && existing.Start - Animation::FrameNumber{ 1 } < end )
+                    end = existing.Start - Animation::FrameNumber{ 1 };
+                else if ( existing.Start < start && start <= existing.End )
+                    existing.End = start - Animation::FrameNumber{ 1 };
+            }
+            T::Section section;
+            section.Start   = start;
+            section.End     = end;
+            section.Content = T::CameraCutSectionContent{ camera };
+            track->Sections.push_back( std::move( section ) );
+        }
 
         if ( const auto valid = T::Validate( edited ); !valid )
             return Common::MakeFormattedError<bool>( "Camera Cut: {}", valid.GetError() );

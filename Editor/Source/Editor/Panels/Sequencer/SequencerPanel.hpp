@@ -460,6 +460,13 @@ namespace Desert::Editor
         ECS::LevelSequencePreview m_LevelPreview;
         Animation::FrameNumber    m_LevelTick;
         int32_t                   m_LevelTickShown = INT32_MIN;
+        /// The Camera Cut in force at the playhead after the last scrub (nullopt = none): the preview's answer.
+        std::optional<Common::UUID> m_LevelCutCamera;
+        /// What this document last pushed to the viewports (nullopt = nothing in force from this document).
+        std::optional<Common::UUID> m_LevelCutPushed;
+        /// Pushes `lock ? m_LevelCutCamera : nullopt` when it differs from m_LevelCutPushed.
+        void PushLevelCameraCut();
+        void SetLevelCameraCutLock( bool locked );
         /// The value a Material Parameter row's field shows while it is being dragged (row id → value): keyed
         /// once, on release, so a drag is one key and one undo step (UE: one transaction per committed edit).
         std::optional<std::pair<std::string, glm::vec4>> m_LevelMaterialDraft;
