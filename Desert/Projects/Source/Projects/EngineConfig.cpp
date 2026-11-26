@@ -172,6 +172,8 @@ namespace Desert::Project
     {
         if ( !ProjectContext::HasProject() )
             return Common::MakeError<bool>( "the engine settings were not saved: no project is open" );
+        if ( const auto invalid = ValidateNetSettings( projectLayer.Net ); invalid.has_value() )
+            return Common::MakeError<bool>( std::format( "the engine settings were not saved: {}", *invalid ) );
 
         const std::filesystem::path path = ProjectLayerFile( ProjectContext::Directory() );
         std::error_code             ec;

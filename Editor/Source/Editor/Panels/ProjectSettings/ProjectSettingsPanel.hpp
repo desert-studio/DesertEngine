@@ -3,6 +3,7 @@
 #include <Editor/Core/IPanel.hpp>
 
 #include <Projects/GameSettings.hpp>
+#include <Projects/NetSettings.hpp>
 #include <Projects/RendererSettings.hpp>
 #include <Projects/WorldPartitionSettings.hpp>
 
@@ -27,15 +28,18 @@ namespace Desert::Editor
         void DrawMoviesSection();
         void DrawRenderingSection();
         void DrawWorldPartitionSection();
+        void DrawNetSection();
         void Commit();
         void CommitRendering();
         void CommitWorldPartition();
+        void CommitNet();
 
         // The project directory m_Edit was copied for: a different project (or none) re-copies it.
         std::string                     m_LoadedFor;
         ::Desert::Project::GameSettings m_Edit;
         ::Desert::Project::RendererSettings m_EditRendering;
         ::Desert::Project::WorldPartitionSettings m_EditWorldPartition;
+        ::Desert::Project::NetSettings            m_EditNet;
         // The last refusal (a save that failed, a drop that is not a movie of this project), shown until the
         // next successful action. Empty = nothing to report.
         std::string m_Problem;

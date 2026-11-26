@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -44,10 +46,12 @@ namespace Desert::Project
         std::uint32_t BudgetBytesPerSecond = 65536;
     };
 
-    // Nullopt when usable; otherwise the one reason (the same rules as Net::ValidateRelevancySettings, stated
-    // here for the panel and the save: at least one band, ToCm ascending, EverySteps >= 1, DormantEverySteps >=
-    // the last band's, 0 < PawnCullRangeCm <= MaxViewRangeCm, BudgetBytesPerSecond >= 1024). Implemented in
-    // NetSettings.cpp.
+    // Nullopt when usable; otherwise the one reason. THE one rule of the "Net" section: the panel, the save and the
+    // server's start (which refuses with exit code 7) all call this, and nothing restates it. At least one and at
+    // most 255 bands; ToCm ascending; every EverySteps and DormantEverySteps in 1..255 (one byte on the wire), a
+    // multiple of Bands.front().EverySteps (snapshots leave only on that cadence) and non-decreasing across the
+    // bands, DormantEverySteps >= the last band's; 0 < PawnCullRangeCm <= MaxViewRangeCm; BudgetBytesPerSecond >=
+    // 1024. Implemented in NetSettings.cpp.
     [[nodiscard]] std::optional<std::string> ValidateNetSettings( const NetSettings& settings );
 
     // What this host replicates with: the project's section with this platform's layer over it (EngineConfig.hpp).
@@ -55,4 +59,8 @@ namespace Desert::Project
     const NetSettings& CurrentNetSettings();
     // The project layer alone: what Project Settings shows and writes.
     const NetSettings& ProjectNetSettings();
+
+    // Writes @p toSave as the project layer's Net section; the file's other sections are kept. Refuses whatever
+    // ValidateNetSettings refuses, naming the reason, and then leaves the file as it was.
+    Common::BoolResultStr SaveNetSettings( const NetSettings& toSave );
 } // namespace Desert::Project
