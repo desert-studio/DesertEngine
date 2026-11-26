@@ -209,7 +209,16 @@ namespace Desert::ECS
                 LOG_ERROR( "[LevelSequence] '{}' names no sequence; nothing plays", actor.Name );
                 return nullptr;
             }
-            actor.Asset = m_AssetManager->FindByHandle<Assets::LevelSequenceAsset>( component.Sequence );
+            // The handle is a content-registry number (Details picker, scenario `set ... assets:`, the file's
+            // GUID): the asset is created from its registry row when the manager does not hold it yet.
+            auto sequence = Assets::CreateFromRegistryRow<Assets::LevelSequenceAsset>(
+                 m_AssetManager->weak_from_this(), component.Sequence, ::Common::Content::ContentKind::LevelSequence );
+            if ( !sequence )
+            {
+                LOG_ERROR( "[LevelSequence] '{}': {}; nothing plays", actor.Name, sequence.GetError() );
+                return nullptr;
+            }
+            actor.Asset = sequence.GetValue();
             if ( const auto loaded = Assets::LoadThroughLoader( *m_AssetManager, actor.Asset ); !loaded )
             {
                 LOG_ERROR( "[LevelSequence] '{}': sequence handle {} could not be read: {}", actor.Name,

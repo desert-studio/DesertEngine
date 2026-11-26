@@ -49,6 +49,7 @@
 #include <Editor/Panels/SceneProperties/ComponentWidgets/MaterialsPanelComponent.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/LevelSequenceAsset.hpp>
+#include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/ECS/LevelSequencePlayback.hpp>
 #include <Editor/Core/AssetPickerRows.hpp>
@@ -2437,109 +2438,47 @@ namespace Desert::Editor
     }
 
     // LEVEL SEQUENCE ACTOR (UE: ALevelSequenceActor's Details - Sequence, Playback Settings, Binding
-    // Overrides). The Sequence is an asset field like every other in Details: a slot whose picker lists the
-    // project's `.dseq` rows (the registry's, nothing loaded to list them) with a search, a `.dseq` dropped from
-    // the Assets window, and Open / Show in Content Browser beside it. Loop by its NAME (the saved form,
-    // ComponentRegistry.cpp). Binding Overrides: each row re-points one binding at an entity of this scene
-    // (chosen from the scene's entities, or removed); "+" adds one for a binding with no override yet
-    // (ECS::OverridableBindings).
+    // Overrides). Sequence, Loop, Auto Play and Play Rate are the component's REFLECTED fields
+    // (LevelSequenceComponent.hpp), drawn by PropertyEditorBuilder like every reflected block: the Sequence slot
+    // lists the registry's `.dseq` rows (RegistryPickerForAssetType), takes a dropped `.dseq`, and is the field the
+    // control channel's `set LevelSequenceComponent.Sequence assets:<path>` writes, with the same undo. Binding
+    // Overrides (no reflected field kind) are drawn here below them: each row re-points one binding at an entity
+    // of this scene (chosen from the scene's entities, or removed); "+" adds one for a binding with no override
+    // yet (ECS::OverridableBindings).
     static ComponentEditorEntry MakeLevelSequenceEntry()
     {
         using C = ::Desert::ECS::LevelSequenceComponent;
         ComponentEditorEntry e;
-        e.Name      = "Level Sequence";
-        e.CanRemove = true;
-        e.Has       = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
-        e.Add       = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
-        e.Remove    = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
+        e.Name              = "Level Sequence";
+        e.CanRemove         = true;
+        e.ReflectedTypeName = "LevelSequenceComponent";
+        e.Has               = []( ::Desert::ECS::Entity& en ) { return en.HasComponent<C>(); };
+        e.Add               = []( ::Desert::ECS::Entity& en ) { en.AddComponent<C>(); };
+        e.Remove            = []( ::Desert::ECS::Entity& en ) { en.RemoveComponent<C>(); };
+        e.DataPtr           = []( ::Desert::ECS::Entity& en ) -> void* { return &en.GetComponent<C>(); };
         e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene, const ComponentEditContext& context )
         {
-            namespace T   = ::Desert::Animation::Timeline;
-            namespace U   = ::Desert::Editor::Utils;
-            auto& actor   = en.GetComponent<C>();
-            auto  manager = context.AssetManager.lock();
-            if ( !manager )
+            namespace T = ::Desert::Animation::Timeline;
+            namespace U = ::Desert::Editor::Utils;
+            auto& actor = en.GetComponent<C>();
+
+            PropertyEditorBuilder::Draw( &actor, "LevelSequenceComponent", context.AssetMgr(), context.UIHelper,
+                                         context.FieldFilter );
+            if ( context.FieldFilter )
                 return;
 
-            // The one way a file becomes the actor's sequence, for the picker and the drop alike: the asset
-            // the manager already knows by that path, else a shell for it (loaded by whoever plays it).
-            const auto choose = [&]( const std::filesystem::path& full )
+            // The sequence the slot names, for the binding labels below: the manager's asset, created from its
+            // registry row when the slot was written as a registry handle (the picker, `set`) and nothing has
+            // created it yet. Read only when something has loaded it; nothing is loaded to draw a label.
+            ::Desert::Assets::Asset<::Desert::Assets::LevelSequenceAsset> sequence;
+            if ( actor.Sequence != 0 )
             {
-                auto chosen = manager->FindByPath<::Desert::Assets::LevelSequenceAsset>( full );
-                if ( !chosen )
-                    chosen =
-                         manager->CreateAsset<::Desert::Assets::LevelSequenceAsset>( full,
-                                                                                     /*loadAfterCreate=*/false );
-                if ( chosen )
-                    actor.Sequence = chosen->GetMetadata().Handle;
-                else
-                    LOG_ERROR( "[LevelSequence] '{}' is not a sequence this project can open", full.string() );
-            };
-
-            const auto sequence =
-                 actor.Sequence != 0
-                      ? manager->FindByHandle<::Desert::Assets::LevelSequenceAsset>( actor.Sequence )
-                      : nullptr;
-            const auto rows =
-                 ::Desert::Assets::ContentRegistry::Rows( ::Common::Content::ContentKind::LevelSequence );
-            std::string slotText = "None";
-            for ( const auto& row : rows )
-                if ( actor.Sequence != 0 && row.Handle == actor.Sequence )
-                    slotText = ::Desert::Editor::PickerDisplayName( row );
-            if ( slotText == "None" && sequence )
-                slotText = sequence->GetMetadata().Filepath.stem().string();
-            const bool     emptySlot = actor.Sequence == 0;
-            const uint64_t handle    = emptySlot ? 0 : static_cast<uint64_t>( actor.Sequence );
-
-            U::ImGuiUtilities::ResetPropertyRows();
-            U::ImGuiUtilities::BeginPropertyRow( "Sequence", "The .dseq this actor plays" );
-            const bool clicked = U::ImGuiUtilities::AssetSlot( "levelsequenceslot", slotText.c_str(), emptySlot );
-            if ( ImGui::BeginDragDropTarget() )
-            {
-                if ( const ImGuiPayload* p =
-                          ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
-                {
-                    const std::filesystem::path named( static_cast<const char*>( p->Data ) );
-                    if ( named.extension() == T::kLevelSequenceExtension )
-                        choose( named.is_absolute()
-                                     ? named
-                                     : ( ::Common::Constants::Path::ASSETS_PATH / named ).lexically_normal() );
-                }
-                ImGui::EndDragDropTarget();
+                if ( auto resolved = ::Desert::Assets::CreateFromRegistryRow<::Desert::Assets::LevelSequenceAsset>(
+                          context.AssetManager, actor.Sequence, ::Common::Content::ContentKind::LevelSequence ) )
+                    sequence = resolved.GetValue();
+                else if ( const auto manager = context.AssetManager.lock() )
+                    sequence = manager->FindByHandle<::Desert::Assets::LevelSequenceAsset>( actor.Sequence );
             }
-            if ( ::Desert::Editor::TakeDetailsPickerRequest( "Level sequence" ) || clicked )
-                ImGui::OpenPopup( "level_sequence_selector" );
-            ::Desert::Editor::DrawAssetFieldOpen( handle );
-            ::Desert::Editor::DrawAssetFieldButtons( handle );
-            if ( ImGui::BeginPopup( "level_sequence_selector" ) )
-            {
-                static ImGuiTextFilter filter;
-                filter.Draw( "##Search", 200 );
-                ImGui::Separator();
-                if ( ImGui::Selectable( "None", emptySlot ) )
-                    actor.Sequence = ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-                for ( const auto& row : rows )
-                {
-                    const std::string name = ::Desert::Editor::PickerDisplayName( row );
-                    if ( filter.PassFilter( name.c_str() ) &&
-                         ImGui::Selectable( name.c_str(), !emptySlot && row.Handle == actor.Sequence ) )
-                        choose( row.Path );
-                }
-                ImGui::EndPopup();
-            }
-            U::ImGuiUtilities::EndPropertyRow();
-
-            // Playback Settings.
-            // The names are Player.hpp's (its reflected names, the ones the scene stores).
-            if ( ImGui::BeginCombo( "Loop", T::ToString( actor.Loop ) ) )
-            {
-                for ( const T::LoopMode mode : T::kLoopModes )
-                    if ( ImGui::Selectable( T::ToString( mode ), mode == actor.Loop ) )
-                        actor.Loop = mode;
-                ImGui::EndCombo();
-            }
-            ImGui::Checkbox( "Auto Play", &actor.AutoPlay );
-            ImGui::DragScalar( "Play Rate", ImGuiDataType_Double, &actor.PlayRate, 0.01F );
 
             // Binding Overrides.
             if ( !U::ImGuiUtilities::SectionHeader( ICON_MDI_LINK_VARIANT "  Binding Overrides", true ) )

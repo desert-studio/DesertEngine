@@ -30,6 +30,7 @@
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/HeterogeneousVolumeComponent.hpp>
+#include <Engine/ECS/LevelSequenceComponent.hpp>
 #include <Engine/ECS/LocalFogVolumeComponent.hpp>
 #include <Engine/ECS/PlayerStartComponent.hpp>
 #include <Engine/ECS/PointLightComponent.hpp>
@@ -510,6 +511,17 @@ void RegisterReflection_Engine()
                     .Field( FieldInfo{ .Name = "Emissive", .Type = FieldType::Vec3, .Offset = offsetof( T, Emissive ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Emissive )>(), .TypeName = "glm::vec3", .Meta = PropertyMetadata{ .DisplayName = "Emissive", .Category = "Heterogeneous Volume", .Tooltip = "Light the medium emits on its own, per unit of its extinction.", .IsColor = true, } } )
                     .Field( FieldInfo{ .Name = "Temperature", .Type = FieldType::Float, .Offset = offsetof( T, Temperature ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Temperature )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Temperature", .Category = "Heterogeneous Volume", .Tooltip = "Peak temperature of the medium (K), at the densest point near the bottom: above ~800 K it glows as a blackbody (fire). 0 = cold smoke, no blackbody term.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 4000.0f, } } )
                     .Field( FieldInfo{ .Name = "BlackbodyIntensity", .Type = FieldType::Float, .Offset = offsetof( T, BlackbodyIntensity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::BlackbodyIntensity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Blackbody Intensity", .Category = "Heterogeneous Volume", .Tooltip = "Scale on the blackbody emission (UE's Temperature emission scale).", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1000.0f, } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::LevelSequenceComponent;
+        TypeBuilder( "LevelSequenceComponent", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Sequence", .Type = FieldType::AssetHandle, .Offset = offsetof( T, Sequence ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Sequence )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Sequence", .Category = "Level Sequence", .Tooltip = "UE LevelSequenceAsset: the .dseq this actor plays in Play.", .IsAsset = true, .AssetType = "LevelSequenceAsset", .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "Loop", .Type = FieldType::Enum, .Offset = offsetof( T, Loop ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Loop )>(), .TypeName = "Animation::Timeline::LoopMode", .Meta = PropertyMetadata{ .DisplayName = "Loop", .Category = "Playback", .Tooltip = "UE PlaybackSettings.LoopCount: Once holds the last frame, Loop restarts, PingPong reverses at each end.", }, .EnumValues = { EnumValue{ "Once", 0 }, EnumValue{ "Loop", 1 }, EnumValue{ "PingPong", 2 }, } } )
+                    .Field( FieldInfo{ .Name = "AutoPlay", .Type = FieldType::Bool, .Offset = offsetof( T, AutoPlay ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AutoPlay )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Auto Play", .Category = "Playback", .Tooltip = "UE PlaybackSettings.bAutoPlay: start playing when Play begins.", } } )
+                    .Field( FieldInfo{ .Name = "PlayRate", .Type = FieldType::Double, .Offset = offsetof( T, PlayRate ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::PlayRate )>(), .TypeName = "double", .Meta = PropertyMetadata{ .DisplayName = "Play Rate", .Category = "Playback", .Tooltip = "UE PlaybackSettings.PlayRate: sequence seconds per game second; negative plays backwards, 0 holds the frame.", } } )
             .WithDefault<T>()
             .Register();
     }

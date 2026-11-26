@@ -72,6 +72,8 @@ namespace Desert::Editor
              { "PhysicsAsset", "##physicsasset", "None", "physics asset" },
              { "WeatherPresetAsset", "##weatherpreset", "None", "weather preset" },
              { "StateTreeAsset", "##statetree", "None (runs no tree)", "state tree" },
+             // UE ALevelSequenceActor::LevelSequenceAsset: a level sequence actor's `.dseq` (LevelSequenceComponent).
+             { "LevelSequenceAsset", "##levelsequence", "None (plays nothing)", "level sequence" },
              // UE UStaticMeshComponent::StaticMesh: the reflected slot lists the registry's .stmesh rows; the
              // mesh's picture is drawn in the same row, left of the picker (DrawMeshSlotThumbnail).
              { "StaticMeshAsset", "##staticmesh", "None (draws nothing)", "static mesh" },
