@@ -11,6 +11,7 @@
 #include <Engine/ECS/System/RagdollLifetime.hpp>
 #include <Engine/ECS/System/FoliageCollision.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
+#include <Engine/ECS/ModularCharacter.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <Engine/ECS/ComponentEventFacts.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
@@ -209,6 +210,17 @@ namespace Desert::ECS
             if ( glm::length( camRight ) > 1e-4f )
                 camRight = glm::normalize( camRight );
 
+            // THE FEATURES' CLOCKS AT THE STEPS' START (Water: the one water clock, UE UWaterSubsystem::
+            // GetWaterTimeSeconds = the world's time): the scene's game time, the very clock the renderer draws the
+            // waves at. The game clock has already ticked to this frame's end, so the steps start at its start and
+            // the pre-step callback advances each feature by every fixed step.
+            {
+                const double stepsStart =
+                     m_Scene->GetWorldTime().GetGameTimeSeconds() - static_cast<double>( ts.GetSeconds() );
+                for ( const auto& feature : m_Features )
+                    feature->BeginSteps( stepsStart );
+            }
+
             // ---- Character controllers: the controller SCRIPT (e.g. player_controller.lua) sets the move
             // INTENT each frame; the engine resolves it against the camera and moves the capsule on every FIXED
             // step, so a character moves at the world's rate whatever the frame rate. Cursor capture, mouse
@@ -221,6 +233,8 @@ namespace Desert::ECS
                      for ( const auto& feature : m_Features )
                          feature->PreStep( dt );
                      StepCharacters( registry, camFwd, camRight, dt );
+                     // Cloth worn by modular characters (IModularCharacter::ApplyLeaderPose), at this fixed step.
+                     ModularCharacter::StepAll( registry, dt, m_World->GetGravity() );
                  } );
             // A kinematic body follows its entity (UE: the component leads, the body travels to it over the
             // step's fixed steps); only a dynamic body's pose is written back below.

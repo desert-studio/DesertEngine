@@ -69,14 +69,21 @@ namespace Desert::Graphic
         // marks the shading word's EMISSION_IS_LIGHT, so a screen GI hit takes no emission from the texel
         // (Common/GIHitLighting.glslh; the binned draw's twin is GpuDriven::kDrawSlotEmissionIsLight).
         inline constexpr uint32_t EmissionIsLight = 1u << 2;
+        // UE !bReceivesDecals (StaticMeshComponent::ReceivesDecals off; SkinnedMeshComponent's default): the
+        // G-buffer write skips the DBuffer fetch (DESERT_PRIMITIVE_FLAG_NO_DECALS; the binned twin is
+        // GpuDriven::PrimitiveFlags::kNoDecals).
+        inline constexpr uint32_t NoDecals = 1u << 3;
     } // namespace PrimitiveFlag
 
     // A scene view draw's PrimitiveFlags: the primitive's contact-shadow cast and its material's Emissive Lights
-    // Scene (resolved as the emissive lists resolve it: the instance chain, else the surface).
-    [[nodiscard]] constexpr uint32_t PrimitiveFlagsOf( const bool castContactShadow, const bool emissionIsLight )
+    // Scene (resolved as the emissive lists resolve it: the instance chain, else the surface), and whether the
+    // primitive receives decals (UE bReceivesDecals).
+    [[nodiscard]] constexpr uint32_t PrimitiveFlagsOf( const bool castContactShadow, const bool emissionIsLight,
+                                                       const bool receivesDecals )
     {
         return ( castContactShadow ? 0u : PrimitiveFlag::NoContactShadow ) |
-               ( emissionIsLight ? PrimitiveFlag::EmissionIsLight : 0u );
+               ( emissionIsLight ? PrimitiveFlag::EmissionIsLight : 0u ) |
+               ( receivesDecals ? 0u : PrimitiveFlag::NoDecals );
     }
 
     class DataDrivenMaterial;

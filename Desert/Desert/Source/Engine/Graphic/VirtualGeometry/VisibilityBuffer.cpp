@@ -41,6 +41,14 @@ namespace Desert::Graphic::VirtualGeometry
             DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
             DESERT_SHADER_PARAMETER( StorageBuffer, Visibility );
             DESERT_SHADER_PARAMETER( StorageBuffer, Sections );
+            // VG-SW-RASTER: a VG row -> its IndirectGroup (VisibilityMaterialDepth.shader VgMaterialDepth).
+            DESERT_SHADER_PARAMETER( StorageBuffer, VgVisibleClusters );
+            DESERT_SHADER_PARAMETER( StorageBuffer, VgInstances );
+            DESERT_SHADER_PARAMETER( StorageBuffer, VgPrimitiveDraws );
+            DESERT_SHADER_PARAMETER( StorageBuffer, VgDrawSlots );
+            DESERT_SHADER_PARAMETER( StorageBuffer, VgDrawBins );
+            DESERT_SHADER_PARAMETER( StorageBuffer, VgClusters );
+            DESERT_SHADER_PARAMETER( StorageBuffer, VgDags );
         };
         // ... and the ones "Grass: Visibility Classify" binds (VisibilityClassify.shader): the words read, the
         // tiles' records written after them, and the resolve's record 0 written.
@@ -302,28 +310,53 @@ namespace Desert::Graphic::VirtualGeometry
         desc.Size                           = RDG::Extent3D{ frame.Width, frame.Height, 1u };
         desc.Format                         = ViewTargetFormats::kGBufferDepth;
         const RDG::TextureRef materialDepth = graph.CreateTexture( desc, "GrassMaterialDepth" );
+        // VG-SW-RASTER: the VG rows and the tables naming each one's IndirectGroup (VisibilityMaterialDepth.shader
+        // VgMaterialDepth). A frame without VG rows binds the words in their place - VgRows.y = 0 reads none.
+        const bool                                  vg     = frame.HasVirtualGeometryRows();
+        const VisibilityBufferFrame::VgGroupTables& groups = frame.VgGroups;
+        const ShaderPush::VisibilityMaterialDepth   push{
+               .VgRows =
+                  vg ? glm::uvec4( frame.VgFirstRow, frame.VgRowCount, groups.PrimitiveRows, groups.DrawSlotRows )
+                       : glm::uvec4( 0u ),
+               .VgTables = vg ? glm::uvec4( groups.BinRows, groups.GroupCount, 0u, 0u ) : glm::uvec4( 0u ) };
+        const auto pick = [&]( const RDG::BufferRef table ) { return vg ? table : frame.Words; };
+        const std::array<RDG::BufferRef, 7> vgTables{ pick( frame.VgVisibleClusters ),
+                                                      pick( groups.Instances ),
+                                                      pick( groups.PrimitiveDraws ),
+                                                      pick( groups.DrawSlots ),
+                                                      pick( groups.Bins ),
+                                                      pick( groups.Clusters ),
+                                                      pick( groups.Dags ) };
         graph.AddPass(
              "Grass: Visibility Material Depth", RDG::PassFlags::Raster,
-             [this, materialDepth, sceneDepth, words = frame.Words,
-              sections = frame.Sections]( RDG::PassBuilder& pass )
+             [this, materialDepth, sceneDepth, words = frame.Words, sections = frame.Sections,
+              vgTables]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( m_MaterialDepthLayout.Get( m_MaterialDepth->GetSpecification().Shader ),
-                                RDG::NoOtherRouteFill() )
-                      .Sampler( VisibilityMaterialDepthShaderParameters::PointClampSampler,
-                                RDG::SamplerDesc::PointClamp() )
-                      .Texture( VisibilityMaterialDepthShaderParameters::SceneDepthTexture, sceneDepth,
-                                RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                      .Storage( VisibilityMaterialDepthShaderParameters::Visibility, words,
-                                RDG::Access::StorageRead )
-                      .Storage( VisibilityMaterialDepthShaderParameters::Sections, sections,
-                                RDG::Access::StorageRead );
+                 using P          = VisibilityMaterialDepthShaderParameters;
+                 constexpr auto R = RDG::Access::StorageRead;
+                 auto blk = pass.Bindings( m_MaterialDepthLayout.Get( m_MaterialDepth->GetSpecification().Shader ),
+                                           RDG::NoOtherRouteFill() );
+                 blk.Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                      .Texture( P::SceneDepthTexture, sceneDepth, RDG::Access::SampledGraphics,
+                                RDG::SubresourceRange::All() )
+                      .Storage( P::Visibility, words, R )
+                      .Storage( P::Sections, sections, R )
+                      .Storage( P::VgVisibleClusters, vgTables[0], R )
+                      .Storage( P::VgInstances, vgTables[1], R )
+                      .Storage( P::VgPrimitiveDraws, vgTables[2], R )
+                      .Storage( P::VgDrawSlots, vgTables[3], R )
+                      .Storage( P::VgDrawBins, vgTables[4], R )
+                      .Storage( P::VgClusters, vgTables[5], R )
+                      .Storage( P::VgDags, vgTables[6], R )
+                      .PushConstants<ShaderPush::VisibilityMaterialDepth>();
                  // 0: no section's value (DesertVisibilityMaterialDepth is never 0), so a pixel no word won fails
                  // every resolve's EQUAL.
                  pass.DepthTarget( materialDepth, RDG::LoadOp::ClearDepth( 0.0f ), true );
              },
-             [this]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 bindings.PushConstants( push );
                  return Renderer::GetInstance().DrawFullscreen( bindings, *m_MaterialDepth, nullptr );
              } );
         return materialDepth;

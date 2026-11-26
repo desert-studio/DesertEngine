@@ -7,7 +7,8 @@ Shader "RayTracedLocalShadow"
     // Common/LightSourceSampling.glslh - MegaLights' sampler), each bounded where it meets the sphere, and writes the
     // fraction that reached the emitter plus the closest occluder distance the ShadowVisibility denoiser sizes its
     // penumbra kernel with. Outside the light's radius or cone: lit (1), no occluder (-1) - the light adds nothing
-    // there. SourceRadius 0 = one ray at the centre, a hard shadow.
+    // there. SourceRadius 0 = one ray at the centre, a hard shadow. A tube (UE SourceLength, SourceAxis) draws each
+    // ray's sphere around a point of its segment (SampleLightSourceCapsule): the shadow soft along the tube.
 
     Compute
     {
@@ -34,6 +35,7 @@ Shader "RayTracedLocalShadow"
         	vec4 LightSphere;       // xyz = position cm, w = attenuation radius cm
         	vec4 TraceParams; // x = source radius cm, y = normal bias cm, z = samples per pixel, w = frame index
         	vec4 SpotCone;        // xyz = direction out of the cone apex, w = cos outer (-2 = a point light)
+        	vec4 SourceAxis;      // xyz = the capsule's half-segment cm (UE SourceLength / 2; 0 = the sphere), w = 0
         };
 
         LocalSize(8, 8, 1);
@@ -80,8 +82,8 @@ Shader "RayTracedLocalShadow"
             for ( uint s = 0u; s < samples; ++s )
             {
                 float      reach;
-                const vec3 dir = SampleLightSourceSphere( axis, distance, TraceParams.x,
-                                                          ConeRandom2( uvec2( pixel ), uint( TraceParams.w ), s ), reach );
+                const vec3 u   = ConeRandom3( uvec2( pixel ), uint( TraceParams.w ), s );
+                const vec3 dir = SampleLightSourceCapsule( toLight, SourceAxis.xyz, TraceParams.x, u.xy, u.z, reach );
                 // UE r.RayTracing.NormalBias: off the surface along its normal, on the side facing the ray; the
                 // ray stops short of the emitter by the same bias at both ends.
                 const vec3  origin = position + normal * ( dot( normal, dir ) >= 0.0 ? 1.0 : -1.0 ) * bias;

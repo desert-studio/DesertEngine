@@ -94,7 +94,7 @@ TEST( MeshLOD, BakedEqualsGenerated )
     const auto baked =
          SimplifyLODLevels( pos.data(), g.Sub.VertexCount, g.Indices, Desert::Geometry::LODChainSettings{} );
     std::vector<Submesh> bakedSubs = { g.Sub };
-    bakedSubs[0].BakedLODs         = baked;
+    bakedSubs[0].BakedLODs         = baked.Levels;
     const auto gpuBaked            = BuildLODIndexBuffer( g.Vertices, g.Indices, bakedSubs, UnbakedLODChain() );
 
     EXPECT_TRUE( SameTris( gpuGen, gpuBaked ) ) << "baked GPU index buffer differs from generated";

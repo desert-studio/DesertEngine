@@ -54,6 +54,16 @@ namespace Desert::Graphic::GpuDriven
         // kDrawSlotEmissionIsLight (GLSL DESERT_GPU_DRAW_EMISSION_IS_LIGHT, Common/GpuScene.glslh
         // DesertResolveDrawOf). Reserved here so no primitive flag takes it.
         inline constexpr uint32_t kDrawEmissionIsLight = 1u << 7;
+        // THE IMPOSTOR PAIR (UE ImpostorBaker + DitheredLODTransition): the source mesh of a baked impostor
+        // (kImpostorSource) and its card (kImpostorCard) both live in Primitives[]; the cull's ImpostorGate
+        // (InstanceCull.shader, CPU twin InstanceCullValidation.cpp) admits the source NEAR and the card FAR of
+        // LocalBoundsExtent.w (the switch screen size), and inside the temporal band draws both with
+        // complementary dither masks (DESERT_GPU_VISIBLE_LOD_FADE_OUT / _IN) so the switch never pops.
+        inline constexpr uint32_t kImpostorSource = 1u << 8;
+        inline constexpr uint32_t kImpostorCard   = 1u << 9;
+        // UE !bReceivesDecals: the binned G-buffer cell skips the DBuffer fetch (GLSL DESERT_GPU_PRIMITIVE_NO_DECALS;
+        // the per-draw twin is Graphic::PrimitiveFlag::NoDecals).
+        inline constexpr uint32_t kNoDecals = 1u << 10;
     } // namespace PrimitiveFlags
 
     // THE BINNED DRAW'S INSTANCE ID STREAM (decision 10-27, UE5 instance id stream): a mesh-pass pipeline binds one
@@ -104,7 +114,8 @@ namespace Desert::Graphic::GpuDriven
         GpuAffine3x4 PrevLocalToWorld{}; // 48  — == LocalToWorld the frame after the primitive stopped moving
         // Mesh-space bounds of the whole mesh (Geometry::LocalBounds): xyz centre / extent, cm.
         // LocalBoundsCenter.w = how far wind moves vertices past the bounds (cm, today
-        // MeshDrawCommand::BoundsPad). LocalBoundsExtent.w = 0.
+        // MeshDrawCommand::BoundsPad). LocalBoundsExtent.w = the impostor switch screen size
+        // (UE screen size, of THIS primitive's bounds) of a kImpostorSource / kImpostorCard row; 0 = none.
         glm::vec4 LocalBoundsCenter{ 0.0f }; // 96
         glm::vec4 LocalBoundsExtent{ 0.0f }; // 112
         uint32_t  FirstInstance      = 0;    // 128 — its instances: Instances[FirstInstance, +InstanceCount)
@@ -204,6 +215,14 @@ namespace Desert::Graphic::GpuDriven
     // The slot's material has Emissive Lights Scene on (its emission is a MegaLights light source): the binned
     // G-buffer cell marks the shading word's EMISSION_IS_LIGHT (GLSL DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT).
     inline constexpr uint32_t kDrawSlotEmissionIsLight = 1u << 1;
+    // VG-SW-RASTER (UE Nanite's fixed-function SW raster bin): the slot's cell draws what
+    // Programs/VirtualGeometry/SoftwareRaster.shader draws - no per-pixel clip (not kDrawSlotDitheredLod) and a cull
+    // mode of Back or None - so the cluster cut may hand the slot's small clusters to the compute raster
+    // (ClusterCut.shader RastersInSoftware). GLSL DESERT_GPU_DRAW_SLOT_SOFTWARE_RASTER.
+    inline constexpr uint32_t kDrawSlotSoftwareRaster = 1u << 2;
+    // The slot's cell culls no face (CullMode::None): the compute raster keeps both windings
+    // (GLSL DESERT_GPU_DRAW_SLOT_TWO_SIDED).
+    inline constexpr uint32_t kDrawSlotTwoSided = 1u << 3;
     static_assert( sizeof( GpuDrawSlot ) == 16, "std430 twin in Common/GpuScene.glslh" );
     static_assert( offsetof( GpuDrawSlot, SubmeshTransform ) == 8, "Common/GpuScene.glslh" );
 

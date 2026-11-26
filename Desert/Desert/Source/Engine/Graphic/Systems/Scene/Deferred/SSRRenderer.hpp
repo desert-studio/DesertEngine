@@ -9,6 +9,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RayTracingPipeline.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneReads.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -79,6 +80,8 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, TileMaskTexture );
         DESERT_SHADER_PARAMETER( UniformBuffer, SSRTraceUB );
         DESERT_SHADER_PARAMETER( UniformBuffer, CameraUB );
+        // The world's table and rain occlusion the hit groups' weather reads (Common/RayTracingSceneReads.glslh).
+        DESERT_RAY_TRACING_SCENE_READ_PARAMETERS;
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -203,6 +206,9 @@ namespace Desert::Graphic::System
                 return Common::MakeError( tracePipeline.GetError() );
             m_TracePipeline = tracePipeline.GetValue();
 
+            // FPS-SSR-FARFIELD: the front layer's denoiser follows its world legs onto the async pipe
+            // (WorldStagePassFlags), so its first graphics reader is the water / glass, not the reconstruction.
+            m_Denoiser.RunOnAsyncCompute( m_Surface == ReflectingSurface::TranslucentFrontLayer );
             return m_Denoiser.Initialize();
         }
 
@@ -238,6 +244,9 @@ namespace Desert::Graphic::System
             RDG::BufferRef                                                  Shadow;
             // The uint shading word: a hit's EMISSION_IS_LIGHT mark (Common/GIHitLighting.glslh GIHitMaterial).
             RDG::TextureRef                                                 GBufferShadingWord;
+            // Hit lighting: the world's table and the view's rain occlusion the hit groups' weather reads
+            // (RayTracingSceneReads.hpp); required exactly when HitGroups is set.
+            RayTracing::RayTracingSceneReadsInputs                          SceneReads;
         };
 
         // The traced permutation (cooked: TracerVariant is ShippedByCook) - the one statement EnsureTracedProgram
@@ -252,6 +261,18 @@ namespace Desert::Graphic::System
             if ( surface == ReflectingSurface::TranslucentFrontLayer )
                 variant.Defines.emplace_back( kFrontLayerDefine );
             return variant;
+        }
+
+        // The hit-lit ray generation's permutation (RT-OMM-SER): the traced one, plus kRayTracingReorderDefine
+        // when @p reorder - the material ray reordered by its hit's material (SSRTrace.glslh, Shader Execution
+        // Reordering). Only the "SSR/HitLighting" ray generation takes it; the classify compute stays @p traced.
+        // EnsureHitLightingPipeline asks with RayTracingReorderOffered() (the device's catalog); the cook lists
+        // both, since the package runs on devices with and without VK_NV_ray_tracing_invocation_reorder.
+        [[nodiscard]] static Core::ShaderVariant HitLightingVariant( Core::ShaderVariant traced, const bool reorder )
+        {
+            if ( reorder )
+                traced.Defines.emplace_back( kRayTracingReorderDefine );
+            return traced;
         }
 
         // The untraced front layer's permutation (screen trace of the translucent front layer), cooked:
@@ -293,7 +314,10 @@ namespace Desert::Graphic::System
                     const bool hitLit = pipeline.Hits == GlobalIllumination::HitLighting::InPlace;
                     variants.push_back( { "SSR", TracedVariant( pipeline, hitLit, surface ) } );
                     if ( hitLit )
-                        variants.push_back( { "SSR/HitLighting", TracedVariant( pipeline, true, surface ) } );
+                        for ( const bool reorder : { false, true } )
+                            variants.push_back( { "SSR/HitLighting",
+                                                  HitLightingVariant( TracedVariant( pipeline, true, surface ),
+                                                                      reorder ) } );
                 }
             }
             return variants;
@@ -363,10 +387,13 @@ namespace Desert::Graphic::System
             if ( m_HitLightingPipeline && templates == m_HitLightingTemplates &&
                  m_HitLightingFor == m_TracedVariant.Hash() )
                 return BOOLSUCCESS;
-            auto  acquired = Runtime::AcquireShaderVariant( "SSR/HitLighting", m_TracedVariant );
+            const bool reorder  = RayTracingReorderOffered();
+            auto       acquired = Runtime::AcquireShaderVariant( "SSR/HitLighting",
+                                                                 HitLightingVariant( m_TracedVariant, reorder ) );
             if ( !acquired )
                 return Common::MakeFormattedError<bool>(
-                     "SSR: the hit-lit ray generation ('SSR/HitLighting') was refused: {}", acquired.GetError() );
+                     "SSR: the hit-lit ray generation ('SSR/HitLighting'{}) was refused: {}",
+                     reorder ? " with DESERT_SER=1, Shader Execution Reordering" : "", acquired.GetError() );
             auto                            program = acquired.ExtractValue();
             RayTracingPipelineSpecification spec{
                  .Program = program, .HitGroups = {}, .DebugName = "SSRHitLighting" };
@@ -525,6 +552,22 @@ namespace Desert::Graphic::System
             graph.QueueStaticBufferUpload( list.Far, std::as_bytes( std::span( kTraceListArgsReset ) ) );
             graph.QueueStaticBufferUpload( list.Hits, std::as_bytes( std::span( kWorldHitListReset ) ) );
             return list;
+        }
+
+        // FPS-SSR-FARFIELD: the queue of the world stage's nodes for @p world (UE
+        // r.Lumen.Reflections.AsyncCompute). The front layer's software legs (near field, far field, hit lighting)
+        // run on the async pipe, with its denoiser (Initialize): their first graphics reader is the water / glass
+        // after the opaque composite (or the scene copy that rewrites the scene colour history they sample), and
+        // by then the async queue has finished the screen probes, so the legs overlap the composite, the forward
+        // meshes and the opaque fog instead of lengthening the graphics queue. The opaque surface's legs stay on
+        // Graphics: their reader is the composite itself, which already waits for the async screen probes
+        // (FPS-SP-COMPOSITE-WAIT) - on the async FIFO behind them they would add their whole time to that wait.
+        // The hardware tracer's one ray query stays on Graphics (its TLAS is the graphics queue's build).
+        [[nodiscard]] RDG::PassFlags WorldStagePassFlags( const WorldList& world ) const
+        {
+            if ( m_Surface == ReflectingSurface::TranslucentFrontLayer && world.Legs )
+                return RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
+            return RDG::PassFlags::Compute;
         }
 
         // The trace resolutions the shaders know (SSR.shader's source pixel, SSDReconstructReflections' block
@@ -723,6 +766,7 @@ namespace Desert::Graphic::System
                  .Uniform( SSRHitLightingShaderParameters::SSRTraceUB, uniforms )
                  .Uniform( SSRHitLightingShaderParameters::CameraUB, camera )
                  .PushConstants<ShaderPush::SSRTracePush>();
+            RayTracing::BindRayTracingSceneReads<SSRHitLightingShaderParameters>( block, traced.SceneReads );
             DeclareTracedReads( block, traced );
             DeclareFrontLayerReads( block, frontLayer );
         }
@@ -808,6 +852,10 @@ namespace Desert::Graphic::System
                                                              const bool sceneHistoryReadable, const uint32_t seed,
                                                              const TraceStage stage, const RDG::BufferRef args ) const
         {
+            // The front layer's legs are profiled apart (they run on the async pipe, WorldStagePassFlags).
+            if ( m_Surface == ReflectingSurface::TranslucentFrontLayer )
+                return RecordFrontLayerWorldList( context, cameraPos, settings, sceneHistoryReadable, seed, stage,
+                                                  args );
             switch ( stage )
             {
             case TraceStage::World:
@@ -828,6 +876,39 @@ namespace Desert::Graphic::System
             case TraceStage::Classify:
             case TraceStage::Trace:
                 break;
+            }
+            return Common::MakeError( "SSR: RecordWorldList was given a stage that is not the world's" );
+        }
+        // RecordWorldList of the TranslucentFrontLayer renderer: the same dispatches under their own profiler
+        // rows.
+        [[nodiscard]] Common::BoolResultStr
+        RecordFrontLayerWorldList( const RDG::PassContext& context, const glm::vec4& cameraPos,
+                                   const TraceSettings& settings, const bool sceneHistoryReadable,
+                                   const uint32_t seed, const TraceStage stage, const RDG::BufferRef args ) const
+        {
+            switch ( stage )
+            {
+                case TraceStage::World:
+                {
+                    DESERT_PROFILE_PASS( "SSR: Front layer world trace" );
+                    return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage,
+                                               args );
+                }
+                case TraceStage::WorldFarField:
+                {
+                    DESERT_PROFILE_PASS( "SSR: Front layer far field" );
+                    return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage,
+                                               args );
+                }
+                case TraceStage::WorldHitLighting:
+                {
+                    DESERT_PROFILE_PASS( "SSR: Front layer hit lighting" );
+                    return DispatchWorldStage( context, cameraPos, settings, sceneHistoryReadable, seed, stage,
+                                               args );
+                }
+                case TraceStage::Classify:
+                case TraceStage::Trace:
+                    break;
             }
             return Common::MakeError( "SSR: RecordWorldList was given a stage that is not the world's" );
         }

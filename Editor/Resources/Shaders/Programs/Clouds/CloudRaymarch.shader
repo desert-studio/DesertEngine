@@ -866,6 +866,28 @@ Shader "CloudRaymarch"
                     float sigmaT = density * extinction *
                                    CloudSampleExtinctionFactor(params, field, fieldPos);
 
+                    // THE SAMPLE'S TWO SINGLE FETCHES FIRST (FPS-CLOUDS-MARCH-2): the sun's colour (its transmittance
+                    // LUT) and the sky-occlusion texel depend on the sample's position alone, and here, ahead of the
+                    // shadow ray, their loads are in flight while its quadrature runs. Read after it, as they were,
+                    // each was one more dependent fetch round on every lit sample of a march whose cost is its chain
+                    // of such rounds. Same values; only the order of issue moved.
+                    vec3  sunColour         = CloudSunColourAt(layer, samplePos, toSun);
+                    float skyOcclusionTexel = 1.0f;
+                    if (CloudFrame.x > 0.5f)
+                    {
+                        // The WIND-SHIFTED position, because that is the frame the volume was traced in — the same
+                        // subtraction Common/CloudField.glslh makes on its own way into the modelling volume, and the
+                        // reason the two land on the same texel however far the wind has run.
+                        vec3 skyWindPos = vec3(fieldPos.x - params.WindOffsetKm.x, fieldPos.y - params.WindOffsetKm.y,
+                                               fieldPos.z - params.WindOffsetKm.z);
+                        vec3 skyUvw     = CloudSkyOcclusionUvw(params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].xy,
+                                                               params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].z,
+                                                               heightFraction, skyWindPos);
+                        // textureLod AND NOT texture, for the reason every other volume fetch in this file gives:
+                        // a compute shader has no derivatives, so the implicit level of detail is undefined.
+                        skyOcclusionTexel = textureLod(CloudSkyOcclusionVolumeTexture, skyUvw, 0.0f).r;
+                    }
+
                     // ONE shadow ray serves every scattering order. That is the whole economy of the
                     // octave approximation: the expensive part is finding how much material lies
                     // between this sample and the sun, and each order then reuses that number with its
@@ -896,26 +918,7 @@ Shader "CloudRaymarch"
                     // twice and darken a cloud's own core for a reason nobody could find later.
                     float ambientOcclusion = CloudAmbientOcclusion(field.Profile, CloudPhase.z);
                     if (CloudFrame.x > 0.5f)
-                    {
-                        // The WIND-SHIFTED position, because that is the frame the volume was traced
-                        // in — the same subtraction Common/CloudField.glslh makes on its own way into
-                        // the modelling volume, and the reason the two land on the same texel however
-                        // far the wind has run.
-                        vec3 skyWindPos = vec3(fieldPos.x - params.WindOffsetKm.x,
-                                               fieldPos.y - params.WindOffsetKm.y,
-                                               fieldPos.z - params.WindOffsetKm.z);
-
-                        vec3 skyUvw = CloudSkyOcclusionUvw(params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].xy,
-                                                           params.ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS - 1].z,
-                                                           heightFraction, skyWindPos);
-
-                        // textureLod AND NOT texture, for the reason every other volume fetch in this
-                        // file gives: a compute shader has no derivatives, so the implicit level of
-                        // detail is undefined.
-                        ambientOcclusion =
-                            CloudSkyOcclusion(textureLod(CloudSkyOcclusionVolumeTexture, skyUvw, 0.0f).r,
-                                              CloudPhase.z);
-                    }
+                        ambientOcclusion = CloudSkyOcclusion(skyOcclusionTexel, CloudPhase.z);
 
                     // Wrenninge's multiple-scattering octaves, as Unreal implements them — the series
                     // itself is Common/CloudLighting.glslh's CloudMultiScatterStep, which is where its
@@ -947,7 +950,7 @@ Shader "CloudRaymarch"
 
                     // The series and the emission WITHOUT the ray's transmittance, which the walk below applies: it
                     // belongs to the ray's history rather than to the medium (the series note above).
-                    fetched.Scatter = CloudMultiScatterStep(series, CloudSunColourAt(layer, samplePos, toSun),
+                    fetched.Scatter = CloudMultiScatterStep(series, sunColour,
                                                            ambientRadiance * ambientOcclusion, opticalDepth,
                                                            phase, sigmaT, sampleAlbedo, litStepKm);
 

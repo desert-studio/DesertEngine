@@ -1,0 +1,71 @@
+# NG-AREA-LIGHTS: UE5 local-light source size on FIELD_Barn at night, every light BUILT BY STEPS (no hand-made scene):
+# a spot over a pole (SourceRadius 0/10/50 cm: PCSS on the atlas, the same rule on the virtual map), a tube (point
+# light SourceLength 150, SourceRadius 3) and a sphere (point light SourceRadius 20) over a smooth floor.
+# Played by .claude/tools/play_scenario.py <tree> Scenarios/Render/NG-AREA-LIGHTS.scn (default project Projects/Desert).
+# The stage stands 20 m up (y 2000 cm floor), clear of the terrain, so the frames hold only the lights' own shadows.
+# Property paths: SpotLightData.* / PointLightData.* = the reflected fields (Engine/ECS/SpotLightComponent.hpp,
+# PointLightComponent.hpp); `set selected` = the one selected entity (ControlService ControlEntityId); "Add light: X"
+# selects what it placed (LevelEditorCommands::AppendAddShapeCommands); Rotation is radians, a light's forward is -Z.
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation -10
+# The stage: a 20 x 20 m floor and a 2 m pole 20 cm thick standing on it.
+Дано run Scene "Add shape: Plane"
+Дано run Entity "Plane"
+Дано --subject selection set Translation 0,2000,0
+Дано --subject selection set Scale 20,1,20
+Дано run Scene "Add shape: Cylinder"
+Дано run Entity "Cylinder"
+Дано --subject selection set Translation 0,2100,0
+Дано --subject selection set Scale 0.2,2,0.2
+# The spot 4 m over the floor, 1.5 m to the side of the pole, aimed straight down: the pole's shadow runs from its
+# foot across the floor away from the light.
+Дано run Scene "Add light: Spot Light"
+Дано --subject selection set Translation 150,2400,0
+Дано --subject selection set Rotation -1.5708,0,0
+Дано set selected SpotLightData.Intensity 2000
+Дано set selected SpotLightData.OuterConeAngle 60
+Дано set selected SpotLightData.InnerConeAngle 45
+Дано set selected SpotLightData.SourceRadius 0
+Дано --subject viewport set Camera.FOV 70
+Дано --subject viewport set Camera.Position 0,2350,900
+Дано --subject viewport set Camera.Direction 0,-0.45,-1
+Когда frames 60
+Тогда-вид 0_pole_r0 [local_pcss_pole] SourceRadius 0: the pole's shadow is the fixed-width PCF edge along its whole length (the pass-2 look)
+Когда set selected SpotLightData.SourceRadius 10
+Когда frames 60
+Тогда-вид 1_pole_r10 [local_pcss_pole] SourceRadius 10: edge sharp at the pole's foot (pixel-diff vs 0_pole_r0 ~0 within 10 cm of the foot), widening toward the shadow's far end (edge width at the tip > at the foot)
+Когда set selected SpotLightData.SourceRadius 50
+Когда frames 60
+Тогда-вид 2_pole_r50 [local_pcss_pole] SourceRadius 50: still sharp at the foot, the tip's penumbra wider than 1_pole_r10's (edge width measured across the shadow 150 cm from the foot: r50 > r10 > r0); no acne / no light leak at the foot
+Когда run Quality "Quality: Shadows.Method VirtualMaps"
+Когда frames 120
+Тогда-вид 3_pole_r50_vsm [local_pcss_pole] the same under Shadows.Method VirtualMaps (VsmLocalShadowSoft on forward receivers, VsmLocalVisibilityRay on the G-buffer): foot sharp, tip soft; edge widths within ~25% of 2_pole_r50; editor.log 0 VUID
+Когда set selected SpotLightData.SourceRadius 0
+Когда frames 60
+Тогда-вид 4_pole_r0_vsm VirtualMaps with SourceRadius 0: the fixed-width VSM PCF edge, like 0_pole_r0
+Когда run Quality "Quality: Shadows.Method Level"
+Когда set selected SpotLightData.Intensity 0
+# The tube: a 150 cm point-light capsule along X, 3 cm radius, 1.5 m over the floor beside the pole.
+Когда run Scene "Add light: Point Light"
+Когда --subject selection set Translation -150,2150,0
+Когда set selected PointLightData.Intensity 2000
+Когда set selected PointLightData.SourceRadius 3
+Когда set selected PointLightData.SourceLength 150
+Когда frames 60
+Тогда-вид 5_tube_spec [tube_spec] the floor's highlight of the tube is stretched along its axis (X), not a round dot; the pole's shadow from the tube is soft along X and sharp across it; editor.log 0 VUID
+Когда set selected PointLightData.SourceLength 0
+Когда frames 60
+Тогда-вид 6_tube_off_length the highlight collapses to a round disc of 3 cm radius, total brightness of the highlight similar to 5_tube_spec; the shadow loses its along-axis softening
+Когда set selected PointLightData.Intensity 0
+# The sphere: a point light of SourceRadius 20.
+Когда run Scene "Add light: Point Light"
+Когда --subject selection set Translation -150,2150,0
+Когда set selected PointLightData.Intensity 2000
+Когда set selected PointLightData.SourceRadius 20
+Когда frames 60
+Тогда-вид 7_sphere_spec [sphere_spec] the sphere's reflection on the floor is a soft disc (not a needle); the pole's shadow is sharp at the foot and soft at the tip
+Когда set selected PointLightData.SourceRadius 0
+Когда frames 60
+Тогда-вид 8_sphere_point the reflection becomes a small sharp point; diffuse on the floor away from the highlight unchanged vs 7_sphere_spec (pixel-diff ~0); the shadow is the fixed-width PCF edge

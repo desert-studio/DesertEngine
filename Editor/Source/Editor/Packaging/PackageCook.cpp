@@ -7,6 +7,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
+#include <Engine/Graphic/GlobalIllumination/ReSTIRGather.hpp>
 #include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
@@ -235,7 +236,8 @@ namespace Desert::Editor
         //   the cloud media         every registered Volume medium into each of its programs
         //                           (CloudMediumProgramVariants);
         //   the screen probes       every layout a Scalability.json level names - {ScreenProbeDownsample,
-        //                           ScreenProbeTracedTexels} per level - under ScreenProbeGather::ProgramVariants.
+        //                           ScreenProbeTracedTexels} per level - under ScreenProbeGather::ProgramVariants;
+        //   the ReSTIR gather       once, layout-independent (ReSTIRGather::ProgramVariants), not per layout.
         void CookShaderVariants( bool spirvDebugInfo, bool developerInstruments, CookStats& stats )
         {
             namespace Scalability = ::Common::Scalability;
@@ -248,6 +250,7 @@ namespace Desert::Editor
                     cooked.push_back( std::move( entry ) );
             };
             append( GI::WorldRadianceCache::ProgramVariants() );
+            append( GI::ReSTIRGather::ProgramVariants() );
             append( Graphic::SurfaceCache::SurfaceCacheRenderer::ProgramVariants() );
             append( Graphic::System::SSRRenderer::ProgramVariants() );
             append( Graphic::System::DeferredLightingRenderer::ProgramVariants() );

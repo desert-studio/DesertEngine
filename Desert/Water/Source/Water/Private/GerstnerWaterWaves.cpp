@@ -43,7 +43,7 @@ namespace Desert::Water
         }
     } // namespace
 
-    std::vector<GerstnerWave> GenerateGerstnerWaves( const GerstnerWaveGenerator& g )
+    std::vector<GerstnerWave> GenerateGerstnerWaves( const GerstnerWaveGenerator& g, const float windAngleDeg )
     {
         std::vector<GerstnerWave> waves;
         if ( g.NumWaves < 1 )
@@ -53,7 +53,7 @@ namespace Desert::Water
         Common::Math::RandomStream stream( g.Seed );
         const auto                 count = static_cast<float>( g.NumWaves );
         // UE builds the direction in FVector, i.e. in double (GerstnerWaterWaves.cpp:126-130).
-        const double wind = static_cast<double>( g.WindAngleDeg ) * std::numbers::pi / 180.0;
+        const double wind = static_cast<double>( windAngleDeg ) * std::numbers::pi / 180.0;
         for ( int32_t i = 0; i < g.NumWaves; ++i )
         {
             const auto  fi    = static_cast<float>( i );

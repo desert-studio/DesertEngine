@@ -7,6 +7,13 @@
 
 namespace Desert::Graphic
 {
+    bool RayTracingReorderOffered()
+    {
+        const auto& catalog = EngineContext::GetInstance().GetCapabilities().Catalog;
+        return Common::Scalability::CapabilityCatalog::Offers(
+             catalog.RayTracingFeatures, Common::Scalability::RayTracingFeature::InvocationReorder );
+    }
+
     Common::ResultStr<std::shared_ptr<RayTracingPipeline>>
     RayTracingPipeline::Create( const RayTracingPipelineSpecification& spec )
     {

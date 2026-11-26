@@ -36,6 +36,21 @@ namespace Desert::Graphic
     static_assert( Assets::Serialization::WorldParameterKey( "SurfaceLayer" ) == 0xf2f26379u,
                    "the surface layer's key in Common/SurfaceLayer.glslh" );
 
+    // The rain's values (Common/WeatherRain.glslh: the film, puddles, ripples, streaks on every lit surface and
+    // the landscape), written there as literals for the same reason.
+    static_assert( Assets::Serialization::WorldParameterKey( "Wetness" ) == 0x60957b78u &&
+                        Assets::Serialization::WorldParameterKey( "PuddleLevel" ) == 0xfc667a91u &&
+                        Assets::Serialization::WorldParameterKey( "PuddleShape" ) == 0x46b78b8au &&
+                        Assets::Serialization::WorldParameterKey( "RainIntensity" ) == 0x22384490u &&
+                        Assets::Serialization::WorldParameterKey( "RainRipple" ) == 0x67bc9dc9u &&
+                        Assets::Serialization::WorldParameterKey( "RainRippleNormal" ) == 0x9836b6b6u &&
+                        Assets::Serialization::WorldParameterKey( "RainStreak" ) == 0x30a7fbadu &&
+                        Assets::Serialization::WorldParameterKey( "RainStreakNormal" ) == 0x23bc16dau,
+                   "the rain's keys in Common/WeatherRain.glslh" );
+    static_assert( Assets::Serialization::WorldParameterKey( "RainDrops" ) == 0xe5bb4d7bu &&
+                        Assets::Serialization::WorldParameterKey( "RainDropShape" ) == 0x71b62487u,
+                   "the falling rain's keys in Programs/Weather/RainStreaks.shader" );
+
     struct WorldParameterTable
     {
         GpuWorldParameterHeader            Header;

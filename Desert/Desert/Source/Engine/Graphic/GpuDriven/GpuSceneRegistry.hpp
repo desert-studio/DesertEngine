@@ -68,6 +68,8 @@ namespace Desert::Graphic
         // StaticMeshRenderData::ForcedLOD / LODBias (MeshRenderer::ComputeLOD's inputs); -1 / 0 for the rest.
         int32_t ForcedLod = -1;
         int32_t LodBias   = 0;
+        // StaticMeshRenderData::ImpostorSwitchSize (GpuScenePrimitive::LocalBoundsExtent.w); 0 = no impostor pair.
+        float ImpostorSwitchSize = 0.0f;
         // What a reader of the record's sections reads besides its mesh, world and flags (its section materials,
         // hidden submeshes, ray-tracing visibility, the mesh's residency), as one word the producer makes
         // (MeshRenderer::SyncGpuScene). A primitive's records' words changing is a Content change of the GpuScene
@@ -309,6 +311,7 @@ namespace Desert::Graphic::GpuDriven
             // The row's LOD and cull inputs as last written: a change rewrites the row like a mesh change.
             int32_t                ForcedLod = -1;
             int32_t                LodBias   = 0;
+            float                  ImpostorSwitchSize = 0.0f;
             float                  BoundsPad = 0.0f;
             float                  CullStart = 0.0f;
             float                  CullEnd   = 0.0f;
@@ -491,6 +494,7 @@ namespace Desert::Graphic::GpuDriven
             uint32_t            Flags     = 0;
             int32_t             ForcedLod = -1;
             int32_t             LodBias   = 0;
+            float               ImpostorSwitchSize = 0.0f;
             // The records' Content words as last published (an order-free sum of their mixes) and this sync's.
             uint64_t Content      = 0;
             uint64_t FrameContent = 0;

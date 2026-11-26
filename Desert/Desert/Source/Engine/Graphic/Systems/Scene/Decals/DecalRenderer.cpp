@@ -133,9 +133,9 @@ namespace Desert::Graphic::System
             // ComputeBoundsScreenSize - the bounding sphere's diameter as a share of the screen height.
             const glm::vec3 center( decal.DecalToWorld[3] );
             const float     distance = glm::length( center - cameraPosition );
-            float           opacity  = 1.0f;
+            float           opacity  = std::clamp( decal.Opacity, 0.0f, 1.0f );
             if ( decal.FadeLength > 0.0f )
-                opacity = 1.0f - std::clamp( ( distance - decal.FadeStart ) / decal.FadeLength, 0.0f, 1.0f );
+                opacity *= 1.0f - std::clamp( ( distance - decal.FadeStart ) / decal.FadeLength, 0.0f, 1.0f );
             const float radius =
                  std::sqrt( glm::dot( glm::vec3( decal.DecalToWorld[0] ), glm::vec3( decal.DecalToWorld[0] ) ) +
                             glm::dot( glm::vec3( decal.DecalToWorld[1] ), glm::vec3( decal.DecalToWorld[1] ) ) +

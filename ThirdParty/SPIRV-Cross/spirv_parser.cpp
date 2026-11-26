@@ -1015,6 +1015,17 @@ void Parser::parse(const Instruction &instruction)
 		break;
 	}
 
+	// DesertEngine: the opaque shader-execution-reordering hit object (SPV_NV / SPV_EXT_shader_invocation_reorder),
+	// reflection only.
+	case OpTypeHitObjectNV:
+	case OpTypeHitObjectEXT:
+	{
+		uint32_t id = ops[0];
+		auto &type = set<SPIRType>(id, op);
+		type.basetype = SPIRType::Unknown;
+		break;
+	}
+
 	case OpTypeTensorARM:
 	{
 		uint32_t id = ops[0];

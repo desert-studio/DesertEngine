@@ -1,3 +1,4 @@
+#include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/Systems/Scene/SceneFXSystem.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
@@ -23,6 +24,7 @@
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Graphic/SceneRendererImpl.hpp>
+#include <Engine/Graphic/LocalShadows.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/PixelPack.hpp>
 #include <Engine/Graphic/DisplayOutput.hpp>
@@ -40,6 +42,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
+#include <unordered_map>
 #include <unordered_set>
 #include <mutex>
 #include <Common/Core/Algorithms/ScopeExit.hpp>
@@ -563,6 +566,10 @@ namespace Desert::Graphic
                                                                  m_TargetFramebuffer );
                 if ( const auto cloudInit = m_Systems.VolumetricCloud->Initialize(); !cloudInit )
                     LOG_WARN( "[SceneRenderer] Volumetric cloud system unavailable: {}", cloudInit.GetError() );
+                // The falling rain (weather, beside the clouds): one translucent pass after the particles. Non-fatal.
+                RegisterSystem<System::RainStreakRenderer>( m_Systems.RainStreaks, this, m_TargetFramebuffer );
+                if ( const auto rainInit = m_Systems.RainStreaks->Initialize(); !rainInit )
+                    LOG_WARN( "[SceneRenderer] Rain streaks unavailable: {}", rainInit.GetError() );
                 return "VolumetricCloud";
             }
             case 18:
@@ -1052,6 +1059,7 @@ namespace Desert::Graphic
              !wrote )
             return Common::MakeFormattedError( "the view's WorldParameters ({} bytes) could not be uploaded: {}",
                                                bytes.size(), wrote.GetError() );
+        m_WorldParameterBytes = std::move( bytes );
         return BOOLSUCCESS;
     }
 
@@ -1279,6 +1287,8 @@ namespace Desert::Graphic
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         m_CloudFootprintSteps = quality.As<int>( Parameter::CloudFootprintSteps ) != 0;
         m_CloudLightLocalSamples = quality.As<int>( Parameter::CloudLightLocalSamples );
+        if ( m_Systems.Water )
+            m_Systems.Water->SetCausticsEnabled( quality.As<int>( Parameter::EffectsWaterCaustics ) != 0 );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
         // A shader recompiled since the standing program refusals were made: every refused method is resolved and
         // asked for again this frame (a fixed program draws, one still broken is refused again without a new
@@ -1347,12 +1357,19 @@ namespace Desert::Graphic
         m_VirtualGeometryMaxPixelsPerEdge =
              static_cast<float>( quality.As<int>( Parameter::ViewDistanceVirtualGeometryMaxPixelsPerEdge ) ) /
              10.0f;
+        m_VirtualGeometrySoftwareRaster = quality.As<int>( Parameter::VirtualGeometrySoftwareRaster ) != 0;
         m_DisplacementDicingRate = quality.As<int>( Parameter::DisplacementDicingRate );
         m_DisplacementPoolMiB    = static_cast<uint32_t>( quality.As<int>( Parameter::DisplacementPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
         m_ScreenProbeAdaptivePercent = quality.As<uint32_t>( Parameter::ScreenProbeAdaptiveAllocation );
         m_ScreenProbeShortRangeAO    = quality.As<int>( Parameter::ScreenProbeShortRangeAO ) != 0;
         m_ScreenProbeSparseStableRays = quality.As<int>( Parameter::ScreenProbeSparseStableRays ) != 0;
+        // The tier's final gather, run only where its tracer is (ReSTIRGatherRuns: the hardware one); every other
+        // traced view gathers with the screen probes.
+        m_ReSTIRGather =
+             GlobalIllumination::ReSTIRGatherRuns( static_cast<Common::Scalability::ScreenProbeGatherMethod>(
+                                                        quality.As<int>( Parameter::ScreenProbeGatherMethod ) ),
+                                                   m_GIPipeline );
         m_SurfaceCacheAsyncRadiosity = quality.As<int>( Parameter::SurfaceCacheAsyncRadiosity ) != 0;
         m_ScreenProbeDownsample      = quality.As<uint32_t>( Parameter::ScreenProbeDownsample );
         m_ScreenProbeTracedTexels    = quality.As<uint32_t>( Parameter::ScreenProbeTracedTexels );
@@ -1368,6 +1385,14 @@ namespace Desert::Graphic
              static_cast<uint32_t>( quality.As<int>( Parameter::ShadowRayTracedSamplesPerPixel ) );
         m_RayTracingScene.SetTlasUpdatesBeforeRebuild(
              quality.As<uint32_t>( Parameter::GlobalIlluminationTlasUpdatesBeforeRebuild ) );
+        {
+            const int lodError     = quality.As<int>( Parameter::GlobalIlluminationRayTracingLodError );
+            const int windDistance = quality.As<int>( Parameter::GlobalIlluminationFoliageWindDistance );
+            m_RayTracingScene.SetFoliageSettings( RayTracing::RayTracingFoliageSettings{
+                 .LodErrorPerCm = static_cast<float>( lodError ) / 10000.0f,
+                 .RefitBudget   = quality.As<uint32_t>( Parameter::GlobalIlluminationFoliageWindRefitBudget ),
+                 .WindDistance  = static_cast<float>( windDistance ) } );
+        }
         m_ShadowFilter = SceneResources::ShadowFilterSettings{
              .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
              .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };
@@ -1598,6 +1623,16 @@ namespace Desert::Graphic
         // PostProcess.BloomMips (Scalability; High 6 = the former BloomRenderer::kMaxBloomMips).
         m_Systems.Bloom->SetMaxMips(
              static_cast<uint32_t>( m_Quality.As<int>( Common::Scalability::Parameter::BloomMips ) ) );
+        // PostProcess.BloomMethod (Scalability: Convolution at Epic / Cinematic, Gaussian below) and the view's kernel
+        // (UE r.Bloom.Method + BloomConvolutionTexture / BloomConvolutionSize). AddFrameBloom asks PrepareConvolution.
+        m_Systems.Bloom->SetMethod(
+             m_Quality.As<Common::Scalability::BloomMethod>( Common::Scalability::Parameter::BloomMethod ) );
+        m_Systems.Bloom->SetConvolutionKernel( post.BloomConvolutionKernel, post.BloomConvolutionScale );
+        // The view's memory census lists the convolution's two spectra only for a view that runs it: the tier's
+        // Convolution with a kernel named (a kernel still loading is a frame or two, not what the view holds).
+        m_ViewProfile.BloomConvolution =
+             post.EnableBloom && m_Systems.Bloom->GetMethod() == Common::Scalability::BloomMethod::Convolution &&
+             static_cast<uint64_t>( post.BloomConvolutionKernel ) != 0;
         m_Systems.Tonemap->SetBloomIntensity( post.EnableBloom ? post.BloomIntensity : 0.0f );
         m_Systems.Tonemap->SetChromaticBloom( post.EnableBloom ? post.LensDispersion : 0.0f );
         // The lens stage (LENS-POST): the resolved volume's values, applied by the composite.
@@ -2190,6 +2225,17 @@ namespace Desert::Graphic
         // SyncGpuScene registers the material rows of exactly the sections queued by then — a section queued
         // after it has no row in the scene material table and is refused at draw. The plan ran on its setup task
         // since "Setup: Grass plan" (FPS-GRASS-PLAN): joined here, committed into this graph.
+        // FPS-GRASS-SETUP-FUSE: before the grass's CommitFrame too - its camera cull writes the blades' setup
+        // records from it.
+        // DEFORM-RT-TRAMPLE (UE: one deformation evaluation shared by the raster and the ray-tracing geometry):
+        // the deformation field before the TLAS, whose grass rows read it (RayTracingGpuInstances.shader), as well
+        // as before any mesh pass - the grass blades of the view, its cascades and its virtual shadow read it
+        // (MeshRenderer::SetFrameDeformationField). Where its contacts write is taken first: the update consumes
+        // them, and the cascade cache plan below reads it.
+        m_FramePendingFootprints = m_FrameDeformationCaptured && !m_ViewProfile.SceneCapture
+                                        ? m_DeformationField.PendingFootprints()
+                                        : std::vector<glm::vec4>{};
+        AddFrameDeformationField( graph, textures, frame );
         DESERT_PROFILE_PHASE( setupPhases, "Setup: Grass" );
         grassTasks.Join();
         // TERRAIN-DICE-CULL: the diced camera rows' ring cells by the camera's frustum and last frame's HZB (the
@@ -2227,11 +2273,11 @@ namespace Desert::Graphic
         if ( growsGrass )
             m_Systems.Grass->CommitFrame( graph, *m_Systems.Mesh.get() );
         {
-            // LANDSCAPE-RVT: the landscape's runtime virtual texture pages, before the G-buffer pass reads them.
+            // LANDSCAPE-RVT: the landscape's runtime virtual texture pages, before the G-buffer and forward passes
+            // read them (the terrain's G-buffer; on either path the meshes that blend into the ground, RVT-MESH-BLEND).
             auto* terrain = m_Systems.Terrain.get();
-            if ( const Common::BoolResultStr virtualTexture = terrain->AddVirtualTexturePasses(
-                      graph, textures, frame,
-                      m_RenderPath == Core::RenderPath::Deferred && !m_ViewProfile.SceneCapture );
+            if ( const Common::BoolResultStr virtualTexture =
+                      terrain->AddVirtualTexturePasses( graph, textures, frame, !m_ViewProfile.SceneCapture );
                  !virtualTexture )
                 LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), virtualTexture.GetError() );
         }
@@ -2310,15 +2356,6 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Grass, TLAS, shadow plan" );
         AddFrameClearMainFramebuffer( graph, textures );
 
-        // DEFORM-RT-TRAMPLE (UE: one deformation evaluation shared by the raster and the ray-tracing geometry):
-        // the deformation field before the TLAS, whose grass rows read it (RayTracingGpuInstances.shader), as well
-        // as before any mesh pass - the grass blades of the view, its cascades and its virtual shadow read it
-        // (MeshRenderer::SetFrameDeformationField). Where its contacts write is taken first: the update consumes
-        // them, and the cascade cache plan below reads it.
-        m_FramePendingFootprints = m_FrameDeformationCaptured && !m_ViewProfile.SceneCapture
-                                        ? m_DeformationField.PendingFootprints()
-                                        : std::vector<glm::vec4>{};
-        AddFrameDeformationField( graph, textures, frame );
 
         // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
         // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
@@ -2431,8 +2468,21 @@ namespace Desert::Graphic
                 tlas = Common::MakeError(
                      std::string( "OnUpdate ran outside BeginScene/EndScene: no scene ray-tracing cache" ) );
             else
+            {
+                // RT-FOLIAGE-BLAS: the view's camera block (gust, local wind), what the swaying foliage's wind
+                // BLASes are evaluated with - the block the raster's instanced vertex stage reads.
+                RDG::BufferRef windCamera;
+                if ( required )
+                {
+                    const ShaderProtocols::Camera windBlock = ShaderProtocols::MakeCameraUB( frame );
+                    windCamera = graph.CreateBuffer( RDG::BufferDesc{ sizeof( windBlock ) },
+                                                     "RayTracingScene.FoliageWind.CameraUB" );
+                    graph.QueueBufferUpload(
+                         windCamera, std::as_bytes( std::span<const ShaderProtocols::Camera>( &windBlock, 1 ) ) );
+                }
                 tlas = m_RayTracingScene.AddPasses( graph, required, *meshes, *m_FrameRayTracingCache, viewOrigin,
-                                                    lensScale, external );
+                                                    lensScale, external, windCamera );
+            }
             for ( const std::string& error : m_RayTracingScene.GetGatherErrors() )
             {
                 LOG_ERROR( "[SceneRenderer] {}: a mesh row traces nothing this frame: {}",
@@ -2488,18 +2538,22 @@ namespace Desert::Graphic
             // Under HardwareTraced the deferred composite reads "Shadows: Ray Traced Local" (ShadowMaskSlot), and
             // the maps are drawn only while a queued forward draw in view samples them
             // (LocalShadowMapsRead: meshes, forward terrain, particles, the water, the volumetric fog's froxels) -
-            // no reader the masks cannot serve loses its shadows.
+            // no reader the masks cannot serve loses its shadows - and for the lights whose denoiser history the
+            // video memory does not hold (SelectLocalShadowHistories): the composite reads their map.
             // Under VirtualMaps no atlas is drawn: every reader (the forward and translucent cells, the forward
             // terrain, the water, the composite, the surface cache) reads DESERT_LOCAL_SHADOW_VSM
             // (ForwardShadowMaskVariant).
             {
                 DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
                 System::MeshRenderer* const localShadowMeshes = m_Systems.Mesh.get();
+                SelectLocalShadowHistories( frame );
+                const bool tracedLocal = LocalShadowsAreRayTraced();
+                const bool allMapsRead = tracedLocal && LocalShadowMapsRead();
                 localShadowMeshes->UpdateLocalShadows(
                      m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights, m_SpotLightShadows,
                      !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) &&
-                          ( !LocalShadowsAreScreenMask() ||
-                            ( LocalShadowsAreRayTraced() && LocalShadowMapsRead() ) ) );
+                          ( !LocalShadowsAreScreenMask() || allMapsRead || !m_LocalShadowMapLights.empty() ),
+                     tracedLocal && !allMapsRead ? &m_LocalShadowMapLights : nullptr );
                 // The terrain's draws into those views, at the LOD each light asks for (not the camera's, so a
                 // cached local shadow survives a camera move), and its cache key, before LocalShadowPasses asks
                 // for it (PlanLocalShadowCache). Before this ran, GetLocalShadowCasterLights was empty and every
@@ -2634,6 +2688,9 @@ namespace Desert::Graphic
         }
         const LightGridParamsPayload lightGrid = AddFrameLightGrid( graph, textures, frame );
         textures.Transients.Lights.LightFunctionAtlas = lightFunctionAtlas;
+        // The water's caustics, read by every sun receiver of both paths (the forward base pass, the deferred
+        // direct lighting, the glass, the forward terrain) through the scene/view inputs.
+        AddFrameWaterCaustics( graph, textures, frame );
         DESERT_PROFILE_PHASE( lightGridPhases, "Light grid setup: World grid + distance field" );
         // The MegaLights translucency volume the forward and glass cells read starts OFF (the neutral block); it is
         // lit by AddFrameMegaLightsVolume once its visibility source is drawn - before the base pass on the forward
@@ -2722,10 +2779,16 @@ namespace Desert::Graphic
                            "visibility-buffer rows than a visibility word addresses (32 - kVisTriangleBits bits)",
                            m_ViewResources.GetName() );
             m_GrassVisibilityRowsOverflow = m_GrassVisibilityBuffer && rowsOverflow;
-            if ( m_GrassVisibilityBuffer && !rowsOverflow && meshRenderer != nullptr )
+            // VG-SW-RASTER R2: the view keeps the buffer for the grass, for the VG's SW clusters, or for both; the
+            // grass's sections join it only when the grass draws through it (an empty span: no grass section).
+            const bool grassOnVisibility = m_GrassVisibilityBuffer && !rowsOverflow;
+            const bool vgOnVisibility    = m_FrameVirtualGeometry && m_FrameVirtualGeometry->SoftwareRaster;
+            if ( ( grassOnVisibility || vgOnVisibility ) && meshRenderer != nullptr )
             {
-                auto made = m_GrassVisibility.AddFrame( graph, m_RenderExtent.Width, m_RenderExtent.Height,
-                                                        m_Systems.Grass->VisibilitySectionFirstRows() );
+                auto made =
+                     m_GrassVisibility.AddFrame( graph, m_RenderExtent.Width, m_RenderExtent.Height,
+                                                 grassOnVisibility ? m_Systems.Grass->VisibilitySectionFirstRows()
+                                                                   : std::span<const uint32_t>{} );
                 if ( made )
                 {
                     grassVisibility = made.GetValue();
@@ -2738,6 +2801,71 @@ namespace Desert::Graphic
                                m_ViewResources.GetName(), m_GrassVisibilityError );
                 }
             }
+            // VG-SW-RASTER: the main cut's SW clusters (AddFrameVirtualGeometry split them only when this view
+            // keeps a visibility buffer) atomic-maxed into the same words after their clear, their rows past
+            // every grass row (GrassRenderer::VisibilityRows), so the grass's depth pass and HZB see them.
+            if ( grassVisibility.IsValid() && vgOnVisibility && m_FrameDrawBins && m_VirtualGeometry )
+            {
+                const FrameDrawBins&        bins = *m_FrameDrawBins;
+                const FrameVirtualGeometry& cut  = *m_FrameVirtualGeometry;
+                const ViewFrame* const      view = GetViewFrame();
+                VirtualGeometry::ClusterCullResult culled;
+                culled.VisibleClusters = cut.VisibleClusters;
+                culled.RasterArgs      = cut.RasterArgs;
+                culled.VisibleCapacity = cut.VisibleCapacity;
+                // The VG rows follow the grass's when the grass shares the buffer, else they start at 0: the row
+                // base of the gate the main cut asked before its HW/SW split (one gate, one row base; it passed
+                // there, so cut.SoftwareRaster is set only when it passes here too).
+                const Common::ResultStr<uint32_t> rows = VirtualGeometrySwRasterRowBase( cut.VisibleCapacity );
+                if ( !rows && rows.GetError() != m_VirtualGeometrySwRasterError )
+                {
+                    LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), rows.GetError() );
+                    m_VirtualGeometrySwRasterError = rows.GetError();
+                }
+                if ( rows && view != nullptr && cut.Pass < GpuDriven::kMeshPassCount )
+                {
+                    const uint32_t rowBase  = rows.GetValue();
+                    const auto vgMeshes = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
+                    const GpuDriven::PassDrawBuffers& passSlots = bins.Upload.Passes[cut.Pass];
+                    const GpuDriven::PassDrawTable&   passTable =
+                         meshRenderer->GetDrawCommandCache()->Passes()[cut.Pass];
+                    const Common::BoolResultStr sw = m_VirtualGeometry->AddSoftwareRaster(
+                         graph, bins.Scene, vgMeshes, passSlots, bins.Upload.SubmeshTransforms, culled,
+                         grassVisibility.Words, view->JitteredViewProjection, rowBase, false );
+                    // R2: the frame now carries VG rows - its depth, classify, material depth and the VG resolve
+                    // run for them with or without a grass section (SceneRendererFrameMesh.cpp); R1: the tables
+                    // "Grass: Visibility Material Depth" walks from a VG row to its IndirectGroup.
+                    if ( sw )
+                    {
+                        grassVisibility.VgFirstRow        = rowBase;
+                        grassVisibility.VgRowCount        = cut.VisibleCapacity;
+                        grassVisibility.VgVisibleClusters = cut.VisibleClusters;
+                        grassVisibility.VgGroups          = {
+                                      .Instances      = bins.Scene.Instances,
+                                      .PrimitiveDraws = passSlots.PrimitiveDraws,
+                                      .DrawSlots      = passSlots.DrawSlots,
+                                      .Bins           = passSlots.Bins,
+                                      .Clusters       = vgMeshes.Clusters,
+                                      .Dags           = vgMeshes.Dags,
+                                      .PrimitiveRows  = static_cast<uint32_t>( passTable.PrimitiveDraws.size() ),
+                                      .DrawSlotRows   = static_cast<uint32_t>( passTable.DrawSlots.size() ),
+                                      .BinRows        = static_cast<uint32_t>( passTable.Bins.size() ),
+                                      .GroupCount     = static_cast<uint32_t>( passTable.Groups.size() ) };
+                    }
+                    if ( !sw && sw.GetError() != m_VirtualGeometrySwRasterError )
+                    {
+                        LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), sw.GetError() );
+                        m_VirtualGeometrySwRasterError = sw.GetError();
+                    }
+                }
+            }
+            // VG-SW-RASTER: the post cut splits HW/SW by FrameVirtualGeometry::SoftwareRaster
+            // (AddFrameVirtualGeometryPostOcclusion); without the main SW raster's rows in the visibility buffer
+            // (refused above, logged) no "Software Raster Post" runs, so the post cut keeps every cluster on the
+            // hardware raster instead of handing clusters to a raster that never comes.
+            if ( m_FrameVirtualGeometry && m_FrameVirtualGeometry->SoftwareRaster &&
+                 !grassVisibility.HasVirtualGeometryRows() )
+                m_FrameVirtualGeometry->SoftwareRaster = false;
             // THE MESHES' EARLY-Z MODE (UE r.EarlyZPass; RenderPipeline.EarlyZPass, default Masked). UE DBuffer
             // decals force the full early-Z (r.EarlyZPass 2 when r.DBuffer is on): "Deferred: Decals" runs between
             // the prepass and the base pass and reconstructs every receiver from that depth, so a frame with a
@@ -2750,7 +2878,9 @@ namespace Desert::Graphic
                 earlyZ = Common::Scalability::EarlyZPassMode::All;
             if ( meshRenderer != nullptr )
             {
-                meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() );
+                // The grass's sections leave the G-buffer path only when the grass itself chose the buffer: a
+                // frame made for the VG's SW rows alone keeps every blade on its cells (R2).
+                meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() && grassOnVisibility );
                 // UE r.EarlyZPass: which meshes "Deferred: Masked Depth Prepass" draws (MeshRenderer::SetEarlyZPass).
                 meshRenderer->SetEarlyZPass( earlyZ );
                 // UE r.MinScreenRadiusForDepthPrepass: the large opaque occluders written before the masked
@@ -2799,6 +2929,35 @@ namespace Desert::Graphic
             AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
             DESERT_PROFILE_PHASE( postOcclusionPhases, "Post-occlusion setup: Grass" );
             AddFrameGrassPostOcclusion( graph, textures, meshRenderer, frame, grassVisibility );
+            // VG-SW-RASTER (UE Nanite: one SW raster per pass into the same VisBuffer64): the post cut's SW
+            // clusters, appended to the main cut's VisibleClusters (AddFrameVirtualGeometryPostOcclusion), into the
+            // same words at the same row base, before "Grass: Visibility Classify" reads them; their depth reaches
+            // the G-buffer through "Grass: Visibility Depth Post-Occlusion" and their material through the VG
+            // resolve, whose rows [VgFirstRow, + VgRowCount) already span the whole shared list.
+            if ( grassVisibility.HasVirtualGeometryRows() && m_FrameVirtualGeometry &&
+                 m_FrameVirtualGeometry->PostRasterArgs.IsValid() && m_FrameDrawBins && m_VirtualGeometry &&
+                 meshRenderer != nullptr && m_FrameVirtualGeometry->Pass < GpuDriven::kMeshPassCount )
+            {
+                const FrameDrawBins&        bins = *m_FrameDrawBins;
+                const FrameVirtualGeometry& cut  = *m_FrameVirtualGeometry;
+                if ( const ViewFrame* const view = GetViewFrame(); view != nullptr )
+                {
+                    VirtualGeometry::ClusterCullResult culled;
+                    culled.VisibleClusters = cut.VisibleClusters;
+                    culled.RasterArgs      = cut.PostRasterArgs;
+                    culled.VisibleCapacity = cut.VisibleCapacity;
+                    const Common::BoolResultStr sw = m_VirtualGeometry->AddSoftwareRaster(
+                         graph, bins.Scene, VirtualGeometry::VirtualMeshTable::Get().Import( graph ),
+                         bins.Upload.Passes[cut.Pass], bins.Upload.SubmeshTransforms, culled, grassVisibility.Words,
+                         view->JitteredViewProjection, grassVisibility.VgFirstRow, true );
+                    if ( !sw && sw.GetError() != m_VirtualGeometrySwRasterError )
+                    {
+                        LOG_ERROR( "[SceneRenderer] {}: {}; the post cut's SW clusters are not drawn this frame",
+                                   m_ViewResources.GetName(), sw.GetError() );
+                        m_VirtualGeometrySwRasterError = sw.GetError();
+                    }
+                }
+            }
             if ( grassVisibility.IsValid() )
                 AddFrameGrassVisibilityResolve( graph, textures, meshRenderer, grassVisibility );
             DESERT_PROFILE_PHASE( postOcclusionPhases, "Post-occlusion setup: Forward depth + normal" );
@@ -2922,27 +3081,34 @@ namespace Desert::Graphic
                 // THE CLOUDS BETWEEN THE SCREEN PROBES' FORK AND THEIR JOIN (UE: the volumetric render target
                 // traced before the lights while Lumen's gather runs on the async queue). The march, its temporal
                 // resolve and its upsample read the sky LUTs (the graph head), the cloud shadow map and the scene
-                // depth - nothing the async runs write - so the graphics queue traces them while the probes
-                // gather, ahead of the reflections and the composite, which wait on the runs they read
-                // (RDGCompile FindAsyncRuns: the join at the first consumer). Here only when the depth they march
+                // depth - nothing the async runs write. FPS-CLOUDS-MARCH: they run on the async queue as their
+                // own run after the probes' (CloudQueue::AsyncCompute), joined only at their composite in the
+                // translucency, so the graphics queue pays none of the march (0.46-0.49 ms on FIELD-BARN-TURN);
+                // the reflections and the composite still wait only on the runs they read (RDGCompile
+                // FindAsyncRuns: the join at the first consumer). Here only when the depth they march
                 // against is already final (otherwise after the opaque scene, below): a single-sample target (no
-                // resolve after the opaque passes), no "Deferred: Generic" draw (a blended program writes the
-                // depth), no glass section and no water surface (it writes its own depth).
+                // resolve after the opaque passes) and no "Deferred: Generic" draw (a blended program writes the
+                // depth) or depth-writing glass section.
+                // FPS-CLOUDS-WATER: the water surface no longer keeps them late. They march the G-buffer depth
+                // (the opaque scene without the water, UE SceneDepthWithoutSingleLayerWater:
+                // AddFrameVolumetricClouds), and the composite, which draws after the water, depth-tests each
+                // pixel's cloud front against the water's own depth (CloudComposite.shader) - UE's volumetric
+                // clouds traced against the scene depth with the water composited over.
                 {
                     // GPU-ASYNC-WAIT: only a draw that WRITES the depth after the composite keeps the march late -
                     // a generic record in the frustum, or a translucent section whose draw state writes depth
                     // (MeshRenderer::LateDepthWriterInView); an off-screen generic record or a glass section that
-                    // writes none no longer moves 0.9 ms of clouds out of the probes' window.
-                    const auto* waterSurface = m_Systems.Water.get();
-                    const bool  noLateMeshDepth =
+                    // writes none no longer moves 0.9 ms of clouds out of the probes' window. (The composite's
+                    // depth test would settle those too, but a generic record also draws OPAQUE pixels after the
+                    // march, whose surface hides the sky behind them: those keep the late march.)
+                    const bool noLateMeshDepth =
                          meshRenderer == nullptr ||
                          meshRenderer->LateDepthWriterInView() == System::MeshRenderer::LateDepthWriter::None;
-                    const bool depthFinal = m_TargetFramebuffer->GetSpecification().Samples <= 1 &&
-                                            noLateMeshDepth &&
-                                            ( waterSurface == nullptr || !waterSurface->HasDraws() );
+                    const bool depthFinal =
+                         m_TargetFramebuffer->GetSpecification().Samples <= 1 && noLateMeshDepth;
                     if ( depthFinal && !m_DebugView.HidesAtmosphere() )
                     {
-                        AddFrameVolumetricClouds( graph, textures, frame );
+                        AddFrameVolumetricClouds( graph, textures, frame, CloudQueue::AsyncCompute );
                         m_FrameCloudsTraced = true;
                     }
                 }
@@ -3035,7 +3201,7 @@ namespace Desert::Graphic
                 // nodes, which have nothing to draw, add none.
                 const auto* water = m_Systems.Water.get();
                 const bool  copyConsumed =
-                     screenTrace.SceneHistory.IsValid() || ( water != nullptr && water->HasDraws() ) ||
+                     screenTrace.SceneHistory.IsValid() || ( water != nullptr && ( water->HasDraws() || water->HasUnderwater() ) ) ||
                      ( meshRenderer != nullptr && meshRenderer->TranslucentSectionsVisible() );
                 const RDG::TextureRef sceneCopy =
                      copyConsumed ? AddFrameSceneCopy( graph, textures, sceneColor(), copy,
@@ -3083,11 +3249,12 @@ namespace Desert::Graphic
         // scene copy (AddFrameOpaqueFog; a G-buffer view adds its inputs but not its apply); the sky LUTs are the
         // graph head's. A G-buffer or wireframe view (HidesAtmosphere) composites no cloud layer. The clouds come
         // here when the deferred lighting did not trace them between the probes' fork and join
-        // (m_FrameCloudsTraced): the depth they march against is final only after the water and the forward draws.
+        // (m_FrameCloudsTraced): the depth they march against is final only after the forward draws (a multisampled
+        // target, a late depth writer in view, the forward path).
         if ( !pathTraced && !m_DebugView.HidesAtmosphere() )
         {
             if ( !m_FrameCloudsTraced )
-                AddFrameVolumetricClouds( graph, textures, frame );
+                AddFrameVolumetricClouds( graph, textures, frame, CloudQueue::Graphics );
         }
         else
             AddFrameCloudSkyOcclusion( graph, textures );
@@ -3501,6 +3668,79 @@ namespace Desert::Graphic
         return ShadowMapReadersOutsideMeshes( m_Systems, kSceneViewShadowCascadesName );
     }
 
+    void SceneRendererImpl::SelectLocalShadowHistories( const ViewFrame& frame )
+    {
+        m_LocalShadowMapLights.clear();
+        const uint32_t height  = frame.Split.Render.Height;
+        const uint64_t history = System::ScreenSpaceDenoiser::HistoryBytes( frame.Split.Render.Width, height );
+        // The parked ones too: they stay on the device until the frames in flight that read them complete.
+        const uint64_t held =
+             static_cast<uint64_t>( m_LocalShadowDenoisers.size() + m_RetiredLocalShadowDenoisers.Size() ) * history;
+        if ( !LocalShadowsAreRayTraced() || history == 0 )
+        {
+            m_LocalShadowHistoryBudget.Declare( 0, 0, held );
+            return;
+        }
+
+        // The lights AddFrameRayTracedLocalShadows would denoise: in view, casting, with a penumbra and an identity.
+        // The others are traced with one hard ray and keep no history.
+        struct Candidate
+        {
+            uint32_t SourceId = 0;
+            float    Rank     = 0.0f;
+            float    Distance = 0.0f;
+        };
+        const Core::Frustum view( frame.Projection, frame.View );
+        const glm::vec3     eye( frame.InvView[3] );
+        const float         focal      = std::abs( frame.Projection[1][1] );
+        const float         tanHalfFov = focal > 0.0f ? 1.0f / focal : 0.0f;
+        // A light that owns a history keeps it until another is a quarter larger on screen: a history handed over
+        // restarts its accumulation, and two lamps of one size would trade it every frame.
+        constexpr float                           kOwnerBias = 1.25f;
+        std::vector<Candidate>                    candidates;
+        std::unordered_map<uint32_t, std::size_t> byId; // an entity's point and spot share one history
+        const auto consider = [&]( const LocalLightShadowSettings& shadow, const glm::vec3& position,
+                                   const float range, const float sourceRadius, const float sourceLength )
+        {
+            if ( !shadow.CastShadows || shadow.SourceId == 0 || range <= 0.0f ||
+                 ( sourceRadius <= 0.0f && sourceLength <= 0.0f ) || !view.IntersectsSphere( position, range ) )
+                return;
+            const float bias = m_LocalShadowDenoisers.contains( shadow.SourceId ) ? kOwnerBias : 1.0f;
+            const float radius =
+                 SphereScreenRadiusPx( position, range, eye, tanHalfFov, static_cast<float>( height ) );
+            const Candidate made{ shadow.SourceId, bias * radius, glm::length( position - eye ) };
+            const auto [it, added] = byId.try_emplace( shadow.SourceId, candidates.size() );
+            if ( added )
+                candidates.push_back( made );
+            else if ( made.Rank > candidates[it->second].Rank )
+                candidates[it->second] = made;
+        };
+        for ( std::size_t i = 0; i < m_PointLight.PointLights.size() && i < m_PointLightShadows.size(); ++i )
+        {
+            const auto& point = m_PointLight.PointLights[i];
+            consider( m_PointLightShadows[i], point.Position, point.Radius, point.SourceRadius, point.SourceLength );
+        }
+        for ( std::size_t i = 0; i < m_SpotLight.SpotLights.size() && i < m_SpotLightShadows.size(); ++i )
+        {
+            const auto& spot = m_SpotLight.SpotLights[i];
+            consider( m_SpotLightShadows[i], spot.Position, spot.Range, spot.SourceRadius, spot.SourceLength );
+        }
+
+        m_LocalShadowHistoryBudget.Declare( 0, candidates.size() * history, held );
+        const uint64_t granted = m_LocalShadowHistoryBudget.Grant() / history;
+        if ( granted >= candidates.size() )
+            return;
+        std::sort( candidates.begin(), candidates.end(),
+                   []( const Candidate& a, const Candidate& b )
+                   {
+                       if ( a.Rank != b.Rank )
+                           return a.Rank > b.Rank;
+                       return a.Distance != b.Distance ? a.Distance < b.Distance : a.SourceId < b.SourceId;
+                   } );
+        for ( std::size_t i = static_cast<std::size_t>( granted ); i < candidates.size(); ++i )
+            m_LocalShadowMapLights.insert( candidates[i].SourceId );
+    }
+
     void SceneRendererImpl::AssignLocalShadowMaskSlots( const Core::Frustum& view )
     {
         // ShadowCaster is UpdateLocalShadows' answer "this light casts in this view" (CastShadows, and the view
@@ -3578,14 +3818,21 @@ namespace Desert::Graphic
                 point.ShadowVisibility = static_cast<int32_t>( effective );
                 slotted                = effective == StochasticVisibility::VirtualMapsAndScreen;
             }
-            if ( !slotted )
+            const uint32_t sourceId = i < m_PointLightShadows.size() ? m_PointLightShadows[i].SourceId : 0u;
+            // A light without a denoiser history reads its map; one the atlas had no room for either is traced hard,
+            // one ray from its centre, which needs no history - it never goes unshadowed.
+            const bool mapLight = m_LocalShadowMapLights.contains( sourceId );
+            if ( !slotted || ( mapLight && point.ShadowView >= 0 ) )
                 continue;
             point.ShadowMaskSlot = slot++;
             m_LocalShadowMaskLights.push_back( System::RayTracedLocalShadowLight{
                  .Position          = point.Position,
                  .AttenuationRadius = point.Radius,
-                 .SourceRadius      = point.SourceRadius,
-                 .SourceId          = i < m_PointLightShadows.size() ? m_PointLightShadows[i].SourceId : 0u } );
+                 .SourceRadius      = mapLight ? 0.0f : point.SourceRadius,
+                 // Mesh/LightSources.glslh LightSourceHalfAxis: a point light's tube along cross(AxisX, AxisY).
+                 .SourceHalfAxis = glm::cross( point.AxisX, point.AxisY ) *
+                                   ( mapLight ? 0.0f : 0.5f * point.SourceLength ),
+                 .SourceId       = sourceId } );
         }
         uint32_t spotsIn = 0u;
         for ( std::size_t i = 0; i < m_SpotLight.SpotLights.size(); ++i )
@@ -3605,16 +3852,22 @@ namespace Desert::Graphic
                 spot.ShadowVisibility = static_cast<int32_t>( effective );
                 slotted               = effective == StochasticVisibility::VirtualMapsAndScreen;
             }
-            if ( !slotted )
+            const uint32_t sourceId = i < m_SpotLightShadows.size() ? m_SpotLightShadows[i].SourceId : 0u;
+            // A light without a denoiser history reads its map; one the atlas had no room for either is traced hard,
+            // one ray from its centre, which needs no history - it never goes unshadowed.
+            const bool mapLight = m_LocalShadowMapLights.contains( sourceId );
+            if ( !slotted || ( mapLight && spot.ShadowView >= 0 ) )
                 continue;
             spot.ShadowMaskSlot = slot++;
             m_LocalShadowMaskLights.push_back( System::RayTracedLocalShadowLight{
                  .Position          = spot.Position,
                  .AttenuationRadius = spot.Range,
-                 .SourceRadius      = spot.SourceRadius,
-                 .SpotDirection     = spot.Direction,
-                 .CosOuter          = spot.CosOuter,
-                 .SourceId          = i < m_SpotLightShadows.size() ? m_SpotLightShadows[i].SourceId : 0u } );
+                 .SourceRadius      = mapLight ? 0.0f : spot.SourceRadius,
+                 // Mesh/LightSources.glslh LightSourceHalfAxis: a spot's tube along its cone axis.
+                 .SourceHalfAxis = spot.Direction * ( mapLight ? 0.0f : 0.5f * spot.SourceLength ),
+                 .SpotDirection  = spot.Direction,
+                 .CosOuter       = spot.CosOuter,
+                 .SourceId       = sourceId } );
         }
         // The frame's one answer to "the local lights have virtual pages" (RenderMethods' rule over this view's
         // lights): every page reader of the frame - the page passes, MegaLights, the surface cache's cards - reads
@@ -4077,6 +4330,45 @@ namespace Desert::Graphic
         return true;
     }
 
+    RayTracing::RayTracingSceneReadsInputs SceneRendererImpl::AddFrameRayTracingSceneReads( RDG::Builder&  graph,
+                                                                                           FrameTextures& textures )
+    {
+        RayTracing::RayTracingSceneReadsInputs reads;
+        // The table the raster's materials read this frame (UploadWorldParameters), byte for byte.
+        reads.WorldParameters = graph.CreateBuffer(
+             RDG::BufferDesc{ std::max<std::size_t>( m_WorldParameterBytes.size(), sizeof( glm::vec4 ) ) },
+             "RayTracing.WorldParameters" );
+        if ( !m_WorldParameterBytes.empty() )
+            graph.QueueBufferUpload( reads.WorldParameters, std::span<const std::byte>( m_WorldParameterBytes ) );
+        // The map the raster binds (System.White without one) and its block (Params.y = 0: no map).
+        reads.RainOcclusionMap = SceneViewInputsOf( textures.GraphRefs() ).RainOcclusionMap;
+        RainOcclusionUniforms rain{};
+        if ( const auto* mesh = m_Systems.Mesh.get() )
+            rain = mesh->GetRainOcclusionUniforms();
+        reads.RainOcclusion = graph.CreateBuffer( RDG::BufferDesc{ sizeof( rain ) }, "RayTracing.RainOcclusionUB" );
+        graph.QueueBufferUpload( reads.RainOcclusion,
+                                 std::as_bytes( std::span<const RainOcclusionUniforms>( &rain, 1 ) ) );
+        return reads;
+    }
+
+    uint64_t SceneRendererImpl::RayTracingSceneReadsHash() const
+    {
+        // FNV-1a over the table's bytes and the rain occlusion block (std140 floats, no padding of its own).
+        uint64_t   hash  = 14695981039346656037ull;
+        const auto mixIn = [&hash]( std::span<const std::byte> bytes )
+        {
+            for ( const std::byte b : bytes )
+                hash = ( hash ^ static_cast<uint64_t>( b ) ) * 1099511628211ull;
+        };
+        mixIn( std::span<const std::byte>( m_WorldParameterBytes ) );
+        if ( const auto* mesh = m_Systems.Mesh.get() )
+        {
+            const RainOcclusionUniforms rain = mesh->GetRainOcclusionUniforms();
+            mixIn( std::as_bytes( std::span<const RainOcclusionUniforms>( &rain, 1 ) ) );
+        }
+        return hash;
+    }
+
     RDG::TextureRef SceneRendererImpl::AddFrameRayTracedSunShadow( RDG::Builder& graph, FrameTextures& textures,
                                                                    const std::vector<RDG::TextureRef>& gbuffer,
                                                                    const glm::vec3& directionToSun,
@@ -4164,9 +4456,10 @@ namespace Desert::Graphic
                 }
                 else
                     visibility = traced.GetValue().Mask;
-                // A point emitter (SourceRadius 0) casts a hard shadow from one ray: nothing to denoise. A light
-                // with no identity (SourceId 0) has no history to keep: its mask is shaded as traced.
-                if ( traced && light.SourceRadius > 0.0f && light.SourceId != 0 )
+                // A point emitter (SourceRadius 0, no tube) casts a hard shadow from one ray: nothing to denoise.
+                // A light with no identity (SourceId 0) has no history to keep: its mask is shaded as traced.
+                const float halfLength = glm::length( light.SourceHalfAxis );
+                if ( traced && ( light.SourceRadius > 0.0f || halfLength > 0.0f ) && light.SourceId != 0 )
                 {
                     if ( !velocity.IsValid() )
                     {
@@ -4198,14 +4491,16 @@ namespace Desert::Graphic
                             const RDG::TextureRef denoised = denoiser->DenoiseShadowVisibility(
                                  graph,
                                  System::ShadowVisibilityDenoiserInputs{
-                                      .Mask                 = traced.GetValue().Mask,
-                                      .ClosestOccluder      = traced.GetValue().ClosestOccluder,
-                                      .LocalLight           = glm::vec4( light.Position, light.SourceRadius ),
+                                      .Mask            = traced.GetValue().Mask,
+                                      .ClosestOccluder = traced.GetValue().ClosestOccluder,
+                                      // The denoiser's penumbra kernel is isotropic: a tube's reach is its
+                                      // radius plus its half-length (the bound along the tube).
+                                      .LocalLight = glm::vec4( light.Position, light.SourceRadius + halfLength ),
                                       .ReconstructionRadius = m_ShadowDenoiserRadius },
                                  System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
                                                                 .GBufferDepth  = depth,
                                                                 .Velocity      = velocity,
-                                                                .Black         = textures.GraphRefs().System.Black },
+                                                                .Black = textures.GraphRefs().System.Black },
                                  frame, width, height );
                             if ( denoised.IsValid() )
                                 visibility = denoised;
@@ -4650,6 +4945,7 @@ namespace Desert::Graphic
                                       .MorphWeights             = extra.MorphWeights,
                                       .MorphRevision            = extra.MorphRevision,
                                       .LodFeedback              = extra.LodFeedback,
+                                      .Leader                   = extra.Leader,
                                       .Outlined                 = extra.Outlined,
                                       .HiddenSubmeshes          = extra.HiddenSubmeshes,
                                       .ForcedLOD                = LODPreviewFor( extra.Entity, extra.ForcedLOD ),
@@ -4657,6 +4953,7 @@ namespace Desert::Graphic
                                       .CastShadows              = extra.CastShadows,
                                       .ReceiveShadows           = extra.ReceiveShadows,
                                       .CastContactShadow        = extra.CastContactShadow,
+                                      .ReceivesDecals           = extra.ReceivesDecals,
                                       .TranslucencySortPriority = extra.TranslucencySortPriority } );
     }
 
@@ -4764,16 +5061,34 @@ namespace Desert::Graphic
                 if ( section.MaxDrawDistance > 0.0f && lodView.has_value() &&
                      !IsWithinDrawDistance( *lodView, section.Transform, local, section.MaxDrawDistance ) )
                     continue;
+                bool rayTracingOnly = false;
                 if ( section.ImpostorScreenSize > 0.0f )
                 {
-                    // One side of the pair per view: the card below the switch size, the source at or above.
+                    // THE DITHERED SWITCH'S CPU UNION (WP-FAR-12F): the side either temporal sample draws (the card
+                    // below the switch size, the source at or above; LOD off: the source) is queued; the GPU cull's
+                    // ImpostorGate (InstanceCull.shader) fades the pair between the samples. While the samples
+                    // disagree the chunk is walked again each frame, until the fade settles on one side.
                     const std::array<float, 2> switchSizes{ Geometry::kLOD0ScreenSize, section.ImpostorScreenSize };
-                    const bool                 cardShown =
-                         impostorView.has_value() &&
-                         Geometry::SelectLODFromBounds( section.Transform, section.ImpostorBounds, *impostorView,
-                                                        switchSizes, -1, 0 ) == 1u;
-                    if ( cardShown != section.ImpostorCard )
-                        continue;
+                    const uint32_t             side  = section.ImpostorCard ? 1u : 0u;
+                    bool                       drawn = !section.ImpostorCard;
+                    if ( impostorView.has_value() )
+                    {
+                        Geometry::LODView at = *impostorView;
+                        at.Temporal          = m_Systems.Mesh->GetViewTemporalLOD();
+                        const Geometry::LODMask mask = Geometry::SelectDitheredLODFromBounds(
+                             section.Transform, section.ImpostorBounds, at, switchSizes, -1, 0 );
+                        drawn = mask.Levels[0] == side || mask.Levels[1] == side;
+                        if ( mask.IsDithered() )
+                            held.Pending = true;
+                    }
+                    if ( !drawn )
+                    {
+                        // The card leaves; the source stays queued for the ray tracing scene alone (the TLAS holds
+                        // the source at every distance, never the card - RayTracingGather).
+                        if ( section.ImpostorCard )
+                            continue;
+                        rayTracingOnly = true;
+                    }
                 }
                 if ( demandAsked )
                 {
@@ -4788,7 +5103,8 @@ namespace Desert::Graphic
                 held.Admitted.push_back( { .Chunk        = c,
                                            .Section      = s,
                                            .ForcedLOD    = LODPreviewFor( section.Entity, section.ForcedLOD ),
-                                           .MeshRevision = mesh->GetRenderRevision() } );
+                                           .MeshRevision   = mesh->GetRenderRevision(),
+                                           .RayTracingOnly = rayTracingOnly } );
             }
             FoldMaterialDemand( held.Demand );
         };

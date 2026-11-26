@@ -45,6 +45,9 @@ namespace Desert::Graphic::System
         glm::vec3 Position{ 0.0f };         // cm
         float     AttenuationRadius = 0.0f; // cm: PointLightPayload::Radius / SpotLightPayload::Range
         float     SourceRadius      = 0.0f; // cm: UE SourceRadius; 0 = a point, a hard shadow, no denoise
+        // cm: the tube's half-segment (UE SourceLength / 2, Mesh/LightSources.glslh LightSourceHalfAxis); 0 = the
+        // sphere. A tube of radius 0 is still an area source: sampled, denoised.
+        glm::vec3 SourceHalfAxis{ 0.0f };
         glm::vec3 SpotDirection{ 0.0f, 0.0f, -1.0f }; // out of the cone apex
         float     CosOuter = kRayTracedLocalShadowNoCone;
         uint32_t  SourceId = 0; // LocalLightShadowSettings::SourceId: the denoiser's history follows it
@@ -140,13 +143,16 @@ namespace Desert::Graphic::System
             graph.SetFaultDefault( out.Mask, RDG::FaultDefault::White );
             graph.SetFaultDefault( out.ClosestOccluder, RDG::FaultDefault::Black );
             // A point emitter casts a hard shadow: one ray says all (as the sun of angle 0).
-            const uint32_t samples = light.SourceRadius > 0.0f && samplesPerPixel > 0 ? samplesPerPixel : 1u;
+            const bool area =
+                 light.SourceRadius > 0.0f || glm::dot( light.SourceHalfAxis, light.SourceHalfAxis ) > 0.0f;
+            const uint32_t                         samples = area && samplesPerPixel > 0 ? samplesPerPixel : 1u;
             const ShaderPush::RayTracedLocalShadow push{
                  .InverseJitteredViewProjection = in.InvJitteredViewProjection,
                  .LightSphere                   = glm::vec4( light.Position, light.AttenuationRadius ),
                  .TraceParams                   = glm::vec4( light.SourceRadius, kRayTracedShadowNormalBias,
-                                                         static_cast<float>( samples ), static_cast<float>( frameIndex ) ),
-                 .SpotCone                      = glm::vec4( light.SpotDirection, light.CosOuter ) };
+                                                             static_cast<float>( samples ), static_cast<float>( frameIndex ) ),
+                 .SpotCone                      = glm::vec4( light.SpotDirection, light.CosOuter ),
+                 .SourceAxis                    = glm::vec4( light.SourceHalfAxis, 0.0f ) };
             const uint32_t width  = in.Width;
             const uint32_t height = in.Height;
             graph.AddPass(

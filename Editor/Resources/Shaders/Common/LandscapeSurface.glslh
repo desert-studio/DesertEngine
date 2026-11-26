@@ -69,6 +69,7 @@ struct LandscapeMaterial
     vec4 Detail;         // x DetailNormalScale (x tile size), y DetailNormalStrength, z MacroHueSize (cm), w MacroHueStrength
     vec4 LayerTint[8];   // input k's LayerKTint
     vec4 LayerParams[8]; // input k's (LayerKTileSize cm, LayerKBlend, LayerKNormalStrength, 0)
+    vec4 Weather;        // x Porosity (the rain's film, Common/WeatherRain.glslh), y, z, w 0
 };
 
 // INPUT @p k's ROW of a per-input array, by a chain of selects over constant indices: k is a value the tile row

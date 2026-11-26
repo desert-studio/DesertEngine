@@ -119,6 +119,9 @@ namespace Desert::Editor::Control
         uint32_t Overflow          = 0;
         uint32_t OccludedClusters  = 0;
         uint32_t BinnedVgInstances = 0; // VG instances the bins of a cut view still drew (must be 0)
+        // VG-SW-RASTER: the main view's clusters per raster (main + post phase), hardware / software.
+        uint32_t HwClusters = 0;
+        uint32_t SwClusters = 0;
     };
 
     struct EntitySnapshot
@@ -632,6 +635,8 @@ namespace Desert::Editor::Control
             virtualGeometry["overflow"]             = Num( snapshot.VirtualGeometry.Overflow );
             virtualGeometry["occludedClusters"]     = Num( snapshot.VirtualGeometry.OccludedClusters );
             virtualGeometry["binnedVgInstances"]    = Num( snapshot.VirtualGeometry.BinnedVgInstances );
+            virtualGeometry["hwClusters"]           = Num( snapshot.VirtualGeometry.HwClusters );
+            virtualGeometry["swClusters"]           = Num( snapshot.VirtualGeometry.SwClusters );
             views["virtualGeometry"]                = Common::Json::Value( virtualGeometry );
             views["scenes"]                = Num( snapshot.Scenes );
             views["distanceFieldPools"]    = Num( snapshot.DistanceFieldPools );

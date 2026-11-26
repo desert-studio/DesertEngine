@@ -1,0 +1,16 @@
+# WATER-BUOYANCY: crates of three densities dropped from 3 m into a calm lake (CalmOcean waves) float by Archimedes
+# (BuoyancyComponent: pontoons cut from the collider, lift = rho * g * V_submerged of the water's Density 1000).
+# The scene: three 100 cm crates (Collider Box 50, RigidBody Dynamic, Buoyancy Collider 3 cells) at y = 300 cm, seen
+# from -Z, so +X is on the left: ice 917 kg/m3 (pale blue, left), stone 2600 (white, middle), wood 600 (orange, right).
+# Log: editor.log has no "the pipeline has 0 sets".
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Buoyancy.desce
+Дано --subject viewport set Camera.Position 0,450,-1300
+Дано --subject viewport set Camera.Direction 0,-0.25,1
+Когда frames 32
+Тогда-вид 1_lake вода нарисована до горизонта; над ней висят три ящика: лёд слева, камень в центре, дерево справа
+Когда run Action "Simulate"
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Тогда-вид 2_float кадр отличается от 1_lake: деревянный ящик погружён ~60 %, ледяной ~92 % (над водой ~8 см крышки), каменный утонул - над водой его нет

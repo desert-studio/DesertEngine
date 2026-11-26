@@ -19,6 +19,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneReads.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/View/PassHistory.hpp>
@@ -103,6 +104,8 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, CloudShadowMapTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
         DESERT_SHADER_PARAMETER( UniformBuffer, CloudShadowUB );
+        // The world's table and rain occlusion the hit groups' weather reads (Common/RayTracingSceneReads.glslh).
+        DESERT_RAY_TRACING_SCENE_READ_PARAMETERS;
         // PATH_TRACING_NRC=1 only (Engine/Graphic/Neural/NeuralRadianceCache.hpp).
         DESERT_SHADER_PARAMETER( StorageBuffer, NrcQueriesUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, NrcTrainingSamplesUB );
@@ -265,7 +268,7 @@ namespace Desert::Graphic::System
     // rebuilt under unchanged rows (RayTracingSceneFrame::DynamicGeometry), or the scene's hash moved
     // (FrameInputs::SceneHash: the TLAS rows, the lights, the sun and sky, the environment, the hit groups'
     // material rows - SceneRenderer::PathTracingSceneHash), MaxPathIntensity changed, or the exposure the clamp
-    // was set at moved by more than kClampExposureStops (below).
+    // was set at settled more than kClampExposureStops away (below).
     //
     // THE PATH INTENSITY CLAMP (UE PathTracingCore.ush AccumulateRadiance, r.PathTracing.MaxPathIntensity): every
     // contribution a path adds - each light sample, emission or sky its material rays meet - is scaled down, hue
@@ -277,7 +280,11 @@ namespace Desert::Graphic::System
     // another value cannot be summed with it. In UE the clamp follows the current exposure and a change of it is a
     // change of the config; here eye adaptation moves PreExposure a little every frame (the path-traced image
     // feeds the histogram), and restarting on each move would never converge, so the sum restarts only when the
-    // exposure left the one it was clamped at by more than kClampExposureStops.
+    // exposure left the one it was clamped at by more than kClampExposureStops AND the exposure is steady: it moved
+    // by at most kSteadyExposureStops on each of the last kSteadyExposureFrames frames. The second condition keeps
+    // the loop open: a restart shows a few noisy paths, and without the denoiser their histogram moves the
+    // exposure by stops until the sum converges - judged then, each restart causes the next one and no sum
+    // finishes. A steady exposure is the converged image's, so the sum clamped at it stays.
     //
     // THE SKY LIGHT (UE PathTracingSkylightPrepare.usf): each traced frame the environment cube is resampled into
     // an equal-area square of side S (the cube face rounded up to a power of two, UE: the capture size) and the
@@ -402,8 +409,13 @@ namespace Desert::Graphic::System
 
         // How far (in stops) the view's PreExposure may move from the one the sum's clamp was stated at before the
         // sum restarts (THE PATH INTENSITY CLAMP above): the clamp holds to within a factor of 2 of the image's
-        // white, and the noise of a converging sum through eye adaptation never reaches a stop.
+        // white.
         static constexpr float kClampExposureStops = 1.0f;
+
+        // The exposure is judged against the clamp's only after it held still: at most this much (stops) on each of
+        // this many frames in a row (THE PATH INTENSITY CLAMP above).
+        static constexpr float    kSteadyExposureStops  = 0.002f;
+        static constexpr uint32_t kSteadyExposureFrames = 16;
 
         // PathTracing.LightSampling (THE LIGHT CHOICE above).
         enum class LightSamplingMethod : uint32_t
@@ -480,6 +492,8 @@ namespace Desert::Graphic::System
             RDG::TextureRef EnvSpecular; // the environment cube (System.BlackCube without one)
             RDG::TextureRef CloudShadowMap; // the cloud layer's shadow map (CloudShadowMapOrWhite)
             RDG::BufferRef  CloudShadow;    // its CloudShadowUB (CloudShadowPackUniforms; Params.y = 0: no map)
+            // The world's table and the view's rain occlusion the hit groups' weather reads (RayTracingSceneReads).
+            RayTracing::RayTracingSceneReadsInputs SceneReads;
             // This frame's hit group table; its Templates built the pipeline (EnsurePipeline).
             const RayTracing::RayTracingHitGroupTable* HitGroups = nullptr;
             RayTracing::EmissiveLightsFrame            Emissive; // this frame's emissive triangle list (Valid)
@@ -526,7 +540,20 @@ namespace Desert::Graphic::System
 
         Common::BoolResultStr Initialize() override
         {
-            m_TraceShader = Runtime::FindShader( "PathTracer/PathTracing" );
+            if ( const Core::ShaderVariant variant = TraceVariant( false ); !variant.IsDefault() )
+            {
+                // The SER permutation (TraceVariant): the device lists InvocationReorder, so the trace runs it;
+                // a refusal is this device's error, named - never the default program in its place.
+                auto acquired = Runtime::AcquireShaderVariant( kTraceProgram, variant );
+                if ( !acquired )
+                    return Common::MakeFormattedError(
+                         "PathTracer: the ray generation '{}' with DESERT_SER=1 (Shader Execution Reordering, "
+                         "the device lists VK_NV_ray_tracing_invocation_reorder) was refused: {}",
+                         kTraceProgram, acquired.GetError() );
+                m_TraceShader = acquired.ExtractValue();
+            }
+            else
+                m_TraceShader = Runtime::FindShader( kTraceProgram );
             if ( !m_TraceShader || !m_TraceShader->IsCompiled() )
                 return Common::MakeError(
                      "PathTracer: the ray generation 'PathTracer/PathTracing' did not compile or "
@@ -625,6 +652,21 @@ namespace Desert::Graphic::System
         // The radiance-cache trace's program (built with PATH_TRACING_NRC=1 by EnsureRadianceCache).
         static constexpr const char* kTraceProgram = "PathTracer/PathTracing";
 
+        // THE TRACE'S PERMUTATION, one source for both traces (RT-OMM-SER): PATH_TRACING_NRC=1 for the
+        // radiance-cache trace, DESERT_SER=1 wherever the device catalog lists RayTracingFeature::InvocationReorder
+        // (VK_NV_ray_tracing_invocation_reorder enabled on hardware RT, VulkanCapabilityCatalog) - the material
+        // rays are reordered by their hit's material (PathTracer.shader PathTracingTraceMaterialMasked). A device
+        // without it keeps the plain traceRayEXT program; the choice is the device's, not a setting.
+        [[nodiscard]] static Core::ShaderVariant TraceVariant( const bool nrc )
+        {
+            Core::ShaderVariant variant;
+            if ( nrc )
+                variant.Defines.push_back( "PATH_TRACING_NRC=1" );
+            if ( RayTracingReorderOffered() )
+                variant.Defines.push_back( kRayTracingReorderDefine );
+            return variant;
+        }
+
         // A registered program and its ShaderService::ProgramGeneration.
         using ProgramStamp = PathTracerProgramStamp;
         // "<program> <generation>, ..." (the log and state nrc).
@@ -689,9 +731,8 @@ namespace Desert::Graphic::System
             }
             if ( m_TracePipelineNrc && m_PipelineTemplatesNrc == m_PipelineTemplates )
                 return BOOLSUCCESS;
-            Core::ShaderVariant   variant;
-            variant.Defines = { "PATH_TRACING_NRC=1" };
-            auto                  acquired      = Runtime::AcquireShaderVariant( kTraceProgram, variant );
+            const Core::ShaderVariant variant  = TraceVariant( true );
+            auto                      acquired = Runtime::AcquireShaderVariant( kTraceProgram, variant );
             if ( !acquired )
             {
                 m_CacheShaderRefusal =
@@ -844,8 +885,13 @@ namespace Desert::Graphic::System
             }
             const bool resized =
                  !m_Accumulation.Built || m_Accumulation.Width != width || m_Accumulation.Height != height;
+            const bool exposureHeld =
+                 std::abs( std::log2( frame.PreExposure / m_LastPreExposure ) ) <= kSteadyExposureStops;
+            m_SteadyExposureFrames =
+                 exposureHeld ? std::min( m_SteadyExposureFrames + 1u, kSteadyExposureFrames ) : 0u;
+            m_LastPreExposure = frame.PreExposure;
             const bool exposureLeft =
-                 settings.MaxPathIntensity > 0.0f &&
+                 settings.MaxPathIntensity > 0.0f && m_SteadyExposureFrames >= kSteadyExposureFrames &&
                  !( std::abs( std::log2( frame.PreExposure / m_ClampPreExposure ) ) <= kClampExposureStops );
             // Every restart but the camera's motion: the previous sum is not this frame's scene (THE DENOISER'S
             // HISTORY empties with it).
@@ -867,6 +913,22 @@ namespace Desert::Graphic::System
             const bool stampUnreadable = !m_Stamp.ReadableIn( frame );
             if ( restart )
             {
+                // The sum's restarts other than a moving camera's, stated once per cause: one that repeats every
+                // frame would otherwise leave the sum unfinished without a word.
+                const uint32_t causes =
+                     ( resized ? 1u : 0u ) | ( stampUnreadable ? 2u : 0u ) | ( bouncesLeft ? 4u : 0u ) |
+                     ( samplingLeft ? 8u : 0u ) | ( sceneLeft ? 16u : 0u ) | ( inputs.DynamicGeometry ? 32u : 0u ) |
+                     ( clampLeft ? 64u : 0u ) | ( exposureLeft ? 128u : 0u ) | ( rawLeft ? 256u : 0u ) |
+                     ( nrcLeft ? 512u : 0u );
+                if ( causes != 0u && causes != m_RestartCauses )
+                    LOG_INFO( "[PathTracer] sum restarted after {} paths (resized {}, stamp {}, bounces {}, light "
+                              "sampling {}, scene {}, dynamic geometry {}, clamp {}, exposure {} ({} -> {}), raw to "
+                              "upscaler {}, radiance cache {})",
+                              m_Summed, resized, stampUnreadable, bouncesLeft, samplingLeft, sceneLeft,
+                              inputs.DynamicGeometry, clampLeft, exposureLeft, m_ClampPreExposure,
+                              frame.PreExposure, rawLeft, nrcLeft );
+                if ( causes != 0u )
+                    m_RestartCauses = causes;
                 m_Summed = 0;
                 ++m_Restarts;
                 m_ClampPreExposure = frame.PreExposure;
@@ -1728,6 +1790,8 @@ namespace Desert::Graphic::System
                                     RDG::SamplerDesc::LinearRepeat() )
                           .Uniform( PathTracingTraceShaderParameters::CloudShadowUB, inputs.CloudShadow )
                           .PushConstants<ShaderPush::PathTracer>();
+                     RayTracing::BindRayTracingSceneReads<PathTracingTraceShaderParameters>( block,
+                                                                                              inputs.SceneReads );
                  },
                  [this, push, pipeline, hits = inputs.HitGroups, width,
                   height]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -2046,6 +2110,9 @@ namespace Desert::Graphic::System
         float              m_MaxPathIntensity = 0.0f; // Settings::MaxPathIntensity the sum was clamped with
         float              m_ClampPreExposure = 1.0f; // the PreExposure that clamp was stated at (its restart's)
         uint64_t           m_SceneHash   = 0;     // FrameInputs::SceneHash the sum was traced over
+        float              m_LastPreExposure      = 1.0f; // the previous frame's, for the steadiness test
+        uint32_t           m_SteadyExposureFrames = 0;    // frames in a row the exposure held still
+        uint32_t           m_RestartCauses        = 0;    // the last logged restart's causes
         uint32_t           m_Restarts    = 0;     // the random sequence's seed: each restart draws new paths
         bool               m_TraceFailed = false; // this frame's trace was refused (set at execution)
         bool m_RawToUpscaler = false; // the sum holds one frame's pixel-centre paths for the upscaler

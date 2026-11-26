@@ -187,6 +187,13 @@ namespace Desert
         // BuildLODIndexBuffer appends exactly those levels and generates none. False only for a mesh no cook
         // made (a primitive, a procedural mesh), whose chain is generated at load.
         bool LodChainCooked = false;
+
+        // THE ERROR OF EACH LEVEL (SubmeshData::LodCutErrors, MeshBinary v9): LODCutErrors[k] is the relative
+        // error (of the submesh's bounds radius) LODs[k + 1] was cut from the cluster DAG at, or the error
+        // SimplifyLODLevels measured for it (a cooked or a load-generated chain). Empty = no error known (an
+        // imported chain, a v6-v8 cook): its levels' screen sizes are not capped by an error. Kept after BakedLODs
+        // is released - Geometry::LODLevelCutErrors reads it whenever the sizes are resolved.
+        std::vector<float> LODCutErrors = {};
     };
 
     // THE MATERIAL SLOT A MESH SECTION DRAWS WITH (UE: FStaticMeshSection::MaterialIndex), the one answer every

@@ -31,6 +31,9 @@ Shader "Terrain"
         Float       DetailNormalStrength ("Detail Normal Strength", Range(0,4), Category("Layers")) = 0
         Float       MacroHueSize ("Macro Hue Size (cm)", Range(100,100000), Category("Layers")) = 6000
         Float       MacroHueStrength ("Macro Hue Strength (radians)", Range(0,1.5), Category("Layers")) = 0
+        // The ground's response to the world's rain (Programs/Terrain/TerrainRain.glslh): how much water it soaks up
+        // when wet, as a mesh material's engine-owned Porosity (1 = soil, asphalt: darker, glossier).
+        Float       Porosity ("Porosity", Range(0,1), Category("Weather")) = 0.8
         // DISPLACEMENT (UE 5.4+ landscape displacement: the material's Displacement output, LandscapeDisplacement.glslh):
         // the layers' blended height moves the ground by (height - Center) x Magnitude along its normal, full up to
         // FadeStart from the camera and gone by FadeEnd. 0 cm = a flat ground; the dicing follows Scalability
@@ -173,6 +176,7 @@ Shader "Terrain"
 
         #include <Programs/Terrain/TerrainSurface.glslh>
         #include <Common/WeatherSnow.glslh>
+        #include <Programs/Terrain/TerrainRain.glslh>
 
         // THE CLOUD LAYER'S SHADOW ON THE WORLD. The terrain is the surface this feature is FOR — a deck
         // of cumulus drifting over open ground is the whole picture — and it is the surface that never
@@ -194,6 +198,19 @@ Shader "Terrain"
 
         // THE receiver, shared verbatim with the deferred composite and the mesh shaders.
         #include <Common/CloudShadowReceiver.glslh>
+
+        // The water's caustics on the sun under a water body (Common/WaterCaustics.glslh; SceneViewInputs::
+        // WaterCausticsMap / WaterCausticsFrame, bound by name). Set 1 after ViewIndirect's 0..6.
+        layout(set = 1, binding = 7) uniform texture2D WaterCausticsTexture;
+        #define WaterCausticsTexture sampler2D(WaterCausticsTexture, LinearRepeatSampler)
+        layout(std430, set = 1, binding = 8) readonly buffer WaterCausticsFrameUB
+        {
+        	vec4 WaterCausticsWindow;
+        	vec4 WaterCausticsShape;
+        	vec4 WaterCausticsBodies[];
+        };
+        #define WATER_CAUSTICS_FRAME
+        #include <Common/WaterCaustics.glslh>
         // FORWARD ONLY: in the Deferred path the composite applies it to the terrain's G-buffer texels.
 
         // THE FORWARD GROUND IS SHADED AS A FORWARD MESH IS (Mesh/Surface/Pass_Forward.glslh), through the same
@@ -282,6 +299,13 @@ Shader "Terrain"
             float          cover;
             float          opacity;
             TerrainSurface s = EvaluateTerrainSurfaceCovered( Material.Tint.rgb, transmission, cover, opacity );
+            // The world's rain first (Programs/Terrain/TerrainRain.glslh: the film, puddles in the ground's dips,
+            // ripples while it rains), then its snow over it, as a mesh surface takes them (SurfaceWeather.glslh).
+            // The ground is a dielectric at UE's default Specular until water stands on it.
+            float metallic = 0.0;
+            float specular = 0.5;
+            DesertApplyLandscapeRain( s, v_WorldPos, normalize( v_Normal ), Material.Porosity, metallic, specular, cover,
+                                      transmission );
             // The world's snow (Common/WeatherSnow.glslh) over the ground and the grass's far cover alike: where it
             // lies the ground is snow, DefaultLit, and the cover's transmission is buried with it. The layer reads the
             // GEOMETRIC normal (v_Normal), never s.N: the far cover bends s.N towards the eye (a grazing canopy's
@@ -292,6 +316,8 @@ Shader "Terrain"
             s.Roughness = mix( s.Roughness, snow.Roughness, snow.Weight );
             s.AO        = mix( s.AO, snow.AO, snow.Weight );
             s.N         = normalize( mix( s.N, snow.NormalWS, snow.Weight ) );
+            metallic    = mix( metallic, snow.Metallic, snow.Weight );
+            specular    = mix( specular, 0.5, snow.Weight ); // the snow is UE's default dielectric, as before the rain
             cover        = snow.Weight > 0.5 ? 0.0 : cover * ( 1.0 - snow.Weight );
             transmission *= 1.0 - snow.Weight;
             vec3 N           = s.N;
@@ -300,19 +326,20 @@ Shader "Terrain"
             // The eye: the view block's (CameraUB).
             const vec3          eye     = cameraUB.CameraPos;
             const float         roughness = DesertSpecularAA( s.Roughness, N );
-            const DesertSurface surface   = DesertMakeSurface( v_WorldPos, N, eye - v_WorldPos, s.Albedo, 0.0, roughness,
-                                                               0.5 ); // UE's default Specular, as TerrainGBuffer packs
+            const DesertSurface surface   = DesertMakeSurface( v_WorldPos, N, eye - v_WorldPos, s.Albedo, metallic,
+                                                               roughness, specular ); // as TerrainGBuffer packs
             const vec3          sss     = sqrt( clamp( transmission, 0.0, 1.0 ) );
             const DesertPayload payload = cover > 0.0 ? DesertPayload( sss.r, sss.g, sss.b, opacity )
                                                       : DesertPayload( 0.0, 0.0, 0.0, 0.0 );
 
-            // The sun, occluded by the cascades and its contact shadow, then by the cloud layer - the order
-            // Pass_Forward and the deferred composite assemble it in. The ground always receives sun shadows.
+            // The sun, occluded by the cascades and its contact shadow, then by the cloud layer, then focused by
+            // the water's caustics - the order Pass_Forward and the deferred composite assemble it in. The ground
+            // always receives sun shadows.
             const vec3  sunDir = normalize( -directionLights.directionLights.Direction.xyz ); // toward the sun
             int         cascade;
             const float shadow = ShadowFactor( kShadowLightSun, v_WorldPos, N, sunDir, cascade ) *
                                  ContactShadowFactor( v_WorldPos, N, sunDir, SunContactShadow, -1.0 ) *
-                                 CloudShadowFactor( v_WorldPos );
+                                 CloudShadowFactor( v_WorldPos ) * WaterCausticsFactor( v_WorldPos );
 
             vec3 light = vec3( 0.0 );
             for ( uint d = 0u; d < lightsMetadata.DirectionLightCount; d++ )
@@ -321,7 +348,7 @@ Shader "Terrain"
                      DesertSunLight( directionLights.directionLights.Direction.xyz,
                                      directionLights.directionLights.ColorIntensity.rgb *
                                           directionLights.directionLights.ColorIntensity.a,
-                                     shadow, shadow ), // the cover's transmitted light is shadowed as its surface (no caster depth here)
+                                     shadow, shadow, directionLights.directionLights.Direction.w ), // the cover's transmitted light is shadowed as its surface (no caster depth here)
                      surface, payload );
 
             // The point and spot lights (the MegaLights volume under Shadows Stochastic, else the pixel's froxel) and

@@ -25,6 +25,23 @@ vec3 SampleLightSourceSphere(vec3 axis, float distance, float radius, vec2 u, ou
 	return normalize(t * (cos(phi) * sinT) + b * (sin(phi) * sinT) + axis * cosT);
 }
 
+// THE CAPSULE (UE SourceLength: a tube along @p halfAxis, its half-segment in cm; 0 = the sphere), SAMPLED for the
+// same ray-traced shadows: a point of the segment uniform along its length from @p uLength in [0, 1) (UE's capsule
+// sampling picks the segment point first), then SampleLightSourceSphere's cone over the sphere of @p radius cm around
+// it from @p u. @p toCentre runs from the receiver to the light's centre. The shadow of a tube is soft along the tube
+// and as sharp across it as its radius makes it. A receiver on the segment's point: the ray aims at the centre.
+vec3 SampleLightSourceCapsule(vec3 toCentre, vec3 halfAxis, float radius, vec2 u, float uLength, out float reach)
+{
+	const vec3  toPoint  = toCentre + halfAxis * (2.0 * uLength - 1.0);
+	const float distance = length(toPoint);
+	if (distance <= 1e-4)
+	{
+		reach = length(toCentre);
+		return reach > 0.0 ? toCentre / reach : vec3(0.0, 0.0, 1.0);
+	}
+	return SampleLightSourceSphere(toPoint / distance, distance, radius, u, reach);
+}
+
 // The reach of ONE unjittered shadow ray from a receiver at @p distance cm of the sphere's centre, aimed at the
 // centre: where it meets the sphere of @p radius cm (SampleLightSourceSphere's reach on its axis). The single-ray
 // shadows of a local light - the surface cache's card lighting and the GI hit lighting - stop there, as every

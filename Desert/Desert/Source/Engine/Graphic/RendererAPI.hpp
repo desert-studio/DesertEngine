@@ -14,6 +14,8 @@
 #include <Engine/Graphic/RayTracingPipeline.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
 #include <memory>
+#include <optional>
+#include <glm/vec3.hpp>
 #include <string>
 #include <string_view>
 
@@ -105,9 +107,14 @@ namespace Desert::Graphic
     {
         RDG::BufferRef Args{}; // Access::IndirectArgs
         uint64_t       ArgsOffset = 0;
-        RDG::BufferRef Rows{}; // uint32 rows - Access::VertexIndex
+        RDG::BufferRef Rows{}; // uint32 rows - Access::VertexIndex (unused when Resolve is set)
         // The view's carrier of the scene blocks, as MeshIndirectGroupDraw::Material.
         const MaterialExecutor* Material = nullptr;
+        // The VG visibility resolve of one IndirectGroup (`.VisibilityResolve.Binned.VirtualGeometry` cell): the
+        // draw is the full-screen tile list (VisibilityBufferFrame::ResolveArgs), no Rows stream is bound, and
+        // (group, VgFirstRow, VgRowCount) ride the push block's Transform[0].xyz as uint bits
+        // (Mesh/Surface/VgVisibilityResolve.glslh).
+        std::optional<glm::uvec3> Resolve{};
     };
 
     enum class RendererAPIType : uint8_t

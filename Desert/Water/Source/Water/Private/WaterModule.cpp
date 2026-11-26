@@ -1,6 +1,9 @@
+#include <Water/Public/BuoyancyComponent.hpp>
+#include <Water/Public/BuoyancySimulation.hpp>
 #include <Water/Public/WaterBodyComponent.hpp>
 #include <Water/Public/WaterBodyGather.hpp>
 #include <Water/Public/WaterBodyQuery.hpp>
+#include <Water/Public/WaterFallEffects.hpp>
 #include <Water/Public/WaterRenderer.hpp>
 #include <Water/Public/WaterWavesAsset.hpp>
 #include <Water/Public/WaterWavesService.hpp>
@@ -15,9 +18,19 @@
 #include <Engine/ECS/System/PhysicsSceneFeature.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/SingleLayerWaterPass.hpp>
+#include <Common/Core/Logger.hpp>
+#include <Engine/Physics/ColliderComponent.hpp>
+#include <Engine/Physics/RigidBodyComponent.hpp>
+
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include <filesystem>
+#include <functional>
 #include <memory>
+#include <span>
+#include <string>
+#include <unordered_set>
+#include <vector>
 
 // THE WATER MODULE (UE: the Water plugin's StartupModule). Everything water adds to the engine is registered here,
 // through the engine's generic hooks: the wave service, the `.dwaves` asset type, the bodies' and zones' pools,
@@ -39,10 +52,15 @@ namespace Desert::Water
     namespace
     {
         // The water of a Play's physics scene (UE UWaterSubsystem): the bodies the step's bodies are in, over the
-        // landscape's ground, and the wave clock, which starts with the Play at zero.
+        // landscape's ground, and the wave clock, the scene's game time; and the buoyant bodies floating in it
+        // (UE UBuoyancyComponent's FBuoyancyComponentSim, run in the solver's pre-step).
         class WaterPhysicsFeature final : public ECS::IPhysicsSceneFeature
         {
         public:
+            explicit WaterPhysicsFeature( Physics::PhysicsWorld& world ) : m_World( world )
+            {
+            }
+
             void BeginFrame() override
             {
             }
@@ -52,19 +70,52 @@ namespace Desert::Water
                 // This frame's bodies over this frame's ground. The body list is retained (WaterBodyGather:
                 // re-walked only when a body is added, patched or removed) and its values read every frame, so a
                 // moved or edited body is the water at once; nothing is allocated in a steady frame.
-                m_Water.SetWorld( m_Gather.Gather( registry, []( const Assets::AssetHandle& waves )
-                                                   { return Runtime::GetWaterWavesService()->Get( waves ); } ),
-                                  ECS::DrawableLandscapeTiles( registry ).RayTiles );
+                // The scene's gravity (the physics world's, SceneSettings::Gravity): a river's fall accelerates
+                // by it (WaterBodyState::Gravity).
+                m_Water.SetGravity( m_World.GetGravity() );
+                m_Water.SetWorld(
+                     m_Gather.Gather(
+                          registry, []( const Assets::AssetHandle& waves )
+                          { return Runtime::GetWaterWavesService()->Get( waves ); },
+                          // An FFT set's bodies float on the surface the GPU drew: its CPU mirror
+                          // (WaterWavesService::Surfaces, published by WaterRenderer's readback).
+                          []( const Assets::AssetHandle& waves ) -> std::shared_ptr<const FFTSurfaceSnapshot>
+                          {
+                              auto* const service  = Runtime::GetWaterWavesService();
+                              auto        spectrum = service->GetSpectrum( waves );
+                              if ( !spectrum || !spectrum.GetValue() )
+                                  return nullptr;
+                              return service->Surfaces().Latest( spectrum.GetValue().get() );
+                          } ),
+                     ECS::DrawableLandscapeTiles( registry ).RayTiles );
+                SyncBuoyant( registry );
+            }
+
+            void BeginSteps( double gameTimeSeconds ) override
+            {
+                // THE ONE WATER CLOCK (UE UWaterSubsystem::GetWaterTimeSeconds = the world's time): the scene's
+                // game time at the steps' start, the clock the renderer draws the waves and the FFT passes at
+                // (which also stamps the FFT readback the queries extrapolate from).
+                m_Water.SetTime( gameTimeSeconds );
             }
 
             void PreStep( float dt ) override
             {
-                // The water's clock advances by the FIXED step, once per substep.
+                // The water's clock advances by the FIXED step, once per substep; the pontoons then read the
+                // surface of THIS step and push for this step only (a pre-step force acts on its step alone).
                 m_Water.Advance( dt );
+                const std::span<const glm::vec4> pontoons( m_Pontoons );
+                for ( Buoyant& buoyant : m_Buoyant )
+                    buoyant.SubmergedShare =
+                         ApplyBuoyancy( m_World, buoyant.Body,
+                                        pontoons.subspan( buoyant.FirstPontoon, buoyant.PontoonCount ), m_Water );
             }
 
-            void AfterStep( entt::registry& /*registry*/ ) override
+            void AfterStep( entt::registry& registry ) override
             {
+                for ( const Buoyant& buoyant : m_Buoyant )
+                    if ( auto* component = registry.try_get<ECS::BuoyancyComponent>( buoyant.Entity ) )
+                        component->SubmergedShare = buoyant.SubmergedShare;
             }
 
             void PublishEvents( entt::registry& /*registry*/ ) override
@@ -72,17 +123,77 @@ namespace Desert::Water
             }
 
         private:
-            WaterSubsystem m_Water;
+            // One buoyant body of this frame: its live physics body and its pontoons, a range of m_Pontoons.
+            struct Buoyant
+            {
+                entt::entity        Entity         = entt::null;
+                Physics::BodyHandle Body           = Physics::kInvalidBody;
+                std::size_t         FirstPontoon   = 0;
+                std::size_t         PontoonCount   = 0;
+                float               SubmergedShare = 0.0f;
+            };
+
+            // This frame's buoyant bodies, read from their components here (on the frame, before the steps) so
+            // the pre-step reads no registry. A dynamic body only: a static or kinematic one ignores forces. The
+            // storage is reused, so a steady frame allocates nothing.
+            void SyncBuoyant( entt::registry& registry )
+            {
+                m_Buoyant.clear();
+                m_Pontoons.clear();
+                auto buoyants = registry.view<ECS::BuoyancyComponent, ECS::RigidBodyComponent>();
+                for ( const entt::entity entity : buoyants )
+                {
+                    const ECS::BuoyancyComponent&  buoyancy  = buoyants.get<ECS::BuoyancyComponent>( entity );
+                    const ECS::RigidBodyComponent& rigidBody = buoyants.get<ECS::RigidBodyComponent>( entity );
+                    if ( rigidBody.RuntimeBody == Physics::kInvalidBody ||
+                         rigidBody.Data.Type != Physics::BodyType::Dynamic || m_Refused.contains( entity ) )
+                        continue;
+                    const std::size_t first = m_Pontoons.size();
+                    if ( buoyancy.Data.PontoonSource == ECS::BuoyancyPontoonSource::Manual )
+                    {
+                        const auto manual = ECS::ManualPontoonsOf( buoyancy.Data );
+                        m_Pontoons.insert( m_Pontoons.end(), manual.begin(), manual.end() );
+                    }
+                    else
+                    {
+                        const auto* collider = registry.try_get<ECS::ColliderComponent>( entity );
+                        std::string error    = collider != nullptr ? std::string{} : std::string( "it has no Collider" );
+                        if ( collider == nullptr ||
+                             !CutColliderPontoons( collider->Data, buoyancy.Data.ColliderCellsPerAxis, m_Pontoons,
+                                                   error ) )
+                        {
+                            m_Refused.insert( entity );
+                            LOG_ERROR( "[Water] entity {} does not float: its Pontoon Source is Collider and {}",
+                                       static_cast<uint32_t>( entity ), error );
+                            continue;
+                        }
+                    }
+                    if ( m_Pontoons.size() == first )
+                        continue; // a Manual list with no pontoon: nothing to float on
+                    m_Buoyant.push_back( Buoyant{ .Entity         = entity,
+                                                  .Body           = rigidBody.RuntimeBody,
+                                                  .FirstPontoon   = first,
+                                                  .PontoonCount   = m_Pontoons.size() - first,
+                                                  .SubmergedShare = 0.0f } );
+                }
+            }
+
+            Physics::PhysicsWorld& m_World;
+            WaterSubsystem         m_Water;
             // Refuses a body whose wave set cannot be read, once per entity per Play.
-            ECS::WaterBodyGather m_Gather;
+            ECS::WaterBodyGather   m_Gather;
+            std::vector<Buoyant>   m_Buoyant;
+            std::vector<glm::vec4> m_Pontoons;
+            // Buoyant bodies whose collider cannot be cut into pontoons, refused once per entity per Play.
+            std::unordered_set<entt::entity> m_Refused;
         };
     } // namespace
 
     void StartupModule()
     {
         ECS::RegisterPhysicsSceneFeature(
-             []( Physics::PhysicsWorld& ) -> std::unique_ptr<ECS::IPhysicsSceneFeature>
-             { return std::make_unique<WaterPhysicsFeature>(); } );
+             []( Physics::PhysicsWorld& world ) -> std::unique_ptr<ECS::IPhysicsSceneFeature>
+             { return std::make_unique<WaterPhysicsFeature>( world ); } );
         Graphic::System::RegisterSingleLayerWaterPass(
              []( Graphic::SceneRenderer* renderer, const std::shared_ptr<Graphic::Framebuffer>& target )
                   -> std::shared_ptr<Graphic::System::ISingleLayerWaterPass>
@@ -108,15 +219,30 @@ namespace Desert::Water
                    return static_cast<bool>(
                         m.FindByHandle<Assets::WaterWavesAsset>( Assets::AssetHandle( handle ) ) );
                } } );
+        // WATER-UNDERWATER: a saved .dwaves is watched here -> ContentRegistry::Update marks it written ->
+        // WaterWavesService re-reads it (WrittenSince) and rebuilds the set's waves without a restart; the poll
+        // itself has nothing to reload.
+        hooks.HotReloads.push_back(
+             { []( Assets::AssetManager& assetManager, std::vector<std::shared_ptr<Assets::AssetBase>>& watched )
+               {
+                   for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::WaterWavesAsset>() )
+                       if ( asset )
+                           watched.push_back( asset );
+               },
+               []( Assets::AssetManager&, const std::function<bool( const std::filesystem::path& )>& ) {} } );
         // The bodies are gathered by the physics feature and the zone collector inside parallel groups.
         hooks.Prepares.push_back(
              []( entt::registry& r )
              {
                  r.prepare<ECS::WaterBodyComponent>();
+                 r.prepare<ECS::BuoyancyComponent>();
                  r.prepare<ECS::WaterZoneComponent>();
              } );
+        // The foam, spray and mist at the foot of every river's falls.
+        hooks.SceneStates.push_back( []() -> std::unique_ptr<Core::ISceneModuleState>
+                                     { return std::make_unique<WaterFallEffects>(); } );
         // The water zones and the bodies inside them (WATER-W6): one command per zone.
         hooks.RenderCollectors.push_back( []( Core::Scene& scene )
-                                          { scene.AddSystem<ECS::WaterZoneECSSystem>(); } );
+                                          { scene.AddSystem<ECS::WaterZoneECSSystem>( scene.GetSettings() ); } );
     }
 } // namespace Desert::Water

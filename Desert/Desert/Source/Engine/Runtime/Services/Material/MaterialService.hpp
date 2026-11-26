@@ -371,6 +371,10 @@ namespace Desert::Runtime
         // compiling draws with the default material, silently, until it is ready).
         [[nodiscard]] bool IsPending( const Assets::AssetHandle& handle ) const;
 
+        // The same question of a built material, for a caller whose GetVariant answered null: a built cell outlives
+        // its shell's data, so a cell first asked for after the shell was released waits for the re-read.
+        [[nodiscard]] bool IsPending( const Graphic::Material* built ) const;
+
         // FORGET a material asset entirely — its runtime materials, its shell, and its entry in the
         // external -> internal map.
         //

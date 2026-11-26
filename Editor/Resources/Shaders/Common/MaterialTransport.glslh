@@ -81,5 +81,8 @@ m_PushConstants;
 // The draw's emission is a MegaLights light source (its material has Emissive Lights Scene on): the G-buffer marks
 // the shading word's EMISSION_IS_LIGHT, so a screen GI hit takes no emission from it (Common/GIHitLighting.glslh).
 #define DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT 4u
+// The primitive receives no decals (UE !bReceivesDecals; a skinned mesh by default): the G-buffer write skips the
+// DBuffer fetch (Mesh/Surface/GBufferOutputs.glslh DesertWriteGBuffer), as a material with Receive Decals off does.
+#define DESERT_PRIMITIVE_FLAG_NO_DECALS 8u
 
 #endif

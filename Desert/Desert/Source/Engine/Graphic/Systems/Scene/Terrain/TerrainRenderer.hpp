@@ -57,9 +57,9 @@ namespace Desert::Graphic::System
         std::shared_ptr<const Graphic::MaterialOverrides> Overrides;
     };
 
-    // The surface row values a tile reads (TerrainRenderer.cpp kTerrainRowSlotNames): the material's nine, the
-    // displacement's four, and four per weight layer.
-    inline constexpr size_t   kTerrainRowSlotCount = 13u + ( 4u * World::Landscape::kLandscapeMaxWeightLayers );
+    // The surface row values a tile reads (TerrainRenderer.cpp kTerrainRowSlotNames): the material's ten (Porosity
+    // the tenth), the displacement's four, and four per weight layer.
+    inline constexpr size_t   kTerrainRowSlotCount = 14u + ( 4u * World::Landscape::kLandscapeMaxWeightLayers );
     inline constexpr uint32_t kNoTerrainRowSlot    = ~0u;
 
     // What a surface row resolves to for the frame material and the displacement (TerrainRowValuesOf): the

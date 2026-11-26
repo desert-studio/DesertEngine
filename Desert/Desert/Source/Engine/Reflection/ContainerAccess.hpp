@@ -58,4 +58,20 @@ namespace Desert::Reflection
         vector[index] = typename Vector::value_type( Traits::From( value ) );
         return true;
     }
+
+    /// The address of the element at `index` of a vector of a reflected struct (FieldInfo::ContainerElementAt /
+    /// ContainerElementMut): what lets a field walker reach the fields inside each element. Null past the end.
+    template <typename Vector>
+    [[nodiscard]] const void* ContainerElementAt( const void* field, std::size_t index )
+    {
+        const auto& vector = *static_cast<const Vector*>( field );
+        return index < vector.size() ? static_cast<const void*>( &vector[index] ) : nullptr;
+    }
+
+    template <typename Vector>
+    [[nodiscard]] void* ContainerElementMut( void* field, std::size_t index )
+    {
+        auto& vector = *static_cast<Vector*>( field );
+        return index < vector.size() ? static_cast<void*>( &vector[index] ) : nullptr;
+    }
 } // namespace Desert::Reflection

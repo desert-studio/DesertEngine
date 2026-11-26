@@ -87,6 +87,7 @@ layout( std430, binding = 13 ) readonly buffer GrassBladeShape
     GrassBladeShapeData Blade;
     vec4                BladeHullTexels; // GrassBladeShapeGpu::HullTexels (FPS-GRASS-HULL)
     vec4                BladeHull[128];  // GrassBladeShapeGpu::Hull
+    vec4                BladeHullLine[32]; // GrassBladeShapeGpu::HullLine (FPS-GRASS-RASTER-2)
 };
 #else
 layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassDrawRowBlade
@@ -94,10 +95,12 @@ layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer 
     GrassBladeShapeData Shape;
     vec4                HullTexels; // GrassBladeShapeGpu::HullTexels (FPS-GRASS-HULL)
     vec4                Hull[128];  // GrassBladeShapeGpu::Hull
+    vec4                HullLine[32]; // GrassBladeShapeGpu::HullLine (FPS-GRASS-RASTER-2)
 };
 #define Blade           GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).Shape
 #define BladeHullTexels GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).HullTexels
 #define BladeHull       GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).Hull
+#define BladeHullLine   GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).HullLine
 #endif
 
 #include <Common/MaterialTransport.glslh>

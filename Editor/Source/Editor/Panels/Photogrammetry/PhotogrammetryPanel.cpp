@@ -17,6 +17,7 @@
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/ECS/CameraComponent.hpp>
 #include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/System/MeshECSSystem.hpp>
@@ -43,6 +44,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/CameraComponent.hpp>
@@ -51,7 +53,6 @@
 #include <Engine/ECS/StaticMeshComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/Graphic/Renderer.hpp>
-#endif
 
 namespace Desert::Editor
 {

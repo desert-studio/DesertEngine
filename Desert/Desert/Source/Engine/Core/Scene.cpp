@@ -15,6 +15,7 @@
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/World/Deformation/DeformationWorld.hpp>
+#include <Engine/World/Decals/DecalImpactPool.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Carry.hpp>
 #include <Engine/Runtime/Factory/PrefabFactory.hpp>
@@ -512,6 +513,7 @@ namespace Desert::Core
            m_WorldTime( std::make_unique<WorldTime>() ),
            m_WorldParameters( std::make_unique<WorldParameterInstance>() ),
            m_Deformation( std::make_unique<World::DeformationWorld>() ),
+           m_DecalImpacts( std::make_unique<World::DecalImpactPool>() ),
            m_Weather( std::make_unique<WeatherState>() ), m_GameMode( std::make_unique<GameMode>() ),
            m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
            m_Settings( std::make_unique<SceneSettings>() ), m_Packages( std::make_shared<EntityPackages>() ),
@@ -544,6 +546,7 @@ namespace Desert::Core
            m_WorldTime( std::make_unique<WorldTime>() ),
            m_WorldParameters( std::make_unique<WorldParameterInstance>() ),
            m_Deformation( std::make_unique<World::DeformationWorld>() ),
+           m_DecalImpacts( std::make_unique<World::DecalImpactPool>() ),
            m_Weather( std::make_unique<WeatherState>() ), m_GameMode( std::make_unique<GameMode>() ),
            m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
            m_Settings( std::make_unique<SceneSettings>() ), m_SceneName( std::move( sceneName ) ),
@@ -1052,8 +1055,11 @@ namespace Desert::Core
                 const auto&     light  = m_Registry.get<ECS::DirectionLightComponent>( *sun );
                 const glm::vec3 travel = ECS::DirectionalLightTravel( m_Registry, *sun );
                 sceneRendererInfo.SunVolumetricScatteringIntensity = light.Data.VolumetricScatteringIntensity;
+                // w = the sine of the disc's angular radius (UE SourceAngle is its full diameter): the sun's
+                // specular is the disc's (Mesh/LightSources.glslh DesertSunLight).
                 sceneRendererInfo.DirLights.DirectionLights.push_back(
-                     { glm::vec4( travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) } );
+                     { glm::vec4( travel, std::sin( glm::radians( light.Data.SourceAngle ) * 0.5f ) ),
+                       glm::vec4( light.Data.Color, light.Data.Intensity ) } );
             }
 
             // ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon): lit by the deferred pass beside
@@ -1072,7 +1078,8 @@ namespace Desert::Core
                 const glm::vec3 travel = ECS::DirectionalLightTravel( m_Registry, *second );
                 sceneRendererInfo.AtmosphereLight1 = Graphic::SceneRenderer::AtmosphereLight1Frame{
                      .Light = Graphic::ShaderProtocols::DirectionLightPayload{
-                          glm::vec4( travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) },
+                          glm::vec4( travel, std::sin( glm::radians( light.Data.SourceAngle ) * 0.5f ) ),
+                          glm::vec4( light.Data.Color, light.Data.Intensity ) },
                      .SourceAngleDegrees = light.Data.SourceAngle,
                      .CastShadows        = light.Data.CastShadows,
                      .ShadowBias         = { .BiasCm       = light.Data.ShadowBias,

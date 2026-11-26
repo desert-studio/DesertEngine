@@ -13,7 +13,11 @@ Shader "TerrainRayHit"
     //                painted weights - with the row's copy of the material's values and its layer maps through the
     //                bindless table at the ray cone's level; the albedo times the material's Tint, metallic 0 as the
     //                G-buffer writes it, the interpolated vertex normal facing the ray (the raster draws the tile
-    //                with Cull None) as the geometric normal. No lighting: the ray generation lights the payload;
+    //                with Cull None) as the geometric normal; then the world's rain (Programs/Terrain/TerrainRain.glslh,
+    //                the raster's own call: film, puddles, ripples at the cone's mip) before the grass's far cover,
+    //                whose leaf area a puddle buries as the raster's cover. No lighting: the ray generation lights the
+    //                payload. The rain reads the view's WorldParameters and rain occlusion: every ray generation
+    //                that traces this table declares them (Common/RayTracingSceneReads.glslh);
     //   any hit      the hole test of the tile's masked segment (the cells that touch a hole): a candidate in a
     //                hole is ignored, the raster's discard (LandscapeTileIsHole). The opaque segment has no hole
     //                and never runs it.
@@ -24,6 +28,7 @@ Shader "TerrainRayHit"
         ClosestHit
         {
             #include <Programs/Terrain/TerrainRayHit.glslh>
+            #include <Programs/Terrain/TerrainRain.glslh>
             #include <Generated/ShadingModels.glslh> // the payload's shading word (DesertPackShadingWord)
 
             void main()
@@ -50,21 +55,32 @@ Shader "TerrainRayHit"
                 // The grass field's far cover as the raster lays it (GRASS-FIELD), seen along the ray: the ray's
                 // origin view is the one whose blades are thinned out. The payload's model is DefaultLit, so the
                 // cover's transmitted light is the raster's alone.
+                LandscapeGrassCover grass = LandscapeGrassCoverAt( tile, w0, w1, viewDistance, cameraUB.GrassLens );
+                // The world's rain on the ground (the raster's DesertApplyLandscapeRain, with the row's Porosity):
+                // standing water buries the cover's leaf area as it does the raster's cover.
+                float metallic      = 0.0;
+                float specular      = 0.5;
+                float cover         = grass.Lai;
+                vec3  unusedThrough = vec3( 0.0 );
+                DesertApplyLandscapeRain( s, position, Ng, row.MaterialValues.Weather.x, metallic, specular, cover,
+                                          unusedThrough );
+                grass.Lai = cover;
                 vec3 transmission;
-                LandscapeApplyGrassCover( LandscapeGrassCoverAt( tile, w0, w1, viewDistance, cameraUB.GrassLens ), -gl_WorldRayDirectionEXT,
-                                          Ng, s.Albedo, s.N, s.Roughness, s.AO, transmission );
+                LandscapeApplyGrassCover( grass, -gl_WorldRayDirectionEXT, Ng, s.Albedo, s.N, s.Roughness, s.AO,
+                                          transmission );
 
                 payload.HitT      = gl_HitTEXT;
                 payload.BaseColor = s.Albedo;
-                payload.Metallic  = 0.0;
+                payload.Metallic  = metallic;
                 // The payload carries the roughness already floored, one place per hit group (UE: the hit shader
                 // writes the clamped value, its consumers never re-clamp): the floor Pass_RayHit writes with
                 // (= kDesertMinRoughness, task/PT-DARK-MIRROR; the merge folds both onto the constant).
                 payload.Roughness = max( s.Roughness, 0.04 );
                 payload.Emissive  = vec3( 0.0 );
                 payload.Normal    = s.N;
-                // DefaultLit, UE's default Specular 0.5, no payload: the model the raster lights it with.
-                payload.ShadingWord = DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, 0.5,
+                // DefaultLit at the ground's Specular (UE's default 0.5; water's under a puddle), no payload: the
+                // model and the values the raster lights it with.
+                payload.ShadingWord = DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, specular,
                                                              DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
                 payload.Flags     = gl_HitKindEXT == gl_HitKindFrontFacingTriangleEXT ? kDesertRayPayloadFrontFace : 0u;
                 DesertRayHitIdentify();

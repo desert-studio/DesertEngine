@@ -63,8 +63,21 @@ namespace Desert::Graphic::System
         // card's hull (GrassQuality::BladeCardHull and a cooked hull), w = 0; Hull = GrassBladeDraw::CardHulls.
         glm::vec4                  HullTexels{ 0.0f };
         std::array<glm::vec4, 128> Hull{}; // 8 cards x 4 classes x 8 bands, (lo, hi) pairs (GrassBlade.glslh)
+        // FPS-GRASS-RASTER-2: per card x class (k x 4 + c) the one-segment strip's trapezoid (lo, hi at the root,
+        // lo, hi at the tip) holding every band of Hull (GrassBladeHullLine); lo > hi: nothing passes.
+        std::array<glm::vec4, 32> HullLine{};
     };
-    static_assert( sizeof( GrassBladeShapeGpu ) == 32 + 16 * 8 + 16 * 4 + 16 + 16 * 128 );
+    static_assert( sizeof( GrassBladeShapeGpu ) == 32 + 16 * 8 + 16 * 4 + 16 + 16 * 128 + 16 * 32 );
+
+    // FPS-GRASS-RASTER-2, THE ONE-SEGMENT HULL (UE SubUV cutout fitted to the strip's own rows): the far strip
+    // level has one segment, so its two rows took the union of all eight bands - a rectangle as wide as the
+    // card's widest band, while a blade card tapers. The trapezoid (lo, hi) at t = 0 and t = 1 whose sides are the
+    // lines of least area that still hold every non-empty band's span over the band's t range (the upper hull of
+    // the bands' corners at t = 1/2 - the line through t = 1/2 of least height above them, Kirkpatrick-free: 9
+    // corners); the rectangle where the bands lie on one side of t = 1/2 or a side line leaves [-1, 1]. The
+    // strip's plane and UV map are affine in (side, t), so every fragment the clip could keep is still drawn.
+    // @p bands: one card x class's kGrassBladeHullBands / 2 vec4s of Hull.
+    [[nodiscard]] glm::vec4 GrassBladeHullLine( const glm::vec4* bands );
     // The strip levels BucketFirst holds (a blade's buckets are its strip's levels: Segments halved down to one).
     inline constexpr uint32_t kGrassBladeVisibilityMaxBuckets = 8u;
 

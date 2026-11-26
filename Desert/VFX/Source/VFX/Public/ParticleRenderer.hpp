@@ -430,6 +430,8 @@ namespace Desert::Graphic::System
         // Whether this view's opaque / masked particle draws go to GBufferPass (the deferred path with a
         // G-buffer).
         [[nodiscard]] bool DrawsOpaqueIntoGBuffer() const;
+        // The stand-in surface's draw for @p path, null (said once) when it has none.
+        SpriteDraw* StandInDraw( MeshVertexPath path );
         // The draw renderer row @p row of @p fe draws with this frame: the row's material's cell of the row's
         // vertex path (Sprite: ParticleSprite.Forward, Ribbon: ParticleRibbon.Forward); no material named = that
         // path's engine default cell; a named material that is broken / missing / without the cell =
@@ -495,11 +497,16 @@ namespace Desert::Graphic::System
         // refuses without it).
         std::string m_DefaultRibbonCell;
         // The stand-in surface template's (`Role StandInSurface`) ParticleSprite.Forward / ParticleRibbon.Forward
-        // cells (UE WorldGridMaterial: the world checker a row draws with when the material it NAMES is broken,
-        // missing or has no particle cell, so a defect reads as a stand-in and never as an authored soft disc;
-        // empty = that template has no such cell, logged once by Initialize, and such a row is not drawn).
-        std::string m_BrokenCell;
-        std::string m_BrokenRibbonCell;
+        // cells (UE WorldGridMaterial: the checker a row draws with when the material it NAMES is broken, missing or
+        // has no particle cell). Found by that role when a row first needs it (StandInDraw); a template without
+        // such a cell is reported once and the row is not drawn.
+        struct StandInCell
+        {
+            std::string Cell;
+            bool        Reported = false;
+        };
+        StandInCell m_StandInSprite;
+        StandInCell m_StandInRibbon;
         // Per cell shader, per view (a draw's camera block is the view's). Null = that cell was refused.
         std::unordered_map<std::string, std::unique_ptr<SpriteDraw>> m_Sprites;
         // Per entity (raw entt entity value), per (emitter, renderer row), per view.

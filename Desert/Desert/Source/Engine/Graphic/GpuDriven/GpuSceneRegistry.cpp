@@ -277,7 +277,8 @@ namespace Desert::Graphic::GpuDriven
     {
         if ( inserted || entry.Mesh != record.Mesh || entry.Geometry != GeometryOf( record.Mesh ) ||
              entry.Flags != record.Flags ||
-             entry.ForcedLod != record.ForcedLod || entry.LodBias != record.LodBias )
+             entry.ForcedLod != record.ForcedLod || entry.LodBias != record.LodBias ||
+             entry.ImpostorSwitchSize != record.ImpostorSwitchSize )
         {
             PrimitiveDesc desc;
             desc.Mesh         = record.Mesh;
@@ -286,6 +287,7 @@ namespace Desert::Graphic::GpuDriven
             desc.Entity       = record.Entity;
             desc.ForcedLod    = record.ForcedLod;
             desc.LodBias      = record.LodBias;
+            desc.ImpostorSwitchSize = record.ImpostorSwitchSize;
             FillBounds( desc, record.Mesh );
             if ( inserted )
                 entry.Primitive = m_Scene.AddPrimitive( desc );
@@ -296,6 +298,7 @@ namespace Desert::Graphic::GpuDriven
             entry.Flags     = record.Flags;
             entry.ForcedLod = record.ForcedLod;
             entry.LodBias   = record.LodBias;
+            entry.ImpostorSwitchSize = record.ImpostorSwitchSize;
         }
         else
             m_Scene.SetTransform( entry.Primitive, record.World );
@@ -776,7 +779,7 @@ namespace Desert::Graphic::GpuDriven
             proxy.Primitive = registry.AddPrimitive( m_List, key, record );
         else if ( proxy.World != record.World || proxy.Mesh != record.Mesh || proxy.Geometry != geometry ||
                   proxy.Flags != record.Flags || proxy.ForcedLod != record.ForcedLod ||
-                  proxy.LodBias != record.LodBias )
+                  proxy.LodBias != record.LodBias || proxy.ImpostorSwitchSize != record.ImpostorSwitchSize )
             registry.UpdatePrimitive( m_List, proxy.Primitive, record );
         proxy.World     = record.World;
         proxy.Mesh      = record.Mesh;
@@ -784,6 +787,7 @@ namespace Desert::Graphic::GpuDriven
         proxy.Flags     = record.Flags;
         proxy.ForcedLod = record.ForcedLod;
         proxy.LodBias   = record.LodBias;
+        proxy.ImpostorSwitchSize = record.ImpostorSwitchSize;
     }
 
     bool GpuSceneProxies::Sync( GpuSceneRegistry& registry, std::span<const MotionRecord> rigid,

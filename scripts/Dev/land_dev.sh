@@ -33,6 +33,9 @@ links_base=$(git ls-tree -r "$base" | grep -c '^120000' || true)
 legacy=$(git diff "$base" HEAD -U0 -- '*.cpp' '*.hpp' '*.h' | grep -E '^\+.*\b(Legacy|Compat)[A-Za-z_]*\b' | head -5)
 [ -z "$legacy" ] || { echo "land_dev: added Legacy/Compat code — not landing:"; echo "$legacy"; exit 2; }
 # The merged tree's own build scripts: the preset and the build are the ones being landed.
+# Singletons, content names in the engine, files over 2500 lines: the counts may only fall (DEV_CONTRACT 00e).
+python3 "$TREE/scripts/Dev/arch_census.py" || { echo "land_dev: the architecture census rose — not landing"; exit 2; }
+
 source "$TREE/scripts/Dev/_common.sh"
 LOG=$(dev_logdir land)
 dev_configure "$LOG" || { echo "land_dev: configure failed, nothing pushed"; exit 2; }

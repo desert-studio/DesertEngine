@@ -23,6 +23,8 @@
 //     --reflect-anchor <Name>  after --reflect: the force-link function the output defines (default
 //                    ForceLinkGeneratedReflection; a second generated set in one image names its own).
 //     --reflect-components <output-file>  after --reflect: the COMPONENT(...) block list.
+//     --schema-lock <file>  after --reflect: Desert/Schema/ComponentSchema.lock, the stored shape of every
+//                    COMPONENT block, checked and rewritten (Source/SchemaLock.hpp).
 //     --reflect-root <source-root> <scan-subdir>  after --reflect: one more tree scanned into the SAME set
 //                    (a library the engine links whose headers carry reflected types, e.g. DesertUI).
 //     --reflect-enums <scan-dir>  after --reflect: a tree read for ENUM definitions only (no reflected types),
@@ -50,6 +52,7 @@
 #include "Source/ComponentBlocks.hpp"
 #include "Source/HeaderScan.hpp"
 #include "Source/ModuleTable.hpp"
+#include "Source/SchemaLock.hpp"
 #include "Source/ShaderPushBlocks.hpp"
 
 #include <cctype>
@@ -113,6 +116,7 @@ namespace
         bool        isColor   = false;
         bool        isAsset   = false;
         std::string assetType;
+        std::string assetRole; // PROPERTY(Role( WaterMaterial )) - template role the asset slot accepts
         bool        thumbnail = false;
         bool        readOnly  = false;
         bool        hidden    = false;
@@ -126,6 +130,10 @@ namespace
         bool        replicated  = false; // PROPERTY(Replicated) — network state (NET-ARCH §3.4)
         std::string editCondition;       // PROPERTY(EditCondition("Foo")) — grey out while Foo is false
         std::string refuse; // PROPERTY(Refuse("Ns::Fn")) — the value check every setter applies (FieldInfo::Meta)
+        // PROPERTY(WasNamed("Old")) — earlier names of the field, newest first: the loader reads a stored key
+        // under one of them when the field's own name is absent (ReflectionSerializer), and ComponentSchema.lock
+        // takes the rename instead of refusing it as a removal (Source/SchemaLock.hpp).
+        std::vector<std::string> wasNamed;
     };
 
     struct Field
@@ -543,6 +551,18 @@ namespace
                 if ( a != std::string::npos && b != std::string::npos && b > a )
                     m.assetType = tok.substr( a + 1, b - a - 1 );
             }
+            else if ( tok.rfind( "Role", 0 ) == 0 )
+            {
+                // Role( WaterMaterial ): a bare identifier, the shader role name (ShaderAssetHeader.hpp k*Role).
+                auto a = tok.find( '(' ), b = tok.rfind( ')' );
+                if ( a != std::string::npos && b != std::string::npos && b > a )
+                {
+                    std::string v = tok.substr( a + 1, b - a - 1 );
+                    while ( !v.empty() && std::isspace( (unsigned char)v.front() ) ) v.erase( v.begin() );
+                    while ( !v.empty() && std::isspace( (unsigned char)v.back() ) ) v.pop_back();
+                    m.assetRole = v;
+                }
+            }
             else if ( tok.rfind( "Units", 0 ) == 0 )
                 m.units = ExtractStringLiteral( tok );
             else if ( tok == "Color" )     m.isColor = true;
@@ -565,6 +585,8 @@ namespace
                 m.editCondition = ExtractStringLiteral( tok );
             else if ( tok.rfind( "Refuse", 0 ) == 0 )
                 m.refuse = ExtractStringLiteral( tok );
+            else if ( tok.rfind( "WasNamed", 0 ) == 0 )
+                m.wasNamed.push_back( ExtractStringLiteral( tok ) );
             else if ( tok == "Length" )
                 m.isLength = true;
         }
@@ -1208,6 +1230,7 @@ namespace
         flag( "isColor", m.isColor );
         if ( m.isAsset )
             b.Set( "isAsset", true ).Set( "assetType", m.assetType );
+        text( "assetRole", m.assetRole );
         flag( "thumbnail", m.thumbnail );
         flag( "readOnly", m.readOnly );
         flag( "hidden", m.hidden );
@@ -1221,6 +1244,9 @@ namespace
         flag( "replicated", m.replicated );
         text( "editCondition", m.editCondition );
         text( "refuse", m.refuse );
+        if ( !m.wasNamed.empty() )
+            b.Set( "hasWasNamed", true )
+                 .Set( "wasNamed", Common::Json::Value( Common::Json::Value::Array( m.wasNamed.begin(), m.wasNamed.end() ) ) );
         return b.Build();
     }
 
@@ -1417,6 +1443,7 @@ namespace
                                     .Set( "whole", c.member.empty() )
                                     .Set( "typeName", c.typeName )
                                     .Set( "run", c.run )
+                                    .Set( "version", std::to_string( c.version ) )
                                     .Build() );
         return Common::Json::ObjectBuilder()
              .Set( "includes", Common::Json::Value( std::move( includeValues ) ) )
@@ -1528,6 +1555,106 @@ namespace
     }
 
     // One source tree the reflected types are read from: its include root and the directory under it scanned.
+    // One reflected type's fields as ComponentSchema.lock rows under `prefix`, a reflected struct's (or a container
+    // of them's) own fields right after it. `visiting` stops a type that contains itself through a container.
+    void AppendSchemaFields( const ReflectedType& type, const std::string& prefix,
+                             const std::vector<ReflectedType>& types, std::vector<std::string>& visiting,
+                             std::vector<Desert::HeaderTool::SchemaField>& out )
+    {
+        using Desert::HeaderTool::CanonicalSchemaType;
+        visiting.push_back( type.registryName );
+        for ( const Field& f : type.fields )
+        {
+            Desert::HeaderTool::SchemaField row;
+            row.path     = prefix + f.name;
+            row.wasNamed = f.meta.wasNamed;
+            const bool           element = f.isContainer && f.elemFieldType == "Struct";
+            const ReflectedType* nested  = nullptr;
+            if ( f.fieldType == "Struct" || element )
+            {
+                const std::string shortName = CanonicalSchemaType( element ? VectorElement( f.cppType ) : f.cppType );
+                const auto        matches   = std::count_if( types.begin(), types.end(), [&]( const ReflectedType& t )
+                                                             { return t.registryName == shortName; } );
+                if ( matches == 1 )
+                    nested = &*std::find_if( types.begin(), types.end(), [&]( const ReflectedType& t )
+                                             { return t.registryName == shortName; } );
+            }
+            if ( f.fieldType == "Enum" )
+            {
+                row.type        = "enum " + CanonicalSchemaType( f.cppType );
+                row.enumerators = f.enumValues;
+            }
+            else if ( nested != nullptr )
+                row.type = element ? "[{}]" : "{}";
+            else
+                row.type = CanonicalSchemaType( f.cppType );
+            out.push_back( row );
+            if ( nested != nullptr &&
+                 std::find( visiting.begin(), visiting.end(), nested->registryName ) == visiting.end() )
+                AppendSchemaFields( *nested, row.path + ( element ? "[]." : "." ), types, visiting, out );
+        }
+        visiting.pop_back();
+    }
+
+    // The code's COMPONENT blocks against the committed lock (Source/SchemaLock.hpp): a refused change is a build
+    // error saying what to write; an accepted one rewrites the lock, a missing lock is written fresh.
+    bool CheckAndWriteSchemaLock( const fs::path& lockFile, const std::vector<ComponentBlock>& components,
+                                  const std::vector<ReflectedType>& types )
+    {
+        std::vector<Desert::HeaderTool::SchemaBlock> current;
+        for ( const ComponentBlock& c : components )
+        {
+            Desert::HeaderTool::SchemaBlock b;
+            b.key     = c.key;
+            b.version = c.version;
+            b.where   = c.where;
+            const auto type = std::find_if( types.begin(), types.end(), [&]( const ReflectedType& t )
+                                            { return t.registryName == c.typeName; } );
+            std::vector<std::string> visiting;
+            if ( type != types.end() )
+                AppendSchemaFields( *type, {}, types, visiting, b.fields );
+            current.push_back( std::move( b ) );
+        }
+        const std::string written = Desert::HeaderTool::WriteSchemaLock( current );
+        if ( fs::exists( lockFile ) )
+        {
+            const std::string        text = ReadFile( lockFile );
+            std::vector<std::string> readErrors;
+            const auto               locked = Desert::HeaderTool::ReadSchemaLock( text, readErrors );
+            for ( const std::string& e : readErrors )
+                std::cerr << lockFile.generic_string() << ": " << e << "\n";
+            if ( !readErrors.empty() )
+                return false;
+            const auto verdict = Desert::HeaderTool::CheckSchemaLock( locked, current );
+            for ( const std::string& e : verdict.errors )
+                std::cerr << "[DesertHeaderTool] schema: " << e << "\n";
+            if ( !verdict.errors.empty() )
+            {
+                std::cerr << std::format( "[DesertHeaderTool] {} change(s) old scenes cannot be read through; "
+                                          "{} left as it was\n",
+                                          verdict.errors.size(), lockFile.generic_string() );
+                return false;
+            }
+            if ( text == written )
+                return true;
+            for ( const std::string& change : verdict.changes )
+                std::cout << "[DesertHeaderTool] schema: " << change << "\n";
+        }
+        else
+            std::cout << std::format( "[DesertHeaderTool] schema: {} written fresh ({} blocks)\n",
+                                      lockFile.generic_string(), current.size() );
+        fs::create_directories( lockFile.parent_path() );
+        const Common::BoolResultStr saved = Common::Utils::FileSystem::WriteContentToFileAtomic( lockFile, written );
+        if ( !saved.IsSuccess() )
+        {
+            std::cerr << "[DesertHeaderTool] " << lockFile.generic_string() << ": " << saved.GetError() << "\n";
+            return false;
+        }
+        std::cout << std::format( "[DesertHeaderTool] schema: {} updated - commit it with this change\n",
+                                  lockFile.generic_string() );
+        return true;
+    }
+
     struct ReflectRoot
     {
         fs::path SourceRoot;
@@ -1548,6 +1675,8 @@ namespace
         std::string Anchor = "ForceLinkGeneratedReflection";
         // Where the COMPONENT(...) rows are emitted (--reflect-components); empty: not requested.
         fs::path Components;
+        // Desert/Schema/ComponentSchema.lock (--schema-lock, Source/SchemaLock.hpp); empty: not checked.
+        fs::path SchemaLock;
     };
 
     constexpr std::string_view kModuleFilePrefix = "Reflection_";
@@ -1637,6 +1766,8 @@ namespace
         for ( const std::string& error : errors )
             std::cerr << error << "\n";
         if ( !errors.empty() )
+            return 1;
+        if ( !request.SchemaLock.empty() && !CheckAndWriteSchemaLock( request.SchemaLock, components, types ) )
             return 1;
 
         // Each type to its module, by the header's place in the repository (plan C11). Without a module table
@@ -1802,6 +1933,8 @@ static int RunTool( int argc, char** argv )
             reflect->Anchor = argv[++i];
         else if ( arg == "--reflect-components" && left >= 1 && reflect )
             reflect->Components = argv[++i];
+        else if ( arg == "--schema-lock" && left >= 1 && reflect )
+            reflect->SchemaLock = argv[++i];
         else if ( arg == "--shader-push" && left >= 2 )
         {
             shaderPush.emplace( argv[i + 1], argv[i + 2] );

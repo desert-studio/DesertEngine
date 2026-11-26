@@ -21,6 +21,7 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Animation/AnimationUpdateRate.hpp>
+#include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialSilhouette.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
 #include <Common/Core/DevInstruments.hpp>
@@ -210,6 +211,13 @@ namespace Desert::Graphic::System
                 return GroupPipelines.empty() ? table.Groups[group].VirtualGeometryPipeline
                                               : GroupPipelines[group];
             }
+            // VG-SW-RASTER: set = THE VG VISIBILITY RESOLVE of the software-rastered clusters (UE 5 Nanite's
+            // material pass; "VirtualGeometry: Visibility Resolve"): GroupArgs is the visibility buffer's
+            // ResolveArgs, every group draws ITS ONE tile list record at ResolveArgsOffset through its
+            // `.VisibilityResolve.Binned.VirtualGeometry` cell (GroupPipelines), Rows is not read, and the group's
+            // words (group, VgFirstRow, VgRowCount) ride the push (ClusterIndirectGroupDraw::Resolve).
+            std::optional<glm::uvec2> ResolveRows; // (VgFirstRow, VgRowCount)
+            uint64_t                  ResolveArgsOffset = 0;
         };
 
         struct BinnedIssue
@@ -466,14 +474,17 @@ namespace Desert::Graphic::System
         // Skinned only: the animated instance's LOD / update-rate feedback (Animation::SkinnedLodFeedback), null
         // for an unanimated one.
         std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
+        // Skinned only: a follower mesh's leader (Animation::LeaderPoseLink, UE LeaderPoseComponent).
+        Animation::LeaderPoseLink Leader;
 
         bool     Outlined        = false;
-        uint64_t HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
+        uint64_t HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes; a skinned body's HiddenSections)
         int      ForcedLOD       = -1; // -1 = auto (by distance); 0..N pins a LOD level
         int      LODBias         = 0;  // shifts the auto LOD (ignored when forced)
         bool     CastShadows     = true;
         bool     ReceiveShadows  = true;
         bool     CastContactShadow = true; // UE bCastContactShadow: the G-buffer's NO_CONTACT_SHADOW bit (static)
+        bool     ReceivesDecals    = true; // UE bReceivesDecals: the G-buffer's DBuffer fetch (NO_DECALS bit)
         int      TranslucencySortPriority = 0; // lower draws first (translucency pass)
     };
 
@@ -523,7 +534,25 @@ namespace Desert::Graphic::System
             bool                   ReceiveShadows  = true;
             // UE bCastContactShadow: pushed with the G-buffer draw (PrimitiveFlags) into the shading word.
             bool                   CastContactShadow        = true;
+            // UE bReceivesDecals: pushed with the G-buffer draw (PrimitiveFlags NO_DECALS) and in the GpuScene row.
+            bool                   ReceivesDecals           = true;
             int                    TranslucencySortPriority = 0; // lower draws first (TranslucentSortOrder)
+            // WP-FAR-12F: the card side of an impostor pair (StaticSceneSection::ImpostorCard). A flat billboard
+            // stands in for the mesh in raster only; it never enters the ray tracing scene (UE excludes the
+            // impostor LOD from RT), RayTracingGather skips it.
+            bool ImpostorCard = false;
+            // WP-FAR-12F: the source side of an impostor pair (StaticSceneSection::ImpostorScreenSize > 0, not the
+            // card). Its GpuScene row carries kImpostorSource; the card's kImpostorCard.
+            bool ImpostorSource = false;
+            // The pair's switch screen size measured on THIS side's own row bounds (GpuScenePrimitive::
+            // LocalBoundsExtent.w): the source's ImpostorScreenSize; the card's scaled by its bounds radius over the
+            // source's, so both sides cross the switch at the same distance. 0 = not a pair.
+            float ImpostorSwitchSize = 0.0f;
+            // WP-FAR-12F (StaticSceneAdmission::RayTracingOnly): an impostor source this view draws as its card. It
+            // keeps its GpuScene row and enters the ray tracing gather (the TLAS holds the source at every
+            // distance); raster never draws it - no slot walk (StaticWalkColumns::kHasSlots clear), no shadow
+            // caster row, and the GPU cull's ImpostorGate culls its row.
+            bool RayTracingOnly = false;
         };
 
         // WHAT A RECORD'S MotionRecord::Content READS OF ITS MESH (SyncGpuScene): the mesh, its submesh list and
@@ -643,12 +672,21 @@ namespace Desert::Graphic::System
             uint64_t                    VatAddress     = 0;
             uint32_t                    VatVertexCount = 0;
             // The far figure's minimum screen size (VertexAnimationCrowd::kMinScreenSize): the growth its draw
-            // (VAT or skeletal) gets this frame about MinScreenPivot (the local bounds' bottom centre), 1 = its own size. Set by
+            // (VAT or skeletal) gets this frame about MinScreenPivot, 1 = its own size. The pivot is a WORLD point:
+            // the figure's feet (its local bounds' bottom centre through Transform) - for a follower, its LEADER'S
+            // feet, and the scale is the leader's, so clothing grows with the body it is worn on. Set by
             // SelectSkinnedLods; the GpuScene row's world (SyncGpuScene) carries it to every pass.
             float                       MinScreenScale = 1.0f;
             glm::vec3                   MinScreenPivot = glm::vec3( 0.0f );
+            // A follower mesh's leader (UE LeaderPoseComponent, Animation::LeaderPoseLink): its level (clamped
+            // to its own), VAT hand-off and growth are not decided from its own bounds but taken from the leader's
+            // record in this queue (SelectSkinnedLods).
+            Animation::LeaderPoseLink   Leader;
             bool                        Outlined    = false;
             bool                        CastShadows = true;
+            // UE bReceivesDecals (SkinnedMeshComponent::ReceivesDecals, off by default): a projected decal swims on
+            // a deforming surface. The GpuScene row's kNoDecals and the per-draw NO_DECALS push carry it.
+            bool                        ReceivesDecals = false;
         };
 
         // A UE-style Instanced Static Mesh: ONE mesh + ONE Lit material drawn N times. The material and the
@@ -982,6 +1020,12 @@ namespace Desert::Graphic::System
         void SetViewTemporalLOD( const Geometry::LODTemporalSamples& temporalLod )
         {
             m_ViewTemporalLOD = temporalLod;
+        }
+        // The same samples for the impostor switch's admission (SceneRenderer::SubmitStaticScene): a side either
+        // sample draws is queued, so the cull's ImpostorGate always finds both sides of a fading pair.
+        [[nodiscard]] const Geometry::LODTemporalSamples& GetViewTemporalLOD() const noexcept
+        {
+            return m_ViewTemporalLOD;
         }
         // The scene view's air (SceneRenderer::SetWindGust and BeginScene's SelectLocalWind, ViewFrame::WindGust /
         // LocalWind): the light cameras of the casters carry it (WriteLightCamera), so a swaying caster's shadow
@@ -1585,9 +1629,30 @@ namespace Desert::Graphic::System
         void UpdateRainOcclusion();
         [[nodiscard]] std::optional<SystemRasterPass> RainOcclusionPass();
         // The FAR CASCADE passes ("MeshShadowFar<slot>"): one per directional-shadow slot whose far layer
-        // (FarShadowLayer) must be redrawn this frame (m_FarShadow[slot].Redraw), its static casters into
-        // @p maps, the cascade array of AcquireCascadeMaps. None when every far layer still holds its content.
-        [[nodiscard]] std::vector<SystemRasterPass> FarShadowPasses( RDG::TextureRef maps );
+        // (FarShadowLayer) must be drawn this frame (m_FarShadow[slot].Redraw), its static casters into @p maps,
+        // the cascade array of AcquireCascadeMaps. None when every far layer still holds its content.
+        //   RedrawPasses - a layer whose sun, bias, depth placement or content changed: CLEARED, drawn whole;
+        //   Scrolls      - a layer whose map only recentred by whole texels while its old box still holds what it
+        //                  was drawn with (UE's CSM scrolling, as the cascades' PlanCascadeCache): the layer is
+        //                  copied out ("<name>.ToScratch", a graph scratch of the map's size and format) and back
+        //                  in shifted ("<name>.Scroll", ScrollGraphDepthIntoLayer: the rest at the far plane);
+        //   ScrollPasses - then LOADS the layer and draws only the static casters reaching the strips the shift
+        //                  uncovered, each under its strip's scissor (FarShadowState::Strips / StripRects).
+        struct FarShadowScroll
+        {
+            uint32_t                   Layer   = 0;
+            glm::ivec2                 Shift   = glm::ivec2( 0 ); // destination texel = source texel + Shift
+            uint32_t                   MapSize = 0;
+            Core::Formats::ImageFormat Format  = Core::Formats::ImageFormat::RGBA8F;
+            std::string                Name;
+        };
+        struct FarShadowFrame
+        {
+            std::vector<SystemRasterPass> RedrawPasses;
+            std::vector<FarShadowScroll>  Scrolls;
+            std::vector<SystemRasterPass> ScrollPasses;
+        };
+        [[nodiscard]] FarShadowFrame                  FarShadowPasses( RDG::TextureRef maps );
         [[nodiscard]] std::shared_ptr<Image2D>        GetRainOcclusionImage() const
         {
             return m_RainOcclusionFB && m_RainOcclusionBox ? m_RainOcclusionFB->GetDepthAttachmentImage()
@@ -1659,11 +1724,13 @@ namespace Desert::Graphic::System
         // redrawn only when its light, its tile or a caster in its reach changed, whichever view of the scene
         // drew it last (UE: cached shadow maps of a stationary light, on FScene). Without @p shadowMaps (Shadows
         // Stochastic: MegaLights traces the local lights) no tile is given and no view drawn; every light that
-        // casts is still marked ShadowCaster, which is what the traced visibility reads.
+        // casts is still marked ShadowCaster, which is what the traced visibility reads. @p onlyLights (SourceIds;
+        // null = every light that casts): the maps of these alone, every other light traced and marked as above.
         void UpdateLocalShadows( std::vector<ShaderProtocols::PointLightPayload>& points,
                                  const std::vector<LocalLightShadowSettings>&     pointShadows,
                                  std::vector<ShaderProtocols::SpotLightPayload>&  spots,
-                                 const std::vector<LocalLightShadowSettings>& spotShadows, bool shadowMaps );
+                                 const std::vector<LocalLightShadowSettings>& spotShadows, bool shadowMaps,
+                                 const std::unordered_set<uint32_t>* onlyLights );
         [[nodiscard]] const std::vector<LocalShadowViewPayload>& GetLocalShadowRows() const
         {
             return m_LocalShadowRows;
@@ -1792,7 +1859,13 @@ namespace Desert::Graphic::System
         // rasters [kGrassRasterMidBuckets, kGrassRasterFarBuckets) against Mid's depth, "Grass: Visibility Depth
         // Far" writes the words' depth, and Rest (the pass keeps its name "Grass: Visibility Raster") rasters the
         // farthest buckets against it: their fragments behind a nearer far blade die in early-Z / HiZ instead of
-        // the fragment stage's hidden-word read. Exact by the same argument.
+        // the fragment stage's hidden-word read. Exact by the same argument. FPS-GRASS-SW-RASTER (measured,
+        // dropped): a compute raster of the buckets past Mid, one thread a blade (UE 5 Nanite MicropolyRasterize),
+        // cost 4.0 ms in FIELD_Barn TURN (scn-1121-205105) against these HW slices' 0.36 ms - a masked blade's
+        // pixel is a chain of dependent reads (G-buffer depth, hidden word, material row, bindless mask texture,
+        // 64-bit atomic) one thread walks serially, where the HW raster runs them per pixel behind early-Z / HiZ.
+        // Nanite's software raster pays off for opaque micro-triangles without a per-pixel material read; the
+        // blades are masked.
         enum class GrassRasterSlice : uint8_t
         {
             All,
@@ -1824,6 +1897,30 @@ namespace Desert::Graphic::System
                                                  MeshVertexPath path );
         [[nodiscard]] Common::BoolResultStr RenderGrassVisibilityResolveManual( const RDG::PassContext& context,
                                                                                 MeshVertexPath path ) const;
+        // VG-SW-RASTER: THE VG VISIBILITY RESOLVE (UE 5 Nanite's material pass over VisBuffer64), the words the
+        // software raster wrote. One "VirtualGeometry: Visibility Resolve" node, the G-buffer LOADed, its depth
+        // target the material depth ("Grass: Visibility Material Depth" stamps a VG pixel with its IndirectGroup's
+        // value): per G-buffer group of the camera's phase-1 issue that has a resolve cell
+        // (VirtualGeometryResolvePipeline), the tile list (record 0 of @p resolveArgs at GpuInstanceArgsOffset(0))
+        // through that cell, depth EQUAL, so each group shades exactly its own pixels. @p visibility the words,
+        // @p visibleClusters / @p clusters / @p dags / @p primitiveDraws the cut's tables the cell reaches a row's
+        // cluster through, rows [@p firstRow, @p firstRow + @p rowCount). Nothing declared (and nothing recorded)
+        // when the camera issues no G-buffer bins or no group has a resolve cell.
+        struct VirtualGeometryResolveInputs
+        {
+            RDG::BufferRef Visibility;
+            RDG::BufferRef ResolveArgs;
+            RDG::BufferRef VisibleClusters;
+            RDG::BufferRef Clusters;
+            RDG::BufferRef Dags;
+            RDG::BufferRef PrimitiveDraws;
+            uint32_t       FirstRow = 0;
+            uint32_t       RowCount = 0;
+        };
+        void DeclareVirtualGeometryVisibilityResolve( RDG::PassBuilder& pass, const SceneViewInputs& view,
+                                                      const VirtualGeometryResolveInputs& inputs );
+        [[nodiscard]] Common::BoolResultStr
+        RenderVirtualGeometryVisibilityResolve( const RDG::PassContext& context ) const;
         // SETUP of "Grass: Depth Prepass Post-Occlusion" (GRASS-VIS-13; the G-buffer's depth LOADed, no colour;
         // after "Grass: Post-Occlusion Finalize" wrote phase 2's records, before "Grass: GBuffer Post-Occlusion";
         // UE: the two-pass occlusion's second depth pass, grass HISM by the same rule as every mesh): the G-buffer
@@ -2652,6 +2749,7 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterDraws;  // "Grass: Visibility Raster"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityResolveDraws; // "Grass: Visibility Resolve"
         MeshRendererDetail::MeshDrawList m_GrassMeshVisibilityResolveDraws; // "Grass: Mesh Visibility Resolve"
+        MeshRendererDetail::MeshDrawList m_VgVisibilityResolveDraws; // "VirtualGeometry: Visibility Resolve"
         // GRASS-VIS phase 2: "Grass: Visibility Raster Post-Occlusion", "Grass: GBuffer Post-Occlusion".
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterPostDraws;
         MeshRendererDetail::MeshDrawList m_GrassGBufferPostDraws;
@@ -3731,6 +3829,24 @@ namespace Desert::Graphic::System
             std::optional<uint64_t> Key;
             std::optional<uint64_t> PendingKey;
             CascadeFit              Fit;
+            // Why the last plan could not key the layer (a CascadeMovers::Unkeyed reason or a caster's), null when
+            // it could: PlanCascadeCache logs a new reason once, not every frame it persists.
+            const char* Unkeyed = nullptr;
+            // WHERE THE LAYER'S DEPTH LIES (FarShadowPasses sets both when it draws a keyed layer): the texel the
+            // drawn map's centre was snapped to and the caster matrix it was drawn with. Unset = never drawn, or
+            // drawn unkeyed: nothing to scroll.
+            std::optional<glm::ivec2> DrawnTexelOrigin;
+            glm::mat4                 DrawnCasterVP{ 1.0f };
+            // This frame the layer SCROLLS (PlanCascadeCache; UE's CSM scrolling, the cascades' CascadeCacheState
+            // rule): its map recentred by whole texels (Shift, framebuffer axes, CascadePlacement::ShiftTo's sign)
+            // and every other part of its key stood, and the old box (DrawnTexelOrigin, DrawnCasterVP) still holds
+            // the content the Key was drawn with. The layer is shifted and only the strips the shift uncovered are
+            // drawn (CascadeScrollStrips: their caster matrices for the cull, their texels for the scissor).
+            bool       Scroll = false;
+            glm::ivec2 Shift{ 0 };
+            uint32_t   StripCount = 0;
+            glm::mat4  Strips[2]{ glm::mat4( 1.0f ), glm::mat4( 1.0f ) };
+            glm::uvec4 StripRects[2]{ glm::uvec4( 0u ), glm::uvec4( 0u ) };
         };
         FarShadowState                                                 m_FarShadow[kDirectionalShadowSlots];
         MeshRendererDetail::MeshDrawList                               m_FarShadowDraws[kDirectionalShadowSlots];
@@ -3936,6 +4052,9 @@ namespace Desert::Graphic::System
         // another level logs "[SkinnedLOD]" with that level's skin work (vertices, bones, influences).
         std::unordered_map<uint32_t, uint32_t> m_SkinnedLodReported;
         bool                                   m_SkinnedLodNoCameraReported = false;
+        // SelectSkinnedLods' scratch: each leader's record in m_SkinnedQueue by its entity, filled only on a frame
+        // that queues a follower (reused, no per-frame allocation once grown).
+        std::unordered_map<uint32_t, uint32_t> m_ScratchSkinnedLeaders;
         // Picks every queued skinned record's Lod from the frozen main view and logs a change (WP-FAR-10).
         void SelectSkinnedLods();
         // The far crowd (WP-FAR-12): baked vertex animations and the skeletal <-> VAT hand-off.
@@ -3998,11 +4117,13 @@ namespace Desert::Graphic::System
         // reflection capture into its own face renderers), with ClearQueues between replays on that thread or at
         // the fence. A parallel replay into one renderer would race m_SkinnedQueue first: it is not allowed.
         const SkinnedSectionList& SkinnedSectionsFor( const MaterialSlotBindingPtr& binding,
-                                                      std::size_t                   submeshCount );
+                                                      std::size_t                   submeshCount,
+                                                      uint64_t                      hiddenSubmeshes );
         struct SkinnedSectionsEntry
         {
             MaterialSlotBindingPtr Binding;
             std::size_t            SubmeshCount = 0;
+            uint64_t               HiddenSubmeshes = 0; // the body's hidden sections the list was built without
             SkinnedSectionList     Sections;
             uint64_t               Seen = 0; // m_SkinnedSectionsEpoch last asked
         };
@@ -4216,6 +4337,14 @@ namespace Desert::Graphic::System
         // be made.
         const GraphicsPipeline* ResolveVirtualGeometryPipeline( GpuDriven::MeshPass     pass,
                                                                 const GraphicsPipeline& group );
+        // VG-SW-RASTER: @p group's (a G-buffer IndirectGroup's `.GBuffer.Binned` PSO) VG visibility resolve PSO:
+        // its state with the cell VisibilityResolveCellOf names, CullMode None, depth EQUAL without a write (the
+        // material depth target, as the grass resolve's "GrassVisibilityResolve"). Null for a cell with no resolve
+        // twin (another pass, a `.Parallax` cell, a template without the VG permutation) and while the PSO
+        // compiles (asked again next frame). Ready answers are kept per group PSO until the pipeline epoch moves.
+        const GraphicsPipeline* VirtualGeometryResolvePipeline( const GraphicsPipeline& group );
+        std::unordered_map<const GraphicsPipeline*, const GraphicsPipeline*> m_VgResolvePipelines;
+        uint64_t                                                             m_VgResolvePipelinesEpoch = 0;
         // THE ONE RULE "this binned cell's template has a `.VirtualGeometry` twin": the twin cell
         // (VirtualGeometryCellOf) is registered. ShaderService registers every pass a template's parse emits when
         // the template registers (an uncompiled one too), and DShaderParser emits the twin for every

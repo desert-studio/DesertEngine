@@ -152,10 +152,12 @@ namespace Desert::Graphic::GpuDriven
             auto& fallbacks = record.Fallbacks[pass];
             auto& dithered  = record.DitheredLod[pass];
             auto& lights    = record.EmissionIsLight[pass];
+            auto& software  = record.SoftwareRaster[pass];
             pipelines.assign( submeshes, nullptr );
             fallbacks.assign( submeshes, BinFallback::None );
             dithered.assign( submeshes, uint8_t{ 0 } );
             lights.assign( submeshes, uint8_t{ 0 } );
+            software.assign( submeshes, uint8_t{ 0 } );
             // UE bCastShadow: a primitive that does not cast is no shadow pass's draw at all.
             if ( IsShadowPass( static_cast<MeshPass>( pass ) ) &&
                  ( record.PrimitiveFlags & PrimitiveFlags::kCastsShadow ) == 0u )
@@ -171,6 +173,7 @@ namespace Desert::Graphic::GpuDriven
                 fallbacks[si] = resolved.Pipeline != nullptr ? BinFallback::None : resolved.Fallback;
                 dithered[si]  = static_cast<uint8_t>( resolved.Pipeline != nullptr && resolved.DitheredLod );
                 lights[si]    = static_cast<uint8_t>( resolved.Pipeline != nullptr && resolved.EmissionIsLight );
+                software[si]  = static_cast<uint8_t>( resolved.Pipeline != nullptr && resolved.SoftwareRaster );
             }
         }
     }
@@ -319,11 +322,13 @@ namespace Desert::Graphic::GpuDriven
             const auto fallbacksBefore = record->Fallbacks;
             const auto ditheredBefore  = record->DitheredLod;
             const auto lightsBefore    = record->EmissionIsLight;
+            const auto softwareBefore  = record->SoftwareRaster;
             ResolvePipelines( static_cast<PrimitiveIndex>( primitive ), *record );
             for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
                 if ( before[pass] != record->Pipelines[pass] || fallbacksBefore[pass] != record->Fallbacks[pass] ||
                      ditheredBefore[pass] != record->DitheredLod[pass] ||
-                     lightsBefore[pass] != record->EmissionIsLight[pass] )
+                     lightsBefore[pass] != record->EmissionIsLight[pass] ||
+                     softwareBefore[pass] != record->SoftwareRaster[pass] )
                     m_Dirty[pass] = true;
         }
         // The groups' VG twins are asked again too (a dirty pass re-asks them when it is rebuilt).
@@ -463,6 +468,19 @@ namespace Desert::Graphic::GpuDriven
                         }
                         if ( record->EmissionIsLight[passIndex][si] != 0u )
                             slot.Flags |= kDrawSlotEmissionIsLight;
+                        // VG-SW-RASTER: what the compute raster draws exactly as this cell would - no pixel clip,
+                        // back faces culled or none (SoftwareRaster.shader's two cull rules) - and what the VG
+                        // visibility resolve can shade (PassPipelineResolution::SoftwareRaster: the cell has its
+                        // resolve twin). A swaying primitive stays HW by the cut itself (ClusterCut.shader
+                        // RastersInSoftware: WindPad).
+                        const CullMode cull = pipeline->GetSpecification().CullMode;
+                        if ( record->DitheredLod[passIndex][si] == 0u && record->SoftwareRaster[passIndex][si] != 0u &&
+                             ( cull == CullMode::Back || cull == CullMode::None ) )
+                        {
+                            slot.Flags |= kDrawSlotSoftwareRaster;
+                            if ( cull == CullMode::None )
+                                slot.Flags |= kDrawSlotTwoSided;
+                        }
                     }
                     table.DrawSlots.push_back( slot );
                 }

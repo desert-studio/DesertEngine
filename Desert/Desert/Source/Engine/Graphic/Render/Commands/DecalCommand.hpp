@@ -16,4 +16,17 @@ namespace Desert::Graphic::Render
 
         void Execute( SceneRenderer& renderer ) override;
     };
+
+    // This frame's live impact decals (World::DecalImpactPool via ECS::DecalECSSystem): one command for the whole
+    // pool, not one per record. Replayed into every view, so it is copied, never moved from.
+    struct DecalImpactsCommand : RenderCommand
+    {
+        std::vector<System::DecalProxy> Decals;
+
+        explicit DecalImpactsCommand( std::vector<System::DecalProxy> decals ) : Decals( std::move( decals ) )
+        {
+        }
+
+        void Execute( SceneRenderer& renderer ) override;
+    };
 } // namespace Desert::Graphic::Render

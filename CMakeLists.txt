@@ -28,9 +28,10 @@ if(DESERT_COMPILER_LAUNCHER)
     #                      here print the prefix in CP866; no 1033 pack, VSLANG ignored) matches none, so the manifest held no header and
     #                      an edited header outside the PCH could be served stale (11-04). Preprocessor mode reads
     #                      the #line output instead, whatever the language.
-    #   max_size=20G       an MSVC PCH result is ~1 GB raw / ~180 MB compressed; at 3 GB the cache evicted itself (9095 cleanups).
+    #   max_size=100G      an MSVC PCH result is ~1 GB raw / ~180 MB compressed; at 3 GB the cache evicted itself (9095
+    #                      cleanups), at 20 GB still 352 cleanups and 7 % hits on a batch build (11-24).
     if(WIN32 AND DESERT_COMPILER_LAUNCHER MATCHES "ccache(\\.exe)?$")
-        set(_desert_launcher "${DESERT_COMPILER_LAUNCHER}" depend_mode=false max_size=20G)
+        set(_desert_launcher "${DESERT_COMPILER_LAUNCHER}" depend_mode=false max_size=100G)
     endif()
     set(CMAKE_C_COMPILER_LAUNCHER   ${_desert_launcher})
     set(CMAKE_CXX_COMPILER_LAUNCHER ${_desert_launcher})

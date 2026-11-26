@@ -113,6 +113,18 @@ namespace Common::Scalability
         RayTracingPipeline, // VK_KHR_ray_tracing_pipeline (raygen/hit/miss + SBT); NEVER on MoltenVK
     };
 
+    // RT-OMM-SER: the traversal accelerators a hardware-RT device adds on top of its RayTracingModes. Reader:
+    // RayTracingGeometry (OpacityMicromap: the masked BLAS carry a micromap baked from the opacity mask, UE
+    // r.RayTracing.OpacityMicromaps) and the path tracer / RT-reflection raygen programs (InvocationReorder: the
+    // DESERT_SER variant, hitObject + reorderThread by hit material, UE PathTracing NVAPI HitObject). Each one is
+    // listed only when the device enables its extension AND RayTracingAccel is Hardware; absent = today's any-hit /
+    // traceRay path, never a refusal. Mac: empty (MoltenVK exposes neither).
+    enum class RayTracingFeature : int
+    {
+        OpacityMicromap = 0, // VK_EXT_opacity_micromap
+        InvocationReorder,   // VK_NV_ray_tracing_invocation_reorder (Shader Execution Reordering)
+    };
+
     // How the device executes the rays RayTracingModes lists (UE GRHISupportsRayTracing is true only on hardware
     // RT). Reader: VulkanCapabilityCatalog (only Hardware lists a RayTracingMode for render methods), the log.
     // Emulated: the driver exposes the RT extensions over shader cores (GeForce GTX 10/16): the modes exist,
@@ -219,6 +231,9 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( Upscaler::DLSSRayReconstruction ) + 1 == kUpscalerNames.size() );
     static_assert( static_cast<std::size_t>( RayTracingMode::RayTracingPipeline ) + 1 ==
                    kRayTracingModeNames.size() );
+    inline constexpr std::array<std::string_view, 2> kRayTracingFeatureNames{ "OpacityMicromap", "InvocationReorder" };
+    static_assert( static_cast<std::size_t>( RayTracingFeature::InvocationReorder ) + 1 ==
+                   kRayTracingFeatureNames.size() );
 
     // WHICH NVIDIA RTX ARCHITECTURE THE DEVICE IS (CapabilityCatalog::Architecture), as far as the DLSS networks'
     // cost goes: Ada and newer run the transformer networks on FP8 tensor cores, Turing and Ampere do not, so
@@ -316,6 +331,21 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( PathTracingRadianceCacheMethod::Nrc ) + 1 ==
                    kPathTracingRadianceCacheNames.size() );
 
+    // THE TRACED GI'S FINAL GATHER (Parameter::ScreenProbeGatherMethod; UE r.Lumen.ScreenProbeGather.ReSTIR).
+    // Stored by name. ScreenProbes: the screen probe gather (GlobalIllumination::ScreenProbeGather, UE
+    // LumenScreenProbeGather). ReSTIR: one hardware ray a reservoir texel with temporal and spatial reservoir
+    // reuse (GlobalIllumination::ReSTIRGather, Ouyang et al. 2021, UE LumenReSTIRGather) - a hardware-tracer
+    // gather: a view whose GI method walks the distance field gathers with the screen probes whatever this says
+    // (SceneRenderer::BeginScene, GlobalIllumination::ReSTIRGatherRuns).
+    enum class ScreenProbeGatherMethod : int
+    {
+        ScreenProbes = 0,
+        ReSTIR       = 1,
+    };
+    inline constexpr std::array<std::string_view, 2> kScreenProbeGatherMethodNames{ "ScreenProbes", "ReSTIR" };
+    static_assert( static_cast<std::size_t>( ScreenProbeGatherMethod::ReSTIR ) + 1 ==
+                   kScreenProbeGatherMethodNames.size() );
+
     // WHICH MESHES THE DEFERRED EARLY-Z PASS DRAWS (Parameter::EarlyZPass; UE r.EarlyZPass). Stored by name. Off:
     // none, every mesh clips and writes its own depth in the G-buffer (UE 0). Masked: the masked ones (UE
     // r.EarlyZPass masked-only), the G-buffer then draws them EQUAL without the clip. All: every opaque and masked
@@ -329,6 +359,19 @@ namespace Common::Scalability
     };
     inline constexpr std::array<std::string_view, 3> kEarlyZPassNames{ "Off", "Masked", "All" };
     static_assert( static_cast<std::size_t>( EarlyZPassMode::All ) + 1 == kEarlyZPassNames.size() );
+
+    // HOW THE BLOOM IS MADE (Parameter::BloomMethod; UE r.Bloom.Method / PostProcessFFTBloom). Stored by name.
+    // Gaussian: the compute mip-chain (BloomDownsample / BloomUpsample). Convolution: the half-resolution
+    // thresholded scene convolved in the frequency domain with the post-process volume's kernel image (UE
+    // Convolution Bloom: BloomConvolutionTexture / BloomConvolutionSize). Every device runs both (compute only),
+    // so no catalog list narrows it; the cost (two full-screen FFTs) is what the tier pays.
+    enum class BloomMethod : int
+    {
+        Gaussian    = 0,
+        Convolution = 1,
+    };
+    inline constexpr std::array<std::string_view, 2> kBloomMethodNames{ "Gaussian", "Convolution" };
+    static_assert( static_cast<std::size_t>( BloomMethod::Convolution ) + 1 == kBloomMethodNames.size() );
 
     // THE CATALOG. Filled once per device (VulkanCapabilityCatalog::Build), then immutable for the device's
     // life; a device loss rebuilds it with the new device. Every list is ordered BEST FIRST where an order
@@ -364,6 +407,10 @@ namespace Common::Scalability
         // Reader: VulkanCapabilityCatalog (RayTracingModes is {None} for render methods unless Hardware), the
         // catalog log line (rtaccel=). See RayTracingAcceleration.
         RayTracingAcceleration RayTracingAccel = RayTracingAcceleration::None;
+
+        // Reader: RayTracingGeometry (micromap bake at BLAS build) and the RT raygen programs (SER variant). See
+        // RayTracingFeature. Empty unless RayTracingAccel is Hardware.
+        std::vector<RayTracingFeature> RayTracingFeatures;
 
         // Reader: Graphic::ResolveRenderMethods (NeedsRenderArea: the virtual shadow map's attachment-less
         // raster). The largest square render area the device rasterizes: min of maxFramebufferWidth / Height and

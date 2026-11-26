@@ -141,12 +141,29 @@ namespace Desert::Graphic::API::Vulkan
         return true;
     }
 
+    void VulkanRdgTransientAllocator::DeclareToBudget()
+    {
+        // Every slot's own heaps are live together; a shared heap serves them all in turn.
+        uint64_t placed = 0;
+        for ( const Slot& slot : m_Slots )
+            placed += slot.WantedBytes;
+        for ( const SharedHeap& shared : m_Shared )
+            placed += shared.WantThisFrame;
+        m_PlacedBytes[m_PlacedFrame++ % kPlacedFrames] = placed;
+
+        const uint64_t minimum = *std::max_element( m_PlacedBytes.begin(), m_PlacedBytes.end() );
+        m_Budget.Declare( minimum, minimum, GetStats().ReservedBytes );
+        m_Latency = m_Budget.OthersWait() ? kPressureLatency : kGarbageCollectLatency;
+    }
+
     void VulkanRdgTransientAllocator::BeginFrameSlot( uint32_t slot )
     {
         m_Slot        = slot % static_cast<uint32_t>( m_Slots.size() );
         m_Begun       = true;
         m_Current     = -1;
         Slot& current = m_Slots[m_Slot];
+        DeclareToBudget(); // before the wants of the frames it counts are reset below
+        current.WantedBytes = 0;
         // The caller waited for this slot's previous submission: what it retired is unused now. DESTROYED ON THE
         // SUBMIT THREAD (VK-SUBMIT-THREAD; UE: the RHI's deferred deletion queue): the render thread only moves
         // the handles into one batch, and the vkDestroy* / vmaFreeMemory calls run there, after everything
@@ -163,7 +180,7 @@ namespace Desert::Graphic::API::Vulkan
         garbage.Buffers.swap( current.RetiredBuffers );
         garbage.Heaps.swap( current.RetiredHeaps );
         // A shared heap the previous frame's graphs wanted at most half of (or not at all) for
-        // kGarbageCollectLatency frames is given up (the next want allocates one of its size).
+        // m_Latency frames is given up (the next want allocates one of its size).
         for ( uint32_t index = 0; index < m_Shared.size(); ++index )
         {
             SharedHeap& shared = m_Shared[index];
@@ -171,21 +188,20 @@ namespace Desert::Graphic::API::Vulkan
                 continue;
             const bool oversized   = shared.WantThisFrame <= shared.Held.Desc.Bytes / 2;
             shared.OversizedFrames = oversized ? shared.OversizedFrames + 1 : 0;
-            if ( shared.OversizedFrames > kGarbageCollectLatency )
+            if ( shared.OversizedFrames > m_Latency )
                 RetireShared( index );
             shared.WantThisFrame = 0;
         }
-        // A pooled heap no graph took for kGarbageCollectLatency frames of this slot goes back to the driver.
+        // A pooled heap no graph took for m_Latency frames of this slot goes back to the driver.
         for ( PooledHeap& pooled : current.Pool )
         {
-            if ( ++pooled.IdleFrames > kGarbageCollectLatency )
+            if ( ++pooled.IdleFrames > m_Latency )
             {
                 garbage.Heaps.push_back( std::move( pooled.Pooled ) );
                 pooled.Pooled.Memory = nullptr; // the entry goes below; its memory is the batch's now
             }
         }
-        std::erase_if( current.Pool,
-                       []( const PooledHeap& pooled ) { return pooled.IdleFrames > kGarbageCollectLatency; } );
+        std::erase_if( current.Pool, []( const PooledHeap& pooled ) { return pooled.Pooled.Memory == nullptr; } );
         // A graph this slot's previous frame did not record has nothing in flight: its heaps go to the pool.
         std::erase_if( current.Graphs,
                        [&]( GraphHeaps& graph )
@@ -314,6 +330,7 @@ namespace Desert::Graphic::API::Vulkan
             const RDG::TransientHeapDesc& want = heaps[i];
             if ( want.Bytes == 0 )
                 return Common::MakeFormattedError<bool>( "graph '{}': transient heap {} is empty", graph, i );
+            slot.WantedBytes += want.Bytes;
             if ( i < entry.Heaps.size() )
             {
                 const Heap& have = entry.Heaps[i];
@@ -321,12 +338,11 @@ namespace Desert::Graphic::API::Vulkan
                                   ( want.MemoryTypeBits & ( 1u << have.MemoryType ) ) != 0 &&
                                   have.Desc.Bytes >= want.Bytes && have.Desc.Alignment >= want.Alignment;
                 // A heap the plan keeps wanting at most half of (the view shrank, a feature went off) is
-                // traded for one of the plan's size after kGarbageCollectLatency frames: heaps never only grow.
+                // traded for one of the plan's size after m_Latency frames: heaps never only grow.
                 Heap& kept = entry.Heaps[i];
                 if ( fits && want.Bytes > kept.Desc.Bytes / 2 )
                     kept.OversizedFrames = 0;
-                if ( fits &&
-                     ( want.Bytes > kept.Desc.Bytes / 2 || ++kept.OversizedFrames <= kGarbageCollectLatency ) )
+                if ( fits && ( want.Bytes > kept.Desc.Bytes / 2 || ++kept.OversizedFrames <= m_Latency ) )
                     continue;
                 // Grown, oversized (or of another class / type): the heap goes to the slot's pool; the resources
                 // bound to it are destroyed at the slot's next BeginFrameSlot, so none outlives its memory.

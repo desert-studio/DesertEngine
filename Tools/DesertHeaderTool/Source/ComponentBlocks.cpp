@@ -3,6 +3,8 @@
 #include "AnnotationText.hpp"
 
 #include <algorithm>
+#include <charconv>
+#include <system_error>
 #include <format>
 #include <optional>
 #include <regex>
@@ -30,10 +32,23 @@ namespace Desert::HeaderTool
                 c.member = ParenIdent( tok );
             else if ( name == "Run" )
                 c.run = ParenIdent( tok );
+            else if ( name == "Version" )
+            {
+                const std::string digits = ParenIdent( tok );
+                unsigned          v      = 0;
+                const auto [end, ec]     = std::from_chars( digits.data(), digits.data() + digits.size(), v );
+                if ( ec != std::errc{} || end != digits.data() + digits.size() || v < 2 )
+                    error =
+                         std::format( "COMPONENT: Version( {} ) is not a whole number above 1 (1 is the unstated "
+                                      "default)",
+                                      digits );
+                else
+                    c.version = v;
+            }
             else
-                error = std::format(
-                     "COMPONENT: unknown attribute '{}' (Key(\"...\"), Block( Member ) | Whole, Run( ... ))",
-                     tok );
+                error = std::format( "COMPONENT: unknown attribute '{}' (Key(\"...\"), Block( Member ) | Whole, "
+                                     "Run( ... ), Version( N ))",
+                                     tok );
         }
         if ( error.empty() && c.key.empty() )
             error = "COMPONENT: Key(\"...\") is required";

@@ -1,0 +1,12 @@
+# WATER-LOOK: the water surface's ripples (WaterSurface.shader WaterRipples): octaves of several sizes, the slopes a
+# pixel cannot draw become roughness, the lake's own material.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Buoyancy.desce
+Дано --subject viewport set Camera.Position 0,180,-1200
+Дано --subject viewport set Camera.Direction 0,-0.2,1
+Тогда-вид 1_near мелкая мягкая рябь нескольких размеров, без щетины, читается отражение неба
+Дано --subject viewport set Camera.Position 0,600,-6000
+Дано --subject viewport set Camera.Direction 0,-0.08,1
+Тогда-вид 2_far ровный широкий блик, без шума и повторяющегося узора
+Дано --subject viewport set Camera.Position 0,1500,-1500
+Дано --subject viewport set Camera.Direction 0,-0.98,0.2
+Тогда-вид 3_above без видимой плитки, цвет воды по глубине

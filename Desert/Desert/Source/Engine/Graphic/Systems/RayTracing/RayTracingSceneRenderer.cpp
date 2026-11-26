@@ -29,11 +29,13 @@ namespace Desert::Graphic::RayTracing
 {
     RayTracingGeometryVariants::BuildFn MakeVariantBuild()
     {
-        return []( Mesh& mesh, const RayTracingSubmeshMasks& masks )
+        return []( Mesh& mesh, const RayTracingSubmeshMasks& masks,
+                   std::span<const RayTracingSegmentOpacityMicromap> micromaps )
                     -> Common::ResultStr<std::shared_ptr<RayTracingGeometryResource>>
         {
-            auto built =
-                 API::Vulkan::VulkanRayTracingGeometry::BuildStatic( DescribeStaticMeshBlas( mesh, masks ) );
+            RayTracingMeshInput input = DescribeStaticMeshBlas( mesh, masks );
+            input.Micromaps.assign( micromaps.begin(), micromaps.end() );
+            auto built = API::Vulkan::VulkanRayTracingGeometry::BuildStatic( input );
             if ( !built )
                 return Common::MakeError<std::shared_ptr<RayTracingGeometryResource>>( built.GetError() );
             return Common::MakeSuccess( std::shared_ptr<RayTracingGeometryResource>( built.GetValue() ) );
@@ -470,8 +472,9 @@ namespace Desert::Graphic::RayTracing
                  primitive.DeformedMesh != static_cast<const void*>( skinned[i].Mesh ) )
                 return false;
         }
-        // The variant cache drops a variant no Resolve asked for in a frame: every variant of the kept gather is
-        // asked again, and a different answer (a re-uploaded mesh, a dropped and rebuilt variant) regathers.
+        // The BLAS owner releases an entry no Resolve asked for a while: every BLAS of the kept gather is asked
+        // again (keeping it alive), and a different answer (a re-uploaded mesh, a released and rebuilt BLAS, a
+        // mesh that became resident) regathers.
         for ( const RayTracingVariantUse& use : m_Gather.VariantUses )
         {
             const Common::ResultStr<const RayTracingGeometryResource*> resolved =
@@ -506,7 +509,8 @@ namespace Desert::Graphic::RayTracing
 
     Common::BoolResultStr RayTracingSceneRenderer::AddPasses(
          RDG::Builder& graph, bool required, const System::MeshRenderer& meshes, RayTracingSceneCache& cache,
-         const glm::vec3& viewOrigin, const float drawDistanceScale, const RayTracingExternalPrimitives& external )
+         const glm::vec3& viewOrigin, const float drawDistanceScale, const RayTracingExternalPrimitives& external,
+         const RDG::BufferRef windCamera )
     {
         // m_Instances, m_SceneRows and m_Metadata are kept across frames: a frame whose primitives only moved
         // patches them (THE TLAS FOLLOWS THE CHANGE STREAM in the header).
@@ -532,7 +536,9 @@ namespace Desert::Graphic::RayTracing
 
         m_DynamicBlas.clear();
         m_DynamicBuilds.clear();
-        const RayTracingGatherInputs inputs   = GatherInputsOf( meshes, viewOrigin, drawDistanceScale );
+        RayTracingGatherInputs inputs = GatherInputsOf( meshes, viewOrigin, drawDistanceScale );
+        inputs.FoliageLod             = &m_FoliageLod; // a TLAS gather picks each ISM instance's RT-LOD
+        inputs.FoliageLodErrorPerCm   = m_FoliageSettings.LodErrorPerCm;
         const GpuDriven::GpuScene*   scene    = meshes.GetGpuScene();
         bool                         relisted = !m_ListValid; // the instance list is laid out anew this frame
         {
@@ -566,12 +572,14 @@ namespace Desert::Graphic::RayTracing
                 // Everything the raster queued, frustum-independent (RayTracingGather.hpp).
                 DESERT_PROFILE_SCOPE( "RayTracingScene: TlasGather" );
                 GatherRayTracingPrimitives( inputs, &cache.GetVariants(), m_Gather );
+                m_FoliageLod.EndGather();
                 m_GatherSceneCount   = m_Gather.Primitives.size();
                 m_GatherSceneRecords = m_Gather.SegmentRecords.size();
                 m_DynamicPrimitives.clear();
                 for ( std::size_t p = 0; p < m_Gather.Primitives.size(); ++p )
                     if ( m_Gather.Primitives[p].Kind == RayTracingPrimitiveKind::Skinned ||
-                         m_Gather.Primitives[p].ProceduralMesh != nullptr )
+                         m_Gather.Primitives[p].ProceduralMesh != nullptr ||
+                         m_Gather.Primitives[p].Wind.MeshPtr != nullptr )
                         m_DynamicPrimitives.push_back( static_cast<uint32_t>( p ) );
                 m_GatherHasBlas = true;
                 relisted        = true;
@@ -595,11 +603,33 @@ namespace Desert::Graphic::RayTracing
                                                       cache.GetFrame(), m_DynamicBuilds, m_DynamicBlas );
                  !skinned )
                 return skinned;
-            // Meshes the uploader built no BLAS for (procedural): built in the same pass, once per buffer upload.
+            // Procedural meshes (Mesh::IsProceduralRayTracingGeometry): built in the same pass, once per upload.
             if ( const Common::BoolResultStr procedural = cache.GetProcedural().AddBuilds(
                       graph, m_Gather.Primitives, cache.GetFrame(), m_DynamicBuilds, m_DynamicBlas );
                  !procedural )
                 return procedural;
+            // Swaying foliage: its own wind BLAS, refit from the raster's wind within the frame's budget, else the
+            // rest-pose BLAS of its RT-LOD (RayTracingFoliage.hpp). Then what the view traces of the foliage.
+            m_FoliageStats = {};
+            if ( const Common::BoolResultStr wind = cache.GetFoliageWind().AddPasses(
+                      graph, meshes, m_Gather.Primitives, m_DynamicPrimitives, windCamera, viewOrigin,
+                      cache.GetFrame(), m_FoliageSettings, m_DynamicBuilds, m_DynamicBlas, m_FoliageStats );
+                 !wind )
+                return wind;
+            CountRayTracingFoliage( m_Gather.Primitives, cache.GetVariants(), m_FoliageStats );
+            if ( m_FoliageStats != m_LoggedFoliage )
+            {
+                m_LoggedFoliage = m_FoliageStats;
+                LOG_INFO( "[RT] foliage BLAS: unique {} for {} instances ({} at an RT-LOD past 0), {:.2f} MiB vs "
+                          "resident LOD0 {:.2f} MiB; refit {} + built {} + shared {} / budget {}, rest pose {} of {} "
+                          "swaying, wind BLAS {:.2f} MiB",
+                          m_FoliageStats.Unique, m_FoliageStats.Instances, m_FoliageStats.Lowered,
+                          static_cast<double>( m_FoliageStats.SharedBytes ) / ( 1024.0 * 1024.0 ),
+                          static_cast<double>( m_FoliageStats.Lod0ResidentBytes ) / ( 1024.0 * 1024.0 ),
+                          m_FoliageStats.Refit, m_FoliageStats.Built, m_FoliageStats.Shared, m_FoliageStats.Budget,
+                          m_FoliageStats.RestPose, m_FoliageStats.Swaying,
+                          static_cast<double>( m_FoliageStats.WindBytes ) / ( 1024.0 * 1024.0 ) );
+            }
         }
         // Primitives other renderers produced (landscape tiles), after the skinned ones (firstSkinned above counts
         // from the end): their BLAS requests join the same pass, and their BLASes built in an earlier frame are

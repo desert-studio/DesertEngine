@@ -62,9 +62,11 @@ void DesertSurfaceNormalFootprint( const SurfaceInput i, const SurfaceOutput s, 
 // @p emits: the draw writes the surface's emission (DESERT_PRIMITIVE_FLAG_NO_EMISSION clears it).
 // @p emissionIsLight: the emission is a MegaLights light source (DESERT_PRIMITIVE_FLAG_EMISSION_IS_LIGHT, the binned
 // draw's DESERT_GPU_DRAW_EMISSION_IS_LIGHT): the shading word's EMISSION_IS_LIGHT mark.
+// @p receivesDecals: the primitive takes the frame's decals (UE bReceivesDecals; DESERT_PRIMITIVE_FLAG_NO_DECALS /
+// DESERT_GPU_PRIMITIVE_NO_DECALS clear it) - ANDed with the material's own Receive Decals.
 void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4 clip, const vec4 prevClip,
                          const float objectMoved, const bool castsContactShadow, const bool emits,
-                         const bool emissionIsLight )
+                         const bool emissionIsLight, const bool receivesDecals )
 {
     vec3  N         = DesertSurfaceWorldNormal( i, s );
     vec3  baseColor = s.BaseColor;
@@ -77,7 +79,9 @@ void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4
     // decals (SurfaceOutput.ReceiveDecals < 0.5, UE bReceivesDecals) keeps its exact bits on every route: the
     // raster cell and the virtual-geometry cluster cell are permutations of Pass_GBuffer.glslh, and the visibility
     // resolve writes through this same function.
-    if ( s.ReceiveDecals >= 0.5 && DesertViewHasDBuffer() )
+    // A primitive that receives none (a skinned mesh by default: a projected box swims on a deforming surface) skips
+    // the fetch the same way.
+    if ( s.ReceiveDecals >= 0.5 && receivesDecals && DesertViewHasDBuffer() )
         DesertApplyDBuffer( DesertReadDBuffer( ivec2( gl_FragCoord.xy ) ), baseColor, N, roughness, metallic, ao );
 #endif
     vec3 dNdx, dNdy;
