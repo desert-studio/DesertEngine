@@ -75,12 +75,13 @@ namespace Desert::Core
         constexpr int kTonemapFilmic               = 2; // Core::TonemapOperator::Filmic at v74
         constexpr int kGrassRasterScalability      = 0; // Core::GrassRasterPath::Scalability at v75
         constexpr int kGrassRasterVisibilityBuffer = 2; // Core::GrassRasterPath::VisibilityBuffer at v75
-        // The post-process v0 PostProcessSettings defaults a record that did not state a key rendered with (v1 states
-        // them).
+        // The post-process v0 PostProcessSettings defaults a record that did not state a key rendered with (v1
+        // states them).
         constexpr double kPostProcessV0BloomIntensity    = 0.8;
         constexpr double kPostProcessV0BloomThreshold    = 2.0;
         constexpr double kPostProcessV0AutoExposureSpeed = 1.5;
-        // The histogram window every post-process v0 file was graded under (AutoExposureRenderer's constants then).
+        // The histogram window every post-process v0 file was graded under (AutoExposureRenderer's constants
+        // then).
         constexpr double kPostProcessV0LowPercent  = 0.0;
         constexpr double kPostProcessV0HighPercent = 95.0;
 
@@ -369,7 +370,8 @@ namespace Desert::Core
             EditBlock( components, "PostProcessVolume",
                        [&]( rfl::Generic::Object& block )
                        {
-                           // A record without Settings had every post-process v0 default: it is restated from an empty object.
+                           // A record without Settings had every post-process v0 default: it is restated from an
+                           // empty object.
                            const auto           stated = block.get( "Settings" );
                            rfl::Generic::Object settings;
                            if ( stated.has_value() )
@@ -386,8 +388,8 @@ namespace Desert::Core
                            }
                            else if ( !record )
                                return false;
-                           const auto number = [&]( const char* key, std::optional<double> fallback )
-                                -> std::optional<double>
+                           const auto number = [&]( const char*           key,
+                                                    std::optional<double> fallback ) -> std::optional<double>
                            {
                                const auto value = settings.get( key );
                                if ( !value.has_value() )
@@ -395,8 +397,8 @@ namespace Desert::Core
                                const auto parsed = NumberOf( value.value() );
                                if ( !parsed.has_value() )
                                    report.Refused.push_back(
-                                        std::format( "{}: PostProcessVolume.Settings.{} {} is not a number", who, key,
-                                                     rfl::json::write( value.value() ) ) );
+                                        std::format( "{}: PostProcessVolume.Settings.{} {} is not a number", who,
+                                                     key, rfl::json::write( value.value() ) ) );
                                return parsed;
                            };
                            const auto put = [&]( const char* key, rfl::Generic value )
@@ -408,16 +410,16 @@ namespace Desert::Core
                            bool              changed       = false;
 
                            // EnableBloom false -> Intensity 0 (UE has no switch); true keeps the intensity.
-                           const auto enable = settings.get( "EnableBloom" );
+                           const auto          enable = settings.get( "EnableBloom" );
                            std::optional<bool> enabled;
                            if ( enable.has_value() )
                            {
                                const auto flag = enable.value().to_bool();
                                if ( !flag.has_value() )
                                {
-                                   report.Refused.push_back( std::format(
-                                        "{}: PostProcessVolume.Settings.EnableBloom {} is not a bool", who,
-                                        rfl::json::write( enable.value() ) ) );
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings.EnableBloom {} is not a bool",
+                                                     who, rfl::json::write( enable.value() ) ) );
                                    return false;
                                }
                                enabled = flag.value();
@@ -443,19 +445,19 @@ namespace Desert::Core
                                changed = true;
                            }
                            // Threshold <= 0 bloomed every pixel: UE's -1. Above 0 the number is kept.
-                           const auto threshold =
-                                number( "BloomThreshold", record ? std::optional<double>( kPostProcessV0BloomThreshold )
-                                                                 : std::nullopt );
+                           const auto threshold = number(
+                                "BloomThreshold",
+                                record ? std::optional<double>( kPostProcessV0BloomThreshold ) : std::nullopt );
                            if ( threshold.has_value() )
                            {
-                               put( "BloomThreshold", rfl::Generic( threshold.value() <= 0.0 ? -1.0
-                                                                                             : threshold.value() ) );
+                               put( "BloomThreshold",
+                                    rfl::Generic( threshold.value() <= 0.0 ? -1.0 : threshold.value() ) );
                                changed = true;
                            }
                            // One speed -> both directions at it.
-                           const auto speed =
-                                number( "AutoExposureSpeed", record ? std::optional<double>( kPostProcessV0AutoExposureSpeed )
-                                                                    : std::nullopt );
+                           const auto speed = number(
+                                "AutoExposureSpeed",
+                                record ? std::optional<double>( kPostProcessV0AutoExposureSpeed ) : std::nullopt );
                            if ( speed.has_value() )
                            {
                                DropKey( settings, "AutoExposureSpeed" );
@@ -892,7 +894,7 @@ namespace Desert::Core
             return report;
         }
         // OLDER than the oldest generation raised in memory: the steps below the floors move data between files.
-        const SceneGenerations floor{ kSceneUpgradeFloor, kUnitVersion, kWorldPartitionUpgradeFloor,
+        const SceneGenerations floor{ kSceneUpgradeFloor,    kUnitVersion,       kWorldPartitionUpgradeFloor,
                                       kAssetRefUpgradeFloor, kLightUpgradeFloor, kPostProcessUpgradeFloor };
         if ( from.Scene < floor.Scene || from.Unit != head.Unit || from.WorldPartition < floor.WorldPartition ||
              from.AssetRef < floor.AssetRef || from.Light < floor.Light || from.PostProcess < floor.PostProcess )

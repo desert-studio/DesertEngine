@@ -654,10 +654,11 @@ namespace
                                 Desert::Migration::kLightVersionRotation, report.Upgrade.SunRotation.Aimed,
                                 report.Upgrade.SunRotation.Overrides, report.Upgrade.SunRotation.Undirected );
         if ( report.Upgrade.PostProcessBloomRaised && report.Upgrade.PostProcessBloom.Restated > 0 )
-            out << std::format( " post process v{}->v{} ({} PostProcessVolume setting(s) re-stated as UE bloom / auto "
-                                "exposure, {} EnableBloom false as BloomIntensity 0)",
-                                report.Upgrade.From.PostProcess, Desert::Migration::kPostProcessVersionBloom,
-                                report.Upgrade.PostProcessBloom.Restated, report.Upgrade.PostProcessBloom.BloomOff );
+            out << std::format(
+                 " post process v{}->v{} ({} PostProcessVolume setting(s) re-stated as UE bloom / auto "
+                 "exposure, {} EnableBloom false as BloomIntensity 0)",
+                 report.Upgrade.From.PostProcess, Desert::Migration::kPostProcessVersionBloom,
+                 report.Upgrade.PostProcessBloom.Restated, report.Upgrade.PostProcessBloom.BloomOff );
         if ( report.Upgrade.VolumetricFogRaised )
             out << " scene ->v" << Desert::Migration::kSceneVersionVolumetricFog
                 << " (fog and lights state the Volumetric Fog fields at their defaults)";

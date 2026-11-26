@@ -86,10 +86,10 @@ namespace Desert::Editor
                           "v{} / v{} / v{} / v{} / v{} / v{} only. "
                           "Autosaves are not migrated -- the file is left as it is.",
                           copy.Path.string(), copy.Stated.Scene, copy.Stated.Unit, copy.Stated.WorldPartition,
-                          copy.Stated.AssetRef, copy.Stated.Light, copy.Stated.PostProcess, Desert::Core::kSceneVersion,
-                          Desert::Core::kUnitVersion, Desert::Core::kWorldPartitionVersion,
-                          Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion,
-                          Desert::Core::kPostProcessVersion );
+                          copy.Stated.AssetRef, copy.Stated.Light, copy.Stated.PostProcess,
+                          Desert::Core::kSceneVersion, Desert::Core::kUnitVersion,
+                          Desert::Core::kWorldPartitionVersion, Desert::Core::kAssetRefVersion,
+                          Desert::Core::kLightVersion, Desert::Core::kPostProcessVersion );
             }
             dock.OfferRecovery( choice.Offered );
         }

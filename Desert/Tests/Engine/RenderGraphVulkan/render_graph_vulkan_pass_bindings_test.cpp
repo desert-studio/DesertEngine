@@ -6,8 +6,8 @@
 #include <string>
 #include <vector>
 
-// A bloom-like push block of the test's own (the engine's bloom passes moved to RENDER-BLOOM-UE's Gaussian stages):
-// a vec2 and a float, the shape these binding checks were written against.
+// A bloom-like push block of the test's own (the engine's bloom passes moved to RENDER-BLOOM-UE's Gaussian
+// stages): a vec2 and a float, the shape these binding checks were written against.
 namespace Desert::Graphic::ShaderPush
 {
     struct TestBloomLikePush
@@ -15,7 +15,8 @@ namespace Desert::Graphic::ShaderPush
         glm::vec2 SourceTexelSize{};
         float     FilterRadius{};
     };
-    template <> inline constexpr bool IsBlock<TestBloomLikePush> = true;
+    template <>
+    inline constexpr bool IsBlock<TestBloomLikePush> = true;
 } // namespace Desert::Graphic::ShaderPush
 
 namespace
@@ -258,7 +259,7 @@ namespace
     using Verdict = Common::ResultStr<std::vector<RdgResolvedEntry>>;
 
     const ShaderPush::TestBloomLikePush kPush{ .SourceTexelSize = glm::vec2( 1.0f / 32.0f, 1.0f / 32.0f ),
-                                           .FilterRadius    = 1.0f };
+                                               .FilterRadius    = 1.0f };
 
     // What the setup BELIEVES the shader declares (a ShaderBindingLayout, as a stale ShaderBindingLayoutCache
     // entry would hold it): the slots the block fills and the push size it gives, so ValidatePassBindings passes

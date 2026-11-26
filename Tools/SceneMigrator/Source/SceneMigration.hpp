@@ -592,8 +592,8 @@ namespace Desert::Migration
     using Core::kPostProcessVersionBloom;
     using Core::MigrateLightRotationV0ToV1;
     using Core::MigratePostProcessBloomV0ToV1;
-    using Core::PostProcessBloomReport;
     using Core::MigrateReflectedAssetRefsV0ToV1;
+    using Core::PostProcessBloomReport;
     using Core::ReflectedAssetRefsReport;
     using Core::SunRotationReport;
 

@@ -15,8 +15,9 @@
 
 namespace Desert::Graphic::System
 {
-    // The view's metering (UE AutoExposureSpeedUp / SpeedDown in stops per second, Min/Max brightness as luminance,
-    // Low/High percent of the histogram in %, clamped to [1, 99] with Low <= High by MakeAutoExposureWindow).
+    // The view's metering (UE AutoExposureSpeedUp / SpeedDown in stops per second, Min/Max brightness as
+    // luminance, Low/High percent of the histogram in %, clamped to [1, 99] with Low <= High by
+    // MakeAutoExposureWindow).
     struct AutoExposureParams
     {
         float SpeedUp     = 3.0f;
@@ -218,9 +219,9 @@ namespace Desert::Graphic::System
         // Set by OnSceneReplaced, consumed and cleared by the next RecordAverage — see that override.
         bool               m_SnapNextAdaptation = false;
         AutoExposureParams m_Params;
-        AutoExposureWindow m_Window = MakeAutoExposureWindow( AutoExposureParams{}.LowPercent,
-                                                              AutoExposureParams{}.HighPercent );
-        float              m_LastMeasuredLuminance = 0.0f;
+        AutoExposureWindow m_Window =
+             MakeAutoExposureWindow( AutoExposureParams{}.LowPercent, AutoExposureParams{}.HighPercent );
+        float               m_LastMeasuredLuminance = 0.0f;
         float m_DeltaSeconds       = 0.0f;
         float m_PreExposure        = 1.0f;
         LocalExposureParams m_LocalExposure;

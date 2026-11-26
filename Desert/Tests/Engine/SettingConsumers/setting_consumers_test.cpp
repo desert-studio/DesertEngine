@@ -565,7 +565,8 @@ namespace
     };
 
     // RENDER-BLOOM-UE: the six Gaussian stages are read where the stage list is built (BloomGaussian::Stages).
-    constexpr const char* kBloomRules = "Desert/Desert/Source/Engine/Graphic/PostProcessing/BloomGaussianRules.hpp";
+    constexpr const char* kBloomRules =
+         "Desert/Desert/Source/Engine/Graphic/PostProcessing/BloomGaussianRules.hpp";
 
     constexpr Row kPostProcessSettingsRows[] = {
          { "EnableSSAO", kSceneRenderer },

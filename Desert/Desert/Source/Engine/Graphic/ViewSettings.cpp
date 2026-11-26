@@ -64,7 +64,7 @@ namespace Desert::Graphic
         target.AutoExposureCurveBias     = volume.AutoExposureCurveBias;
         target.AutoExposure        = volume.AutoExposure;
         target.LocalExposureMethod = volume.LocalExposureMethod;
-        target.BloomMethod         = volume.BloomMethod;
+        target.BloomMethod               = volume.BloomMethod;
         // The convolution kernel and the dirt mask are images: taken whole, like the compensation curve (UE blends
         // a texture by its weight > 0.5 rule; one image per view is what the pass reads).
         target.BloomConvolutionKernel = volume.BloomConvolutionKernel;
@@ -143,18 +143,18 @@ namespace Desert::Graphic
         target.BloomGaussianIntensity =
              Lerp( target.BloomGaussianIntensity, volume.BloomGaussianIntensity, weight );
         target.BloomSizeScale = Lerp( target.BloomSizeScale, volume.BloomSizeScale, weight );
-        target.Bloom1Tint = Lerp( target.Bloom1Tint, volume.Bloom1Tint, weight );
-        target.Bloom2Tint = Lerp( target.Bloom2Tint, volume.Bloom2Tint, weight );
-        target.Bloom3Tint = Lerp( target.Bloom3Tint, volume.Bloom3Tint, weight );
-        target.Bloom4Tint = Lerp( target.Bloom4Tint, volume.Bloom4Tint, weight );
-        target.Bloom5Tint = Lerp( target.Bloom5Tint, volume.Bloom5Tint, weight );
-        target.Bloom6Tint = Lerp( target.Bloom6Tint, volume.Bloom6Tint, weight );
-        target.Bloom1Size = Lerp( target.Bloom1Size, volume.Bloom1Size, weight );
-        target.Bloom2Size = Lerp( target.Bloom2Size, volume.Bloom2Size, weight );
-        target.Bloom3Size = Lerp( target.Bloom3Size, volume.Bloom3Size, weight );
-        target.Bloom4Size = Lerp( target.Bloom4Size, volume.Bloom4Size, weight );
-        target.Bloom5Size = Lerp( target.Bloom5Size, volume.Bloom5Size, weight );
-        target.Bloom6Size = Lerp( target.Bloom6Size, volume.Bloom6Size, weight );
+        target.Bloom1Tint     = Lerp( target.Bloom1Tint, volume.Bloom1Tint, weight );
+        target.Bloom2Tint     = Lerp( target.Bloom2Tint, volume.Bloom2Tint, weight );
+        target.Bloom3Tint     = Lerp( target.Bloom3Tint, volume.Bloom3Tint, weight );
+        target.Bloom4Tint     = Lerp( target.Bloom4Tint, volume.Bloom4Tint, weight );
+        target.Bloom5Tint     = Lerp( target.Bloom5Tint, volume.Bloom5Tint, weight );
+        target.Bloom6Tint     = Lerp( target.Bloom6Tint, volume.Bloom6Tint, weight );
+        target.Bloom1Size     = Lerp( target.Bloom1Size, volume.Bloom1Size, weight );
+        target.Bloom2Size     = Lerp( target.Bloom2Size, volume.Bloom2Size, weight );
+        target.Bloom3Size     = Lerp( target.Bloom3Size, volume.Bloom3Size, weight );
+        target.Bloom4Size     = Lerp( target.Bloom4Size, volume.Bloom4Size, weight );
+        target.Bloom5Size     = Lerp( target.Bloom5Size, volume.Bloom5Size, weight );
+        target.Bloom6Size     = Lerp( target.Bloom6Size, volume.Bloom6Size, weight );
         target.BloomDirtMaskIntensity =
              Lerp( target.BloomDirtMaskIntensity, volume.BloomDirtMaskIntensity, weight );
         target.BloomDirtMaskTint = Lerp( target.BloomDirtMaskTint, volume.BloomDirtMaskTint, weight );

@@ -119,7 +119,8 @@ namespace
     }
 
     // @p convolution: the volume's bloom method (UE BloomMethod), the switch these tests blend - taken whole.
-    ECS::PostProcessVolumeData Volume( bool unbound, float priority, float weight, float exposure, bool convolution )
+    ECS::PostProcessVolumeData Volume( bool unbound, float priority, float weight, float exposure,
+                                       bool convolution )
     {
         ECS::PostProcessVolumeData d;
         d.Unbound              = unbound;
@@ -286,7 +287,8 @@ TEST( SceneSettingsHomesMigration, TheMigratedSceneResolvesToThePreviousValues )
     // shadow maps (GI-PROBE-SW); EnableSSR true as the screen-space method.
     EXPECT_EQ( v.Post.GlobalIlluminationMethod, Common::Scalability::GIRequest::ProbeVolume );
     EXPECT_EQ( v.Post.ReflectionsMethod, Common::Scalability::ReflectionRequest::ScreenSpace );
-    EXPECT_TRUE( Graphic::BloomGaussian::BloomOn( v.Post ) ) << "EnableBloom true keeps the intensity (post process v1)";
+    EXPECT_TRUE( Graphic::BloomGaussian::BloomOn( v.Post ) )
+         << "EnableBloom true keeps the intensity (post process v1)";
     EXPECT_TRUE( v.Post.AutoExposure );
     EXPECT_EQ( v.Post.BloomThreshold, 2.0f ) << "unstated = the post process v0 default, stated by its v1 step";
     EXPECT_FALSE( v.Shadows.Enabled );
@@ -340,7 +342,8 @@ TEST( PostProcessVolume, BlendWeightLerpsValuesAndTakesSwitchesWhole )
 
     entt::registry zero;
     AddVolume( zero, glm::vec3( 0.0f ), Volume( true, 0.0f, 0.0f, 6.0f, true ) );
-    EXPECT_EQ( Graphic::ResolveViewSettings( zero, glm::vec3( 0.0f ) ).Post.BloomMethod, Core::BloomMethod::Gaussian )
+    EXPECT_EQ( Graphic::ResolveViewSettings( zero, glm::vec3( 0.0f ) ).Post.BloomMethod,
+               Core::BloomMethod::Gaussian )
          << "a volume of weight 0 contributes nothing, not even its switches";
 }
 

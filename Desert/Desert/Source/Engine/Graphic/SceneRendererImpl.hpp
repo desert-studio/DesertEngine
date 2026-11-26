@@ -283,7 +283,7 @@ namespace Desert::Graphic
             return m_RadianceCache ? &m_RadianceCache->LastUpdateCounts() : nullptr;
         }
         [[nodiscard]] VirtualGeometryCounts              GetVirtualGeometryCounts() const override;
-        [[nodiscard]] ExposureReadout GetExposureReadout() const override
+        [[nodiscard]] ExposureReadout                    GetExposureReadout() const override
         {
             return m_ExposureReadout;
         }

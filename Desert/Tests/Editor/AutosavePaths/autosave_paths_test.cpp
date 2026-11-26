@@ -172,8 +172,8 @@ TEST( AutosavePaths, RecoveryOffersTheNewestCopyAtTheCurrentVersion )
     fs::last_write_time( older, fs::file_time_type::clock::now() - std::chrono::hours( 1 ) );
     WriteCopy( AS::Dir() / "Scenes" / "NotACopy.desce", kCurrent.Scene, kCurrent.Unit );
 
-    const AS::RecoveryChoice choice =
-         AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef, kLight, kPostProcess );
+    const AS::RecoveryChoice choice = AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition,
+                                                          kAssetRef, kLight, kPostProcess );
     EXPECT_EQ( choice.Offered, newer );
     EXPECT_TRUE( choice.NotOffered.empty() );
     EXPECT_FALSE( IsUnder( Path::ASSETS_PATH, choice.Offered ) );
@@ -197,8 +197,8 @@ TEST( AutosavePaths, AnOlderCopyIsReportedNotOfferedAndNotMigrated )
     const auto        before     = FilesUnder( project );
     const std::string staleBytes = BytesOf( stale );
 
-    const AS::RecoveryChoice choice =
-         AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef, kLight, kPostProcess );
+    const AS::RecoveryChoice choice = AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition,
+                                                          kAssetRef, kLight, kPostProcess );
     EXPECT_EQ( choice.Offered, current )
          << "the newest file on disk is at an older version and must not be offered";
     ASSERT_EQ( choice.NotOffered.size(), 2u );
@@ -220,8 +220,9 @@ TEST( AutosavePaths, AnOlderCopyIsReportedNotOfferedAndNotMigrated )
 
     // Only older copies left: nothing is offered at all.
     fs::remove( current );
-    EXPECT_TRUE( AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef, kLight, kPostProcess )
-                      .Offered.empty() );
+    EXPECT_TRUE(
+         AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef, kLight, kPostProcess )
+              .Offered.empty() );
 }
 
 namespace

@@ -16,8 +16,8 @@
 #include <string>
 #include <type_traits>
 
-// A bloom-like push block of the test's own (the engine's bloom passes moved to RENDER-BLOOM-UE's Gaussian stages):
-// a vec2 and a float, the shape these binding checks were written against.
+// A bloom-like push block of the test's own (the engine's bloom passes moved to RENDER-BLOOM-UE's Gaussian
+// stages): a vec2 and a float, the shape these binding checks were written against.
 namespace Desert::Graphic::ShaderPush
 {
     struct TestBloomLikePush
@@ -25,7 +25,8 @@ namespace Desert::Graphic::ShaderPush
         glm::vec2 SourceTexelSize{};
         float     FilterRadius{};
     };
-    template <> inline constexpr bool IsBlock<TestBloomLikePush> = true;
+    template <>
+    inline constexpr bool IsBlock<TestBloomLikePush> = true;
 } // namespace Desert::Graphic::ShaderPush
 
 namespace

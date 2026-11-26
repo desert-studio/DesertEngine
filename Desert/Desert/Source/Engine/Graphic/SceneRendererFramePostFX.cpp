@@ -360,14 +360,15 @@ namespace Desert::Graphic
         // CONVOLUTION BLOOM (the view's BloomMethod, UE PostProcessFFTBloom): the setup texture is the
         // convolution's input, and its result replaces it there - no chain, no Gaussian stages.
         std::optional<System::BloomRenderer::ConvolutionPlan> convolution;
-        RDG::TextureRef                                         kernelImage;
-        RDG::TextureRef                                         kernelSpectrum;
+        RDG::TextureRef                                       kernelImage;
+        RDG::TextureRef                                       kernelSpectrum;
         {
             auto*                     textureService = Runtime::ResourceRegistry::GetTextureService();
             const Assets::AssetHandle kernelHandle   = bloom->GetConvolutionKernel();
             const bool       named  = static_cast<uint64_t>( kernelHandle ) != 0 && textureService != nullptr;
             const Texture2D* kernel = named ? textureService->Get( kernelHandle ) : nullptr;
-            convolution             = bloom->PrepareConvolution(
+
+            convolution = bloom->PrepareConvolution(
                  *setupDesc, kernel, named ? textureService->GetSourcePath( kernelHandle ) : std::string{} );
             if ( convolution )
                 kernelImage = textures.Import(
@@ -419,8 +420,7 @@ namespace Desert::Graphic
                                                : textures.System.Black;
 
         graph.AddPass(
-             "PostFX: BloomSetup", RDG::PassFlags::Compute,
-             [&]( RDG::PassBuilder& pass )
+             "PostFX: BloomSetup", RDG::PassFlags::Compute, [&]( RDG::PassBuilder& pass )
              { bloom->DeclareSetupBindings( pass, scene, setup, adapted, leGrid, leBlurred ); },
              [bloom, desc = *setupDesc]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return bloom->RecordSetup( context, desc ); } );
@@ -453,15 +453,16 @@ namespace Desert::Graphic
             const BloomGaussian::Stage& stage = frame.Stages[i];
             if ( stage.Tint == glm::vec3( 0.0f ) )
                 continue; // UE skips a stage of Size ~0: the additive passes through
-            const uint32_t               index     = BloomGaussian::kStageCount - 1 - i;
-            const RDG::TextureDesc       stageDesc = System::BloomRenderer::GetStageDesc( *setupDesc, index );
+            const uint32_t         index     = BloomGaussian::kStageCount - 1 - i;
+            const RDG::TextureDesc stageDesc = System::BloomRenderer::GetStageDesc( *setupDesc, index );
             // Kept by the renderer: computed and uploaded only when the stage's width or size changes.
             RDG::BufferRef               kernelBuffer;
             const BloomGaussian::Kernel& kernel =
                  bloom->AcquireKernel( graph, index, stageDesc.Size.Width, stage.KernelSizePercent, kernelBuffer );
             const RDG::TextureRef horizontal =
                  graph.CreateTexture( stageDesc, std::format( "Bloom.Stage{}H", index ) );
-            const RDG::TextureRef vertical = graph.CreateTexture( stageDesc, std::format( "Bloom.Stage{}V", index ) );
+            const RDG::TextureRef vertical =
+                 graph.CreateTexture( stageDesc, std::format( "Bloom.Stage{}V", index ) );
             for ( const bool isVertical : { false, true } )
             {
                 const RDG::TextureRef source = isVertical ? horizontal : chain[index];
@@ -470,8 +471,8 @@ namespace Desert::Graphic
                 const ShaderPush::BloomGaussianBlur push = System::BloomRenderer::MakeBlurPush(
                      stageDesc, kernel, isVertical, stage.Tint, additive.IsValid() );
                 graph.AddPass(
-                     std::format( "PostFX: BloomBlur{}{}", index, isVertical ? 'V' : 'H' ), RDG::PassFlags::Compute,
-                     [&]( RDG::PassBuilder& pass )
+                     std::format( "PostFX: BloomBlur{}{}", index, isVertical ? 'V' : 'H' ),
+                     RDG::PassFlags::Compute, [&]( RDG::PassBuilder& pass )
                      { bloom->DeclareBlurBindings( pass, source, added, target, kernelBuffer ); },
                      [bloom, push, stageDesc]( RDG::PassContext& context ) -> Common::BoolResultStr
                      { return bloom->RecordBlur( context, push, stageDesc ); } );
@@ -626,8 +627,8 @@ namespace Desert::Graphic
         // Bloom is this graph's transient when the chain ran; otherwise the graph's system black texture with
         // zero intensity (TonemapRenderer::GraphInputs), an explicit choice rather than a stale image.
         const bool bloomProduced = textures.Transients.Bloom.IsValid();
-        // The view's bloom dirt mask (UE BloomDirtMask): its image when the view names one with an intensity and it
-        // is loaded, else System.Black with the mask's intensity 0 for this draw.
+        // The view's bloom dirt mask (UE BloomDirtMask): its image when the view names one with an intensity and
+        // it is loaded, else System.Black with the mask's intensity 0 for this draw.
         RDG::TextureRef dirtMask;
         if ( const Assets::AssetHandle dirtHandle = tonemap->GetBloomDirtMask();
              bloomProduced && static_cast<uint64_t>( dirtHandle ) != 0 )
@@ -636,36 +637,37 @@ namespace Desert::Graphic
             const Texture2D* dirt           = textureService ? textureService->Get( dirtHandle ) : nullptr;
             if ( dirt != nullptr && dirt->GetImageHandle().IsValid() )
                 dirtMask = textures.Import(
-                     Runtime::ResourceRegistry::GetImageService()->Share( dirt->GetImageHandle() ), "Bloom.DirtMask" );
+                     Runtime::ResourceRegistry::GetImageService()->Share( dirt->GetImageHandle() ),
+                     "Bloom.DirtMask" );
         }
         const bool dirtProduced = dirtMask.IsValid();
         // The light shafts and the lens flare follow the same rule.
         const bool                           shaftsProduced = textures.Transients.LightShafts.IsValid();
         const bool                           flareProduced  = textures.Transients.LensFlare.IsValid();
         System::TonemapRenderer::GraphInputs graphInputs{
-             .Source              = source,
-             .AvgLuminance        = avgLuminance,
-             .Bloom               = bloomProduced ? textures.Transients.Bloom : textures.System.Black,
-             .BloomProduced       = bloomProduced,
-             .BloomDirtMask       = dirtProduced ? dirtMask : textures.System.Black,
+             .Source                = source,
+             .AvgLuminance          = avgLuminance,
+             .Bloom                 = bloomProduced ? textures.Transients.Bloom : textures.System.Black,
+             .BloomProduced         = bloomProduced,
+             .BloomDirtMask         = dirtProduced ? dirtMask : textures.System.Black,
              .BloomDirtMaskProduced = dirtProduced,
-             .LightShafts         = shaftsProduced ? textures.Transients.LightShafts : textures.System.Black,
-             .LightShaftsProduced = shaftsProduced,
-             .LensFlare           = flareProduced ? textures.Transients.LensFlare : textures.System.Black,
-             .LensFlareProduced   = flareProduced,
-             .LocalExposureGrid   = textures.Transients.LocalExposureGrid.IsValid()
-                                         ? textures.Transients.LocalExposureGrid
-                                         : textures.System.Black3D,
-             .BlurredLogLuminance = textures.Transients.BlurredLogLuminance.IsValid()
-                                         ? textures.Transients.BlurredLogLuminance
-                                         : textures.System.Black,
+             .LightShafts           = shaftsProduced ? textures.Transients.LightShafts : textures.System.Black,
+             .LightShaftsProduced   = shaftsProduced,
+             .LensFlare             = flareProduced ? textures.Transients.LensFlare : textures.System.Black,
+             .LensFlareProduced     = flareProduced,
+             .LocalExposureGrid     = textures.Transients.LocalExposureGrid.IsValid()
+                                           ? textures.Transients.LocalExposureGrid
+                                           : textures.System.Black3D,
+             .BlurredLogLuminance   = textures.Transients.BlurredLogLuminance.IsValid()
+                                           ? textures.Transients.BlurredLogLuminance
+                                           : textures.System.Black,
              .ExposureFusion = textures.Transients.ExposureFusion.IsValid() ? textures.Transients.ExposureFusion
                                                                             : textures.System.Black };
         if ( !graphInputs.Source.IsValid() || !graphInputs.AvgLuminance.IsValid() ||
              !graphInputs.Bloom.IsValid() || !graphInputs.BloomDirtMask.IsValid() ||
-             !graphInputs.LightShafts.IsValid() ||
-             !graphInputs.LensFlare.IsValid() || !graphInputs.LocalExposureGrid.IsValid() ||
-             !graphInputs.BlurredLogLuminance.IsValid() || !graphInputs.ExposureFusion.IsValid() )
+             !graphInputs.LightShafts.IsValid() || !graphInputs.LensFlare.IsValid() ||
+             !graphInputs.LocalExposureGrid.IsValid() || !graphInputs.BlurredLogLuminance.IsValid() ||
+             !graphInputs.ExposureFusion.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] the tonemap is missing a graph input (no scene colour, or System.Black / "
                        "System.White is not in this graph); the tonemap pass is not recorded this frame" );

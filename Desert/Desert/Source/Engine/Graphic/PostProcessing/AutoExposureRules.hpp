@@ -43,9 +43,9 @@ namespace Desert::Graphic
         }
     };
 
-    // The meter's window: what it can see, in log2 luminance - UE's histogram range (Histogram Log Min/Max -10 .. 20
-    // EV100 with "Extend default luminance range"), log2 luminance -13 .. 17 (EV100ToLuminance), 30 stops = 0.118
-    // EV per bin. The sky's clamp must stay inside it (AutoExposureRules' assertion, the tests).
+    // The meter's window: what it can see, in log2 luminance - UE's histogram range (Histogram Log Min/Max -10 ..
+    // 20 EV100 with "Extend default luminance range"), log2 luminance -13 .. 17 (EV100ToLuminance), 30 stops =
+    // 0.118 EV per bin. The sky's clamp must stay inside it (AutoExposureRules' assertion, the tests).
     inline constexpr float kAutoExposureMinLogLum = -13.0f;
     inline constexpr float kAutoExposureMaxLogLum = 17.0f;
 
@@ -62,7 +62,7 @@ namespace Desert::Graphic
     // UE's eye adaptation slope match (PostProcessEyeAdaptation.cpp:695-711): the exponential leg's multiplier M
     // so its step equals the linear leg's at TransitionDistance stops from the target; kTransitionDistance is UE
     // r.EyeAdaptation.ExponentialTransitionDistance.
-    inline constexpr float kAutoExposureTransitionDistance = 1.5f;
+    inline constexpr float     kAutoExposureTransitionDistance = 1.5f;
     [[nodiscard]] inline float AutoExposureExponentialM( float speed )
     {
         constexpr float kFrameTimeEps = 1.0f / 60.0f;

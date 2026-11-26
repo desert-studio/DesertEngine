@@ -38,7 +38,8 @@ namespace Desert::Graphic::System
     // WHY a mip chain instead of a blur kernel: the bloom downsample compute is a plain progressive filter (four
     // bilinear taps, a 4x4 box per level, no threshold - the bloom's threshold lives in BloomSetup); run level by
     // level it is exactly a blur pyramid of the whole image. Mip 0 is a mild blur and every further level roughly
-    // doubles it, so a UI element picks a LOD instead of each element paying for its own kernel. No new shader, no new blur to maintain.
+    // doubles it, so a UI element picks a LOD instead of each element paying for its own kernel. No new shader, no
+    // new blur to maintain.
     //
     // RDG-A2 P5: the pyramid is a TRANSIENT of the frame graph (SceneRenderer::AddFrameBackdropBlur creates it
     // from GetPyramidDesc, sized from THIS frame's view, so there is no image to resize and nothing that outlives
@@ -131,7 +132,8 @@ namespace Desert::Graphic::System
             }
 
             const ShaderPush::BloomDownsample push{
-                 .SourceTexelSize = glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ) };
+                 .SourceTexelSize =
+                      glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ) };
 
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( push );

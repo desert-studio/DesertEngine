@@ -377,7 +377,8 @@ namespace Desert::Graphic
             const uint32_t bh = Div( height, 2 );
             // The setup (half the view) is the convolution's input and result; the Gaussian (UE BM_SOG) adds its
             // five downsampled stages and a horizontal and a vertical blur target per stage, one texture each
-            // (SceneRenderer::AddFrameBloom) - sized as a six-level chain, the most PostProcess.BloomQuality keeps.
+            // (SceneRenderer::AddFrameBloom) - sized as a six-level chain, the most PostProcess.BloomQuality
+            // keeps.
             const uint32_t stages = std::min( 6u /* BloomGaussian::kStageCount */, MipCount( bw, bh ) );
             add( { "Bloom.Setup+Stages", "SceneRendererFramePostFX.cpp", F::kBloom, bw, bh,
                    profile.BloomConvolution ? 1u : stages } );

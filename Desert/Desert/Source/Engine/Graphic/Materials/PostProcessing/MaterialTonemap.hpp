@@ -45,8 +45,8 @@ namespace Desert::Graphic
         };
 
         // Uniform values only: every texture the shader samples (GeometryTexture, AverageLuminanceTexture,
-        // BloomTexture, LightShaftTexture, LensFlareTexture, BloomDirtMaskTexture) is a graph resource the tonemap exec binds
-        // through RDG::PassBindings, never here.
+        // BloomTexture, LightShaftTexture, LensFlareTexture, BloomDirtMaskTexture) is a graph resource the tonemap
+        // exec binds through RDG::PassBindings, never here.
         void BindValues( const Params& params );
 
         MPROPERTY( float, Exposure, "Exposure", 1.0f )

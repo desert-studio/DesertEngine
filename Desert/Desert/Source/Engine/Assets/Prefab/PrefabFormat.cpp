@@ -15,13 +15,13 @@ namespace Desert::Assets
                                      int foundLightVersion, int foundPostProcessVersion )
     {
         return fmt::format(
-             "[PrefabAsset] '{0}' is at scene schema v{1} / world units v{2} / world partition v{3} / asset references "
-             "v{8} / lights v{10} / post process v{13}, and this engine loads scene schema v{4} / world units v{5} / "
-             "world partition v{6} / asset references v{9} / lights v{11} / post process v{14}, and upgrades in memory from scene v{7} / world partition "
-             "v{12} up. NOTHING WAS LOADED - no entity was taken from this file, and the scene is exactly as it "
-             "was. A prefab carries the same entity payloads a scene does and moves through the same generations "
-             "(SceneUpgrade.hpp): a NEWER file was written by a later build; an older one is converted once by "
-             "Tools/SceneMigrator.",
+             "[PrefabAsset] '{0}' is at scene schema v{1} / world units v{2} / world partition v{3} / asset "
+             "references v{8} / lights v{10} / post process v{13}, and this engine loads scene schema v{4} / "
+             "world units v{5} / world partition v{6} / asset references v{9} / lights v{11} / post process "
+             "v{14}, and upgrades in memory from scene v{7} / world partition v{12} up. NOTHING WAS LOADED - no "
+             "entity was taken from this file, and the scene is exactly as it was. A prefab carries the same "
+             "entity payloads a scene does and moves through the same generations (SceneUpgrade.hpp): a NEWER "
+             "file was written by a later build; an older one is converted once by Tools/SceneMigrator.",
              source, foundSceneVersion, foundUnitVersion, foundWorldPartitionVersion, Core::kSceneVersion,
              Core::kUnitVersion, Core::kWorldPartitionVersion, Core::kSceneUpgradeFloor, foundAssetRefVersion,
              Core::kAssetRefVersion, foundLightVersion, Core::kLightVersion, Core::kWorldPartitionUpgradeFloor,

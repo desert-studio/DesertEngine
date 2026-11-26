@@ -143,8 +143,8 @@ namespace Desert::Graphic::System
              .Sampler( BloomSetupShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              .Texture( BloomSetupShaderParameters::AdaptedLuminanceTexture, adaptedLuminance,
                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Texture( BloomSetupShaderParameters::LumBilateralGrid, localExposureGrid, RDG::Access::SampledCompute,
-                       RDG::SubresourceRange::All() )
+             .Texture( BloomSetupShaderParameters::LumBilateralGrid, localExposureGrid,
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              .Texture( BloomSetupShaderParameters::BlurredLogLuminance, blurredLogLuminance,
                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              .Storage( BloomSetupShaderParameters::BloomSetupTexture, setup, RDG::Access::StorageWrite, 0 )
@@ -164,20 +164,20 @@ namespace Desert::Graphic::System
         const TonemapRenderer::LocalExposureFrame& le = m_LocalExposure;
         const LocalExposureParams                  p  = le.Produced ? le.Params : LocalExposureParams{};
         ShaderPush::BloomSetup                     push;
-        push.SourceTexelSize        = glm::vec2( 1.0f / static_cast<float>( scene->GetFramebufferWidth() ),
-                                                 1.0f / static_cast<float>( scene->GetFramebufferHeight() ) );
-        push.Threshold              = m_Frame.Threshold;
-        push.ExposureKey            = m_Frame.ExposureKey;
-        push.AutoExposure           = m_Frame.AutoExposure ? 1 : 0;
-        push.Exposure               = m_ManualExposure;
-        push.InversePreExposure     = 1.0f / std::max( m_PreExposure, 1e-30f );
-        push.LocalExposureContrast  = glm::vec4( p.HighlightContrast, p.ShadowContrast, p.DetailStrength,
-                                                 p.BlurredLumBlend );
+        push.SourceTexelSize    = glm::vec2( 1.0f / static_cast<float>( scene->GetFramebufferWidth() ),
+                                             1.0f / static_cast<float>( scene->GetFramebufferHeight() ) );
+        push.Threshold          = m_Frame.Threshold;
+        push.ExposureKey        = m_Frame.ExposureKey;
+        push.AutoExposure       = m_Frame.AutoExposure ? 1 : 0;
+        push.Exposure           = m_ManualExposure;
+        push.InversePreExposure = 1.0f / std::max( m_PreExposure, 1e-30f );
+        push.LocalExposureContrast =
+             glm::vec4( p.HighlightContrast, p.ShadowContrast, p.DetailStrength, p.BlurredLumBlend );
         push.LocalExposureThreshold = glm::vec4( p.HighlightThreshold, p.ShadowThreshold,
                                                  p.HighlightThresholdStrength, p.ShadowThresholdStrength );
         push.LocalExposureUV        = glm::vec4( le.GridUVScale, le.BlurUVScale );
         push.LocalExposureSlice     = glm::vec4( le.LogMiddleGrey, le.SliceLogMin, 1.0f / kLocalExposureSliceEV,
-                                                 le.Produced ? 1.0f : 0.0f );
+                                             le.Produced ? 1.0f : 0.0f );
 
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( push );
@@ -236,9 +236,9 @@ namespace Desert::Graphic::System
              .PushConstants<ShaderPush::BloomGaussianBlur>();
     }
 
-    Common::BoolResultStr BloomRenderer::RecordBlur( const RDG::PassContext&                context,
+    Common::BoolResultStr BloomRenderer::RecordBlur( const RDG::PassContext&              context,
                                                      const ShaderPush::BloomGaussianBlur& push,
-                                                     const RDG::TextureDesc&                destinationDesc ) const
+                                                     const RDG::TextureDesc&              destinationDesc ) const
     {
         if ( !m_BlurPipeline )
             return Common::MakeError( "BloomRenderer: the Gaussian blur pipeline is not initialised" );
@@ -286,14 +286,14 @@ namespace Desert::Graphic::System
         buffer        = graph.CreateBuffer( RDG::BufferDesc{ sizeof( cached.Kernel.OffsetWeight ) }, name );
         graph.QueueBufferUpload( buffer, std::as_bytes( std::span( cached.Kernel.OffsetWeight ) ) );
         graph.Extract( buffer, cached.Buffer, RDG::Access::StorageRead );
-        LOG_INFO( "[Bloom] kernel stage {} uploaded: width {} size {}% samples {}", stage, stageWidth,
-                  kernelSizePercent, cached.Kernel.SampleCount );
+        LOG_DEBUG( "[Bloom] kernel stage {} uploaded: width {} size {}% samples {}", stage, stageWidth,
+                   kernelSizePercent, cached.Kernel.SampleCount );
         return cached.Kernel;
     }
 
-    std::optional<BloomRenderer::ConvolutionPlan> BloomRenderer::PrepareConvolution( const RDG::TextureDesc& setupDesc,
-                                                                                     const Texture2D*        kernel,
-                                                                                     const std::string&      kernelName )
+    std::optional<BloomRenderer::ConvolutionPlan>
+    BloomRenderer::PrepareConvolution( const RDG::TextureDesc& setupDesc, const Texture2D* kernel,
+                                       const std::string& kernelName )
     {
         const auto report = [this]( std::string line ) { ReportOutcome( std::move( line ), false ); };
         if ( m_Frame.Method != Core::BloomMethod::Convolution )
@@ -308,12 +308,14 @@ namespace Desert::Graphic::System
         }
         if ( static_cast<uint64_t>( m_Kernel ) == 0 )
         {
-            report( "[Bloom] method=Gaussian (view Convolution: the view's post-process names no convolution kernel)" );
+            report( "[Bloom] method=Gaussian (view Convolution: "
+                    "the view's post-process names no convolution kernel)" );
             return std::nullopt;
         }
         if ( kernel == nullptr || !kernel->GetImageHandle().IsValid() )
         {
-            report( std::format( "[Bloom] method=Gaussian (view Convolution: kernel {} is not loaded yet)", kernelName ) );
+            report( std::format( "[Bloom] method=Gaussian (view Convolution: kernel {} is not loaded yet)",
+                                 kernelName ) );
             return std::nullopt;
         }
 

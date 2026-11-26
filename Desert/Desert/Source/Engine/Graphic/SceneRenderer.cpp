@@ -437,7 +437,8 @@ namespace Desert::Graphic
             }
             case 7:
             {
-                // Bloom reads the HDR scene color and produces UE's six-Gaussian (or convolution) glow the tonemap adds in.
+                // Bloom reads the HDR scene color and produces UE's six-Gaussian (or convolution) glow the tonemap
+                // adds in.
                 RegisterSystem<System::BloomRenderer>( m_Systems.Bloom, this, m_TargetFramebuffer );
                 const auto& bloomSystem = m_Systems.Bloom;
                 if ( !bloomSystem->Initialize() )
@@ -1551,7 +1552,7 @@ namespace Desert::Graphic
             {
                 const float lum = ae->ReadBackAdaptedLuminance();
                 m_LastExposure  = lum > 0.0f ? post.AutoExposureKey / std::max( lum, 1e-4f ) : 0.0f;
-                const float measured           = ae->GetLastMeasuredLuminance();
+                const float measured            = ae->GetLastMeasuredLuminance();
                 m_ExposureReadout.AdaptedEV100  = lum > 0.0f ? LuminanceToEV100( lum ) : 0.0f;
                 m_ExposureReadout.MeasuredEV100 = measured > 0.0f ? LuminanceToEV100( measured ) : 0.0f;
                 m_ExposureReadout.Exposure      = m_LastExposure;
@@ -1610,22 +1611,24 @@ namespace Desert::Graphic
         // per change by QualityBoot's QualityState listener, not by every view each frame.
 
         // THE LENS FLARE'S BRIGHT PASS IS AUTHORED IN THE EXPOSED IMAGE AND COMPARED IN THE RAW ONE.
-        // SceneComposite computes `(scene + bloom + shafts + flare) * exposure`, and LensFlareBrightPass thresholds
-        // the raw HDR upstream of it, so the authored number is divided by the manual exposure here (auto-exposure:
-        // left in exposed units). Bloom does not take this route: BloomSetup compares UE's way, the luminance
-        // brought to exposed space in the shader (manual exposure or key / adapted luminance, pre-exposure undone).
+        // SceneComposite computes `(scene + bloom + shafts + flare) * exposure`, and LensFlareBrightPass
+        // thresholds the raw HDR upstream of it, so the authored number is divided by the manual exposure here
+        // (auto-exposure: left in exposed units). Bloom does not take this route: BloomSetup compares UE's way,
+        // the luminance brought to exposed space in the shader (manual exposure or key / adapted luminance,
+        // pre-exposure undone).
         const float exposureNormalisation = post.AutoExposure ? 1.0f : std::max( manualExposure, 1e-30f );
 
-        // UE bloom (RENDER-BLOOM-UE): the volume's method, threshold, six Gaussian stages and convolution intensity,
-        // and the tier's stage count (PostProcess.BloomQuality, UE r.BloomQuality). AddFrameBloom reads them whole.
+        // UE bloom (RENDER-BLOOM-UE): the volume's method, threshold, six Gaussian stages and convolution
+        // intensity, and the tier's stage count (PostProcess.BloomQuality, UE r.BloomQuality). AddFrameBloom reads
+        // them whole.
         {
             System::BloomFrameParams bloomFrame;
-            bloomFrame.On        = BloomGaussian::BloomOn( post );
-            bloomFrame.Method    = post.BloomMethod;
-            bloomFrame.Threshold = post.BloomThreshold;
-            bloomFrame.StageCount =
-                 static_cast<uint32_t>( std::clamp( m_Quality.As<int>( Common::Scalability::Parameter::BloomQuality ),
-                                                    0, static_cast<int>( BloomGaussian::kStageCount ) ) );
+            bloomFrame.On         = BloomGaussian::BloomOn( post );
+            bloomFrame.Method     = post.BloomMethod;
+            bloomFrame.Threshold  = post.BloomThreshold;
+            bloomFrame.StageCount = static_cast<uint32_t>(
+                 std::clamp( m_Quality.As<int>( Common::Scalability::Parameter::BloomQuality ), 0,
+                             static_cast<int>( BloomGaussian::kStageCount ) ) );
             bloomFrame.Stages               = BloomGaussian::Stages( post );
             bloomFrame.ConvolutionIntensity = post.BloomIntensity * post.BloomConvolutionIntensity;
             bloomFrame.AutoExposure         = post.AutoExposure;
@@ -1639,7 +1642,8 @@ namespace Desert::Graphic
                                          post.BloomMethod == Core::BloomMethod::Convolution &&
                                          static_cast<uint64_t>( post.BloomConvolutionKernel ) != 0;
         // UE BloomDirtMask / Intensity / Tint, applied by the composite to the bloom term.
-        m_Systems.Tonemap->SetBloomDirtMask( post.BloomDirtMask, post.BloomDirtMaskIntensity, post.BloomDirtMaskTint );
+        m_Systems.Tonemap->SetBloomDirtMask( post.BloomDirtMask, post.BloomDirtMaskIntensity,
+                                             post.BloomDirtMaskTint );
         m_Systems.Tonemap->SetChromaticBloom( BloomGaussian::BloomOn( post ) ? post.LensDispersion : 0.0f );
         // The lens stage (LENS-POST): the resolved volume's values, applied by the composite.
         m_Systems.Tonemap->SetLens( { .FilmGrainIntensity             = post.FilmGrainIntensity,

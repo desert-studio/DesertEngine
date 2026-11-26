@@ -42,11 +42,10 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, BloomSetupTexture );
         DESERT_SHADER_PARAMETER( Texture, LumBilateralGrid );
         DESERT_SHADER_PARAMETER( Texture, BlurredLogLuminance );
-        static constexpr std::array kAll{
-             RDG::Erase( SceneColorTexture ), RDG::Erase( LinearClampSampler ),
-             RDG::Erase( PointClampSampler ), RDG::Erase( AdaptedLuminanceTexture ),
-             RDG::Erase( BloomSetupTexture ), RDG::Erase( LumBilateralGrid ),
-             RDG::Erase( BlurredLogLuminance ) };
+        static constexpr std::array kAll{ RDG::Erase( SceneColorTexture ),  RDG::Erase( LinearClampSampler ),
+                                          RDG::Erase( PointClampSampler ),  RDG::Erase( AdaptedLuminanceTexture ),
+                                          RDG::Erase( BloomSetupTexture ),  RDG::Erase( LumBilateralGrid ),
+                                          RDG::Erase( BlurredLogLuminance ) };
     };
 
     // The Downsample shader's parameters (shared with BackdropBlurRenderer, which spells its own).
@@ -81,7 +80,7 @@ namespace Desert::Graphic::System
         Core::BloomMethod Method    = Core::BloomMethod::Gaussian;
         float             Threshold = -1.0f; // UE BloomThreshold, exposed luminance; <= -1 keeps every pixel
         // PostProcess.BloomQuality: how many of the six stages run, coarsest first (UE drops Bloom1 first).
-        uint32_t                                                       StageCount = BloomGaussian::kStageCount;
+        uint32_t                                                     StageCount = BloomGaussian::kStageCount;
         std::array<BloomGaussian::Stage, BloomGaussian::kStageCount> Stages{}; // BloomGaussian::Stages
         float ConvolutionIntensity = 0.0f; // BloomIntensity x BloomConvolutionIntensity
         bool  AutoExposure         = false;
@@ -176,9 +175,9 @@ namespace Desert::Graphic::System
         // plus @p additive (the coarser stage's result; System.Black on a horizontal pass or the coarsest stage).
         void DeclareBlurBindings( RDG::PassBuilder& pass, RDG::TextureRef source, RDG::TextureRef additive,
                                   RDG::TextureRef destination, RDG::BufferRef kernel ) const;
-        [[nodiscard]] Common::BoolResultStr RecordBlur( const RDG::PassContext&                context,
+        [[nodiscard]] Common::BoolResultStr RecordBlur( const RDG::PassContext&              context,
                                                         const ShaderPush::BloomGaussianBlur& push,
-                                                        const RDG::TextureDesc&                destinationDesc ) const;
+                                                        const RDG::TextureDesc& destinationDesc ) const;
         // The push of one blur pass of the stage whose size is @p stageDesc: horizontal (@p vertical false) with a
         // white tint and no additive, vertical with the stage's @p tint and @p additive.
         [[nodiscard]] static ShaderPush::BloomGaussianBlur MakeBlurPush( const RDG::TextureDesc&      stageDesc,
@@ -206,9 +205,9 @@ namespace Desert::Graphic::System
         }
 
         // This frame's convolution: the FFT size (BloomConvolutionFFTSize, BloomConvolutionRules.hpp - the size
-        // the view's memory census lists too), the content rectangle the half-resolution setup texture is resampled
-        // onto (the rest is the zero border, UE BloomConvolutionBufferScale), and whether the kernel's spectrum
-        // must be rebuilt this frame.
+        // the view's memory census lists too), the content rectangle the half-resolution setup texture is
+        // resampled onto (the rest is the zero border, UE BloomConvolutionBufferScale), and whether the kernel's
+        // spectrum must be rebuilt this frame.
         struct ConvolutionPlan
         {
             std::string      KernelName;     // the kernel's source path, for the outcome line

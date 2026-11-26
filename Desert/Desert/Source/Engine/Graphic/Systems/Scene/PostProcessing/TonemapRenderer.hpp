@@ -173,7 +173,6 @@ namespace Desert::Graphic::System
             m_TonemapOperator = op;
         }
 
-
         // The bloom dirt mask (UE BloomDirtMask / Intensity / Tint), the view's resolved post-process values: the
         // texture is resolved and imported by the graph (GraphInputs::BloomDirtMask), the numbers drawn here.
         void SetBloomDirtMask( Assets::AssetHandle texture, float intensity, const glm::vec3& tint )
@@ -274,10 +273,10 @@ namespace Desert::Graphic::System
         float                 m_Exposure        = 1.0f;
         float                 m_PreExposure     = 1.0f;
 
-        Assets::AssetHandle    m_BloomDirtMask;
-        float                  m_BloomDirtMaskIntensity = 0.0f;
-        glm::vec3              m_BloomDirtMaskTint      = glm::vec3( 0.5f );
-        float                  m_ChromaticBloom         = 0.0f;
+        Assets::AssetHandle m_BloomDirtMask;
+        float               m_BloomDirtMaskIntensity = 0.0f;
+        glm::vec3           m_BloomDirtMaskTint      = glm::vec3( 0.5f );
+        float               m_ChromaticBloom         = 0.0f;
 
         std::weak_ptr<Image2D> m_AutoExposureImage;
         bool                   m_AutoExposureEnabled = false;

@@ -299,8 +299,8 @@ namespace Desert::Core
         {
             return VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised || FilmicDefaultRaised ||
                    GrassRasterPathRaised || LandscapeSplineEntitiesRaised || TubeSourceLengthRaised ||
-                   EntityHLODLayerRaised || ImpostorLayersRaised || ReflectedAssetRefsRaised || SunRotationRaised ||
-                   PostProcessBloomRaised;
+                   EntityHLODLayerRaised || ImpostorLayersRaised || ReflectedAssetRefsRaised ||
+                   SunRotationRaised || PostProcessBloomRaised;
         }
     };
 

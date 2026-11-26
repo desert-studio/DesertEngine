@@ -500,9 +500,9 @@ namespace Common::Scalability
         // same cascades cover only the near range and the far shadow is traced. Read by SceneRenderer::OnUpdate
         // -> RebudgetShadowsFor. Centimetres, 10 m .. 1 km.
         ShadowDistanceFieldCascadeDistance,
-        // THE FAR SHADOW (WP-FAR-13; UE DirectionalLight FarShadowDistance, the far shadow cascade): how far from the
-        // camera one more map past the cascades holds the static casters' shadow. ViewMemory ShadowQualityOf ->
-        // ShadowQuality::FarDistance; 0 (or not past the cascades' distance) = none. Centimetres, 0 .. 4 km.
+        // THE FAR SHADOW (WP-FAR-13; UE DirectionalLight FarShadowDistance, the far shadow cascade): how far from
+        // the camera one more map past the cascades holds the static casters' shadow. ViewMemory ShadowQualityOf
+        // -> ShadowQuality::FarDistance; 0 (or not past the cascades' distance) = none. Centimetres, 0 .. 4 km.
         ShadowFarDistance,
         // 0/1 (GPU-TILE-CLASSIFY; UE Substrate ClassificationTiles / r.TiledDeferredShading): the deferred
         // lighting's 8x8 tiles are classified from the G-buffer (sky, DefaultLit-only, mixed) and the direct and
@@ -590,16 +590,18 @@ namespace Common::Scalability
         // sun is refracted through the drawn wave field onto the floor (Programs/Water/WaterCausticsSplat +
         // WaterCausticsResolve, a 512^2 map around the camera) and the deferred direct pass multiplies the sun on
         // the texels under a water body's surface by it (Common/WaterCaustics.glslh). 0 = no pass, and the
-        // receiver's factor is exactly 1 (the frame without caustics, bit for bit). Read by SceneRenderer::OnUpdate
-        // -> WaterCaustics::SetEnabled. Key "Effects.WaterCaustics": off at Low and Medium.
+        // receiver's factor is exactly 1 (the frame without caustics, bit for bit). Read by
+        // SceneRenderer::OnUpdate -> WaterCaustics::SetEnabled. Key "Effects.WaterCaustics": off at Low and
+        // Medium.
         EffectsWaterCaustics,
         // WATER-RIVERS-FFT (UE has no FFT ocean; the tier follows sg.EffectsQuality as UE's r.Water.* do): the
         // ceiling of the water's wave source - an FFT wave set draws its Tessendorf cascades at FFT (Epic,
-        // Cinematic) and its Gerstner generator below. Read by WaterRenderer::PrepareFrame. Values: WaterWaveMethod
+        // Cinematic) and its Gerstner generator below. Read by WaterRenderer::PrepareFrame. Values:
+        // WaterWaveMethod
         EffectsWaterWaveMethod,
         // The impact decal pool's capacity (NG-DECALS-MESH; UE: the spawned decals SpawnDecalAtLocation keeps,
-        // r.Decal.FadeDurationScale's quality twin): the ring of records World.spawnDecal writes; a spawn into a full
-        // ring replaces the oldest record. Read by ECS::DecalECSSystem::Update -> World::DecalImpactPool::
+        // r.Decal.FadeDurationScale's quality twin): the ring of records World.spawnDecal writes; a spawn into a
+        // full ring replaces the oldest record. Read by ECS::DecalECSSystem::Update -> World::DecalImpactPool::
         // SetCapacity. 0 = no impact decals. 0..4096
         EffectsDecalImpactPoolSize,
         Count

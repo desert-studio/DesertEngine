@@ -18,8 +18,6 @@ namespace Desert::Graphic::System
         // The meter's window is the frame's (SetParams -> MakeAutoExposureWindow, AutoExposureRules.hpp): UE's
         // histogram range and the volume's percentiles. The tests pin the range against the sky's own clamp.
 
-
-
         inline uint32_t GroupCount( uint32_t dim )
         {
             return ( dim + kGroupSize - 1 ) / kGroupSize;
@@ -178,7 +176,7 @@ namespace Desert::Graphic::System
         m_SnapNextAdaptation     = false;
 
         const LocalExposureParams& le = m_LocalExposure;
-        ShaderPush::AEAverage ap;
+        ShaderPush::AEAverage      ap;
         ap.DeltaTime                  = deltaSeconds;
         ap.SpeedUp                    = speedUp;
         ap.SpeedDown                  = speedDown;
@@ -192,7 +190,7 @@ namespace Desert::Graphic::System
         ap.LowPercent                 = m_Window.LowPercent;
         ap.HighPercent                = m_Window.HighPercent;
         ap.LocalExposureContrast      = glm::vec4( le.HighlightContrast, le.ShadowContrast, 0.0f,
-                                                   IsLocalExposureIdentity( le ) ? 0.0f : 1.0f );
+                                              IsLocalExposureIdentity( le ) ? 0.0f : 1.0f );
         ap.LocalExposureThreshold     = glm::vec4( le.HighlightThreshold, le.ShadowThreshold,
                                                    le.HighlightThresholdStrength, le.ShadowThresholdStrength );
         ap.LocalExposureLogMiddleGrey = m_LocalExposureLogGrey;

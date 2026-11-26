@@ -243,8 +243,8 @@ namespace Desert::Core
         float AutoExposureKey = 0.18f; // middle-grey target
         // UE AutoExposureLowPercent / HighPercent: the histogram's darkest Low % and brightest (100 - High) % are
         // left out of the average. Clamped to 1..99 with Low <= High at use (Graphic::MakeAutoExposureWindow, UE
-        // PostProcessEyeAdaptation.cpp:607-608). Post process v1 stated 0 / 95 on older files, the window they were
-        // graded under.
+        // PostProcessEyeAdaptation.cpp:607-608). Post process v1 stated 0 / 95 on older files, the window they
+        // were graded under.
         PROPERTY( DisplayName( "Low Percent" ), Category( "Exposure" ), Range( 1.0f, 99.0f ), Units( "%" ),
                   Tooltip( "Darkest share of the histogram left out of the average (UE Low Percent)." ) )
         float AutoExposureLowPercent = 10.0f;
@@ -329,7 +329,8 @@ namespace Desert::Core
         // method's own intensity (Gaussian Intensity or Convolution Intensity) > 0 - no separate switch, as in UE
         // (PostProcessing.cpp:862-864). Gaussian: stage N of the six (1/2 .. 1/64 of the view) is blurred by a
         // Gaussian Bloom N Size % of the view wide (x Size Scale) and added with Bloom N Tint x 1/6 x Intensity
-        // x Gaussian Intensity (Graphic::BloomGaussian). Post process v1 turned the former Enable Bloom = false into Intensity 0.
+        // x Gaussian Intensity (Graphic::BloomGaussian). Post process v1 turned the former Enable Bloom = false
+        // into Intensity 0.
         PROPERTY( DisplayName( "Method" ), Category( "Bloom" ) )
         Core::BloomMethod BloomMethod = Core::BloomMethod::Gaussian;
         PROPERTY( DisplayName( "Intensity" ), Category( "Bloom" ), Range( 0.0f, 8.0f ),
