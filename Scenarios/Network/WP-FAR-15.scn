@@ -1,0 +1,43 @@
+# WP-FAR-15 (folds NET-RELEVANCY): replication by distance for World Partition. A pawn is relevant by its POINT in
+# the connection's view shape (the client's own streaming source shape reported as ViewReport, else the circle of
+# Net.PawnCullRangeCm), not by its cell in the main grid's LoadingRange; it leaves only past that shape widened by
+# WorldPartition.UnloadMargin (hysteresis). Each relevant pawn is sent every EverySteps of its distance band
+# (Config/Engine.json "Net", Project::NetSettings; UE NetUpdateFrequency / ReplicationPeriodFrame), an unchanged pawn
+# every DormantEverySteps, due pawns sorted by priority inside a per-connection byte budget; each snapshot entry
+# carries its period, and the client draws each pawn behind its own interpolation delay
+# (Net::PawnInterpolationDelay, extrapolation capped by Net::PawnExtrapolationCap).
+# Runner: <scratch>/WP-FAR-15/run_all.sh (base NET-5 run_all.sh): DesertServer --role all on WP_Protocol, observer A =
+# Editor (--shot-player-view, real-time sequence frames), bots B and C = DesertNetProbe --bot; the server console
+# `transform <pawn> ...` puts B 2000 cm and C 30000 cm from A along +X; both walk a circle (--walk-cm 300
+# --turn-deg-s 36). 75 ms lag + 30 ms jitter, as NET-5. Settings = NetSettings defaults (50 m/30 Hz, 150 m/15 Hz,
+# 400 m/6 Hz, beyond 3 Hz; circle 500 m; margin 0.25 -> exit at 625 m).
+# Дано: server + A + B (20 m) + C (300 m) on WP_Protocol; both bots walk a circle.
+# Тогда [far15_two_tiers] far15/two_tiers.png: A's frame shows B near and C small at 300 m over the HLOD/landscape
+#       (dev has no C at all - 200 m LoadingRange; the same frame from dev sits beside it); A's log
+#       "pawn <B>: 20 m, period 2 (30 Hz), delay 0.10-0.20 s" and "pawn <C>: 300 m, period 10 (6 Hz), delay
+#       0.35-0.50 s"; server log "pawns by band [30 Hz 1, 15 Hz 0, 6 Hz 1, 3 Hz 0]"; snapshot bytes/s to A 1.4-1.6
+#       times below dev's for the same two bots (35 B x (30 + 6) against 34 B x 60).
+# Тогда [far15_far_smooth] far15/far_smooth_strip.png: a strip of A's frames (3 s of real time) - C walks an arc
+#       with no jump back and no freeze longer than one frame; B as in NET-5 net5_remote_walk; A's log "0 snap(s)";
+#       no "hold" line for C.
+# Когда: C is put at 495 m and walks +-10 m along +X (crosses 500 m every ~3 s, for 30 s).
+# Тогда [far15_edge] far15/edge_strip.png: the server log for A has exactly ONE "pawn <C> relevant" and no "left"
+#       in the 30 s; no frame of A's sequence shows C vanish or appear; then the console puts C at 700 m -> one
+#       "left: 700 m past 625 m" and Destroy NotRelevant; back at 480 m -> one Spawn.
+# Когда: B stops for 5 s, then walks.
+# Тогда [far15_dormant] far15/dormant.png: the server log "pawn <B> dormant" and the counter "dormant 1"; B's entries
+#       leave every 60 steps but carry the period of B's band (A's log "period 2"; B's delay in A's log does not
+#       grow while B stands - review 11-26: a period of 60 in the entry drove the client's delay up to 2 s); A's
+#       frame: B stands with no drift; on B's first moving step B walks with no lag and no jump (A's log: B's delay
+#       is the same as before the stop).
+# Когда: the budget is lowered to 2048 B/s (platform layer Config/<Platform>/Engine.json in the runner's working
+#       copy - Config/Mac/Engine.json on macOS, Config/Windows/Engine.json on Windows - Net.BudgetBytesPerSecond),
+#       8 bots at 20-40 m.
+# Тогда [far15_budget] far15/budget.png: the server starts (validation passed) and its "[Server]" line shows
+#       "deferred > 0"; A's log - the nearest bot still "period 2", the farthest of the eight skip snapshots; all 8
+#       players are visible in A's frame; with Bands of descending ToCm in the same file the server refuses to start
+#       with the text of ValidateNetSettings (exit code 7). None of the eight starves: each gets an entry at least
+#       once a second (A's log for every bot - "period" <= 60; review 11-26: with no "Sent" record for a bot not yet
+#       sent, its priority did not grow).
+# Numbers that must agree: 300 m -> period 10; 20 m -> period 2; exit only past 625 m; C's delay = 2 x 167 ms +
+# jitter ~ 0.35-0.50 s; 0 snap; server step <= 16.6 ms with 8 bots.

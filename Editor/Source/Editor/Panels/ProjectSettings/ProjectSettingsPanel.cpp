@@ -4,13 +4,17 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 
+#include <Common/Core/SimulationStep.hpp>
 #include <Projects/EngineConfig.hpp>
+#include <Projects/NetSettings.hpp>
 #include <Projects/ProjectContext.hpp>
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cfloat>
 #include <filesystem>
 #include <format>
 #include <string_view>
@@ -69,7 +73,16 @@ namespace Desert::Editor
             m_Edit          = ::Desert::Project::CurrentGameSettings();
             m_EditRendering      = ::Desert::Project::ProjectRendererSettings();
             m_EditWorldPartition = ::Desert::Project::ProjectWorldPartitionSettings();
+            m_EditNet            = ::Desert::Project::ProjectNetSettings();
             m_Problem.clear();
+            // A Net section the server would refuse is reported as soon as the panel shows it, not at the next
+            // edit: the project layer first, then what this platform's layer makes of it.
+            if ( const auto invalid = ::Desert::Project::ValidateNetSettings( m_EditNet ) )
+                m_Problem = std::format( "the project's Net section is refused: {}", *invalid );
+            else if ( const auto effective =
+                           ::Desert::Project::ValidateNetSettings( ::Desert::Project::CurrentNetSettings() ) )
+                m_Problem = std::format( "the Net section with {}'s layer is refused: {}",
+                                         ::Desert::Project::PlatformConfigName(), *effective );
         }
 
         ImGui::TextDisabled( "%s",
@@ -79,6 +92,7 @@ namespace Desert::Editor
         DrawMoviesSection();
         DrawRenderingSection();
         DrawWorldPartitionSection();
+        DrawNetSection();
 
         if ( !m_Problem.empty() )
             ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ), "%s %s", ICON_MDI_ALERT, m_Problem.c_str() );
@@ -381,6 +395,154 @@ namespace Desert::Editor
     void ProjectSettingsPanel::CommitWorldPartition()
     {
         const auto saved = ::Desert::Project::SaveWorldPartitionSettings( m_EditWorldPartition );
+        if ( saved )
+            m_Problem.clear();
+        else
+            m_Problem = saved.GetError();
+    }
+
+    // UE Project Settings > Engine > Network plus the pawn class's NetUpdateFrequency / NetCullDistance (set in
+    // DefaultEngine.ini): the Net section of Config/Engine.json, read by DesertServer at start (WP-FAR-15). A value
+    // this platform's layer also sets is marked, as in World Partition. A change the server would refuse
+    // (Project::ValidateNetSettings) is not written; the reason is shown below the sections.
+    void ProjectSettingsPanel::DrawNetSection()
+    {
+        if ( !Utils::ImGuiUtilities::SectionHeader( "Net" ) )
+            return;
+
+        const ::Desert::Project::EngineConfigLayers& layers = ::Desert::Project::CurrentEngineConfig();
+        auto&                                        edit   = m_EditNet;
+        const auto                                   endRow = [&]( std::string_view key )
+        {
+            const std::string path = std::format( "Net.{}", key );
+            for ( const std::string& set : layers.PlatformKeys )
+                if ( set == path || set == "Net" )
+                {
+                    ImGui::TextDisabled( "%s", std::format( "{} sets it on {}", layers.PlatformFile,
+                                                            ::Desert::Project::PlatformConfigName() )
+                                                    .c_str() );
+                    break;
+                }
+            Utils::ImGuiUtilities::EndPropertyRow();
+        };
+        const auto commitOnEdit = [&]
+        {
+            if ( ImGui::IsItemDeactivatedAfterEdit() )
+                CommitNet();
+        };
+        const std::uint32_t step = 1;
+        // Steps shown as a rate: the server runs at Common::kSimulationStepHz.
+        const auto hz = []( std::uint32_t everySteps )
+        {
+            if ( everySteps == 0 )
+                ImGui::TextDisabled( "-" );
+            else
+                ImGui::TextDisabled( "%s",
+                                     std::format( "{:.3g} Hz", Common::kSimulationStepHz / everySteps ).c_str() );
+        };
+
+        Utils::ImGuiUtilities::ResetPropertyRows();
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Rate Bands",
+             "UE NetUpdateFrequency by distance (Replication Graph ReplicationPeriodFrame): a pawn nearer than "
+             "'To (cm)' is sent every 'Every (steps)' server steps. Ascending by distance; the last band reaches "
+             "everything farther, and the first band's period is the snapshot cadence." );
+        bool       removeBand = false;
+        std::size_t removeAt  = 0;
+        if ( ImGui::BeginTable( "##NetBands", 4,
+                                ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp ) )
+        {
+            ImGui::TableSetupColumn( "To (cm)" );
+            ImGui::TableSetupColumn( "Every (steps)" );
+            ImGui::TableSetupColumn( "Rate", ImGuiTableColumnFlags_WidthFixed );
+            ImGui::TableSetupColumn( "##Remove", ImGuiTableColumnFlags_WidthFixed );
+            ImGui::TableHeadersRow();
+            for ( std::size_t i = 0; i < edit.Bands.size(); ++i )
+            {
+                ::Desert::Project::NetRateBand& band = edit.Bands[i];
+                const bool                      last = i + 1 == edit.Bands.size();
+                ImGui::PushID( static_cast<int>( i ) );
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                if ( last )
+                    ImGui::TextDisabled( "beyond" );
+                else
+                {
+                    ImGui::SetNextItemWidth( -FLT_MIN );
+                    ImGui::DragFloat( "##ToCm", &band.ToCm, 100.0f, 0.0f, FLT_MAX, "%.0f" );
+                    commitOnEdit();
+                }
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                ImGui::InputScalar( "##EverySteps", ImGuiDataType_U32, &band.EverySteps, &step, &step );
+                commitOnEdit();
+                ImGui::TableNextColumn();
+                hz( band.EverySteps );
+                ImGui::TableNextColumn();
+                if ( edit.Bands.size() > 1 && ImGui::SmallButton( ICON_MDI_CLOSE ) )
+                {
+                    removeBand = true;
+                    removeAt   = i;
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        if ( removeBand )
+        {
+            edit.Bands.erase( edit.Bands.begin() + static_cast<std::ptrdiff_t>( removeAt ) );
+            CommitNet();
+        }
+        if ( ImGui::SmallButton( ICON_MDI_PLUS " Band" ) )
+        {
+            // A new band goes before the open-ended last one, reaching past the band before it.
+            const float from = edit.Bands.size() > 1 ? edit.Bands[edit.Bands.size() - 2].ToCm : 0.0f;
+            const std::uint32_t every = edit.Bands.back().EverySteps;
+            edit.Bands.insert( edit.Bands.end() - 1, ::Desert::Project::NetRateBand{ from + 10000.0f, every } );
+            CommitNet();
+        }
+        endRow( "Bands" );
+
+        Utils::ImGuiUtilities::BeginPropertyRow( "Dormant Every (steps)",
+                                                 "UE NetDormancy / MinNetUpdateFrequency: a pawn whose state has "
+                                                 "not changed since the connection last "
+                                                 "received it is sent this often." );
+        ImGui::InputScalar( "##DormantEverySteps", ImGuiDataType_U32, &edit.DormantEverySteps, &step, &step );
+        commitOnEdit();
+        ImGui::SameLine();
+        hz( edit.DormantEverySteps );
+        endRow( "DormantEverySteps" );
+
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Pawn Cull Range (cm)",
+             "UE NetCullDistance of the pawn: every connection sees pawns within this circle. A pawn leaves only "
+             "past it widened by World Partition's Unload Margin." );
+        ImGui::DragFloat( "##PawnCullRangeCm", &edit.PawnCullRangeCm, 100.0f, 0.0f, FLT_MAX, "%.0f" );
+        commitOnEdit();
+        endRow( "PawnCullRangeCm" );
+
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Max View Range (cm)",
+             "The farthest a client's reported view (its scope sector) may ask the server to replicate." );
+        ImGui::DragFloat( "##MaxViewRangeCm", &edit.MaxViewRangeCm, 100.0f, 0.0f, FLT_MAX, "%.0f" );
+        commitOnEdit();
+        endRow( "MaxViewRangeCm" );
+
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Budget (bytes/s)",
+             "Pawn state written into snapshots per connection per second; due pawns beyond it wait, most overdue "
+             "and nearest first." );
+        const std::uint32_t budgetStep = 1024;
+        ImGui::InputScalar( "##BudgetBytesPerSecond", ImGuiDataType_U32, &edit.BudgetBytesPerSecond, &budgetStep,
+                            &budgetStep );
+        commitOnEdit();
+        endRow( "BudgetBytesPerSecond" );
+    }
+
+    void ProjectSettingsPanel::CommitNet()
+    {
+        // SaveNetSettings refuses with ValidateNetSettings' reason and leaves the file as it was.
+        const auto saved = ::Desert::Project::SaveNetSettings( m_EditNet );
         if ( saved )
             m_Problem.clear();
         else
