@@ -1,0 +1,4 @@
+# ENG-PSO-CACHE-STARTUP (warm): the second start of the same binary, Metal's shader cache warm, no pipeline cache file. Played right after ENG-PSO-CACHE-STARTUP.scn on the same build.
+Проект Projects/Desert/Desert.deproj
+Дано state
+Тогда pso_warm_start the same scene as pso_cold_start, pixel-for-pixel the same content (no default-surface grey on any material); editor.log: line 1 -> first «[Display] output» < 10 s; line 1 -> «[Startup] reveal» no worse than 22 s; no «deleted», no «seeded from»; «[Content] pipelines: … (0 still compiling)»
