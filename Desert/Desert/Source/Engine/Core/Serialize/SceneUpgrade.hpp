@@ -88,12 +88,14 @@ namespace Desert::Core
     //       (MigrateTubeSourceLengthV76ToV77). A prefab override is a delta and is left alone.
     inline constexpr int kSceneVersionTubeSourceLength = 77;
 
-    //  78 - BLOOM AND AUTO EXPOSURE AS UE (RENDER-BLOOM-UE). A PostProcessVolume's Settings lose EnableBloom (false
+    //  78 - BLOOM AND AUTO EXPOSURE AS UE (RENDER-BLOOM-UE). A PostProcessVolume's Settings lose EnableBloom
+    //  (false
     //       -> BloomIntensity 0, true keeps the intensity) and AutoExposureSpeed (-> AutoExposureSpeedUp =
     //       AutoExposureSpeedDown); BloomThreshold <= 0 -> -1. A record also states what the v77 defaults gave it
     //       (bloom off, threshold 2, speed 1.5, auto exposure off) and the 0 / 95 histogram window it was graded
     //       under; an override is a delta and re-states only its own keys. A Settings that is not an object, or a
-    //       key of the wrong type, is refused (MigrateBloomUEV77ToV78).
+    //       key of the wrong type, is refused (MigrateBloomUEV77ToV78). This step is the PostProcessVolume block's
+    //       upgrade from COMPONENT Version 1 to Version( 2 ) (ECS/PostProcessVolumeComponent.hpp).
     inline constexpr int kSceneVersionBloomUE = 78;
 
     static_assert( kSceneVersionBloomUE == kSceneVersion,
