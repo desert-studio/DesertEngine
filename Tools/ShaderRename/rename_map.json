@@ -225,7 +225,6 @@
         }
       ]
     },
-    "u_ExposureKey": "ExposureKey",
     "u_FaceNegX": "FaceNegativeXTexture",
     "u_FaceNegY": "FaceNegativeYTexture",
     "u_FaceNegZ": "FaceNegativeZTexture",
