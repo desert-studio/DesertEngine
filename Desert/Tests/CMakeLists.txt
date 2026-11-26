@@ -37,7 +37,8 @@ function(_desert_tests_common_settings target)
     endif()
     target_include_directories(${target} PRIVATE "${DESERT_ROOT}/Desert/Tests")
     # C++ stand-ins for the shader includer's generated .glslh, for suites that compile shader text AS C++.
-    target_include_directories(${target} PRIVATE "${DESERT_ROOT}/Desert/Tests/GlslAsCpp")
+    target_include_directories(${target} PRIVATE "${DESERT_ROOT}/Desert/Tests/GlslAsCpp"
+        "${DESERT_GENERATED_DIR}/Shaders")
     desert_external_includes(${target} ${DESERT_COMMON_INCLUDE_DIRS} ${DESERT_TEST_INCLUDE_DIRS})
     target_compile_definitions(${target} PRIVATE ${DESERT_TEST_DEFINES}
         "DESERT_MODULE_TABLE_JSON=\"${DESERT_MODULE_TABLE_JSON}\"") # the ModuleBoundary suite reads the table

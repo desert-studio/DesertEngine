@@ -50,6 +50,7 @@ SOURCE_DIRS = [
     "Tools/LineJump/Source",
     "Tools/PakTool/Source",
     "Tools/SceneMigrator/Source",
+    "Tools/ShaderProtocolGen/Source",
     "Tools/TextureCook/Source",
     "Tools/UIMockup/Source",
     "Tools/WorldCook/Source",
