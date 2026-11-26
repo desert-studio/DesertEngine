@@ -16,11 +16,11 @@
 Тогда [1_one_view] views.scenes=1, views.distanceFieldPools=1, views.surfaceCaches=1, views.distanceFieldAtlasBytes = A with A < 384 MiB and A a multiple of 8 MiB
 Дано run Scene "New Viewport (same scene)"
 Когда state
-Тогда-вид 2_two_views the first viewport pixel-equal to 1_one_view; the second the same GI/AO look (mean diff <= 0.5/255)
+Тогда-вид 2_two_views both viewports of this one frame show the same GI/AO look (mean diff <= 0.5/255 between them; against 1_one_view only time drift - clouds, wind, exposure - may differ)
 Тогда [2_two_views] views.live=2, views.scenes=1, views.distanceFieldPools=1, views.surfaceCaches=1, views.distanceFieldAtlasBytes = A (the second viewport adds 0)
 Дано run Action "Play from Here"
 Когда state
-Тогда-вид 3_play GI and AO in place, no black or empty frame (mean luminance within 5 % of 1_one_view)
+Тогда-вид 3_play GI and AO in place on the pawn camera's own view (ground level, sun in frame - not 1_one_view's camera): no black or empty frame, no unlit black barn faces
 Тогда [3_play] views.scenes=1, views.distanceFieldPools=1, views.surfaceCaches=1, views.distanceFieldAtlasBytes = A (the atlas moved over by AdoptPool)
 Дано run Action "Stop"
 Дано run Scene "New Scene View"
