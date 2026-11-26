@@ -185,6 +185,13 @@ namespace Desert::Graphic::System
                                                                          const BloomGaussian::Kernel& kernel,
                                                                          bool vertical, const glm::vec3& tint,
                                                                          bool additive );
+        // The kernel of Gaussian stage @p stage (0 = 1/2 .. 5 = 1/64) for a stage @p stageWidth texels wide and a
+        // width of @p kernelSizePercent of it, with its storage buffer in @p graph. Kept between frames (UE caches
+        // the blur kernel per pass): computed and uploaded only when the stage's (width, size percent) changes,
+        // else the kept buffer is registered as is.
+        [[nodiscard]] const BloomGaussian::Kernel& AcquireKernel( RDG::Builder& graph, uint32_t stage,
+                                                                  uint32_t stageWidth, float kernelSizePercent,
+                                                                  RDG::BufferRef& buffer );
 
         // CONVOLUTION BLOOM (UE BM_FFT, PostProcessFFTBloom): the method is the view's (BloomFrameParams::Method),
         // the kernel the view's (PostProcessSettings::BloomConvolutionKernel / Scale).
@@ -257,6 +264,16 @@ namespace Desert::Graphic::System
         float                               m_PreExposure = 1.0f;
         TonemapRenderer::LocalExposureFrame m_LocalExposure;
         float                               m_ManualExposure = 1.0f;
+
+        // One Gaussian stage's kernel and the buffer it was uploaded to, with what it was computed from.
+        struct StageKernel
+        {
+            uint32_t              StageWidth  = 0;
+            float                 SizePercent = -1.0f;
+            BloomGaussian::Kernel Kernel;
+            RDG::ExternalBuffer   Buffer;
+        };
+        std::array<StageKernel, BloomGaussian::kStageCount> m_StageKernels;
 
         struct ConvolutionProgram
         {

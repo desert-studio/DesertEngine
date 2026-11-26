@@ -455,12 +455,10 @@ namespace Desert::Graphic
                 continue; // UE skips a stage of Size ~0: the additive passes through
             const uint32_t               index     = BloomGaussian::kStageCount - 1 - i;
             const RDG::TextureDesc       stageDesc = System::BloomRenderer::GetStageDesc( *setupDesc, index );
-            const BloomGaussian::Kernel  kernel    = BloomGaussian::Compute1DKernel(
-                 BloomGaussian::BlurRadius( stageDesc.Size.Width, stage.KernelSizePercent ) );
-            const RDG::BufferRef kernelBuffer =
-                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( kernel.OffsetWeight ) },
-                                     std::format( "Bloom.Kernel{}", index ) );
-            graph.QueueBufferUpload( kernelBuffer, std::as_bytes( std::span( kernel.OffsetWeight ) ) );
+            // Kept by the renderer: computed and uploaded only when the stage's width or size changes.
+            RDG::BufferRef               kernelBuffer;
+            const BloomGaussian::Kernel& kernel =
+                 bloom->AcquireKernel( graph, index, stageDesc.Size.Width, stage.KernelSizePercent, kernelBuffer );
             const RDG::TextureRef horizontal =
                  graph.CreateTexture( stageDesc, std::format( "Bloom.Stage{}H", index ) );
             const RDG::TextureRef vertical = graph.CreateTexture( stageDesc, std::format( "Bloom.Stage{}V", index ) );

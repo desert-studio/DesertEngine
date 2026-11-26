@@ -10,6 +10,8 @@
 #include <bit>
 #include <cmath>
 #include <format>
+#include <span>
+#include <string>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::System
@@ -262,6 +264,31 @@ namespace Desert::Graphic::System
         push.SampleCount = static_cast<std::int32_t>( kernel.SampleCount );
         push.UseAdditive = vertical && additive ? 1 : 0;
         return push;
+    }
+
+    const BloomGaussian::Kernel& BloomRenderer::AcquireKernel( RDG::Builder& graph, const uint32_t stage,
+                                                               const uint32_t  stageWidth,
+                                                               const float     kernelSizePercent,
+                                                               RDG::BufferRef& buffer )
+    {
+        StageKernel&      cached = m_StageKernels[stage];
+        const std::string name   = std::format( "Bloom.Kernel{}", stage );
+        if ( cached.Buffer.Physical && cached.StageWidth == stageWidth && cached.SizePercent == kernelSizePercent )
+        {
+            buffer = graph.RegisterExternal( cached.Buffer, name );
+            return cached.Kernel;
+        }
+        cached.StageWidth  = stageWidth;
+        cached.SizePercent = kernelSizePercent;
+        cached.Kernel =
+             BloomGaussian::Compute1DKernel( BloomGaussian::BlurRadius( stageWidth, kernelSizePercent ) );
+        cached.Buffer = {};
+        buffer        = graph.CreateBuffer( RDG::BufferDesc{ sizeof( cached.Kernel.OffsetWeight ) }, name );
+        graph.QueueBufferUpload( buffer, std::as_bytes( std::span( cached.Kernel.OffsetWeight ) ) );
+        graph.Extract( buffer, cached.Buffer, RDG::Access::StorageRead );
+        LOG_INFO( "[Bloom] kernel stage {} uploaded: width {} size {}% samples {}", stage, stageWidth,
+                  kernelSizePercent, cached.Kernel.SampleCount );
+        return cached.Kernel;
     }
 
     std::optional<BloomRenderer::ConvolutionPlan> BloomRenderer::PrepareConvolution( const RDG::TextureDesc& setupDesc,
