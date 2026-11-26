@@ -982,6 +982,30 @@ namespace Desert::Runtime
         return SiblingOf( built, path, pass, view, permutation, owner );
     }
 
+    MaterialService::ViewVariantAnswer MaterialService::ResolveViewVariant( const Graphic::Material* built,
+                                                                            Graphic::MeshVertexPath  path,
+                                                                            Graphic::MeshPass        pass,
+                                                                            uint32_t                 view ) const
+    {
+        // The steady frame reads (R10): a built copy is answered under the shared lock.
+        {
+            const ReadGuard read;
+            if ( auto* copy = FindSibling( built, path, pass, view, Core::ShaderVariant{}, nullptr ) )
+                return ViewVariantAnswer{ copy, false };
+        }
+        // A miss decides under ONE exclusive hold: the read SiblingOf starts completes on a worker under this same
+        // lock, so "pending" cannot turn into "loaded" between the lookup and the answer.
+        const WriteGuard  serviceLock( Fence::LockOnly );
+        ViewVariantAnswer answer;
+        answer.Material = SiblingOf( built, path, pass, view, Core::ShaderVariant{}, nullptr );
+        if ( answer.Material == nullptr )
+        {
+            const auto it  = m_BuiltToAsset.find( built );
+            answer.Pending = it != m_BuiltToAsset.end() && m_Requests.contains( it->second );
+        }
+        return answer;
+    }
+
     void MaterialService::ReleaseViewVariants( const void* owner )
     {
         // The full fence, and destroyed at once: the owner (a view's MeshRenderer, on its destruction) checks its

@@ -2320,13 +2320,15 @@ namespace Desert::Graphic::System
     {
         const MeshPass pass =
              IsVirtualShadowView( cascade ) ? MeshPass::VirtualShadowDepth : MeshPass::ShadowDepth;
-        auto* caster =
-             Runtime::ResourceRegistry::GetMaterialService()->GetViewVariant( material, path, pass, cascade );
+        const auto answer =
+             Runtime::ResourceRegistry::GetMaterialService()->ResolveViewVariant( material, path, pass, cascade );
+        auto* caster = answer.Material;
         if ( caster == nullptr )
         {
             // Not drawn through the shared program instead: that is the square shadow this route exists to end.
-            // A read in flight is not a refusal: the next frames ask again.
-            if ( Runtime::ResourceRegistry::GetMaterialService()->IsPending( material ) )
+            // A read in flight is not a refusal: the next frames ask again. Pending comes from the same locked
+            // lookup - a separate IsPending raced the read's completion and named a loading material refused.
+            if ( answer.Pending )
                 return nullptr;
             static std::unordered_set<const DataDrivenMaterial*> s_Refused;
             if ( s_Refused.insert( material ).second )
