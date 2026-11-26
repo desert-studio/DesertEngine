@@ -18,14 +18,10 @@ Shader "LightGridBuild"
         {
         	LightGridParams lightGrid;
         };
-        ReadBuffer(1) PointLightsUB
-        {
-        	PointLight pointLights[];
-        };
-        ReadBuffer(2) SpotLightsUB
-        {
-        	SpotLight spotLights[];
-        };
+        #define POINT_LIGHTS_UB_BINDING 1
+        #include <Mesh/PointLightsUB.glslh>
+        #define SPOT_LIGHTS_UB_BINDING 2
+        #include <Mesh/SpotLightsUB.glslh>
         // The layout's cell buffer — see Mesh/LightGrid.glslh.
         Buffer(3) LightGridCellsUB
         {

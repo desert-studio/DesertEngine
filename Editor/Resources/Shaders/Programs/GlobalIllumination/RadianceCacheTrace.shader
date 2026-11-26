@@ -32,14 +32,10 @@ Shader "RadianceCacheTrace"
         {
             GIFrame giFrame;
         };
-        ReadBuffer(7) PointLightsUB
-        {
-            PointLight pointLights[];
-        };
-        ReadBuffer(8) SpotLightsUB
-        {
-            SpotLight spotLights[];
-        };
+        #define POINT_LIGHTS_UB_BINDING 7
+        #include <Mesh/PointLightsUB.glslh>
+        #define SPOT_LIGHTS_UB_BINDING 8
+        #include <Mesh/SpotLightsUB.glslh>
         ReadBuffer(9) LightGridParamsUB
         {
             LightGridParams lightGrid;

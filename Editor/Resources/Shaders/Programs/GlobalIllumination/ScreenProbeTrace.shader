@@ -91,14 +91,10 @@ Shader "ScreenProbeTrace"
         {
             GIFrame giFrame;
         };
-        ReadBuffer(4) PointLightsUB
-        {
-            PointLight pointLights[];
-        };
-        ReadBuffer(5) SpotLightsUB
-        {
-            SpotLight spotLights[];
-        };
+        #define POINT_LIGHTS_UB_BINDING 4
+        #include <Mesh/PointLightsUB.glslh>
+        #define SPOT_LIGHTS_UB_BINDING 5
+        #include <Mesh/SpotLightsUB.glslh>
         ReadBuffer(6) LightGridParamsUB
         {
             LightGridParams lightGrid;

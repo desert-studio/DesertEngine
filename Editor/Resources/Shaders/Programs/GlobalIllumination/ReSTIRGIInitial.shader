@@ -29,14 +29,10 @@ Shader "ReSTIRGIInitial"
         {
             GIFrame giFrame;
         };
-        ReadBuffer(2) PointLightsUB
-        {
-            PointLight pointLights[];
-        };
-        ReadBuffer(3) SpotLightsUB
-        {
-            SpotLight spotLights[];
-        };
+        #define POINT_LIGHTS_UB_BINDING 2
+        #include <Mesh/PointLightsUB.glslh>
+        #define SPOT_LIGHTS_UB_BINDING 3
+        #include <Mesh/SpotLightsUB.glslh>
         ReadBuffer(4) LightGridParamsUB
         {
             LightGridParams lightGrid;

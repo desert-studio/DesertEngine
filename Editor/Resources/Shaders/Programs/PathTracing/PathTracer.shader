@@ -76,14 +76,10 @@ Shader "PathTracer"
             {
                 GIFrame giFrame;
             };
-            layout(std430, binding = 4) readonly buffer PointLightsUB
-            {
-                PointLight pointLights[];
-            };
-            layout(std430, binding = 5) readonly buffer SpotLightsUB
-            {
-                SpotLight spotLights[];
-            };
+            #define POINT_LIGHTS_UB_BINDING 4
+            #include <Mesh/PointLightsUB.glslh>
+            #define SPOT_LIGHTS_UB_BINDING 5
+            #include <Mesh/SpotLightsUB.glslh>
             layout(binding = 6, rgba32f) readonly uniform image2D SkyRadianceTexture;
             layout(std430, binding = 7) readonly buffer PathTracingSkyPdfUB
             {

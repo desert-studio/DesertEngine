@@ -39,7 +39,10 @@ namespace Desert::ShaderProtocolGen
             for ( size_t i = 0; i < kSceneProtocolBlocks.size(); ++i )
             {
                 const uint32_t binding = kSceneProtocolBlocks[i]->Binding.Value;
-                if ( kSceneProtocolBlocks[i]->Binding.Kind != SP::ShaderBindingKind::Fixed )
+                // An Overridable block is checked at its default: lit programs take the default, a compute
+                // pass that #defines the macro (light grid, GI traces, path tracer) places it in its own table.
+                if ( kSceneProtocolBlocks[i]->Binding.Kind == SP::ShaderBindingKind::Overridable &&
+                     kSceneProtocolBlocks[i]->Binding.Macro.empty() )
                     return false;
                 for ( size_t j = i + 1; j < kSceneProtocolBlocks.size(); ++j )
                     if ( kSceneProtocolBlocks[j]->Binding.Value == binding )

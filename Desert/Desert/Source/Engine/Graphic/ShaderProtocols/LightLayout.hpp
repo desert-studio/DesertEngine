@@ -199,7 +199,7 @@ namespace Desert::Graphic::ShaderProtocols
     inline constexpr std::string_view kLightSourceLayoutsRequires[] = { kLightSourceLayoutsShaderInclude.Path };
 
     inline constexpr ShaderBlockDecl kPointLightsUBBlocks[] = { { .Kind             = ShaderBlockKind::ReadBuffer,
-                                                                    .Binding          = { ShaderBindingKind::Fixed, 6u, {} },
+                                                                    .Binding          = { ShaderBindingKind::Overridable, 6u, "POINT_LIGHTS_UB_BINDING" },
                                                                     .BlockName        = "PointLightsUB",
                                                                     .RuntimeArrayOf   = &kPointLightPayloadStruct,
                                                                     .RuntimeArrayName = "pointLights" } };
@@ -211,7 +211,7 @@ namespace Desert::Graphic::ShaderProtocols
                                                                      .Blocks       = kPointLightsUBBlocks };
 
     inline constexpr ShaderBlockDecl kSpotLightsUBBlocks[] = { { .Kind             = ShaderBlockKind::ReadBuffer,
-                                                                   .Binding          = { ShaderBindingKind::Fixed, 16u, {} },
+                                                                   .Binding          = { ShaderBindingKind::Overridable, 16u, "SPOT_LIGHTS_UB_BINDING" },
                                                                    .BlockName        = "SpotLightsUB",
                                                                    .RuntimeArrayOf   = &kSpotLightPayloadStruct,
                                                                    .RuntimeArrayName = "spotLights" } };

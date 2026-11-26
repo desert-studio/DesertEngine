@@ -18,14 +18,10 @@ Shader "PathTracerLightGrid"
             #include <Common/PathTracingLightGrid.glslh>
             #include <Common/RisReservoir.glslh>
 
-            layout(std430, binding = 0) readonly buffer PointLightsUB
-            {
-                PointLight pointLights[];
-            };
-            layout(std430, binding = 1) readonly buffer SpotLightsUB
-            {
-                SpotLight spotLights[];
-            };
+            #define POINT_LIGHTS_UB_BINDING 0
+            #include <Mesh/PointLightsUB.glslh>
+            #define SPOT_LIGHTS_UB_BINDING 1
+            #include <Mesh/SpotLightsUB.glslh>
             // Per slot: x = the local light (kPathTracingLightGridNone: empty), y = its W (floatBitsToUint).
             layout(std430, binding = 2) writeonly buffer PathTracingLightGridUB
             {

@@ -15,14 +15,10 @@ ReadBuffer(9) GIFrameUB
 {
     GIFrame giFrame;
 };
-ReadBuffer(10) PointLightsUB
-{
-    PointLight pointLights[];
-};
-ReadBuffer(11) SpotLightsUB
-{
-    SpotLight spotLights[];
-};
+#define POINT_LIGHTS_UB_BINDING 10
+#include <Mesh/PointLightsUB.glslh>
+#define SPOT_LIGHTS_UB_BINDING 11
+#include <Mesh/SpotLightsUB.glslh>
 ReadBuffer(12) LightGridParamsUB
 {
     LightGridParams lightGrid;
