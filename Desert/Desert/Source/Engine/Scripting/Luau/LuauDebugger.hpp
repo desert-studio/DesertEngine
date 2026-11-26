@@ -33,9 +33,11 @@ namespace Desert::Scripting
     {
         lua_State* L = nullptr; // the runtime's main state
         std::function<void( const std::function<void( const LuauLoadedScript& )>& )> ForEachScript;
-        /// The call in flight was held at a stop for this much of its thread's CPU (the host's loop while
-        /// stopped runs on it): the watchdog, which counts that CPU, must not count it.
-        std::function<void( Common::Platform::ThreadCpuClock::duration )> Held;
+        /// The call in flight was held at a stop for this much wall time and this much of its thread's CPU (the
+        /// host's loop while stopped runs on it): the watchdog, which gates on the one and counts the other, must
+        /// count neither.
+        std::function<void( std::chrono::steady_clock::duration, Common::Platform::ThreadCpuClock::duration )>
+             Held;
     };
 
     /// THE LUAU SIDE OF THE SCRIPT DEBUGGER (ScriptDebugger.hpp).

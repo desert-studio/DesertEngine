@@ -64,6 +64,18 @@ namespace Desert::Assets
         /// also the honest answer: they asked for the same file and the same read served them.
         std::unordered_map<AssetHandle, std::vector<uint64_t>> Waiting;
 
+        /// A READ THAT LANDED AND WHOSE COMPLETIONS ARE STILL OWED, by handle, with its outcome. An asset is
+        /// ready only once its completion finished it (a material's surface template is resolved there), so
+        /// between the landing and the delivery a shell reads "not ready"; a request made in that window joins
+        /// this read instead of submitting a second `Load()` that would race the completion on the same object.
+        /// Swept once nothing owed for the handle is left in `Done` (SweepDeliveredLocked).
+        struct Landed
+        {
+            LoadOutcome Outcome = LoadOutcome::Failed;
+            std::string Error;
+        };
+        std::unordered_map<AssetHandle, Landed> Delivering;
+
         /// THE JOB THAT OWNS THE READ of a waiting handle, by the id of the request that submitted it.
         /// `FlushOne` takes the read by erasing the ticket; a job whose ticket is gone (or belongs to a
         /// later read of the same handle) skips without reading or settling. Without it a job queued behind
@@ -99,6 +111,7 @@ namespace Desert::Assets
             if ( waiting == state.Waiting.end() )
                 return;
 
+            bool owed = false;
             for ( const uint64_t id : waiting->second )
             {
                 const auto live = state.Live.find( id );
@@ -109,8 +122,27 @@ namespace Desert::Assets
                 live->second->Outcome = outcome;
                 live->second->Error   = error;
                 state.Done.push_back( id );
+                owed = true;
             }
             state.Waiting.erase( waiting );
+            if ( owed )
+                state.Delivering[handle] = { .Outcome = outcome, .Error = error };
+        }
+
+        /// Forget every landed read none of whose completions is still owed, under the caller's lock.
+        void SweepDeliveredLocked( AsyncAssetLoader::State& state )
+        {
+            std::erase_if( state.Delivering,
+                           [&state]( const auto& entry )
+                           {
+                               return std::ranges::none_of( state.Done,
+                                                            [&]( const uint64_t id )
+                                                            {
+                                                                const auto live = state.Live.find( id );
+                                                                return live != state.Live.end() &&
+                                                                       live->second->Handle == entry.first;
+                                                            } );
+                           } );
         }
     } // namespace
 
@@ -222,6 +254,16 @@ namespace Desert::Assets
                 // caller has stored the handle this function is about to return.
                 record->Settled = true;
                 record->Outcome = LoadOutcome::Loaded;
+                state.Done.push_back( record->Id );
+            }
+            else if ( const auto landed = state.Delivering.find( record->Handle );
+                      landed != state.Delivering.end() )
+            {
+                // READ, NOT YET FINISHED: settled with the landed read's outcome and delivered after the
+                // completions owed before it, so it sees the asset those completions finished.
+                record->Settled = true;
+                record->Outcome = landed->second.Outcome;
+                record->Error   = landed->second.Error;
                 state.Done.push_back( record->Id );
             }
             else if ( const auto waiting = state.Waiting.find( record->Handle ); waiting != state.Waiting.end() )
@@ -368,6 +410,9 @@ namespace Desert::Assets
 
         for ( const auto& record : completed )
             record->Ready( record->Payload, record->Outcome, record->Error );
+
+        const std::lock_guard<std::mutex> guard( state.Lock );
+        SweepDeliveredLocked( state );
     }
 
     bool AsyncAssetLoader::FlushOne( const AssetHandle& handle )
@@ -487,6 +532,10 @@ namespace Desert::Assets
         }
         for ( const auto& record : completed )
             record->Ready( record->Payload, record->Outcome, record->Error );
+        {
+            const std::lock_guard<std::mutex> guard( state.Lock );
+            SweepDeliveredLocked( state );
+        }
         return !completed.empty();
     }
 
@@ -595,6 +644,7 @@ namespace Desert::Assets
             state.Done.clear();
             state.Cancelled.clear();
             state.Waiting.clear();
+            state.Delivering.clear();
             state.Tickets.clear();
             state.WorkerReading.clear();
         }
