@@ -3364,24 +3364,10 @@ namespace Desert::Graphic::System
             for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
             {
                 const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
-                // NET-PAWN-TELEPORT-FRAME measurement (PathProbeFacts::CpuCascade): the cascades' walk of the record.
-                // A sun cascade's movable layer only (not a local light, the rain occlusion or a VSM level).
-                const auto probe = layer == ShadowCasterLayer::Movable && !IsVirtualShadowView( c )
-                                        ? m_PathProbe.find( sd.Entity )
-                                        : m_PathProbe.end();
-                const auto probeMark = [&]( const int8_t walk )
-                {
-                    if ( probe != m_PathProbe.end() )
-                        probe->second.CpuCascade = std::max( probe->second.CpuCascade, walk );
-                };
                 // Culled by the box of this frame's pose (GatherShadowCasters), in every view.
                 if ( sd.Mesh == nullptr || !sd.CastShadows || sd.BoneMatrices.empty() ||
                      !inView( gathered.Skinned[i].WorldBounds ) )
-                {
-                    probeMark( 0 );
                     continue;
-                }
-                probeMark( 1 );
                 uint64_t opaqueVisible = 0;
                 for ( const SkinnedSection& section : sd.Sections )
                 {
@@ -3389,7 +3375,6 @@ namespace Desert::Graphic::System
                     if ( !walkHidden( sd.Mesh, sd.Mesh->GetSubmeshes().size(), sd.GpuPrimitive,
                                       section.HiddenSubmeshes ) )
                         continue;
-                    probeMark( 2 );
                     if ( !isMasked( section.Material ) )
                     {
                         opaqueVisible |= ~section.HiddenSubmeshes;
