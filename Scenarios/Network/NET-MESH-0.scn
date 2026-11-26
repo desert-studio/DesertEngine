@@ -27,7 +27,9 @@
 #   gh workflow run ci.yml --ref task/NET-MESH-0; the run's desert-server-image is loaded and run as pass 5.
 # Pass 9: the image carries no Resources/ and the run mounts none (no -v .../Editor/Resources): DesertServer links no
 # RHI, so its engine directory is positional (StartupLayout EngineResourceNeed::None) and no shader file is opened;
-# --engine-dir <dir> is accepted. Same docker run as pass 5 (only /project and /world mounted).
+# --engine-dir <dir> is accepted. Same docker run as pass 5 (only /project and /world mounted), then
+#   docker run --platform linux/amd64 --entrypoint ls desert-server -A /opt/desert >> the same log (DesertServer alone).
+# Mac precheck (mesh0_mac_noresources.log): build/Bin/Release/DesertServer copied alone into an empty folder, same run.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано state
 # Тогда [mesh0_core_split] (вне редактора): mesh0_core_split.otool.txt без Vulkan/MoltenVK/Metal/AppKit; mesh0_core_split.log: no device created, cook hash ee311acb3b50b349, 600 steps
