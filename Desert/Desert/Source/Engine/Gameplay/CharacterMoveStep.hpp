@@ -101,6 +101,8 @@ namespace Desert::Gameplay
     {
         float Radius     = 34.0f;
         float HalfHeight = 54.0f;
+
+        friend bool operator==( const PawnCapsule&, const PawnCapsule& ) = default;
     };
     [[nodiscard]] PawnCapsule CapsuleOf( const PawnMoveSettings& settings, bool crouched );
 
@@ -109,16 +111,20 @@ namespace Desert::Gameplay
     // the walls and floors it met, and whether it stands on a walkable floor (@p gravity presses the floor's
     // bodies). A capsule that stood on a floor (@p from.Grounded) and does not rise follows a walkable floor up to
     // @p followFloorCm below (UE PhysWalking's FindFloor down to MaxStepHeight; 0 = none, the swim). Position =
-    // the capsule's FEET. Fits: would @p capsule stand at @p feet without overlapping the world (UE: the stand-up
-    // test of UnCrouch)?
+    // the capsule's FEET. A @p capsule other than the one the world holds is a crouch or a stand-up: the world
+    // changes the shape with its feet at @p from.Position (UE Crouch / UnCrouch, bCrouchMaintainsBaseLocation:
+    // the centre moves by the half-height difference) - or keeps the old one when the new would penetrate it,
+    // and Outcome::Capsule says which capsule moved. Fits: would @p capsule stand at @p feet without overlapping
+    // the world (UE: the stand-up test of UnCrouch)?
     class IPawnMoveWorld
     {
     public:
         struct Outcome
         {
-            NetVec3 Position;
-            NetVec3 Velocity;
-            bool    Grounded = false;
+            NetVec3     Position;
+            NetVec3     Velocity;
+            bool        Grounded = false;
+            PawnCapsule Capsule; // the capsule that moved: the step's, or the one the world kept
         };
         virtual ~IPawnMoveWorld()                                                                        = default;
         [[nodiscard]] virtual Outcome Move( const PawnMoveState& from, const NetVec3& velocity,

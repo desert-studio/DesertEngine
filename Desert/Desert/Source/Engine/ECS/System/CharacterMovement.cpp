@@ -49,9 +49,11 @@ namespace Desert::ECS::CharacterMovement
         // The scene's gravity (Scene Settings), the one the world presses the floor's bodies with.
         movement.Settings.GravityScale = cc.Data.GravityScale; // times the scene's (PhysicsPawnMoveWorld::Gravity)
 
-        const Gameplay::PawnCapsule    capsule = Gameplay::CapsuleOf( movement.Settings, cc.IsCrouched );
-        Gameplay::PhysicsPawnMoveWorld moveWorld( world, cc.RuntimeCharacter, capsule );
-        const glm::vec3                center = world.GetCharacterPosition( cc.RuntimeCharacter );
+        // The feet under the capsule the world holds (its record of the shape is the one; the step's crouch
+        // changes it through the move), not under one re-derived from IsCrouched.
+        Gameplay::PhysicsPawnMoveWorld moveWorld( world, cc.RuntimeCharacter );
+        const Gameplay::PawnCapsule&   capsule = moveWorld.Capsule();
+        const glm::vec3                center  = world.GetCharacterPosition( cc.RuntimeCharacter );
         Net::PawnMoveState             from;
         from.Position = { center.x, center.y - ( capsule.HalfHeight + capsule.Radius ), center.z };
         from.Velocity = { cc.Velocity.x, cc.Velocity.y, cc.Velocity.z };

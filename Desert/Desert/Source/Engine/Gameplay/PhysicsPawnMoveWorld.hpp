@@ -50,12 +50,12 @@ namespace Desert::Gameplay
                                                    Physics::ECharacterContacts::WorldOnly, true ) ) );
         }
         // Standalone Play: the pawn's OWN capsule in the scene's world (UE: the CharacterMovementComponent's
-        // UpdatedComponent), whose shape is @p current now. It moves where it stands, against the world and the
-        // other characters, and is not removed with this view.
-        PhysicsPawnMoveWorld( Physics::PhysicsWorld& world, Physics::CharacterHandle character,
-                              const PawnCapsule& current )
-             : PhysicsPawnMoveWorld( world, character, current, Physics::ECharacterContacts::WithCharacters,
-                                     false )
+        // UpdatedComponent), in the shape the world holds for it (standing or crouched - the world's record is
+        // the one; a view made every step keeps no copy of it). It moves where it stands, against the world and
+        // the other characters, and is not removed with this view.
+        PhysicsPawnMoveWorld( Physics::PhysicsWorld& world, Physics::CharacterHandle character )
+             : PhysicsPawnMoveWorld( world, character, CapsuleIn( world, character ),
+                                     Physics::ECharacterContacts::WithCharacters, false )
         {
         }
         ~PhysicsPawnMoveWorld() override
@@ -66,19 +66,27 @@ namespace Desert::Gameplay
         PhysicsPawnMoveWorld( const PhysicsPawnMoveWorld& )            = delete;
         PhysicsPawnMoveWorld& operator=( const PhysicsPawnMoveWorld& ) = delete;
 
+        // The capsule the character has now; its feet are its centre less HalfHeight + Radius.
+        [[nodiscard]] const PawnCapsule& Capsule() const
+        {
+            return m_Capsule;
+        }
+
         Outcome Move( const PawnMoveState& from, const NetVec3& velocity, const PawnCapsule& capsule,
                       float gravity, float followFloorCm, float dtSeconds ) override
         {
-            // The step's capsule (standing or crouched): the shape changes before the move, the feet stay.
-            if ( ( capsule.Radius != m_Capsule.Radius || capsule.HalfHeight != m_Capsule.HalfHeight ) &&
-                 m_World.SetCharacterCapsule( m_Character, capsule.Radius, capsule.HalfHeight ) )
-                m_Capsule = capsule;
-            const float     feetToCenter = m_Capsule.HalfHeight + m_Capsule.Radius;
-            const glm::vec3 start{ from.Position.X, from.Position.Y + feetToCenter, from.Position.Z };
-            if ( m_Owned )
-                m_World.TeleportCharacter( m_Character, start );
-            else
-                m_World.SetCharacterPosition( m_Character, start );
+            // The step's capsule (standing or crouched) changes before the move, its feet at from.Position (UE
+            // Crouch / UnCrouch: the centre moves by the half-height difference). The centre goes to the new
+            // capsule's height above the feet FIRST and the shape changes there: grown at the crouched centre,
+            // the standing capsule reaches the half-height difference into the floor and the world refuses it.
+            if ( capsule != m_Capsule )
+            {
+                Place( Center( from.Position, capsule ) );
+                if ( m_World.SetCharacterCapsule( m_Character, capsule.Radius, capsule.HalfHeight ) )
+                    m_Capsule = capsule;
+            }
+            const glm::vec3 start = Center( from.Position, m_Capsule );
+            Place( start );
             // The probe asks the world only: the server's collision world holds cells, no pawns - the client's
             // scene pawns (its own drawn capsule first: it overlaps the probe at every step) would push the
             // prediction off the server. A scene's own capsule meets the other characters too.
@@ -89,9 +97,10 @@ namespace Desert::Gameplay
             // is the moved delta over the step).
             const glm::vec3 moved = ( end - start ) / dtSeconds;
             Outcome         outcome;
-            outcome.Position = { end.x, end.y - feetToCenter, end.z };
+            outcome.Position = { end.x, end.y - ( m_Capsule.HalfHeight + m_Capsule.Radius ), end.z };
             outcome.Velocity = { moved.x, moved.y, moved.z };
             outcome.Grounded = m_World.IsCharacterOnGround( m_Character );
+            outcome.Capsule  = m_Capsule;
             return outcome;
         }
 
@@ -102,7 +111,7 @@ namespace Desert::Gameplay
         bool Fits( const NetVec3& feet, const PawnCapsule& capsule ) const override
         {
             constexpr float kInset = 1.0f;
-            const glm::vec3 center{ feet.X, feet.Y + capsule.HalfHeight + capsule.Radius, feet.Z };
+            const glm::vec3 center = Center( feet, capsule );
             return !m_World.OverlapsCapsule( center, std::max( capsule.Radius - kInset, 1.0f ),
                                              std::max( capsule.HalfHeight - kInset, 0.01f ) );
         }
@@ -113,6 +122,26 @@ namespace Desert::Gameplay
              : m_World( world ), m_Character( character ), m_Capsule( capsule ), m_Contacts( contacts ),
                m_Owned( owned )
         {
+        }
+        [[nodiscard]] static PawnCapsule CapsuleIn( const Physics::PhysicsWorld& world,
+                                                    Physics::CharacterHandle     character )
+        {
+            const Physics::CharacterCapsule held = world.GetCharacterCapsule( character );
+            return { held.Radius, held.HalfHeight };
+        }
+        // The centre of @p capsule standing with its feet at @p feet.
+        [[nodiscard]] static glm::vec3 Center( const NetVec3& feet, const PawnCapsule& capsule )
+        {
+            return { feet.X, feet.Y + capsule.HalfHeight + capsule.Radius, feet.Z };
+        }
+        // The probe is teleported (stopped: it carries no velocity from one pawn to the next); the scene's own
+        // capsule is set where it stands.
+        void Place( const glm::vec3& center )
+        {
+            if ( m_Owned )
+                m_World.TeleportCharacter( m_Character, center );
+            else
+                m_World.SetCharacterPosition( m_Character, center );
         }
         Physics::PhysicsWorld&      m_World;
         Physics::CharacterHandle    m_Character;

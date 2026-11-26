@@ -234,9 +234,14 @@ namespace Desert::Gameplay
         state.Velocity.X = velocity.X;
         state.Velocity.Z = velocity.Z;
 
-        const IPawnMoveWorld::Outcome moved  = world.Move( state, moveVelocity, CapsuleOf( settings, crouched ),
-                                                           world.Gravity() * settings.GravityScale,
-                                                          swimming ? 0.f : settings.MaxStepHeight, dtSeconds );
+        const PawnCapsule             capsule = CapsuleOf( settings, crouched );
+        const IPawnMoveWorld::Outcome moved =
+             world.Move( state, moveVelocity, capsule, world.Gravity() * settings.GravityScale,
+                         swimming ? 0.f : settings.MaxStepHeight, dtSeconds );
+        // The crouch IS the capsule the pawn has (UE bIsCrouched): a shape the world could not change keeps the
+        // mode it had - a refused stand-up stays crouched and retries the next step, a refused crouch stands.
+        if ( moved.Capsule != capsule )
+            crouched = !crouched;
         const bool rising = !state.Grounded && state.Velocity.Y > 0.f;
         state.Position    = moved.Position;
         state.Velocity.X  = moved.Velocity.X;
