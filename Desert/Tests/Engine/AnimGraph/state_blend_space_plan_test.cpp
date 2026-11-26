@@ -21,14 +21,13 @@ namespace
         graph.Parameters.push_back( { "Armed", static_cast<int>( G::ParamType::Bool ), 0.0F } );
         G::State state;
         state.Name = "Locomotion";
-        state.BlendSpace =
-             G::StateBlendSpace{ .AxisParameters = { "Speed" },
-                                 .Space          = G::BlendSpaceSetup{
-                                              .Axes        = { G::BlendSpaceAxis{ .Min = 0.0F, .Max = 600.0F } },
-                                              .Samples     = { G::BlendSample{ .Clip = "Idle", .X = 0.0F },
-                                                               G::BlendSample{ .Clip = "Walk", .X = 300.0F },
-                                                               G::BlendSample{ .Clip = "Run", .X = 600.0F } },
-                                              .WeightSpeed = 4.0F } };
+        state.BlendSpace = G::StateBlendSpace{
+             .AxisParameters = { "Speed" },
+             .Space          = G::BlendSpaceSetup{ .Axes        = { G::BlendSpaceAxis{ .Min = 0.0F, .Max = 600.0F } },
+                                                   .Samples     = { G::BlendSample{ .Clip = "Idle", .X = 0.0F },
+                                                                    G::BlendSample{ .Clip = "Walk", .X = 300.0F },
+                                                                    G::BlendSample{ .Clip = "Run", .X = 600.0F } },
+                                                   .WeightSpeed = 4.0F } };
         G::StateMachine* machine = G::OutputMachine( graph );
         machine->Entry           = "Locomotion";
         machine->States.push_back( std::move( state ) );

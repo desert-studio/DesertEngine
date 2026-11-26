@@ -35,7 +35,8 @@ namespace Desert::Editor::Graph
     /// A new blend space of @p axisCount axes (1 or 2), every sample playing @p clip: 1D = two samples on X
     /// {Min, Max}; 2D = three non-collinear samples (Min,Min) (Max,Min) (Min,Max). Axes 0..100, no smoothing.
     /// A blend space with an empty @p clip is refused by the plan until the author picks the clips.
-    [[nodiscard]] Animation::Graph::BlendSpaceSetup NewBlendSpaceSetup( size_t axisCount, const std::string& clip );
+    [[nodiscard]] Animation::Graph::BlendSpaceSetup NewBlendSpaceSetup( size_t             axisCount,
+                                                                        const std::string& clip );
 
     /// Appends a node of @p kind to @p nodes at (@p x, @p y), with its payload and one EMPTY wire slot per
     /// Pose pin (an empty wire is an unwired pin). A Sequence Player plays @p clip, a Blend Space every sample

@@ -92,9 +92,9 @@ namespace Desert::Animation
                 clamped[a]        = Graph::ClampBlendSpaceAxis( space.Axes[a], value );
                 run.Input[a]      = Graph::FilterBlendSpaceAxis( space.Axes[a], run.Filters[a], value, deltaTime );
             }
-            std::vector<float> target;
-            Graph::BlendSpaceTargetWeights( space, run.Triangulation, std::span<const float>( run.Input.data(), axes ),
-                                            target );
+            std::vector<float>& target = run.TargetScratch; // reused across ticks: assign keeps its capacity
+            Graph::BlendSpaceTargetWeights( space, run.Triangulation,
+                                            std::span<const float>( run.Input.data(), axes ), target );
             if ( !run.Started || run.Weights.size() != target.size() )
             {
                 run.Weights = target;
@@ -117,14 +117,15 @@ namespace Desert::Animation
                     rate *= input / filtered;
             }
             // An unresolved sample has no length: it neither stretches nor shrinks the shared cycle.
-            std::vector<float> durations( space.Samples.size(), 0.0F );
+            std::vector<float>& durations = run.DurationScratch; // reused across ticks
+            durations.assign( space.Samples.size(), 0.0F );
             for ( size_t i = 0; i < run.Clips.size() && i < durations.size(); ++i )
                 if ( run.Clips[i] != nullptr )
                     durations[i] = static_cast<float>( run.Clips[i]->DurationSeconds() );
             run.PreviousPhase = run.Phase;
             run.Backward      = rate * deltaTime < 0.0F;
-            run.Phase = Graph::AdvanceSyncedPhase( run.Phase, run.Weights, durations, space.Samples, rate, space.Loop,
-                                                   deltaTime );
+            run.Phase         = Graph::AdvanceSyncedPhase( run.Phase, run.Weights, durations, space.Samples, rate,
+                                                           space.Loop, deltaTime );
         }
 
         /// Whether two blend-space states play the same space on the same parameters (a request for the space
@@ -389,9 +390,9 @@ namespace Desert::Animation
                                                       std::span<const AnimationClip* const> clips )
     {
         ClipPlayback playback;
-        playback.BlendSpace                = space;
-        playback.Loop                      = space.Space.Loop;
-        playback.Blend.Triangulation       = Graph::TriangulateBlendSpace( space.Space );
+        playback.BlendSpace          = space;
+        playback.Loop                = space.Space.Loop;
+        playback.Blend.Triangulation = Graph::TriangulateBlendSpace( space.Space );
         playback.Blend.Clips.assign( space.Space.Samples.size(), nullptr );
         for ( size_t i = 0; i < clips.size() && i < playback.Blend.Clips.size(); ++i )
             playback.Blend.Clips[i] = clips[i];
@@ -710,7 +711,8 @@ namespace Desert::Animation
         /// A clock at `phase` of `clip`'s own length.
         [[nodiscard]] FrameTime PhaseTime( const AnimationClip& clip, const float phase )
         {
-            return SecondsToFrameTime( static_cast<double>( phase ) * clip.DurationSeconds(), clip.Sequence.TickRate );
+            return SecondsToFrameTime( static_cast<double>( phase ) * clip.DurationSeconds(),
+                                       clip.Sequence.TickRate );
         }
 
         /// `playback`'s clock moved to the heaviest resolved sample of `run` at its shared phase, with the run's
@@ -759,11 +761,12 @@ namespace Desert::Animation
         }
     }
 
-    bool Animator::ForEachBlendSample( const BlendSpaceRun& run, const bool loop,
-                                       const std::function<void( const ClipPlayback&, float )>& visit )
+    template <typename Visit>
+    bool Animator::ForEachBlendSample( const BlendSpaceRun& run, const bool loop, const Visit& visit )
     {
-        const bool wrapped = loop && ( run.Backward ? run.Phase > run.PreviousPhase : run.Phase < run.PreviousPhase );
-        float      total   = 0.0F;
+        const bool wrapped =
+             loop && ( run.Backward ? run.Phase > run.PreviousPhase : run.Phase < run.PreviousPhase );
+        float total = 0.0F;
         for ( size_t i = 0; i < run.Clips.size() && i < run.Weights.size(); ++i )
         {
             const AnimationClip* clip   = run.Clips[i];
@@ -788,10 +791,9 @@ namespace Desert::Animation
         return total > 0.0F;
     }
 
-    void
-    Animator::SampleBlendSpace( PoseGraphState& state, const BlendSpaceRun& run, const bool loop,
-                                const std::function<void( const ClipPlayback&, Graph::GraphPose& )>& sampleClock,
-                                Graph::GraphPose&                                                    out )
+    template <typename SampleClock>
+    void Animator::SampleBlendSpace( PoseGraphState& state, const BlendSpaceRun& run, const bool loop,
+                                     const SampleClock& sampleClock, Graph::GraphPose& out )
     {
         const bool sampled = ForEachBlendSample(
              run, loop,
@@ -984,8 +986,8 @@ namespace Desert::Animation
         for ( size_t a = 0; a < names.size() && a < raw.size(); ++a )
             raw[a] = GraphParameter( names[a] );
         const size_t axes = std::min( playback.BlendSpace.Space.Axes.size(), raw.size() );
-        AdvanceBlendRun( playback.BlendSpace.Space, playback.Blend, std::span<const float>( raw.data(), axes ), 1.0F,
-                         deltaTime );
+        AdvanceBlendRun( playback.BlendSpace.Space, playback.Blend, std::span<const float>( raw.data(), axes ),
+                         1.0F, deltaTime );
         // The heaviest resolved sample is the clock the rest of the Animator reads (exit time, notifies).
         FollowHeaviestSample( playback.Blend, playback.Loop, playback.Clip, playback.Time, playback.StepFrom,
                               playback.StepWrapped, playback.StepBackward );
@@ -1001,19 +1003,19 @@ namespace Desert::Animation
         // Every weighted sample at the shared phase of its own length, each blended toward by its share of the
         // running weight — SampleBlendSpace's walk, on this rig.
         out = rig.Rest;
-        static_cast<void>( ForEachBlendSample( playback.Blend, playback.Loop,
-                                               [&]( const ClipPlayback& sample, const float alpha )
-                                               {
-                                                   if ( alpha >= 1.0F )
-                                                   {
-                                                       SampleClipPose( rig, sample.Clip, sample.Time, out );
-                                                       return;
-                                                   }
-                                                   SampleClipPose( rig, sample.Clip, sample.Time, m_SampleScratch );
-                                                   for ( uint32_t b = 0; b < out.Size() && b < m_SampleScratch.Size();
-                                                         ++b )
-                                                       out[b] = Blend( out[b], m_SampleScratch[b], alpha );
-                                               } ) );
+        static_cast<void>(
+             ForEachBlendSample( playback.Blend, playback.Loop,
+                                 [&]( const ClipPlayback& sample, const float alpha )
+                                 {
+                                     if ( alpha >= 1.0F )
+                                     {
+                                         SampleClipPose( rig, sample.Clip, sample.Time, out );
+                                         return;
+                                     }
+                                     SampleClipPose( rig, sample.Clip, sample.Time, m_SampleScratch );
+                                     for ( uint32_t b = 0; b < out.Size() && b < m_SampleScratch.Size(); ++b )
+                                         out[b] = Blend( out[b], m_SampleScratch[b], alpha );
+                                 } ) );
     }
 
     void Animator::UpdatePlayback( ClipPlayback& playback, float deltaTime )

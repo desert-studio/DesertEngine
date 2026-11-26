@@ -308,9 +308,10 @@ namespace Desert::Animation::Graph
                                     state.Clip );
             const size_t axisCount = state.BlendSpace->AxisParameters.size();
             if ( axisCount != 1 && axisCount != 2 )
-                return std::format( "its blend space names {} axis parameters; a state plays a Blend Space 1D (one) "
-                                    "or 2D (two)",
-                                    axisCount );
+                return std::format(
+                     "its blend space names {} axis parameters; a state plays a Blend Space 1D (one) "
+                     "or 2D (two)",
+                     axisCount );
             if ( std::string error = BlendSpaceError( state.BlendSpace->Space, axisCount ); !error.empty() )
                 return std::format( "its blend space: {}", error );
             // A layer graph's machines are sampled by the link's clocks (one clip per state), as its nodes are.
@@ -488,17 +489,17 @@ namespace Desert::Animation::Graph
                                                 : "is a LookAt node with no look-at setup in it" );
             const bool blendSpaceKind = kind == PoseNodeKind::BlendSpace1D || kind == PoseNodeKind::BlendSpace2D;
             if ( blendSpaceKind != node.BlendSpace.has_value() )
-                return std::format( "AnimGraph '{}': node '{}' ({}) {}", graph.Name, node.Name, KindName( kind ),
-                                    node.BlendSpace
-                                         ? "carries a blend space, which only a BlendSpace1D or BlendSpace2D node has"
-                                         : "is a blend-space node with no blend space setup in it" );
+                return std::format(
+                     "AnimGraph '{}': node '{}' ({}) {}", graph.Name, node.Name, KindName( kind ),
+                     node.BlendSpace ? "carries a blend space, which only a BlendSpace1D or BlendSpace2D node has"
+                                     : "is a blend-space node with no blend space setup in it" );
             if ( node.BlendSpace )
             {
                 if ( std::string error =
                           BlendSpaceError( *node.BlendSpace, kind == PoseNodeKind::BlendSpace2D ? 2 : 1 );
                      !error.empty() )
-                    return std::format( "AnimGraph '{}': {} node '{}': {}", graph.Name, KindName( kind ), node.Name,
-                                        error );
+                    return std::format( "AnimGraph '{}': {} node '{}': {}", graph.Name, KindName( kind ),
+                                        node.Name, error );
                 // A layer graph's sources are sampled by the link's own clocks (SampleLinked), which play one clip
                 // per node; a blend space there would stand in the bind pose, so it is refused by name instead.
                 if ( scope == GraphScope::Layer )

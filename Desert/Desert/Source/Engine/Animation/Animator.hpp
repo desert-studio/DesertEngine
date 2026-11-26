@@ -389,9 +389,9 @@ namespace Desert::Animation
         void SetPoseGraphSource( size_t node, AnimationClip&& clip, bool loop = true ) = delete;
         /// The live value of a declared graph parameter (UE: the AnimInstance property a node's pin is bound
         /// to), read by every binding to it: a pose graph pin and a blend-space state's axis
-        /// (Graph::StateBlendSpace::AxisParameters). Held by the Animator, not by the pose graph, so a graph whose Output
-        /// Pose is its state machine (no pose graph) still drives its blend-space states. The caller writes only
-        /// declared names: Graph::Evaluator's setters have refused an undeclared one by name already.
+        /// (Graph::StateBlendSpace::AxisParameters). Held by the Animator, not by the pose graph, so a graph whose
+        /// Output Pose is its state machine (no pose graph) still drives its blend-space states. The caller writes
+        /// only declared names: Graph::Evaluator's setters have refused an undeclared one by name already.
         void SetGraphParameter( std::string_view name, float value );
         /// Blend-space node `node`'s sample `sample` plays `clip` (resolved by name, as a source's clip is).
         /// The shared phase is not restarted: the samples are synced, not clocked one by one. Ignored for a
@@ -419,6 +419,11 @@ namespace Desert::Animation
             std::array<float, 2>                       Input = { 0.0F, 0.0F }; ///< filtered, for the editor plot
             std::vector<const AnimationClip*>          Clips; ///< per sample; null while its clip is not resolved
             std::vector<float>                         Weights;
+            /// Per-update scratch kept across ticks so an update allocates nothing once sized (UE: the anim
+            /// instance owns its scratch): the target weights and the samples' lengths. Never read outside
+            /// the update that fills them.
+            std::vector<float> TargetScratch;
+            std::vector<float> DurationScratch;
             /// The last Update's step of the shared phase: [PreviousPhase, Phase], backward when the rate was
             /// negative. Every sample's root motion and the notifies read it.
             float PreviousPhase = 0.0F;
@@ -609,8 +614,10 @@ namespace Desert::Animation
         /// weight: `visit(playback, alpha)` blends toward it by alpha (w / (total + w); 1 for the first), which
         /// leaves every sample at its weight over the sum. The ONE walk over a blend space's samples, for the
         /// pose, the curves and the root motion of a node and of a state. False when no sample was visited.
-        static bool ForEachBlendSample( const BlendSpaceRun& run, bool loop,
-                                        const std::function<void( const ClipPlayback&, float )>& visit );
+        /// A template, not a std::function, so a per-tick visit captures by reference without a heap
+        /// allocation; defined and instantiated in Animator.cpp only.
+        template <typename Visit>
+        static bool ForEachBlendSample( const BlendSpaceRun& run, bool loop, const Visit& visit );
         /// `playback`'s root movement of the last Update step: its clock's (ClockRootMotion), or for a blend
         /// space every weighted sample's own step blended by weight (UE: each sample's root motion x weight).
         [[nodiscard]] BoneTransform PlaybackRootMotion( const RigSampling& rig, const ClipPlayback& playback );
@@ -633,9 +640,11 @@ namespace Desert::Animation
         void UpdateBlendSpaces( PoseGraphState& state, float deltaTime ) const;
         /// A blend-space node's pose: each weighted sample at the shared phase (ForEachBlendSample), its pose,
         /// curves and root motion blended by its share of the running weight (a curve a sample lacks counts 0).
+        /// `sampleClock(playback, pose)` samples one clock into a pose; a template for ForEachBlendSample's
+        /// reason, defined and instantiated in Animator.cpp only.
+        template <typename SampleClock>
         void SampleBlendSpace( PoseGraphState& state, const BlendSpaceRun& run, bool loop,
-                               const std::function<void( const ClipPlayback&, Graph::GraphPose& )>& sampleClock,
-                               Graph::GraphPose&                                                    out );
+                               const SampleClock& sampleClock, Graph::GraphPose& out );
         /// The value of graph parameter `name`: SetGraphParameter's, else the pose graph's declared Default, else
         /// 0 (an undeclared name: the planner refused a pin or an axis bound to it).
         [[nodiscard]] float GraphParameter( std::string_view name ) const;

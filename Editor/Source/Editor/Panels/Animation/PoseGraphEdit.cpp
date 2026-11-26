@@ -101,10 +101,14 @@ namespace Desert::Editor::Graph
 
     std::vector<G::PoseNodeKind> AddableKinds( G::GraphScope scope )
     {
-        std::vector<G::PoseNodeKind> kinds{ G::PoseNodeKind::SequencePlayer,  G::PoseNodeKind::BlendSpace1D,
-                                            G::PoseNodeKind::BlendSpace2D,    G::PoseNodeKind::StateMachine,
-                                            G::PoseNodeKind::LayeredBlendPerBone, G::PoseNodeKind::ApplyAdditive,
-                                            G::PoseNodeKind::LinkedAnimLayer, G::PoseNodeKind::TwoBoneIK,
+        std::vector<G::PoseNodeKind> kinds{ G::PoseNodeKind::SequencePlayer,
+                                            G::PoseNodeKind::BlendSpace1D,
+                                            G::PoseNodeKind::BlendSpace2D,
+                                            G::PoseNodeKind::StateMachine,
+                                            G::PoseNodeKind::LayeredBlendPerBone,
+                                            G::PoseNodeKind::ApplyAdditive,
+                                            G::PoseNodeKind::LinkedAnimLayer,
+                                            G::PoseNodeKind::TwoBoneIK,
                                             G::PoseNodeKind::LookAt };
         if ( scope == G::GraphScope::Layer )
         {

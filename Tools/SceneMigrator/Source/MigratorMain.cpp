@@ -1713,11 +1713,17 @@ namespace Desert::Migration
                 const auto stated = ReadStatedVersion( path, text, "ANGR" );
                 if ( stated && ( stated.GetValue() == 4u || stated.GetValue() == 5u ) )
                 {
-                    const uint32_t from   = stated.GetValue();
-                    const auto     fifth  = from == 4u ? Desert::Migration::MigrateAnimGraphV4ToV5( text )
-                                                       : Common::MakeSuccess( std::string( text ) );
-                    const auto     raised = fifth ? Desert::Migration::MigrateAnimGraphV5ToV6( fifth.GetValue() )
-                                                  : fifth;
+                    const uint32_t from  = stated.GetValue();
+                    const auto     fifth = from == 4u ? Desert::Migration::MigrateAnimGraphV4ToV5( text )
+                                                      : Common::MakeSuccess( std::string( text ) );
+                    if ( !fifth )
+                    {
+                        err << "FAIL   " << path.string() << " — ANGR " << from << " -> 6: " << fifth.GetError()
+                            << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    const auto raised = Desert::Migration::MigrateAnimGraphV5ToV6( fifth.GetValue() );
                     if ( !raised )
                     {
                         err << "FAIL   " << path.string() << " — ANGR " << from << " -> 6: " << raised.GetError()
@@ -1725,9 +1731,10 @@ namespace Desert::Migration
                         ++failed;
                         continue;
                     }
-                    out << ( check ? "would raise " : "raised " ) << path.string() << " ANGR " << from
-                        << " -> 6\n";
-                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " ANGR " << from << " -> 6 ("
+                        << raised.GetValue().Spaces << " blend space(s), " << raised.GetValue().Samples
+                        << " sample(s))\n";
+                    if ( !check && !WriteText( path, raised.GetValue().Text, err ) )
                     {
                         ++failed;
                         continue;

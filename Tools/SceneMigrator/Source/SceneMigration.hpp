@@ -1095,8 +1095,16 @@ namespace Desert::Migration
     // sample Value, Max = highest (Min + 1 when equal), Wrap false, SmoothingTime 0, Smoothing "Average",
     // DampingRatio 1, MaxSpeed 0}], each sample Value -> X and Y = 0, WeightEaseInOut false, ScaleAxis -1; a
     // state's Axis -> AxisParameters [Axis]. Re-read and re-written by the engine's own reader and writer. A file
-    // that does not state ANGR 5 is an error naming what it states. PURE - no filesystem access.
-    Common::ResultStr<std::string> MigrateAnimGraphV5ToV6( std::string_view text );
+    // that does not state ANGR 5 is an error naming what it states; a blend space with no samples, or a sample
+    // whose Value is missing or not a number, is an error naming the node or state and the sample index. The
+    // result carries how many blend spaces and samples were raised. PURE - no filesystem access.
+    struct AnimGraphAxesRaise
+    {
+        std::string Text;
+        std::size_t Spaces  = 0;
+        std::size_t Samples = 0;
+    };
+    Common::ResultStr<AnimGraphAxesRaise> MigrateAnimGraphV5ToV6( std::string_view text );
 
     // The current VFXS text of a VFXS 1 .. 5 `.dfx`: one step per generation, each on the UNTYPED body (no step
     // reads a typed struct of a later layout), then the engine's reader, validator and writer (current header,

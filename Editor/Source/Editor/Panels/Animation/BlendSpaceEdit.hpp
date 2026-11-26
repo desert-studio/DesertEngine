@@ -25,6 +25,6 @@ namespace Desert::Editor::Graph
 
     /// The plot: the axis box, the samples labelled by clip, the triangles (2D), the live filtered input point
     /// and each sample's current weight from @p run (nullptr = no preview running, the samples alone).
-    void DrawBlendSpacePlot( const Animation::Graph::BlendSpaceSetup&     setup,
+    void DrawBlendSpacePlot( const Animation::Graph::BlendSpaceSetup&  setup,
                              const Animation::Animator::BlendSpaceRun* run );
 } // namespace Desert::Editor::Graph

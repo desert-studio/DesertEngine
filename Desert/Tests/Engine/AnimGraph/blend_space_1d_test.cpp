@@ -19,17 +19,18 @@ namespace
     {
         G::BlendSpaceSetup setup;
         setup.Axes    = { G::BlendSpaceAxis{ .Min = 0.0F, .Max = 600.0F } };
-        setup.Samples = { G::BlendSample{ .Clip = "Idle", .X = 0.0F }, G::BlendSample{ .Clip = "Walk", .X = 300.0F },
+        setup.Samples = { G::BlendSample{ .Clip = "Idle", .X = 0.0F },
+                          G::BlendSample{ .Clip = "Walk", .X = 300.0F },
                           G::BlendSample{ .Clip = "Run", .X = 600.0F } };
         return setup;
     }
 
     std::array<float, 3> WeightsAt( float x )
     {
-        const G::BlendSpaceSetup            row = LocomotionRow();
-        const G::BlendSpaceTriangulation    tri = G::TriangulateBlendSpace( row );
-        std::vector<float>                  w;
-        const std::array<float, 1>          axis{ x };
+        const G::BlendSpaceSetup         row = LocomotionRow();
+        const G::BlendSpaceTriangulation tri = G::TriangulateBlendSpace( row );
+        std::vector<float>               w;
+        const std::array<float, 1>       axis{ x };
         G::BlendSpaceTargetWeights( row, tri, axis, w );
         return { w[0], w[1], w[2] };
     }
@@ -151,7 +152,8 @@ TEST( BlendSpace1D, ThePlanRefusesTwoSamplesAtOnePositionASampleOutsideTheAxisOr
 TEST( BlendSpace2D, TriangulatedWeightsAreWholeAtASampleAndSumToOneEverywhere )
 {
     G::BlendSpaceSetup space;
-    space.Axes    = { G::BlendSpaceAxis{ .Min = 0.0F, .Max = 600.0F }, G::BlendSpaceAxis{ .Min = 0.0F, .Max = 1.0F } };
+    space.Axes    = { G::BlendSpaceAxis{ .Min = 0.0F, .Max = 600.0F },
+                      G::BlendSpaceAxis{ .Min = 0.0F, .Max = 1.0F } };
     space.Samples = { G::BlendSample{ .Clip = "Idle", .X = 0.0F, .Y = 0.0F },
                       G::BlendSample{ .Clip = "Walk", .X = 150.0F, .Y = 0.0F },
                       G::BlendSample{ .Clip = "Jog", .X = 600.0F, .Y = 0.0F },
