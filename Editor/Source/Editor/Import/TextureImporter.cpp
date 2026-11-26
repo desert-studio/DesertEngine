@@ -1058,6 +1058,10 @@ namespace Desert::Editor
                 }
             }
             const Attempt& stored = chosenIsProbe ? probe : chosen;
+            // A TEXTURE-ARRAY SLOT (a landscape layer) shares one format with every other slot of its array, so
+            // an encode that the gates refuse is still stored: the cook decides the slot format, and the runtime
+            // array never meets an uncompressed layer among block-compressed ones. The numbers are still logged.
+            const bool arraySlot = asset.Import.Settings.ArraySlotFormat;
 
             if ( authoredIntent == Fmt::TextureIntent::Unspecified )
             {
@@ -1073,6 +1077,17 @@ namespace Desert::Editor
                               "the Details of '{5}' to say what it is for.",
                               abs, probe.Grade.Psnr, probe.Grade.MaxAbsoluteDelta, probe.Pixels.size(),
                               data.Pixels.size(), assetPath.filename().string() );
+                    data.Format = probeFormat;
+                    data.Levels = probe.Levels;
+                    data.Pixels = std::move( probe.Pixels );
+                }
+                else if ( probe.Encoded && arraySlot )
+                {
+                    LOG_INFO( "[TextureImporter] '{0}' is stored as BC7 because it fills a texture-array slot, "
+                              "whose format every slot shares; the gates alone would keep it uncompressed "
+                              "({1:.2f} dB, floor {2:.2f}; worst texel off by {3}, ceiling {4}).",
+                              abs, probe.Grade.Psnr, kBlockPsnrFloorDb, probe.Grade.MaxAbsoluteDelta,
+                              kBlockMaxDeltaCeiling );
                     data.Format = probeFormat;
                     data.Levels = probe.Levels;
                     data.Pixels = std::move( probe.Pixels );
@@ -1125,6 +1140,18 @@ namespace Desert::Editor
                 data.Levels = stored.Levels;
                 // `stored` is a reference to one of two locals and one of them is still needed for the
                 // sentence above, so the copy is taken rather than moved out of a const reference.
+                data.Pixels = stored.Pixels;
+            }
+            else if ( stored.Encoded && arraySlot )
+            {
+                LOG_INFO( "[TextureImporter] '{0}' is authored as {1} and stored as format {2} ({3}) because it "
+                          "fills a texture-array slot, whose format every slot shares; the gates alone would keep "
+                          "it uncompressed ({4:.2f} dB, floor {5:.2f}; worst texel off by {6}, ceiling {7}).",
+                          abs, Fmt::TextureIntentName( authoredIntent ), static_cast<uint32_t>( policy.Format ),
+                          policy.Because, stored.Grade.Psnr, kBlockPsnrFloorDb, stored.Grade.MaxAbsoluteDelta,
+                          kBlockMaxDeltaCeiling );
+                data.Format = policy.Format;
+                data.Levels = stored.Levels;
                 data.Pixels = stored.Pixels;
             }
             else if ( stored.Encoded )

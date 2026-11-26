@@ -2116,10 +2116,10 @@ namespace Desert::Migration
             }
         }
 
-        // THE TEXTURE ASSETS: TXAS 1 -> 2 states the texture's colour space in IMPT (TEX-SRGB), 2 -> 3 its alpha coverage
-        // thresholds (FOLIAGE-ALPHA-MIPS). The step is the
-        // engine's own UpgradeTextureSourceAsset (one statement of the format): nullopt = already current, a file
-        // it cannot read FAILS by name and is left untouched.
+        // THE TEXTURE ASSETS: TXAS 1 -> 2 states the texture's colour space in IMPT (TEX-SRGB), 2 -> 3 its alpha
+        // coverage thresholds (FOLIAGE-ALPHA-MIPS), 3 -> 4 its colour dilation mask, 4 -> 5 its texture-array slot
+        // flag (BINT26-TERRAIN, off). The step is the engine's own UpgradeTextureSourceAsset (one statement of the
+        // format): nullopt = already current, a file it cannot read FAILS by name and is left untouched.
         int texturesRaised = 0;
         for ( const auto& path : textures )
         {

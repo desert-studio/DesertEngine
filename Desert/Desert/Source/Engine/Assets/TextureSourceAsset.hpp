@@ -54,7 +54,9 @@ namespace Desert::Assets
     //      are raised by UpgradeTextureSourceAsset with no channel preserved (the cook they had).
     //   4  + ColorDilationMask (GRASS-ASSET p5, UE UTexture::CompositeTexture pattern). Versions 1-3 are raised by
     //      UpgradeTextureSourceAsset with no mask (the cook they had).
-    inline constexpr uint32_t kTextureAssetSubsystemVersion = 4;
+    //   5  + ArraySlotFormat (BINT26-TERRAIN). Versions 1-4 are raised by UpgradeTextureSourceAsset with the field
+    //      off (the cook they had).
+    inline constexpr uint32_t kTextureAssetSubsystemVersion = 5;
 
     // COLOUR DILATION UNDER ANOTHER TEXTURE'S MASK (GRASS-ASSET p5). A foliage atlas whose opacity is a SEPARATE
     // image (Poly Haven: `*_diff` + `*_alpha`) ships its colour BLACK where the mask cuts the card away; every mip
@@ -93,6 +95,13 @@ namespace Desert::Assets
         std::array<float, 4>             AlphaCoverageThresholds{ 0.0f, 0.0f, 0.0f, 0.0f };
         // Colour padded under another texture's mask before the mip chain (TextureDilationMask). Part of the DDC key.
         TextureDilationMask              ColorDilationMask;
+        // THE TEXTURE FILLS A SLOT OF A TEXTURE ARRAY (a landscape layer: the template's `Element(<array>, i)`
+        // params). Every slot of one array shares ONE format, so the cook stores the intent's block format
+        // (BlockPolicyForIntent; BC7 for an unmarked colour image) whenever it encodes, even when the quality
+        // gates would keep this one image uncompressed, and logs the measured numbers. The cook decides; the
+        // runtime array never meets a layer of another format. Set when the texture is bound to an array slot
+        // (SetTextureArraySlotFormat). Part of the DDC key.
+        bool                             ArraySlotFormat                                  = false;
         bool                             operator==( const TextureImportSettings& ) const = default;
     };
 
@@ -170,6 +179,10 @@ namespace Desert::Assets
     // changed, false = it already carried them.
     Common::ResultStr<bool> SetTextureAlphaCoverage( const std::filesystem::path& path,
                                                      const std::array<float, 4>&  thresholds );
+
+    // Writes ArraySlotFormat into the texture asset at @p path (the texture is bound to a texture-array slot, a
+    // landscape layer). true = the file changed, false = it already carried the value.
+    Common::ResultStr<bool> SetTextureArraySlotFormat( const std::filesystem::path& path, bool arraySlotFormat );
 
     // Writes ColorDilationMask into the texture asset at @p path (the colour atlas of a foliage card whose opacity
     // is a separate texture). true = the file changed, false = it already carried it.
