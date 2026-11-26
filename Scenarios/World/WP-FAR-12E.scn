@@ -1,0 +1,51 @@
+# WP-FAR-12E / WP-FAR-12F (proof by WP-PROOF-1126): a static mesh's last LOD is its impostor card (UE ImpostorBaker /
+# SpeedTree billboard LOD). StaticMeshComponent Impostor Mesh / Impostor Material / Impostor Screen Size (LOD
+# category); Details' "Bake Impostor" (Editor/Baking/MeshImpostorBaking, one Impostor HLOD capture cell of this
+# mesh, card + T_I/M_I saved beside the mesh asset) fills them (switch size 0.05 when unset). Per view the source
+# or the card is admitted by FOV-aware screen size over {LOD0, switch} with LODDistanceScale (12E); the switch is
+# dithered (GPU ImpostorGate + CPU union, 12F); the source stays in the shadow / RT gather at every distance and the
+# card never enters it (12F). Quality ViewDistance Cinematic resolves MeshLOD off = the source at every distance.
+# Scene: FIELD_Barn, Edit mode (no Play: the Walker's camera would take the view); Barn 8180000000000006 at
+# 1800,560,-3500. The bake writes new assets under Content/Environments/FieldBarn/Meshes/Barn/ and edits the scene
+# unsaved - neither is committed by this run.
+# Bake step: "Bake Impostor" is a Details button with no palette command, so it is pressed with `input click` at
+# the point read off the bake_button frame (Details scrolled to its bottom, where the Static Mesh section ends).
+# Readout: editor.log "Bake Impostor: 'Barn' started -> ...", then "Bake Impostor: 'Barn' -> card <path>, material
+# <path>, switch at screen size 0.05"; never "Bake Impostor refused" / "did not resolve".
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: ViewDistance High"
+Дано run Mode "Select mode"
+Дано select 8180000000000006
+Дано input scroll Details 150,400 -30
+Тогда bake_button Details of Barn scrolled to the bottom: the Static Mesh section shows Impostor Mesh / Impostor Material empty, Impostor Screen Size 0, and the "Bake Impostor" button under them
+Когда input click Details 150,560
+Когда wait-idle 900
+Тогда baked WP-FAR-12E Details of Barn: Impostor Mesh and Impostor Material filled (card and M_I beside Barn.gltf), Impostor Screen Size 0.05; log: "Bake Impostor: 'Barn' started", then "Bake Impostor: 'Barn' -> card ..., switch at screen size 0.05", no "refused"
+Когда --subject viewport set Camera.FOV 90
+Когда --subject viewport set Camera.Position 1800,1500,-8500
+Когда --subject viewport set Camera.Direction 0,-0.1,1
+Когда frames 30
+Тогда-вид barn_50 WP-FAR-12E at 50 m the barn is its source mesh: planks, roof edges and the door frame in full geometry, lit by the sun, its shadow on the meadow
+Когда --subject viewport set Camera.Position 1800,2000,-13500
+Когда frames 30
+Тогда-вид barn_100 at 100 m still the source mesh (screen size above 0.05), same silhouette as barn_50
+Когда --subject viewport set Camera.Position 1800,2500,-18500
+Когда frames 30
+Тогда-вид barn_150 WP-FAR-12F at about the switch distance: the barn reads as one barn - a dithered mix of source and card at most, never a hole, never two barns offset, no pop against barn_100
+Когда --subject viewport set Camera.Position 1800,3000,-33500
+Когда --subject viewport set Camera.Direction 0,-0.08,1
+Когда frames 30
+Тогда-вид barn_300 WP-FAR-12E at 300 m the barn is its impostor card: the same silhouette and colours as the source from this side, lit like the meadow, no grey box, no black or white quad; its shadow on the meadow still the barn's shape (the source casts, 12F), no flat quad shadow
+Когда --subject viewport set Camera.Position 31800,3000,-3500
+Когда --subject viewport set Camera.Direction -1,-0.08,0
+Когда frames 30
+Тогда-вид barn_300_side WP-FAR-12F turn: from +X at 300 m the card shows the barn's side wall (the octahedral frame of this direction), not the front facade turned toward the camera
+Когда --subject viewport set Camera.Position 23013,3000,17713
+Когда --subject viewport set Camera.Direction -0.7071,-0.08,-0.7071
+Когда frames 30
+Тогда-вид barn_300_diag WP-FAR-12F turn: at 45 degrees between barn_300 and barn_300_side, the card blends those two views - a corner of the barn, two walls visible, no seam or jump
+Когда run Quality "Quality: ViewDistance Cinematic"
+Когда frames 30
+Тогда-вид barn_300_cine control: the same view under Cinematic (MeshLOD off) draws the source mesh; the silhouette matches barn_300_diag
+Когда run Quality "Quality: ViewDistance High"
