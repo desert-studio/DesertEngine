@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <glm/glm.hpp>
 
@@ -144,7 +145,10 @@ namespace Desert::Graphic::GpuDriven
     class GpuScene
     {
     public:
-        GpuScene();
+        // @p scene: the owning Core::Scene's ledger instance (Scene::GetLedgerInstance). The tables are the
+        // scene's, read by every view of it: AddUploadPass opens the scene's scope, so a table made or grown in
+        // one view's frame is not that view's row and does not outlive its close as one (VIEW-CLOSE-LEAK).
+        explicit GpuScene( ResourceOwnerInstance scene );
         ~GpuScene();
         GpuScene( const GpuScene& )            = delete;
         GpuScene& operator=( const GpuScene& ) = delete;
@@ -339,6 +343,7 @@ namespace Desert::Graphic::GpuDriven
         std::vector<uint8_t>         m_Meshed;
         static uint64_t              NextStreamId();
         uint64_t                     m_StreamId = NextStreamId();
+        ResourceOwnerInstance        m_LedgerInstance; // the owning scene's
 
         std::unique_ptr<Table> m_PrimitiveTable;
         std::unique_ptr<Table> m_InstanceTable;

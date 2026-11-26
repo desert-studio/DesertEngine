@@ -11,5 +11,8 @@
 # already imported). [pawn_mannequin_placed] after the run `git status Projects/Desert/Content/Characters/Mannequin`
 # is clean: placing the committed mannequin rewrites none of its files.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+# The view centre must meet the ground: a drop whose centre ray meets nothing lands at the background drop distance
+# in front of the camera (UE FActorPositioning), which is the floating mannequin of B-INT #26.
+Дано --subject viewport set Camera.Direction 0,-0.35,-1
 Когда run Assets "Drop into the viewport: Characters/Mannequin/Mannequin.glb"
 Тогда-вид pawn_mannequin_placed the mannequin placed in the viewport, standing at full height (about 183 cm against the editor grid), grey body (M_Mannequin, albedo 0.42) with dark-grey joints (M_Mannequin_Joints, albedo 0.12), no Import Options window; editor.log 0 import errors

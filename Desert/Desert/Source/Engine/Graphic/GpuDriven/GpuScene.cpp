@@ -315,8 +315,8 @@ namespace Desert::Graphic::GpuDriven
         }
     } // namespace
 
-    GpuScene::GpuScene()
-         : m_PrimitiveTable(
+    GpuScene::GpuScene( const ResourceOwnerInstance scene )
+         : m_LedgerInstance( scene ), m_PrimitiveTable(
                 MakeTable( "Primitives", Core::kGpuScenePrimitivesBinding, WordsOf<GpuScenePrimitive>(),
                            SceneResources::kGpuScenePrimitivesName ) ),
            m_InstanceTable( MakeTable( "Instances", 0u, WordsOf<GpuSceneInstance>() ) ),
@@ -735,6 +735,10 @@ namespace Desert::Graphic::GpuDriven
 
     Common::ResultStr<GpuSceneBuffers> GpuScene::AddUploadPass( RDG::Builder& graph )
     {
+        // THE SCENE'S ROWS. The upload runs inside the syncing view's ledger scope (MeshRenderer's frame), and a
+        // table it makes or grows is the scene's: without this the grown MaterialRows carried that view's instance
+        // and outlived its close as the view's rows. Nested: the view's scope is restored when this one closes.
+        const ResourceAttributionScope sceneRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
         SortUnique( m_DirtyPrimitives );
         SortUnique( m_DirtyInstances );
         SortUnique( m_DirtyLodScreenSizes );

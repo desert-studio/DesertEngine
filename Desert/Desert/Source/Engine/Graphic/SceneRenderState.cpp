@@ -20,7 +20,7 @@ namespace Desert::Graphic
     SceneRenderState::SceneRenderState( ResourceOwnerInstance ledger )
          : m_Ledger( ledger ), m_ReflectionCaptures( std::make_unique<ReflectionCaptureRenderer>( ledger ) ),
            m_RayTracingCache( std::make_unique<RayTracing::RayTracingSceneCache>( ledger ) ),
-           m_GpuScene( std::make_unique<GpuDriven::GpuSceneRegistry>() ),
+           m_GpuScene( std::make_unique<GpuDriven::GpuSceneRegistry>( ledger ) ),
            m_SkyLight( std::make_shared<SceneSkyLight>( ledger ) ),
            m_Atmosphere( std::make_shared<SceneAtmosphere>() ),
            m_LocalShadows( std::make_unique<LocalShadowCache>( ledger ) ),
@@ -76,7 +76,7 @@ namespace Desert::Graphic
     {
         // The GPU scene is keyed by entity (MotionKey): the restarted ids would inherit the old world's
         // primitives and previous transforms, so the reloaded world gets a registry of its own.
-        m_GpuScene = std::make_unique<GpuDriven::GpuSceneRegistry>();
+        m_GpuScene = std::make_unique<GpuDriven::GpuSceneRegistry>( m_Ledger );
         // THE OLD WORLD'S RENDERER STATE GOES WITH IT. Kept, the distance-field brick atlas, the captures' cubes,
         // the cached shadow depth and the ray-tracing variants of the old world stayed resident under the next
         // scene and were still there when a reopen built the same ones again (FIELD-MEM p3). Their device objects
