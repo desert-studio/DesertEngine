@@ -142,8 +142,11 @@ namespace Desert::Assets
     // position (OutputPoseX/Y, graph and every layer graph); Tools/SceneMigrator raises v2 through
     // Migration::MigrateAnimGraphV2ToV3 at Animation::Graph::DefaultOutputPosePosition. v4 (ANIM-SKELREF): the
     // graph states its TargetSkeleton {Guid, Path} (UE UAnimBlueprint::TargetSkeleton). v5 (PAWN-MANNEQUIN): every
-    // blend sample states its RateScale (UE FBlendSample::RateScale); Migration::MigrateAnimGraphV4ToV5.
-    inline constexpr uint32_t kAnimGraphSchemaVersion = 5;
+    // blend sample states its RateScale (UE FBlendSample::RateScale); Migration::MigrateAnimGraphV4ToV5. v6
+    // (ANIM-BS2D-RUNTIME): one blend space for 1D and 2D (UE UBlendSpace) - its Axes {Min, Max, Wrap, smoothing},
+    // samples at {X, Y}, WeightEaseInOut, ScaleAxis; a state names AxisParameters;
+    // Migration::MigrateAnimGraphV5ToV6.
+    inline constexpr uint32_t kAnimGraphSchemaVersion = 6;
     // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
     // version at all - that generation is 0, and a file of it is refused by name. v2 (SKEL-TREE): PreviewMesh
     // and CompatibleSkeletons, as GUID references. v3 (SKEL-eng2): the dead `Import` provenance is gone (the

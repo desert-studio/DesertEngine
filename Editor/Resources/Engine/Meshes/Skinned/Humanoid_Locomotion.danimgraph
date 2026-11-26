@@ -3,7 +3,7 @@
         "Kind": "AnimGraph",
         "Guid": "ebe752e8c0064ca198e19774936005c7",
         "Versions": {
-            "ANGR": 5
+            "ANGR": 6
         },
         "Dependencies": []
     },
@@ -58,27 +58,45 @@
                             }
                         ],
                         "BlendSpace": {
-                            "Axis": "Speed",
+                            "AxisParameters": [
+                                "Speed"
+                            ],
                             "Space": {
+                                "Axes": [
+                                    {
+                                        "Min": 0.0,
+                                        "Max": 600.0,
+                                        "Wrap": false,
+                                        "SmoothingTime": 0.0,
+                                        "Smoothing": "Average",
+                                        "DampingRatio": 1.0,
+                                        "MaxSpeed": 0.0
+                                    }
+                                ],
                                 "Samples": [
                                     {
                                         "Clip": "Idle",
-                                        "Value": 0.0,
+                                        "X": 0.0,
+                                        "Y": 0.0,
                                         "RateScale": 1.0
                                     },
                                     {
                                         "Clip": "Walk",
-                                        "Value": 300.0,
+                                        "X": 300.0,
+                                        "Y": 0.0,
                                         "RateScale": 1.0
                                     },
                                     {
                                         "Clip": "Run",
-                                        "Value": 600.0,
+                                        "X": 600.0,
+                                        "Y": 0.0,
                                         "RateScale": 1.0
                                     }
                                 ],
                                 "WeightSpeed": 4.0,
-                                "Loop": true
+                                "WeightEaseInOut": false,
+                                "Loop": true,
+                                "ScaleAxis": -1
                             }
                         }
                     },

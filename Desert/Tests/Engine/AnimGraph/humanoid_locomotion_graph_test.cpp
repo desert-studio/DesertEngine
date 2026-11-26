@@ -77,15 +77,15 @@ TEST( HumanoidLocomotionGraph, TheGroundIsOneLocomotionBlendSpaceOverSpeed )
     ASSERT_NE( ground, machine->States.end() );
     EXPECT_TRUE( ground->Clip.empty() );
     ASSERT_TRUE( ground->BlendSpace.has_value() );
-    EXPECT_EQ( ground->BlendSpace->Axis, "Speed" );
+    EXPECT_EQ( ground->BlendSpace->AxisParameters, std::vector<std::string>{ "Speed" } );
     const std::vector<BlendSample>& row = ground->BlendSpace->Space.Samples;
     ASSERT_EQ( row.size(), 3u );
     EXPECT_EQ( row[0].Clip, "Idle" );
-    EXPECT_EQ( row[0].Value, 0.0F );
+    EXPECT_EQ( row[0].X, 0.0F );
     EXPECT_EQ( row[1].Clip, "Walk" );
-    EXPECT_EQ( row[1].Value, 300.0F );
+    EXPECT_EQ( row[1].X, 300.0F );
     EXPECT_EQ( row[2].Clip, "Run" );
-    EXPECT_EQ( row[2].Value, 600.0F );
+    EXPECT_EQ( row[2].X, 600.0F );
     EXPECT_TRUE( ground->BlendSpace->Space.Loop );
     EXPECT_EQ( machine->States.size(), 2u ) << "Locomotion and Jump only";
 }
@@ -130,11 +130,13 @@ TEST( HumanoidLocomotionGraph, ABlendSpace1DNodeRoundTripsThroughTheDanimgraphTe
     PoseNode  node;
     node.Name            = "SpeedBlend";
     node.Kind            = static_cast<int>( PoseNodeKind::BlendSpace1D );
-    node.ParameterInputs = { ParameterPin{ std::string( kBlendSpaceAxisPin ), "Speed" } };
-    node.BlendSpace      = BlendSpace1DNode{
-              .Samples = { BlendSample{ "Idle", 0.0F }, BlendSample{ "Walk", 300.0F }, BlendSample{ "Run", 600.0F } },
-              .WeightSpeed = 4.0F,
-              .Loop        = false };
+    node.ParameterInputs = { ParameterPin{ std::string( kBlendSpaceXPin ), "Speed" } };
+    node.BlendSpace      = BlendSpaceSetup{ .Axes        = { BlendSpaceAxis{ .Min = 0.0F, .Max = 600.0F } },
+                                            .Samples     = { BlendSample{ .Clip = "Idle", .X = 0.0F },
+                                                             BlendSample{ .Clip = "Walk", .X = 300.0F },
+                                                             BlendSample{ .Clip = "Run", .X = 600.0F } },
+                                            .WeightSpeed = 4.0F,
+                                            .Loop        = false };
     node.X = 40.0F;
     graph.Nodes.push_back( node );
 
@@ -148,7 +150,7 @@ TEST( HumanoidLocomotionGraph, ABlendSpace1DNodeRoundTripsThroughTheDanimgraphTe
     for ( size_t s = 0; s < 3; ++s )
     {
         EXPECT_EQ( read->BlendSpace->Samples[s].Clip, node.BlendSpace->Samples[s].Clip );
-        EXPECT_EQ( read->BlendSpace->Samples[s].Value, node.BlendSpace->Samples[s].Value );
+        EXPECT_EQ( read->BlendSpace->Samples[s].X, node.BlendSpace->Samples[s].X );
     }
     EXPECT_EQ( read->BlendSpace->WeightSpeed, 4.0F );
     EXPECT_FALSE( read->BlendSpace->Loop );

@@ -4,8 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Animation/AlphaBlend.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
-#include <Engine/Animation/Graph/BlendSpace1D.hpp>
-#include <Engine/Animation/Graph/BlendSpace2D.hpp>
+#include <Engine/Animation/Graph/BlendSpace.hpp>
 #include <Engine/Animation/Graph/LayeredBlendPerBoneNode.hpp>
 #include <Engine/Animation/Graph/LinkedAnimLayer.hpp>
 
@@ -93,14 +92,15 @@ namespace Desert::Animation::Graph
         bool CanInterrupt = true;
     };
 
-    /// What a state plays when it plays a Blend Space 1D instead of one clip (UE: a state whose graph is a Blend
-    /// Space Player). A state has no pins, so the axis parameter is named here: a declared Float parameter
-    /// (Speed in cm/s for locomotion). The samples play synced at one shared phase (BlendSpace1D.hpp), and that
-    /// phase is the state's normalized time an exit-time transition reads.
+    /// What a state plays when it plays a blend space instead of one clip (UE: a state whose graph is a Blend
+    /// Space Player). A state has no pins, so each axis's parameter is named here, one per axis of `Space` (one:
+    /// a Blend Space 1D, two: 2D), each a declared Float parameter (Speed in cm/s for locomotion). The samples
+    /// play synced at one shared phase (BlendSpace.hpp), and that phase is the state's normalized time an
+    /// exit-time transition reads.
     struct StateBlendSpace
     {
-        std::string      Axis;
-        BlendSpace1DNode Space;
+        std::vector<std::string> AxisParameters;
+        BlendSpaceSetup          Space;
     };
 
     struct State
@@ -113,7 +113,7 @@ namespace Desert::Animation::Graph
         float                   Y     = 0.0f;
         std::vector<Transition> Transitions;
         /// Present when the state plays a blend space, and then `Clip` is empty: PlanPoseGraph refuses a state
-        /// naming both, a row BlendSpace1DError refuses and an axis that is no declared Float parameter. (A state
+        /// naming both, a space BlendSpaceError refuses and an axis that is no declared Float parameter. (A state
         /// with neither is the editor's W1 warning.) Absent in a file written before blend-space states, which
         /// reads unchanged.
         std::optional<StateBlendSpace> BlendSpace;
@@ -169,6 +169,7 @@ namespace Desert::Animation::Graph
         TwoBoneIK           = 6, ///< UE FAnimNode_TwoBoneIK: the end bone's chain reaches a goal
         LookAt              = 7, ///< UE FAnimNode_LookAt: a bone's aim axis turns to a target
         BlendSpace1D        = 8, ///< UE FAnimNode_BlendSpacePlayer on a UBlendSpace1D: samples on the X pin's axis
+        BlendSpace2D        = 9, ///< UE FAnimNode_BlendSpacePlayer on a UBlendSpace: samples on the X and Y pins
     };
 
     /// Where a pose graph lives, which decides one kind: a LinkedInputPose exists only in a LAYER graph (it
@@ -272,9 +273,9 @@ namespace Desert::Animation::Graph
         std::optional<LinkedAnimLayerNode> LinkedLayer;
         std::optional<TwoBoneIKNode>       TwoBoneIK; // the payload, present exactly when Kind == TwoBoneIK
         std::optional<LookAtNode>          LookAt;    // the payload, present exactly when Kind == LookAt
-        /// The payload, present exactly when Kind == BlendSpace1D (BlendSpace1D.hpp). Absent on every other node,
-        /// which is why the files written before it read unchanged (ANGR stays 4: no file changes shape).
-        std::optional<BlendSpace1DNode>    BlendSpace;
+        /// The payload, present exactly when Kind is BlendSpace1D (one axis) or BlendSpace2D (two axes)
+        /// (BlendSpace.hpp). Absent on every other node.
+        std::optional<BlendSpaceSetup>     BlendSpace;
         float                              X = 0.0f; // node editor canvas position (persisted, unused at runtime)
         float                              Y = 0.0f;
     };
@@ -421,7 +422,7 @@ namespace Desert::Animation::Graph
     [[nodiscard]] std::string DeclaredParameterList( const AnimGraph& graph );
 
     /// Every clip name the graph's own nodes can play, in node order, empties skipped: each state's clip or
-    /// its blend space's sample clips, each SequencePlayer's clip, each Blend Space 1D node's sample clips. The
+    /// its blend space's sample clips, each SequencePlayer's clip, each blend-space node's sample clips. The
     /// ONE list of what a graph plays, so the runtime's per-tick request (AnimationECSSystem) cannot miss a
     /// kind of playable that the Animator plays.
     [[nodiscard]] std::vector<std::string> GraphClipNames( const AnimGraph& graph );

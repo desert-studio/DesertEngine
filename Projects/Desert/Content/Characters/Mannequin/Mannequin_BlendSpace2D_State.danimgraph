@@ -1,0 +1,118 @@
+{
+    "Header": {
+        "Kind": "AnimGraph",
+        "Guid": "01c872dcead04851a9578548487a11c2",
+        "Versions": {
+            "ANGR": 6
+        },
+        "Dependencies": []
+    },
+    "Name": "Mannequin_BlendSpace2D_State",
+    "TargetSkeleton": {
+        "Guid": "d350f6f47bba6d96ba10759cab6e15ea",
+        "Path": "assets:Characters/Mannequin/Mannequin.skeleton"
+    },
+    "Parameters": [
+        {
+            "Name": "Speed",
+            "Type": 2,
+            "Default": 0.0
+        },
+        {
+            "Name": "Crouch",
+            "Type": 2,
+            "Default": 0.0
+        }
+    ],
+    "Nodes": [
+        {
+            "Name": "Locomotion",
+            "Kind": 0,
+            "PoseInputs": [],
+            "ParameterInputs": [],
+            "Machine": {
+                "Entry": "Locomotion2D",
+                "States": [
+                    {
+                        "Name": "Locomotion2D",
+                        "Clip": "",
+                        "Loop": true,
+                        "Speed": 1.0,
+                        "X": 0.0,
+                        "Y": 0.0,
+                        "Transitions": [],
+                        "BlendSpace": {
+                            "AxisParameters": [
+                                "Speed",
+                                "Crouch"
+                            ],
+                            "Space": {
+                                "Axes": [
+                                    {
+                                        "Min": 0.0,
+                                        "Max": 600.0,
+                                        "Wrap": false,
+                                        "SmoothingTime": 0.0,
+                                        "Smoothing": "Average",
+                                        "DampingRatio": 1.0,
+                                        "MaxSpeed": 0.0
+                                    },
+                                    {
+                                        "Min": 0.0,
+                                        "Max": 1.0,
+                                        "Wrap": false,
+                                        "SmoothingTime": 1.5,
+                                        "Smoothing": "Linear",
+                                        "DampingRatio": 1.0,
+                                        "MaxSpeed": 0.0
+                                    }
+                                ],
+                                "Samples": [
+                                    {
+                                        "Clip": "Idle_Loop",
+                                        "X": 0.0,
+                                        "Y": 0.0,
+                                        "RateScale": 1.0
+                                    },
+                                    {
+                                        "Clip": "Walk_Loop",
+                                        "X": 150.0,
+                                        "Y": 0.0,
+                                        "RateScale": 1.4
+                                    },
+                                    {
+                                        "Clip": "Jog_Fwd_Loop",
+                                        "X": 600.0,
+                                        "Y": 0.0,
+                                        "RateScale": 1.1
+                                    },
+                                    {
+                                        "Clip": "Crouch_Idle_Loop",
+                                        "X": 0.0,
+                                        "Y": 1.0,
+                                        "RateScale": 1.0
+                                    },
+                                    {
+                                        "Clip": "Crouch_Fwd_Loop",
+                                        "X": 150.0,
+                                        "Y": 1.0,
+                                        "RateScale": 1.0
+                                    }
+                                ],
+                                "WeightSpeed": 0.0,
+                                "WeightEaseInOut": false,
+                                "Loop": true,
+                                "ScaleAxis": -1
+                            }
+                        }
+                    }
+                ]
+            },
+            "X": 0.0,
+            "Y": 0.0
+        }
+    ],
+    "OutputPose": "Locomotion",
+    "OutputPoseX": 800.0,
+    "OutputPoseY": 0.0
+}

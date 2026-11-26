@@ -82,10 +82,11 @@ namespace
         G::PoseNode move;
         move.Name = "Move";
         move.Kind = static_cast<int>( G::PoseNodeKind::BlendSpace1D );
-        move.BlendSpace =
-             G::BlendSpace1DNode{ .Samples = { G::BlendSample{ "Walk", 0.0F }, G::BlendSample{ "Run", 300.0F } },
-                                  .WeightSpeed = weightSpeed };
-        move.ParameterInputs.push_back( G::ParameterPin{ std::string( G::kBlendSpaceAxisPin ), "Speed" } );
+        move.BlendSpace = G::BlendSpaceSetup{ .Axes        = { G::BlendSpaceAxis{ .Min = 0.0F, .Max = 300.0F } },
+                                              .Samples     = { G::BlendSample{ .Clip = "Walk", .X = 0.0F },
+                                                               G::BlendSample{ .Clip = "Run", .X = 300.0F } },
+                                              .WeightSpeed = weightSpeed };
+        move.ParameterInputs.push_back( G::ParameterPin{ std::string( G::kBlendSpaceXPin ), "Speed" } );
         graph.Nodes.push_back( std::move( move ) );
         graph.OutputPose = "Move";
         return graph;

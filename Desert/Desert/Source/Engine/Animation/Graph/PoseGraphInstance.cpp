@@ -170,6 +170,7 @@ namespace Desert::Animation::Graph
                 case PoseNodeKind::StateMachine:
                 case PoseNodeKind::SequencePlayer:
                 case PoseNodeKind::BlendSpace1D:
+                case PoseNodeKind::BlendSpace2D:
                     pose.Pose.Resize( bones );
                     pose.CurveNames.clear();
                     pose.CurveValues.clear();
@@ -302,6 +303,7 @@ namespace Desert::Animation::Graph
                 case PoseNodeKind::StateMachine:
                 case PoseNodeKind::SequencePlayer:
                 case PoseNodeKind::BlendSpace1D:
+                case PoseNodeKind::BlendSpace2D:
                     break; // a leaf: its weight is its own
 
                 case PoseNodeKind::LinkedInputPose:

@@ -3129,6 +3129,155 @@ namespace Desert::Migration
         }
     } // namespace BlendSampleRateStep
 
+    namespace BlendSpaceAxesStep
+    {
+        // How many blend spaces and samples one walk raised.
+        struct Tally
+        {
+            std::size_t Spaces  = 0;
+            std::size_t Samples = 0;
+        };
+
+        // ANGR 6 of one ANGR 5 blend space (its "Samples" are 1D samples: "Clip" + "Value"): Axes =
+        // [{Min = lowest Value, Max = highest (Min + 1 when equal), no wrap, no smoothing}] - the old sample
+        // range, so clamping into it is the old behavior and the weights stay bit-identical - each sample's Value
+        // -> X and Y 0, WeightEaseInOut false, ScaleAxis -1. @p owner names the node or state in every error: a
+        // space with no samples, a sample that is not an object, and a sample whose Value is missing or not a
+        // number.
+        Common::ResultStr<rfl::Generic::Object> StateSetupAxes( const rfl::Generic::Object& setup,
+                                                                const std::string_view owner, Tally& tally )
+        {
+            const auto samples = setup.get( "Samples" ).value_or( rfl::Generic() ).to_array();
+            if ( !samples.has_value() || samples.value().empty() )
+                return Common::MakeFormattedError<rfl::Generic::Object>( "{} blend space states no samples",
+                                                                         owner );
+            double              lo = 0.0;
+            double              hi = 0.0;
+            rfl::Generic::Array raisedSamples;
+            for ( std::size_t index = 0; index < samples.value().size(); ++index )
+            {
+                const auto sample = samples.value()[index].to_object();
+                if ( !sample.has_value() )
+                    return Common::MakeFormattedError<rfl::Generic::Object>( "{} sample {} is not an object",
+                                                                             owner, index );
+                const auto stated = sample.value().get( "Value" );
+                if ( !stated.has_value() )
+                    return Common::MakeFormattedError<rfl::Generic::Object>( "{} sample {} states no Value", owner,
+                                                                             index );
+                const auto asDouble = stated.value().to_double();
+                const auto asInt    = stated.value().to_int();
+                if ( !asDouble.has_value() && !asInt.has_value() )
+                    return Common::MakeFormattedError<rfl::Generic::Object>( "{} sample {} Value is not a number",
+                                                                             owner, index );
+                const double value =
+                     asDouble.has_value() ? asDouble.value() : static_cast<double>( asInt.value() );
+                lo = index == 0 ? value : std::min( lo, value );
+                hi = index == 0 ? value : std::max( hi, value );
+                rfl::Generic::Object raised;
+                for ( const auto& [key, field] : sample.value() )
+                    if ( key != "Value" )
+                        raised[key] = field;
+                raised["X"] = rfl::Generic( value );
+                raised["Y"] = rfl::Generic( 0.0 );
+                raisedSamples.push_back( rfl::Generic( std::move( raised ) ) );
+            }
+            if ( hi <= lo )
+                hi = lo + 1.0;
+            rfl::Generic::Object axis;
+            axis["Min"]           = rfl::Generic( lo );
+            axis["Max"]           = rfl::Generic( hi );
+            axis["Wrap"]          = rfl::Generic( false );
+            axis["SmoothingTime"] = rfl::Generic( 0.0 );
+            axis["Smoothing"]     = rfl::Generic( std::string( "Average" ) );
+            axis["DampingRatio"]  = rfl::Generic( 1.0 );
+            axis["MaxSpeed"]      = rfl::Generic( 0.0 );
+            rfl::Generic::Object raised;
+            for ( const auto& [key, field] : setup )
+                if ( key != "Samples" )
+                    raised[key] = field;
+            raised["Axes"]            = rfl::Generic( rfl::Generic::Array{ rfl::Generic( std::move( axis ) ) } );
+            raised["Samples"]         = rfl::Generic( std::move( raisedSamples ) );
+            raised["WeightEaseInOut"] = rfl::Generic( false );
+            raised["ScaleAxis"]       = rfl::Generic( -1 );
+            ++tally.Spaces;
+            tally.Samples += samples.value().size();
+            return Common::MakeSuccess( std::move( raised ) );
+        }
+
+        // Walks the whole body: every blend space (a node's BlendSpace, a state's BlendSpace.Space, in the graph
+        // and every layer graph) gains its axis; a state's blend space "Axis" becomes "AxisParameters" [Axis]. A
+        // blend space is found by where it sits - the "BlendSpace" of a named node or state - not by its samples,
+        // so a space with no samples or a malformed one is refused by name instead of passing through.
+        Common::ResultStr<rfl::Generic> StateAxes( const rfl::Generic& node, Tally& tally )
+        {
+            if ( const auto array = node.to_array(); array.has_value() )
+            {
+                rfl::Generic::Array raised;
+                for ( const auto& item : array.value() )
+                {
+                    auto child = StateAxes( item, tally );
+                    if ( !child )
+                        return child;
+                    raised.push_back( child.ExtractValue() );
+                }
+                return Common::MakeSuccess( rfl::Generic( std::move( raised ) ) );
+            }
+            const auto object = node.to_object();
+            if ( !object.has_value() )
+                return Common::MakeSuccess( node );
+            const auto           space = object.value().get( "BlendSpace" ).value_or( rfl::Generic() ).to_object();
+            const auto           named = object.value().get( "Name" ).value_or( rfl::Generic() ).to_string();
+            rfl::Generic::Object raised;
+            for ( const auto& [key, field] : object.value() )
+            {
+                if ( key == "Header" )
+                {
+                    raised[key] = field;
+                    continue;
+                }
+                if ( key != "BlendSpace" || !space.has_value() )
+                {
+                    auto child = StateAxes( field, tally );
+                    if ( !child )
+                        return child;
+                    raised[key] = child.ExtractValue();
+                    continue;
+                }
+                // A state's blend space wraps the space with the parameter that drives it; a node's is the space.
+                const bool stateSpace =
+                     space.value().get( "Axis" ).has_value() && space.value().get( "Space" ).has_value();
+                const std::string owner = std::format( "{} '{}'", stateSpace ? "state" : "node",
+                                                       named.has_value() ? named.value() : std::string() );
+                if ( !stateSpace )
+                {
+                    auto setup = StateSetupAxes( space.value(), owner, tally );
+                    if ( !setup )
+                        return Common::MakeFormattedError<rfl::Generic>( "{}", setup.GetError() );
+                    raised[key] = rfl::Generic( setup.ExtractValue() );
+                    continue;
+                }
+                const auto inner = space.value().get( "Space" ).value().to_object();
+                if ( !inner.has_value() )
+                    return Common::MakeFormattedError<rfl::Generic>( "{} blend space Space is not an object",
+                                                                     owner );
+                auto setup = StateSetupAxes( inner.value(), owner, tally );
+                if ( !setup )
+                    return Common::MakeFormattedError<rfl::Generic>( "{}", setup.GetError() );
+                rfl::Generic::Object state;
+                for ( const auto& [stateKey, stateField] : space.value() )
+                {
+                    if ( stateKey == "Axis" )
+                        state["AxisParameters"] = rfl::Generic( rfl::Generic::Array{ stateField } );
+                    else if ( stateKey != "Space" )
+                        state[stateKey] = stateField;
+                }
+                state["Space"] = rfl::Generic( setup.ExtractValue() );
+                raised[key]    = rfl::Generic( std::move( state ) );
+            }
+            return Common::MakeSuccess( rfl::Generic( std::move( raised ) ) );
+        }
+    } // namespace BlendSpaceAxesStep
+
     Common::ResultStr<std::string> MigrateAnimGraphV4ToV5( const std::string& text )
     {
         auto read = rfl::json::read<rfl::Generic::Object>( text );
@@ -3151,11 +3300,43 @@ namespace Desert::Migration
         versions.value()["ANGR"]   = rfl::Generic( 5 );
         header.value()["Versions"] = rfl::Generic( std::move( versions.value() ) );
         raised.value()["Header"]   = rfl::Generic( std::move( header.value() ) );
-        const auto written         = TargetSkeletonStep::Canonical( "ANGR", rfl::json::write( raised.value() ) );
+        // ANGR 5 IS NOT THE CURRENT GENERATION (ANGR 6 gave blend spaces axes): the engine's reader would refuse
+        // it, so the text stays untyped and the dispatcher hands it to MigrateAnimGraphV5ToV6, which re-reads it.
+        return Common::MakeSuccess( rfl::json::write( raised.value() ) );
+    }
+
+    Common::ResultStr<AnimGraphAxesRaise> MigrateAnimGraphV5ToV6( std::string_view text )
+    {
+        using Out = AnimGraphAxesRaise;
+        auto read = rfl::json::read<rfl::Generic::Object>( std::string( text ) );
+        if ( !read )
+            return Common::MakeFormattedError<Out>( "ANGR 5 body does not read: {}", read.error().what() );
+        auto header = read.value().get( "Header" ).value_or( rfl::Generic() ).to_object();
+        if ( !header.has_value() )
+            return Common::MakeFormattedError<Out>( "the file states no header" );
+        auto      versions = header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object();
+        const int stated   = versions.has_value()
+                                  ? versions.value().get( "ANGR" ).value_or( rfl::Generic() ).to_int().value_or( -1 )
+                                  : -1;
+        if ( stated != 5 )
+            return Common::MakeFormattedError<Out>( "the header states ANGR {}, and this step raises ANGR 5 only",
+                                                    stated < 0 ? std::string( "nothing" )
+                                                               : std::to_string( stated ) );
+        BlendSpaceAxesStep::Tally tally;
+        auto walked = BlendSpaceAxesStep::StateAxes( rfl::Generic( std::move( read.value() ) ), tally );
+        if ( !walked )
+            return Common::MakeFormattedError<Out>( "{}", walked.GetError() );
+        auto raised = walked.ExtractValue().to_object();
+        if ( !raised.has_value() )
+            return Common::MakeFormattedError<Out>( "the raised graph is not an object" );
+        versions.value()["ANGR"]   = rfl::Generic( 6 );
+        header.value()["Versions"] = rfl::Generic( std::move( versions.value() ) );
+        raised.value()["Header"]   = rfl::Generic( std::move( header.value() ) );
+        auto written               = TargetSkeletonStep::Canonical( "ANGR", rfl::json::write( raised.value() ) );
         if ( !written )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as ANGR 5: {}",
-                                                            written.GetError() );
-        return written;
+            return Common::MakeFormattedError<Out>( "the raised file does not read as ANGR 6: {}",
+                                                    written.GetError() );
+        return Common::MakeSuccess( Out{ written.ExtractValue(), tally.Spaces, tally.Samples } );
     }
 
     Common::ResultStr<std::string> MigrateControlRigToV4( const std::string& text )
@@ -3302,10 +3483,16 @@ namespace Desert::Migration
         target["Guid"]             = rfl::Generic( fits.front()->Guid );
         target["Path"]             = rfl::Generic( fits.front()->Path );
         document["TargetSkeleton"] = rfl::Generic( std::move( target ) );
-        // ANGR 3 is raised to the current generation in one step: ANGR 5's RateScale on every blend sample too.
+        // ANGR 3 is raised to the current generation in one step: ANGR 5's RateScale on every blend sample and
+        // ANGR 6's axes on every blend space too.
         if ( tag == "ANGR" )
         {
-            auto rated = BlendSampleRateStep::StateRateScale( rfl::Generic( std::move( document ) ) ).to_object();
+            BlendSpaceAxesStep::Tally tally;
+            auto                      walked = BlendSpaceAxesStep::StateAxes(
+                 BlendSampleRateStep::StateRateScale( rfl::Generic( std::move( document ) ) ), tally );
+            if ( !walked )
+                return Common::MakeFormattedError<std::string>( "{}", walked.GetError() );
+            auto rated = walked.ExtractValue().to_object();
             if ( !rated.has_value() )
                 return Common::MakeFormattedError<std::string>( "the raised graph is not an object" );
             document = std::move( rated.value() );

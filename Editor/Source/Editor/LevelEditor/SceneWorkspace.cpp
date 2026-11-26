@@ -610,20 +610,23 @@ namespace Desert::Editor
     }
 
     Common::BoolResultStr SceneWorkspace::TickWorlds( const Common::Timestep& ts, PlaySession& play,
-                                                      bool shotCounting )
+                                                      bool shotCounting, const std::optional<bool> controlCounting )
     {
         ApplyCameraSpeedOnce();
-        if ( auto r = TickWorld( *m_PrimaryScene, m_RenderRegistry.get(), ts, play, shotCounting ); !r )
+        if ( auto r =
+                  TickWorld( *m_PrimaryScene, m_RenderRegistry.get(), ts, play, shotCounting, controlCounting );
+             !r )
             return r;
         for ( const auto& doc : m_ExtraScenes )
-            if ( auto r = TickWorld( *doc->Scene, doc->Registry.get(), ts, play, shotCounting ); !r )
+            if ( auto r = TickWorld( *doc->Scene, doc->Registry.get(), ts, play, shotCounting, controlCounting );
+                 !r )
                 return r;
         return BOOLSUCCESS;
     }
 
     Common::BoolResultStr SceneWorkspace::TickWorld( Desert::Core::Scene& scene, Render::RenderRegistry* registry,
                                                      const Common::Timestep& ts, PlaySession& play,
-                                                     bool shotCounting )
+                                                     bool shotCounting, const std::optional<bool> controlCounting )
     {
         // Editor-only VIEW state (from EditorPreferences, not scene data) pushed per scene before it
         // records this frame: the selection outline, and — since К2 — the debug/show flags that used to be
@@ -669,8 +672,11 @@ namespace Desert::Editor
         // (the cloud wind accumulates) would make two captures of one scene differ. Without `--play` the counted
         // frames then step by a FIXED step from zero; under `--play` the preview never runs — Play resets the
         // clock and `ts` is already the fixed step (ShotOptions::FrameSeconds), so the clock just follows it.
-        // Outside a capture the measured step drives it, and the viewport's Realtime toggle decides whether
-        // preview time moves while editing.
+        // AN EDITOR THE CONTROL CHANNEL DRIVES (a scenario) steps its preview by the same fixed step, and only on
+        // the frames a `frames N` wait counts (ControlService::DrivenPreviewCounting): the runner's own pace
+        // between steps moves nothing, so a frame shot N frames after a change shows exactly N steps of it.
+        // Otherwise the measured step drives it, and the viewport's Realtime toggle decides whether preview time
+        // moves while editing.
         if ( const auto& shot = ShotOptions::Get(); shot.Active() )
         {
             const bool counting = shotCounting;
@@ -681,6 +687,11 @@ namespace Desert::Editor
                 scene.GetWorldTime().Reset();
             }
             scene.SetPreviewRealtime( counting && !shot.PlayActive() );
+        }
+        else if ( controlCounting )
+        {
+            scene.GetWorldTime().SetFixedStep( ShotOptions::PlayStepSeconds );
+            scene.SetPreviewRealtime( *controlCounting );
         }
         else
         {

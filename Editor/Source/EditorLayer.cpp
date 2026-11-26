@@ -726,7 +726,9 @@ namespace Desert::Editor
         // per scene so a secondary viewport is a full, independent render — not a static snapshot.
         // (SceneWorkspace::TickWorlds; UE: UEditorEngine::Tick's loop over the WorldContexts.)
         DESERT_PROFILE_PHASE( phases, "Editor: Tick worlds" );
-        if ( auto ticked = m_Workspace.TickWorlds( frameTs, m_Play, m_Shots.RecordingThisFrame() ); !ticked )
+        if ( auto ticked = m_Workspace.TickWorlds( frameTs, m_Play, m_Shots.RecordingThisFrame(),
+                                                   m_Control.DrivenPreviewCounting() );
+             !ticked )
             return ticked;
 
         // Runs a queued "Convert to Skinned" (rig builder) here, outside ImGui component iteration — the swap

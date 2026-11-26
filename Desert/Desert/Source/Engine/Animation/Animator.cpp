@@ -12,7 +12,10 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <format>
+#include <span>
 
 namespace Desert::Animation
 {
@@ -73,41 +76,103 @@ namespace Desert::Animation
                  { return state.Name == key.Name && state.Tick == key.Tick && state.Duration == key.Duration; } );
         }
 
-        /// UE FAnimNode_BlendSpacePlayer::UpdateAssetPlayer for one blend space at axis value `x`: the weights
-        /// toward the axis's target (the first update takes the target), then the shared phase advanced over the
-        /// weighted samples' lengths. The one step a Blend Space 1D node and a blend-space state both take.
-        void AdvanceBlendRun( const Graph::BlendSpace1DNode& space, const float x, Animator::BlendSpaceRun& run,
-                              const float deltaTime )
+        /// The debug trace of one axis's smoothing: a line when the clamped input changes (with the filtered
+        /// value it starts from), and a line when the filtered value arrives at it (with the seconds it took) --
+        /// the evidence that a smoothed axis travels over its SmoothingTime instead of jumping.
+        void TraceBlendAxis( const Graph::BlendSpaceAxis& axis, Animator::BlendSpaceRun& run, const size_t a,
+                             const float input, const bool first, const float deltaTime,
+                             const std::string_view label )
         {
-            std::vector<float> target( space.Samples.size(), 0.0F );
-            Graph::BlendSpace1DTargetWeights( space, x, target );
+            constexpr std::array<char, 2> kAxisName{ 'X', 'Y' };
+            const float                   filtered = run.Input[a];
+            if ( first )
+            {
+                run.TracedInput[a]    = input;
+                run.SinceChange[a]    = 0.0F;
+                run.ArrivalPending[a] = false;
+                return;
+            }
+            if ( input != run.TracedInput[a] )
+            {
+                LOG_DEBUG(
+                     "[Animator] blend space '{}' axis {}: input {:.3f} -> {:.3f}, filtered {:.3f} (smoothing "
+                     "{:.2f} s)",
+                     label, kAxisName[a], run.TracedInput[a], input, filtered, axis.SmoothingTime );
+                run.TracedInput[a]    = input;
+                run.SinceChange[a]    = 0.0F;
+                run.ArrivalPending[a] = true;
+            }
+            else
+                run.SinceChange[a] += std::max( deltaTime, 0.0F );
+            if ( run.ArrivalPending[a] && std::abs( filtered - input ) <= 1e-3F * ( axis.Max - axis.Min ) )
+            {
+                LOG_DEBUG( "[Animator] blend space '{}' axis {}: filtered {:.3f} reached the input {:.3f} after "
+                           "{:.3f} s",
+                           label, kAxisName[a], filtered, input, run.SinceChange[a] );
+                run.ArrivalPending[a] = false;
+            }
+        }
+
+        /// UE FAnimNode_BlendSpacePlayer::UpdateAssetPlayer for one blend space, 1D or 2D, at the raw axis values
+        /// `raw` (one per axis): each axis clamped or wrapped and filtered (UE FBlendFilter), the weights toward
+        /// the filtered point's target (the first update takes the target), then the shared phase advanced over
+        /// the weighted samples' lengths at `playRate` x the scale axis's multiplier. The one step a
+        /// blend-space node and a blend-space state both take.
+        void AdvanceBlendRun( const Graph::BlendSpaceSetup& space, Animator::BlendSpaceRun& run,
+                              const std::span<const float> raw, const float playRate, const float deltaTime,
+                              const std::string_view label )
+        {
+            const size_t         axes = std::min( space.Axes.size(), run.Filters.size() );
+            std::array<float, 2> clamped{ 0.0F, 0.0F };
+            for ( size_t a = 0; a < axes; ++a )
+            {
+                const float value = a < raw.size() ? raw[a] : 0.0F;
+                clamped[a]        = Graph::ClampBlendSpaceAxis( space.Axes[a], value );
+                const bool first  = !run.Filters[a].Initialised;
+                run.Input[a]      = Graph::FilterBlendSpaceAxis( space.Axes[a], run.Filters[a], value, deltaTime );
+                TraceBlendAxis( space.Axes[a], run, a, clamped[a], first, deltaTime, label );
+            }
+            std::vector<float>& target = run.TargetScratch; // reused across ticks: assign keeps its capacity
+            Graph::BlendSpaceTargetWeights( space, run.Triangulation,
+                                            std::span<const float>( run.Input.data(), axes ), target );
             if ( !run.Started || run.Weights.size() != target.size() )
             {
                 run.Weights = target;
                 run.Started = true;
             }
             else
-                Graph::InterpolateBlendWeights( run.Weights, target, space.WeightSpeed, deltaTime );
-            // An unresolved sample has no length: it neither stretches nor shrinks the shared cycle. A sample's
-            // length is its clip's over its RateScale (UE FBlendSample::RateScale; > 0, BlendSpace1DError).
-            std::vector<float> lengths( space.Samples.size(), 0.0F );
-            for ( size_t i = 0; i < run.Clips.size() && i < lengths.size(); ++i )
+                Graph::InterpolateBlendWeights( run.Weights, target, space.WeightSpeed, space.WeightEaseInOut,
+                                                deltaTime );
+            // UE AxisToScaleAnimation: while the scale axis's filtered value lags its input, the samples play
+            // faster or slower by input / filtered, so the feet keep up with the speed the input already asks
+            // for. OUR CHOICE, NOT PROVEN against UE's TickAssetPlayer (D9): the multiplier is input / filtered
+            // when both lie on one side of 0 and the filtered value is away from it, else 1.
+            float rate = playRate;
+            if ( space.ScaleAxis >= 0 && static_cast<size_t>( space.ScaleAxis ) < axes )
+            {
+                const auto  scaleAxis = static_cast<size_t>( space.ScaleAxis );
+                const float filtered  = run.Input[scaleAxis];
+                const float input     = clamped[scaleAxis];
+                if ( std::abs( filtered ) > 1e-3F && filtered * input > 0.0F )
+                    rate *= input / filtered;
+            }
+            // An unresolved sample has no length: it neither stretches nor shrinks the shared cycle.
+            std::vector<float>& durations = run.DurationScratch; // reused across ticks
+            durations.assign( space.Samples.size(), 0.0F );
+            for ( size_t i = 0; i < run.Clips.size() && i < durations.size(); ++i )
                 if ( run.Clips[i] != nullptr )
-                    lengths[i] =
-                         static_cast<float>( run.Clips[i]->DurationSeconds() ) / space.Samples[i].RateScale;
-            run.Phase = Graph::AdvanceSyncedPhase( run.Phase, run.Weights, lengths, deltaTime, space.Loop );
+                    durations[i] = static_cast<float>( run.Clips[i]->DurationSeconds() );
+            run.PreviousPhase = run.Phase;
+            run.Backward      = rate * deltaTime < 0.0F;
+            run.Phase         = Graph::AdvanceSyncedPhase( run.Phase, run.Weights, durations, space.Samples, rate,
+                                                           space.Loop, deltaTime );
         }
 
-        /// Whether two blend-space states play the same row on the same axis (a request for the row already on
-        /// top keeps its run).
+        /// Whether two blend-space states play the same space on the same parameters (a request for the space
+        /// already on top keeps its run).
         [[nodiscard]] bool SameBlendSpace( const Graph::StateBlendSpace& a, const Graph::StateBlendSpace& b )
         {
-            return a.Axis == b.Axis && a.Space.WeightSpeed == b.Space.WeightSpeed &&
-                   a.Space.Loop == b.Space.Loop &&
-                   std::equal( a.Space.Samples.begin(), a.Space.Samples.end(), b.Space.Samples.begin(),
-                               b.Space.Samples.end(),
-                               []( const Graph::BlendSample& x, const Graph::BlendSample& y )
-                               { return x.Clip == y.Clip && x.Value == y.Value && x.RateScale == y.RateScale; } );
+            return a.AxisParameters == b.AxisParameters && a.Space == b.Space;
         }
     } // namespace
 
@@ -365,8 +430,9 @@ namespace Desert::Animation
                                                       std::span<const AnimationClip* const> clips )
     {
         ClipPlayback playback;
-        playback.BlendSpace = space;
-        playback.Loop       = space.Space.Loop;
+        playback.BlendSpace          = space;
+        playback.Loop                = space.Space.Loop;
+        playback.Blend.Triangulation = Graph::TriangulateBlendSpace( space.Space );
         playback.Blend.Clips.assign( space.Space.Samples.size(), nullptr );
         for ( size_t i = 0; i < clips.size() && i < playback.Blend.Clips.size(); ++i )
             playback.Blend.Clips[i] = clips[i];
@@ -415,7 +481,7 @@ namespace Desert::Animation
         return top.IsBlendSpace() ? &top.BlendSpace : nullptr;
     }
 
-    const Animator::BlendSpaceRun* Animator::GetCurrentBlendRun() const
+    const Animator::BlendSpaceRun* Animator::GetStateBlendSpace() const
     {
         const ClipPlayback& top = TopPlayback();
         return top.IsBlendSpace() ? &top.Blend : nullptr;
@@ -462,9 +528,12 @@ namespace Desert::Animation
 
         if ( m_PoseGraph )
         {
-            for ( auto& source : m_PoseGraph->Sources )
-                if ( source.IsValid() )
-                    UpdatePlayback( source, deltaTime );
+            // A blend-space node's Sources entry is not a clock of its own: UpdateBlendSpaces writes its run's
+            // heaviest sample there.
+            const Graph::AnimGraph& graph = m_PoseGraph->Instance.Graph();
+            for ( size_t node = 0; node < m_PoseGraph->Sources.size(); ++node )
+                if ( m_PoseGraph->Sources[node].IsValid() && !graph.Nodes[node].BlendSpace )
+                    UpdatePlayback( m_PoseGraph->Sources[node], deltaTime );
             UpdateBlendSpaces( *m_PoseGraph, deltaTime );
         }
         for ( auto& layer : m_LinkedSources )
@@ -629,7 +698,8 @@ namespace Desert::Animation
             }
             if ( graph.Nodes[node].BlendSpace )
             {
-                SampleBlendSpace( state, state.BlendSpaces[node], sampleClock, out );
+                SampleBlendSpace( state, state.BlendSpaces[node], graph.Nodes[node].BlendSpace->Loop, sampleClock,
+                                  out );
                 return;
             }
             sampleClock( state.Sources[node], out );
@@ -665,6 +735,46 @@ namespace Desert::Animation
         return 0.0F; // PlanPoseGraph refused a pin bound to an undeclared parameter
     }
 
+    namespace
+    {
+        /// The heaviest resolved sample of `run` (its index), or Clips.size() when none is resolved.
+        [[nodiscard]] size_t HeaviestSample( const Animator::BlendSpaceRun& run )
+        {
+            size_t heaviest = run.Clips.size();
+            for ( size_t i = 0; i < run.Clips.size() && i < run.Weights.size(); ++i )
+                if ( run.Clips[i] != nullptr &&
+                     ( heaviest == run.Clips.size() || run.Weights[i] > run.Weights[heaviest] ) )
+                    heaviest = i;
+            return heaviest;
+        }
+
+        /// A clock at `phase` of `clip`'s own length.
+        [[nodiscard]] FrameTime PhaseTime( const AnimationClip& clip, const float phase )
+        {
+            return SecondsToFrameTime( static_cast<double>( phase ) * clip.DurationSeconds(),
+                                       clip.Sequence.TickRate );
+        }
+
+        /// `playback`'s clock moved to the heaviest resolved sample of `run` at its shared phase, with the run's
+        /// last step: what an exit time reads and whose notifies are heard (UE HighestWeightedAnimation). No
+        /// clip when no sample is resolved.
+        void FollowHeaviestSample( const Animator::BlendSpaceRun& run, const bool loop, const AnimationClip*& clip,
+                                   FrameTime& time, FrameTime& stepFrom, bool& wrapped, bool& backward )
+        {
+            const size_t heaviest = HeaviestSample( run );
+            if ( heaviest == run.Clips.size() )
+            {
+                clip = nullptr;
+                return;
+            }
+            clip     = run.Clips[heaviest];
+            time     = PhaseTime( *clip, run.Phase );
+            stepFrom = PhaseTime( *clip, run.PreviousPhase );
+            wrapped  = loop && ( run.Backward ? run.Phase > run.PreviousPhase : run.Phase < run.PreviousPhase );
+            backward = run.Backward;
+        }
+    } // namespace
+
     void Animator::UpdateBlendSpaces( PoseGraphState& state, const float deltaTime ) const
     {
         const Graph::AnimGraph&                          graph     = state.Instance.Graph();
@@ -675,62 +785,92 @@ namespace Desert::Animation
             const Graph::PoseNode& node = graph.Nodes[n];
             if ( !node.BlendSpace )
                 continue;
-            const Graph::BlendSpace1DNode& space = *node.BlendSpace;
-            BlendSpaceRun&                 run   = state.BlendSpaces[n];
-            const float x = Graph::PoseGraphInstance::PinValue( node, Graph::kBlendSpaceAxisPin, 0.0F, parameter );
-            AdvanceBlendRun( space, x, run, deltaTime );
+            const Graph::BlendSpaceSetup& space = *node.BlendSpace;
+            BlendSpaceRun&                run   = state.BlendSpaces[n];
+            const std::array<float, 2>    raw{
+                 Graph::PoseGraphInstance::PinValue( node, Graph::kBlendSpaceXPin, 0.0F, parameter ),
+                 Graph::PoseGraphInstance::PinValue( node, Graph::kBlendSpaceYPin, 0.0F, parameter ) };
+            const float playRate =
+                 Graph::PoseGraphInstance::PinValue( node, Graph::kBlendSpacePlayRatePin, 1.0F, parameter );
+            AdvanceBlendRun( space, run, std::span<const float>( raw.data(), space.Axes.size() ), playRate,
+                             deltaTime, node.Name );
+            ClipPlayback& source = state.Sources[n];
+            source.Loop          = space.Loop;
+            FollowHeaviestSample( run, space.Loop, source.Clip, source.Time, source.StepFrom, source.StepWrapped,
+                                  source.StepBackward );
         }
     }
 
-    void
-    Animator::SampleBlendSpace( PoseGraphState& state, const BlendSpaceRun& run,
-                                const std::function<void( const ClipPlayback&, Graph::GraphPose& )>& sampleClock,
-                                Graph::GraphPose&                                                    out )
+    template <typename Visit>
+    bool Animator::ForEachBlendSample( const BlendSpaceRun& run, const bool loop, const Visit& visit )
     {
+        const bool wrapped =
+             loop && ( run.Backward ? run.Phase > run.PreviousPhase : run.Phase < run.PreviousPhase );
         float total = 0.0F;
         for ( size_t i = 0; i < run.Clips.size() && i < run.Weights.size(); ++i )
         {
             const AnimationClip* clip   = run.Clips[i];
             const float          weight = run.Weights[i];
-            if ( clip == nullptr || weight <= 0.0F )
+            if ( clip == nullptr || weight <= Graph::kBlendSampleWeight )
                 continue;
-            // SYNCED: every sample at the one normalized phase of its OWN length (UE's blend space sync).
+            // SYNCED: every sample at the one normalized phase of its OWN length (UE's blend space sync), its step
+            // the run's, so its root motion is its own stride over that step.
             ClipPlayback playback;
-            playback.Clip = clip;
-            playback.Time = SecondsToFrameTime( static_cast<double>( run.Phase ) * clip->DurationSeconds(),
-                                                clip->Sequence.TickRate );
-            if ( total <= 0.0F )
-            {
-                sampleClock( playback, out );
-                total = weight;
-                continue;
-            }
-            Graph::GraphPose& sample = state.BlendScratch;
-            sample.CurveNames.clear();
-            sample.CurveValues.clear();
-            sampleClock( playback, sample );
+            playback.Clip         = clip;
+            playback.Loop         = loop;
+            playback.Time         = PhaseTime( *clip, run.Phase );
+            playback.StepFrom     = PhaseTime( *clip, run.PreviousPhase );
+            playback.StepWrapped  = wrapped;
+            playback.StepBackward = run.Backward;
             // This sample's share of everything weighed so far: blending the running result toward it by
             // w / (total + w) leaves every sample at its weight over the sum of the weights.
             const float alpha = weight / ( total + weight );
             total += weight;
-            for ( uint32_t b = 0; b < out.Pose.Size() && b < sample.Pose.Size(); ++b )
-                out.Pose[b] = Blend( out.Pose[b], sample.Pose[b], alpha );
-            for ( float& value : out.CurveValues )
-                value *= 1.0F - alpha;
-            for ( size_t c = 0; c < sample.CurveNames.size(); ++c )
-            {
-                const auto at = std::find( out.CurveNames.begin(), out.CurveNames.end(), sample.CurveNames[c] );
-                if ( at == out.CurveNames.end() )
-                {
-                    out.CurveNames.push_back( sample.CurveNames[c] );
-                    out.CurveValues.push_back( sample.CurveValues[c] * alpha );
-                }
-                else
-                    out.CurveValues[static_cast<size_t>( at - out.CurveNames.begin() )] +=
-                         sample.CurveValues[c] * alpha;
-            }
+            visit( playback, alpha );
         }
-        if ( total <= 0.0F )
+        return total > 0.0F;
+    }
+
+    template <typename SampleClock>
+    void Animator::SampleBlendSpace( PoseGraphState& state, const BlendSpaceRun& run, const bool loop,
+                                     const SampleClock& sampleClock, Graph::GraphPose& out )
+    {
+        const bool sampled = ForEachBlendSample(
+             run, loop,
+             [&]( const ClipPlayback& playback, const float alpha )
+             {
+                 if ( alpha >= 1.0F )
+                 {
+                     sampleClock( playback, out ); // the first sample: the running result is its pose
+                     return;
+                 }
+                 Graph::GraphPose& sample = state.BlendScratch;
+                 sample.CurveNames.clear();
+                 sample.CurveValues.clear();
+                 sample.RootMotion = BoneTransform{};
+                 sampleClock( playback, sample );
+                 for ( uint32_t b = 0; b < out.Pose.Size() && b < sample.Pose.Size(); ++b )
+                     out.Pose[b] = Blend( out.Pose[b], sample.Pose[b], alpha );
+                 // Each sample's own stride over the step, weighed as its pose is (UE: every sample's root motion
+                 // x its weight).
+                 out.RootMotion = Blend( out.RootMotion, sample.RootMotion, alpha );
+                 for ( float& value : out.CurveValues )
+                     value *= 1.0F - alpha;
+                 for ( size_t c = 0; c < sample.CurveNames.size(); ++c )
+                 {
+                     const auto at =
+                          std::find( out.CurveNames.begin(), out.CurveNames.end(), sample.CurveNames[c] );
+                     if ( at == out.CurveNames.end() )
+                     {
+                         out.CurveNames.push_back( sample.CurveNames[c] );
+                         out.CurveValues.push_back( sample.CurveValues[c] * alpha );
+                     }
+                     else
+                         out.CurveValues[static_cast<size_t>( at - out.CurveNames.begin() )] +=
+                              sample.CurveValues[c] * alpha;
+                 }
+             } );
+        if ( !sampled )
             out.Pose = m_BindPose; // no sample resolved yet (still loading): the bind pose, as a source's
     }
 
@@ -879,32 +1019,18 @@ namespace Desert::Animation
 
     void Animator::UpdateBlendPlayback( ClipPlayback& playback, const float deltaTime )
     {
-        const float axis          = GraphParameter( playback.BlendSpace.Axis );
-        const float previousPhase = playback.Blend.Phase;
-        AdvanceBlendRun( playback.BlendSpace.Space, axis, playback.Blend, deltaTime );
-
+        // A state has no pins: its axes read the parameters it names, and it plays at rate 1 (the state's own
+        // Speed is the machine's, as for a clip state).
+        const std::vector<std::string>& names = playback.BlendSpace.AxisParameters;
+        std::array<float, 2>            raw{ 0.0F, 0.0F };
+        for ( size_t a = 0; a < names.size() && a < raw.size(); ++a )
+            raw[a] = GraphParameter( names[a] );
+        const size_t axes = std::min( playback.BlendSpace.Space.Axes.size(), raw.size() );
+        AdvanceBlendRun( playback.BlendSpace.Space, playback.Blend, std::span<const float>( raw.data(), axes ),
+                         1.0F, deltaTime, "a state machine state" );
         // The heaviest resolved sample is the clock the rest of the Animator reads (exit time, notifies).
-        size_t heaviest = playback.Blend.Clips.size();
-        for ( size_t i = 0; i < playback.Blend.Clips.size() && i < playback.Blend.Weights.size(); ++i )
-            if ( playback.Blend.Clips[i] != nullptr &&
-                 ( heaviest == playback.Blend.Clips.size() ||
-                   playback.Blend.Weights[i] > playback.Blend.Weights[heaviest] ) )
-                heaviest = i;
-        if ( heaviest == playback.Blend.Clips.size() )
-        {
-            playback.Clip = nullptr;
-            return;
-        }
-        const AnimationClip* clip = playback.Blend.Clips[heaviest];
-        const auto           at   = [clip]( const float phase ) {
-            return SecondsToFrameTime( static_cast<double>( phase ) * clip->DurationSeconds(),
-                                                   clip->Sequence.TickRate );
-        };
-        playback.Clip         = clip;
-        playback.Time         = at( playback.Blend.Phase );
-        playback.StepFrom     = at( previousPhase );
-        playback.StepWrapped  = playback.Loop && deltaTime >= 0.0F && playback.Blend.Phase < previousPhase;
-        playback.StepBackward = deltaTime < 0.0F;
+        FollowHeaviestSample( playback.Blend, playback.Loop, playback.Clip, playback.Time, playback.StepFrom,
+                              playback.StepWrapped, playback.StepBackward );
     }
 
     void Animator::SamplePlayback( const RigSampling& rig, const ClipPlayback& playback, LocalPose& out )
@@ -915,29 +1041,21 @@ namespace Desert::Animation
             return;
         }
         // Every weighted sample at the shared phase of its own length, each blended toward by its share of the
-        // running weight (w / (total + w)) — SampleBlendSpace's rule, on this rig.
-        out         = rig.Rest;
-        float total = 0.0F;
-        for ( size_t i = 0; i < playback.Blend.Clips.size() && i < playback.Blend.Weights.size(); ++i )
-        {
-            const AnimationClip* clip   = playback.Blend.Clips[i];
-            const float          weight = playback.Blend.Weights[i];
-            if ( clip == nullptr || weight <= 0.0F )
-                continue;
-            const FrameTime time = SecondsToFrameTime(
-                 static_cast<double>( playback.Blend.Phase ) * clip->DurationSeconds(), clip->Sequence.TickRate );
-            if ( total <= 0.0F )
-            {
-                SampleClipPose( rig, clip, time, out );
-                total = weight;
-                continue;
-            }
-            SampleClipPose( rig, clip, time, m_SampleScratch );
-            const float alpha = weight / ( total + weight );
-            total += weight;
-            for ( uint32_t b = 0; b < out.Size() && b < m_SampleScratch.Size(); ++b )
-                out[b] = Blend( out[b], m_SampleScratch[b], alpha );
-        }
+        // running weight — SampleBlendSpace's walk, on this rig.
+        out = rig.Rest;
+        static_cast<void>(
+             ForEachBlendSample( playback.Blend, playback.Loop,
+                                 [&]( const ClipPlayback& sample, const float alpha )
+                                 {
+                                     if ( alpha >= 1.0F )
+                                     {
+                                         SampleClipPose( rig, sample.Clip, sample.Time, out );
+                                         return;
+                                     }
+                                     SampleClipPose( rig, sample.Clip, sample.Time, m_SampleScratch );
+                                     for ( uint32_t b = 0; b < out.Size() && b < m_SampleScratch.Size(); ++b )
+                                         out[b] = Blend( out[b], m_SampleScratch[b], alpha );
+                                 } ) );
     }
 
     void Animator::UpdatePlayback( ClipPlayback& playback, float deltaTime )
@@ -1101,17 +1219,32 @@ namespace Desert::Animation
         return AccumulateRootMotion( piece( playback.StepFrom, end ), piece( start, playback.Time ) );
     }
 
+    BoneTransform Animator::PlaybackRootMotion( const RigSampling& rig, const ClipPlayback& playback )
+    {
+        if ( !playback.IsBlendSpace() )
+            return ClockRootMotion( rig, playback );
+        // Every weighted sample's own stride over the run's step, blended by weight as the pose is.
+        BoneTransform motion = NoRootMotion();
+        static_cast<void>( ForEachBlendSample( playback.Blend, playback.Loop,
+                                               [&]( const ClipPlayback& sample, const float alpha )
+                                               {
+                                                   const BoneTransform step = ClockRootMotion( rig, sample );
+                                                   motion = alpha >= 1.0F ? step : Blend( motion, step, alpha );
+                                               } ) );
+        return motion;
+    }
+
     BoneTransform Animator::BlendedBaseRootMotion( const RigSampling& rig )
     {
         // UE FRootMotionMovementParams::AccumulateWithBlend, nested as BlendedBasePose nests the poses: each
         // fade mixes its clip's movement over everything below it by its alpha.
-        BoneTransform motion = ClockRootMotion( rig, m_Current );
+        BoneTransform motion = PlaybackRootMotion( rig, m_Current );
         for ( const IncomingFade& fade : m_Fades )
         {
             const float alpha = fade.Alpha();
             if ( !fade.Playback.IsValid() || alpha <= 0.0F )
                 continue;
-            const BoneTransform incoming = ClockRootMotion( rig, fade.Playback );
+            const BoneTransform incoming = PlaybackRootMotion( rig, fade.Playback );
             motion                       = alpha >= 1.0F ? incoming : Blend( motion, incoming, alpha );
         }
         return motion;
@@ -1441,6 +1574,8 @@ namespace Desert::Animation
                 run = BlendSpaceRun{};
                 continue;
             }
+            // The triangulation is the setup's, re-derived on every set: an edit that moved a sample re-shapes it.
+            run.Triangulation    = Graph::TriangulateBlendSpace( *bound.Nodes[node].BlendSpace );
             const size_t samples = bound.Nodes[node].BlendSpace->Samples.size();
             if ( run.Clips.size() != samples )
             {
