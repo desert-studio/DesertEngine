@@ -2,6 +2,8 @@
 
 #include <Engine/Scripting/ScriptDebugger.hpp>
 
+#include <Common/Platform/ThreadCpuClock.hpp>
+
 #include <chrono>
 #include <filesystem>
 #include <functional>
@@ -31,8 +33,9 @@ namespace Desert::Scripting
     {
         lua_State* L = nullptr; // the runtime's main state
         std::function<void( const std::function<void( const LuauLoadedScript& )>& )> ForEachScript;
-        /// The call in flight was held at a stop for this long: the watchdog must not count it.
-        std::function<void( std::chrono::steady_clock::duration )> Held;
+        /// The call in flight was held at a stop for this much of its thread's CPU (the host's loop while
+        /// stopped runs on it): the watchdog, which counts that CPU, must not count it.
+        std::function<void( Common::Platform::ThreadCpuClock::duration )> Held;
     };
 
     /// THE LUAU SIDE OF THE SCRIPT DEBUGGER (ScriptDebugger.hpp).
