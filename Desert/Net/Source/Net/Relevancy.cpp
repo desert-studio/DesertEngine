@@ -5,56 +5,10 @@
 
 #include <algorithm>
 #include <cmath>
-#include <format>
 #include <limits>
 
 namespace Desert::Net
 {
-    std::optional<std::string> ValidateRelevancySettings( const RelevancySettings& settings )
-    {
-        if ( settings.Bands.empty() )
-            return std::string(
-                 "Net settings: Bands is empty - at least one rate band is needed (its EverySteps is "
-                 "the snapshot cadence)" );
-        if ( settings.Bands.size() > 255 )
-            return std::format( "Net settings: {} bands; at most 255", settings.Bands.size() );
-        for ( std::size_t i = 0; i < settings.Bands.size(); ++i )
-        {
-            const RateBand& band = settings.Bands[i];
-            if ( band.EverySteps < 1 || band.EverySteps > 255 )
-                return std::format(
-                     "Net settings: Bands[{}].EverySteps = {}; a period is 1..255 server steps (one "
-                     "byte on the wire)",
-                     i, band.EverySteps );
-            const bool open = i + 1 == settings.Bands.size(); // the last band's ToCm is not read
-            if ( !open && !( std::isfinite( band.ToCm ) && band.ToCm > 0.f ) )
-                return std::format( "Net settings: Bands[{}].ToCm = {}; a band reaches a positive distance in cm",
-                                    i, band.ToCm );
-            if ( !open && i > 0 && band.ToCm <= settings.Bands[i - 1].ToCm )
-                return std::format( "Net settings: Bands[{}].ToCm = {} is not past Bands[{}].ToCm = {}; bands are "
-                                    "ascending by ToCm",
-                                    i, band.ToCm, i - 1, settings.Bands[i - 1].ToCm );
-        }
-        if ( settings.DormantEverySteps < settings.Bands.back().EverySteps || settings.DormantEverySteps > 255 )
-            return std::format(
-                 "Net settings: DormantEverySteps = {}; it is between the last band's period ({}) and "
-                 "255 steps",
-                 settings.DormantEverySteps, settings.Bands.back().EverySteps );
-        if ( !( std::isfinite( settings.PawnCullRangeCm ) && settings.PawnCullRangeCm > 0.f ) )
-            return std::format( "Net settings: PawnCullRangeCm = {}; the circle every connection sees is positive",
-                                settings.PawnCullRangeCm );
-        if ( !( std::isfinite( settings.MaxViewRangeCm ) && settings.MaxViewRangeCm >= settings.PawnCullRangeCm ) )
-            return std::format( "Net settings: MaxViewRangeCm = {} is below PawnCullRangeCm = {}",
-                                settings.MaxViewRangeCm, settings.PawnCullRangeCm );
-        if ( !( std::isfinite( settings.ExitMargin ) && settings.ExitMargin >= 0.f ) )
-            return std::format( "Net settings: ExitMargin = {} (the World Partition UnloadMargin); it is >= 0",
-                                settings.ExitMargin );
-        if ( settings.BudgetBytesPerSecond < 1024 )
-            return std::format( "Net settings: BudgetBytesPerSecond = {}; at least 1024",
-                                settings.BudgetBytesPerSecond );
-        return std::nullopt;
-    }
-
     std::vector<std::byte> EncodeViewReport( const ViewReport& report )
     {
         Wire::Writer out( EReplicationMessage::ViewReport );
@@ -116,7 +70,7 @@ namespace Desert::Net
             if ( inSector )
                 reach = shape.SectorRangeCm;
         }
-        // ValidateRelevancySettings keeps the circle positive; a zero reach is only a point at the viewer.
+        // Project::ValidateNetSettings keeps the circle positive; a zero reach is only a point at the viewer.
         if ( reach <= 0.f )
             return distance <= 0.f ? 0.f : std::numeric_limits<float>::infinity();
         return distance / reach;

@@ -367,6 +367,7 @@ namespace Desert::Net
         }
         peer.Admitted              = true;
         peer.Player                = m_NextPlayer++;
+        peer.WindowStep            = m_ServerStep; // the byte-rate window opens at admission
         m_Connections[peer.Player] = connection;
         m_Transport.Send( connection, EncodeWelcome( m_Admission.CookHash, m_PawnPrefab ), ENetLane::Control );
         m_Log( std::format( "connection {}: admitted as player {} (account {}, issuer {}), pawn prefab {:016x}",
@@ -415,10 +416,16 @@ namespace Desert::Net
             // unordered and lossy - the client resends it once a second).
             if ( const std::optional<ViewReport> view = DecodeViewReport( data ) )
             {
-                if ( !peer.View )
-                    m_Log( std::format( "player {}: view reported - {:.0f} deg sector facing {:.0f} deg, {:.0f} m",
-                                        peer.Player, view->SectorAngleDeg, view->FacingYawDeg,
-                                        view->RangeCm / 100.f ) );
+                // The shape the gateway will use, logged whenever it changes (the clamps included).
+                const ViewShape before = ResolveViewShape( m_Relevancy, m_Grid.MainGridLoadingRangeCm, peer.View );
+                const ViewShape after  = ResolveViewShape( m_Relevancy, m_Grid.MainGridLoadingRangeCm, *view );
+                if ( !peer.View || after.CircleRangeCm != before.CircleRangeCm ||
+                     after.SectorRangeCm != before.SectorRangeCm || after.SectorAngleDeg != before.SectorAngleDeg ||
+                     after.FacingYawDeg != before.FacingYawDeg )
+                    m_Log( std::format( "player {}: view shape - circle {:.0f} m, sector {:.0f} deg facing {:.0f} deg "
+                                        "to {:.0f} m (reported {:.0f} m)",
+                                        peer.Player, after.CircleRangeCm / 100.f, after.SectorAngleDeg,
+                                        after.FacingYawDeg, after.SectorRangeCm / 100.f, view->RangeCm / 100.f ) );
                 peer.View = *view;
             }
             else
@@ -499,7 +506,7 @@ namespace Desert::Net
     }
 
     std::optional<NetVec3> Gateway::UpdateRelevancy( ConnectionId connection, Peer& peer,
-                                                     const std::vector<PawnState>& pawns )
+                                                     const std::vector<PawnState>& pawns, std::uint32_t serverStep )
     {
         // The viewer is the client's own pawn (its streaming source): without one only its own pawn is relevant.
         std::optional<NetVec3> viewer;
@@ -540,6 +547,10 @@ namespace Desert::Net
                 const float distance = GroundDistanceCm( *viewer, pawn.Position );
                 const float ratio    = RangeRatio( shape, *viewer, pawn.Position );
                 const float reach    = ratio > 0.f ? distance / ratio : shape.CircleRangeCm;
+                // Its wait starts now, one band period old: due on this snapshot, and its priority grows with
+                // every snapshot the budget defers it (Iris) - a pawn never sent cannot starve.
+                peer.Sent.insert_or_assign(
+                     pawn.Id, SentPawn{ serverStep - SendPeriodSteps( m_Relevancy, distance ), std::nullopt, false } );
                 m_Log( std::format( "player {}: pawn {} relevant (player {}): {:.0f} m inside {} {:.0f} m",
                                     peer.Player, pawn.Id, info->second.Player, distance / 100.f,
                                     reach > shape.CircleRangeCm
@@ -632,12 +643,14 @@ namespace Desert::Net
     void Gateway::SendSnapshot( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns,
                                 std::uint32_t serverStep )
     {
-        const std::optional<NetVec3> viewer  = UpdateRelevancy( connection, peer, pawns );
+        const std::optional<NetVec3> viewer  = UpdateRelevancy( connection, peer, pawns, serverStep );
         const std::uint32_t          cadence = m_Relevancy.Bands.front().EverySteps;
         SnapshotMessage              snapshot;
         snapshot.ServerStep = serverStep;
-        // The due remote pawns: period by distance (the band), or the dormant period when the store holds what
-        // the connection last received (UE ReplicationPeriodFrame / NetDormancy).
+        // The due remote pawns: period by distance (the band); a pawn whose store state is what the connection
+        // last received is dormant - sent only every DormantEverySteps as a keep-alive, but its entry still
+        // carries the band period, so the client's interpolation delay does not grow while it stands (UE
+        // ReplicationPeriodFrame / NetDormancy keeps the net update rate). Dormancy shows in stats and log only.
         struct Due
         {
             const PawnState* Pawn     = nullptr;
@@ -661,32 +674,35 @@ namespace Desert::Net
             if ( !viewer )
                 continue; // UpdateRelevancy keeps no remote pawn without a viewer
             const float         distance = GroundDistanceCm( *viewer, pawn.Position );
-            const auto          sent     = peer.Sent.find( pawn.Id );
-            const bool          dormant  = sent != peer.Sent.end() && SameState( sent->second.LastSent, pawn );
-            const std::uint32_t band     = SendPeriodSteps( m_Relevancy, distance );
-            const std::uint32_t period   = dormant ? m_Relevancy.DormantEverySteps : band;
+            const auto sent = peer.Sent.find( pawn.Id );
+            if ( sent == peer.Sent.end() )
+                continue; // UpdateRelevancy made the entry of every relevant remote pawn
+            const bool          dormant = sent->second.LastSent && SameState( *sent->second.LastSent, pawn );
+            const std::uint32_t period  = SendPeriodSteps( m_Relevancy, distance ); // the band: carried
+            const std::uint32_t every   = dormant ? m_Relevancy.DormantEverySteps : period; // the send cadence
             if ( dormant )
                 ++peer.Dormant;
             else
                 for ( std::size_t i = 0; i < m_Relevancy.Bands.size(); ++i )
-                    if ( m_Relevancy.Bands[i].EverySteps == band )
+                    if ( m_Relevancy.Bands[i].EverySteps == period )
                     {
                         ++peer.ByBand[i]; // the first band of that period (bands of equal period print as one)
                         break;
                     }
-            if ( sent != peer.Sent.end() && dormant != sent->second.Dormant )
+            if ( dormant != sent->second.Dormant )
             {
                 sent->second.Dormant = dormant;
                 m_Log( dormant
-                            ? std::format( "player {}: pawn {} dormant - unchanged, sent every {} steps ({:g} Hz)",
-                                           peer.Player, pawn.Id, period, HzOf( period ) )
+                            ? std::format( "player {}: pawn {} dormant - unchanged, sent every {} steps ({:g} Hz), "
+                                           "period {}",
+                                           peer.Player, pawn.Id, every, HzOf( every ), period )
                             : std::format( "player {}: pawn {} awake - period {} ({:g} Hz) at {:.0f} m",
                                            peer.Player, pawn.Id, period, HzOf( period ), distance / 100.f ) );
             }
-            const std::uint32_t since = sent != peer.Sent.end() ? serverStep - sent->second.LastSentStep : period;
-            if ( since < period )
+            const std::uint32_t since = serverStep - sent->second.LastSentStep;
+            if ( since < every )
                 continue;
-            due.push_back( { &pawn, period, SendPriority( since, period, distance ) } );
+            due.push_back( { &pawn, period, SendPriority( since, every, distance ) } );
         }
         // THE BUDGET CUT (§3.6, Iris): most overdue and nearest first, until this snapshot's bytes are spent; the
         // rest wait for the next snapshot, their priority grown by the wait.

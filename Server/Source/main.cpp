@@ -545,7 +545,8 @@ namespace Desert::Server
 
         // THE PROJECT'S REPLICATION BY DISTANCE (WP-FAR-15): the session's form of Project::NetSettings, derived
         // once at start; the exit margin is the World Partition UnloadMargin - the hysteresis residency already
-        // has, one number for both. The caller validates it (Net::ValidateRelevancySettings) and refuses to start.
+        // has, one number for both. The caller validates the project's settings first (Project::ValidateNetSettings,
+        // the one statement of the rule) and refuses to start.
         Net::RelevancySettings RelevancySettingsOf( const Project::NetSettings&            net,
                                                     const Project::WorldPartitionSettings& partition )
         {
@@ -564,16 +565,15 @@ namespace Desert::Server
         // The project's Net settings for this session, or the refusal logged (the server exits 7).
         std::optional<Net::RelevancySettings> ProjectRelevancy()
         {
-            Net::RelevancySettings relevancy =
-                 RelevancySettingsOf( Project::CurrentNetSettings(), Project::CurrentWorldPartitionSettings() );
-            if ( const std::optional<std::string> refusal = Net::ValidateRelevancySettings( relevancy ) )
+            const Project::NetSettings& net = Project::CurrentNetSettings();
+            if ( const std::optional<std::string> refusal = Project::ValidateNetSettings( net ) )
             {
-                LOG_ERROR( "[Server] ValidateRelevancySettings: {} (the \"Net\" section of Config/Engine.json and "
-                           "its platform layer) - not starting",
+                LOG_ERROR( "[Server] ValidateNetSettings: {} (the \"Net\" section of Config/Engine.json and its "
+                           "platform layer) - not starting",
                            *refusal );
                 return std::nullopt;
             }
-            return relevancy;
+            return RelevancySettingsOf( net, Project::CurrentWorldPartitionSettings() );
         }
 
         // What each connection gets now (UE `stat net` per connection): remote pawn bytes per second, the relevant

@@ -239,7 +239,7 @@ namespace Desert::Net
     public:
         // @p pawnPrefab: the server GameMode's pawn (UE DefaultPawnClass), named to every admitted client in the
         // Welcome; never 0.
-        // @p relevancy: validated by the caller (ValidateRelevancySettings; the server refuses to start
+        // @p relevancy: validated by the caller (Project::ValidateNetSettings; the server refuses to start
         // otherwise).
         Gateway( INetTransport& transport, IReplicationStore& store, GatewayAdmission admission,
                  std::uint64_t pawnPrefab, NetRelevancyGrid grid, RelevancySettings relevancy, NetLogSink log );
@@ -312,9 +312,11 @@ namespace Desert::Net
         };
         struct SentPawn
         {
-            std::uint32_t LastSentStep = 0;
-            PawnState     LastSent;
-            bool          Dormant = false; // LastSent equalled the store at the last decision (logged on change)
+            // The last send, or for a pawn not yet sent its entry into relevancy minus one band period: its wait
+            // counts from the moment it became relevant, so a deferred pawn's priority grows (Iris).
+            std::uint32_t            LastSentStep = 0;
+            std::optional<PawnState> LastSent; // nullopt = not yet sent since it became relevant
+            bool Dormant = false; // LastSent equalled the store at the last decision (logged on change)
         };
         struct Peer
         {
@@ -331,7 +333,7 @@ namespace Desert::Net
             // WP-FAR-15: the newest view shape the client reported (nullopt = never: the cull circle alone).
             std::optional<ViewReport> View;
             // Per relevant remote pawn: what this connection last received of it (UE
-            // FConnectionReplicationActorInfo). Absent = never sent since it became relevant: due at once.
+            // FConnectionReplicationActorInfo); made when the pawn becomes relevant (UpdateRelevancy).
             std::map<NetId, SentPawn> Sent;
             // Remote pawn entry bytes sent, and the count at the start of the current one-second window.
             std::uint64_t BytesSent = 0, BytesAtWindow = 0;
@@ -350,9 +352,9 @@ namespace Desert::Net
         // The resident cell of @p peer the position stands in, or nullptr.
         void OnCellResidency( ConnectionId connection, Peer& peer, const CellResidencyMessage& message );
         // The relevant set by point in the view shape, with the exit margin; returns the viewer (own pawn)
-        // position.
+        // position. A remote pawn that enters gets its Sent entry, one band period old at @p serverStep.
         std::optional<NetVec3> UpdateRelevancy( ConnectionId connection, Peer& peer,
-                                                const std::vector<PawnState>& pawns );
+                                                const std::vector<PawnState>& pawns, std::uint32_t serverStep );
         // The snapshot of one connection: the pawns due on this step by period, the budget cut, the stats.
         void SendSnapshot( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns,
                            std::uint32_t serverStep );
