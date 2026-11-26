@@ -355,51 +355,67 @@ namespace Desert::Graphic::GlobalIllumination
     void DeclareVoxelLightingReads( RDG::BindingBlockBuilder& block, const TracerFrame& frame,
                                     RDG::Access sampled = RDG::Access::SampledCompute );
 
-    // THE DIRECTIONAL LIGHTS A CACHE'S HISTORY WAS LIT BY: the frame sun and atmosphere light 1 (the moon), each
-    // as the lit passes receive it (SceneRenderer::GetFrameSun / GetFrameLight1: direction it travels, rgb colour
-    // with the intensity in w). A world-space history (the radiance cache's probes, the surface cache's lit pages)
-    // blended across a significant change of these keeps the old sun's light in whole cells for seconds: a
-    // straight edged patch of another colour that fades slowly (GRASS-SETTLE). UE Lumen's answer is the full
-    // update (r.Lumen.RadianceCache.ForceFullUpdate, the scene lighting's full relight): the history is dropped
-    // and the first frame after the change is converged from the new light, never blended with the old one.
-    struct DirectionalLighting
+    // THE LIGHT A CACHE'S HISTORY WAS LIT BY: every input whose change invalidates a world-space GI history (the
+    // radiance cache's probes, the surface cache's lit pages and radiosity). The frame sun and atmosphere light 1
+    // (the moon), as the lit passes receive them (SceneRenderer::GetFrameSun / GetFrameLight1: direction it
+    // travels, rgb colour with the intensity in w), and the sky light the miss rays read: the identity of the
+    // captured cube (EnvironmentIdentity: a recapture is a new cube) and the look applied at every sample
+    // (SkyLookGPU: gain, yaw). A history blended across a change of any of them keeps the old light in whole
+    // cells for seconds -- a sun change: a straight-edged patch (GRASS-SETTLE); a sky change: the day sky's
+    // bounce under the night sky (RT-HWGI-NIGHT). UE Lumen: the full update (r.Lumen.RadianceCache.ForceFullUpdate,
+    // the scene lighting's full relight); the history is dropped, never blended with the old light.
+    struct LightingHistoryKey
     {
         glm::vec4 SunDirection{ 0.0f };
         glm::vec4 SunColorIntensity{ 0.0f };
         glm::vec4 Light1Direction{ 0.0f };
         glm::vec4 Light1ColorIntensity{ 0.0f };
+        // EnvironmentIdentity of the cube the miss rays sample; 0 = none.
+        uint64_t  SkyEnvironment = 0;
+        glm::vec4 SkyGain{ 1.0f };                        // SkyLookGPU::Gain
+        glm::vec4 SkyYawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f }; // SkyLookGPU::YawCosSin
     };
 
-    // What a "significant" change is, measured against the lighting the history was last invalidated for (so a
-    // slow time-of-day drift invalidates once it has added up, not every frame): the direction turned by more than
-    // one degree, or the radiance moved by more than 5% of the brighter of the two.
+    // What a "significant" change is, measured against the lighting the history was last invalidated for (a slow
+    // drift invalidates once it has added up, not every frame): a direction (sun, moon, sky yaw) turned by more
+    // than one degree, a radiance (sun, moon, sky gain) moved by more than 5% of the brighter of the two, or
+    // another sky cube.
     inline constexpr float kLightingHistoryCosAngle      = 0.99984770f; // cos( 1 degree )
     inline constexpr float kLightingHistoryRadianceShare = 0.05f;
 
     // True when a history lit by @p was must be dropped for a frame lit by @p now.
-    [[nodiscard]] inline bool InvalidatesLightingHistory( const DirectionalLighting& was,
-                                                          const DirectionalLighting& now )
+    [[nodiscard]] inline bool InvalidatesLightingHistory( const LightingHistoryKey& was,
+                                                          const LightingHistoryKey& now )
     {
-        const auto changed = []( const glm::vec4& wasDirection, const glm::vec4& wasColor,
-                                 const glm::vec4& nowDirection, const glm::vec4& nowColor )
+        const auto radianceMoved = []( const glm::vec3& a, const glm::vec3& b )
         {
-            const glm::vec3 a     = glm::vec3( wasColor ) * wasColor.w;
-            const glm::vec3 b     = glm::vec3( nowColor ) * nowColor.w;
-            const float     scale = std::max( { a.x, a.y, a.z, b.x, b.y, b.z } );
-            if ( scale <= 0.0f )
-                return false; // dark before and after: nothing it lit is in the history
-            if ( glm::length( a - b ) > kLightingHistoryRadianceShare * scale )
-                return true;
-            const float wasLength = glm::length( glm::vec3( wasDirection ) );
-            const float nowLength = glm::length( glm::vec3( nowDirection ) );
-            if ( wasLength <= 0.0f || nowLength <= 0.0f )
-                return wasLength != nowLength;
-            return glm::dot( glm::vec3( wasDirection ) / wasLength, glm::vec3( nowDirection ) / nowLength ) <
-                   kLightingHistoryCosAngle;
+            const float scale = std::max( { a.x, a.y, a.z, b.x, b.y, b.z } );
+            return scale > 0.0f && glm::length( a - b ) > kLightingHistoryRadianceShare * scale;
         };
-        return changed( was.SunDirection, was.SunColorIntensity, now.SunDirection, now.SunColorIntensity ) ||
-               changed( was.Light1Direction, was.Light1ColorIntensity, now.Light1Direction,
-                        now.Light1ColorIntensity );
+        const auto turned = []( const glm::vec3& a, const glm::vec3& b )
+        {
+            const float aLength = glm::length( a );
+            const float bLength = glm::length( b );
+            if ( aLength <= 0.0f || bLength <= 0.0f )
+                return aLength != bLength;
+            return glm::dot( a / aLength, b / bLength ) < kLightingHistoryCosAngle;
+        };
+        const auto lightChanged = [&]( const glm::vec4& wasDirection, const glm::vec4& wasColor,
+                                       const glm::vec4& nowDirection, const glm::vec4& nowColor )
+        {
+            const glm::vec3 a = glm::vec3( wasColor ) * wasColor.w;
+            const glm::vec3 b = glm::vec3( nowColor ) * nowColor.w;
+            if ( std::max( { a.x, a.y, a.z, b.x, b.y, b.z } ) <= 0.0f )
+                return false; // dark before and after: nothing it lit is in the history
+            return radianceMoved( a, b ) || turned( glm::vec3( wasDirection ), glm::vec3( nowDirection ) );
+        };
+        return was.SkyEnvironment != now.SkyEnvironment ||
+               radianceMoved( glm::vec3( was.SkyGain ), glm::vec3( now.SkyGain ) ) ||
+               turned( glm::vec3( was.SkyYawCosSin.x, 0.0f, was.SkyYawCosSin.y ),
+                       glm::vec3( now.SkyYawCosSin.x, 0.0f, now.SkyYawCosSin.y ) ) ||
+               lightChanged( was.SunDirection, was.SunColorIntensity, now.SunDirection, now.SunColorIntensity ) ||
+               lightChanged( was.Light1Direction, was.Light1ColorIntensity, now.Light1Direction,
+                             now.Light1ColorIntensity );
     }
 
     // ONE LOCAL (point / spot) LIGHT of a frame as the world-space GI histories compare it

@@ -386,7 +386,7 @@ namespace Desert::Graphic::SurfaceCache
 
     Common::ResultStr<SurfaceCacheRenderer::SceneUpdate>
     SurfaceCacheRenderer::UpdateScene( const std::span<const SceneGroup> groups, const uint64_t engineFrame,
-                                       const GlobalIllumination::DirectionalLighting&     lighting,
+                                       const GlobalIllumination::LightingHistoryKey&      lighting,
                                        std::span<const GlobalIllumination::LocalLighting> localLighting )
     {
         // The frame's update already ran (another view of the scene, earlier this frame): this graph reads the

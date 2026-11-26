@@ -616,7 +616,7 @@ namespace Desert::Graphic
         inputs.WorldGridParams = t.Lights.WorldGridParams;
         inputs.WorldGridCells  = t.Lights.WorldGridCells;
         inputs.CameraPosition  = frame.CameraPosition;
-        inputs.Lighting        = GetFrameDirectionalLighting();
+        inputs.Lighting        = GetFrameLightingHistoryKey();
         // The screen probes' far field falls back to a coarser clipmap (RadianceCacheRadianceAt): Mark stamps it.
         inputs.MarkRadianceFallback = m_GIPipeline.ScreenProbes;
         // The captures' points are readers of this cache too: their stored diffuse is measured from it.

@@ -95,9 +95,10 @@ namespace Desert::Graphic::GlobalIllumination
         std::vector<glm::vec3> MarkPoints;
         glm::vec3              CameraPosition{ 0.0f };
         glm::uvec2             Extent{ 0u };
-        // The directional lights of the frame (the same values GIFrame carries): a significant change from the
-        // lighting the probes were last fully traced under makes this frame a full update (AddUpdatePasses).
-        DirectionalLighting Lighting;
+        // The lighting history key of the frame (lights and sky; the same values GIFrame carries): a significant
+        // change from the key the probes were last fully traced under makes this frame a full update
+        // (AddUpdatePasses).
+        LightingHistoryKey Lighting;
         // The screen probes read this frame's cache with the coarser fallback (Common/RadianceCache.glslh
         // RadianceCacheRadianceAt): Mark also stamps the clipmap past each pixel's coarse end, the level that
         // answers while the coverage clipmap's cells are untraced. False for a cache only the irradiance readers
@@ -194,9 +195,9 @@ namespace Desert::Graphic::GlobalIllumination
         // is AddFilterPass's, which the caller MUST declare in the same graph before any reader of the returned
         // frame's Indirection, Probes, Irradiance, Depth or Radiance (Params is an upload: readable at once). The
         // cache is (re)built when @p shape differs from the last frame's (a quality change): every probe is traced
-        // again. A significant change of the directional lights (InvalidatesLightingHistory) makes the frame a
-        // FULL UPDATE (UE r.Lumen.RadianceCache.ForceFullUpdate): every used probe is traced in it, its history
-        // dropped.
+        // again. A significant change of the lighting history key (lights and sky; InvalidatesLightingHistory)
+        // makes the frame a FULL UPDATE (UE r.Lumen.RadianceCache.ForceFullUpdate): every used probe is traced in
+        // it, its history dropped.
         // FPS-PROBE-WAIT-2 (UE Lumen: the far-field trace overlaps the cache): the two declarations let the view
         // declare async work that reads nothing of the cache (the screen probes' far field) between Trace and
         // Filter, so the async queue runs it beside the cache's filter instead of after it.
@@ -299,8 +300,9 @@ namespace Desert::Graphic::GlobalIllumination
         bool                               m_HasShape   = false;
         bool                               m_Reset      = true;
         uint32_t                           m_FrameIndex = 0;
-        // The directional lighting of the last full update (empty until the first update after a reset).
-        std::optional<DirectionalLighting> m_LitBy;
+        // The lighting history key (lights and sky) of the last full update (empty until the first update after a
+        // reset).
+        std::optional<LightingHistoryKey>  m_LitBy;
         uint32_t                           m_LightingFrame = 0; // FrameIndex of the last full update (0 = none)
         uint32_t m_FullUpdatesInWindow                     = 0; // since the last "[RadianceCache] traced" line
         RadianceCacheUpdateCountsReadback  m_UpdateCounts;

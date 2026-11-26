@@ -44,6 +44,7 @@ namespace Desert::Graphic
                  ::Desert::Engine::RenderTask::CheckRenderStateWrite( "Scene: retire queues (Collect)" );
                  m_RetiringSurfaceCaches.Collect( absoluteFrame, framesInFlight );
                  m_RetiringReflectionCaptures.Collect( absoluteFrame, framesInFlight );
+                 m_RetiringSkyLights.Collect( absoluteFrame, framesInFlight );
              } );
         // The registry is read HERE, on the game thread (the scene's unbound volumes); the command takes the
         // values. The cache outlives the command: a Clear parks it (m_RetiringSurfaceCaches) for frames.
@@ -100,12 +101,20 @@ namespace Desert::Graphic
         // collects).
         m_RetiringSurfaceCaches.Park( std::move( m_SurfaceCache ), clearFrame );
         m_SurfaceCache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>( m_Ledger );
+        // THE SKY LIGHT IS THE WORLD'S (UE: FScene's SkyLight). Kept, the next world inherited the old world's
+        // captured cube and stamps: its first capture was the deferred, time-sliced one ("the sun is 172 deg from
+        // the captured one"), and for its 54 frames and the settle every GI miss read the old world's sky
+        // (RT-HWGI-NIGHT). The new one has no environment, so its first capture is whole and immediate
+        // (SkyboxRenderer: !hasEnvironment), and until it lands the miss reads the black cube.
+        m_RetiringSkyLights.Park( std::move( m_SkyLight ), clearFrame );
+        m_SkyLight = std::make_shared<SceneSkyLight>( m_Ledger );
     }
 
     void SceneRenderState::ReleaseParked()
     {
         m_RetiringSurfaceCaches.Clear();
         m_RetiringReflectionCaptures.Clear();
+        m_RetiringSkyLights.Clear();
     }
 
     SceneRenderState& RenderStateOf( const Core::Scene& scene )

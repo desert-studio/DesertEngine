@@ -286,7 +286,7 @@ namespace Desert::Graphic
         std::vector<SurfaceCache::SceneGroup> groups;
         meshRenderer->GatherSurfaceCacheInstances( groups );
         auto update =
-             cache->UpdateScene( groups, engineFrame, GetFrameDirectionalLighting(), GatherFrameLocalLighting() );
+             cache->UpdateScene( groups, engineFrame, GetFrameLightingHistoryKey(), GatherFrameLocalLighting() );
         if ( !update )
         {
             LOG_ERROR( "[SceneRenderer] Surface Cache: {}", update.GetError() );

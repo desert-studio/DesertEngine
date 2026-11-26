@@ -358,12 +358,13 @@ namespace Desert::Graphic::GlobalIllumination
         const RDG::TextureRef irradiance  = registered->Frame.Irradiance;
         const RDG::TextureRef depth       = registered->Frame.Depth;
 
-        // THE FULL UPDATE (UE r.Lumen.RadianceCache.ForceFullUpdate): the directional lights changed significantly
-        // since the last one, so every probe this frame uses is traced in it with no history - the cache's cells
-        // would otherwise hold the old sun for as many frames as the budget takes to reach them, blended at
-        // HistoryWeight after that (a straight-edged patch fading over ~10 s, GRASS-SETTLE). The frame after a
-        // reset has no probes to trace yet: it only records the lighting. The probes it does not use this frame
-        // keep the old sun until a view reads them: push.LightingFrame drops their history on that trace.
+        // THE FULL UPDATE (UE r.Lumen.RadianceCache.ForceFullUpdate): the lighting history key (lights and sky)
+        // changed significantly since the last one, so every probe this frame uses is traced in it with no
+        // history - the cache's cells would otherwise hold the old sun for as many frames as the budget takes to
+        // reach them, blended at HistoryWeight after that (a straight-edged patch fading over ~10 s,
+        // GRASS-SETTLE). The frame after a reset has no probes to trace yet: it only records the lighting. The
+        // probes it does not use this frame keep the old sun until a view reads them: push.LightingFrame drops
+        // their history on that trace.
         const bool fullUpdate = !m_Reset && m_LitBy && InvalidatesLightingHistory( *m_LitBy, inputs.Lighting );
         if ( m_Reset || fullUpdate || !m_LitBy )
             m_LitBy = inputs.Lighting;
