@@ -23,11 +23,9 @@ namespace Desert::Net
             std::array<std::int8_t, kMaxInputAxes> Axes{};
         };
 
-        // A -1..1 intent on the int8 lattice. A non-finite intent has no direction: it is the lattice's zero.
+        // A finite -1..1 intent on the int8 lattice (Quantize refuses a non-finite one).
         std::int8_t QuantizeIntent( float value )
         {
-            if ( !std::isfinite( value ) )
-                return 0;
             const float clamped = std::clamp( value, -1.f, 1.f );
             return static_cast<std::int8_t>( std::lround( clamped * kMoveScale ) );
         }
@@ -37,11 +35,9 @@ namespace Desert::Net
             return static_cast<float>( q ) / kMoveScale;
         }
 
-        // A yaw in radians, wrapped to [-pi, pi), on the int16 lattice. +pi rounds to the same point as -pi.
+        // A finite yaw in radians, wrapped to [-pi, pi), on the int16 lattice. +pi rounds to the same point as -pi.
         std::int16_t QuantizeYaw( float yaw )
         {
-            if ( !std::isfinite( yaw ) )
-                return 0;
             float wrapped = std::fmod( yaw + kPi, 2.f * kPi );
             if ( wrapped < 0.f )
                 wrapped += 2.f * kPi;
@@ -59,10 +55,13 @@ namespace Desert::Net
             return static_cast<float>( q ) / kYawScale;
         }
 
-        // False when the step carries more axes than the wire allows.
+        // False when the step is not one the wire carries: more axes than it allows, or a non-finite field (a NaN
+        // intent has no direction - it is refused, never sent as zero).
         bool Quantize( const InputStep& step, QuantizedStep& q )
         {
-            if ( step.Axes.size() > kMaxInputAxes )
+            if ( step.Axes.size() > kMaxInputAxes || !std::isfinite( step.Move.X ) || !std::isfinite( step.Move.Y ) ||
+                 !std::isfinite( step.Move.Z ) || !std::isfinite( step.Yaw ) ||
+                 !std::all_of( step.Axes.begin(), step.Axes.end(), []( float a ) { return std::isfinite( a ); } ) )
                 return false;
             q.Move      = { QuantizeIntent( step.Move.X ), QuantizeIntent( step.Move.Y ),
                             QuantizeIntent( step.Move.Z ) };
@@ -266,12 +265,11 @@ namespace Desert::Net
 
     InputStep OnWireLattice( const InputStep& step )
     {
-        // An axis list longer than the wire allows is refused by the encoder, not trimmed here: the step keeps
-        // what it has, so the refusal names it.
-        if ( step.Axes.size() > kMaxInputAxes )
-            return step;
+        // A step the wire does not carry (too many axes, a non-finite field) is refused by the encoder, not
+        // repaired here: the step keeps what it has, so the refusal reaches the sender.
         QuantizedStep q;
-        Quantize( step, q );
+        if ( !Quantize( step, q ) )
+            return step;
         return Dequantize( q, step.Step );
     }
 
@@ -327,15 +325,11 @@ namespace Desert::Net
 
     void AppendInputStepFull( std::vector<std::byte>& out, const InputStep& step )
     {
-        // The handover's pending steps were decoded from a run (ReadInputRun bounds the axes), so the axis list
-        // fits; a longer one would be a server-side defect and is cut at the wire's bound.
+        // A step the wire does not carry (too many axes, a non-finite field) appends NOTHING: the caller sees the
+        // buffer unchanged and refuses the whole message (MeshLink.cpp EncodeHandover).
         QuantizedStep q;
         if ( !Quantize( step, q ) )
-        {
-            InputStep bounded = step;
-            bounded.Axes.resize( kMaxInputAxes );
-            Quantize( bounded, q );
-        }
+            return;
         PutU32( out, step.Step );
         PutFields( out, q, kDeltaKnown );
     }
