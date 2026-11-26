@@ -77,6 +77,13 @@ namespace Desert::Physics
         CollisionProfileId Profile = kNoProfile;
     };
 
+    // A character's capsule as the world holds it now (UE: the UCapsuleComponent's unscaled size).
+    struct CharacterCapsule
+    {
+        float Radius     = 0.0f; // capsule radius
+        float HalfHeight = 0.0f; // the cylinder's half-height (excl. the two hemisphere caps)
+    };
+
     // Thin engine-side wrapper over a Jolt PhysicsSystem. All Jolt headers stay inside the .cpp (PIMPL),
     // so the rest of the engine never sees Jolt — and Jolt's config defines only need to match within
     // this one translation unit + the Jolt lib.
@@ -374,8 +381,13 @@ namespace Desert::Physics
         // caller integrated into @p velocity (GetGravity() times its Gravity Scale, UE
         // UCharacterMovementComponent::GetGravityZ): Jolt presses the floor's bodies with that same value.
         // @p contacts: WorldOnly ignores every character's inner body (the client's own pawn capsule among them).
+        // @p followFloorCm > 0: the capsule stood on a walkable floor before this move (the caller's state, not
+        // the capsule's last contacts - a probe moves many pawns) and walks on: a move that leaves the floor
+        // without rising sticks back onto a walkable floor up to that far below (UE PhysWalking -> FindFloor,
+        // whose sweep reaches MaxStepHeight below a walking pawn; Jolt StickToFloor). 0: no floor following.
         void UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float gravityCmPerS2, float dt,
-                              ECharacterContacts contacts = ECharacterContacts::WithCharacters );
+                              ECharacterContacts contacts      = ECharacterContacts::WithCharacters,
+                              float              followFloorCm = 0.0f );
         glm::vec3       GetCharacterPosition( CharacterHandle handle ) const; // capsule center
         /// The kinematic capsule body that follows the character (Jolt's CharacterVirtual inner body), in the
         /// character's profile: what a trigger sees of it, and the body its contact events name. Queries
@@ -390,6 +402,9 @@ namespace Desert::Physics
         /// capsule would penetrate the world: growing back under a low ceiling is the caller's overlap check
         /// to make first, and this is the guard that it was made.
         bool SetCharacterCapsule( CharacterHandle handle, float radius, float halfHeight );
+        /// The character's capsule now - the one record of its shape (standing or crouched): what
+        /// SetCharacterCapsule last accepted, else the CharacterDesc's. Zero for no character.
+        [[nodiscard]] CharacterCapsule GetCharacterCapsule( CharacterHandle handle ) const;
         /// Moves the capsule centre to @p position and stops it (its velocity zero); see TeleportBody.
         void TeleportCharacter( CharacterHandle handle, const glm::vec3& position );
 

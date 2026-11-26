@@ -2,16 +2,14 @@
 
 // A SCRIPTED INPUT SOURCE FOR A PAWN (NET-GAMEMODE; COUPLING-AUDIT finding 15: the bot walker lived inside the
 // net driver and set engine-fixed sprint / jump bits). It stands in for a player's hands on a test client: it
-// walks a direction until the pawn has travelled a distance, holds the pawn's declared Sprint action and presses
-// its Jump action every N seconds - by the names the pawn's prefab declares (CharacterMoveStep.hpp PawnActions).
-// It yields what a player's input yields (the move intent and the action bits), so the net driver sends it and
-// the prediction runs it without knowing it is scripted (UE: a bot's AIController drives the same pawn input).
-
-#include <Engine/Gameplay/CharacterMoveStep.hpp>
+// walks a direction until the pawn has travelled a distance, holds Sprint while walking and jumps every N
+// seconds. It says WHAT the hands do; the client puts them on the player's input layer (UE: an automated run
+// calls UPlayerInput::InputKey) - Sprint is the Sprint key held in the local player's Enhanced Input, the jump
+// is the pawn's Jump request - so the one input builder (Input::LocalPawnInputStep) makes the step from the
+// pawn's declared actions exactly as for a player's keyboard, and nothing here knows an action bit.
 
 #include <glm/glm.hpp>
 
-#include <cstdint>
 #include <optional>
 
 namespace Desert::Gameplay
@@ -20,8 +18,8 @@ namespace Desert::Gameplay
     {
         float     DistanceCm = 0.0f; // > 0: walk until the pawn's server position is this far from its first
         glm::vec3 Direction{ 1.0f, 0.0f, 0.0f };
-        bool      HoldSprint       = false; // hold the pawn's declared Sprint action while walking
-        float     JumpEverySeconds = 0.0f;  // > 0: press the pawn's declared Jump action this often
+        bool      HoldSprint       = false; // hold Sprint while walking
+        float     JumpEverySeconds = 0.0f;  // > 0: jump this often
     };
 
     class ScriptedPawnInput
@@ -29,8 +27,9 @@ namespace Desert::Gameplay
     public:
         struct Frame
         {
-            glm::vec3     Move{ 0.0f };
-            std::uint32_t Actions = 0;
+            glm::vec3 Move{ 0.0f };
+            bool      Sprint = false; // the Sprint key is held this step
+            bool      Jump   = false; // a jump is pressed this step
         };
 
         explicit ScriptedPawnInput( ScriptedWalk walk ) : m_Walk( walk )
@@ -47,7 +46,7 @@ namespace Desert::Gameplay
         }
         // One step's input at @p clock (seconds). @p travelledCm: how far the pawn's newest SERVER position is
         // from its first one (nullopt until known) - the walk ends on the server's word, not on the prediction's.
-        [[nodiscard]] Frame Next( double clock, std::optional<float> travelledCm, const PawnActions& actions )
+        [[nodiscard]] Frame Next( double clock, std::optional<float> travelledCm )
         {
             if ( m_Walking && travelledCm && *travelledCm >= m_Walk.DistanceCm )
                 m_Walking = false;
@@ -56,11 +55,10 @@ namespace Desert::Gameplay
                 return frame; // the walk is over: the pawn stands
             frame.Move =
                  glm::length( m_Walk.Direction ) > 1e-4f ? glm::normalize( m_Walk.Direction ) : glm::vec3( 0.0f );
-            if ( m_Walk.HoldSprint )
-                frame.Actions |= actions.Bit( actions.Sprint );
+            frame.Sprint = m_Walk.HoldSprint;
             if ( m_Walk.JumpEverySeconds > 0.0f && clock >= m_NextJump )
             {
-                frame.Actions |= actions.Bit( actions.Jump );
+                frame.Jump = true;
                 m_NextJump = clock + m_Walk.JumpEverySeconds;
             }
             return frame;

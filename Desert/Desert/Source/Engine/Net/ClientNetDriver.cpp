@@ -28,7 +28,10 @@
 #include <Engine/Gameplay/PawnPrefabMovement.hpp>
 #include <Engine/Gameplay/PhysicsPawnMoveWorld.hpp>
 #include <Engine/Gameplay/ScriptedPawnInput.hpp>
+#include <Engine/ECS/System/ScriptSystem.hpp>
+#include <Engine/Input/InputKey.hpp>
 #include <Engine/Input/LocalPawnInput.hpp>
+#include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <Net/ReplicationClient.hpp>
 
@@ -420,7 +423,7 @@ namespace Desert::Core
         return true;
     }
 
-    void ClientNetDriver::ApplySpawnsAndDestroys( Scene& scene, const Assets::AssetManager& assets )
+    void ClientNetDriver::ApplySpawnsAndDestroys( Scene& scene, Assets::AssetManager& assets )
     {
         auto& reg = scene.GetRegistry();
         for ( const Net::NetId id : m_Client->TakeSpawned() )
@@ -458,6 +461,11 @@ namespace Desert::Core
                     }
                     pawn = own.GetValue().GetHandle();
                     scene.SetPlayerPawn( pawn );
+                    // UE APlayerController::Possess -> PawnClientRestart: the pawn's mapping contexts join the
+                    // local player's Enhanced Input (its EnhancedInputPlayerComponent), as GameMode's restart
+                    // does.
+                    if ( auto* scripts = scene.FindSystem<ECS::ScriptSystem>() )
+                        scripts->PlayerInput().PossessPawn( reg, assets, pawn );
                     LOG_INFO( "[Net] the level names no pawn: spawned the server's pawn prefab {:016x} as this "
                               "player's",
                               m_Client->PawnPrefab() );
@@ -788,9 +796,13 @@ namespace Desert::Core
 
     Net::InputStep ClientNetDriver::NextInput( Scene& scene )
     {
-        Net::InputStep               input;
         const Gameplay::PawnActions& actions = m_Prediction->Movement.Actions;
-        glm::vec3                    move( 0.0f );
+        auto&                              reg     = scene.GetRegistry();
+        const entt::entity                 pawn    = scene.GetPlayerPawn();
+        ECS::CharacterControllerComponent* cc      = pawn != entt::null && reg.valid( pawn )
+                                                          ? reg.try_get<ECS::CharacterControllerComponent>( pawn )
+                                                          : nullptr;
+        glm::vec3                          move( 0.0f );
         if ( m_Script )
         {
             // The scripted walk ends on the SERVER's newest position of the own pawn, not the interpolated one.
@@ -800,30 +812,41 @@ namespace Desert::Core
                 travelled =
                      glm::length( ToGlm( own->second.History.Newest().Position ) - *m_OwnFirstServerPosition );
             const bool                               walking = m_Script->Walking();
-            const Gameplay::ScriptedPawnInput::Frame frame   = m_Script->Next( m_Clock, travelled, actions );
+            const Gameplay::ScriptedPawnInput::Frame frame   = m_Script->Next( m_Clock, travelled );
             if ( walking && !m_Script->Walking() )
                 LOG_INFO( "[Net] walked {:.0f} cm (server position): stopping at t={:.1f}s", m_Options.WalkCm,
                           m_Clock );
-            move          = frame.Move;
-            input.Actions = frame.Actions;
+            move = frame.Move;
+            // The script's hands are on the player's input layer (UE: an automated run presses keys through
+            // UPlayerInput::InputKey, never the movement's flags): Left Shift is held in the local player's
+            // Enhanced Input exactly as a keyboard's, so the pawn's mapping context (IMC_Default: Left Shift ->
+            // IA_Sprint) fires its declared Sprint action; the jump is the pawn's Jump request (UE
+            // ACharacter::Jump, a script's self:jump). Both reach the step through the one builder below.
+            if ( frame.Sprint != m_ScriptSprintKeyHeld )
+                if ( auto* scripts = scene.FindSystem<ECS::ScriptSystem>() )
+                {
+                    scripts->PlayerInput().InputKey( Input::InputKey::Of( Common::KeyCode::LeftShift ),
+                                                     frame.Sprint );
+                    m_ScriptSprintKeyHeld = frame.Sprint;
+                    LOG_INFO( "[Net] scripted walk: Left Shift {} in the player's Enhanced Input at t={:.1f}s",
+                              frame.Sprint ? "held" : "released", m_Clock );
+                }
+            if ( frame.Jump && cc != nullptr )
+                cc->JumpRequested = true;
         }
-        else
+        else if ( cc != nullptr )
         {
-            auto&              reg  = scene.GetRegistry();
-            const entt::entity pawn = scene.GetPlayerPawn();
-            if ( pawn != entt::null && reg.valid( pawn ) && reg.has<ECS::CharacterControllerComponent>( pawn ) )
-            {
-                auto&           cc     = reg.get<ECS::CharacterControllerComponent>( pawn );
-                const glm::vec2 intent = cc.MoveInput;
-                glm::vec3       forward, right;
-                NetMoveBasisOfView( scene, forward, right );
-                move = forward * intent.y + right * intent.x;
-                // The one local input builder standalone Play steps with: every declared action held in the
-                // player's Enhanced Input (IA_Sprint on Left Shift, ...) or pressed by the script (self:jump's
-                // one-shot is consumed here - the physics step skips a replicated pawn), the swim axis.
-                input = Input::LocalPawnInputStep( scene, pawn, cc, actions, move );
-            }
+            const glm::vec2 intent = cc->MoveInput;
+            glm::vec3       forward, right;
+            NetMoveBasisOfView( scene, forward, right );
+            move = forward * intent.y + right * intent.x;
         }
+        Net::InputStep input;
+        // The one local input builder standalone Play steps with: every declared action held in the player's
+        // Enhanced Input (IA_Sprint on Left Shift, ...) or requested by a script (the one-shot Jump is consumed
+        // here - the physics step skips a replicated pawn), the swim axis.
+        if ( cc != nullptr )
+            input = Input::LocalPawnInputStep( scene, pawn, *cc, actions, move );
         input.Move = { move.x, move.y, move.z };
         input.Yaw  = glm::length( move ) > 1e-4f ? std::atan2( -move.x, -move.z ) : 0.0f;
         return input;

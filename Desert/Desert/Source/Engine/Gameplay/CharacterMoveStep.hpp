@@ -51,7 +51,8 @@ namespace Desert::Gameplay
         float BrakingFrictionFactor      = 2.0f;
         float JumpZVelocity              = 700.0f;
         float AirControl                 = 0.35f;
-        float Gravity                    = 980.0f;
+        float GravityScale               = 1.0f; // UE GravityScale: times the world's (IPawnMoveWorld::Gravity)
+        float MaxStepHeight              = 45.0f;  // UE MaxStepHeight: a walk follows its floor this far down
         float MaxWalkSpeedCrouched       = 300.0f; // UE MaxWalkSpeedCrouched
         float MaxSwimSpeed               = 300.0f; // UE MaxSwimSpeed, horizontal and vertical
         // UE ACharacter's CapsuleComponent (34 cm radius, 88 cm half height = 54 cm cylinder + the cap).
@@ -100,27 +101,39 @@ namespace Desert::Gameplay
     {
         float Radius     = 34.0f;
         float HalfHeight = 54.0f;
+
+        friend bool operator==( const PawnCapsule&, const PawnCapsule& ) = default;
     };
     [[nodiscard]] PawnCapsule CapsuleOf( const PawnMoveSettings& settings, bool crouched );
 
     // The collision world one move asks (UE SafeMoveUpdatedComponent + slide + FindFloor): where @p capsule whose
     // feet stand at @p from.Position ends after moving with @p velocity for @p dtSeconds, its velocity after
     // the walls and floors it met, and whether it stands on a walkable floor (@p gravity presses the floor's
-    // bodies). Position = the capsule's FEET. Fits: would @p capsule stand at @p feet without overlapping the
-    // world (UE: the stand-up test of UnCrouch)?
+    // bodies). A capsule that stood on a floor (@p from.Grounded) and does not rise follows a walkable floor up to
+    // @p followFloorCm below (UE PhysWalking's FindFloor down to MaxStepHeight; 0 = none, the swim). Position =
+    // the capsule's FEET. A @p capsule other than the one the world holds is a crouch or a stand-up: the world
+    // changes the shape with its feet at @p from.Position (UE Crouch / UnCrouch, bCrouchMaintainsBaseLocation:
+    // the centre moves by the half-height difference) - or keeps the old one when the new would penetrate it,
+    // and Outcome::Capsule says which capsule moved. Fits: would @p capsule stand at @p feet without overlapping
+    // the world (UE: the stand-up test of UnCrouch)?
     class IPawnMoveWorld
     {
     public:
         struct Outcome
         {
-            NetVec3 Position;
-            NetVec3 Velocity;
-            bool    Grounded = false;
+            NetVec3     Position;
+            NetVec3     Velocity;
+            bool        Grounded = false;
+            PawnCapsule Capsule; // the capsule that moved: the step's, or the one the world kept
         };
         virtual ~IPawnMoveWorld()                                                                        = default;
         [[nodiscard]] virtual Outcome Move( const PawnMoveState& from, const NetVec3& velocity,
-                                            const PawnCapsule& capsule, float gravity, float dtSeconds ) = 0;
+                                            const PawnCapsule& capsule, float gravity, float followFloorCm,
+                                            float dtSeconds )                                            = 0;
         [[nodiscard]] virtual bool    Fits( const NetVec3& feet, const PawnCapsule& capsule ) const      = 0;
+        // The world's gravity (cm/s^2, down; UE AWorldSettings::GetGravityZ): the level's Scene Settings, the same
+        // value on the server (its cooked world), the prediction and standalone Play (the scene's physics world).
+        [[nodiscard]] virtual float Gravity() const = 0;
     };
 
     // One fixed step of the pawn under one input step: crouch / stand up (UE UpdateCharacterStateBeforeMovement),
