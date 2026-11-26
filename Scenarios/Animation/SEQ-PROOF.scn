@@ -11,7 +11,7 @@
 Дано spawn Content/Meshes/Modeling/Sphere.stmesh 250,110,-300 --id 7710000000000000003
 Дано set 7710000000000000003 Tag.Tag SeqCamB
 Дано add-component 7710000000000000003 Camera
-Дано lua "local a = World.find('SeqCamA'); a:setPosition(0, 110, -50); a:setScale(0.01, 0.01, 0.01); local b = World.find('SeqCamB'); b:setPosition(250, 110, -300); b:setRotation(0, 1.5708, 0); b:setScale(0.01, 0.01, 0.01)"
+Дано lua "local a = World.find('SeqCamA'); a:setPosition(vector.create(0, 110, -50)); a:setScale(vector.create(0.01, 0.01, 0.01)); local b = World.find('SeqCamB'); b:setPosition(vector.create(250, 110, -300)); b:setRotation(vector.create(0, 1.5708, 0)); b:setScale(vector.create(0.01, 0.01, 0.01))"
 Дано --subject viewport set Camera.Position 400,250,250
 Дано --subject viewport set Camera.Direction -0.6,-0.2,-0.8
 Дано run Open "Sequences/SEQ_Proof.dseq"
