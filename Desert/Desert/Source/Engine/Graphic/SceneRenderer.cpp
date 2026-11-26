@@ -4833,17 +4833,6 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::PrepareMesh( Mesh& mesh )
-    {
-        // THE ONE PLACE A MESH'S GPU SIDE IS MADE FROM ITS CPU DATA: the renderer's intake, on the game thread at
-        // the update's fence (RenderCommand::Prepare, Scene::OnUpdate). Geometry set or edited on the game side
-        // (ECS::SetEditableMesh's new mesh, DynamicMesh::Update) only raised the mesh's pending flag; the render
-        // revision, the BLAS release and the device buffers change here, with no view job reading the mesh
-        // (Mesh::EnsureGpuResources). A failed upload is reported once and the replays drop the draw.
-        if ( const auto uploaded = mesh.EnsureGpuResources(); !uploaded.IsSuccess() )
-            LOG_ERROR( "[SceneRenderer] a mesh could not be uploaded and is not drawn: {}", uploaded.GetError() );
-    }
-
     float SceneRendererImpl::NoteTextureDemand( const Mesh& mesh, const std::span<const glm::mat4> transforms,
                                                 const std::span<const Material* const> materials,
                                                 const MaterialOverrides*               overrides ) const

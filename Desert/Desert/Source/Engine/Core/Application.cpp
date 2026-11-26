@@ -140,11 +140,9 @@ namespace Desert::Engine
         // which every frame below is drawn against half a renderer. Same instrument as the swapchain line
         // above it, and for the same reason: there is no partially-working renderer to continue with.
         //
-        // Init order (BINT-RC moved the first two steps up from Renderer::Init, unchanged): the generated
-        // reflection TU is linked (a static lib would otherwise strip it) so every REFLECT()-annotated type is
-        // registered before any editor / shader-upload use; the engine's renderer client is attached; then the
-        // renderer starts (API, BRDF LUT).
-        Reflection::ForceLinkGeneratedReflection();
+        // Init order: every REFLECT()-annotated type is already registered (the executable's Reflection.gen.cpp
+        // runs the module list at static initialisation, BINT-ENG); the engine's renderer client is attached;
+        // then the renderer starts (API, BRDF LUT).
         LOG_INFO( "[Reflection] {} reflected type(s) registered",
                   Reflection::ReflectionRegistry::Get().All().size() );
         const auto clientAttached =

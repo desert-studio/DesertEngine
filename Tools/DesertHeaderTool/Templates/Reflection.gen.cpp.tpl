@@ -37,9 +37,10 @@ namespace
     } g_DesertReflectionAutoRegister;
 }
 
-{# Force-link anchor: this TU lives in a static lib, so its static initializer (the module list above) is only
-   pulled into the final image if a symbol from it is referenced. Engine startup calls this no-op to
-   guarantee the registrations actually run; the per-module files are kept by the calls above. -#}
+{# Force-link anchor. This TU is compiled into each executable (desert_link_engine, BINT-ENG), never into Engine:
+   a lower DLL names no module above it, so only the executable, which links every module, holds the list. Its
+   static initializer runs because the object is part of the executable itself; tools that also call this
+   no-op (tests, SceneMigrator) keep working. The per-module files are kept by the calls above. -#}
 namespace Desert::Reflection
 {
     void {{ anchor }}() {}

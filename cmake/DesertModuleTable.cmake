@@ -120,7 +120,7 @@ desert_placement(RenderCore [[Engine/Graphic/Materials/(MaterialBackend|SceneRes
 # mesh table, and the image registry every Texture2D registers in
 desert_placement(RenderCore [[Engine/Graphic/(DisplayOutput|GpuMemoryBudget|RendererClient)\.|Engine/Graphic/GpuDriven/(GpuSceneLayout|IndirectSubmissionMode)\.|Engine/Graphic/VirtualGeometry/(VirtualMeshTable|VirtualGeometryLayout)\.|Engine/Runtime/(ImageHandle|Services/Image/ImageService)\.]])
 # the render-facing DATA the world produces (scene proxies, materials, sky/fog/cloud payloads) is Engine's
-desert_placement(Engine [[Engine/Graphic/Render/|Engine/Graphic/Clouds/|Engine/Graphic/Fog/|Engine/Graphic/(SkyRules|SkySettings|SkyPresets|SunLightFx|MaterialPipelineStates)\.]])
+desert_placement(Engine [[Engine/Graphic/Render/|Engine/Graphic/Clouds/|Engine/Graphic/Fog/|Engine/Graphic/(SkyRules|SkySettings|SkyPresets|SunLightFx|MaterialPipelineStates|TextureStreamingDemand|IesProfile)\.|Engine/Graphic/SubsurfaceProfiles/]])
 desert_placement(Engine [[Engine/Graphic/Materials/(Material|MaterialInstance|DataDrivenMaterial|MaterialOverrides|MaterialProperty|Mesh/MeshVertexPath|Skybox/MaterialSkybox)\.|Engine/Graphic/Environment/(SceneEnvironment|OwnedEnvironment|EnvironmentBake)\.]])
 desert_placement(Renderer [[Engine/Graphic/]])
 desert_placement(Media [[Engine/Media/]])
