@@ -986,6 +986,8 @@ namespace
         const auto               period  = std::chrono::duration<double>( 1.0 / kNetStepHz );
         std::uint64_t            step    = 0;
         double                   nextLog = 0.5;
+        // The previous step's held actions: a step that overruns its slot still logs the boundary it crossed.
+        std::uint32_t lastActions = 0u;
         for ( ;; ++step )
         {
             std::this_thread::sleep_until( start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
@@ -1049,8 +1051,9 @@ namespace
             const bool  moving = walking && ( dir.X != 0.f || dir.Z != 0.f );
             const float yaw    = moving ? std::atan2( -dir.X, -dir.Z ) : 0.f;
             const std::uint32_t actions = held.At( now );
-            if ( actions != held.At( now - 1.0 / kNetStepHz ) )
+            if ( actions != lastActions )
                 Log( "[{}] actions {} at {:.2f} s (step {})", name, actions, now, step );
+            lastActions = actions;
             client.SendInput( InputStep{ .Move = walking ? dir : NetVec3{}, .Yaw = yaw, .Actions = actions } );
             // The cells around the SERVER's position of the own pawn, reported when they change.
             if ( client.OwnPawn() != kInvalidNetId && client.Pawns().contains( client.OwnPawn() ) )

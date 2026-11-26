@@ -48,6 +48,8 @@ namespace Desert::ECS::CharacterMovement
      * OnGround, IsCrouched, Swimming and JumpHeld from one move state (Gameplay::kMode* bits in Mode). Fed by
      * Step (standalone Play), by the predictor's current state (the own net pawn) and by the interpolated
      * replicated sample (a proxy, ClientNetDriver). LocomotionSystem publishes what it wrote to the graph.
+     * CharacterLibrary::SetSwimming only sets the swim intent the next Step starts from; Step's result,
+     * written here, is the state.
      */
     void ApplyMoveState( CharacterControllerComponent& cc, const Net::PawnMoveState& state );
     /// The AnimGraph parameters the movement state is published under (UE: the AnimBP's Speed / IsFalling /

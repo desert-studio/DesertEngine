@@ -127,14 +127,6 @@ namespace Desert::Core
 
     namespace
     {
-        // The game's mode bits of a replicated state (Net::SetMoveFlags: Grounded is bit 0, the mode above it).
-        std::uint8_t ModeOf( const Net::PawnState& state )
-        {
-            Net::PawnMoveState move;
-            Net::SetMoveFlags( move, state.Movement );
-            return move.Mode;
-        }
-
         // A replicated sample as a move state (CharacterMovement::ApplyMoveState's input): its interpolated
         // velocity - the Hermite's derivative, so the walk cycle's rate follows the path drawn - Grounded and the
         // game's mode bits.
@@ -354,7 +346,7 @@ namespace Desert::Core
                 std::uint8_t mode = predictor.Current().Mode;
                 if ( !predictor.Started() )
                     if ( const auto sample = m_Client->Sample( m_Client->OwnPawn() ) )
-                        mode = ModeOf( *sample );
+                        mode = MoveStateOf( *sample ).Mode;
                 const glm::vec3 center = ECS::Entity( own->second, scene.GetRegistry() ).GetWorldTransform()[3];
                 const float above = Gameplay::DrawnPawnOf( m_Prediction->Movement.Settings, mode ).CenterAboveFeet;
                 shown += std::format( "; drawn own ({:.0f},{:.0f},{:.0f}) centre y {:.0f}", center.x,
@@ -497,8 +489,9 @@ namespace Desert::Core
             // UE ACharacter: the pawn spawns at its capsule's centre; the replicated position is its feet.
             const glm::vec3 center =
                  at + glm::vec3( 0.0f,
-                                 Gameplay::DrawnPawnOf( m_Prediction->Movement.Settings,
-                                                        ModeOf( sample ? *sample : replicated.History.Newest() ) )
+                                 Gameplay::DrawnPawnOf(
+                                      m_Prediction->Movement.Settings,
+                                      MoveStateOf( sample ? *sample : replicated.History.Newest() ).Mode )
                                       .CenterAboveFeet,
                                  0.0f );
             if ( replicated.Owned )
@@ -608,7 +601,8 @@ namespace Desert::Core
                 // it. Until the prediction starts it is drawn - and moves - as the server's sample says.
                 if ( !m_Prediction->Predictor.Started() )
                 {
-                    PlaceNetPawn( reg, entity, m_Prediction->Movement.Settings, position, ModeOf( *sample ) );
+                    PlaceNetPawn( reg, entity, m_Prediction->Movement.Settings, position,
+                                  MoveStateOf( *sample ).Mode );
                     WriteMoveState( scene, entity, *sample );
                 }
                 continue;
@@ -616,7 +610,7 @@ namespace Desert::Core
             ECS::LocalTransform local = reg.get<ECS::TransformComponent>( entity ).GetLocal();
             local.Rotation            = { 0.0f, sample->Yaw, 0.0f };
             ECS::SetLocalTransform( reg, entity, local );
-            PlaceNetPawn( reg, entity, m_Prediction->Movement.Settings, position, ModeOf( *sample ) );
+            PlaceNetPawn( reg, entity, m_Prediction->Movement.Settings, position, MoveStateOf( *sample ).Mode );
             WriteMoveState( scene, entity, *sample );
         }
     }

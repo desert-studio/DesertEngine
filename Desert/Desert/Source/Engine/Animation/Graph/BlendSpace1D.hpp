@@ -13,9 +13,10 @@
  * `WeightSpeed` per second and the weights are renormalised to sum 1; 0 means the weights follow the axis at once.
  *
  * SYNC BY NORMALIZED TIME (UE's sync of a blend space's samples, the marker-less sync group): every sample plays
- * at ONE shared phase in [0, 1) of its own length, so a 1.0 s walk and a 0.7 s run cycle put the same foot down
- * at the same phase. The phase advances by dt over the weight-averaged length of the weighted samples, so the
- * blend's cycle stretches smoothly from one sample's length to the next.
+ * at ONE shared phase in [0, 1) of its own length - DurationSeconds / RateScale, the sample's playback rate
+ * (UE FBlendSample::RateScale; Animator.cpp AdvanceBlendRun) - so a 1.0 s walk and a 0.7 s run cycle put the same
+ * foot down at the same phase. The phase advances by dt over the weight-averaged length of the weighted samples,
+ * so the blend's cycle stretches smoothly from one sample's length to the next.
  *
  * The functions are defined in PoseGraph.cpp (compiled wherever the pose graph is).
  */
