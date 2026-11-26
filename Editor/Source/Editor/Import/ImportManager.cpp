@@ -606,6 +606,13 @@ namespace Desert::Editor
                                                       sourcePath, settings );
                 if ( !written )
                     record( Common::MakeError<bool>( written.GetError() ) );
+                else if ( written.GetValue().empty() )
+                {
+                    // COMBINED: the one mesh every placed entity names (CookPaths::MeshAsset, the path its
+                    // registry row keys), refreshed by the caller like a node mesh (UE FReimportManager ->
+                    // PostReimport). Left out, a reimport rebuilt nothing that draws it (GAME-SHADER-DIR).
+                    writtenMeshes.push_back( CookPaths::MeshAsset( sourcePath ) );
+                }
                 else
                 {
                     for ( const auto& [node, path] : written.GetValue() )
