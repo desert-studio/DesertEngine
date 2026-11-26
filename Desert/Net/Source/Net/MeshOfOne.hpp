@@ -7,13 +7,15 @@
 //   ISimLink           gateway -> sim: a player joined / left, its input (routed by the authority map later)
 //   IGatewayLink       sim -> gateway: a pawn spawned / was destroyed (the gateway tells the relevant clients)
 // The gateway owns the client connections and their handshake, sends Spawn/Destroy on the Rpc lane and a
-// Snapshot per connection on the State lane every kSnapshotEverySteps steps, read from the store - it never asks
-// the sim for state, so moving the store out of process changes only the link.
-// UE: one APlayerController per connection, the pawn spawned by the server for it (GameMode::RestartPlayer) and
-// replicated to every relevant connection, autonomous proxy for its owner, simulated proxy for the others.
+// Snapshot per connection on the State lane at the project's snapshot cadence, each pawn in it at its own send
+// period by distance (Relevancy.hpp, WP-FAR-15), read from the store - it never asks the sim for state, so moving
+// the store out of process changes only the link. UE: one APlayerController per connection, the pawn spawned by
+// the server for it (GameMode::RestartPlayer) and replicated to every relevant connection, autonomous proxy for
+// its owner, simulated proxy for the others.
 
 #include <Net/NetTransport.hpp>
 #include <Net/MovePrediction.hpp>
+#include <Net/Relevancy.hpp>
 #include <Net/Replication.hpp>
 
 #include <cstdint>
@@ -69,12 +71,11 @@ namespace Desert::Net
         };
         std::map<std::uint32_t, Cell>         Cells;        // every spatially loaded cell unit, by unit index
         std::map<StableNetId, std::uint32_t> UnitOfRecord; // cell records only: an always-loaded one has none
-        // THE PAWN CELL (Iris NetObjectGridFilter on the main WP grid): a dynamic object is relevant to a viewer
-        // while the FINEST cell of the main grid it stands in (level 0) is within that grid's loading range of the
-        // viewer - the cell a source there would stream, whether or not content made it a unit (a coarse cell
-        // stays resident far away, so a pawn in one would stay relevant). Returns the cell's name, nullopt when
-        // out of range. Filled from the world's partition rules (Server: RelevancyGridOf).
-        std::function<std::optional<std::string>( const NetVec3& viewer, const NetVec3& at )> PawnCellInRange;
+        // The main grid's loading range (cm; the first partition's, what a record naming none streams on): the
+        // circle a connection sees pawns within never falls below what its client streams anyway
+        // (Relevancy.hpp ResolveViewShape). 0 when the world has no grid. Pawns are relevant by POINT in the
+        // connection's view shape, not by cell (WP-FAR-15; UE NetCullDistance) - the cells are for stable objects.
+        float MainGridLoadingRangeCm = 0.f;
     };
 
     class IGatewayLink
@@ -229,14 +230,19 @@ namespace Desert::Net
 
     // THE GATEWAY ROLE: client connections, the connect handshake (token + cook hash), routing input to the sim,
     // Spawn/Destroy and Snapshots out of the store, for each connection's relevant set (§3.5): its own pawn, the
-    // pawns standing in a cell the client reports resident, and the stable objects of those cells (+ always-loaded).
+    // pawns standing in its view shape (Relevancy.hpp: the cull circle + the client's reported sector, left only
+    // past the exit margin), and the stable objects of the cells the client reports resident (+ always-loaded).
+    // Each relevant pawn goes at its send period by distance, a dormant one at the keep-alive period, the due ones
+    // by priority within the connection's byte budget (§3.6; UE Replication Graph, Iris prioritisation).
     class Gateway final : public INetTransportEvents, public IGatewayLink
     {
     public:
         // @p pawnPrefab: the server GameMode's pawn (UE DefaultPawnClass), named to every admitted client in the
         // Welcome; never 0.
+        // @p relevancy: validated by the caller (ValidateRelevancySettings; the server refuses to start
+        // otherwise).
         Gateway( INetTransport& transport, IReplicationStore& store, GatewayAdmission admission,
-                 std::uint64_t pawnPrefab, NetRelevancyGrid grid, NetLogSink log );
+                 std::uint64_t pawnPrefab, NetRelevancyGrid grid, RelevancySettings relevancy, NetLogSink log );
         void Bind( ISimLink& sim )
         {
             m_Sim = &sim;
@@ -250,7 +256,8 @@ namespace Desert::Net
         void PawnSpawned( PlayerId owner, std::uint32_t player, const PawnState& pawn ) override;
         void PawnDestroyed( NetId id ) override;
 
-        // Sends this step's snapshot to every admitted connection (call every kSnapshotEverySteps steps).
+        // Call EVERY server step: on the snapshot cadence's steps (Bands.front().EverySteps) it updates every
+        // connection's relevant set and sends each its snapshot of the pawns due; on the others it does nothing.
         void                      SendSnapshots( std::uint32_t serverStep );
         [[nodiscard]] std::size_t Players() const;
 
@@ -265,10 +272,24 @@ namespace Desert::Net
             std::uint64_t Acked         = 0; // field updates the clients acked
             std::uint64_t Irrelevant    = 0; // pawns removed from a connection's relevant set (Destroy NotRelevant)
             std::uint64_t DeltaReplays  = 0; // destroyed stable ids replayed to a client loading their cell
+            std::uint64_t SnapshotBytes = 0; // remote pawn entry bytes written into snapshots, all connections
+            std::uint64_t Deferred = 0; // due entries the byte budget pushed to a later snapshot, all connections
+            // Per admitted connection, as of its last snapshot (UE `stat net` per connection).
+            struct Connection
+            {
+                PlayerId      Player             = 0;
+                std::uint64_t PawnBytesPerSecond = 0;    // remote pawn entry bytes over the last whole second
+                std::vector<std::uint32_t> ByBand;       // non-dormant remote pawns per band, Bands' order
+                std::uint32_t              Dormant  = 0; // remote pawns at the dormant period
+                std::uint32_t              Deferred = 0; // due entries the budget deferred in the last snapshot
+            };
+            std::vector<Connection> Connections; // by player
         };
-        [[nodiscard]] const Stats& ReplicationStats() const
+        // The totals and every connection's numbers now (built on call: the stat line asks every few seconds).
+        [[nodiscard]] Stats                    ReplicationStats() const;
+        [[nodiscard]] const RelevancySettings& Relevancy() const
         {
-            return m_Stats;
+            return m_Relevancy;
         }
 
     private:
@@ -289,6 +310,12 @@ namespace Desert::Net
             std::uint32_t          Step = 0; // the server step it went out on
             std::vector<SentField> Fields;
         };
+        struct SentPawn
+        {
+            std::uint32_t LastSentStep = 0;
+            PawnState     LastSent;
+            bool          Dormant = false; // LastSent equalled the store at the last decision (logged on change)
+        };
         struct Peer
         {
             bool                                  Admitted = false;
@@ -301,6 +328,18 @@ namespace Desert::Net
             std::set<NetId>                       Relevant;     // pawns this client has (Spawn sent, no Destroy)
             std::set<StableNetId>                 DeltaSent;    // destroyed stable ids replayed to it
             std::set<std::uint32_t>               AwaitingAck;  // units reported resident, not yet acknowledged
+            // WP-FAR-15: the newest view shape the client reported (nullopt = never: the cull circle alone).
+            std::optional<ViewReport> View;
+            // Per relevant remote pawn: what this connection last received of it (UE
+            // FConnectionReplicationActorInfo). Absent = never sent since it became relevant: due at once.
+            std::map<NetId, SentPawn> Sent;
+            // Remote pawn entry bytes sent, and the count at the start of the current one-second window.
+            std::uint64_t BytesSent = 0, BytesAtWindow = 0;
+            std::uint32_t WindowStep = 0;
+            // As of the last snapshot (the stat line).
+            std::uint64_t              BytesPerSecond = 0;
+            std::vector<std::uint32_t> ByBand;
+            std::uint32_t              Dormant = 0, Deferred = 0;
         };
         struct PawnInfo
         {
@@ -310,7 +349,13 @@ namespace Desert::Net
         [[nodiscard]] bool StableRelevant( const Peer& peer, StableNetId id ) const;
         // The resident cell of @p peer the position stands in, or nullptr.
         void OnCellResidency( ConnectionId connection, Peer& peer, const CellResidencyMessage& message );
-        void UpdateRelevancy( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns );
+        // The relevant set by point in the view shape, with the exit margin; returns the viewer (own pawn)
+        // position.
+        std::optional<NetVec3> UpdateRelevancy( ConnectionId connection, Peer& peer,
+                                                const std::vector<PawnState>& pawns );
+        // The snapshot of one connection: the pawns due on this step by period, the budget cut, the stats.
+        void SendSnapshot( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns,
+                           std::uint32_t serverStep );
         void ReplayWorldDelta( ConnectionId connection, Peer& peer );
         void SendStableState( ConnectionId connection, Peer& peer, std::uint32_t serverStep );
         void OnStateAck( Peer& peer, const StateAckMessage& ack, std::uint32_t serverStep );
@@ -322,6 +367,8 @@ namespace Desert::Net
         GatewayAdmission                 m_Admission;
         std::uint64_t                    m_PawnPrefab = 0;
         NetRelevancyGrid                 m_Grid;
+        RelevancySettings                m_Relevancy;
+        std::size_t                      m_EntryBytes = 0; // one snapshot entry on the wire (measured at start)
         NetLogSink                       m_Log;
         std::map<NetId, PawnInfo>        m_PawnInfo;
         ISimLink*                        m_Sim = nullptr;
