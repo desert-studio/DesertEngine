@@ -185,14 +185,32 @@ bool WaterFallUnderRiver( vec3 world )
            abs( world.y - level ) < WATER_FALL_SEAM_CM;
 }
 
+// THE PLUNGE'S OUTFLOW (Water::PlungeVelocityAt's twin, cm/s): the surface current away from a fall's landing line
+// (the segment foot +- across * half width; downstream on the line itself), fading as (1 - d / radius)^2 with the
+// distance d from the foot. footRadius = (foot, radius), acrossHalf = (across.xz, half width, outflow speed),
+// landing = (downstream, landing speed, 0): WaterFoamUpdate.shader WaterFoamPlunge.
+vec2 WaterPlungeAt( vec4 footRadius, vec4 acrossHalf, vec4 landing, vec2 xz )
+{
+    const vec2  foot = footRadius.xz;
+    const float d    = distance( xz, foot );
+    if ( !( footRadius.w > 0.0 ) || d >= footRadius.w )
+        return vec2( 0.0 );
+    const float along = clamp( dot( xz - foot, acrossHalf.xy ), -acrossHalf.z, acrossHalf.z );
+    const vec2  away  = xz - ( foot + along * acrossHalf.xy );
+    const float l     = length( away );
+    const vec2  dir   = l > 1e-3 ? away / l : landing.xy;
+    const float fade  = 1.0 - d / footRadius.w;
+    return dir * ( acrossHalf.w * fade * fade );
+}
+
 // THE TWO-PHASE FLOW (UE's water material FlowMap: two copies of a texture advected along the flow, half a period
 // apart, each faded out as it resets): the two advected positions of `worldXZ` at `time` and the second's weight.
 // The period is the fragment's own river's (`vertexColor` = SurfaceInput.VertexColor -> WaterFragmentTile ->
 // Medium.y = its WaterBodyData::RiverFlowPeriod), so two rivers of one frame each flow at their own pace.
 // No flow here: both positions are `worldXZ`, the weight 0.
 // On a fall's sheet `worldXZ` is the sheet's coordinate (WaterFlowCoord) and the flow runs down it at the falling
-// water's speed (Medium.zw: Water::RiverFallSpeed, the river's flow gaining by free fall - the velocity from the
-// slope), streaked by WATER_FALL_STREAK.
+// water's speed (Medium.zw: Water::RiverFallSample::Speed, the baked flight's speed at the row's two samples),
+// streaked by WATER_FALL_STREAK.
 void WaterFlowPhases( vec2 worldXZ, vec4 vertexColor, float time, out vec2 p0, out vec2 p1, out float w1 )
 {
     p0 = worldXZ;

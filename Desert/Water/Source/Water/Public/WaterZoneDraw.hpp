@@ -32,11 +32,12 @@ namespace Desert::Graphic::System
         // Each body's lane in WaterZoneDraw::Waves (-1 = a flat body), in Footprints' order.
         std::vector<int32_t>   WaveLanes;
         std::vector<glm::vec2> WaveOrigins; // the entity's X, Z
-        // WATER-RIVERS-FFT R4, in Footprints' order: each body's type, its river bake (null for an ocean; the
-        // same pointer as Footprints[i].Ribbon) and the Water::RiverBakeKey it was baked for (0 for an ocean).
+        // WATER-RIVERS-FFT R4, in Footprints' order: each body's type and its river bake (null for an ocean; the
+        // same pointer as Footprints[i].Ribbon, ECS::WaterRiverBakes').
         std::vector<Water::WaterBodyType>                         Types;
         std::vector<std::shared_ptr<const Water::RiverFlowField>> Flows;
-        std::vector<uint64_t>                                     RiverKeys;
+        // The ECS::WaterRiverBakes::Revision these rows were built at: another revision, other rows.
+        uint64_t RiverRevision = 0u;
     };
 
     struct WaterZoneDraw
@@ -49,8 +50,5 @@ namespace Desert::Graphic::System
         // The world's floor and shore, the very field the CPU query reads (ECS::WaterShoreFieldSource). Never
         // null: no water is drawn before the first bake.
         std::shared_ptr<const Water::WaterShoreField> Shore;
-        // The scene's gravity, cm/s^2 (SceneSettings::Gravity): a river fall's water accelerates by it down the
-        // sheet (Water::RiverFallSpeed), as the CPU query's does (Water::WaterBodyState::Gravity).
-        float Gravity = 0.0f;
     };
 } // namespace Desert::Graphic::System

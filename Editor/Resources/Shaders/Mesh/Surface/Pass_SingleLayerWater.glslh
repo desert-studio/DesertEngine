@@ -184,18 +184,21 @@ void main()
     const int   waveSet   = WaterWaveSetOf( WaterFragmentTile( i.VertexColor ).Body.z );
     const float facing    = gl_FrontFacing ? 1.0 : -1.0; // DesertSurfaceInput's two-sided turn
     WaterSurface   field  = WaterPixelSurface( i.UV1, i.VertexColor, i.Time, i.Time, footprint );
+    // The material's water (and, on a fall, its strands and tearing) before the sheet is shaped by it.
+    const SingleLayerWaterOutput w = EvaluateSingleLayerWater( i );
     WaterFallSheet sheet  = WaterFallSheetNone();
     if ( fall )
     {
         field.Variance = 0.0;
-        sheet          = WaterFallSheetAt( i.UV0, i.VertexColor, i.Time );
+        sheet          = WaterFallSheetAt( i.UV0, i.VertexColor, i.Time, w );
         i.TBN          = mat3( i.TBN[0], i.TBN[1], normalize( i.TBN * sheet.Normal ) );
         i.Normal       = i.TBN[2];
     }
     else
     {
-        // The beach: the sheet lies under the sand the run-up does not reach.
-        if ( waveSet >= 0 && field.Depth + field.Displacement.y < 0.0 )
+        // The beach: the sheet lies under the sand the run-up does not reach (an ocean's; a river carrying its
+        // mouth's waves has its banks for a beach, WaterBankClipped).
+        if ( waveSet >= 0 && i.VertexColor.b < 0.5 && field.Depth + field.Displacement.y < 0.0 )
             discard;
         vec3 waveN = WaterSurfaceNormal( field.Slope );
         if ( i.VertexColor.b > 0.5 )
@@ -207,7 +210,6 @@ void main()
         i.Normal = i.TBN[2];
     }
     SurfaceOutput                s = EvaluateSurface( i );
-    const SingleLayerWaterOutput w = EvaluateSingleLayerWater( i );
     // GGX alpha^2 is twice the per-axis slope variance the pixel does not resolve.
     const float alpha = s.Roughness * s.Roughness;
     s.Roughness       = sqrt( sqrt( alpha * alpha + 2.0 * field.Variance ) );

@@ -26,6 +26,7 @@ namespace
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterTiles );
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterFoamBodies );
+        DESERT_SHADER_PARAMETER( StorageBuffer, WaterFoamPlunges );
         DESERT_SHADER_PARAMETER( Texture, WaterShoreTexture );
         DESERT_SHADER_PARAMETER( Texture, WaterRiverTexture );
         DESERT_SHADER_PARAMETER( Texture, WaterWavesTexture );
@@ -36,7 +37,8 @@ namespace
              ::Desert::Graphic::RDG::Erase( WaterTiles ),         ::Desert::Graphic::RDG::Erase( WaterShoreTexture ),
              ::Desert::Graphic::RDG::Erase( WaterRiverTexture ),  ::Desert::Graphic::RDG::Erase( WaterWavesTexture ),
              ::Desert::Graphic::RDG::Erase( LinearRepeatSampler ), ::Desert::Graphic::RDG::Erase( FoamHistoryTexture ),
-             ::Desert::Graphic::RDG::Erase( WaterFoamUB ),         ::Desert::Graphic::RDG::Erase( WaterFoamBodies ) };
+             ::Desert::Graphic::RDG::Erase( WaterFoamUB ),         ::Desert::Graphic::RDG::Erase( WaterFoamBodies ),
+             ::Desert::Graphic::RDG::Erase( WaterFoamPlunges ) };
     };
 } // namespace
 
@@ -51,8 +53,9 @@ namespace Desert::Graphic::System
             glm::vec4 Time{ 0.0f }; // x = the time (s), y = since the history (s), z = 1 with a history, w = the bodies
             // The rectangle of the world the history does not stand in (min X, min Z, max X, max Z); empty: min > max.
             glm::vec4 Changed{ 1.0f, 1.0f, 0.0f, 0.0f };
+            glm::vec4 PlungeCount{ 0.0f }; // x = the plunges in WaterFoamPlunges
         };
-        static_assert( sizeof( WaterFoamUBData ) == 5 * sizeof( glm::vec4 ) );
+        static_assert( sizeof( WaterFoamUBData ) == 6 * sizeof( glm::vec4 ) );
         constexpr Core::Formats::ImageFormat kFoamFormat = Core::Formats::ImageFormat::RGBA8F;
         // A history older than this is another sea.
         constexpr float kFoamHistoryMaxAgeSeconds = 2.0f;
@@ -173,7 +176,8 @@ namespace Desert::Graphic::System
     }
 
     void WaterRenderer::PrepareFoam( const MaterialStamp& stamp, const glm::vec3& eye, const int32_t fftSet,
-                                     const std::shared_ptr<const Water::WaterShoreField>& shore,
+                                     const std::shared_ptr<const Water::WaterShoreField>&           shore,
+                                     std::span<const std::shared_ptr<const Water::RiverFlowField>> rivers,
                                      std::array<glm::vec4, 3>& origin, glm::vec4& shape )
     {
         const auto side = Common::Scalability::QualityState::Resolved().As<uint32_t>(
@@ -242,6 +246,24 @@ namespace Desert::Graphic::System
                  .Decay = glm::vec4( params.FoamDecaySeconds, params.BubbleDecaySeconds, params.WetDrySeconds, 0.0f ),
                  .Drift = set >= 0 && set == fftSet ? glm::vec4( drift, 0.0f, 0.0f ) : glm::vec4( 0.0f ) } );
         }
+        // THE BOILS: every fall's plunge (Water::FallPlunge, baked once with the river) whose circle reaches the
+        // outer window; the update makes its foam and spreads it (WaterPlungeAt), whichever body it lands in.
+        const float     outerTexel = desc.TexelCm( Water::kFoamLevels - 1u );
+        const glm::vec2 outerMin   = glm::vec2( windows[Water::kFoamLevels - 1u] ) * outerTexel;
+        const glm::vec2 outerMax   = outerMin + static_cast<float>( side ) * outerTexel;
+        for ( const std::shared_ptr<const Water::RiverFlowField>& river : rivers )
+            for ( const Water::RiverFall& fall : river->Falls )
+            {
+                const Water::FallPlunge& plunge = fall.Plunge;
+                const glm::vec2          foot( plunge.Foot.x, plunge.Foot.z );
+                if ( glm::any( glm::lessThan( foot + plunge.Radius, outerMin ) ) ||
+                     glm::any( glm::greaterThan( foot - plunge.Radius, outerMax ) ) )
+                    continue;
+                frame.Plunges.push_back( FoamPlunge{
+                     .FootRadius = glm::vec4( plunge.Foot, plunge.Radius ),
+                     .AcrossHalf = glm::vec4( plunge.Across.x, plunge.Across.z, plunge.HalfWidth, plunge.OutflowSpeed ),
+                     .Landing    = glm::vec4( plunge.Downstream, plunge.LandingSpeed, 0.0f ) } );
+            }
         m_FoamFrame = std::move( frame );
     }
 
@@ -278,6 +300,7 @@ namespace Desert::Graphic::System
                                static_cast<float>( frame.Bodies.size() ) );
         if ( m_FoamChanged )
             data.Changed = *m_FoamChanged;
+        data.PlungeCount = glm::vec4( static_cast<float>( frame.Plunges.size() ), 0.0f, 0.0f, 0.0f );
 
         const RDG::BufferRef uniforms = graph.CreateBuffer( RDG::BufferDesc{ sizeof( data ) }, "Water.FoamUB" );
         graph.QueueBufferUpload( uniforms, std::as_bytes( std::span<const WaterFoamUBData>( &data, 1 ) ) );
@@ -287,6 +310,14 @@ namespace Desert::Graphic::System
         const RDG::BufferRef             bodies =
              graph.CreateBuffer( RDG::BufferDesc{ bodyBytes.size_bytes() }, "Water.FoamBodies" );
         graph.QueueBufferUpload( bodies, bodyBytes );
+        // A frame with no plunge binds one zero row (a storage buffer is never empty); PlungeCount.x says 0.
+        static constexpr FoamPlunge      kNoPlunge{};
+        const std::span<const std::byte> plungeBytes =
+             frame.Plunges.empty() ? std::as_bytes( std::span<const FoamPlunge>( &kNoPlunge, 1 ) )
+                                   : std::as_bytes( std::span( frame.Plunges ) );
+        const RDG::BufferRef plunges =
+             graph.CreateBuffer( RDG::BufferDesc{ plungeBytes.size_bytes() }, "Water.FoamPlunges" );
+        graph.QueueBufferUpload( plunges, plungeBytes );
 
         using P = WaterFoamShaderParameters;
         graph.AddPass(
@@ -297,6 +328,7 @@ namespace Desert::Graphic::System
                  pass.Bindings( m_FoamLayout.Get( m_FoamPipeline->GetSpecification().Shader ), RDG::NoOtherRouteFill() )
                       .Storage( P::WaterTiles, tiles, RDG::Access::StorageRead )
                       .Storage( P::WaterFoamBodies, bodies, RDG::Access::StorageRead )
+                      .Storage( P::WaterFoamPlunges, plunges, RDG::Access::StorageRead )
                       .Texture( P::WaterShoreTexture, water.Shore, RDG::Access::SampledGraphics,
                                 RDG::SubresourceRange::All() )
                       .Texture( P::WaterRiverTexture, water.River, RDG::Access::SampledGraphics,

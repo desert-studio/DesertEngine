@@ -1,8 +1,8 @@
 #pragma once
 
-#include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
+#include <Water/Public/WaterRiverBakes.hpp>
 #include <Water/Public/WaterWaveSources.hpp>
 #include <Water/Public/WaterShoreFieldSource.hpp>
 #include <Water/Public/WaterZoneCommand.hpp>
@@ -33,13 +33,6 @@ namespace Desert::ECS
     class WaterZoneECSSystem final : public System
     {
     public:
-        // The settings of the scene the zones draw in (Core::Scene::GetSettings, owned by the scene for its whole
-        // life): their gravity is what the rivers' falls accelerate by. Not the Scene itself - this header stays
-        // out of Scene.hpp's include graph.
-        explicit WaterZoneECSSystem( const Core::SceneSettings& settings ) : m_Settings( &settings )
-        {
-        }
-
         bool CanRunParallel() const override
         {
             return true;
@@ -57,14 +50,26 @@ namespace Desert::ECS
             if ( sources == nullptr )
                 return;
             const WaterWaveSources& waves = **sources;
-            // A hidden body, and a second ocean (WaterWaveSources), is no water.
-            const auto absent = [&waves, &registry]( const entt::entity entity )
-            { return ECS::IsHidden( registry, entity ) || waves.IsRefused( entity ); };
+            // The world's river bakes (WaterRiverBakes, refreshed right after the wave record): a river is drawn
+            // from its bake, never baked here.
+            const auto* const bakesLink = registry.try_ctx<std::shared_ptr<WaterRiverBakes>>();
+            if ( bakesLink == nullptr )
+                return;
+            const WaterRiverBakes& bakes = **bakesLink;
+            // A hidden body, a second ocean (WaterWaveSources) and a river with no bake (WaterRiverBakes refused
+            // the world) are no water.
+            const auto view   = registry.view<WaterBodyComponent, TransformComponent>();
+            const auto absent = [&waves, &registry, &bakes, &view]( const entt::entity entity )
+            {
+                return ECS::IsHidden( registry, entity ) || waves.IsRefused( entity ) ||
+                       ( view.get<WaterBodyComponent>( entity ).Data.Type == Water::WaterBodyType::River &&
+                         bakes.Find( entity ) == nullptr );
+            };
 
             // A hidden body is no water, as a hidden mesh is no geometry. The visible bodies are compared with the
             // rows the zones drew last frame; only a change builds new rows (immutable and shared by every zone's
-            // draw, so the renderer may still hold the old ones). A steady frame allocates nothing here.
-            const auto view      = registry.view<WaterBodyComponent, TransformComponent>();
+            // draw, so the renderer may still hold the old ones). A steady frame allocates nothing here. A river's
+            // rows follow its bake: any changed bake (WaterRiverBakes::Revision) builds new rows.
             const auto footprint = [&view]( const entt::entity entity )
             {
                 const glm::vec3& location = view.get<TransformComponent>( entity ).GetTranslation();
@@ -73,23 +78,19 @@ namespace Desert::ECS
                 return Water::WaterQuadTreeBody{
                      .FootprintMin = centre - half, .FootprintMax = centre + half, .SurfaceY = location.y };
             };
-            // A river's bake input and key (0 for an ocean): the rows re-bake a river only when its key changed.
-            const auto riverInput = [&view]( const entt::entity entity )
+            // The wave lane a body is drawn with: its own, or, for a river that ends in an ocean (Water::RiverMouth),
+            // that ocean's (faded in over Mouth.Radius by the tiles, WaterMouthWeight).
+            const auto waveLaneOf = [&waves, &bakes, &view]( const entt::entity entity ) -> int32_t
             {
-                const WaterBodyData& data = view.get<WaterBodyComponent>( entity ).Data;
-                return Water::RiverBakeInput{ .LocalPoints = RiverPointsOf( data ),
-                                              .Origin    = view.get<TransformComponent>( entity ).GetTranslation(),
-                                              .Width     = data.RiverWidth,
-                                              .FlowSpeed = data.RiverFlowSpeed,
-                                              .FlowPeriod = data.RiverFlowPeriod };
+                if ( view.get<WaterBodyComponent>( entity ).Data.Type == Water::WaterBodyType::River )
+                {
+                    const WaterRiverBakes::River* const river = bakes.Find( entity );
+                    if ( river != nullptr && river->Flow->Mouth )
+                        return waves.LaneOf( static_cast<entt::entity>( river->Flow->Mouth->Into ) );
+                }
+                return waves.LaneOf( entity );
             };
-            const auto riverKey = [&view, &riverInput]( const entt::entity entity ) -> uint64_t
-            {
-                if ( view.get<WaterBodyComponent>( entity ).Data.Type != Water::WaterBodyType::River )
-                    return 0u;
-                return Water::RiverBakeKey( riverInput( entity ) ) | 1u; // never 0 for a river
-            };
-            bool   same    = m_Bodies != nullptr;
+            bool   same    = m_Bodies != nullptr && m_Bodies->RiverRevision == bakes.Revision();
             size_t visible = 0;
             for ( const entt::entity entity : view )
             {
@@ -108,11 +109,9 @@ namespace Desert::ECS
                 const glm::vec3&     location = view.get<TransformComponent>( entity ).GetTranslation();
                 same = static_cast<uint32_t>( entity ) == rows.Ids[i] && data.Type == rows.Types[i] &&
                        data.WaterMaterial == rows.Materials[i] &&
-                       waves.LaneOf( entity ) == rows.WaveLanes[i] &&
+                       waveLaneOf( entity ) == rows.WaveLanes[i] &&
                        glm::vec2( location.x, location.z ) == rows.WaveOrigins[i];
-                if ( same && data.Type == Water::WaterBodyType::River )
-                    same = riverKey( entity ) == rows.RiverKeys[i]; // the footprint follows from the bake
-                else if ( same )
+                if ( same && data.Type != Water::WaterBodyType::River ) // a river's footprint follows from its bake
                 {
                     const Water::WaterQuadTreeBody body = footprint( entity );
                     same                                = body.FootprintMin == rows.Footprints[i].FootprintMin &&
@@ -122,7 +121,8 @@ namespace Desert::ECS
             }
             if ( !same || visible != m_Bodies->Footprints.size() )
             {
-                auto rows = std::make_shared<Graphic::System::WaterZoneBodies>();
+                auto rows           = std::make_shared<Graphic::System::WaterZoneBodies>();
+                rows->RiverRevision = bakes.Revision();
                 for ( const entt::entity entity : view )
                 {
                     if ( absent( entity ) )
@@ -131,16 +131,9 @@ namespace Desert::ECS
                     const glm::vec3&     location = view.get<TransformComponent>( entity ).GetTranslation();
                     Water::WaterQuadTreeBody body     = footprint( entity );
                     std::shared_ptr<const Water::RiverFlowField> flow;
-                    const uint64_t                               key = riverKey( entity );
-                    if ( key != 0u )
+                    if ( data.Type == Water::WaterBodyType::River )
                     {
-                        // The last rows' bake of the same river is reused; a changed river is baked here, once.
-                        if ( m_Bodies != nullptr )
-                            for ( size_t k = 0; k < m_Bodies->RiverKeys.size() && flow == nullptr; ++k )
-                                if ( m_Bodies->RiverKeys[k] == key )
-                                    flow = m_Bodies->Flows[k];
-                        if ( flow == nullptr )
-                            flow = Water::BakeRiver( riverInput( entity ) );
+                        flow = bakes.Find( entity )->Flow; // present: absent() skipped a river without one
                         // A river is drawn over its ribbon at its mean level, over every ocean it crosses.
                         body = Water::WaterQuadTreeBody{
                              .FootprintMin = flow->Min,
@@ -153,9 +146,8 @@ namespace Desert::ECS
                     rows->Ids.push_back( static_cast<uint32_t>( entity ) );
                     rows->Types.push_back( data.Type );
                     rows->Flows.push_back( std::move( flow ) );
-                    rows->RiverKeys.push_back( key );
                     rows->Materials.push_back( data.WaterMaterial );
-                    rows->WaveLanes.push_back( waves.LaneOf( entity ) );
+                    rows->WaveLanes.push_back( waveLaneOf( entity ) );
                     rows->WaveOrigins.emplace_back( location.x, location.z );
                 }
                 m_Bodies = std::move( rows );
@@ -184,13 +176,11 @@ namespace Desert::ECS
                 draw.Bodies                  = m_Bodies;
                 draw.Waves                   = waves.Table();
                 draw.Shore                   = shore;
-                draw.Gravity                 = m_Settings->Gravity;
                 renderCommandBuffer.Emplace<Graphic::Render::WaterZoneCommand>( std::move( draw ) );
             }
         }
 
     private:
-        const Core::SceneSettings*                     m_Settings = nullptr;
         // The visible bodies the zones drew last frame (rebuilt only on a change).
         std::shared_ptr<const Graphic::System::WaterZoneBodies> m_Bodies;
     };

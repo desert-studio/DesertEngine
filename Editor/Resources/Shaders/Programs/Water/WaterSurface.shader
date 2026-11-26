@@ -44,6 +44,13 @@ Shader "WaterSurface"
         Float       CausticsOnsetDepth ("Caustics Onset Depth (cm)", Range(1,1000), Category("Caustics")) = 30
         Float       CausticsFadeDepth ("Caustics Fade Depth (cm)", Range(1,10000), Category("Caustics")) = 600
         Float       CausticsStrength ("Caustics Strength", Range(0,1), Category("Caustics")) = 1
+        Texture2D   FallStrands ("Fall Strands (R height)", Category("Fall"), Intent(Mask)) = "white"
+        Float       FallStrandTileWidth ("Fall Strand Tile Across (cm)", Range(5,1000), Category("Fall")) = 120
+        Float       FallStrandTileLength ("Fall Strand Tile Along (cm)", Range(5,4000), Category("Fall")) = 360
+        Float       FallTearStartSpeed ("Fall Tears From (cm/s)", Range(0,5000), Category("Fall")) = 250
+        Float       FallTearEndSpeed ("Fall Torn At (cm/s)", Range(0,5000), Category("Fall")) = 900
+        Float       FallLipThickness ("Fall Lip Thickness (cm)", Range(1,200), Category("Fall")) = 25
+        Float       FallEdgeFray ("Fall Edge Fray (cm)", Range(0,500), Category("Fall")) = 60
         Float       DebugFoamMask ("Debug: Foam Mask Only", Range(0,1), Category("Debug")) = 0
     }
 
@@ -159,6 +166,27 @@ Shader "WaterSurface"
             w.FoamAlbedo             = Material.FoamAlbedo;
             w.DebugFoamMask          = Material.DebugFoamMask;
             w.WindRippleMaxGain      = Material.WindRippleMaxGain;
+            // A fall's strands (T_WaterFallStrands): the mask carried down the sheet by the falling water, two-phase
+            // as the foam, read at the pixel and a 32nd of a tile across (its slope bends the sheet's normal).
+            w.FallStrands = vec2( 0.5, 0.0 );
+            w.FallShape   = vec4( Material.FallTearStartSpeed, Material.FallTearEndSpeed, Material.FallLipThickness,
+                                  Material.FallEdgeFray );
+#ifdef WATER_MAX_WAVES
+            if ( WaterTileIsFall( i.VertexColor.b ) )
+            {
+                const vec2  tile = max( vec2( Material.FallStrandTileWidth, Material.FallStrandTileLength ), vec2( 1.0 ) );
+                const vec2  e    = vec2( tile.x / 32.0, 0.0 );
+                vec2  s0, s1;
+                float sw1;
+                WaterFlowPhases( WaterFlowCoord( vec2( 0.0 ), i.UV0, i.VertexColor ), i.VertexColor, i.Time, s0, s1,
+                                 sw1 );
+                const float h = mix( SurfaceSampleMaterial( Material.FallStrands, s0 / tile ).r,
+                                     SurfaceSampleMaterial( Material.FallStrands, s1 / tile ).r, sw1 );
+                const float x = mix( SurfaceSampleMaterial( Material.FallStrands, ( s0 + e ) / tile ).r,
+                                     SurfaceSampleMaterial( Material.FallStrands, ( s1 + e ) / tile ).r, sw1 );
+                w.FallStrands = vec2( h, ( x - h ) / e.x );
+            }
+#endif
             return w;
         }
     }

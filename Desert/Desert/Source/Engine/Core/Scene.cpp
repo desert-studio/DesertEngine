@@ -1869,6 +1869,8 @@ namespace Desert::Core
         // A reload is a new hierarchy: every cache derived from the old one is dropped.
         m_HierarchyRevision.Bump();
         m_Registry.ctx_or_set<ECS::HierarchyRevisionLink>().Revision = &m_HierarchyRevision;
+        // The scene's settings (gravity, ...) for the readers that have only the registry (Core::SceneSettingsLink).
+        m_Registry.ctx_or_set<Core::SceneSettingsLink>().Settings = m_Settings.get();
     }
 
     void Scene::OnTransformWorldPending( entt::registry& registry, entt::entity entity )

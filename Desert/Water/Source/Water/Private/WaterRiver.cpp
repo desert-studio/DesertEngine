@@ -98,55 +98,276 @@ namespace Desert::Water
             return runs;
         }
 
-        // A steep run's sheet: its samples plus one flat sample of overlap at each end (where the spline has
-        // one), so the sheet starts on the river's surface above the lip and ends on the water below the foot.
+        // THE VELOCITY FROM THE DROP: the water leaves the lip at the river's @p flowSpeed (cm/s) and gains by
+        // falling, v^2 = v0^2 + 2 g dh (@p drop cm below the lip, @p gravity cm/s^2: the scene's). A slide on the bed
+        // is frictionless, so the same rule holds on a chute.
+        float RiverFallSpeed( const float flowSpeed, const float drop, const float gravity ) noexcept
+        {
+            return std::sqrt( flowSpeed * flowSpeed + 2.0f * std::max( gravity, 0.0f ) * std::max( drop, 0.0f ) );
+        }
+
+        // The march's horizontal step (cm) and its bound (a fall flies at most this far, cm).
+        constexpr float kFlightStepCm   = 5.0f;
+        constexpr float kFlightMaxRunCm = 100000.0f;
+
+        // One point of the march: flight time, horizontal distance from the lip, height, velocity.
+        struct FlightPoint
+        {
+            float T = 0.0f;
+            float S = 0.0f;
+            float Y = 0.0f;
+            float Vh = 0.0f; // horizontal speed along the river's XZ path, cm/s
+            float Vy = 0.0f; // vertical, cm/s (< 0 falling)
+        };
+
+        // The river's XZ path from a steep run's lip: the spline's samples over the run (bed heights known), then
+        // straight on along the run's last direction (no bed: the level below is water, the flight plunges in).
+        struct BedPath
+        {
+            std::vector<glm::vec2> Xz;
+            std::vector<float>     S; // horizontal distance from the lip
+            std::vector<float>     Y; // the bed (the spline's height)
+            glm::vec2              Out{ 1.0f, 0.0f };
+
+            glm::vec2 XzAt( const float s ) const noexcept
+            {
+                if ( s >= S.back() )
+                    return Xz.back() + Out * ( s - S.back() );
+                const size_t k = static_cast<size_t>( std::upper_bound( S.begin(), S.end(), s ) - S.begin() );
+                const size_t a = k > 0 ? k - 1 : 0;
+                const float  l = S[a + 1] - S[a];
+                return glm::mix( Xz[a], Xz[a + 1], l > 0.0f ? ( s - S[a] ) / l : 0.0f );
+            }
+            glm::vec2 DirectionAt( const float s ) const noexcept
+            {
+                if ( s >= S.back() )
+                    return Out;
+                const size_t k = static_cast<size_t>( std::upper_bound( S.begin(), S.end(), s ) - S.begin() );
+                const size_t a = k > 0 ? k - 1 : 0;
+                const glm::vec2 d = Xz[a + 1] - Xz[a];
+                const float     l = glm::length( d );
+                return l > 1e-6f ? d / l : Out;
+            }
+            // The bed's height and slope (dy/ds) at @p s; nullopt past the run (no bed).
+            std::optional<glm::vec2> BedAt( const float s ) const noexcept
+            {
+                if ( s > S.back() )
+                    return std::nullopt;
+                const size_t k = static_cast<size_t>( std::upper_bound( S.begin(), S.end(), s ) - S.begin() );
+                const size_t a = std::min( k > 0 ? k - 1 : 0, S.size() - 2 );
+                const float  l = S[a + 1] - S[a];
+                if ( !( l > 1e-3f ) )
+                    return glm::vec2( std::min( Y[a], Y[a + 1] ), -1e6f ); // a vertical stretch: a wall
+                return glm::vec2( glm::mix( Y[a], Y[a + 1], ( s - S[a] ) / l ), ( Y[a + 1] - Y[a] ) / l );
+            }
+        };
+
+        // A steep run's fall: the water's flight from the lip (horizontal at flowSpeed, under gravity, sliding on
+        // the bed where the bed stands above the flight) down to kRiverFallPlungeCm under the level below the run,
+        // sampled kRiverFallSheetSamples times uniformly in flight time after one flat sample of overlap on the
+        // river above the lip; then its plunge where the flight meets the level below.
         RiverFall MakeFall( const std::vector<Sample>& samples, const std::pair<size_t, size_t> run,
-                            const float width, const float flowSpeed ) noexcept
+                            const float width, const float flowSpeed, const float gravity ) noexcept
         {
             RiverFall     fall;
-            const size_t  first  = run.first > 0 ? run.first - 1 : run.first;
-            const size_t  last   = std::min( run.second + 2, samples.size() - 1 );
-            const float   lipY   = samples[run.first].Y;
-            const Sample& foot   = samples[run.second + 1];
-            fall.Width           = width;
-            fall.FlowSpeed       = flowSpeed;
-            fall.Lip             = glm::vec3( samples[run.first].Position.x, lipY, samples[run.first].Position.y );
-            fall.Foot            = glm::vec3( foot.Position.x, foot.Y, foot.Position.y );
-            fall.Height          = lipY - foot.Y;
-            fall.LipFlowDistance = samples[first].Distance;
+            const Sample& lip        = samples[run.first];
+            const float   lipY       = lip.Y;
+            const float   levelBelow = samples[run.second + 1].Y;
+            const float   v0         = std::max( flowSpeed, 0.0f );
+            fall.Width               = width;
+            fall.FlowSpeed           = v0;
+            fall.Lip                 = glm::vec3( lip.Position.x, lipY, lip.Position.y );
+            fall.Height              = lipY - levelBelow;
             // Across the sheet: the river's width direction at the lip (its XZ direction turned a quarter).
-            const glm::vec2 d = samples[run.first].Direction;
+            const glm::vec2 d = lip.Direction;
             fall.Across = glm::length( d ) > 1e-6f ? glm::vec3( -d.y, 0.0f, d.x ) : glm::vec3( 1.0f, 0.0f, 0.0f );
-            float distance = 0.0f;
-            for ( size_t k = first; k <= last; ++k )
+
+            BedPath bed;
+            for ( size_t k = run.first; k <= run.second + 1; ++k )
             {
+                bed.S.push_back( bed.Xz.empty() ? 0.0f
+                                                : bed.S.back() + glm::distance( bed.Xz.back(), samples[k].Position ) );
+                bed.Xz.push_back( samples[k].Position );
+                bed.Y.push_back( samples[k].Y );
+            }
+            const glm::vec2 out = samples[run.second + 1].Direction;
+            bed.Out = glm::length( out ) > 1e-6f ? out : ( glm::length( d ) > 1e-6f ? d : glm::vec2( 1.0f, 0.0f ) );
+
+            // THE MARCH: one kFlightStepCm of path per step (free flight, or the bed's slope while sliding).
+            std::vector<FlightPoint> path;
+            FlightPoint              p{ .T = 0.0f, .S = 0.0f, .Y = lipY, .Vh = v0, .Vy = 0.0f };
+            path.push_back( p );
+            const float end = levelBelow - kRiverFallPlungeCm;
+            while ( p.Y > end && p.S < kFlightMaxRunCm )
+            {
+                const float speed = std::sqrt( p.Vh * p.Vh + p.Vy * p.Vy );
+                const float dt    = kFlightStepCm / std::max( speed, 1.0f );
+                p.S += p.Vh * dt;
+                p.Y += p.Vy * dt - 0.5f * gravity * dt * dt;
+                p.Vy -= gravity * dt;
+                p.T += dt;
+                if ( const std::optional<glm::vec2> b = bed.BedAt( p.S ); b && b->x > p.Y )
+                {
+                    // On the bed: the water slides down it at the speed its drop gives, along its slope.
+                    p.Y               = b->x;
+                    const float v     = RiverFallSpeed( v0, lipY - p.Y, gravity );
+                    const float slope = b->y;
+                    const float n     = std::sqrt( 1.0f + slope * slope );
+                    p.Vh              = v / n;
+                    p.Vy              = v * slope / n;
+                }
+                path.push_back( p );
+            }
+
+            // The flight at time @p t (linear between the march's points).
+            const auto at = [&path]( const float t ) noexcept
+            {
+                const auto it = std::lower_bound( path.begin(), path.end(), t,
+                                                  []( const FlightPoint& a, const float v ) { return a.T < v; } );
+                if ( it == path.begin() )
+                    return path.front();
+                if ( it == path.end() )
+                    return path.back();
+                const FlightPoint& a = *( it - 1 );
+                const FlightPoint& b = *it;
+                const float        f = b.T > a.T ? ( t - a.T ) / ( b.T - a.T ) : 0.0f;
+                return FlightPoint{ .T  = t,
+                                    .S  = glm::mix( a.S, b.S, f ),
+                                    .Y  = glm::mix( a.Y, b.Y, f ),
+                                    .Vh = glm::mix( a.Vh, b.Vh, f ),
+                                    .Vy = glm::mix( a.Vy, b.Vy, f ) };
+            };
+            const auto sampleOf = [&]( const FlightPoint& f ) noexcept
+            {
+                const glm::vec2 xz  = bed.XzAt( f.S );
+                const glm::vec2 dir = bed.DirectionAt( f.S );
                 RiverFallSample sample;
-                sample.Position = glm::vec3( samples[k].Position.x, samples[k].Y, samples[k].Position.y );
-                if ( !fall.Samples.empty() )
-                    distance += glm::distance( fall.Samples.back().Position, sample.Position );
-                sample.Distance = distance;
-                sample.Drop     = std::max( lipY - samples[k].Y, 0.0f );
-                fall.Samples.push_back( sample );
-            }
-            // Each sample's direction: down the centre line (central difference, one-sided at the ends).
-            for ( size_t k = 0; k < fall.Samples.size(); ++k )
+                sample.Position     = glm::vec3( xz.x, f.Y, xz.y );
+                const glm::vec3 v   = glm::vec3( dir.x * f.Vh, f.Vy, dir.y * f.Vh );
+                const float     len = glm::length( v );
+                sample.Direction    = len > 1e-6f ? v / len : glm::vec3( 0.0f, -1.0f, 0.0f );
+                sample.Drop         = std::max( lipY - f.Y, 0.0f );
+                sample.Speed        = RiverFallSpeed( v0, sample.Drop, gravity );
+                return sample;
+            };
+
+            // The overlap sample on the river above the lip (the spline's, or a texel upstream along the flow).
+            RiverFallSample overlap;
+            if ( run.first > 0 )
             {
-                const glm::vec3 a         = fall.Samples[k > 0 ? k - 1 : k].Position;
-                const glm::vec3 b         = fall.Samples[std::min( k + 1, fall.Samples.size() - 1 )].Position;
-                const float     l         = glm::distance( a, b );
-                fall.Samples[k].Direction = l > 1e-6f ? ( b - a ) / l : glm::vec3( 0.0f, -1.0f, 0.0f );
+                const Sample& up     = samples[run.first - 1];
+                overlap.Position     = glm::vec3( up.Position.x, up.Y, up.Position.y );
+                fall.LipFlowDistance = up.Distance;
             }
+            else
+            {
+                const glm::vec2 xz   = lip.Position - bed.DirectionAt( 0.0f ) * kRiverFlowCmPerTexel;
+                overlap.Position     = glm::vec3( xz.x, lipY, xz.y );
+                fall.LipFlowDistance = lip.Distance - kRiverFlowCmPerTexel;
+            }
+            const glm::vec3 toLip = fall.Lip - overlap.Position;
+            overlap.Direction     = glm::length( toLip ) > 1e-6f ? glm::normalize( toLip ) : glm::vec3( 1, 0, 0 );
+            overlap.Speed         = v0;
+            fall.Samples.push_back( overlap );
+            const float tEnd = path.back().T;
+            for ( uint32_t k = 0; k < kRiverFallSheetSamples; ++k )
+                fall.Samples.push_back( sampleOf(
+                     at( tEnd * static_cast<float>( k ) / static_cast<float>( kRiverFallSheetSamples - 1u ) ) ) );
+            for ( size_t k = 1; k < fall.Samples.size(); ++k )
+                fall.Samples[k].Distance = fall.Samples[k - 1].Distance +
+                                           glm::distance( fall.Samples[k - 1].Position, fall.Samples[k].Position );
+
+            // THE PLUNGE: where the flight crosses the level below.
+            FlightPoint landing = path.back();
+            for ( size_t k = 1; k < path.size(); ++k )
+                if ( path[k].Y <= levelBelow )
+                {
+                    const FlightPoint& a = path[k - 1];
+                    const FlightPoint& b = path[k];
+                    landing = at( glm::mix( a.T, b.T, b.Y < a.Y ? ( a.Y - levelBelow ) / ( a.Y - b.Y ) : 0.0f ) );
+                    break;
+                }
+            const glm::vec2 footXz       = bed.XzAt( landing.S );
+            fall.Foot                    = glm::vec3( footXz.x, levelBelow, footXz.y );
+            fall.Plunge.Foot             = fall.Foot;
+            fall.Plunge.Across           = fall.Across;
+            fall.Plunge.Downstream       = bed.DirectionAt( landing.S );
+            fall.Plunge.HalfWidth        = 0.5f * width;
+            fall.Plunge.Radius           = fall.Plunge.HalfWidth + kPlungeRadiusPerDrop * fall.Height;
+            fall.Plunge.LandingSpeed     = RiverFallSpeed( v0, fall.Height, gravity );
+            fall.Plunge.OutflowSpeed     = kPlungeOutflowShare * fall.Plunge.LandingSpeed;
             return fall;
+        }
+
+        // Whether @p xz lies under a fall's flight (between its lip and its plunge, within its half width).
+        bool UnderFlight( const RiverFall& fall, const glm::vec2 xz ) noexcept
+        {
+            const glm::vec2 across = glm::vec2( fall.Across.x, fall.Across.z );
+            for ( size_t k = 1; k + 1 < fall.Samples.size(); ++k )
+            {
+                const glm::vec2 a  = glm::vec2( fall.Samples[k].Position.x, fall.Samples[k].Position.z );
+                const glm::vec2 b  = glm::vec2( fall.Samples[k + 1].Position.x, fall.Samples[k + 1].Position.z );
+                const glm::vec2 ab = b - a;
+                const float     l2 = glm::dot( ab, ab );
+                const float     u  = l2 > 0.0f ? glm::dot( xz - a, ab ) / l2 : 0.0f;
+                if ( u < 0.0f || u > 1.0f )
+                    continue;
+                if ( std::abs( glm::dot( xz - ( a + u * ab ), across ) ) < 0.5f * fall.Width )
+                    return true;
+            }
+            return false;
+        }
+
+        // The swept ribbon's bounds over samples [0, count): half the width out from every sample.
+        RiverFootprint FootprintOf( const std::vector<Sample>& samples, const size_t count, const float width ) noexcept
+        {
+            RiverFootprint box{ .Min = glm::vec2( 1.0f ), .Max = glm::vec2( 0.0f ) };
+            if ( count == 0 || !( width > 0.0f ) )
+                return box;
+            box.Min = glm::vec2( std::numeric_limits<float>::max() );
+            box.Max = glm::vec2( std::numeric_limits<float>::lowest() );
+            for ( size_t s = 0; s < count; ++s )
+            {
+                box.Min = glm::min( box.Min, samples[s].Position );
+                box.Max = glm::max( box.Max, samples[s].Position );
+            }
+            box.Min -= glm::vec2( 0.5f * width );
+            box.Max += glm::vec2( 0.5f * width );
+            return box;
+        }
+
+        // THE MOUTH: the first sample at or downstream of the last fall's foot (of the spline's start with no
+        // fall) inside a receiver's footprint at or below its level + kRiverMouthToleranceCm.
+        std::optional<std::pair<size_t, RiverMouth>> FindMouth( const std::vector<Sample>&             samples,
+                                                                const std::vector<std::pair<size_t, size_t>>& runs,
+                                                                const std::vector<RiverFall>&           falls,
+                                                                const std::span<const RiverReceiver>    receivers,
+                                                                const float width ) noexcept
+        {
+            const size_t first = runs.empty() ? 1 : runs.back().second + 1;
+            for ( size_t s = first; s < samples.size(); ++s )
+                for ( const RiverReceiver& receiver : receivers )
+                {
+                    const glm::vec2 p = samples[s].Position;
+                    if ( p.x < receiver.Min.x || p.y < receiver.Min.y || p.x > receiver.Max.x || p.y > receiver.Max.y ||
+                         samples[s].Y > receiver.Level + kRiverMouthToleranceCm )
+                        continue;
+                    RiverMouth mouth{ .Into = receiver.Id, .Point = p, .Radius = width };
+                    if ( !falls.empty() )
+                    {
+                        const FallPlunge& plunge = falls.back().Plunge;
+                        const glm::vec2   foot   = glm::vec2( plunge.Foot.x, plunge.Foot.z );
+                        mouth.Radius = glm::dot( p - foot, plunge.Downstream ) <= 0.0f
+                                            ? 0.0f
+                                            : std::min( width, glm::distance( p, foot ) );
+                    }
+                    return std::make_pair( s, mouth );
+                }
+            return std::nullopt;
         }
     } // namespace
 
-    float RiverFallSpeed( const float flowSpeed, const float drop, const float gravity ) noexcept
-    {
-        return std::sqrt( flowSpeed * flowSpeed + 2.0f * std::max( gravity, 0.0f ) * std::max( drop, 0.0f ) );
-    }
-
-    std::optional<RiverFallHit> RiverFallAt( const RiverFlowField& field, const glm::vec3& point,
-                                             const float gravity ) noexcept
+    std::optional<RiverFallHit> RiverFallAt( const RiverFlowField& field, const glm::vec3& point ) noexcept
     {
         std::optional<RiverFallHit> best;
         float                       bestDistance = 0.5f * kRiverFallSheetThicknessCm;
@@ -175,14 +396,35 @@ namespace Desert::Water
                 bestDistance = std::abs( off );
                 if ( off < 0.0f )
                     normal = -normal;
-                const float drop = a.Drop + u * ( b.Drop - a.Drop );
-                best             = RiverFallHit{ .SheetPoint = centre + across * fall.Across,
-                                                 .Normal     = normal,
-                                                 .Velocity =
-                                          glm::normalize( ab ) * RiverFallSpeed( fall.FlowSpeed, drop, gravity ),
-                                                 .Immersion = 0.5f * kRiverFallSheetThicknessCm - std::abs( off ) };
+                best = RiverFallHit{ .SheetPoint = centre + across * fall.Across,
+                                     .Normal     = normal,
+                                     .Velocity   = glm::normalize( ab ) * glm::mix( a.Speed, b.Speed, u ),
+                                     .Immersion  = 0.5f * kRiverFallSheetThicknessCm - std::abs( off ) };
             }
         return best;
+    }
+
+    glm::vec2 PlungeVelocityAt( const FallPlunge& plunge, const glm::vec2 xz ) noexcept
+    {
+        const glm::vec2 foot = glm::vec2( plunge.Foot.x, plunge.Foot.z );
+        const float     d    = glm::distance( xz, foot );
+        if ( !( plunge.Radius > 0.0f ) || d >= plunge.Radius )
+            return glm::vec2( 0.0f );
+        // Away from the landing line (the segment Foot +- Across * HalfWidth); downstream on the line itself.
+        const glm::vec2 across = glm::vec2( plunge.Across.x, plunge.Across.z );
+        const float     along  = std::clamp( glm::dot( xz - foot, across ), -plunge.HalfWidth, plunge.HalfWidth );
+        const glm::vec2 away   = xz - ( foot + along * across );
+        const float     l      = glm::length( away );
+        const glm::vec2 dir    = l > 1e-3f ? away / l : plunge.Downstream;
+        const float     fade   = 1.0f - d / plunge.Radius;
+        return dir * ( plunge.OutflowSpeed * fade * fade );
+    }
+
+    float RiverMouthWeight( const RiverFlowField& field, const glm::vec2 xz ) noexcept
+    {
+        if ( !field.Mouth || !( field.Mouth->Radius > 0.0f ) )
+            return 0.0f;
+        return std::clamp( 1.0f - glm::distance( xz, field.Mouth->Point ) / field.Mouth->Radius, 0.0f, 1.0f );
     }
 
     // UE: USplineComponent's default CurveMode is cubic Hermite with Catmull-Rom (auto) tangents - the same curve.
@@ -214,19 +456,10 @@ namespace Desert::Water
 
     RiverFootprint ComputeRiverFootprint( const std::span<const glm::vec3> points, const float width ) noexcept
     {
-        RiverFootprint box{ .Min = glm::vec2( 1.0f ), .Max = glm::vec2( 0.0f ) };
-        if ( points.size() < 2 || !( width > 0.0f ) )
-            return box;
-        box.Min = glm::vec2( std::numeric_limits<float>::max() );
-        box.Max = glm::vec2( std::numeric_limits<float>::lowest() );
-        for ( const Sample& sample : SampleSpline( points ) )
-        {
-            box.Min = glm::min( box.Min, sample.Position );
-            box.Max = glm::max( box.Max, sample.Position );
-        }
-        box.Min -= glm::vec2( 0.5f * width );
-        box.Max += glm::vec2( 0.5f * width );
-        return box;
+        if ( points.size() < 2 )
+            return RiverFootprint{ .Min = glm::vec2( 1.0f ), .Max = glm::vec2( 0.0f ) };
+        const std::vector<Sample> samples = SampleSpline( points );
+        return FootprintOf( samples, samples.size(), width );
     }
 
     glm::vec3 SampleRiverFlowBilinear( const RiverFlowField& field, const glm::vec2 xz ) noexcept
@@ -288,11 +521,26 @@ namespace Desert::Water
     }
 
     RiverFlowField BakeRiverFlow( const std::span<const glm::vec3> points, const float width,
-                                  const float flowSpeed, const float flowPeriod, const float cmPerTexel ) noexcept
+                                  const float flowSpeed, const float flowPeriod, const float cmPerTexel,
+                                  const float gravity, const std::span<const RiverReceiver> receivers ) noexcept
     {
         RiverFlowField field;
-        field.FlowPeriod         = flowPeriod > 0.0f ? flowPeriod : 1.0f;
-        const RiverFootprint box = ComputeRiverFootprint( points, width );
+        field.FlowPeriod = flowPeriod > 0.0f ? flowPeriod : 1.0f;
+        if ( points.size() < 2 || !( width > 0.0f ) )
+            return field;
+        const std::vector<Sample> samples = SampleSpline( points );
+        // THE FALLS (each steep run of stretches flown as a sheet, RiverFall) and THE MOUTH: the field stops at the
+        // mouth, the receiver owns the water beyond it (its tiles, its waves, its queries).
+        const std::vector<std::pair<size_t, size_t>> runs = SteepRuns( samples );
+        for ( const std::pair<size_t, size_t>& run : runs )
+            field.Falls.push_back( MakeFall( samples, run, width, flowSpeed, gravity ) );
+        size_t count = samples.size();
+        if ( const auto mouth = FindMouth( samples, runs, field.Falls, receivers, width ) )
+        {
+            field.Mouth = mouth->second;
+            count       = mouth->first + 1;
+        }
+        const RiverFootprint box = FootprintOf( samples, count, width );
         if ( !( box.Min.x < box.Max.x ) || !( box.Min.y < box.Max.y ) )
             return field;
 
@@ -309,19 +557,18 @@ namespace Desert::Water
         field.SurfaceHeightCm.assign( field.Texels.size(), 0.0f );
 
         // The nearest polyline segment per texel, rasterised segment by segment over the texels its swept box
-        // touches (cost ~ the ribbon's area, not texels x samples).
-        const std::vector<Sample> samples   = SampleSpline( points );
+        // touches (cost ~ the ribbon's area, not texels x samples), up to the mouth.
         const float               halfWidth = 0.5f * width;
         const glm::vec2           step      = extent / glm::vec2( field.Size );
         std::vector<float>        nearest( field.Texels.size(), std::numeric_limits<float>::max() );
         // The stretch each texel took its values from: a texel nearest a steep stretch lies under a fall's sheet.
         std::vector<uint32_t> owner( field.Texels.size(), std::numeric_limits<uint32_t>::max() );
         double                sumY = 0.0;
-        for ( const Sample& sample : samples )
-            sumY += sample.Y;
-        field.SurfaceY = static_cast<float>( sumY / static_cast<double>( samples.size() ) );
+        for ( size_t s = 0; s < count; ++s )
+            sumY += samples[s].Y;
+        field.SurfaceY = static_cast<float>( sumY / static_cast<double>( count ) );
 
-        for ( size_t s = 0; s + 1 < samples.size(); ++s )
+        for ( size_t s = 0; s + 1 < count; ++s )
         {
             const Sample&   a   = samples[s];
             const Sample&   b   = samples[s + 1];
@@ -360,22 +607,25 @@ namespace Desert::Water
                     field.SurfaceHeightCm[i] = glm::mix( a.Y, b.Y, u );
                 }
         }
-        // THE FALLS: each steep run of stretches is a waterfall's sheet (RiverFall), and the texels it owns are no
-        // level surface - no bank mask, no level - so neither the quadtree's river tiles nor a CPU query lay a
-        // flat surface across the drop: the sheet is drawn there (WaterRenderer's fall rows) and answered there
-        // (RiverFallAt).
-        const std::vector<std::pair<size_t, size_t>> runs = SteepRuns( samples );
-        for ( const std::pair<size_t, size_t>& run : runs )
-            field.Falls.push_back( MakeFall( samples, run, width, flowSpeed ) );
+        // Under a fall, no level surface - no bank mask, no level - so neither the quadtree's river tiles nor a
+        // CPU query lay a flat surface across the drop: the texels a steep stretch owns and the texels under the
+        // flight are the sheet's (WaterRenderer's fall rows draw it, RiverFallAt answers it).
         if ( !runs.empty() )
             for ( size_t i = 0; i < field.Texels.size(); ++i )
-                for ( const std::pair<size_t, size_t>& run : runs )
-                    if ( owner[i] >= run.first && owner[i] <= run.second )
+            {
+                const glm::vec2 centre =
+                     field.Min + ( glm::vec2( static_cast<float>( i % field.Size.x ), static_cast<float>( i / field.Size.x ) ) +
+                                  0.5f ) *
+                                    step;
+                for ( size_t r = 0; r < runs.size(); ++r )
+                    if ( ( owner[i] >= runs[r].first && owner[i] <= runs[r].second ) ||
+                         UnderFlight( field.Falls[r], centre ) )
                     {
                         field.Texels[i]          = glm::vec4( 0.0f );
                         field.SurfaceHeightCm[i] = 0.0f;
                         break;
                     }
+            }
 
         field.MinSurfaceY = std::numeric_limits<float>::max();
         field.MaxSurfaceY = std::numeric_limits<float>::lowest();
@@ -401,6 +651,17 @@ namespace Desert::Water
         mix( input.Width );
         mix( input.FlowSpeed );
         mix( input.FlowPeriod );
+        mix( input.Gravity );
+        key = ( key ^ input.Receivers.size() ) * 1099511628211ull;
+        for ( const RiverReceiver& receiver : input.Receivers )
+        {
+            key = ( key ^ receiver.Id ) * 1099511628211ull;
+            mix( receiver.Min.x );
+            mix( receiver.Min.y );
+            mix( receiver.Max.x );
+            mix( receiver.Max.y );
+            mix( receiver.Level );
+        }
         key = ( key ^ input.LocalPoints.size() ) * 1099511628211ull;
         for ( const glm::vec3& p : input.LocalPoints )
         {
@@ -417,6 +678,7 @@ namespace Desert::Water
         for ( glm::vec3& p : world )
             p += input.Origin;
         return std::make_shared<const RiverFlowField>(
-             BakeRiverFlow( world, input.Width, input.FlowSpeed, input.FlowPeriod, kRiverFlowCmPerTexel ) );
+             BakeRiverFlow( world, input.Width, input.FlowSpeed, input.FlowPeriod, kRiverFlowCmPerTexel,
+                            input.Gravity, input.Receivers ) );
     }
 } // namespace Desert::Water

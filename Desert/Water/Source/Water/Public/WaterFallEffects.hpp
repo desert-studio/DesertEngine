@@ -8,9 +8,7 @@
 
 #include <cstdint>
 #include <map>
-#include <memory>
 #include <tuple>
-#include <unordered_map>
 
 namespace Desert::Water
 {
@@ -19,13 +17,17 @@ namespace Desert::Water
     inline constexpr float kFallFullIntensitySpeed = 1500.0f;
 
     /**
-     * @brief The effects a scene's river falls play at their foot (UE Water spawns a body's Niagara systems by code
-     *        the same way): for every fall of every visible river one transient entity per .dfx the river names
-     *        (WaterBodyData::FallFoam / FallSpray / FallMist).
+     * @brief The effects a scene's river falls play (UE Water spawns a body's Niagara systems by code the same way):
+     *        for every fall of every visible river one transient entity per asset the river names
+     *        (WaterBodyData::FallSpray / FallMist / FallSound). The falls are the world's bakes
+     *        (ECS::WaterRiverBakes::Find); nothing is baked here.
      *
-     * An entity stands at the fall's foot, X along the sheet, with the sheet's width as User.Extent and the landing
-     * speed as its spawn share. It follows the bake, and goes when its fall, river or asset does. A root of the
-     * scene, never the river's child: a child would be the river's subtree in its documents.
+     * The spray and the mist stand at the plunge's foot (Water::FallPlunge), X across the landing line, with
+     * (Width, 0, Radius) as User.Extent and the landing speed as their spawn share. The sound is an
+     * AudioSourceComponent as loud as the water lands fast, moved every tick to the point of the sheet nearest the
+     * active camera (the listener), so a wide fall sounds as wide as it is. An entity follows the bake and goes
+     * when its fall, river or asset does. A root of the scene, never the river's child: a child would be the
+     * river's subtree in its documents.
      */
     class WaterFallEffects final : public Core::ISceneModuleState
     {
@@ -35,11 +37,6 @@ namespace Desert::Water
         void Clear() override;
 
     private:
-        struct River
-        {
-            uint64_t                              Key = 0u;
-            std::shared_ptr<const RiverFlowField> Flow;
-        };
         struct Effect
         {
             entt::entity Entity = entt::null;
@@ -49,8 +46,7 @@ namespace Desert::Water
         // The river's entity, the fall's index on it, the effect's kind.
         using EffectKey = std::tuple<entt::entity, uint32_t, uint32_t>;
 
-        std::unordered_map<entt::entity, River> m_Rivers;
-        std::map<EffectKey, Effect>             m_Effects;
-        uint64_t                                m_Tick = 0u;
+        std::map<EffectKey, Effect> m_Effects;
+        uint64_t                    m_Tick = 0u;
     };
 } // namespace Desert::Water

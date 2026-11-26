@@ -91,8 +91,9 @@ namespace Desert::Graphic::System
             // -1 for an ocean drawn under a river's cut leaf (Water::WaterTileInstance::UnderRiver),
             // z = 1 + its wave set in WaterWavesBlock::Sets (0 = flat), w = the body's index in its zone.
             glm::vec4 Body;
-            // The tile's body's medium (WaterBodyLane::Medium): x unused, y = its river's two-phase flow
-            // period (s; 0 off a river), zw = a fall's speeds (PrepareTiles).
+            // The tile's body's medium (WaterBodyLane::Medium): y = its river's two-phase flow period (s; 0 off a
+            // river); on a river's tile x = its mouth's radius (cm; 0 = no receiver's waves, Water::RiverMouth) and
+            // zw = the mouth's world (X, Z); on a fall's row zw = the water's speeds at its two samples (cm/s).
             glm::vec4 Medium;
         };
         static_assert( sizeof( WaterTileRow ) == 5 * sizeof( glm::vec4 ), "std430 rows of five vec4" );
@@ -682,10 +683,15 @@ namespace Desert::Graphic::System
                 const std::shared_ptr<const Water::RiverFlowField>& flow =
                      b < bodies.Flows.size() ? bodies.Flows[b] : std::shared_ptr<const Water::RiverFlowField>{};
                 const float flowPeriod = river && flow != nullptr ? std::max( flow->FlowPeriod, 0.05f ) : 0.0f;
-                bodyLanes[z][b] =
-                     WaterBodyLane{ .Body   = glm::vec4( static_cast<float>( slot - frame->Materials.begin() ),
-                                                       river ? 1.0f : 0.0f, waveLane, static_cast<float>( b ) ),
-                                    .Medium = glm::vec4( 0.0f, flowPeriod, 0.0f, 0.0f ) };
+                // A river that ends in an ocean carries that ocean's lane (WaveLanes, WaterZoneECSSystem) faded in
+                // over its mouth's radius (WaterMouthWeight); a river with no mouth has radius 0: no waves.
+                const std::optional<Water::RiverMouth> mouth =
+                     river && flow != nullptr ? flow->Mouth : std::optional<Water::RiverMouth>{};
+                bodyLanes[z][b] = WaterBodyLane{
+                     .Body   = glm::vec4( static_cast<float>( slot - frame->Materials.begin() ), river ? 1.0f : 0.0f,
+                                          waveLane, static_cast<float>( b ) ),
+                     .Medium = mouth ? glm::vec4( mouth->Radius, flowPeriod, mouth->Point.x, mouth->Point.y )
+                                     : glm::vec4( 0.0f, flowPeriod, 0.0f, 0.0f ) };
                 // Every body that draws this frame (WATER-CAUSTICS: its footprint, still level and wave set).
                 m_FrameBodies.push_back( bodies.Footprints[b] );
                 m_FrameBodyWaveLanes.push_back( waveLane );
@@ -803,7 +809,7 @@ namespace Desert::Graphic::System
         for ( size_t index = 0; index < table->Lanes.size() && fft && fftSet < 0; ++index )
             if ( waves.Sets[index].Header.y > 0.5f )
                 fftSet = static_cast<int32_t>( index );
-        PrepareFoam( stamp, observer, fftSet, shore, waves.FoamOrigin, waves.FoamShape );
+        PrepareFoam( stamp, observer, fftSet, shore, rivers, waves.FoamOrigin, waves.FoamShape );
         m_Upload.resize( sizeof( WaterWavesBlock ) );
         std::memcpy( m_Upload.data(), &waves, sizeof( WaterWavesBlock ) );
 
@@ -1153,7 +1159,8 @@ namespace Desert::Graphic::System
 
             // A RIVER'S FALLS (Water::RiverFall, its bake's steep reaches): one row per stretch of each fall's sheet
             // (Body.y = 2; Vertex_WaterMesh.glslh WaterFallVertex), drawn by the river's own template and material,
-            // its water's speed from the slope (Water::RiverFallSpeed under the scene's gravity, as the CPU query).
+            // its water's speed the bake's (RiverFallSample::Speed, the flight under the scene's gravity, as the CPU
+            // query's).
             constexpr uint32_t kFallQuadsPerSide = 4u;
             for ( size_t b = 0; b < bodies.size() && b < zone.Bodies->Flows.size(); ++b )
             {
@@ -1192,9 +1199,7 @@ namespace Desert::Graphic::System
                                                 static_cast<float>( kFallQuadsPerSide ) );
                         row.Body   = body.Body;
                         row.Body.y = 2.0f;
-                        row.Medium = glm::vec4( body.Medium.x, body.Medium.y,
-                                                Water::RiverFallSpeed( fall.FlowSpeed, a.Drop, zone.Gravity ),
-                                                Water::RiverFallSpeed( fall.FlowSpeed, c.Drop, zone.Gravity ) );
+                        row.Medium = glm::vec4( body.Medium.x, body.Medium.y, a.Speed, c.Speed );
                         const size_t at = m_Upload.size();
                         m_Upload.resize( at + sizeof( WaterTileRow ) );
                         std::memcpy( m_Upload.data() + at, &row, sizeof( WaterTileRow ) );

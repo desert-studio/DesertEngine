@@ -435,15 +435,27 @@ namespace Desert::Graphic::System
             glm::vec4 Decay{ 0.0f };     // x = foam, y = bubbles, z = wetness (s)
             glm::vec4 Drift{ 0.0f };     // xy = the wind's surface drift (cm/s)
         };
+        // One fall's plunge (WaterFoamUpdate.shader WaterFoamPlunge, std430; Water::FallPlunge): the white boil the
+        // fall lands in and the outflow that spreads its foam.
+        struct FoamPlunge
+        {
+            glm::vec4 FootRadius{ 0.0f }; // xyz = Foot, w = Radius (cm)
+            glm::vec4 AcrossHalf{ 0.0f }; // xy = Across.xz, z = HalfWidth (cm), w = OutflowSpeed (cm/s)
+            glm::vec4 Landing{ 0.0f };    // xy = Downstream, z = LandingSpeed (cm/s), w = 0
+        };
         struct FoamFrame
         {
             std::array<glm::ivec2, Water::kFoamLevels> Origin{};
             std::vector<FoamBody>                      Bodies;
+            // Every plunge of the frame's rivers whose boil reaches the outer window (no cap).
+            std::vector<FoamPlunge> Plunges;
         };
         // Places the windows around @p eye, reads every body's foam values and writes the waves block's foam lanes.
-        // @p fftSet: the wave set the FFT ocean draws (its wind drifts the foam), -1 none.
+        // @p fftSet: the wave set the FFT ocean draws (its wind drifts the foam), -1 none. @p rivers: the frame's
+        // river bakes, whose falls' plunges boil in the foam.
         void PrepareFoam( const MaterialStamp& stamp, const glm::vec3& eye, int32_t fftSet,
-                          const std::shared_ptr<const Water::WaterShoreField>& shore,
+                          const std::shared_ptr<const Water::WaterShoreField>&           shore,
+                          std::span<const std::shared_ptr<const Water::RiverFlowField>> rivers,
                           std::array<glm::vec4, 3>& origin, glm::vec4& shape );
         // What the passes read of a body's material (its look is the surface shader's own).
         struct BodyMaterialValues
@@ -585,7 +597,8 @@ namespace Desert::Graphic::System
         {
             // x = its material's row (-1 = not drawn), y = 1 for a river, z = 1 + its wave set, w = its index
             glm::vec4 Body{ -1.0f, 0.0f, 0.0f, 0.0f };
-            // y = its river's two-phase flow period (s; 0 off a river), zw = a fall's speeds
+            // y = its river's two-phase flow period (s; 0 off a river); a river's x = its mouth's radius (cm, 0 = no
+            // receiver's waves) and zw = the mouth's world (X, Z) (Water::RiverMouth); a fall's row's zw = its speeds
             glm::vec4 Medium{ 0.0f };
         };
         struct TileWalk

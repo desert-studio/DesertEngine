@@ -5,6 +5,7 @@
 #include <Water/Public/WaterBodyQuery.hpp>
 #include <Water/Public/WaterFallEffects.hpp>
 #include <Water/Public/WaterRenderer.hpp>
+#include <Water/Public/WaterRiverBakes.hpp>
 #include <Water/Public/WaterShoreFieldSource.hpp>
 #include <Water/Public/WaterWaveSources.hpp>
 #include <Water/Public/WaterWavesAsset.hpp>
@@ -73,9 +74,6 @@ namespace Desert::Water
                 // This frame's bodies over this frame's ground. The body list is retained (WaterBodyGather:
                 // re-walked only when a body is added, patched or removed) and its values read every frame, so a
                 // moved or edited body is the water at once; nothing is allocated in a steady frame.
-                // The scene's gravity (the physics world's, SceneSettings::Gravity): a river's fall accelerates
-                // by it (WaterBodyState::Gravity).
-                m_Water.SetGravity( m_World.GetGravity() );
                 // Bodies float on the surface the GPU drew: the world's one wave record, the renderer's.
                 const auto* const sources = registry.try_ctx<std::shared_ptr<ECS::WaterWaveSources>>();
                 if ( sources == nullptr )
@@ -240,6 +238,35 @@ namespace Desert::Water
         private:
             std::shared_ptr<ECS::WaterWaveSources> m_Sources;
         };
+
+        // The world's river bakes (ECS::WaterRiverBakes): made with the scene, in its registry's context, for every
+        // reader; refreshed by the module's Prepares hook. They end with the world's entities (Scene::Clear).
+        class WaterRiverBakesSceneState final : public Core::ISceneModuleState
+        {
+        public:
+            explicit WaterRiverBakesSceneState( entt::registry& registry )
+                 : m_Bakes( std::make_shared<ECS::WaterRiverBakes>() )
+            {
+                registry.set<std::shared_ptr<ECS::WaterRiverBakes>>( m_Bakes );
+            }
+
+            // Refreshed by the module's Prepares hook, before the frame's systems.
+            void Tick( Core::Scene& /*scene*/, entt::registry& /*registry*/, double /*seconds*/ ) override
+            {
+            }
+
+            void Reset() override
+            {
+            }
+
+            void Clear() override
+            {
+                m_Bakes->Reset();
+            }
+
+        private:
+            std::shared_ptr<ECS::WaterRiverBakes> m_Bakes;
+        };
     } // namespace
 
     void StartupModule()
@@ -296,7 +323,10 @@ namespace Desert::Water
                           std::make_shared<ECS::WaterShoreFieldSource>() );
                  // Once a frame, serially and before any system: the record every reader of the frame sees - a
                  // paste, an undo and a scene without a zone are validated here like a load.
-                 r.ctx<std::shared_ptr<ECS::WaterWaveSources>>()->Refresh( r );
+                 const auto& sources = r.ctx<std::shared_ptr<ECS::WaterWaveSources>>();
+                 sources->Refresh( r );
+                 // Then the rivers' bakes (their receivers are the oceans the wave record did not refuse).
+                 r.ctx<std::shared_ptr<ECS::WaterRiverBakes>>()->Refresh( r, *sources );
              } );
         hooks.SceneLoadChecks.push_back(
              []( const Core::Scene& scene, std::string_view /*sceneName*/ )
@@ -307,12 +337,14 @@ namespace Desert::Water
              } );
         hooks.SceneStates.push_back( []( entt::registry& registry ) -> std::unique_ptr<Core::ISceneModuleState>
                                      { return std::make_unique<WaterWaveSceneState>( registry ); } );
-        // The foam, spray and mist at the foot of every river's falls.
+        hooks.SceneStates.push_back( []( entt::registry& registry ) -> std::unique_ptr<Core::ISceneModuleState>
+                                     { return std::make_unique<WaterRiverBakesSceneState>( registry ); } );
+        // The spray, mist and sound of every river's falls.
         hooks.SceneStates.push_back( []( entt::registry& /*registry*/ ) -> std::unique_ptr<Core::ISceneModuleState>
                                      { return std::make_unique<WaterFallEffects>(); } );
         // The water zones and the bodies inside them (WATER-W6): one command per zone.
         hooks.WorldSystems.push_back( { "WaterZone", Core::WorldStage::ModuleDraw, 20, Core::kDrawnWorlds, false, false,
                                         []( Core::Scene& scene, const Core::WorldServices& /*services*/ )
-                                        { scene.AddSystem<ECS::WaterZoneECSSystem>( scene.GetSettings() ); } } );
+                                        { scene.AddSystem<ECS::WaterZoneECSSystem>(); } } );
     }
 } // namespace Desert::Water

@@ -183,4 +183,12 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Splash Fade" ), Category( "Splash" ), Range( 0.0f, 3.0f ) )
         float SplashFade = 0.4f;
     };
+
+    // The registry context's link to its Scene's settings (registry.ctx holds a pointer, as HierarchyRevisionLink
+    // does: the Scene owns the settings and outlives its registry's systems). Set by Scene on every (re)load; a bare
+    // registry has none, and a reader that needs a setting refuses rather than assume one.
+    struct SceneSettingsLink
+    {
+        const SceneSettings* Settings = nullptr;
+    };
 } // namespace Desert::Core

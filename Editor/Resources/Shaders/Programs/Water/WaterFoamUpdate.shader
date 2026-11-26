@@ -18,6 +18,7 @@ Shader "WaterFoamUpdate"
             vec4 FoamPrevious[3]; // xy = the history's window origins
             vec4 FoamTime;        // x = the time (s), y = since the history (s), z = 1 with a history, w = the bodies
             vec4 FoamChanged;     // the world rectangle the history does not stand in (min, max); min > max: none
+            vec4 FoamPlungeCount; // x = the plunges in FoamPlunges
         };
         Uniform(1) texture2D FoamHistoryTexture;
 
@@ -33,6 +34,17 @@ Shader "WaterFoamUpdate"
         layout( std430, binding = 2 ) readonly buffer WaterFoamBodies
         {
             WaterFoamBody FoamBodies[];
+        };
+        // One fall's plunge (Water::FallPlunge, System::WaterRenderer::FoamPlunge): the white boil and its outflow.
+        struct WaterFoamPlunge
+        {
+            vec4 FootRadius; // xyz = Foot, w = Radius (cm)
+            vec4 AcrossHalf; // xy = Across.xz, z = HalfWidth (cm), w = OutflowSpeed (cm/s)
+            vec4 Landing;    // xy = Downstream, z = LandingSpeed (cm/s), w = 0
+        };
+        layout( std430, binding = 3 ) readonly buffer WaterFoamPlunges
+        {
+            WaterFoamPlunge FoamPlunges[];
         };
 
         #define WATER_FOAM_FETCH( t ) texelFetch( FoamHistoryTexture, t, 0 )
@@ -106,6 +118,19 @@ Shader "WaterFoamUpdate"
             cover = max( cover, SpeedFoam( length( flow.xy ) ) );
             if ( onRiver )
                 cover = max( cover, 0.7 * WaterRiverBankBand( world, 1.0 ) * smoothstep( 30.0, 120.0, length( flow.xy ) ) );
+            // The boils: white under every fall that lands here, as the water lands fast, thinning to its rim; their
+            // outflow carries it away (below). Whichever body is under it - a river's pool or the ocean.
+            const int plungeCount = int( FoamPlungeCount.x );
+            vec2      plungeFlow  = vec2( 0.0 );
+            for ( int k = 0; k < plungeCount; ++k )
+            {
+                const WaterFoamPlunge p = FoamPlunges[k];
+                const float           d = distance( world, p.FootRadius.xz );
+                if ( d >= p.FootRadius.w )
+                    continue;
+                cover = max( cover, SpeedFoam( p.Landing.z ) * ( 1.0 - d / p.FootRadius.w ) );
+                plungeFlow += WaterPlungeAt( p.FootRadius, p.AcrossHalf, p.Landing, world );
+            }
             cover = clamp( cover, 0.0, 1.0 );
             const float wetNow = set >= 0 && s.Depth + s.RunUp > 0.0 ? 1.0 : 0.0;
 
@@ -119,7 +144,7 @@ Shader "WaterFoamUpdate"
             // The current that carries the foam: the wind's drift, the river, the breaking front's bore.
             const WaterShoreSample shore = WaterShoreAt( world );
             const vec2 bore     = s.Front * sqrt( GERSTNER_GRAVITY * max( s.Depth, 10.0 ) ) * shore.ShoreDirection;
-            const vec2 velocity = ( onRiver ? flow.xy : body.Drift.xy ) + bore;
+            const vec2 velocity = ( onRiver ? flow.xy : body.Drift.xy ) + bore + plungeFlow;
             const vec2 from     = world - velocity * dt;
             const vec2 at       = from * WaterFoamOrigin[level].z - FoamPrevious[level].xy;
             const bool  moved = all( greaterThanEqual( world, FoamChanged.xy ) ) && all( lessThanEqual( world, FoamChanged.zw ) );

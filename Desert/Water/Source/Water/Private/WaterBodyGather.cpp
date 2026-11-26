@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Water/Public/WaterBodyComponent.hpp>
+#include <Water/Public/WaterRiverBakes.hpp>
 #include <Water/Public/WaterWaveSources.hpp>
 
 #include <utility>
@@ -53,6 +54,9 @@ namespace Desert::ECS
         }
 
         const Water::WaterWaveTable& table = *sources.Table();
+        // The world's river bakes (refreshed before any system): a river with none is no water.
+        const auto* const      bakesLink = registry.try_ctx<std::shared_ptr<WaterRiverBakes>>();
+        const WaterRiverBakes* bakes     = bakesLink != nullptr ? bakesLink->get() : nullptr;
         m_Bodies.clear();
         for ( const entt::entity entity : m_Members )
         {
@@ -73,38 +77,53 @@ namespace Desert::ECS
             body.Type     = data.Type;
             body.Density  = data.Density;
             body.Drag     = data.Drag;
+            // The body whose waves it carries: its own, or, for a river that ends in an ocean, that ocean's.
+            entt::entity waveOwner = entity;
             if ( data.Type == Water::WaterBodyType::River )
             {
                 // A river is its ribbon: its footprint's centre at its mean level, its bounds the extents.
-                const Water::RiverBakeInput input{ .LocalPoints = RiverPointsOf( data ),
-                                                   .Origin      = body.Location,
-                                                   .Width       = data.RiverWidth,
-                                                   .FlowSpeed   = data.RiverFlowSpeed,
-                                                   .FlowPeriod  = data.RiverFlowPeriod };
-                RiverBake&                  bake = m_Rivers[entity];
-                const uint64_t              key  = Water::RiverBakeKey( input );
-                if ( bake.Flow == nullptr || bake.Key != key )
-                    bake = RiverBake{ key, Water::BakeRiver( input ) };
-                const Water::RiverFlowField& flow = *bake.Flow;
-                if ( flow.Size.x == 0u )
-                    continue; // fewer than two points or no width: no water yet
+                const WaterRiverBakes::River* const bake = bakes != nullptr ? bakes->Find( entity ) : nullptr;
+                if ( bake == nullptr || bake->Flow->Size.x == 0u )
+                    continue; // hidden, refused, fewer than two points or no width: no water
+                const Water::RiverFlowField& flow = *bake->Flow;
                 body.Location = glm::vec3( flow.Min.x + 0.5f * flow.Extent.x, flow.SurfaceY,
                                            flow.Min.y + 0.5f * flow.Extent.y );
                 body.Extents  = flow.Extent;
-                body.Flow     = bake.Flow;
+                body.Flow     = bake->Flow;
+                if ( flow.Mouth )
+                    waveOwner = static_cast<entt::entity>( flow.Mouth->Into );
             }
 
             // No lane is a flat body (UE HasWaves() false), not an error.
-            if ( const int32_t index = sources.LaneOf( entity ); index >= 0 )
+            if ( const int32_t index = sources.LaneOf( waveOwner ); index >= 0 )
                 Water::SetWaveLane( body, table.Lanes[static_cast<size_t>( index )], *table.Surface );
             m_Bodies.push_back( std::move( body ) );
+        }
+
+        // Every fall's plunge belongs to the body it lands in: of those covering its foot, the one of the highest
+        // WaterBodyPriority (the river where it still flows there, else the ocean it pours into), as the surface
+        // drawn there is. A plunge no body covers lands in no water.
+        for ( const Water::WaterBodyState& river : m_Bodies )
+        {
+            if ( river.Type != Water::WaterBodyType::River )
+                continue;
+            for ( const Water::RiverFall& fall : river.Flow->Falls )
+            {
+                Water::WaterBodyState* into = nullptr;
+                for ( Water::WaterBodyState& candidate : m_Bodies )
+                    if ( Water::WaterBodyCovers( candidate, fall.Plunge.Foot ) &&
+                         ( into == nullptr ||
+                           Water::WaterBodyPriority( candidate.Type ) > Water::WaterBodyPriority( into->Type ) ) )
+                        into = &candidate;
+                if ( into != nullptr )
+                    into->Plunges.push_back( fall.Plunge );
+            }
         }
         return m_Bodies;
     }
 
     void WaterBodyGather::Reset()
     {
-        m_Rivers.clear();
         m_Members.clear();
         m_Bodies.clear();
         m_BuiltFor      = nullptr;

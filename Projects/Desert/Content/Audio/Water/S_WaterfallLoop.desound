@@ -1,0 +1,13 @@
+{
+    "Header": {
+        "Kind": "Sound",
+        "Guid": "de15d90d212d47b0b3776f062f0d18f8",
+        "Versions": {
+            "SNDW": 1
+        },
+        "Dependencies": []
+    },
+    "Source": "S_WaterfallLoop.wav",
+    "Class": "Effects",
+    "Loading": "Resident"
+}
