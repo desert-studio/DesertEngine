@@ -47,7 +47,7 @@
 Тогда-вид hw shadows, reflections and indirect light hardware traced
 Тогда [cypress_hw]: within the tolerance of pt
 Тогда [hw]: the shield is teal as in pt, not blue
-Когда run View "View mode: Base Color"
+Когда run View "View mode: Albedo"
 Когда frames 8
 Тогда-вид basecolor the cypress base colour
 Тогда [basecolor]: the albedo map at its tint, the same as in the level's path

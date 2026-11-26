@@ -8,15 +8,15 @@
 Когда advance 1
 Тогда-вид 1_play_a the bound text reads A, the message line reads no message
 Когда input move - 534,420
-Когда input click - left
+Когда input click - 534,420
 Когда advance 0.5
 Тогда-вид 3_msg the message text of A shows the button's message: hello from A
 Когда input move - 534,490
-Когда input click - left
+Когда input click - 534,490
 Когда advance 0.5
 Тогда-вид 4_toast the toast "toast of A" is over A's view, bottom right, once
 Когда input move - 534,560
-Когда input click - left
+Когда input click - 534,560
 Когда advance 1
 Тогда-вид 5_travel document A now plays level B: placeholder of B and no message, not the letter A
 Когда run Action "Stop"

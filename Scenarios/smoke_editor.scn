@@ -5,7 +5,7 @@
 # [smoke_dll]); the same frame on a Shipping-built editor is the base.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано state
-Когда advance 1
+Когда frames 60
 Тогда 0_editor_ui first frame: the whole editor UI (menu bar, docked panels, viewport with the scene) drawn by one ImGui context - no panel missing, blank or drawn twice, no ImGui assert or "no current context" in editor.log
 Тогда 1_one_registry editor.log: every engine line in the engine's own pattern from one logger (module DLLs and the editor alike), no line in spdlog's default "[info]" pattern, no second log file, no "logger with name already exists"
 Тогда-вид 2_scene the viewport draws WP_Protocol as the base build: landscape, city, foliage, sky; entities, physics bodies and components found by every module (no empty outliner, no missing component panel)
