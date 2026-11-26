@@ -254,9 +254,16 @@ class Run:
     def wait(self, rest):
         parts = rest.split(None, 2)
         if len(parts) < 3 or not parts[1].isdigit():
-            raise Fail("«Ждать» takes <role> <seconds> [<N>x] <regex>")
+            raise Fail("«Ждать» takes <role> <seconds> [fresh] [<N>x] <regex>")
         r, deadline = self.role(parts[0]), time.time() + int(parts[1])
         count, pattern = 1, parts[2]
+        # `fresh`: match only lines read from now on. A Ждать on another role pumped this one and deleted the frames
+        # after its old lines, so a Тогда following a stale match has no frame; a fresh match still has its frame.
+        m = re.match(r"fresh\s+(.*)", pattern)
+        if m:
+            pattern = m.group(1)
+            self.poll()
+            r.cursor = len(r.lines)
         m = re.match(r"(\d+)x\s+(.*)", pattern)
         if m:
             count, pattern = int(m.group(1)), m.group(2)

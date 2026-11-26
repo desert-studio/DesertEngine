@@ -40,7 +40,7 @@
 Ждать A 60 \[Net\] pawn \d+ \(player \d+\): (?:29\d|30\d) m, period 10 \(6 Hz\), delay 0\.(?:3[5-9]|4\d|50) s
 # Snapshot bytes/s to A: 35 B x (30 + 6) = 1260 B/s (dev: 34 B x 60 = 2040 B/s for the same two bots), 1200-1500.
 Ждать server 30 \[Server\] net rates.*player \d+: 1(?:[2-4]\d\d|500) B/s, pawns by band \[30 Hz 1, 15 Hz 0, 6 Hz 1, 3 Hz 0\]
-Ждать A 30 \[Net\] pawn \d+ \(player \d+\): (?:29\d|30\d) m, period 10
+Ждать A 30 fresh \[Net\] pawn \d+ \(player \d+\): (?:29\d|30\d) m, period 10
 Тогда A far15_two_tiers A's frame shows B near (a whole mannequin 20-50 m ahead on the ground) and C small at 300 m over the HLOD/landscape (dev has no C at all - 200 m LoadingRange; the same frame from dev sits beside it); A's log "pawn <B>: 20 m, period 2 (30 Hz), delay 0.10-0.20 s" and "pawn <C>: 300 m, period 10 (6 Hz), delay 0.35-0.50 s"; server log "pawns by band [30 Hz 1, 15 Hz 0, 6 Hz 1, 3 Hz 0]"
 # Тогда [far15_far_smooth]: three frames of A one second apart (each with its _next frame) - C walks an arc with no
 # jump back and no freeze longer than one frame; B as in NET-5 net5_remote_walk; A's log "0 snap(s)". The client logs
@@ -55,13 +55,13 @@
 # Когда: C is put at 490 m and walks its circle (radius ~10 m: crosses 500 m every turn, for 30 s).
 Консоль server teleport {c1} {a2} {a3+2000} {a4-49000}
 Ждать server 30 player \d+: pawn \d+ teleported to
-Ждать A 30 \[Net\] interpolation buffer:
+Ждать A 30 fresh \[Net\] interpolation buffer:
 Тогда A far15_edge C small at ~490 m, present (one solid mannequin on the ground)
 # Тогда [far15_edge]: the server log has exactly ONE "pawn <C> relevant" and no "left" in the 30 s (a second
 # "relevant" needs a "left" before it, so the Нет line over the whole log is the count); no frame of A's sequence
 # shows C vanish or appear.
 Ждать server 60 6x \[Server\] net rates
-Ждать A 30 \[Net\] interpolation buffer:
+Ждать A 30 fresh \[Net\] interpolation buffer:
 Тогда A far15_edge_after30s C still there at ~490-510 m, the same solid mannequin (it never vanished: no "left" in any log)
 Нет server pawn \d+ left:
 Нет A \[Net\] pawn net id \d+ left
@@ -85,7 +85,7 @@
 # steps but carry the period of its band (A's log "period 2"); D's delay in A's log does not grow while D stands.
 Ждать server 60 player \d+: pawn \d+ dormant - unchanged, sent every 60 steps \(1 Hz\), period 2
 Ждать server 30 \[Server\] net rates.*pawns by band \[30 Hz [12], 15 Hz [01], 6 Hz 0, 3 Hz 1\], dormant 1, deferred
-Ждать A 30 \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 2 \(30 Hz\), delay
+Ждать A 30 fresh \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 2 \(30 Hz\), delay
 Запомнить dd0 A \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 2 \(30 Hz\), delay (\d+\.\d+) s
 Тогда A far15_dormant D stands ~10 m ahead, one solid mannequin on the ground, no drift; B and C walk as before
 Ждать A 30 5x \[Net\] interpolation buffer:
