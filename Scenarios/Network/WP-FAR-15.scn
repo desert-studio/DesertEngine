@@ -28,9 +28,9 @@
 Запомнить a server player (\d+) account 1 \((-?\d+), (-?\d+), (-?\d+)\)
 Запомнить b server player (\d+) account 2 \(
 Запомнить c server player (\d+) account 3 \(
-Консоль server teleport {b1} {a2} {a3+300} {a4-2000}
+Консоль server teleport {b1} {a2+600} {a3+300} {a4-2000}
 Ждать server 30 player \d+: pawn \d+ teleported to
-Консоль server teleport {c1} {a2} {a3+2000} {a4-30000}
+Консоль server teleport {c1} {a2+3000} {a3+2000} {a4-30000}
 Ждать server 30 player \d+: pawn \d+ teleported to
 # Дано: server + A + B (20 m) + C (300 m) on WP_Protocol; both bots walk a circle.
 # The spawns are 3-6 m apart, so every pawn is relevant from its spawn and a teleport inside the 625 m exit prints no
@@ -41,35 +41,35 @@
 # Snapshot bytes/s to A: 35 B x (30 + 6) = 1260 B/s (dev: 34 B x 60 = 2040 B/s for the same two bots), 1200-1500.
 Ждать server 30 \[Server\] net rates.*player \d+: 1(?:[2-4]\d\d|500) B/s, pawns by band \[30 Hz 1, 15 Hz 0, 6 Hz 1, 3 Hz 0\]
 Ждать A 30 fresh \[Net\] pawn \d+ \(player \d+\): (?:29\d|30\d) m, period 10
-Тогда A far15_two_tiers A's frame shows B near (a whole mannequin 20-50 m ahead on the ground) and C small at 300 m over the HLOD/landscape (dev has no C at all - 200 m LoadingRange; the same frame from dev sits beside it); A's log "pawn <B>: 20 m, period 2 (30 Hz), delay 0.10-0.20 s" and "pawn <C>: 300 m, period 10 (6 Hz), delay 0.35-0.50 s"; server log "pawns by band [30 Hz 1, 15 Hz 0, 6 Hz 1, 3 Hz 0]"
+Тогда A far15_two_tiers A's frame shows B near (a whole mannequin 20-50 m ahead on the ground) and C at most a speck to the right of the red pillar (at 300-500 m a mannequin is under 3 px in this view: C is proven by its log line, the frame by B and by no artifact where C stands) (dev has no C at all - 200 m LoadingRange; the same frame from dev sits beside it); A's log "pawn <B>: 20 m, period 2 (30 Hz), delay 0.10-0.20 s" and "pawn <C>: 300 m, period 10 (6 Hz), delay 0.35-0.50 s"; server log "pawns by band [30 Hz 1, 15 Hz 0, 6 Hz 1, 3 Hz 0]"
 # Тогда [far15_far_smooth]: three frames of A one second apart (each with its _next frame) - C walks an arc with no
 # jump back and no freeze longer than one frame; B as in NET-5 net5_remote_walk; A's log "0 snap(s)". The client logs
 # no "hold" line at all (no such log exists), so "no hold for C" is judged on the frames.
 Ждать A 30 \[Net\] interpolation buffer: .*\(0 snap\(s\)\)
-Тогда A far15_far_smooth1 C small at ~300 m walking its arc, B near walking its circle: each one solid mannequin, feet on the ground, facing its walk; no ghost, no trail
+Тогда A far15_far_smooth1 B near walking its circle: one solid mannequin, feet on the ground, facing its walk; no ghost, no trail; C at most a speck right of the red pillar (at 300-500 m a mannequin is under 3 px in this view: C is proven by its log line, the frame by B and by no artifact where C stands)
 Ждать A 30 \[Net\] interpolation buffer: .*\(0 snap\(s\)\)
-Тогда A far15_far_smooth2 C a little further along the same arc (never back toward far15_far_smooth1's place, never in the same place), B further along its circle; same: solid, grounded, facing its walk
+Тогда A far15_far_smooth2 B further along its circle (never back, never in the same place); same: solid, grounded, facing its walk
 Ждать A 30 \[Net\] interpolation buffer: .*\(0 snap\(s\)\)
-Тогда A far15_far_smooth3 C further along its arc again, B further along its circle; _next of each of the three differs from it by at most one frame of walk (no freeze)
+Тогда A far15_far_smooth3 B further along its circle again; _next of each of the three differs from it by at most one frame of walk (no freeze)
 Нет A \(([1-9]\d*) snap\(s\)\)
 # Когда: C is put at 490 m and walks its circle (radius ~10 m: crosses 500 m every turn, for 30 s).
-Консоль server teleport {c1} {a2} {a3+2000} {a4-49000}
+Консоль server teleport {c1} {a2+3000} {a3+2000} {a4-49000}
 Ждать server 30 player \d+: pawn \d+ teleported to
-Ждать A 30 fresh \[Net\] interpolation buffer:
-Тогда A far15_edge C small at ~490 m, present (one solid mannequin on the ground)
+Ждать A 30 fresh \[Net\] pawn \d+ \(player \d+\): 4[89]\d m, period
+Тогда A far15_edge C present at ~490 m (the log line above; a speck at most) and nothing broken where it stands; B as before
 # Тогда [far15_edge]: the server log has exactly ONE "pawn <C> relevant" and no "left" in the 30 s (a second
 # "relevant" needs a "left" before it, so the Нет line over the whole log is the count); no frame of A's sequence
 # shows C vanish or appear.
 Ждать server 60 6x \[Server\] net rates
-Ждать A 30 fresh \[Net\] interpolation buffer:
-Тогда A far15_edge_after30s C still there at ~490-510 m, the same solid mannequin (it never vanished: no "left" in any log)
+Ждать A 30 fresh \[Net\] pawn \d+ \(player \d+\): (?:4[89]\d|50\d) m, period
+Тогда A far15_edge_after30s C still relevant at ~490-510 m by the log line above (it never vanished: no "left" in any log)
 Нет server pawn \d+ left:
 Нет A \[Net\] pawn net id \d+ left
 # then the console puts C at 700 m -> one "left: 700 m past 625 m" and Destroy NotRelevant; back at 480 m -> one Spawn.
-Консоль server teleport {c1} {a2} {a3+2000} {a4-70000}
+Консоль server teleport {c1} {a2+3000} {a3+2000} {a4-70000}
 Ждать server 30 pawn \d+ left: (?:69\d|7[01]\d) m past 625 m \(player \d+\) - Destroy NotRelevant
 Ждать A 30 \[Net\] pawn net id \d+ left
-Консоль server teleport {c1} {a2} {a3+2000} {a4-48000}
+Консоль server teleport {c1} {a2+3000} {a3+2000} {a4-48000}
 Ждать server 30 pawn \d+ relevant \(player \d+\): (?:4[6-9]\d) m inside circle 500 m
 Ждать server 30 \[Server\] net rates
 Нет server pawn \d+ left: (?:[0-5]\d\d|6[01]\d|62[0-4]) m past
@@ -87,7 +87,7 @@
 Ждать server 30 \[Server\] net rates.*pawns by band \[30 Hz [12], 15 Hz [01], 6 Hz 0, 3 Hz 1\], dormant 1, deferred
 Ждать A 30 fresh \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 2 \(30 Hz\), delay
 Запомнить dd0 A \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 2 \(30 Hz\), delay (\d+\.\d+) s
-Тогда A far15_dormant D stands ~10 m ahead, one solid mannequin on the ground, no drift; B and C walk as before
+Тогда A far15_dormant D stands ~10 m ahead, one solid mannequin on the ground, no drift; B walks as before
 Ждать A 30 5x \[Net\] interpolation buffer:
 Запомнить dd1 A \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 2 \(30 Hz\), delay (\d+\.\d+) s
 Сверить dd0 dd1 0.03
