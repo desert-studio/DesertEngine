@@ -273,10 +273,10 @@ namespace Desert::Engine
             Close( 1 );
             return true;
         };
-        // The presented notifications of a frame handed to the render task (step 7), delivered once it is out.
-        // Each stamped with its frame (GetGameFrameCount at step 6): with GameRenderPipelining on, step 4b may
-        // find frame N-1 still presenting, and only the frames before RenderTask::SyncPreviousFrame's answer are
-        // out.
+        // The presented notifications each layer captured before step 6 (CaptureFramePresented), queued at step 7
+        // and delivered once their frame is out. Each stamped with its frame (GetGameFrameCount before step 6
+        // moves it): with GameRenderPipelining on, step 4b may find frame N-1 still presenting, and only the
+        // frames before RenderTask::SyncPreviousFrame's answer are out.
         struct PresentedNotification
         {
             uint64_t              Frame = 0;
@@ -574,7 +574,7 @@ namespace Desert::Engine
                 // and tick
                 // (UE: the render thread presents, the game thread waits only for N-1). Inline in serial mode and
                 // with the overlap off, where Renderer::PresentFinalImage moves the frame count itself. A lost
-                // device is noticed here inline, else at step 4b; either way before any screenshot (step 7).
+                // device is noticed here inline, else at step 4b; either way before the frame is announced.
                 {
                     const RenderTask::ScopedOwner frameWork( RenderTask::FrameOwner() );
                     RenderTask::Get().Enqueue( "Frame: Submit/Present",
@@ -594,10 +594,9 @@ namespace Desert::Engine
                     break;
             }
 
-            // 7. The frame is OUT. The only point in this loop at which the composited picture — scene and
-            // interface together — exists as bytes on the device; everything above is still building it.
-            // A layer that must read the frame back, or must not answer a question before a frame has
-            // answered it, gets its instant here. Default is a no-op (Common::Layer::OnFramePresented).
+            // 7. The frame's announcement. Nothing is read back here: a picture of the frame was copied in its own
+            // submission by a job its layer captured before step 6. A layer that must not answer a question before
+            // a frame has answered it gets its instant once the frame is out - now inline, else at step 4b.
             {
                 DESERT_PROFILE_SCOPE( "OnFramePresented" );
                 // The notifications captured before step 6 run once the frame is out: now when it was presented

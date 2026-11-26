@@ -3357,7 +3357,8 @@ namespace Desert::Graphic::System
                                  .Bones  = data.BoneMatrices,
                                  .Mesh   = data.Mesh,
                                  .Flags  = Flags::kSkinned | Flags::kMovableCaster |
-                                          rigidFlags( data.CastShadows, true, data.ReceivesDecals ) | previousPositions( data.Mesh ),
+                                          rigidFlags( data.CastShadows, true, data.ReceivesDecals ) |
+                                          previousPositions( data.Mesh ),
                                  .ForcedLod = static_cast<int32_t>( data.Lod ),
                                  .Content   = skinnedContent( data ) } );
         // The proxies no record claimed this sync left the scene (or the view): released with their bindings.

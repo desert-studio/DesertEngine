@@ -136,6 +136,7 @@
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <Engine/Core/SceneRenderCollectors.hpp>
+#include <Engine/Graphic/SceneRenderer.hpp> // view 0's scene colour, copied for --shot-hdr
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/TextECSSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
@@ -803,47 +804,85 @@ namespace Desert::Editor
         std::optional<ShotDirector::RecordedFrame> shot  = m_Shots.TakePendingFrame();
         // THE SHOT'S OWN COPY (UE FScreenshotRequest), IN BOTH MODES: a job in this frame's order, after its views
         // and interface and before its submit and present (Application::Run captures before enqueueing them),
-        // records the copy of THIS frame's final image into the frame's own command buffer. The announcement then
-        // writes those pixels, whatever frame the live image shows by then (D1/D3, NET-PAWN-TELEPORT-FRAME).
-        // The image is taken here, on the game thread; the job touches only it.
-        auto shotCopy = std::make_shared<ShotDirector::RecordedFrame>();
-        if ( shot && ShotDirector::WantsPixels( *shot ) )
+        // records the copy of THIS frame's final image - and on `--shot-hdr`'s last frame view 0's scene colour -
+        // into the frame's own command buffer. The announcement then writes those pixels, whatever frame the live
+        // images show by then (D1/D3, NET-PAWN-TELEPORT-FRAME). The images are taken here, on the game thread;
+        // the job touches only them. Nothing is allocated on a frame that writes no picture.
+        struct Copies
         {
-            std::shared_ptr<Graphic::Image2D> image =
-                 m_Workspace.ActiveScene() ? m_Workspace.ActiveScene()->GetFinalImage() : nullptr;
-            if ( !image )
-                shotCopy->PixelsRefusal = "the active scene has no final image to copy";
-            else
+            ShotDirector::FrameCopy Pixels;
+            ShotDirector::FrameCopy SceneColor;
+        };
+        std::shared_ptr<Copies> copies; // null: this frame writes no picture
+        const bool              wantsPixels     = shot && ShotDirector::WantsPixels( *shot );
+        const bool              wantsSceneColor = shot && ShotDirector::WantsSceneColor( *shot );
+        if ( wantsPixels || wantsSceneColor )
+        {
+            copies = std::make_shared<Copies>();
+            std::shared_ptr<Graphic::Image2D> finalImage;
+            std::shared_ptr<Graphic::Image2D> sceneColor;
+            const auto&                       scene = m_Workspace.ActiveScene();
+            if ( wantsPixels )
+            {
+                finalImage = scene ? scene->GetFinalImage() : nullptr;
+                if ( !finalImage )
+                    copies->Pixels.Refusal = "the active scene has no final image to copy";
+            }
+            if ( wantsSceneColor )
+            {
+                const Graphic::SceneRenderer* view0 = scene ? scene->GetViewRenderer( 0 ) : nullptr;
+                sceneColor                          = view0 ? view0->GetSceneColorImage() : nullptr;
+                if ( !sceneColor )
+                    copies->SceneColor.Refusal = "view 0 has no scene colour target";
+                else if ( const auto format = sceneColor->GetImageSpecification().Format;
+                          format != ::Desert::Core::Formats::ImageFormat::RGBA16F )
+                {
+                    copies->SceneColor.Refusal =
+                         std::format( "the scene colour is not RGBA16F (format {}); the PFM writer reads RGBA16F",
+                                      static_cast<int>( format ) );
+                    sceneColor.reset();
+                }
+            }
+            if ( finalImage || sceneColor )
             {
                 const ::Desert::Engine::RenderTask::ScopedOwner frameWork(
                      ::Desert::Engine::RenderTask::FrameOwner() );
                 ::Desert::Engine::RenderTask::Get().Enqueue(
                      "Editor: shot copy",
-                     [shotCopy, image]() -> Common::BoolResultStr
+                     [copies, finalImage, sceneColor]() -> Common::BoolResultStr
                      {
-                         auto recorded = image->RecordReadbackInFrame();
-                         if ( !recorded.IsSuccess() )
+                         // A refusal is the shot's, named by its writer (WriteShotPng, WriteSceneColorPfm); not
+                         // the frame's.
+                         const auto record = []( const std::shared_ptr<Graphic::Image2D>& image, bool raw,
+                                                 ShotDirector::FrameCopy& into )
                          {
-                             shotCopy->PixelsRefusal = recorded.GetError();
-                             return BOOLSUCCESS; // the shot's refusal, named by WriteShotPng; not the frame's
-                         }
-                         shotCopy->Pixels       = recorded.ExtractValue();
-                         shotCopy->PixelsWidth  = image->GetWidth();
-                         shotCopy->PixelsHeight = image->GetHeight();
+                             auto recorded =
+                                  raw ? image->RecordBytesReadbackInFrame() : image->RecordReadbackInFrame();
+                             if ( !recorded.IsSuccess() )
+                             {
+                                 into.Refusal = recorded.GetError();
+                                 return;
+                             }
+                             into.Readback = recorded.ExtractValue();
+                             into.Width    = image->GetWidth();
+                             into.Height   = image->GetHeight();
+                         };
+                         if ( finalImage )
+                             record( finalImage, false, copies->Pixels );
+                         if ( sceneColor )
+                             record( sceneColor, true, copies->SceneColor );
                          return BOOLSUCCESS;
                      } );
             }
         }
         // Read at the announcement, behind step 4b's fence (or after the inline frame): the job has run.
-        const auto withPixels = [shot, shotCopy]() -> std::optional<ShotDirector::RecordedFrame>
+        const auto withPixels = [shot = std::move( shot ), copies]() -> std::optional<ShotDirector::RecordedFrame>
         {
-            if ( !shot )
-                return std::nullopt;
+            if ( !shot || !copies )
+                return shot;
             ShotDirector::RecordedFrame frame = *shot;
-            frame.Pixels                      = shotCopy->Pixels;
-            frame.PixelsWidth                 = shotCopy->PixelsWidth;
-            frame.PixelsHeight                = shotCopy->PixelsHeight;
-            frame.PixelsRefusal               = shotCopy->PixelsRefusal;
+            frame.Pixels                      = copies->Pixels;
+            frame.SceneColor                  = copies->SceneColor;
             return frame;
         };
         // Inline (serial mode, the overlap off) nothing records under the announcement: the census is read

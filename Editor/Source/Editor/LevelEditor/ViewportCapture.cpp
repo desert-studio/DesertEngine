@@ -6,7 +6,7 @@
 #include <Common/Core/JobSystem.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // reading the PRESENTED frame back (shot.window)
-#include <Engine/Graphic/SceneRenderer.hpp>              // the view's HDR scene colour (--shot-hdr)
+#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/DisplayOutput.hpp>
 #include <stb_image/stb_image_write.h>
 
@@ -212,15 +212,15 @@ namespace Desert::Editor
 
     bool ViewportCapture::WriteShotPng( const std::string& path, const ShotDirector::RecordedFrame& frame )
     {
-        if ( !frame.Pixels )
+        const ShotDirector::FrameCopy& copy = frame.Pixels;
+        if ( !copy.Readback )
         {
             LOG_ERROR( "[Shot] frame_{:05d} (game frame {}) has no copy of its own image: {} ('{}')",
                        frame.SequenceIndex, frame.GameFrame,
-                       frame.PixelsRefusal.empty() ? std::string( "the frame never recorded one" ) : frame.PixelsRefusal,
-                       path );
+                       copy.Refusal.empty() ? std::string( "the frame never recorded one" ) : copy.Refusal, path );
             return false;
         }
-        if ( !frame.Pixels->IsComplete() )
+        if ( !copy.Readback->IsComplete() )
         {
             LOG_ERROR( "[Shot] frame_{:05d} (game frame {}): the copy of its image has not completed ('{}')",
                        frame.SequenceIndex, frame.GameFrame, path );
@@ -228,15 +228,15 @@ namespace Desert::Editor
         }
         if ( !CreateParentDirectory( path ) )
             return false;
-        auto read = frame.Pixels->ReadRGBA8();
+        auto read = copy.Readback->ReadRGBA8();
         if ( !read.IsSuccess() )
         {
             LOG_ERROR( "[Shot] frame_{:05d}: {} ('{}')", frame.SequenceIndex, read.GetError(), path );
             return false;
         }
         const std::vector<uint8_t>& px = read.GetValue();
-        const uint32_t              w  = frame.PixelsWidth;
-        const uint32_t              h  = frame.PixelsHeight;
+        const uint32_t              w  = copy.Width;
+        const uint32_t              h  = copy.Height;
         if ( px.size() != static_cast<size_t>( w ) * h * 4 )
         {
             LOG_ERROR( "[Shot] frame_{:05d}: the copy is {} bytes, expected {}x{}x4 ('{}')", frame.SequenceIndex,
@@ -248,55 +248,33 @@ namespace Desert::Editor
         return written;
     }
 
-    bool ViewportCapture::WriteSceneColorPfm( const std::string& path )
+    bool ViewportCapture::WriteSceneColorPfm( const std::string& path, const ShotDirector::RecordedFrame& frame )
     {
-        const auto* scene = m_Workspace.ActiveScene().get();
-        if ( !scene )
+        const ShotDirector::FrameCopy& copy = frame.SceneColor;
+        if ( !copy.Readback )
         {
-            LOG_ERROR( "[Shot] no scene to capture the scene colour of ('{}')", path );
+            LOG_ERROR( "[Shot] game frame {} has no copy of its scene colour: {} ('{}')", frame.GameFrame,
+                       copy.Refusal.empty() ? std::string( "the frame never recorded one" ) : copy.Refusal, path );
+            return false;
+        }
+        if ( !copy.Readback->IsComplete() )
+        {
+            LOG_ERROR( "[Shot] game frame {}: the copy of its scene colour has not completed ('{}')",
+                       frame.GameFrame, path );
             return false;
         }
         if ( !CreateParentDirectory( path ) )
             return false;
-        const Graphic::SceneRenderer* renderer = scene->GetViewRenderer( 0 );
-        const auto                    image    = renderer ? renderer->GetSceneColorImage() : nullptr;
-        if ( !image )
-        {
-            LOG_ERROR( "[Shot] view 0 has no scene colour target ('{}')", path );
-            return false;
-        }
-        const auto format = image->GetImageSpecification().Format;
-        if ( format != Desert::Core::Formats::ImageFormat::RGBA16F )
-        {
-            LOG_ERROR( "[Shot] the scene colour is not RGBA16F (format {}); the PFM writer reads RGBA16F ('{}')",
-                       static_cast<int>( format ), path );
-            return false;
-        }
-
-        Graphic::Renderer::GetInstance().WaitDeviceIdle();
-        auto begun = image->BeginReadbackBytes();
-        if ( !begun.IsSuccess() )
-        {
-            LOG_ERROR( "[Shot] scene colour readback refused: {} ('{}')", begun.GetError(), path );
-            return false;
-        }
-        // The copy was submitted by BeginReadbackBytes; an idle device has finished it.
-        Graphic::Renderer::GetInstance().WaitDeviceIdle();
-        const auto& readback = begun.GetValue();
-        if ( !readback->IsComplete() )
-        {
-            LOG_ERROR( "[Shot] the scene colour copy did not complete on an idle device ('{}')", path );
-            return false;
-        }
-        auto bytes = readback->ReadBytes();
+        auto bytes = copy.Readback->ReadBytes();
         if ( !bytes.IsSuccess() )
         {
             LOG_ERROR( "[Shot] scene colour readback failed: {} ('{}')", bytes.GetError(), path );
             return false;
         }
+        // RGBA16F, refused otherwise when the copy was recorded (EditorLayer::CaptureFramePresented).
         const std::vector<uint8_t>& texels      = bytes.GetValue();
-        const uint32_t              w           = image->GetWidth();
-        const uint32_t              h           = image->GetHeight();
+        const uint32_t              w           = copy.Width;
+        const uint32_t              h           = copy.Height;
         const size_t                count       = static_cast<size_t>( w ) * h;
         constexpr size_t            kTexelBytes = 4 * sizeof( uint16_t );
         if ( texels.size() != count * kTexelBytes )

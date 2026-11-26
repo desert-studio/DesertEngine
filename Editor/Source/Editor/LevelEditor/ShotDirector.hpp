@@ -67,6 +67,15 @@ namespace Desert::Editor
         void PlaceCamera( bool startupLoading );
         // What FrameRecorded holds for EndFrame: the frame's AdmitFrame verdict, the start-up state it was
         // rendered under, its identity in the capture, and its own pixels.
+        // One image copied in the frame's own submission (Image2D::RecordReadbackInFrame or its raw twin):
+        // complete once that frame's fence signals. Its size is the image's when it was recorded.
+        struct FrameCopy
+        {
+            std::shared_ptr<Graphic::ImageReadback> Readback; // null: not wanted, or refused (Refusal says why)
+            uint32_t                                Width  = 0;
+            uint32_t                                Height = 0;
+            std::string                             Refusal;
+        };
         struct RecordedFrame
         {
             bool     Recorded        = false;
@@ -75,10 +84,8 @@ namespace Desert::Editor
             uint64_t GameFrame       = 0;  // FrameManager::GetGameFrameCount() of the tick that recorded it
             int32_t  SequenceIndex   = -1; // N of frame_N.png when this frame is written, else -1 (counted here, once)
             bool     LastFrame       = false; // the capture's last frame: `--shot` / `--shot-hdr` are written from it
-            std::shared_ptr<Graphic::ImageReadback> Pixels; // the final image copied in this frame's own submission
-            uint32_t PixelsWidth  = 0; // the copied image's size
-            uint32_t PixelsHeight = 0;
-            std::string PixelsRefusal; // why Pixels is null on a frame that wanted them (the copy's refusal)
+            FrameCopy Pixels;     // the final image, RGBA8: the sequence PNG and `--shot` (WantsPixels)
+            FrameCopy SceneColor; // view 0's HDR scene colour, raw RGBA16F: `--shot-hdr` (WantsSceneColor)
         };
 
         // THIS FRAME'S RENDER IS RECORDED (end of the layer's update, game thread): the frame is counted HERE, once,
@@ -89,6 +96,8 @@ namespace Desert::Editor
         void FrameRecorded( bool recordedFrame, bool startupLoading, bool contentSettling, uint64_t gameFrame );
         // Whether @p frame writes a picture, so its final image must be copied in its own submission.
         [[nodiscard]] static bool WantsPixels( const RecordedFrame& frame );
+        // Whether @p frame writes `--shot-hdr`, so view 0's scene colour must be copied in its own submission.
+        [[nodiscard]] static bool WantsSceneColor( const RecordedFrame& frame );
         // THE FRAME'S RECORD, TAKEN WHEN THE FRAME ENDS (EditorLayer::CaptureFramePresented, OVERLAP-ON-3) and
         // carried by value to its presented notification: a frame presented on the render task is announced
         // after the NEXT update has recorded its own, so EndFrame never reads the record live. Empty when this

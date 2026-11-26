@@ -168,6 +168,7 @@ namespace Desert::Graphic::API::Vulkan
         NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> BeginReadbackRGBA8() override;
         NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> BeginReadbackBytes() override;
         NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> RecordReadbackInFrame() override;
+        NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> RecordBytesReadbackInFrame() override;
 
         Common::BoolResultStr Invalidate() override;
         Common::BoolResultStr Release() override;
@@ -241,6 +242,10 @@ namespace Desert::Graphic::API::Vulkan
         void RecordCopyToHost( VkCommandBuffer cmd, VkBuffer staging );
         // Why this image cannot be copied to the host at all (no extent, no VkImage, an array); @p caller names it.
         NO_DISCARD Common::BoolResultStr CopyToHostRefusal( std::string_view caller ) const;
+        // RecordReadbackInFrame / RecordBytesReadbackInFrame: the copy recorded into the calling frame's command
+        // buffer, complete with that frame's fence (VulkanFrameLoop::IsFrameDone). @p source as BeginCopyToHost.
+        NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>>
+                   RecordCopyInFrame( std::optional<Graphic::PackedPixelSource> source, std::string_view caller );
         // How ReadRGBA8 packs @p fmt; nullopt for a format the packer does not know.
         NO_DISCARD static std::optional<Graphic::PackedPixelSource> RGBA8SourceOf( Core::Formats::ImageFormat fmt );
 

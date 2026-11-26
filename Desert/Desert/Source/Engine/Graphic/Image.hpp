@@ -25,6 +25,11 @@ namespace Desert::Graphic
         /// Has the GPU finished the copy? Never blocks.
         NO_DISCARD virtual bool IsComplete() const = 0;
 
+        /// Blocks until IsComplete: on the copy's own submission, or for a copy recorded into a frame
+        /// (RecordReadbackInFrame) on that frame's fence - never a device-wide wait. Refused, by name, when the
+        /// copy can no longer complete (its frame was never handed over, the device was lost).
+        NO_DISCARD virtual Common::BoolResultStr Wait() const = 0;
+
         /// The copied pixels as tightly packed RGBA8. Refused, by name, while the copy is still running.
         NO_DISCARD virtual Common::ResultStr<std::vector<uint8_t>> ReadRGBA8() const = 0;
 
@@ -174,11 +179,19 @@ namespace Desert::Graphic
         /// frame). The RGBA8 copy is recorded into the command buffer the CALLING frame records now - a job in
         /// the frame's order, after its views and before its submit - so it is submitted by that frame's
         /// PresentFinalImage and holds that frame's pixels whatever a later frame renders. IsComplete() once that
-        /// frame's submission has executed the copy. Refused, by name, when the frame records into nothing.
+        /// frame's fence has signalled (UE FRHIGPUTextureReadback::IsReady). Refused, by name, when the frame
+        /// records into nothing.
         NO_DISCARD virtual Common::ResultStr<std::shared_ptr<ImageReadback>> RecordReadbackInFrame()
         {
             return Common::MakeError<std::shared_ptr<ImageReadback>>(
                  "Image2D::RecordReadbackInFrame not supported by this backend" );
+        }
+        /// RecordReadbackInFrame's raw twin (BeginReadbackBytes in the frame): the bytes exactly as the image
+        /// holds them, ReadBytes only - `--shot-hdr`'s scene colour of the same frame as its PNG.
+        NO_DISCARD virtual Common::ResultStr<std::shared_ptr<ImageReadback>> RecordBytesReadbackInFrame()
+        {
+            return Common::MakeError<std::shared_ptr<ImageReadback>>(
+                 "Image2D::RecordBytesReadbackInFrame not supported by this backend" );
         }
 
         // Re-uploads tightly-packed pixel data into the EXISTING GPU image without recreating it — the

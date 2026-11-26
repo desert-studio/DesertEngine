@@ -18,7 +18,6 @@
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
-#include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <cstdio>
@@ -319,6 +318,11 @@ namespace Desert::Editor
                ( frame.SequenceIndex >= 0 || ( frame.LastFrame && !ShotOptions::Get().Output.empty() ) );
     }
 
+    bool ShotDirector::WantsSceneColor( const RecordedFrame& frame )
+    {
+        return frame.Recorded && frame.LastFrame && !ShotOptions::Get().HdrOutput.empty();
+    }
+
     int32_t ShotDirector::Finish() const
     {
         // WHAT THE CAPTURE COST ON THE DEVICE, AT THE ONE INSTANT THE PICTURE DESCRIBES.
@@ -385,10 +389,14 @@ namespace Desert::Editor
             return std::nullopt;
 
         // THE FRAME'S OWN PIXELS (UE FScreenshotRequest): copied in this frame's submission, so what a later
-        // frame has rendered since cannot be filed under this frame's name. The device-idle wait only lets the
-        // copy finish; it reads nothing live.
-        if ( WantsPixels( frame ) )
-            Graphic::Renderer::GetInstance().WaitDeviceIdle();
+        // frame has rendered since cannot be filed under this frame's name. Only THAT frame's fence is waited
+        // (UE FRHIGPUTextureReadback), never the device: the frame in flight behind it keeps running, so a
+        // dense sequence stays pipelined. A failed wait is logged here; the writers below refuse the copy.
+        for ( const FrameCopy* copy : { &frame.Pixels, &frame.SceneColor } )
+            if ( copy->Readback )
+                if ( const Common::BoolResultStr waited = copy->Readback->Wait(); !waited )
+                    LOG_ERROR( "[Shot] game frame {}: its own copy cannot complete: {}", frame.GameFrame,
+                               waited.GetError() );
         if ( frame.SequenceIndex >= 0 )
         {
             char name[64];
@@ -407,7 +415,7 @@ namespace Desert::Editor
             LOG_ERROR( "[Shot] the final frame was not captured to '{}'", shot.Output );
             m_ShotFailed = true;
         }
-        if ( !shot.HdrOutput.empty() && !m_Capture.WriteSceneColorPfm( shot.HdrOutput ) )
+        if ( !shot.HdrOutput.empty() && !m_Capture.WriteSceneColorPfm( shot.HdrOutput, frame ) )
         {
             LOG_ERROR( "[Shot] the final frame's HDR scene colour was not written to '{}'", shot.HdrOutput );
             m_ShotFailed = true;

@@ -353,6 +353,11 @@ class Run:
                     k = SEQNUM.search(m.group(1)) if m and os.path.dirname(m.group(1)) == r.seqdir else None
                     if k and int(k.group(1)) in (n, n + 1) and int(k.group(1)) not in got:
                         dst = os.path.join(self.out, name + ("" if int(k.group(1)) == n else "_next") + ".png")
+                        # A Ждать on another role may have pumped this one first (hold was off then) and deleted
+                        # the announced file: the frame is gone, said by name - never another frame in its place.
+                        if not os.path.exists(m.group(1)):
+                            raise Fail(f"{r.name} wrote {os.path.basename(m.group(1))} for {name} but the file is gone "
+                                       f"(deleted as an unclaimed sequence frame before this «Тогда» took it)")
                         os.replace(m.group(1), dst)
                         got[int(k.group(1))] = dst
                 start = len(r.lines)

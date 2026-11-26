@@ -40,12 +40,13 @@ namespace Desert::Editor
         // copy has not completed - never a live read in its place.
         bool WriteShotPng( const std::string& path, const ShotDirector::RecordedFrame& frame );
 
-        // `--shot-hdr`: view 0's HDR scene colour as the renderer holds it - before eye adaptation, tonemap, the
-        // sRGB encode and the 8-bit quantisation, in pre-exposed units (scene radiance x the frame's
+        // `--shot-hdr`: view 0's HDR scene colour as the renderer held it IN @p frame (RecordedFrame::SceneColor,
+        // copied in that frame's own submission beside its PNG; never a live read) - before eye adaptation,
+        // tonemap, the sRGB encode and the 8-bit quantisation, in pre-exposed units (scene radiance x the frame's
         // PreExposure, which with auto exposure off is the manual exposure scale) - written to @p path as a
         // PFM (32-bit float RGB, little endian). What a measurement of radiance compares: a PNG's tonemap
         // shoulder and clamp bias the mean of a noisy frame low. False on any failure, with the reason logged.
-        bool WriteSceneColorPfm( const std::string& path );
+        bool WriteSceneColorPfm( const std::string& path, const ShotDirector::RecordedFrame& frame );
 
         // Writes `<project>/.thumbnail.png` — 512x288, centre-cropped to 16:9, the launcher tile's picture.
         // Called after a scene save and on a clean exit; the callers treat a failure as non-fatal.

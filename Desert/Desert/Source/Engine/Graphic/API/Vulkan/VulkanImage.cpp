@@ -7,9 +7,11 @@
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUploadRing.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/PixelPack.hpp> // the one packer this and the swapchain readback share
 #include <Engine/Graphic/RenderConfig.hpp>
 
@@ -1085,9 +1087,10 @@ namespace Desert::Graphic::API::Vulkan
 
     namespace
     {
-        /// One submitted image->buffer copy. Owns the staging buffer and the submission; both are released
-        /// on the device thread by the destructor, which waits for the fence first if it has to. A copy
-        /// without a pixel source is a raw one (an environment cube's levels): ReadBytes only.
+        /// One image->buffer copy: a one-off submission of its own, or recorded into a frame's command buffer
+        /// (RecordReadbackInFrame), whose completion is that frame's fence. Owns the staging buffer (and the
+        /// one-off submission); the destructor hands the buffer to the allocator's frame-retired queue. A copy
+        /// without a pixel source is a raw one (an environment cube's levels, a scene colour): ReadBytes only.
         class VulkanImageReadback final : public ImageReadback
         {
         public:
@@ -1098,12 +1101,18 @@ namespace Desert::Graphic::API::Vulkan
                    m_Source( source ), m_Submitted( submitted )
             {
             }
-            // A copy recorded into a FRAME's command buffer (RecordReadbackInFrame): no submission of its own; the
-            // frame's submit carries it, and @p frameEvent, set right after the copy in that buffer, says it ran.
+            // A copy recorded into FRAME @p frame's command buffer in slot @p slot (RecordReadbackInFrame): no
+            // submission of its own. The frame's submit carries it, and the frame's own fence says it ran
+            // (UE FRHIGPUTextureReadback::IsReady): no event, nothing else to signal.
+            struct InFrame
+            {
+                uint32_t Slot  = 0;
+                uint64_t Frame = 0;
+            };
             VulkanImageReadback( VkBuffer staging, VmaAllocation allocation, uint64_t bytes, std::size_t pixels,
-                                 Graphic::PackedPixelSource source, VkDevice device, VkEvent frameEvent )
+                                 std::optional<Graphic::PackedPixelSource> source, InFrame frame )
                  : m_Staging( staging ), m_Allocation( allocation ), m_Bytes( bytes ), m_Pixels( pixels ),
-                   m_Source( source ), m_Device( device ), m_FrameEvent( frameEvent )
+                   m_Source( source ), m_Frame( frame )
             {
             }
 
@@ -1114,30 +1123,29 @@ namespace Desert::Graphic::API::Vulkan
 
             ~VulkanImageReadback() override
             {
-                if ( m_FrameEvent != VK_NULL_HANDLE )
-                {
-                    // The frame that carries the copy may still be queued or executing (a capture that ended
-                    // before its announcement): the staging and the event are released only once it is done.
-                    if ( !IsComplete() )
-                        Renderer::GetInstance().WaitDeviceIdle();
-                    vkDestroyEvent( m_Device, m_FrameEvent, nullptr );
-                }
-                else
+                if ( !m_Frame )
                     CommandBufferAllocator::GetInstance().RT_ReleaseSubmitted( m_Submitted );
+                // THE FRAME-RETIRED QUEUE, NOT A WAIT (VulkanAllocator::IsRetired). The buffer is queued under the
+                // destroying thread's frame, never older than the frame that recorded the copy (a thread only
+                // records or counts frames at or after it), so it is destroyed only after that frame's slot fence
+                // was waited: a frame copy still queued or executing keeps its buffer, and nothing here blocks.
                 Allocator()->RT_DestroyBuffer( m_Staging, m_Allocation );
             }
 
             [[nodiscard]] bool IsComplete() const override
             {
-                if ( m_FrameEvent != VK_NULL_HANDLE )
-                    return vkGetEventStatus( m_Device, m_FrameEvent ) == VK_EVENT_SET;
+                if ( m_Frame )
+                    return VulkanFrameLoop::IsFrameDone( m_Frame->Slot, m_Frame->Frame );
                 return CommandBufferAllocator::GetInstance().IsComplete( m_Submitted );
             }
 
-            // Blocks until the copy completed (ReadPixelsRGBA8). On the submit thread a copy still queued behind
-            // the entry it runs is submitted first, so this is never a wait on itself (WaitComplete).
-            [[nodiscard]] Common::BoolResultStr Wait() const
+            // Blocks until the copy completed. A one-off copy: on the submit thread a copy still queued behind
+            // the entry it runs is submitted first, so this is never a wait on itself (WaitComplete). A frame
+            // copy: that frame's slot fence and nothing wider; refused when the frame was never handed over.
+            [[nodiscard]] Common::BoolResultStr Wait() const override
             {
+                if ( m_Frame )
+                    return VulkanFrameLoop::WaitFrameDone( m_Frame->Slot, m_Frame->Frame );
                 return CommandBufferAllocator::GetInstance().WaitComplete( m_Submitted );
             }
 
@@ -1160,8 +1168,8 @@ namespace Desert::Graphic::API::Vulkan
                          "ReadBytes: the GPU copy has not completed yet; poll IsComplete() first" );
                 // Reached but refused (CommandBufferAllocator::IsRefused): the copy never ran, so the staging
                 // buffer holds no pixels of the image; the refusal is the answer, not its uninitialised bytes.
-                // A frame's copy has no submission of its own: its event is set only by the copy having run.
-                if ( m_FrameEvent == VK_NULL_HANDLE && CommandBufferAllocator::GetInstance().IsRefused( m_Submitted ) )
+                // A frame's copy has no submission of its own: its frame's fence signals only once the copy ran.
+                if ( !m_Frame && CommandBufferAllocator::GetInstance().IsRefused( m_Submitted ) )
                     return Common::MakeError<std::vector<uint8_t>>(
                          "ReadBytes: the copy's submission was refused by the driver (see the log); nothing was "
                          "copied" );
@@ -1187,9 +1195,8 @@ namespace Desert::Graphic::API::Vulkan
             uint64_t                                  m_Bytes;
             std::size_t                               m_Pixels;
             std::optional<Graphic::PackedPixelSource> m_Source;
-            CommandBufferAllocator::Submitted         m_Submitted;
-            VkDevice                                  m_Device     = VK_NULL_HANDLE; // frame copy only
-            VkEvent                                   m_FrameEvent = VK_NULL_HANDLE; // frame copy only
+            CommandBufferAllocator::Submitted         m_Submitted{}; // one-off copy only
+            std::optional<InFrame>                    m_Frame;       // frame copy only
         };
     } // namespace
 
@@ -1202,9 +1209,7 @@ namespace Desert::Graphic::API::Vulkan
         const std::shared_ptr<ImageReadback>& readback = begun.GetValue();
         // A WAIT, NOT A SPIN ON IsComplete (REVIEW G1): on the submit thread a spin would never see a copy still
         // queued behind the entry it runs; Wait submits it there first. A lost device ends the wait.
-        // Every readback BeginCopyToHost makes is a VulkanImageReadback, so the downcast cannot miss.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
-        if ( const auto waited = static_cast<const VulkanImageReadback&>( *readback ).Wait(); !waited )
+        if ( const auto waited = readback->Wait(); !waited )
             return Common::MakeFormattedError<std::vector<uint8_t>>( "ReadPixelsRGBA8: {}", waited.GetError() );
         return readback->ReadRGBA8();
     }
@@ -1301,13 +1306,25 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImage2D::RecordReadbackInFrame()
     {
-        using Result = std::shared_ptr<ImageReadback>;
-        if ( const auto refused = CopyToHostRefusal( "RecordReadbackInFrame" ); !refused.IsSuccess() )
-            return Common::MakeError<Result>( refused.GetError() );
         const auto source = RGBA8SourceOf( m_Specification.Format );
         if ( !source )
-            return Common::MakeFormattedError<Result>( "RecordReadbackInFrame: image format {} has no RGBA8 packing",
-                                                       static_cast<int>( m_Specification.Format ) );
+            return Common::MakeFormattedError<std::shared_ptr<ImageReadback>>(
+                 "RecordReadbackInFrame: image format {} has no RGBA8 packing",
+                 static_cast<int>( m_Specification.Format ) );
+        return RecordCopyInFrame( source, "RecordReadbackInFrame" );
+    }
+
+    Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImage2D::RecordBytesReadbackInFrame()
+    {
+        return RecordCopyInFrame( std::nullopt, "RecordBytesReadbackInFrame" );
+    }
+
+    Common::ResultStr<std::shared_ptr<ImageReadback>>
+    VulkanImage2D::RecordCopyInFrame( std::optional<Graphic::PackedPixelSource> source, std::string_view caller )
+    {
+        using Result = std::shared_ptr<ImageReadback>;
+        if ( const auto refused = CopyToHostRefusal( caller ); !refused.IsSuccess() )
+            return Common::MakeError<Result>( refused.GetError() );
 
         // THE FRAME'S CURRENT COMMAND BUFFER (its tail, outside any graph): what is recorded here is submitted by
         // this frame's PresentFinalImage, after the frame's views and interface, before any later frame's work.
@@ -1315,17 +1332,15 @@ namespace Desert::Graphic::API::Vulkan
         const VkCommandBuffer cmd = static_cast<VulkanRendererAPI&>( *Renderer::GetInstance().GetRendererAPI() )
                                          .GetCurrentCommandBuffer();
         if ( cmd == VK_NULL_HANDLE )
-            return Common::MakeError<Result>(
-                 "RecordReadbackInFrame: the frame has no open command buffer (its begin failed, or a graph could "
-                 "not re-arm one; see the [Renderer] line above); nothing to record the copy into" );
-
-        const VkDevice          device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
-                                    ->GetVulkanLogicalDevice();
-        const VkEventCreateInfo eInfo  = { .sType = VK_STRUCTURE_TYPE_EVENT_CREATE_INFO };
-        VkEvent                 event  = VK_NULL_HANDLE;
-        if ( const VkResult made = vkCreateEvent( device, &eInfo, nullptr, &event ); made != VK_SUCCESS )
-            return Common::MakeFormattedError<Result>( "RecordReadbackInFrame: vkCreateEvent failed ({})",
-                                                       static_cast<int>( made ) );
+            return Common::MakeFormattedError<Result>(
+                 "{}: the frame has no open command buffer (its begin failed, or a graph could not re-arm one; "
+                 "see the [Renderer] line above); nothing to record the copy into",
+                 caller );
+        // The frame this copy rides on, as the frame loop's hand-off will name it (the recording slot and number
+        // bound to this job; the game thread's inline): its fence is the copy's completion.
+        const auto&                        frames = Engine::FrameManager::GetInstance();
+        const VulkanImageReadback::InFrame inFrame{ .Slot  = frames.GetCurrentFrameIndex(),
+                                                    .Frame = frames.GetAbsoluteFrameCount() };
 
         auto allocator =
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
@@ -1337,18 +1352,13 @@ namespace Desert::Graphic::API::Vulkan
                                        .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT };
         auto allocRes = allocator->RT_AllocateBuffer( "FrameReadback", bInfo, VMA_MEMORY_USAGE_GPU_TO_CPU, staging );
         if ( !allocRes.IsSuccess() )
-        {
-            vkDestroyEvent( device, event, nullptr );
-            return Common::MakeFormattedError<Result>( "RecordReadbackInFrame: {} byte readback buffer failed: {}",
-                                                       bytes, allocRes.GetError() );
-        }
+            return Common::MakeFormattedError<Result>( "{}: {} byte readback buffer failed: {}", caller, bytes,
+                                                       allocRes.GetError() );
 
         RecordCopyToHost( cmd, staging );
-        // Set once everything before it in the frame - the copy and its host barrier included - has executed.
-        vkCmdSetEvent( cmd, event, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT );
         return Common::MakeSuccess<Result>( std::make_shared<VulkanImageReadback>(
              staging, allocRes.GetValue(), bytes,
-             static_cast<std::size_t>( m_Specification.Width ) * m_Specification.Height, *source, device, event ) );
+             static_cast<std::size_t>( m_Specification.Width ) * m_Specification.Height, source, inFrame ) );
     }
 
     std::optional<Graphic::PackedPixelSource> VulkanImage2D::RGBA8SourceOf( const Core::Formats::ImageFormat fmt )
