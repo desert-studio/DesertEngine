@@ -21,7 +21,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Animation/Retarget` — 8 files, 1,505 lines: BonePairing, ModelPose, ResolvedChain, RetargetChain, RetargetPose, RetargetSetup, RetargetSource, Retargeter
 - `Animation/Rig` — 12 files, 4,529 lines: ControlBoneDrive, ControlDrag, ControlElement, ControlHierarchy, ControlKeyTarget, ControlKeyer, ControlLimit, ControlRigStage, ControlShape, ControlShapeDraw, ControlShapeLibrary, ControlShapePolyline, … (+16)
 - `Animation/Solvers` — 2 files, 270 lines: TwoBoneIKChain, TwoBoneIKGoal, TwoBoneIKSolution
-- `Animation/Timeline` — 18 files, 5,094 lines: AnimationSample, AnimationSectionContent, ApplyReport, AudioCommand, AudioSample, AudioSectionContent, AudioVoices, Binding, BindingGuid, BoneBindingTable, BoneLayerRequest, BoneLayerSample, … (+28)
+- `Animation/Timeline` — 18 files, 5,144 lines: AnimationSample, AnimationSectionContent, ApplyReport, AudioCommand, AudioSample, AudioSectionContent, AudioVoices, Binding, BindingGuid, BoneBindingTable, BoneLayerRequest, BoneLayerSample, … (+28)
 - `Assets` — 139 files, 31,659 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetEvictionSettings, AssetEvictionSweep, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, … (+150)
 - `Assets/Mesh` — 14 files, 3,046 lines: AnimationAsset, MeshAsset, ReloadTwinTag, SkeletonAsset, SkeletonReferrers, SkinnedMeshAsset, StaticMeshAsset, SurfaceMaterialAsset
 - `Assets/Prefab` — 12 files, 2,160 lines: AnimationComponentSer, EntityData, InstanceRootTransform, InstancedStaticMeshComponentSer, MaterialComponentSer, MaterialParamSer, MaterialTextureSer, Member, PackedPrefabGroupSer, PackedPrefabSer, PrefabAsset, PrefabBoundsSer, … (+10)
@@ -39,7 +39,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Core/ShaderCompiler/ShaderPreprocess` — 2 files, 140 lines: PreprocessedPass, ShaderPreprocess
 - `Core/ShaderCompiler/ShadingModels` — 6 files, 1,188 lines: LoadedShadingModels, PayloadSlot, ShadingModelEntry, ShadingModelManifest, ShadingModelRegistry, ShadingWordField
 - `Core/Traits` — 1 files, 17 lines
-- `ECS` — 82 files, 11,568 lines: AnimationComponent, AppliedLayerLink, AtmosphereSunPick, Attached, AudioSourceComponent, AudioSourceData, BoneSectionBlend, Bound, CameraComponent, CameraData, Channel, Cloth, … (+130)
+- `ECS` — 82 files, 11,570 lines: AnimationComponent, AppliedLayerLink, AtmosphereSunPick, Attached, AudioSourceComponent, AudioSourceData, BoneSectionBlend, Bound, CameraComponent, CameraData, Channel, Cloth, … (+130)
 - `ECS/System` — 42 files, 9,583 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, BonePalette, ColliderMesh, ComponentEventCursor, ComponentEventSystem, DecalECSSystem, … (+39)
 - `Gameplay` — 5 files, 833 lines: CharacterControllerRecord, CharacterPawnMover, DrawnPawn, Frame, IPawnMoveWorld, Outcome, PawnActions, PawnCapsule, PawnMoveSettings, PawnMovement, PhysicsPawnMoveWorld, PrefabRecords, … (+2)
 - `GameplayDebugger` — 13 files, 1,805 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerCategoryPhysics, GameplayDebuggerCategoryRendering, GameplayDebuggerCategoryScript, GameplayDebuggerCategoryWorldPartition, GameplayDebuggerShape, IGameplayDebuggerCategory, SeenContact, View
@@ -122,7 +122,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Libraries` — 34 files, 3,818 lines: AnimatorLibrary, AudioLibrary, CharacterLibrary, DebugDrawLibrary, DeformCall, EntityLibrary, GameModeLibrary, GameplayDebuggerLibrary, HitResult, InputLibrary, LanguageInfo, LevelLibrary, … (+15)
 - `Localization` — 10 files, 2,112 lines: CalendarDate, CurrencyRow, FormatArguments, FormattedText, LocaleRow, Localization, LocalizedEntry, PluralOperands, Resolved, Row, RowTable, Snapshot, … (+2)
 - `Media` — 12 files, 2,430 lines: Av1VideoDecoder, ClusterEntry, CueEntry, IMediaAudioSink, MediaAudioOutput, MediaColorCoefficients, MediaPacket, MediaPlane, MediaPlayer, MediaSource, MediaTexture, OpusAudioDecoder, … (+6)
-- `Net` — 3 files, 1,177 lines: ClientNetDriver, ClientNetOptions, NetPredictionStats, NetRoleComponent
+- `Net` — 3 files, 1,239 lines: ClientNetDriver, ClientNetOptions, NetPredictionStats, NetRoleComponent
 - `Physics` — 10 files, 1,122 lines: CharacterControllerComponent, CharacterControllerData, ColliderComponent, ColliderData, PhysicsAssetGenerationSettings, ProjectileComponent, ProjectileData, RigidBodyComponent, RigidBodyData
 - `Reflection` — 14 files, 2,741 lines: AssetResolver, Callable, EntityRef, EnumBits, EnumValue, EventInfo, EventMetadata, EventSignature, FieldInfo, FunctionInfo, FunctionMetadata, Map, … (+14)
 - `Runtime` — 6 files, 1,340 lines: AssetHotReload, ImageHandle, Probe, ResourceRegistry, SelectionContext
@@ -163,7 +163,7 @@ Per directory: files, lines, the classes its headers declare.
 
 ## Common — `Desert/Common/Source/Common`
 - `Content` — 28 files, 6,546 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, AssetTrashRecord, ChunkFolderRow, ChunkManifest, ChunkPlan, ChunkRule, … (+27)
-- `Core` — 51 files, 10,015 lines: AssetHandle, ContentDirSpec, DirtySet, DirtySetIndexOf, DrawSplitCounts, DrawSplitResult, EngineResourcePaths, Entry, Error, FieldDescriptor, FieldMeta, FrameIdentity, … (+36)
+- `Core` — 52 files, 10,024 lines: AssetHandle, ContentDirSpec, DirtySet, DirtySetIndexOf, DrawSplitCounts, DrawSplitResult, EngineResourcePaths, Entry, Error, FieldDescriptor, FieldMeta, FrameIdentity, … (+36)
 - `Core/Algorithms` — 1 files, 55 lines: ScopeExit, ScopeExitTag
 - `Core/Events` — 7 files, 946 lines: DispatchScope, EmplacedNode, EventHandlerTable, EventNodeId, EventNodeLink, EventReply, EventTree, EventTypeList, EventWindowClose, EventWindowFileDrop, EventWindowResize, KeyEvent, … (+10)
 - `Core/Math` — 9 files, 888 lines: AABB, AABBLanes, AABBQuad, Float4, Float8, Mask4, Pcg32, RandomStream, Ray, SphereQuad
@@ -197,14 +197,14 @@ Per directory: files, lines, the classes its headers declare.
 - `LandscapeCore/Public` — 10 files, 1,338 lines: LandscapeEditLayer, LandscapeEditLayerStack, LandscapeEditLayerTarget, LandscapeEditLayerTileData, LandscapeFrame, LandscapeLayerRule, LandscapeRect, LandscapeRoot, LandscapeSplineControlPoint, LandscapeSplineCurve, LandscapeSplineInterpPoint, LandscapeSplineMeshEntry, … (+6)
 
 ## Net — `Desert/Net/Source`
-- `Net` — 19 files, 6,249 lines: AckedMove, Authority, Cell, CellResidencyMessage, ConnectToken, ConnectTokenVerifier, ConnectionStats, DestroyMessage, DisconnectInfo, FieldUpdate, Gateway, GatewayAdmission, … (+66)
+- `Net` — 22 files, 6,916 lines: AckedMove, Authority, Cell, CellResidencyMessage, ConnectToken, ConnectTokenVerifier, Connection, ConnectionStats, DestroyMessage, DisconnectInfo, FieldUpdate, Gateway, … (+75)
 
 ## PhysicsCore — `Desert/PhysicsCore/Source`
 - `PhysicsCore` — 12 files, 3,966 lines: BodyDesc, CharacterCapsule, CharacterDesc, CollisionChannelConfig, CollisionProfileConfig, CollisionProfiles, CollisionProfilesConfig, CollisionResponseConfig, CompoundBodyDesc, ContactEvent, ContactImpulse, ConvexHullGeometry, … (+16)
 - `PhysicsCore/Cloth` — 2 files, 261 lines: ClothCapsuleCollider, ClothConfig, ClothMeshBinding, ClothPhysicalMesh, ClothSimulationOutput, ClothSphereCollider, ClothStepContext, ClothVertexMaps, ClothingAsset, ClothingSimulationFactoryRegistry, IClothingSimulation, IClothingSimulationFactory
 
 ## Projects — `Desert/Projects/Source`
-- `Projects` — 14 files, 1,427 lines: EngineConfig, EngineConfigLayers, EngineDirLookup, EngineRootLookup, GameSettings, ProjectContext, RendererSettings, TextureEncodingSettings, WorldPartitionSettings
+- `Projects` — 16 files, 1,602 lines: EngineConfig, EngineConfigLayers, EngineDirLookup, EngineRootLookup, GameSettings, NetRateBand, NetSettings, ProjectContext, RendererSettings, TextureEncodingSettings, WorldPartitionSettings
 
 ## Render2DCore — `Desert/Render2DCore/Source`
 - `.` — 2 files, 26 lines
@@ -272,7 +272,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Panels/NodeGraph` — 8 files, 3,377 lines: NodeGraphPanel, NodeSpec, PinSpec, ShadowRayScope, VolumeParam, VolumeParamOutOfScope
 - `Panels/Photogrammetry` — 2 files, 1,295 lines: PhotogrammetryPanel
 - `Panels/PhysicsAssetEditor` — 5 files, 1,272 lines: PhysicsAssetEditCommand, PhysicsAssetEditorBase, PhysicsAssetEditorDocument, PhysicsAssetPreviewSimulation
-- `Panels/ProjectSettings` — 2 files, 441 lines: ProjectSettingsPanel
+- `Panels/ProjectSettings` — 2 files, 607 lines: ProjectSettingsPanel
 - `Panels/PropertyEditor` — 10 files, 3,368 lines: ComponentEditContext, ComponentEditorEntry, ComponentWidgetRegistry, PropertyEditSignals, PropertyEditorBuilder, ReflectedFieldRow
 - `Panels/Retarget` — 4 files, 1,184 lines: RetargetDocument, RetargetDocumentModel, Side
 - `Panels/Scalability` — 6 files, 963 lines: ScalabilityPanel
