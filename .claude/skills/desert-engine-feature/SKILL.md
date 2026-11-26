@@ -1,27 +1,36 @@
 ---
 name: desert-engine-feature
-description: How a feature is delivered whole, in one pass, in DesertEngine — design, one engineer run, review, one build, one acceptance. Use when starting any feature, a look complaint from the owner, an architecture rework, or whenever a second "-2" pass of the same task is about to be launched.
+description: How a feature is delivered whole, in one day, in DesertEngine — one design, 1..4 parallel engineer packages over disjoint files behind a header contract, parallel review, one batch build, one acceptance, landing the same day. Use when starting any feature, a look complaint from the owner, an architecture rework, a feature too big for one run, or whenever a second "-2" pass of the same task is about to be launched.
 ---
-# A feature in one pass
+# A feature in one day
 
-Measured 2026-11-25: 106 features took three passes or more, median five, and 70 cards waited for acceptance. A pass was 14 minutes; the rest was slicing, re-reading and queues. So the unit of work is the feature, not the fix.
+The unit of work is the feature, never the fix and never the pass. Measured 2026-11-25: 106 features took three passes or more, median five; a pass was 14 minutes, the rest was slicing, re-reading and queues. Numbers named below live in `.claude/tools/limits.py`; the state lives in `~/.claude/studio/pipeline.json` and survives /compact (`python .claude/tools/studio.py digest`).
 
-| Stage | Who | Output | Gate |
+| Stage | Who | Command of the lead | Gate (who refuses) |
 |---|---|---|---|
-| 1 Design | `architect` | `F:/aftmp/<CODE>-DESIGN.md` | lead reads it: every difference has a proven cause |
-| 2 Code | `engineer`, one run, one branch | `wip: … код готов` | agent_guard: no design, no launch |
-| 3 Review | `reviewer`, has not seen the author's reasoning | `ACCEPT` / `RETURN` | the same engineer branch is fixed once |
-| 4 Build | lead, all branches of the batch together | `build_land.sh`, rc 0 | build_gate, arch_census |
-| 5 Acceptance | `acceptance`, the whole batch in one editor session | frame table | every «Тогда» PASS |
-| 6 Land | lead, the same day | `land_dev.sh` | arch_census, fast-forward |
+| design | `architect` | launch with the design path | hand-in hook: `## Порядок` must be a parallel plan |
+| code | `engineer` × packages, all at once | `studio.py plan CODE DESIGN.md`, then its launch lines | agent_guard: planned package only, no file overlap with a live run |
+| review | `reviewer` × packages, all at once | `studio.py accept CODE-A` per hand-in | ownership proof against the design; one fix run per `RETURN` |
+| build | lead, all features of the batch | `studio.py merge CODE…`, `build_land.sh`, `studio.py built ok` | the scenario shoots every «Тогда [кадр]»; build_gate, arch_census |
+| accept | `acceptance`, one editor session | `studio.py passed CODE` | every «Тогда [кадр]» PASS |
+| land | lead, the same day | `land_dev.sh`, `studio.py landed CODE` | fast-forward, commit in dev; the design is archived and queued for the Wiki |
 
-Stages 1–3 of different features run in parallel; stages 4–5 are one queue because there is one GPU and one editor.
+## A feature too big for one run
+It is never run twice in a row and never spread over days. The architect cuts it by INTERFACE into `limits.MAX_PACKAGES` or fewer packages:
+1. `### Контракт` — the shared headers, written in full next to the design (`<design>-contract/…`). They are the only way packages know each other.
+2. `### Пакет A..D` — each with a `Файлы:` line (exact file, `Dir/`, glob) and a `Закрывает:` line (ids of `## Отличия`; every id has exactly one package). The sets are disjoint; a file two packages need becomes a contract header or goes whole to one of them.
+3. `studio.py plan` commits the contract on `task/CODE`, makes one tree `S:/wt/CODE-A` and one brief per package, and prints the launch lines. All packages are launched in the same response.
+4. Each engineer edits only its own files (the hook refuses the rest), reports `CONTRACT-BREAK:` or `NEEDS:` instead of reaching over, and pushes `task/CODE-A`.
+5. Review runs per package in parallel; `studio.py merge` re-proves ownership and merges every package into the batch tree; then ONE build and ONE acceptance for the whole feature.
+
+Still too big for `limits.MAX_PACKAGES` packages: two features, two designs, one shared contract, the same day. A `CONTRACT-BREAK` goes back to the architect, who changes the contract once for all packages; the affected packages get one fix run.
 
 ## Rules
-- The owner's complaint is the scope. "Water looks bad" is one design over everything that makes water look bad, not a list of fixes.
-- An unproven cause goes to an experiment BEFORE code (view mode, knock-out, number), not to a pass.
-- `-2` means the design was wrong. Do not launch it: reopen the design, find which difference was missing, then run again with all of it. A third run goes to the owner with the reason.
-- Size: one engineer run is about 300 calls. Larger is split by INTERFACE (header contract first, owners of disjoint files), all landing together.
-- One-defect fixes (≤ 2 items) skip stages 1 and 3 and stay in the small lane.
-- A card is «Готово» only after stage 5; a card older than 48 h in «На проверке» goes first in the next editor session.
-- At most 3 features in flight. Finish before starting.
+- The owner's complaint is the scope. "Water looks bad" is one design over everything that makes water look bad.
+- An unproven cause goes to an experiment BEFORE code (view mode, knock-out, number), not to a package.
+- `-2` means the design was wrong: reopen the design, find the missing difference, run again with all of it. A third run goes to the owner with the reason.
+- One-defect fixes (`limits.FIX_BRIEF`) skip design and review: `general-purpose` with a fix brief.
+- At most `limits.RUNS_BEFORE_BUILD` hand-ins of one code before a build has seen it; `ACCEPT` with MINORs is closed by the author in one run and not reviewed again.
+- At most `limits.FEATURES_IN_FLIGHT` features between `plan` and `landed`; one older than `limits.FEATURE_MAX_AGE_H` stops new plans until it lands or is dropped with a reason (`studio.py drop`).
+- A feature has ONE board card; packages are lines in it. Card updates queue up and go to the `board` agent as one batch (`studio.py board`).
+- While a build, a scenario run or a landing is in progress, nothing new starts on top of the code being built; the next feature's design and packages do.

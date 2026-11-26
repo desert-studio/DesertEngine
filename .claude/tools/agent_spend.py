@@ -6,7 +6,7 @@ Usage: agent_spend.py <agent transcript .jsonl> [more.jsonl ...]
 The transcript is the subagent JSONL Claude Code writes under
 ~/.claude/projects/<project>/<session>/subagents/. It exists only on this machine and only
 until the session directory is cleaned, so run this AT ACCEPTANCE, next to filling the
-board's `Токены` field (LEAD_PROTOCOL.md 3.2).
+board's `Токены` field (.claude/LEAD_PROTOCOL.md).
 
 WHAT EACH COLUMN MEANS, because the three are different costs:
 
@@ -33,7 +33,7 @@ from collections import defaultdict
 
 # Order matters: the first pattern that matches a Bash command names its category.
 BASH_CATEGORIES = [
-    ("build", re.compile(r"\bmake\b|premake5|Build\w*\.sh|build\.bat|msbuild|ccache")),
+    ("build", re.compile(r"\bmake\b|cmake|ninja|build_land|Build\w*\.sh|build\.bat|msbuild|ccache")),
     ("run tests", re.compile(r"RunAllTests|/Tests/|_test\b|Debug/\w+Test|--gtest")),
     ("run editor", re.compile(r"RunEditor|--shot\b")),
     ("ci (gh)", re.compile(r"^\s*gh\b|\bgh (run|pr|api)\b")),
