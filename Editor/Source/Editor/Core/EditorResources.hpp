@@ -17,25 +17,10 @@ namespace Desert::Editor
         // Large standalone MDI icon font for asset-thumbnail grid cells.
         static ImFont* GetBigIconFont();
 
-        static bool IsInitialized()
-        {
-            return s_Initialized;
-        }
-
-        static ImFont* GetRegularFont()
-        {
-            return s_RegularFont;
-        }
-
-        static ImFont* GetBoldFont()
-        {
-            return s_BoldFont ? s_BoldFont : s_RegularFont;
-        }
-
-        static ImFont* GetExtraBoldFont()
-        {
-            return s_ExtraBoldFont ? s_ExtraBoldFont : s_RegularFont;
-        }
+        static bool    IsInitialized();
+        static ImFont* GetRegularFont();
+        static ImFont* GetBoldFont();
+        static ImFont* GetExtraBoldFont();
 
     private:
         static bool    s_Initialized;

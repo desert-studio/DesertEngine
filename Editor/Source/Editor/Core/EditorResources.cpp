@@ -40,6 +40,26 @@ namespace Desert::Editor
         return s_BigIconFont ? s_BigIconFont : s_IconFont;
     }
 
+    bool EditorResources::IsInitialized()
+    {
+        return s_Initialized;
+    }
+
+    ImFont* EditorResources::GetRegularFont()
+    {
+        return s_RegularFont;
+    }
+
+    ImFont* EditorResources::GetBoldFont()
+    {
+        return s_BoldFont ? s_BoldFont : s_RegularFont;
+    }
+
+    ImFont* EditorResources::GetExtraBoldFont()
+    {
+        return s_ExtraBoldFont ? s_ExtraBoldFont : s_RegularFont;
+    }
+
     bool EditorResources::Initialize( const std::string& fontAwesomePath )
     {
         if ( s_Initialized )
