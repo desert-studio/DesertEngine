@@ -118,7 +118,7 @@ namespace Common::Settings
         // rows unreachable (DeviceCaps HideRayTracing): VK_KHR_acceleration_structure / ray_query /
         // ray_tracing_pipeline are not enabled, the catalog offers RayTracingMode None only, and every method is
         // lowered by the same ResolveRenderMethods a non-RT card goes through — no per-pass flag exists. Read
-        // once, when the Vulkan device is created (VulkanLogicalDevice::Create); a change takes effect on the next
+        // once, when the device is created (the backend's device creation); a change takes effect on the next
         // start.
         bool HideRayTracing = false;
 
@@ -126,7 +126,7 @@ namespace Common::Settings
         // r.RayTracing.OpacityMicromaps / r.RayTracing.ShaderExecutionReordering as console variables). True = the
         // probe plans that one row unreachable: VK_EXT_opacity_micromap (BLAS builds without micromaps,
         // alpha-masked triangles all reach any-hit) / VK_NV_ray_tracing_invocation_reorder (raygen without
-        // hitObject reorder). Read once, when the Vulkan device is created; a change takes effect on the next
+        // hitObject reorder). Read once, when the device is created; a change takes effect on the next
         // start.
         bool HideOpacityMicromap   = false;
         bool HideInvocationReorder = false;

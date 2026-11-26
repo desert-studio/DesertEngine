@@ -73,7 +73,7 @@ namespace Desert::Graphic
     } // namespace RayTracing
 
     // THE BACKEND. One instance, owned by Renderer (Renderer::AttachRhi), created from the RhiSelection before the
-    // window's surface. Every former `switch (RendererAPI::GetAPIType())` is one virtual here with the signature
+    // window's surface. Every former per-API switch of a static Create is one virtual here with the signature
     // of the static Create it replaces; the statics stay as one-line forwards to Renderer::GetInstance().Rhi().
     // What a static did before or after the backend object (spec checks, naming, mip generation) stays in the
     // static.

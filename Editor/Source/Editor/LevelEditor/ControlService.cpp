@@ -2442,7 +2442,7 @@ namespace Desert::Editor
             device.NnSubgroupSizeControl                   = neural.SubgroupSizeControl;
             device.NnCooperativeMatrix                     = neural.CooperativeMatrix;
             device.NnCooperativeMatrixCompute              = neural.CooperativeMatrixInCompute;
-            device.NnVulkanMemoryModel                     = neural.VulkanMemoryModel;
+            device.NnMemoryModel                           = neural.MemoryModel;
             device.NnComputeRequiredSubgroupSize           = neural.ComputeSubgroupSizeRequirable;
             device.NnSubgroupSize                          = neural.SubgroupSize;
             device.NnMinSubgroupSize                       = neural.MinSubgroupSize;

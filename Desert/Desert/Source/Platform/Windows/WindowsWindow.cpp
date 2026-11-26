@@ -44,8 +44,8 @@ namespace Desert::Platform::Windows
             m_HoldsGLFW = true;
         }
 
-        if ( Graphic::RendererAPI::GetAPIType() == Graphic::RendererAPIType::Vulkan )
-            glfwWindowHint( GLFW_CLIENT_API, GLFW_NO_API );
+        // No GL context for any backend: Vulkan and D3D12 both present through their own swap chain.
+        glfwWindowHint( GLFW_CLIENT_API, GLFW_NO_API );
 
         auto width  = m_Data.Specification.Width;
         auto height = m_Data.Specification.Height;

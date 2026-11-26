@@ -47,9 +47,6 @@ namespace Desert::Editor::UI
         if ( !image || m_Pool == VK_NULL_HANDLE )
             return nullptr;
 
-        if ( Graphic::RendererAPI::GetAPIType() != Graphic::RendererAPIType::Vulkan )
-            return nullptr;
-
         const auto  vulkanImage = sp_cast<Graphic::API::Vulkan::VulkanImage2D>( image );
         const auto& res         = vulkanImage->GetResource();
         const auto  retire      = [this]( ImTextureID id ) { Retire( id ); };

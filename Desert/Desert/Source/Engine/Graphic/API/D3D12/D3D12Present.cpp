@@ -475,4 +475,16 @@ namespace Desert::Graphic::API::D3D12
              "D3D12SwapChain: no frame was captured (SupportsFrameReadback is false)" );
     }
 
+    Common::ResultStr<CapturedFrameTicket> D3D12SwapChain::TakeCapturedFrameTicket()
+    {
+        return Common::MakeError<CapturedFrameTicket>(
+             "D3D12SwapChain: no frame was captured (SupportsFrameReadback is false)" );
+    }
+
+    Common::ResultStr<std::vector<uint8_t>> D3D12SwapChain::ResolveCapturedFrame( const CapturedFrameTicket& ticket )
+    {
+        return Common::MakeFormattedError<std::vector<uint8_t>>(
+             "D3D12SwapChain: capture ticket {} was never handed out (SupportsFrameReadback is false)", ticket.Id );
+    }
+
 } // namespace Desert::Graphic::API::D3D12

@@ -36,6 +36,11 @@ namespace Desert::Graphic::API::Vulkan
     VulkanSwapChain::~VulkanSwapChain()
     {
         Release();
+        // Tickets nobody released (a shot abandoned by shutdown): nothing resolves them any more, since a resolving
+        // worker holds the swap chain alive.
+        for ( auto& [id, staging] : m_Tickets )
+            ReleaseCapturedStaging( staging );
+        m_Tickets.clear();
         // The surface outlives every Release() (a resize rebuilds the swapchain on the same surface) and dies
         // only here, before the platform window it was made from: the window's destructor resets this
         // swapchain ahead of glfwDestroyWindow. Without a renderer context the instance is already gone and
@@ -711,7 +716,7 @@ namespace Desert::Graphic::API::Vulkan
                  "no interface at all." );
         }
 
-        if ( HasPendingCapture() )
+        if ( HasPendingFrameCapture() )
         {
             return Common::MakeError<bool>(
                  "a frame capture is already recorded and not yet collected; one at a time." );
@@ -822,9 +827,52 @@ namespace Desert::Graphic::API::Vulkan
         return packed;
     }
 
+    Common::ResultStr<CapturedFrameTicket> VulkanSwapChain::TakeCapturedFrameTicket()
+    {
+        auto detached = DetachCapturedFrame();
+        if ( !detached )
+            return Common::MakeError<CapturedFrameTicket>( detached.GetError() );
+        const CapturedStaging& staging = detached.GetValue();
+        const std::scoped_lock lock( m_TicketLock );
+        CapturedFrameTicket    ticket{ .Id = m_NextTicket++, .Width = staging.Width, .Height = staging.Height };
+        m_Tickets.emplace( ticket.Id, staging );
+        return Common::MakeSuccess( ticket );
+    }
+
+    Common::ResultStr<std::vector<uint8_t>> VulkanSwapChain::ResolveCapturedFrame( const CapturedFrameTicket& ticket )
+    {
+        CapturedStaging staging;
+        {
+            const std::scoped_lock lock( m_TicketLock );
+            const auto             held = m_Tickets.find( ticket.Id );
+            if ( held == m_Tickets.end() )
+                return Common::MakeFormattedError<std::vector<uint8_t>>(
+                     "capture ticket {} is not held by the swap chain (released or never taken).", ticket.Id );
+            staging = held->second; // the handles; the buffer stays the ticket's until ReleaseCapturedFrame
+        }
+        const auto raw = ReadCapturedStaging( staging );
+        if ( !raw )
+            return Common::MakeError<std::vector<uint8_t>>( raw.GetError() );
+        return PackCapturedFrame( raw.GetValue() );
+    }
+
+    void VulkanSwapChain::ReleaseCapturedFrame( const CapturedFrameTicket& ticket )
+    {
+        CapturedStaging staging;
+        {
+            const std::scoped_lock lock( m_TicketLock );
+            const auto             held = m_Tickets.find( ticket.Id );
+            if ( held == m_Tickets.end() )
+                return;
+            staging = held->second;
+            m_Tickets.erase( held );
+        }
+        ReleaseCapturedStaging( staging );
+    }
+
     Common::ResultStr<VulkanSwapChain::CapturedStaging> VulkanSwapChain::DetachCapturedFrame()
     {
-        if ( !HasPendingCapture() )
+        if ( !HasPendingFrameCapture() )
             return Common::MakeError<CapturedStaging>( "no frame capture was recorded for this frame." );
 
         CapturedStaging staging{ .Buffer     = m_CaptureStaging,
@@ -991,6 +1039,19 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     void VulkanSwapChain::ReleaseCapturedStaging( CapturedStaging& ) {}
+
+    Common::ResultStr<CapturedFrameTicket> VulkanSwapChain::TakeCapturedFrameTicket()
+    {
+        return Common::MakeError<CapturedFrameTicket>( "frame capture is not compiled into a Shipping build." );
+    }
+
+    Common::ResultStr<std::vector<uint8_t>> VulkanSwapChain::ResolveCapturedFrame( const CapturedFrameTicket& )
+    {
+        return Common::MakeError<std::vector<uint8_t>>( "frame capture is not compiled into a Shipping build." );
+    }
+
+    // No ticket is ever handed out without the capture, so there is none to release.
+    void VulkanSwapChain::ReleaseCapturedFrame( const CapturedFrameTicket& ) {}
 
     Common::ResultStr<std::vector<uint8_t>> VulkanSwapChain::PackCapturedFrame( const CapturedFrame& )
     {

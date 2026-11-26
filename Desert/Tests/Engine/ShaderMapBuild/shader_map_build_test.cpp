@@ -14,6 +14,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderMapBuild.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderTarget.hpp>
+#include <vulkan/vulkan_core.h>
 
 #include <Common/Core/JobSystem.hpp>
 
@@ -356,10 +357,10 @@ TEST_F( ShaderMapBuildFixture, EveryShippedProgramCompilesToStages )
 }
 
 // RAY QUERY COMPILES THROUGH THE ENGINE'S OWN COMPILE CALL. GL_EXT_ray_query emits SPV_KHR_ray_query, which needs
-// SPIR-V 1.4; the compiler targets the oldest accepted device (ShaderTarget.hpp <- kMinimumDeviceApiVersion), and
+// SPIR-V 1.4; the compiler targets the oldest accepted device (ShaderTarget.hpp <- ShaderTargetVersion.hpp), and
 // a Vulkan 1.1 target (SPIR-V 1.3) rejects the shader. No device is involved: this is shaderc alone.
 //
-// MUTATION: set kMinimumDeviceApiVersion back to VK_API_VERSION_1_1 (DeviceCaps.hpp) - this test goes red with
+// MUTATION: set kMinimumDeviceApiVersion back to Vulkan 1.1 (ShaderTargetVersion.hpp) - this test goes red with
 // glslang's "requires SPIR-V 1.4" error, and TheShaderTargetFollowsTheMinimumDeviceVersion with it.
 TEST_F( ShaderMapBuildFixture, ARayQueryShaderCompilesForTheShaderTarget )
 {
@@ -394,9 +395,9 @@ TEST_F( ShaderMapBuildFixture, ARayQueryShaderCompilesForTheShaderTarget )
 // minimum move without the SPIR-V (or with the SPIR-V but not the key, serving stale artifacts).
 TEST( ShaderTarget, TheShaderTargetFollowsTheMinimumDeviceVersion )
 {
-    EXPECT_EQ( Desert::Core::kShaderTargetApiVersion, Desert::Graphic::API::Vulkan::kMinimumDeviceApiVersion );
+    EXPECT_EQ( Desert::Core::kShaderTargetApiVersion, Desert::Core::kMinimumDeviceApiVersion );
     EXPECT_EQ( Desert::Core::kShaderTargetEnvVersion,
-               Desert::Core::ShaderTargetEnvVersion( Desert::Graphic::API::Vulkan::kMinimumDeviceApiVersion ) );
+               Desert::Core::ShaderTargetEnvVersion( Desert::Core::kMinimumDeviceApiVersion ) );
     EXPECT_EQ( Desert::Core::ShaderTargetEnvVersion( VK_API_VERSION_1_1 ), shaderc_env_version_vulkan_1_1 );
     EXPECT_EQ( Desert::Core::ShaderTargetEnvVersion( VK_API_VERSION_1_2 ), shaderc_env_version_vulkan_1_2 );
     EXPECT_EQ( Desert::Core::ShaderTargetEnvVersion( VK_API_VERSION_1_3 ), shaderc_env_version_vulkan_1_3 );

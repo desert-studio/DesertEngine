@@ -11,6 +11,16 @@
 
 namespace Desert::Graphic
 {
+    // A recorded capture handed out of the swap chain (SwapChain::TakeCapturedFrameTicket): the swap chain keeps the
+    // backend's readback buffer and fence under Id until ReleaseCapturedFrame, and can record the next capture at
+    // once. Width and Height are the captured surface's.
+    struct CapturedFrameTicket
+    {
+        uint64_t Id     = 0;
+        uint32_t Width  = 0;
+        uint32_t Height = 0;
+    };
+
     class SwapChain
     {
     public:
@@ -60,6 +70,23 @@ namespace Desert::Graphic
         /// the copy.
         [[nodiscard]] virtual Common::ResultStr<std::vector<uint8_t>>
         TakeCapturedFrameRGBA8( uint32_t& outWidth, uint32_t& outHeight ) = 0;
+
+        /// THE SAME CAPTURE IN THREE HALVES, so only the first is the frame's (the editor's shot.window; UE:
+        /// FRHIGPUTextureReadback enqueued with a fence, read once IsReady, converted by FImageWriteQueue).
+        /// A copy is recorded and not yet handed out as a ticket.
+        [[nodiscard]] virtual bool HasPendingFrameCapture() const noexcept = 0;
+        /// Release a recorded copy that will not be collected. The caller has waited for the device. No-op when none.
+        virtual void DiscardFrameCapture() = 0;
+        /// On the frame, after the render task handed the frame that recorded the copy to the submit: takes the
+        /// copy out of the recording slot and queues a fence behind the frame. Waits for no GPU work.
+        [[nodiscard]] virtual Common::ResultStr<CapturedFrameTicket> TakeCapturedFrameTicket() = 0;
+        /// Any thread: waits the ticket's fence, reads the copy and packs it to tightly packed RGBA8 (BGRA and
+        /// HDR surfaces converted by the backend, alpha opaque). The ticket stays held.
+        [[nodiscard]] virtual Common::ResultStr<std::vector<uint8_t>>
+        ResolveCapturedFrame( const CapturedFrameTicket& ticket ) = 0;
+        /// On the game thread once nothing resolves the ticket: its readback memory goes to deferred deletion.
+        /// Idempotent.
+        virtual void ReleaseCapturedFrame( const CapturedFrameTicket& ticket ) = 0;
 
         // Present pacing (Scalability::DisplaySettings; machine.json's Display, handed over by QualityBoot through
         // Window::SetDisplay). Takes effect the next time the swapchain is (re)created — Window::SetDisplay

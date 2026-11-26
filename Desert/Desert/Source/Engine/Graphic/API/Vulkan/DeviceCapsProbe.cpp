@@ -418,7 +418,7 @@ namespace Desert::Graphic::API::Vulkan
             neural.StorageBuffer8BitAccess    = caps.Has( Capability::StorageBuffer8BitAccess );
             neural.SubgroupSizeControl        = caps.Has( Capability::SubgroupSizeControl );
             neural.CooperativeMatrix          = caps.Has( Capability::CooperativeMatrix );
-            neural.VulkanMemoryModel          = caps.Has( Capability::VulkanMemoryModel );
+            neural.MemoryModel                = caps.Has( Capability::VulkanMemoryModel );
             neural.MaxPushConstantsSize       = device.properties.limits.maxPushConstantsSize;
             neural.MaxComputeSharedMemorySize = device.properties.limits.maxComputeSharedMemorySize;
 

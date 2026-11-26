@@ -8,7 +8,7 @@ namespace Desert::Graphic::API::Vulkan
 {
     class VulkanContext;
 
-    // THE VULKAN BACKEND (IRhi): every body the former `case RendererAPIType::Vulkan:` arms held, one per virtual.
+    // THE VULKAN BACKEND (IRhi): every body the former per-API switches' Vulkan arms held, one per virtual.
     // Owns what the backend alone builds for the process lifetime (the fallback set) and remembers the context it
     // created, so the allocator questions (SceneWorkspace, DebugCommands) need no dynamic_cast of the engine's
     // RendererContext.

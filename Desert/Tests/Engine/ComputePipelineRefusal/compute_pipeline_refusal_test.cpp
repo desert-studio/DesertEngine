@@ -115,6 +115,11 @@ namespace
             return m_Layout;
         }
 
+        [[nodiscard]] uint32_t GetPushBlockSize() const override
+        {
+            return 0u;
+        }
+
         bool IsCompiled() const override
         {
             return m_Compiled;

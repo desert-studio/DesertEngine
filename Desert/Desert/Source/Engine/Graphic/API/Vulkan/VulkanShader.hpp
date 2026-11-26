@@ -109,6 +109,11 @@ namespace Desert::Graphic::API::Vulkan
             return Current().MaterialLayout;
         }
 
+        [[nodiscard]] uint32_t GetPushBlockSize() const override
+        {
+            return ShaderResources::ShaderLayout::PushBlockSize( Current().Reflection.PushConstantRanges );
+        }
+
         const std::vector<VkPipelineShaderStageCreateInfo>& GetPipelineShaderStageCreateInfos() const
         {
             return Current().StageInfos;

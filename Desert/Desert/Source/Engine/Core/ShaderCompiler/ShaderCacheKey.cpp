@@ -49,8 +49,8 @@ namespace Desert::Core
         const std::string& OptionsFingerprint()
         {
             static const std::string fingerprint =
-                 std::format( "vulkan{}.{}|glsl460|v7", VK_API_VERSION_MAJOR( kShaderTargetApiVersion ),
-                              VK_API_VERSION_MINOR( kShaderTargetApiVersion ) );
+                 std::format( "vulkan{}.{}|glsl460|v7", ApiVersionMajor( kShaderTargetApiVersion ),
+                              ApiVersionMinor( kShaderTargetApiVersion ) );
             return fingerprint;
         }
 

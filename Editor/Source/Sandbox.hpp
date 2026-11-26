@@ -6,7 +6,6 @@
 #include <Editor/Core/CommandLine.hpp>
 #include <Editor/Builders/WorldPartitionBuilder.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
-#include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/PipelineCacheFile.hpp>
 #include <Editor/Core/StartupRefusal.hpp>
@@ -283,16 +282,8 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     Desert::Graphic::RenderConfig::RdgCompileCache = options.RdgCompileCache;
     Desert::Graphic::RenderConfig::ParallelSetupOverride = options.ParallelSetup;
 
-    // The device profile, before the device exists (VulkanLogicalDevice::Create reads it once). An unknown name
-    // stops the start with the table's list: a frame of the full device saved under a GTX name is the silent
-    // fallback this command line refuses everywhere else.
     if ( options.LogLevel )
         Common::Logger::SetLevel( *options.LogLevel ); // --log-level: the gate, before the device logs its start
-    if ( !options.DeviceProfile.empty() )
-    {
-        if ( const auto set = Desert::Graphic::API::Vulkan::RequestDeviceProfile( options.DeviceProfile ); !set )
-            Desert::Editor::RefuseToStart( 2, set.GetError() );
-    }
 
     // The language, before the first frame for the same reason: a run that renders two frames of two
     // languages is not a capture of either. An empty value leaves the process in its source language,
@@ -351,6 +342,14 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // (move, minimize/maximize/close, double-click to toggle) is drawn and handled by
     // Editor::UI::WindowChrome; what it cannot give back is listed there.
     appInfo.Decorated = false;
+    // The backend, the adapter and the device profile the command line asked for. The application resolves them
+    // against machine.json once, before the window (Graphic::ResolveRhiSelection), and refuses an unknown name
+    // with the list: a frame of the full device saved under a GTX name is the silent fallback refused everywhere.
+    const auto flag = []( const std::string& value ) -> std::optional<std::string>
+    { return value.empty() ? std::nullopt : std::optional<std::string>( value ); };
+    appInfo.Rhi.CommandLineRhi           = flag( options.Rhi );
+    appInfo.Rhi.CommandLineAdapter       = flag( options.Adapter );
+    appInfo.Rhi.CommandLineDeviceProfile = flag( options.DeviceProfile );
 
     return std::make_unique<Desert::Sandbox>( appInfo, std::move( splash ) );
 }

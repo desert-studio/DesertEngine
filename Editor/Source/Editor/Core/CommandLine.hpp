@@ -101,6 +101,8 @@ namespace Desert::Editor
          { "--view-budget-mib", true, "512" },
          { "--cloud-visualize", true, "1" },
          { "--device-profile", true, "gtx1660" },
+         { "--rhi", true, "vulkan" },
+         { "--adapter", true, "nvidia" },
          { "--log-level", true, "debug" },
          { "--rdg-compile-cache", true, "0" },
          { "--parallel-setup", true, "0" },
@@ -193,12 +195,18 @@ namespace Desert::Editor
         /// (Graphic::RenderConfig::CloudVisualize, which names the modes). 0 is the ordinary picture.
         int CloudVisualize = 0;
 
-        /// `--device-profile <name>`: play a lower device on this one (UE DeviceProfiles; the Vulkan DeviceProfile
-        /// table in DeviceCapsProbe.cpp): its ray tracing rows, vendor upscalers and memory are withheld before the
-        /// device is created. Empty, the default, means this device as it is. The name is checked against the
-        /// table where it is published (Sandbox.hpp, RequestDeviceProfile), which refuses an unknown one with the
-        /// list, so the parse stays free of the graphics backend.
+        /// `--device-profile <name>`: play a lower device on this one (UE DeviceProfiles; the backend-neutral
+        /// table in Engine/Graphic/Rhi/DeviceProfile.hpp): its ray tracing rows, vendor upscalers and memory are
+        /// withheld before the device is created. Empty, the default, means this device as it is. The name is
+        /// checked by Graphic::ResolveRhiSelection when the application starts, which refuses an unknown one with
+        /// the list, so the parse stays free of the graphics backend.
         std::string DeviceProfile;
+        /// `--rhi <vulkan|d3d12>`: the rendering backend (Graphic::RhiSelection; beats machine.json "Rhi").
+        /// Empty, the default, leaves the choice to machine.json and then Vulkan. Checked at start, as above.
+        std::string Rhi;
+        /// `--adapter <auto|n|nvidia|amd|intel|vendor:0x..|name:..>`: which physical adapter the backend opens
+        /// (Graphic::AdapterPreference; beats machine.json "Adapter"). Empty leaves the choice to machine.json.
+        std::string Adapter;
         /// `--log-level <trace|debug|info|warn|error|critical|off>`: the log's level gate
         /// (Common::Logger::SetLevel), set by the host at start. Unset keeps the build's default:
         /// info outside Debug, trace in Debug.
@@ -445,6 +453,10 @@ namespace Desert::Editor
                 options.ControlSocket = value;
             else if ( arg == "--device-profile" )
                 options.DeviceProfile = value;
+            else if ( arg == "--rhi" )
+                options.Rhi = value;
+            else if ( arg == "--adapter" )
+                options.Adapter = value;
             else if ( arg == "--run" )
             {
                 // A commandlet is a NAME the editor knows; an unknown one would start an ordinary editor in a
