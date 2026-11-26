@@ -124,15 +124,19 @@ namespace Desert::Graphic
         std::unique_ptr<ReflectionCaptureRenderer>             m_ReflectionCaptures;
         std::unique_ptr<RayTracing::RayTracingSceneCache>      m_RayTracingCache;
         std::unique_ptr<GpuDriven::GpuSceneRegistry>           m_GpuScene;
-        std::shared_ptr<SceneSkyLight>                         m_SkyLight; // shared: a view holds it weakly
+        // Shared: a view holds it weakly. The world's (Clear remakes it): a new world's first capture is whole.
+        std::shared_ptr<SceneSkyLight>                         m_SkyLight;
         std::shared_ptr<SceneAtmosphere>                       m_Atmosphere;
         std::unique_ptr<LocalShadowCache>                      m_LocalShadows;
         std::unique_ptr<DistanceField::DistanceFieldSceneData> m_DistanceFields;
         std::unique_ptr<SurfaceCache::SurfaceCacheRenderer>    m_SurfaceCache;
-        // The surface caches and capture renderers Clear dropped with their world, kept until no frame in flight
-        // reads them (collected at the fence by BeginFrame).
+        // The surface caches, capture renderers and sky lights Clear dropped with their world, kept until no frame
+        // in flight reads them (collected at the fence by BeginFrame).
         Assets::FrameRetireQueue<std::unique_ptr<SurfaceCache::SurfaceCacheRenderer>> m_RetiringSurfaceCaches;
         Assets::FrameRetireQueue<std::unique_ptr<ReflectionCaptureRenderer>>          m_RetiringReflectionCaptures;
+        // A reload's old sky light: frames in flight still record its capture slices and read its cube (views hold
+        // it weakly and re-take it every frame, SceneRenderer.cpp:1132), so it is parked like the surface cache.
+        Assets::FrameRetireQueue<std::shared_ptr<SceneSkyLight>> m_RetiringSkyLights;
     };
 
     /// The renderer state of @p scene. A scene of a process that runs the renderer always has one (the Renderer

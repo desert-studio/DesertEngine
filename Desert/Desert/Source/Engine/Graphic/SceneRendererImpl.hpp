@@ -460,14 +460,22 @@ namespace Desert::Graphic
             return FrameSun{ .Direction      = m_AtmosphereLight1->Light.Direction,
                              .ColorIntensity = m_AtmosphereLight1->Light.ColorIntensity };
         }
-        [[nodiscard]] GlobalIllumination::DirectionalLighting GetFrameDirectionalLighting() const override
+        [[nodiscard]] GlobalIllumination::LightingHistoryKey GetFrameLightingHistoryKey() override
         {
             const FrameSun sun    = GetFrameSun();
             const FrameSun light1 = GetFrameLight1();
-            return { .SunDirection         = sun.Direction,
-                     .SunColorIntensity    = sun.ColorIntensity,
-                     .Light1Direction      = light1.Direction,
-                     .Light1ColorIntensity = light1.ColorIntensity };
+            GlobalIllumination::LightingHistoryKey key{ .SunDirection         = sun.Direction,
+                                                        .SunColorIntensity    = sun.ColorIntensity,
+                                                        .Light1Direction      = light1.Direction,
+                                                        .Light1ColorIntensity = light1.ColorIntensity };
+            if ( const auto& env = GetEnvironment(); env.has_value() )
+            {
+                const SkyLookGPU look = ToGPU( env->Look );
+                key.SkyEnvironment    = EnvironmentIdentity( env );
+                key.SkyGain           = look.Gain;
+                key.SkyYawCosSin      = look.YawCosSin;
+            }
+            return key;
         }
         [[nodiscard]] std::span<const GlobalIllumination::LocalLighting> GatherFrameLocalLighting() override;
         [[nodiscard]] SceneResources::ContactShadowSettings
