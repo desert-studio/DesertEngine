@@ -478,13 +478,17 @@ namespace Desert::ECS
                                                   : std::clamp( feedback.VatClock, 0.0F, length );
                     feedback.VatClip.store( clip, std::memory_order_relaxed );
                     feedback.VatTime.store( feedback.VatClock, std::memory_order_relaxed );
+                    feedback.SkeletalPoseReady.store( false, std::memory_order_relaxed );
                     ++m_CostInstances;
                     return 0.0F;
                 }
                 if ( feedback.VatClockRunning )
                 {
+                    // Back to skeletal: this tick evaluates (whatever the rate's countdown says) and the shown
+                    // pose snaps to it - the renderer draws the baked frame until this pose is published.
                     feedback.VatClockRunning = false;
                     anim.Animator->SetTime( feedback.VatClock );
+                    anim.UpdateRate.SetRate( anim.UpdateRate.Rate, true );
                 }
             }
             const float step = anim.UpdateRate.Advance( animTs.GetSeconds() );
@@ -500,6 +504,8 @@ namespace Desert::ECS
             {
                 anim.LodFeedback->VatClip.store( anim.Animator->GetCurrentClip(), std::memory_order_relaxed );
                 anim.LodFeedback->VatTime.store( anim.Animator->GetCurrentTime(), std::memory_order_relaxed );
+                if ( step >= 0.0F )
+                    anim.LodFeedback->SkeletalPoseReady.store( true, std::memory_order_relaxed );
             }
             return std::max( step, 0.0F );
         }

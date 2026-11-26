@@ -2785,24 +2785,33 @@ namespace Desert::Graphic::System
             data.Lod                     = std::min<uint32_t>( data.Lod, static_cast<uint32_t>( lods.size() - 1u ) );
             // The hand-off, by the WP-FAR-10 metric (FOV-aware screen size; a view drawing LOD 0 keeps everyone
             // skeletal), hysteresis on the way back; only from the lowest level, the one the bake is made of.
-            if ( data.LodFeedback && lodView && m_LODEnabled && data.SkinSource == nullptr &&
-                 data.Lod + 1u == lods.size() )
+            // The request (Vat) is the renderer's; the drawn path also waits for the pose: a record returning to
+            // skeletal (a correction placing the pawn near the view, the camera closing in) keeps its baked frame
+            // until its animation has evaluated and published a pose again (SkeletalPoseReady) - the skeletal
+            // level drawn before that is the pose left from the hand-off, not this frame's.
+            if ( data.LodFeedback && data.SkinSource == nullptr )
             {
                 Animation::SkinnedLodFeedback& feedback = *data.LodFeedback;
                 const float limit = feedback.Vat.load( std::memory_order_relaxed ) ? VertexAnimationCrowd::kSkeletalScreenSize
                                                                                    : VertexAnimationCrowd::kVatScreenSize;
                 const auto* clip =
                      static_cast<const Animation::AnimationClip*>( feedback.VatClip.load( std::memory_order_relaxed ) );
-                if ( clip != nullptr && screenSize < limit )
+                const bool wanted = lodView && m_LODEnabled && data.Lod + 1u == lods.size() && clip != nullptr &&
+                                    screenSize < limit;
+                const bool held =
+                     !wanted && clip != nullptr && !feedback.SkeletalPoseReady.load( std::memory_order_relaxed );
+                if ( wanted || held )
                 {
+                    data.Lod = static_cast<uint32_t>( lods.size() - 1u );
                     const VertexAnimationCrowd::Frame frame =
                          m_Crowd->FrameAddress( *data.Mesh, *clip, feedback.VatTime.load( std::memory_order_relaxed ) );
                     data.VatAddress     = frame.Address;
                     data.VatVertexCount = frame.VertexCount;
                 }
+                feedback.Vat.store( wanted, std::memory_order_relaxed );
             }
-            if ( data.LodFeedback )
-                data.LodFeedback->Vat.store( data.VatAddress != 0, std::memory_order_relaxed );
+            else if ( data.LodFeedback )
+                data.LodFeedback->Vat.store( false, std::memory_order_relaxed );
             // The far figure keeps a readable size (WP-FAR-12D): its true projected size (the LOD metric
             // without LODDistanceScale) below kMinScreenSize grows its draw about its feet, capped - VAT AND
             // skeletal alike (WP-FAR-10D). The clamp is about pixels, so it never asks which path draws the
