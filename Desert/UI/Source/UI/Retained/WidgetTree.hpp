@@ -46,7 +46,7 @@
 // that reuses its slot: Valid() refuses it.
 namespace Desert::UI
 {
-    struct UIViewContext;
+    class UIViewContext;
 
     class WidgetTree final : public IUITree
     {
