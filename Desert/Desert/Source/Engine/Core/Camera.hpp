@@ -203,6 +203,14 @@ namespace Desert::Core
         // damping deltas are left alone on purpose: a flight in progress keeps its inertia.
         void PlaceAt( const glm::vec3& position, const ViewBasis& basis );
 
+        // The camera entity this editor camera is looking through (entt id incl. version, as
+        // GameplayCamera::SetView takes it), or kNoSourceEntity for the free editor view. A change is a new
+        // camera identity (GetSourceId) and therefore a camera cut for the view's history.
+        void FollowEntity( uint32_t sourceEntity )
+        {
+            m_SourceEntity = sourceEntity;
+        }
+
         // Where the camera looks and which way is up, whichever model is driving it.
         [[nodiscard]] ViewBasis GetBasis() const
         {

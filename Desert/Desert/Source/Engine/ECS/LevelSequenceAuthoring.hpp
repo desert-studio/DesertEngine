@@ -182,14 +182,18 @@ namespace Desert::ECS
     };
 
     /**
-     * @brief A Camera Cut section over [@p start, @p end] looking through @p camera (an Entity binding), on the
-     * sequence-level Camera Cut track (its master binding and track created when missing). Whatever `Validate`
-     * refuses — an overlap with another cut on row 0, a camera that is not an Entity binding — leaves the
-     * sequence exactly as it was.
+     * @brief A Camera Cut looking through @p camera (an Entity binding) from @p start, on the sequence-level
+     * Camera Cut track (its master binding and track created when missing) — UE's
+     * UMovieSceneCameraCutTrack::AddNewCameraCut.
+     * The new cut ends one tick before the next cut on row 0 that starts after @p start, or at the sequence's End.
+     * The cut in force at @p start (Start < start <= End) is trimmed to end at start - 1; a cut that begins AT
+     * @p start is re-pointed to @p camera instead of adding a section. A @p start outside [Start, End] is refused
+     * before any edit, and whatever `Validate` refuses (a camera that is not an Entity binding) leaves the sequence
+     * exactly as it was. Revision++.
      */
     [[nodiscard]] Common::BoolResultStr AddCameraCut( Animation::Timeline::Sequence&          sequence,
                                                       const Animation::Timeline::BindingGuid& camera,
-                                                      Animation::FrameNumber start, Animation::FrameNumber end );
+                                                      Animation::FrameNumber                  start );
 
     /**
      * @brief An Animation section playing @p clip over [@p start, @p end] on the Animation track of the Entity
