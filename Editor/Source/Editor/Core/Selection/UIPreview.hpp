@@ -89,10 +89,6 @@ namespace Desert::Editor::Core
         // Viewport whenever the UI is fed no input at all (Design mode), since then no view can take a key.
         UIKeyboardHolder Keyboard = UIKeyboardHolder::Viewport;
 
-        static UIPreview& Get()
-        {
-            static UIPreview s;
-            return s;
-        }
+        static UIPreview& Get();
     };
 } // namespace Desert::Editor::Core

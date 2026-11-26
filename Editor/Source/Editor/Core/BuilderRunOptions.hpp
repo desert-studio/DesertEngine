@@ -33,10 +33,6 @@ namespace Desert::Editor
             return !Run.empty();
         }
 
-        static BuilderRunOptions& Get()
-        {
-            static BuilderRunOptions options;
-            return options;
-        }
+        static BuilderRunOptions& Get();
     };
 } // namespace Desert::Editor

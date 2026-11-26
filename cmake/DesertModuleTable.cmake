@@ -91,9 +91,12 @@ desert_placement(ImageCore [[Engine/Core/(Formats|IO)/]])
 # The OS window (Engine/Core/Window, Platform/<OS>/<OS>Window, GlfwWindowMode) owns the swapchain and presents through
 # the renderer, so it is RenderCore's (below): in ApplicationCore its calls into RenderCore would be unresolved in the
 # module DLL. ApplicationCore keeps what is render-free: input, the GLFW headers, the close gate, display luminance.
-desert_placement(ApplicationCore [[Engine/Core/(WindowCloseGate|Input|Glfw|GlfwVulkan)\.|^Platform/MacOS/MacOSDisplayLuminance\.]])
+# Input (Keyboard/Mouse) reads the window through EngineContext, which RenderCore holds: it sits in Engine, above both
+# (BINT-STATE: a call into a module above fails at link once the singleton's storage is one, in its owner).
+desert_placement(ApplicationCore [[Engine/Core/(WindowCloseGate|Glfw|GlfwVulkan)\.|^Platform/MacOS/MacOSDisplayLuminance\.]])
 # the asset framework (CoreUObject package loading + AssetRegistry)
-desert_placement(AssetCore [[Engine/Assets/(AssetBase|AssetManager|AssetRef|AssetRefSerialization|AssetGuidRef|AssetRootPin|AssetRootSet|AssetEvents|AssetMetadata|AsyncAssetLoader|ContentRegistry|ContentRegistryCook|ContentGate|ContentWork|ContentDirectoryWatch|RegistryDiscovery|TextAssetHeader\w*|ContainerBytes|FrameRetireQueue|SyncLoadLedger|ItemProgress|EvictionDeadline|AssetEviction|DDCShipRegister|Common)\.]])
+# AssetEviction sweeps the feature modules' hooks (Core::ModuleHooks) and the RHI's ResourceLedger, so it is Engine's.
+desert_placement(AssetCore [[Engine/Assets/(AssetBase|AssetManager|AssetRef|AssetRefSerialization|AssetGuidRef|AssetRootPin|AssetRootSet|AssetEvents|AssetMetadata|AsyncAssetLoader|ContentRegistry|ContentRegistryCook|ContentGate|ContentWork|ContentDirectoryWatch|RegistryDiscovery|TextAssetHeader\w*|ContainerBytes|FrameRetireQueue|SyncLoadLedger|ItemProgress|EvictionDeadline|DDCShipRegister|Common)\.]])
 desert_placement(Localization [[Engine/Localization/|Engine/Assets/StringTable(Asset|Source)\.]])
 # geometry / animation runtime cores
 desert_placement(Engine [[Engine/Geometry/(Mesh|StaticMesh|SkinnedMesh|MeshFactory|PrimitiveMeshFactory|ProceduralCharacter\w*|AutoRig|MeshAssetArrays|DynamicMesh|DynamicMeshAsset|DynamicMeshRenderConversion|RenderMeshData|LODSelection|PosedBounds)\.]])
@@ -104,7 +107,9 @@ desert_placement(Engine [[Engine/Animation/(AnimationLibrary\.|Graph/AnimGraphSe
 desert_placement(AnimationCore [[Engine/Animation/]])
 # RHI + RDG
 desert_placement(ShaderCompiler [[Engine/Core/ShaderCompiler/]])
-desert_placement(RenderCore [[Engine/Graphic/API/|Engine/Graphic/RDG/|Engine/ShaderResources/|Engine/Core/(Device|GpuBenchmark|FrameManager|RenderTask|Window|GlfwWindowMode)\.|^Platform/(Windows/WindowsWindow|MacOS/MacOSWindow)\.]])
+# EngineContext (window, device, renderer context, frame manager) is read by the Vulkan RHI throughout, so its one
+# instance lives in RenderCore, the lowest module that reads it (BINT-STATE).
+desert_placement(RenderCore [[Engine/Graphic/API/|Engine/Graphic/RDG/|Engine/ShaderResources/|Engine/Core/(Device|GpuBenchmark|FrameManager|EngineContext|RenderTask|Window|GlfwWindowMode)\.|^Platform/(Windows/WindowsWindow|MacOS/MacOSWindow)\.]])
 desert_placement(RenderCore [[Engine/Graphic/(Image|ImageFactory|ImageTraits|IndexBuffer|VertexBuffer|Framebuffer|RenderPass|RenderPassDeclaration|ExternalRenderPass|Pipeline|PipelineCache|PipelineCacheFile|PipelineBuilds|Shader|SwapChain|SwapchainAcquire|GeometryPool|MeshGeometry|GpuBatch|ComputeImages|MipMapGenerator|DeviceLost|DrawCounters|MemoryReadout|MemoryReadoutSource|MappedMemory|AllocationLedger|ResourceLedger|RendererAPI|RendererTypes|Texture|TextureFactory|FallbackTextures|DefaultTextures|PixelPack|GpuTimestampLayout|ShaderBindingLayoutCache|DynamicResources|RenderGraphBuilder|RenderGraphSort|RenderPhase|RenderPhaseRegistry|FrameGraphRefs|ViewMemory|View/ViewFrame|GraphImageImporter|Renderer|RendererContext|RenderConfig|ViewResources|ViewDescriptorSets|ViewTargetFormats|ShadowCascades|BindlessTextureTable|RayTracingPipeline)\.]])
 # the RHI's ray-tracing interfaces (BLAS geometry, skinned / procedural BLAS, the view's TLAS) + the dynamic-BLAS
 # pass (RDG only); the Vulkan side implements them, the renderer's caches drive them

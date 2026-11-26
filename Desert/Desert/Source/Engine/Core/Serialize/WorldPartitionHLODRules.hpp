@@ -136,11 +136,7 @@ namespace Desert::Core::Rules
 
     namespace Detail
     {
-        inline std::vector<HLODBuilderComponent>& HLODBuilderComponentList()
-        {
-            static std::vector<HLODBuilderComponent> rows;
-            return rows;
-        }
+        std::vector<HLODBuilderComponent>& HLODBuilderComponentList();
     } // namespace Detail
 
     inline void RegisterHLODBuilderComponent( const HLODBuilderComponent& row )

@@ -509,18 +509,18 @@ namespace Desert::Reflection
 
     namespace Detail
     {
-        /// The call error the running reflected function raised (RaiseCallError), read by its thunk.
-        inline thread_local std::optional<std::string> t_CallError;
+        /// The call error the running reflected function raised (RaiseCallError), read by its thunk. The
+        /// thread-local storage lives in FunctionThunk.cpp alone (BINT-STATE): thunks instantiate in every
+        /// module, and a header thread_local would give each image its own slot.
+        void ClearCallError();
+        [[nodiscard]] std::optional<std::string> TakeCallError();
     } // namespace Detail
 
     /// UE's FFrame::KismetExecutionMessage at Error for a reflected function: a failure the caller could not
     /// have handled in the function's own result (an action name no context maps, an entity with no material
     /// to write) fails the CALL with @p message — a script error naming it — instead of reading as a default
     /// value forever. The function still returns normally; its thunk reports the failure.
-    inline void RaiseCallError( std::string message )
-    {
-        Detail::t_CallError = std::move( message );
-    }
+    void RaiseCallError( std::string message );
 
     // ------------------------------------------------------------------ signature of &T::F
 
@@ -603,7 +603,7 @@ namespace Desert::Reflection
                     return ( static_cast<typename S::Self*>( self )->*F )(
                          ValueTraits<ParamValueType<std::tuple_element_t<I, Args>>>::From( args[I] )... );
             };
-            Detail::t_CallError.reset();
+            Detail::ClearCallError();
             if constexpr ( std::is_void_v<typename S::Return> )
                 invoke();
             else if constexpr ( kIsOutcome<typename S::Return> )
@@ -621,8 +621,8 @@ namespace Desert::Reflection
             }
             else
                 rets[0] = ValueTraits<std::remove_cvref_t<typename S::Return>>::To( invoke() );
-            if ( Detail::t_CallError )
-                return Common::MakeError<bool>( *std::exchange( Detail::t_CallError, std::nullopt ) );
+            if ( std::optional<std::string> error = Detail::TakeCallError() )
+                return Common::MakeError<bool>( std::move( *error ) );
             return Common::MakeSuccess( true );
         }
     } // namespace Detail

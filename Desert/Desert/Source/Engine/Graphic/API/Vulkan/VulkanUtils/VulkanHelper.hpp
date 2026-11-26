@@ -4,11 +4,6 @@
 
 #include <Engine/Graphic/DeviceLost.hpp>
 
-inline PFN_vkSetDebugUtilsObjectNameEXT
-     fpSetDebugUtilsObjectNameEXT; // Making it static randomly sets it to nullptr for some reason.
-inline PFN_vkCmdBeginDebugUtilsLabelEXT fpCmdBeginDebugUtilsLabelEXT; // command-buffer regions (RenderDoc tree)
-inline PFN_vkCmdEndDebugUtilsLabelEXT   fpCmdEndDebugUtilsLabelEXT;
-
 namespace Desert::Graphic::API::Vulkan
 {
     void VulkanLoadDebugUtilsExtensions( VkInstance instance );
@@ -114,33 +109,18 @@ namespace Desert::Graphic::API::Vulkan
 
     namespace VKUtils
     {
-        inline static void SetDebugUtilsObjectName( const VkDevice device, const VkObjectType objectType,
-                                                    const std::string& name, const void* handle )
-        {
-            VkDebugUtilsObjectNameInfoEXT nameInfo;
-            nameInfo.sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
-            nameInfo.objectType   = objectType;
-            nameInfo.pObjectName  = name.c_str();
-            nameInfo.objectHandle = (uint64_t)handle;
-            nameInfo.pNext        = VK_NULL_HANDLE;
-
-            VK_CHECK_RESULT( fpSetDebugUtilsObjectNameEXT( device, &nameInfo ) );
-        }
+        // The debug-utils entry points live in VulkanHelper.cpp alone (BINT-STATE): one loader, one copy per image.
+        void SetDebugUtilsObjectName( const VkDevice device, const VkObjectType objectType, const std::string& name,
+                                      const void* handle );
 
         // Opens a named region in the command buffer — RenderDoc/Xcode show these as a tree of
         // passes. Always paired with EndDebugLabel; no-ops when debug utils are unavailable.
-        inline static void BeginDebugLabel( VkCommandBuffer cmdBuffer, const char* name )
-        {
-            VkDebugUtilsLabelEXT label{};
-            label.sType      = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
-            label.pLabelName = name;
-            fpCmdBeginDebugUtilsLabelEXT( cmdBuffer, &label );
-        }
+        void BeginDebugLabel( VkCommandBuffer cmdBuffer, const char* name );
+        void EndDebugLabel( VkCommandBuffer cmdBuffer );
 
-        inline static void EndDebugLabel( VkCommandBuffer cmdBuffer )
-        {
-            fpCmdEndDebugUtilsLabelEXT( cmdBuffer );
-        }
+        // The loaded label entry points, for a recorder that calls them through its own table.
+        [[nodiscard]] PFN_vkCmdBeginDebugUtilsLabelEXT CmdBeginDebugLabelEntry();
+        [[nodiscard]] PFN_vkCmdEndDebugUtilsLabelEXT   CmdEndDebugLabelEntry();
     } // namespace VKUtils
 
 } // namespace Desert::Graphic::API::Vulkan

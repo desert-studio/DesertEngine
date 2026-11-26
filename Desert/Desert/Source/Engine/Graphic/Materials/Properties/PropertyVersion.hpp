@@ -21,9 +21,5 @@ namespace Desert::Graphic::PropertyVersion
     // property, so the versions of different fields of one block are comparable and a single number per
     // copy ("the newest version I applied") answers for all of them. Thread-safe: materials are built on
     // loader threads too. 64 bits cannot wrap within the life of a process.
-    [[nodiscard]] inline uint64_t Next() noexcept
-    {
-        static std::atomic<uint64_t> counter{ kNeverWritten };
-        return counter.fetch_add( 1, std::memory_order_relaxed ) + 1;
-    }
+    [[nodiscard]] uint64_t Next() noexcept;
 } // namespace Desert::Graphic::PropertyVersion

@@ -393,4 +393,10 @@ namespace Desert::Graphic::API::Vulkan
         // is the window's own (Window::SetupSwapChain) and is simply never made there.
     }
 
-} // namespace Desert::Graphic::API::Vulkan
+    auto VulkanContext::GetVulkanInstance() -> const VkInstance&
+    {
+        return s_VulkanInstance;
+    }
+
+    VkInstance VulkanContext::s_VulkanInstance;
+}

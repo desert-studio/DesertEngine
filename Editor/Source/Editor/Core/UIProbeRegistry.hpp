@@ -21,11 +21,7 @@ namespace Desert::Editor::Core
     class UIProbeRegistry
     {
     public:
-        static UIProbeRegistry& Get()
-        {
-            static UIProbeRegistry s;
-            return s;
-        }
+        static UIProbeRegistry& Get();
 
         // The UI Debugger panel calls this while it is open and again when it closes.
         void SetArmed( bool armed )

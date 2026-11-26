@@ -87,11 +87,7 @@ namespace Desert::ECS
         }
 
     private:
-        [[nodiscard]] static uint64_t NextRevision()
-        {
-            static std::atomic<uint64_t> s_Revision{ 0 };
-            return s_Revision.fetch_add( 1, std::memory_order_relaxed ) + 1;
-        }
+        [[nodiscard]] static uint64_t NextRevision();
 
         MaterialDesc m_Desc;
         uint64_t     m_Revision = 0; // see GetRevision

@@ -177,11 +177,7 @@ namespace Desert::ECS
     private:
         void Assign( const InstancedStaticMeshDesc& desc );
         [[nodiscard]] bool Matches( const InstancedStaticMeshDesc& desc ) const;
-        [[nodiscard]] static uint64_t NextInstanceRevision()
-        {
-            static std::atomic<uint64_t> s_Revision{ 0 };
-            return s_Revision.fetch_add( 1, std::memory_order_relaxed ) + 1;
-        }
+        [[nodiscard]] static uint64_t NextInstanceRevision();
 
         Assets::AssetHandle              MeshHandle;
         std::vector<Assets::AssetHandle> MaterialSlots;

@@ -427,14 +427,11 @@ namespace Desert::Graphic
         virtual std::shared_ptr<Framebuffer> GetCompositeFramebuffer() const                      = 0;
 
     public:
-        static RendererAPIType GetAPIType()
-        {
-            return s_RenderingAPI;
-        }
+        static RendererAPIType GetAPIType();
 
     protected:
         std::weak_ptr<Window>         m_Window;
-        static inline RendererAPIType s_RenderingAPI = RendererAPIType::Vulkan;
+        static RendererAPIType s_RenderingAPI;
     };
 
 } // namespace Desert::Graphic

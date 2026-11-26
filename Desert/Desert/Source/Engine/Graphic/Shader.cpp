@@ -5,7 +5,6 @@
 
 namespace Desert::Graphic
 {
-
     std::shared_ptr<Shader> Shader::Create( const Assets::Asset<Assets::ShaderAsset>& asset,
                                             const ShaderVariant& variant, const std::string& passName )
     {
@@ -46,4 +45,9 @@ namespace Desert::Graphic
         return shader;
     }
 
-} // namespace Desert::Graphic
+    auto Shader::NextSerial() noexcept -> uint64_t
+    {
+        static std::atomic<uint64_t> s_Next{ 0 };
+        return s_Next.fetch_add( 1, std::memory_order_relaxed ) + 1u;
+    }
+}

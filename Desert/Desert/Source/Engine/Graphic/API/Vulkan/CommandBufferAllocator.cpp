@@ -738,3 +738,10 @@ namespace Desert::Graphic::API::Vulkan
         m_LogicalDevice = VK_NULL_HANDLE;
     }
 } // namespace Desert::Graphic::API::Vulkan
+
+template <>
+std::unique_ptr<Desert::Graphic::API::Vulkan::CommandBufferAllocator>& Common::Singleton<Desert::Graphic::API::Vulkan::CommandBufferAllocator>::Instance()
+{
+    static std::unique_ptr<Desert::Graphic::API::Vulkan::CommandBufferAllocator> instance;
+    return instance;
+}

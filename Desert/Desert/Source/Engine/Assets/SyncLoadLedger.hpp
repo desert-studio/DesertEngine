@@ -201,6 +201,8 @@ namespace Desert::Assets
     // namespace in a header gives every translation unit its own copy of these statics — so the ledger
     // would count per-TU and every number it reports would be a fraction of the truth, silently.
     // `inline` in a named namespace is what gives the whole program one map."
+    // But `inline` gives one map per IMAGE, and every engine module is its own DLL in Development: the
+    // accessors that own state are therefore defined once, in SyncLoadLedger.cpp (BINT-STATE).
     //
     // AND WHY THIS IS A HEADER AT ALL, WHICH IS A MEASUREMENT. It was a .cpp, and the full sweep turned
     // FIVE suites red at the link step (`AssetEviction`, `AssetPathIdentity`, `AssetHandleStability`,
@@ -211,65 +213,33 @@ namespace Desert::Assets
     // place to forget" the design of this detector exists to avoid.
     namespace SyncLoadDetail
     {
-        inline std::atomic<bool>& BootFinished()
-        {
-            static std::atomic<bool> finished{ false };
-            return finished;
-        }
+        std::atomic<bool>& BootFinished();
 
-        inline std::atomic<uint64_t>& LoadCount()
-        {
-            static std::atomic<uint64_t> loads{ 0 };
-            return loads;
-        }
+        std::atomic<uint64_t>& LoadCount();
 
-        inline std::atomic<uint64_t>& InFrameCount()
-        {
-            static std::atomic<uint64_t> loads{ 0 };
-            return loads;
-        }
+        std::atomic<uint64_t>& InFrameCount();
 
-        inline std::atomic<uint64_t>& AsyncCount()
-        {
-            static std::atomic<uint64_t> loads{ 0 };
-            return loads;
-        }
+        std::atomic<uint64_t>& AsyncCount();
 
         /// How many `AsyncLoadMarker`s are open on THIS thread. A counter rather than a flag because a
         /// completion delegate is allowed to request the next asset, and nesting must not clear the
         /// outer mark on the way out of the inner one.
-        inline int& AsyncDepth()
-        {
-            static thread_local int depth = 0;
-            return depth;
-        }
+        int& AsyncDepth();
 
         // THE DEPTH IS THREAD-LOCAL, the totals are not, and the split is load-bearing. The preloader
         // runs staged work and hot reload runs off the watcher, so two threads can be inside a load at
         // once; a shared depth counter would let thread B's nested load be attributed as thread A's
         // outermost one, and the "outermost only" rule that keeps TotalMs under wall clock would break in
         // a way that shows up as a boot spending 250 % of its own duration.
-        inline int& Depth()
-        {
-            static thread_local int depth = 0;
-            return depth;
-        }
+        int& Depth();
 
         /// The innermost open scope on THIS thread, so a closing scope can hand its duration to its
         /// parent. Thread-local for the same reason the depth is: the preloader runs staged work and hot
         /// reload runs off the watcher, and a shared pointer here would let one thread's load be
         /// subtracted from another thread's.
-        inline LoadTimingScope*& OpenScope()
-        {
-            static thread_local LoadTimingScope* open = nullptr;
-            return open;
-        }
+        LoadTimingScope*& OpenScope();
 
-        inline std::mutex& TotalsLock()
-        {
-            static std::mutex lock;
-            return lock;
-        }
+        std::mutex& TotalsLock();
 
         /// The four figures the lock protects, in one struct so there is one static rather than four.
         struct Totals
@@ -283,11 +253,7 @@ namespace Desert::Assets
             std::vector<std::pair<double, std::string>> SlowestInFrame;
         };
 
-        inline Totals& Sums()
-        {
-            static Totals totals;
-            return totals;
-        }
+        Totals& Sums();
 
         /// How many in-frame loads may log themselves per frame before the rest are counted silently.
         ///
@@ -306,11 +272,7 @@ namespace Desert::Assets
         /// bounded insert under a lock the load already takes, so it runs for every in-frame load.
         constexpr std::size_t kInFrameRankCap = 16;
 
-        inline std::atomic<uint64_t>& InFrameLogged()
-        {
-            static std::atomic<uint64_t> logged{ 0 };
-            return logged;
-        }
+        std::atomic<uint64_t>& InFrameLogged();
 
         inline double NowMs( const int64_t ns )
         {

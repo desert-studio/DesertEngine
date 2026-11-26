@@ -596,3 +596,10 @@ namespace Desert::Graphic
         return s_RendererAPI;
     }
 } // namespace Desert::Graphic
+
+template <>
+std::unique_ptr<Desert::Graphic::Renderer>& Common::Singleton<Desert::Graphic::Renderer>::Instance()
+{
+    static std::unique_ptr<Desert::Graphic::Renderer> instance;
+    return instance;
+}

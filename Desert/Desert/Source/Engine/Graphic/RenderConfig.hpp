@@ -34,14 +34,14 @@ namespace Desert::Graphic
     {
         // Current global texture sampler filter, as Common::Settings::TextureFilter's underlying int
         // (VulkanImage::CreateSampler reads this).
-        static inline std::atomic<int> TextureFilter{ 2 /* Trilinear */ };
+        static std::atomic<int> TextureFilter;
         // Resolved anisotropy level (1/2/4/8/16), already one of CapabilityCatalog::AnisotropyLevels — the
         // resolver narrowed it to the device, so sampler creation uses it as is.
-        static inline std::atomic<int> AnisotropyLevel{ 8 };
+        static std::atomic<int> AnisotropyLevel;
 
         // Device supports line widths > 1 (VkPhysicalDeviceFeatures.wideLines). MoltenVK does NOT —
         // setting a wider line then is a validation error, so the debug-line paths clamp to 1.0.
-        static inline std::atomic<bool> WideLines{ false };
+        static std::atomic<bool> WideLines;
 
         // `--cloud-visualize N` (Editor command line): the cloud march writes a diagnostic instead of the
         // sky, read per dispatch into ShaderPush::CloudRaymarch::CloudVisualize. 0 = off. 1 = the cut at the ray's entry into the
@@ -51,15 +51,15 @@ namespace Desert::Graphic
         // level of the modelling volume answers at the entry (0 red, 1 green, 2 blue; blend bands mixed).
         // 4 = the march's cost per ray: R view-ray field evaluations / 256, G lit samples / 64, B the light
         // samples they scheduled / 512 (8 B / G = light samples per lit sample; CloudRaymarch.shader).
-        static inline std::atomic<int> CloudVisualize{ 0 };
+        static std::atomic<int> CloudVisualize;
 
         // RDG-RECORD-COMPILE-CACHE: `--rdg-compile-cache <0|1>` (Editor CommandLine). Off, VulkanRdgBackend keeps
         // no compiled plans (GetCompileCache nullptr) and every graph is compiled every frame.
-        static inline std::atomic<bool> RdgCompileCache{ true };
+        static std::atomic<bool> RdgCompileCache;
 
         // RENDER-PARALLEL-SETUP: `--parallel-setup <0|1>` (Editor CommandLine) for this session, over the
         // RenderPipeline.ParallelSetup quality value (SceneRenderer::OnUpdate). -1: no override.
-        static inline std::atomic<int> ParallelSetupOverride{ -1 };
+        static std::atomic<int> ParallelSetupOverride;
     };
 
     // The sampler an engine Image2D / ImageCube carries as its own (VulkanImage CreateSampler, Global policy):
@@ -67,23 +67,7 @@ namespace Desert::Graphic
     // backend's own sampler reads it, and a graph entry that must read an image exactly as the image's own
     // sampler did (RDG-FAULT1 sampler parity) names it. Anisotropy is not part of a SamplerDesc: the entries
     // that name this sample from compute with an explicit level of detail, where anisotropy does not apply.
-    inline RDG::SamplerDesc GlobalTextureFilterSampler()
-    {
-        using FM                      = Common::Settings::TextureFilter;
-        const int                mode = RenderConfig::TextureFilter.load();
-        const RDG::SamplerFilter filter =
-             mode == static_cast<int>( FM::Nearest ) ? RDG::SamplerFilter::Nearest : RDG::SamplerFilter::Linear;
-        const RDG::SamplerMipMode mip =
-             mode == static_cast<int>( FM::Trilinear ) || mode == static_cast<int>( FM::Anisotropic )
-                  ? RDG::SamplerMipMode::Linear
-                  : RDG::SamplerMipMode::Nearest;
-        return { filter,
-                 filter,
-                 mip,
-                 RDG::SamplerAddress::Repeat,
-                 RDG::SamplerAddress::Repeat,
-                 RDG::SamplerAddress::Repeat };
-    }
+    RDG::SamplerDesc GlobalTextureFilterSampler();
 
     // The sampler an engine Image3D carries as its own (AlwaysLinear policy): LINEAR, linear mip, REPEAT, whatever
     // the global filter -- a volume's interpolation is part of the algorithm that samples it.

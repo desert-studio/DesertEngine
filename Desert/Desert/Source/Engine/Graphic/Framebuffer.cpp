@@ -23,4 +23,10 @@ namespace Desert::Graphic
         return nullptr;
     }
 
-} // namespace Desert::Graphic
+    auto FramebufferLibrary::GetFramebuffers() -> const auto&
+    {
+        return s_Framebuffers;
+    }
+
+    std::vector<std::shared_ptr<Graphic::Framebuffer>> FramebufferLibrary::s_Framebuffers;
+}

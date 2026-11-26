@@ -81,8 +81,14 @@ namespace Common::Constants
                      resources / "Icons" / "", resources / "Engine" / "",  resources / "Config" / "" };
             }
 
-            inline std::filesystem::path s_EngineDir;
-            inline EngineResourcePaths   s_Engine = DeriveEngineResources( s_EngineDir );
+            // The engine directory and what derives from it: ONE copy for the process, in Constants.cpp, because
+            // every module DLL reads it and a header-defined variable would give each DLL its own (BINT-STATE).
+            struct EngineState
+            {
+                std::filesystem::path EngineDir;
+                EngineResourcePaths   Paths = DeriveEngineResources( {} );
+            };
+            EngineState& Engine() noexcept;
 
             // Header-only and below the logger, so the refusal is spelled here: it aborts in every
             // configuration, like DESERT_VERIFY, because every answer after it would be a wrong path.
@@ -102,7 +108,7 @@ namespace Common::Constants
             inline const std::filesystem::path& Checked( const std::filesystem::path& path, const char* getter,
                                                          const std::source_location& reader )
             {
-                if ( s_EngineDir.empty() )
+                if ( Engine().EngineDir.empty() )
                     EngineDirUnset( getter, reader );
                 return path;
             }
@@ -110,35 +116,35 @@ namespace Common::Constants
 
         // Named views into the derived storage, exactly like the project census below: the reference is
         // stable across SetEngineDir, so tables holding `&SHADERDIR_PATH` follow it for free.
-        inline const std::filesystem::path& RESOURCE_PATH  = Detail::s_Engine.Resources;
-        inline const std::filesystem::path& SHADERDIR_PATH = Detail::s_Engine.Shaders;
-        inline const std::filesystem::path& FONTS_PATH     = Detail::s_Engine.Fonts;
+        inline const std::filesystem::path& RESOURCE_PATH  = Detail::Engine().Paths.Resources;
+        inline const std::filesystem::path& SHADERDIR_PATH = Detail::Engine().Paths.Shaders;
+        inline const std::filesystem::path& FONTS_PATH     = Detail::Engine().Paths.Fonts;
         // Built-in vector icons (.svg, imported into SDF at first use — see Runtime::IconService).
-        inline const std::filesystem::path& ICONS_PATH = Detail::s_Engine.Icons;
+        inline const std::filesystem::path& ICONS_PATH = Detail::Engine().Paths.Icons;
         // Engine data tables the runtime reads at boot (Scalability.json: the quality groups' levels). Shipped
         // whole: a packaged game without its table could not resolve a single quality setting.
-        inline const std::filesystem::path& CONFIG_PATH = Detail::s_Engine.Config;
+        inline const std::filesystem::path& CONFIG_PATH = Detail::Engine().Paths.Config;
 
         // The service's function spellings (UE: FPaths::EngineDir / EngineContentDir / ShaderWorkingDir).
         inline const std::filesystem::path&
         EngineDir( const std::source_location reader = std::source_location::current() ) noexcept
         {
-            return Detail::Checked( Detail::s_EngineDir, "EngineDir()", reader );
+            return Detail::Checked( Detail::Engine().EngineDir, "EngineDir()", reader );
         }
         inline const std::filesystem::path&
         ShaderDir( const std::source_location reader = std::source_location::current() ) noexcept
         {
-            return Detail::Checked( Detail::s_Engine.Shaders, "ShaderDir()", reader );
+            return Detail::Checked( Detail::Engine().Paths.Shaders, "ShaderDir()", reader );
         }
         inline const std::filesystem::path&
         EngineContentDir( const std::source_location reader = std::source_location::current() ) noexcept
         {
-            return Detail::Checked( Detail::s_Engine.EngineContent, "EngineContentDir()", reader );
+            return Detail::Checked( Detail::Engine().Paths.EngineContent, "EngineContentDir()", reader );
         }
         // True once SetEngineDir has run — for the few callers that must ask rather than read.
         inline bool HasEngineDir() noexcept
         {
-            return !Detail::s_EngineDir.empty();
+            return !Detail::Engine().EngineDir.empty();
         }
 
         // --- The census of project-derived directories ---
@@ -380,7 +386,7 @@ namespace Common::Constants
         // project's assets root in every project (Content::ScanRootsOf is the one home of that
         // list). Engine-shared like SHADERDIR_PATH: never remapped by a project, derived from EngineDir(),
         // and under RESOURCE_PATH, so its keys are `engine:Engine/...` in every project.
-        inline const std::filesystem::path& ENGINE_CONTENT_PATH = Detail::s_Engine.EngineContent;
+        inline const std::filesystem::path& ENGINE_CONTENT_PATH = Detail::Engine().Paths.EngineContent;
 
         namespace Detail
         {
@@ -405,18 +411,24 @@ namespace Common::Constants
                 return dirs;
             }
 
-            inline ProjectRootState                                     s_ProjectRoot{};
-            inline std::array<std::filesystem::path, CONTENT_DIR_COUNT> s_Dirs = Derive( s_ProjectRoot );
+            // The project roots and the census derived from them: ONE copy for the process, in Constants.cpp
+            // (every module DLL reads them; BINT-STATE).
+            struct ProjectState
+            {
+                ProjectRootState                                     ProjectRoot{};
+                std::array<std::filesystem::path, CONTENT_DIR_COUNT> Dirs = Derive( ProjectRootState{} );
 
-            // <projectDir>/Config: the project's settings tables (UE: FPaths::ProjectConfigDir) — the collision
-            // channel/profile register among them. Not a census row: no content kind is scanned from it and it
-            // hangs off the project folder, not the assets root. Assigned only by SetProjectRoot.
-            inline std::filesystem::path s_ProjectConfig{};
+                // <projectDir>/Config: the project's settings tables (UE: FPaths::ProjectConfigDir) — the collision
+                // channel/profile register among them. Not a census row: no content kind is scanned from it and it
+                // hangs off the project folder, not the assets root. Assigned only by SetProjectRoot.
+                std::filesystem::path ProjectConfig{};
+            };
+            ProjectState& Project() noexcept;
 
             // The storage slot behind a named view: binding a reference is not a read, so it is unchecked.
             inline const std::filesystem::path& Slot( ContentDir d ) noexcept
             {
-                return s_Dirs[static_cast<std::size_t>( d )];
+                return Project().Dirs[static_cast<std::size_t>( d )];
             }
 
             // Content asked for while no project is open. Aborts like EngineDirUnset: every answer after
@@ -439,7 +451,7 @@ namespace Common::Constants
         // FApp::HasProjectName).
         inline bool HasProject() noexcept
         {
-            return !Detail::s_ProjectRoot.ProjectDir.empty();
+            return !Detail::Project().ProjectRoot.ProjectDir.empty();
         }
 
         // Where a project-derived directory currently is. The reference stays valid across remaps (the
@@ -451,12 +463,12 @@ namespace Common::Constants
         {
             if ( !HasProject() )
                 Detail::NoProjectOpen( "Path::Dir()", reader );
-            return Detail::s_Dirs[static_cast<std::size_t>( d )];
+            return Detail::Project().Dirs[static_cast<std::size_t>( d )];
         }
 
         inline const ProjectRootState& CurrentProjectRoot() noexcept
         {
-            return Detail::s_ProjectRoot;
+            return Detail::Project().ProjectRoot;
         }
 
         // THE INVERSE OF Derive(), read through ONE census row: given a path to a file that lies inside
@@ -534,9 +546,9 @@ namespace Common::Constants
         inline void SetProjectRoot( const std::filesystem::path& projectDir,
                                     const std::filesystem::path& assetsRoot )
         {
-            Detail::s_ProjectRoot = ProjectRootState{ projectDir, assetsRoot };
-            Detail::s_Dirs        = Detail::Derive( Detail::s_ProjectRoot );
-            Detail::s_ProjectConfig = projectDir.empty()
+            Detail::Project().ProjectRoot = ProjectRootState{ projectDir, assetsRoot };
+            Detail::Project().Dirs        = Detail::Derive( Detail::Project().ProjectRoot );
+            Detail::Project().ProjectConfig = projectDir.empty()
                                            ? std::filesystem::path{}
                                            : ( projectDir / PROJECT_CONFIG_DIR_NAME ).lexically_normal();
         }
@@ -546,8 +558,8 @@ namespace Common::Constants
         // once, at process start, with the absolute directory Desert::Project::ResolveEngineDir returned.
         inline void SetEngineDir( const std::filesystem::path& engineDir )
         {
-            Detail::s_EngineDir = engineDir.lexically_normal();
-            Detail::s_Engine    = Detail::DeriveEngineResources( Detail::s_EngineDir );
+            Detail::Engine().EngineDir = engineDir.lexically_normal();
+            Detail::Engine().Paths     = Detail::DeriveEngineResources( Detail::Engine().EngineDir );
         }
 
         // The directory project content derives from: the open project's folder (UE: FPaths::ProjectDir).
@@ -557,7 +569,7 @@ namespace Common::Constants
         {
             if ( !HasProject() )
                 Detail::NoProjectOpen( "ProjectDir()", reader );
-            return Detail::s_ProjectRoot.ProjectDir;
+            return Detail::Project().ProjectRoot.ProjectDir;
         }
 
         // A relative content path made absolute (UE: FPaths::ConvertRelativePathToFull): read off ProjectDir(),
@@ -573,7 +585,7 @@ namespace Common::Constants
         {
             if ( path.is_absolute() )
                 return path.lexically_normal();
-            const bool rooted = !Detail::s_ProjectRoot.ProjectDir.empty() || !Detail::s_EngineDir.empty();
+            const bool rooted = !Detail::Project().ProjectRoot.ProjectDir.empty() || !Detail::Engine().EngineDir.empty();
             // A path anchored at a root directory ("/tmp/x") names no project file. On Windows it has no drive, so
             // it takes the drive of the root it is read against (the project's, else the engine's) - never the
             // working directory's. Elsewhere the root name is empty and such a path is already absolute.
@@ -581,9 +593,9 @@ namespace Common::Constants
             {
                 if ( !rooted )
                     return path.lexically_normal();
-                const std::filesystem::path& anchor = !Detail::s_ProjectRoot.ProjectDir.empty()
-                                                           ? Detail::s_ProjectRoot.ProjectDir
-                                                           : Detail::s_EngineDir;
+                const std::filesystem::path& anchor = !Detail::Project().ProjectRoot.ProjectDir.empty()
+                                                           ? Detail::Project().ProjectRoot.ProjectDir
+                                                           : Detail::Engine().EngineDir;
                 return ( anchor.root_name() / path ).lexically_normal();
             }
             if ( !HasProject() )
@@ -655,7 +667,7 @@ namespace Common::Constants
              Detail::Slot( ContentDir::LandscapeGrassType );
         inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );
         // Empty while no project is open (a read of an empty path finds nothing, the reader refuses by name).
-        inline const std::filesystem::path& PROJECT_CONFIG_PATH = Detail::s_ProjectConfig;
+        inline const std::filesystem::path& PROJECT_CONFIG_PATH = Detail::Project().ProjectConfig;
     } // namespace Path
 
     namespace Extensions

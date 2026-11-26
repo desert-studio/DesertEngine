@@ -3142,8 +3142,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             m_RdgDevice.Device        = device->GetVulkanLogicalDevice();
             m_RdgDevice.Allocator     = VulkanAllocator::GetVMAAllocator();
-            m_RdgDevice.CmdBeginLabel = fpCmdBeginDebugUtilsLabelEXT;
-            m_RdgDevice.CmdEndLabel   = fpCmdEndDebugUtilsLabelEXT;
+            m_RdgDevice.CmdBeginLabel = VKUtils::CmdBeginDebugLabelEntry();
+            m_RdgDevice.CmdEndLabel   = VKUtils::CmdEndDebugLabelEntry();
             VkPhysicalDeviceProperties properties{};
             vkGetPhysicalDeviceProperties( device->GetPhysicalDevice()->GetVulkanPhysicalDevice(), &properties );
             m_RdgDevice.Limits        = properties.limits;

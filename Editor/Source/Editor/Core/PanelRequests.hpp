@@ -57,10 +57,6 @@ namespace Desert::Editor::Core
         }
 
     private:
-        static std::unordered_map<std::string, Action>& Pending()
-        {
-            static std::unordered_map<std::string, Action> s_Pending;
-            return s_Pending;
-        }
+        static std::unordered_map<std::string, Action>& Pending();
     };
 } // namespace Desert::Editor::Core

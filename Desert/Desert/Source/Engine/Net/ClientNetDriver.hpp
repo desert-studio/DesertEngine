@@ -72,11 +72,7 @@ namespace Desert::Core
         }
         // The process's launch options (the editor's / the game's command line sets them before the first frame;
         // Play reads them when it begins, like UE's PIE net mode read at StartPlayInEditorSession).
-        static ClientNetOptions& Launch()
-        {
-            static ClientNetOptions options;
-            return options;
-        }
+        static ClientNetOptions& Launch();
     };
 
     // The own pawn's prediction as the client sees it (the viewport HUD's "Net" row; UE stat net's corrections).

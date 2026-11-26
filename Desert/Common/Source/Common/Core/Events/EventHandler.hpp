@@ -2,6 +2,8 @@
 
 #include <Common/Core/Events/RoutedEvents.hpp>
 
+#include <cstdint>
+#include <string_view>
 #include <tuple>
 
 namespace Common
@@ -34,8 +36,24 @@ namespace Common
             using Type = std::tuple<EventThunk<Events>...>;
         };
 
+        // The handler's type, as a value every module DLL computes alike: the address of a header-defined tag
+        // would differ per DLL (each holds its own copy), so a node emplaced in one module failed the typed
+        // lookup of another (BINT-STATE). FNV-1a of the compiler's spelling of this function, which names T.
         template <typename T>
-        inline char TypeTag = 0;
+        consteval std::uint64_t TypeKey()
+        {
+#if defined( _MSC_VER )
+            constexpr std::string_view name = __FUNCSIG__;
+#else
+            constexpr std::string_view name = __PRETTY_FUNCTION__;
+#endif
+            std::uint64_t hash = 14695981039346656037ull;
+            for ( const char c : name )
+            {
+                hash = ( hash ^ static_cast<unsigned char>( c ) ) * 1099511628211ull;
+            }
+            return hash;
+        }
 
         template <typename T, typename E>
         bool Deliver( void* object, E& event )
@@ -54,7 +72,7 @@ namespace Common
     {
         using Thunks = EventDetail::ThunkRow<RoutedEvents>::Type;
 
-        const void* Type        = nullptr;
+        std::uint64_t Type      = 0;
         uint32_t    BubbleMask  = 0;
         uint32_t    PreviewMask = 0;
         Thunks      Bubble{};
@@ -87,7 +105,7 @@ namespace Common
         consteval EventHandlerTable BuildTable( EventTypeList<Events...> /*list*/ )
         {
             EventHandlerTable table{};
-            table.Type = &TypeTag<T>;
+            table.Type = TypeKey<T>();
             ( FillSlot<T, Events>( table ), ... );
             return table;
         }

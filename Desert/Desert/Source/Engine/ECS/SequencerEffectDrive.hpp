@@ -29,11 +29,7 @@ namespace Desert::ECS
         bool ( *Activate )( entt::registry& registry, entt::entity entity ) = nullptr;
     };
 
-    inline SequencerEffectHookTable& SequencerEffectHooks()
-    {
-        static SequencerEffectHookTable hooks;
-        return hooks;
-    }
+    SequencerEffectHookTable& SequencerEffectHooks();
 
     inline std::optional<VFXSequencerDrive>* SequencerEffectDriveOf( entt::registry& registry,
                                                                      entt::entity    entity )
