@@ -53,6 +53,10 @@ KEYWORDS = {
 }
 PLACEHOLDER = re.compile(r"\{([A-Za-z_]+)(\d+)([+-]\d+(?:\.\d+)?)?\}")
 SHOT = re.compile(r"\[Shot\] wrote -> (\S+\.png)")
+# The editor counts a capture frame when its tick records it (ShotDirector::FrameRecorded) and writes frame_N.png
+# from that frame's own copy later, at its announcement: the frame a Тогда judges is named by this line.
+RECORDED = re.compile(r"\[Shot\] recorded frame_(\d+) \(game frame (\d+)\)")
+SEQNUM = re.compile(r"frame_(\d+)\.png$")
 
 
 class Fail(Exception):
@@ -74,15 +78,18 @@ class Role:
     def __init__(self, name, kind, proc, logpath, seqdir=None):
         self.name, self.kind, self.proc, self.logpath, self.seqdir = name, kind, proc, logpath, seqdir
         self.lines, self.cursor, self.partial, self.drawn = [], 0, "", []
+        self.hold = False  # a Тогда is choosing its frame: nothing announced is deleted meanwhile
         self.reader = open(logpath, encoding="utf-8", errors="replace")
 
     def pump(self):
-        """Read what the role wrote since the last pump (whole lines only). A Тогда takes a frame drawn AFTER it, so
-        every sequence frame already announced by an earlier pump is deleted first (a dense sequence stays a few MB)."""
-        for path in self.drawn:
-            if os.path.exists(path):
-                os.remove(path)
-        self.drawn = []
+        """Read what the role wrote since the last pump (whole lines only). A Тогда takes a frame recorded AFTER the
+        line it follows, so every sequence frame already announced by an earlier pump is deleted first (a dense
+        sequence stays a few MB) - except while a Тогда holds them (its frame may have been announced already)."""
+        if not self.hold:
+            for path in self.drawn:
+                if os.path.exists(path):
+                    os.remove(path)
+            self.drawn = []
         chunk = self.reader.read()
         if chunk:
             text = self.partial + chunk
@@ -90,8 +97,8 @@ class Role:
             self.partial = parts.pop()
             self.lines.extend(parts)
             if self.seqdir:
-                self.drawn = [m.group(1) for m in map(SHOT.search, parts)
-                              if m and os.path.dirname(m.group(1)) == self.seqdir]
+                self.drawn += [m.group(1) for m in map(SHOT.search, parts)
+                               if m and os.path.dirname(m.group(1)) == self.seqdir]
 
 
 class Run:
@@ -326,20 +333,46 @@ class Run:
         r = self.role(parts[0])
         if not r.seqdir:
             raise Fail(f"«Тогда» {r.name}: a {r.kind} draws no frames")
-        self.poll()
-        start, deadline = len(r.lines), time.time() + 120
-        while time.time() < deadline:
-            self.poll()
-            for line in r.lines[start:]:
-                m = SHOT.search(line)
-                if m and os.path.dirname(m.group(1)) == r.seqdir:
-                    os.replace(m.group(1), os.path.join(self.out, parts[1] + ".png"))
-                    return f"{parts[1]}.png\t{parts[2] if len(parts) > 2 else ''}"
-            start = len(r.lines)
-            if r.proc.poll() is not None:
-                raise Fail(f"role {r.name} exited (rc {r.proc.returncode}) before frame {parts[1]}")
-            time.sleep(0.05)
-        raise Fail(f"{r.name} drew no frame within 120 s for {parts[1]}")
+        # THE FRAME THE TICK RECORDED (NET-PAWN-TELEPORT-FRAME D1): the first `[Shot] recorded frame_N` after the line
+        # the last Ждать matched (r.cursor) - frame N is the frame whose tick ran after that line - then the
+        # `wrote ... frame_N.png` written from that frame's own copy. Frame N+1 is kept beside it as <name>_next.png
+        # (D2: the next frame is judged, not assumed). Never "the first file written after the Тогда": with the
+        # render pipelined a frame is written after the next tick, so that file was the frame BEFORE.
+        name, what = parts[1], parts[2] if len(parts) > 2 else ""
+        r.hold = True
+        try:
+            start, deadline, n, game, got = r.cursor, time.time() + 120, None, None, {}
+            while time.time() < deadline:
+                for line in r.lines[start:]:
+                    if n is None:
+                        m = RECORDED.search(line)
+                        if m:
+                            n, game = int(m.group(1)), m.group(2)
+                        continue
+                    m = SHOT.search(line)
+                    k = SEQNUM.search(m.group(1)) if m and os.path.dirname(m.group(1)) == r.seqdir else None
+                    if k and int(k.group(1)) in (n, n + 1) and int(k.group(1)) not in got:
+                        dst = os.path.join(self.out, name + ("" if int(k.group(1)) == n else "_next") + ".png")
+                        # A Ждать on another role may have pumped this one first (hold was off then) and deleted
+                        # the announced file: the frame is gone, said by name - never another frame in its place.
+                        if not os.path.exists(m.group(1)):
+                            raise Fail(f"{r.name} wrote {os.path.basename(m.group(1))} for {name} but the file is gone "
+                                       f"(deleted as an unclaimed sequence frame before this «Тогда» took it)")
+                        os.replace(m.group(1), dst)
+                        got[int(k.group(1))] = dst
+                start = len(r.lines)
+                if n is not None and len(got) == 2:
+                    return (f"{name}.png\t(frame_{n:05d}, game frame {game}) {what}\n"
+                            f"{name}_next.png\t(frame_{n + 1:05d}) the frame after {name}")
+                if r.proc.poll() is not None:
+                    raise Fail(f"role {r.name} exited (rc {r.proc.returncode}) before frame {name}")
+                time.sleep(0.05)
+                self.poll()
+        finally:
+            r.hold = False
+        if n is None:
+            raise Fail(f"{r.name} recorded no frame (no `[Shot] recorded frame_N`) within 120 s for {name}")
+        raise Fail(f"{r.name} recorded frame_{n:05d} for {name} but wrote {sorted(got)} of it and the next within 120 s")
 
     def end(self):
         """Gauntlet ends every role when the test ends: the server is asked first (SIGINT), then the rest."""

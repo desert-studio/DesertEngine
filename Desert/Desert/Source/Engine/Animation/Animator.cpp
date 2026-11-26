@@ -436,6 +436,9 @@ namespace Desert::Animation
         playback.Blend.Clips.assign( space.Space.Samples.size(), nullptr );
         for ( size_t i = 0; i < clips.size() && i < playback.Blend.Clips.size(); ++i )
             playback.Blend.Clips[i] = clips[i];
+        // Valid from entry with a clip on its clock (until UpdateBlendPlayback picks the heaviest sample): every
+        // reader of a valid player - a scrub, IsFinished, the curves - reads `Clip`.
+        playback.Clip = ClockClip( playback );
         return playback;
     }
 
@@ -1281,13 +1284,26 @@ namespace Desert::Animation
         return binding.Table;
     }
 
+    const AnimationClip* Animator::ClockClip( const ClipPlayback& playback )
+    {
+        if ( playback.Clip != nullptr || !playback.IsBlendSpace() )
+            return playback.Clip;
+        for ( const AnimationClip* sample : playback.Blend.Clips )
+            if ( sample != nullptr )
+                return sample;
+        return nullptr;
+    }
+
     void Animator::ScrubTo( ClipPlayback& playback, const FrameTime time )
     {
-        if ( !playback.IsValid() )
+        // A Blend Space is valid with no `Clip` until its first UpdateBlendPlayback (IsValid reads its samples),
+        // so the clock is the one ClockClip names, never `Clip` unchecked.
+        const AnimationClip* clock = ClockClip( playback );
+        if ( clock == nullptr )
         {
             return;
         }
-        const FrameNumber duration = playback.Clip->DurationTicks();
+        const FrameNumber duration = clock->DurationTicks();
         if ( time.Frame.Value < 0 )
         {
             playback.Time = FrameTime{};
@@ -1299,6 +1315,17 @@ namespace Desert::Animation
         else
         {
             playback.Time = time;
+        }
+        // A Blend Space's clock is its shared normalized phase (UpdateBlendPlayback derives Time from it), so the
+        // scrub moves the phase too - else its next update put Time back where it was.
+        if ( playback.IsBlendSpace() )
+        {
+            playback.Clip       = clock;
+            const double length = clock->DurationSeconds();
+            playback.Blend.Phase =
+                 length > 0.0 ? static_cast<float>( FrameTimeToSeconds( playback.Time, clock->Sequence.TickRate ) /
+                                                    length )
+                              : 0.0F;
         }
     }
 
@@ -1478,18 +1505,18 @@ namespace Desert::Animation
         // incoming one of a crossfade, and every source clock of the pose graph and its linked layers. The
         // tick is on the current clip's grid (the project's, without one); every other player gets the same
         // moment in seconds on its own grid.
-        const FrameRate rate    = m_Current.IsValid() ? m_Current.Clip->Sequence.TickRate : PROJECT_TICK_RATE;
-        const double    seconds = FrameTimeToSeconds( time, rate );
-        const auto      scrub   = [seconds]( ClipPlayback& playback )
+        const AnimationClip* currentClock = ClockClip( m_Current );
+        const FrameRate      rate = currentClock != nullptr ? currentClock->Sequence.TickRate : PROJECT_TICK_RATE;
+        const double         seconds = FrameTimeToSeconds( time, rate );
+        const auto           scrub   = [seconds]( ClipPlayback& playback )
         {
-            if ( playback.IsValid() )
+            if ( const AnimationClip* clock = ClockClip( playback ) )
             {
-                ScrubTo( playback, SecondsToFrameTime( seconds, playback.Clip->Sequence.TickRate ) );
+                ScrubTo( playback, SecondsToFrameTime( seconds, clock->Sequence.TickRate ) );
             }
         };
 
-        if ( m_Current.IsValid() )
-            ScrubTo( m_Current, time );
+        ScrubTo( m_Current, time );
         for ( IncomingFade& fade : m_Fades )
             scrub( fade.Playback );
         if ( m_PoseGraph )
@@ -1508,7 +1535,8 @@ namespace Desert::Animation
         // Through the tick, and onto the NEAREST one: a scrub arrives as a real number that has been
         // through a pixel position and a division, so flooring it would put a user who dragged onto a key
         // one tick before it. See TimeModel.hpp.
-        const FrameRate   rate    = m_Current.IsValid() ? m_Current.Clip->Sequence.TickRate : PROJECT_TICK_RATE;
+        const AnimationClip* clock   = ClockClip( m_Current );
+        const FrameRate      rate    = clock != nullptr ? clock->Sequence.TickRate : PROJECT_TICK_RATE;
         const FrameTime   asTicks = SecondsToFrameTime( static_cast<double>( time ), rate );
         const FrameNumber nearest = NearestTick( asTicks );
         SetTick( FrameTime{ nearest, 0.0F } );

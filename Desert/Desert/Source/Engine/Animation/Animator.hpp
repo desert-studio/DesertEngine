@@ -702,6 +702,11 @@ namespace Desert::Animation
         /// clamped to [0, duration] otherwise. The scrub's one rule, for every player.
         static void ScrubTo( ClipPlayback& playback, FrameTime time );
 
+        /// The clip whose grid a player's clock is on: its `Clip`, or - for a Blend Space entered this tick
+        /// (PlayBlendSpace / CrossFadeBlendSpace), valid before UpdateBlendPlayback picked its heaviest sample -
+        /// the first resolved sample. Null when the player has no resolved clip at all.
+        static const AnimationClip* ClockClip( const ClipPlayback& playback );
+
         /// The base players' notifies (the Source stage: the current clip, and the incoming one of a crossfade),
         /// AFTER the evaluation, each by its weight as every graph player is (UE: the base is one more sequence
         /// player in the notify queue, no player is heard "always"): the base source's graph weight (1 without a

@@ -7,9 +7,11 @@
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUploadRing.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/PixelPack.hpp> // the one packer this and the swapchain readback share
 #include <Engine/Graphic/RenderConfig.hpp>
 
@@ -1085,9 +1087,10 @@ namespace Desert::Graphic::API::Vulkan
 
     namespace
     {
-        /// One submitted image->buffer copy. Owns the staging buffer and the submission; both are released
-        /// on the device thread by the destructor, which waits for the fence first if it has to. A copy
-        /// without a pixel source is a raw one (an environment cube's levels): ReadBytes only.
+        /// One image->buffer copy: a one-off submission of its own, or recorded into a frame's command buffer
+        /// (RecordReadbackInFrame), whose completion is that frame's fence. Owns the staging buffer (and the
+        /// one-off submission); the destructor hands the buffer to the allocator's frame-retired queue. A copy
+        /// without a pixel source is a raw one (an environment cube's levels, a scene colour): ReadBytes only.
         class VulkanImageReadback final : public ImageReadback
         {
         public:
@@ -1098,6 +1101,20 @@ namespace Desert::Graphic::API::Vulkan
                    m_Source( source ), m_Submitted( submitted )
             {
             }
+            // A copy recorded into FRAME @p frame's command buffer in slot @p slot (RecordReadbackInFrame): no
+            // submission of its own. The frame's submit carries it, and the frame's own fence says it ran
+            // (UE FRHIGPUTextureReadback::IsReady): no event, nothing else to signal.
+            struct InFrame
+            {
+                uint32_t Slot  = 0;
+                uint64_t Frame = 0;
+            };
+            VulkanImageReadback( VkBuffer staging, VmaAllocation allocation, uint64_t bytes, std::size_t pixels,
+                                 std::optional<Graphic::PackedPixelSource> source, InFrame frame )
+                 : m_Staging( staging ), m_Allocation( allocation ), m_Bytes( bytes ), m_Pixels( pixels ),
+                   m_Source( source ), m_Frame( frame )
+            {
+            }
 
             VulkanImageReadback( const VulkanImageReadback& )            = delete;
             VulkanImageReadback& operator=( const VulkanImageReadback& ) = delete;
@@ -1106,19 +1123,29 @@ namespace Desert::Graphic::API::Vulkan
 
             ~VulkanImageReadback() override
             {
-                CommandBufferAllocator::GetInstance().RT_ReleaseSubmitted( m_Submitted );
+                if ( !m_Frame )
+                    CommandBufferAllocator::GetInstance().RT_ReleaseSubmitted( m_Submitted );
+                // THE FRAME-RETIRED QUEUE, NOT A WAIT (VulkanAllocator::IsRetired). The buffer is queued under the
+                // destroying thread's frame, never older than the frame that recorded the copy (a thread only
+                // records or counts frames at or after it), so it is destroyed only after that frame's slot fence
+                // was waited: a frame copy still queued or executing keeps its buffer, and nothing here blocks.
                 Allocator()->RT_DestroyBuffer( m_Staging, m_Allocation );
             }
 
             [[nodiscard]] bool IsComplete() const override
             {
+                if ( m_Frame )
+                    return VulkanFrameLoop::IsFrameDone( m_Frame->Slot, m_Frame->Frame );
                 return CommandBufferAllocator::GetInstance().IsComplete( m_Submitted );
             }
 
-            // Blocks until the copy completed (ReadPixelsRGBA8). On the submit thread a copy still queued behind
-            // the entry it runs is submitted first, so this is never a wait on itself (WaitComplete).
-            [[nodiscard]] Common::BoolResultStr Wait() const
+            // Blocks until the copy completed. A one-off copy: on the submit thread a copy still queued behind
+            // the entry it runs is submitted first, so this is never a wait on itself (WaitComplete). A frame
+            // copy: that frame's slot fence and nothing wider; refused when the frame was never handed over.
+            [[nodiscard]] Common::BoolResultStr Wait() const override
             {
+                if ( m_Frame )
+                    return VulkanFrameLoop::WaitFrameDone( m_Frame->Slot, m_Frame->Frame );
                 return CommandBufferAllocator::GetInstance().WaitComplete( m_Submitted );
             }
 
@@ -1141,7 +1168,8 @@ namespace Desert::Graphic::API::Vulkan
                          "ReadBytes: the GPU copy has not completed yet; poll IsComplete() first" );
                 // Reached but refused (CommandBufferAllocator::IsRefused): the copy never ran, so the staging
                 // buffer holds no pixels of the image; the refusal is the answer, not its uninitialised bytes.
-                if ( CommandBufferAllocator::GetInstance().IsRefused( m_Submitted ) )
+                // A frame's copy has no submission of its own: its frame's fence signals only once the copy ran.
+                if ( !m_Frame && CommandBufferAllocator::GetInstance().IsRefused( m_Submitted ) )
                     return Common::MakeError<std::vector<uint8_t>>(
                          "ReadBytes: the copy's submission was refused by the driver (see the log); nothing was "
                          "copied" );
@@ -1167,7 +1195,8 @@ namespace Desert::Graphic::API::Vulkan
             uint64_t                                  m_Bytes;
             std::size_t                               m_Pixels;
             std::optional<Graphic::PackedPixelSource> m_Source;
-            CommandBufferAllocator::Submitted         m_Submitted;
+            CommandBufferAllocator::Submitted         m_Submitted{}; // one-off copy only
+            std::optional<InFrame>                    m_Frame;       // frame copy only
         };
     } // namespace
 
@@ -1180,9 +1209,7 @@ namespace Desert::Graphic::API::Vulkan
         const std::shared_ptr<ImageReadback>& readback = begun.GetValue();
         // A WAIT, NOT A SPIN ON IsComplete (REVIEW G1): on the submit thread a spin would never see a copy still
         // queued behind the entry it runs; Wait submits it there first. A lost device ends the wait.
-        // Every readback BeginCopyToHost makes is a VulkanImageReadback, so the downcast cannot miss.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
-        if ( const auto waited = static_cast<const VulkanImageReadback&>( *readback ).Wait(); !waited )
+        if ( const auto waited = readback->Wait(); !waited )
             return Common::MakeFormattedError<std::vector<uint8_t>>( "ReadPixelsRGBA8: {}", waited.GetError() );
         return readback->ReadRGBA8();
     }
@@ -1194,13 +1221,8 @@ namespace Desert::Graphic::API::Vulkan
         const uint32_t w = m_Specification.Width;
         const uint32_t h = m_Specification.Height;
         const auto     fmt = m_Specification.Format;
-        if ( w == 0 || h == 0 || m_Resource.Image == VK_NULL_HANDLE )
-            return Common::MakeFormattedError<Result>( "{}: the image is {}x{} and its VkImage is {}", caller, w,
-                                                       h, m_Resource.Image == VK_NULL_HANDLE ? "null" : "valid" );
-        if ( m_Specification.ArrayLayers > 0 )
-            return Common::MakeFormattedError<Result>(
-                 "{}: '{}' is a {}-layer array; the readback reads one 2D image", caller, m_Specification.Tag,
-                 m_Specification.ArrayLayers );
+        if ( const auto refused = CopyToHostRefusal( caller ); !refused.IsSuccess() )
+            return Common::MakeError<Result>( refused.GetError() );
 
         auto allocator =
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
@@ -1222,8 +1244,23 @@ namespace Desert::Graphic::API::Vulkan
             allocator->RT_DestroyBuffer( staging, stagingAlloc );
             return Common::MakeFormattedError<Result>( "{}: no command buffer: {}", caller, cmdAlloc.GetError() );
         }
-        const VkCommandBuffer cmd      = cmdAlloc.GetValue();
-        const VkImageLayout   original = m_Resource.Layout;
+        const VkCommandBuffer cmd = cmdAlloc.GetValue();
+        RecordCopyToHost( cmd, staging );
+        auto submitted = CommandBufferAllocator::GetInstance().RT_SubmitCommandBufferGraphic( cmd );
+        if ( !submitted.IsSuccess() )
+        {
+            allocator->RT_DestroyBuffer( staging, stagingAlloc );
+            return Common::MakeFormattedError<Result>( "{}: {}", caller, submitted.GetError() );
+        }
+        return Common::MakeSuccess<Result>( std::make_shared<VulkanImageReadback>(
+             staging, stagingAlloc, srcSize, static_cast<std::size_t>( w ) * h, source, submitted.GetValue() ) );
+    }
+
+    void VulkanImage2D::RecordCopyToHost( VkCommandBuffer cmd, VkBuffer staging )
+    {
+        const uint32_t      w        = m_Specification.Width;
+        const uint32_t      h        = m_Specification.Height;
+        const VkImageLayout original = m_Resource.Layout;
         // EXPLICIT, WHOLE-QUEUE DEPENDENCIES instead of a device idle. The copy is submitted behind every
         // frame already on the graphics queue, so waiting on all their writes here is what the callers'
         // WaitDeviceIdle used to buy; the release barrier orders the next frame's render into this image
@@ -1251,43 +1288,105 @@ namespace Desert::Graphic::API::Vulkan
              cmd, original == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : original,
              VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
              VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT );
-        auto submitted = CommandBufferAllocator::GetInstance().RT_SubmitCommandBufferGraphic( cmd );
-        if ( !submitted.IsSuccess() )
-        {
-            allocator->RT_DestroyBuffer( staging, stagingAlloc );
-            return Common::MakeFormattedError<Result>( "{}: {}", caller, submitted.GetError() );
-        }
+    }
+
+    Common::BoolResultStr VulkanImage2D::CopyToHostRefusal( std::string_view caller ) const
+    {
+        const uint32_t w = m_Specification.Width;
+        const uint32_t h = m_Specification.Height;
+        if ( w == 0 || h == 0 || m_Resource.Image == VK_NULL_HANDLE )
+            return Common::MakeFormattedError<bool>( "{}: the image is {}x{} and its VkImage is {}", caller, w, h,
+                                                     m_Resource.Image == VK_NULL_HANDLE ? "null" : "valid" );
+        if ( m_Specification.ArrayLayers > 0 )
+            return Common::MakeFormattedError<bool>(
+                 "{}: '{}' is a {}-layer array; the readback reads one 2D image", caller, m_Specification.Tag,
+                 m_Specification.ArrayLayers );
+        return BOOLSUCCESS;
+    }
+
+    Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImage2D::RecordReadbackInFrame()
+    {
+        const auto source = RGBA8SourceOf( m_Specification.Format );
+        if ( !source )
+            return Common::MakeFormattedError<std::shared_ptr<ImageReadback>>(
+                 "RecordReadbackInFrame: image format {} has no RGBA8 packing",
+                 static_cast<int>( m_Specification.Format ) );
+        return RecordCopyInFrame( source, "RecordReadbackInFrame" );
+    }
+
+    Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImage2D::RecordBytesReadbackInFrame()
+    {
+        return RecordCopyInFrame( std::nullopt, "RecordBytesReadbackInFrame" );
+    }
+
+    Common::ResultStr<std::shared_ptr<ImageReadback>>
+    VulkanImage2D::RecordCopyInFrame( std::optional<Graphic::PackedPixelSource> source, std::string_view caller )
+    {
+        using Result = std::shared_ptr<ImageReadback>;
+        if ( const auto refused = CopyToHostRefusal( caller ); !refused.IsSuccess() )
+            return Common::MakeError<Result>( refused.GetError() );
+
+        // THE FRAME'S CURRENT COMMAND BUFFER (its tail, outside any graph): what is recorded here is submitted by
+        // this frame's PresentFinalImage, after the frame's views and interface, before any later frame's work.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast) - this file is the Vulkan backend.
+        const VkCommandBuffer cmd = static_cast<VulkanRendererAPI&>( *Renderer::GetInstance().GetRendererAPI() )
+                                         .GetCurrentCommandBuffer();
+        if ( cmd == VK_NULL_HANDLE )
+            return Common::MakeFormattedError<Result>(
+                 "{}: the frame has no open command buffer (its begin failed, or a graph could not re-arm one; "
+                 "see the [Renderer] line above); nothing to record the copy into",
+                 caller );
+        // The frame this copy rides on, as the frame loop's hand-off will name it (the recording slot and number
+        // bound to this job; the game thread's inline): its fence is the copy's completion.
+        const auto&                        frames = Engine::FrameManager::GetInstance();
+        const VulkanImageReadback::InFrame inFrame{ .Slot  = frames.GetCurrentFrameIndex(),
+                                                    .Frame = frames.GetAbsoluteFrameCount() };
+
+        auto allocator =
+             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
+        const uint64_t     bytes   = Core::Formats::CalculateImageSize( m_Specification.Width, m_Specification.Height,
+                                                                        m_Specification.Format );
+        VkBuffer           staging = VK_NULL_HANDLE;
+        VkBufferCreateInfo bInfo   = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                                       .size  = bytes,
+                                       .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT };
+        auto allocRes = allocator->RT_AllocateBuffer( "FrameReadback", bInfo, VMA_MEMORY_USAGE_GPU_TO_CPU, staging );
+        if ( !allocRes.IsSuccess() )
+            return Common::MakeFormattedError<Result>( "{}: {} byte readback buffer failed: {}", caller, bytes,
+                                                       allocRes.GetError() );
+
+        RecordCopyToHost( cmd, staging );
         return Common::MakeSuccess<Result>( std::make_shared<VulkanImageReadback>(
-             staging, stagingAlloc, srcSize, static_cast<std::size_t>( w ) * h, source, submitted.GetValue() ) );
+             staging, allocRes.GetValue(), bytes,
+             static_cast<std::size_t>( m_Specification.Width ) * m_Specification.Height, source, inFrame ) );
+    }
+
+    std::optional<Graphic::PackedPixelSource> VulkanImage2D::RGBA8SourceOf( const Core::Formats::ImageFormat fmt )
+    {
+        switch ( fmt )
+        {
+            case Core::Formats::ImageFormat::RGBA8F:
+                return Graphic::PackedPixelSource::RGBA8;
+            case Core::Formats::ImageFormat::BGRA8F:
+                return Graphic::PackedPixelSource::BGRA8;
+            case Core::Formats::ImageFormat::RGBA32F:
+                return Graphic::PackedPixelSource::RGBA32F;
+            // The tonemap / FXAA targets (ViewTargetFormats kTonemap, kFXAA; HDR-OUTPUT): display-encoded values,
+            // clamped and quantised like RGBA32F — on an HDR output the clamp is the SDR rendition.
+            case Core::Formats::ImageFormat::RGBA16F:
+                return Graphic::PackedPixelSource::RGBA16F;
+            default:
+                return std::nullopt; // only colour formats the pack knows
+        }
     }
 
     Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImage2D::BeginReadbackRGBA8()
     {
-        using Result                   = std::shared_ptr<ImageReadback>;
-        const auto                 fmt = m_Specification.Format;
-        Graphic::PackedPixelSource source{};
-        switch ( fmt )
-        {
-            case Core::Formats::ImageFormat::RGBA8F:
-                source = Graphic::PackedPixelSource::RGBA8;
-                break;
-            case Core::Formats::ImageFormat::BGRA8F:
-                source = Graphic::PackedPixelSource::BGRA8;
-                break;
-            case Core::Formats::ImageFormat::RGBA32F:
-                source = Graphic::PackedPixelSource::RGBA32F;
-                break;
-            // The tonemap / FXAA targets (ViewTargetFormats kTonemap, kFXAA; HDR-OUTPUT): display-encoded values,
-            // clamped and quantised like RGBA32F — on an HDR output the clamp is the SDR rendition.
-            case Core::Formats::ImageFormat::RGBA16F:
-                source = Graphic::PackedPixelSource::RGBA16F;
-                break;
-            default:
-                return Common::MakeFormattedError<Result>(
-                     "BeginReadbackRGBA8: image format {} has no RGBA8 packing",
-                     static_cast<int>( fmt ) ); // only colour formats the pack knows
-        }
-
+        using Result      = std::shared_ptr<ImageReadback>;
+        const auto source = RGBA8SourceOf( m_Specification.Format );
+        if ( !source )
+            return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: image format {} has no RGBA8 packing",
+                                                       static_cast<int>( m_Specification.Format ) );
         return BeginCopyToHost( source, "BeginReadbackRGBA8" );
     }
 

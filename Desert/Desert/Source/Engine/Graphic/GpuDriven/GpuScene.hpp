@@ -151,6 +151,11 @@ namespace Desert::Graphic::GpuDriven
         // The mesh, LOD chain or instance set changed: same index, rows rewritten (instances re-allocated when
         // the count changes). DrawCommandCache is told by the caller (its slots name LODs and submeshes).
         // LocalToWorld follows SetTransform's rule (Prev := the old world when it changed).
+        // THE ROW IS REWRITTEN WHOLE (UE MarkRenderStateDirty re-creates the primitive's GPUScene data): the skin
+        // cache address goes back to 0 with it, so a row whose draw path changed (baked vertex animation <->
+        // skeletal, a new forced level) never keeps the old path's vertex source; the path's writer of this frame
+        // (RayTracingSkinCache::PrepareRows, or the far crowd's VAT frame in MeshRenderer::SyncGpuScene) sets it
+        // again before the upload, so culling and every pass read one path.
         void UpdatePrimitive( PrimitiveIndex primitive, const PrimitiveDesc& desc );
         void RemovePrimitive( PrimitiveIndex primitive );
         // A live primitive (added and not removed).

@@ -39,6 +39,12 @@ namespace Desert::Animation
         // Animation -> renderer: the clip the instance plays and its playhead in seconds (the VAT frame).
         std::atomic<const void*> VatClip{ nullptr };
         std::atomic<float>       VatTime{ 0.0f };
+        // Animation -> renderer: the published pose is this instance's current one. False from the tick the
+        // animation stops evaluating for the baked crowd (Vat) until the tick it evaluates again after the
+        // renderer asked for skeletal: until then the renderer keeps drawing the baked frame (UE swaps the
+        // AnimToTexture figure on the game thread, after the skeletal pose ticked), never a pose left from
+        // before the hand-off.
+        std::atomic<bool> SkeletalPoseReady{ true };
         // Animation only (its own thread): the clock runs here while Vat holds, from the Animator's playhead at
         // the hand-off; the Animator is put back on it when the instance returns to skeletal.
         bool  VatClockRunning = false;

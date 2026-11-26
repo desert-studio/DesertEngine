@@ -1,6 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <Editor/Panels/Scalability/AntiAliasingPaletteCommands.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/DisplayOutput.hpp>
@@ -135,6 +136,7 @@
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <Engine/Core/SceneRenderCollectors.hpp>
+#include <Engine/Graphic/SceneRenderer.hpp> // view 0's scene colour, copied for --shot-hdr
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/TextECSSystem.hpp>
 #include <Engine/ECS/System/SkyboxECSSystem.hpp>
@@ -751,9 +753,11 @@ namespace Desert::Editor
                  } );
         }
 
-        // Screenshot mode: this frame's render is recorded. It is read back, counted and written once it has
-        // been SUBMITTED (ShotDirector::EndFrame in OnFramePresented); read here, the image is the last frame's.
-        m_Shots.FrameRecorded( shotRecorded, m_Startup.StartupLoading(), m_Startup.ContentSettling() );
+        // Screenshot mode: this frame's render is recorded and counted here, in tick order (its game frame names
+        // it in the log); its image is copied in its own submission (CaptureFramePresented) and written once it
+        // has been SUBMITTED (ShotDirector::EndFrame in OnFramePresented).
+        m_Shots.FrameRecorded( shotRecorded, m_Startup.StartupLoading(), m_Startup.ContentSettling(),
+                               ::Desert::Engine::FrameManager::GetInstance().GetGameFrameCount() );
 
         return BOOLSUCCESS;
     }
@@ -798,12 +802,95 @@ namespace Desert::Editor
 
     std::function<void()> EditorLayer::CaptureFramePresented( bool handedOver )
     {
-        const ControlService::BuiltFrame                 built = m_Control.CaptureBuiltFrame();
-        const std::optional<ShotDirector::RecordedFrame> shot  = m_Shots.TakePendingFrame();
+        const ControlService::BuiltFrame           built = m_Control.CaptureBuiltFrame();
+        std::optional<ShotDirector::RecordedFrame> shot  = m_Shots.TakePendingFrame();
+        // THE SHOT'S OWN COPY (UE FScreenshotRequest), IN BOTH MODES: a job in this frame's order, after its views
+        // and interface and before its submit and present (Application::Run captures before enqueueing them),
+        // records the copy of THIS frame's final image - and on `--shot-hdr`'s last frame view 0's scene colour -
+        // into the frame's own command buffer. The announcement then writes those pixels, whatever frame the live
+        // images show by then (D1/D3, NET-PAWN-TELEPORT-FRAME). The images are taken here, on the game thread;
+        // the job touches only them. Nothing is allocated on a frame that writes no picture.
+        struct Copies
+        {
+            ShotDirector::FrameCopy Pixels;
+            ShotDirector::FrameCopy SceneColor;
+        };
+        std::shared_ptr<Copies> copies; // null: this frame writes no picture
+        const bool              wantsPixels     = shot && ShotDirector::WantsPixels( *shot );
+        const bool              wantsSceneColor = shot && ShotDirector::WantsSceneColor( *shot );
+        if ( wantsPixels || wantsSceneColor )
+        {
+            copies = std::make_shared<Copies>();
+            std::shared_ptr<Graphic::Image2D> finalImage;
+            std::shared_ptr<Graphic::Image2D> sceneColor;
+            const auto&                       scene = m_Workspace.ActiveScene();
+            if ( wantsPixels )
+            {
+                finalImage = scene ? scene->GetFinalImage() : nullptr;
+                if ( !finalImage )
+                    copies->Pixels.Refusal = "the active scene has no final image to copy";
+            }
+            if ( wantsSceneColor )
+            {
+                const Graphic::SceneRenderer* view0 = scene ? scene->GetViewRenderer( 0 ) : nullptr;
+                sceneColor                          = view0 ? view0->GetSceneColorImage() : nullptr;
+                if ( !sceneColor )
+                    copies->SceneColor.Refusal = "view 0 has no scene colour target";
+                else if ( const auto format = sceneColor->GetImageSpecification().Format;
+                          format != ::Desert::Core::Formats::ImageFormat::RGBA16F )
+                {
+                    copies->SceneColor.Refusal =
+                         std::format( "the scene colour is not RGBA16F (format {}); the PFM writer reads RGBA16F",
+                                      static_cast<int>( format ) );
+                    sceneColor.reset();
+                }
+            }
+            if ( finalImage || sceneColor )
+            {
+                const ::Desert::Engine::RenderTask::ScopedOwner frameWork(
+                     ::Desert::Engine::RenderTask::FrameOwner() );
+                ::Desert::Engine::RenderTask::Get().Enqueue(
+                     "Editor: shot copy",
+                     [copies, finalImage, sceneColor]() -> Common::BoolResultStr
+                     {
+                         // A refusal is the shot's, named by its writer (WriteShotPng, WriteSceneColorPfm); not
+                         // the frame's.
+                         const auto record = []( const std::shared_ptr<Graphic::Image2D>& image, bool raw,
+                                                 ShotDirector::FrameCopy& into )
+                         {
+                             auto recorded =
+                                  raw ? image->RecordBytesReadbackInFrame() : image->RecordReadbackInFrame();
+                             if ( !recorded.IsSuccess() )
+                             {
+                                 into.Refusal = recorded.GetError();
+                                 return;
+                             }
+                             into.Readback = recorded.ExtractValue();
+                             into.Width    = image->GetWidth();
+                             into.Height   = image->GetHeight();
+                         };
+                         if ( finalImage )
+                             record( finalImage, false, copies->Pixels );
+                         if ( sceneColor )
+                             record( sceneColor, true, copies->SceneColor );
+                         return BOOLSUCCESS;
+                     } );
+            }
+        }
+        // Read at the announcement, behind step 4b's fence (or after the inline frame): the job has run.
+        const auto withPixels = [shot = std::move( shot ), copies]() -> std::optional<ShotDirector::RecordedFrame>
+        {
+            if ( !shot || !copies )
+                return shot;
+            ShotDirector::RecordedFrame frame = *shot;
+            frame.Pixels                      = copies->Pixels;
+            frame.SceneColor                  = copies->SceneColor;
+            return frame;
+        };
         // Inline (serial mode, the overlap off) nothing records under the announcement: the census is read
         // there, at today's point of it.
         if ( !handedOver )
-            return [this, built, shot] { AnnounceFramePresented( built, shot, nullptr ); };
+            return [this, built, withPixels] { AnnounceFramePresented( built, withPixels(), nullptr ); };
         // THE FRAME'S OWN CENSUS (OVERLAP-ON-5; UE: what a frame reports about itself is captured by a render
         // command in that frame's order and read on the game thread after the fence). The views write the four
         // entries while they record on the render task; this job runs after this frame's views and before its
@@ -822,7 +909,7 @@ namespace Desert::Editor
                      return BOOLSUCCESS;
                  } );
         }
-        return [this, built, shot, census] { AnnounceFramePresented( built, shot, census.get() ); };
+        return [this, built, withPixels, census] { AnnounceFramePresented( built, withPixels(), census.get() ); };
     }
 
     void EditorLayer::AnnounceFramePresented( const ControlService::BuiltFrame&                 built,
