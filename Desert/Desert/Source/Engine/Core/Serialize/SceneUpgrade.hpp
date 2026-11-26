@@ -22,7 +22,7 @@
 // data between FILES (prefab files, landscape tiles, mesh headers, .defoliage / .desound / .vfx assets minted
 // beside the scene) or read shapes the engine's tree no longer has a member for; they stay in
 // Tools/SceneMigrator, and a file below the floor is refused by name with that one command. Every step at or
-// above a floor - the scene's v71..v77, World Partition's v13/v14, the asset-reference and light chains whole -
+// above a floor - the scene's v71..v78, World Partition's v13/v14, the asset-reference and light chains whole -
 // is HERE and only here: the migrator runs its below-floor chain, then this one (UpgradeSceneRecords).
 //
 // A STEP THAT NEEDS ANOTHER FILE'S CONTENT DOES NOT OPEN IT. The asset-reference step reads a material's header
@@ -88,7 +88,15 @@ namespace Desert::Core
     //       (MigrateTubeSourceLengthV76ToV77). A prefab override is a delta and is left alone.
     inline constexpr int kSceneVersionTubeSourceLength = 77;
 
-    static_assert( kSceneVersionTubeSourceLength == kSceneVersion,
+    //  78 - ONE EXPOSURE OFFSET (BISTRO-NIGHT-LOOK; UE has only Exposure Compensation). PostProcessVolume
+    //       Settings.AutoExposureKey (the middle-grey target, default 0.18) is dropped and AutoExposureBias gains
+    //       log2(key / 0.18): the exposure scale key/L x 2^bias is 0.18/L x 2^(bias + log2(key/0.18)), the same
+    //       picture (Graphic::kExposureMiddleGrey). A key that is not a positive number is refused naming the
+    //       entity; so is a prefab override that states a key other than 0.18 without its bias (a delta whose
+    //       inherited bias this file cannot read) (MigrateExposureKeyV77ToV78). The record and every override.
+    inline constexpr int kSceneVersionExposureBiasOnly = 78;
+
+    static_assert( kSceneVersionExposureBiasOnly == kSceneVersion,
                    "the last upgrade step and the engine's scene version must be the same generation - a bump of "
                    "Core::kSceneVersion needs its step here (SceneUpgrade.hpp, UpgradeSceneRecords)" );
 
@@ -199,6 +207,14 @@ namespace Desert::Core
         std::vector<std::string> Refused;      // a Settings block that is not an object, or a non-bool value
     };
 
+    // What MigrateExposureKeyV77ToV78 did to one file.
+    struct ExposureKeyReport
+    {
+        std::size_t              Folded = 0; // AutoExposureKey values folded into AutoExposureBias
+        std::vector<std::string> Refused;    // a non-object Settings, a key that is not a positive number, or an
+                                             // override stating a key other than 0.18 without its bias
+    };
+
     // The steps. Each is PURE (no filesystem, no globals) and edits the records in place.
     TracedRequestReport   MigrateTracedRequestV71ToV72( std::vector<Assets::EntityData>& entities );
     ComposedGIReport      MigrateComposedGIV72ToV73( std::vector<Assets::EntityData>& entities );
@@ -209,6 +225,7 @@ namespace Desert::Core
     MigrateLandscapeSplineEntitiesV75ToV76( std::vector<Assets::EntityData>& entities, bool createEntities );
     // Returns how many PointLight / SpotLight records it stated SourceLength 0 in.
     std::size_t MigrateTubeSourceLengthV76ToV77( std::vector<Assets::EntityData>& entities );
+    ExposureKeyReport MigrateExposureKeyV77ToV78( std::vector<Assets::EntityData>& entities );
     // PURE given @p materialGuid, which is asked once per distinct key.
     ReflectedAssetRefsReport MigrateReflectedAssetRefsV0ToV1( std::vector<Assets::EntityData>& entities,
                                                               const MaterialGuidLookup&        materialGuid );
@@ -255,6 +272,8 @@ namespace Desert::Core
         LandscapeSplineEntitiesReport LandscapeSplineEntities;
         bool                          TubeSourceLengthRaised  = false;
         std::size_t                   TubeSourceLengthsStated = 0;
+        bool                          ExposureKeyRaised       = false;
+        ExposureKeyReport             ExposureKey;
         bool                          EntityHLODLayerRaised   = false;
         bool                          ImpostorLayersRaised    = false;
         bool                          ReflectedAssetRefsRaised = false;
@@ -268,7 +287,7 @@ namespace Desert::Core
         {
             return VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised || FilmicDefaultRaised ||
                    GrassRasterPathRaised || LandscapeSplineEntitiesRaised || TubeSourceLengthRaised ||
-                   EntityHLODLayerRaised || ImpostorLayersRaised || ReflectedAssetRefsRaised || SunRotationRaised;
+                   ExposureKeyRaised || EntityHLODLayerRaised || ImpostorLayersRaised || ReflectedAssetRefsRaised || SunRotationRaised;
         }
     };
 

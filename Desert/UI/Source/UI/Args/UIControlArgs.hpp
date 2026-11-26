@@ -160,7 +160,7 @@ namespace Desert::UI
                   Tooltip( "Multi-line only: which Enter breaks the line; the other one commits" ) )
         UITextNewLineKey NewLineKey = UITextNewLineKey::ShiftEnter;
 
-        // Messages go out like a button's SendEvent (UI::UIMessageQueue -> Lua OnUIMessage) as
+        // Messages go out like a button's SendEvent (the world's UIMessageQueue -> Lua OnUIMessage) as
         // "<message>|<text>": OnChanged on every edit, OnCommitted on Enter and when focus leaves the field
         // (UE: SEditableText::OnTextChanged / OnTextCommitted). Empty = not sent.
         PROPERTY( DisplayName( "On Changed Message" ), Category( "UI Input Field" ) )

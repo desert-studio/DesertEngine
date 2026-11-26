@@ -1,0 +1,232 @@
+{
+    "Header": {
+        "Kind": "LandscapeGrassType",
+        "Guid": "cd954e9721e2b0589a41bf336f1ab699",
+        "Versions": {
+            "LGRT": 3
+        },
+        "Dependencies": ["d3bd81114a742dcc6b7a3037c7dd83d7", "d3bd83114a7431326b7a3237c7dd873d", "d3bd7d114a7427006b7a2c37c7dd7d0b", "84d03ef445946e213e7ef6651b1d3eaa", "5f795fbd854bd546312e2bdd07f6d1ff"]
+    },
+    "GrassVarieties": [
+        {
+            "Kind": "Mesh",
+            "Mesh": {
+                "Guid": "d3bd81114a742dcc6b7a3037c7dd83d7",
+                "Path": "Environments/FieldBarn/Meshes/grass_bermuda_01/grass_bermuda_01_grass_bermuda_01_medium_a.stmesh"
+            },
+            "Density": 260.0,
+            "PlacementJitter": 1.0,
+            "StartCullDistance": 2400.0,
+            "EndCullDistance": 8000.0,
+            "AllowedDensityRange": {
+                "Min": 0.0,
+                "Max": 1.0
+            },
+            "Patches": {
+                "Coverage": 0.6,
+                "Size": 700.0,
+                "Softness": 0.35,
+                "Group": 1
+            },
+            "Scaling": "Uniform",
+            "ScaleX": {
+                "Min": 1.6,
+                "Max": 2.4
+            },
+            "ScaleY": {
+                "Min": 1.6,
+                "Max": 2.4
+            },
+            "ScaleZ": {
+                "Min": 1.6,
+                "Max": 2.4
+            },
+            "WeightAttenuatesMaxScale": true,
+            "MaxScaleWeightAttenuation": 0.5,
+            "RandomRotation": true,
+            "AlignToSurface": true,
+            "CastDynamicShadow": true,
+            "Wind": {
+                "Strength": 1.0,
+                "Speed": 0.5,
+                "Height": 70.0
+            }
+        },
+        {
+            "Kind": "Mesh",
+            "Mesh": {
+                "Guid": "d3bd83114a7431326b7a3237c7dd873d",
+                "Path": "Environments/FieldBarn/Meshes/grass_bermuda_01/grass_bermuda_01_grass_bermuda_01_medium_c.stmesh"
+            },
+            "Density": 260.0,
+            "PlacementJitter": 1.0,
+            "StartCullDistance": 2400.0,
+            "EndCullDistance": 8000.0,
+            "AllowedDensityRange": {
+                "Min": 0.0,
+                "Max": 1.0
+            },
+            "Patches": {
+                "Coverage": 0.6,
+                "Size": 700.0,
+                "Softness": 0.35,
+                "Group": 1
+            },
+            "Scaling": "Uniform",
+            "ScaleX": {
+                "Min": 1.6,
+                "Max": 2.4
+            },
+            "ScaleY": {
+                "Min": 1.6,
+                "Max": 2.4
+            },
+            "ScaleZ": {
+                "Min": 1.6,
+                "Max": 2.4
+            },
+            "WeightAttenuatesMaxScale": true,
+            "MaxScaleWeightAttenuation": 0.5,
+            "RandomRotation": true,
+            "AlignToSurface": true,
+            "CastDynamicShadow": true,
+            "Wind": {
+                "Strength": 1.0,
+                "Speed": 0.5,
+                "Height": 70.0
+            }
+        },
+        {
+            "Kind": "Mesh",
+            "Mesh": {
+                "Guid": "d3bd7d114a7427006b7a2c37c7dd7d0b",
+                "Path": "Environments/FieldBarn/Meshes/grass_bermuda_01/grass_bermuda_01_grass_bermuda_01_medium_e.stmesh"
+            },
+            "Density": 200.0,
+            "PlacementJitter": 1.0,
+            "StartCullDistance": 2400.0,
+            "EndCullDistance": 8000.0,
+            "AllowedDensityRange": {
+                "Min": 0.0,
+                "Max": 1.0
+            },
+            "Patches": {
+                "Coverage": 0.5,
+                "Size": 700.0,
+                "Softness": 0.35,
+                "Group": 1
+            },
+            "Scaling": "Uniform",
+            "ScaleX": {
+                "Min": 1.4,
+                "Max": 2.2
+            },
+            "ScaleY": {
+                "Min": 1.4,
+                "Max": 2.2
+            },
+            "ScaleZ": {
+                "Min": 1.4,
+                "Max": 2.2
+            },
+            "WeightAttenuatesMaxScale": true,
+            "MaxScaleWeightAttenuation": 0.5,
+            "RandomRotation": true,
+            "AlignToSurface": true,
+            "CastDynamicShadow": true,
+            "Wind": {
+                "Strength": 1.0,
+                "Speed": 0.5,
+                "Height": 70.0
+            }
+        },
+        {
+            "Kind": "Mesh",
+            "Mesh": {
+                "Guid": "84d03ef445946e213e7ef6651b1d3eaa",
+                "Path": "Environments/FieldBarn/Meshes/grass_bermuda_01/grass_bermuda_01_grass_bermuda_01_dead_a.stmesh"
+            },
+            "Density": 120.0,
+            "PlacementJitter": 1.0,
+            "StartCullDistance": 2400.0,
+            "EndCullDistance": 8000.0,
+            "AllowedDensityRange": {
+                "Min": 0.0,
+                "Max": 1.0
+            },
+            "Patches": {
+                "Coverage": 0.45,
+                "Size": 700.0,
+                "Softness": 0.35,
+                "Group": 1
+            },
+            "Scaling": "Uniform",
+            "ScaleX": {
+                "Min": 1.4,
+                "Max": 2.2
+            },
+            "ScaleY": {
+                "Min": 1.4,
+                "Max": 2.2
+            },
+            "ScaleZ": {
+                "Min": 1.4,
+                "Max": 2.2
+            },
+            "WeightAttenuatesMaxScale": true,
+            "MaxScaleWeightAttenuation": 0.5,
+            "RandomRotation": true,
+            "AlignToSurface": true,
+            "CastDynamicShadow": true,
+            "Wind": {
+                "Strength": 1.0,
+                "Speed": 0.5,
+                "Height": 70.0
+            }
+        },
+        {
+            "Kind": "Mesh",
+            "Mesh": {
+                "Guid": "5f795fbd854bd546312e2bdd07f6d1ff",
+                "Path": "Environments/FieldBarn/Meshes/grass_bermuda_01/grass_bermuda_01_grass_bermuda_01_flattened_a.stmesh"
+            },
+            "Density": 90.0,
+            "PlacementJitter": 1.0,
+            "StartCullDistance": 2400.0,
+            "EndCullDistance": 8000.0,
+            "AllowedDensityRange": {
+                "Min": 0.0,
+                "Max": 1.0
+            },
+            "Patches": {
+                "Coverage": 0.35,
+                "Size": 700.0,
+                "Softness": 0.35,
+                "Group": 1
+            },
+            "Scaling": "Uniform",
+            "ScaleX": {
+                "Min": 1.4,
+                "Max": 2.0
+            },
+            "ScaleY": {
+                "Min": 1.4,
+                "Max": 2.0
+            },
+            "ScaleZ": {
+                "Min": 1.4,
+                "Max": 2.0
+            },
+            "WeightAttenuatesMaxScale": true,
+            "MaxScaleWeightAttenuation": 0.5,
+            "RandomRotation": true,
+            "AlignToSurface": true,
+            "CastDynamicShadow": true,
+            "Wind": {
+                "Strength": 1.0,
+                "Speed": 0.5,
+                "Height": 70.0
+            }
+        }
+    ]
+}

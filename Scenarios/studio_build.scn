@@ -1,0 +1,55 @@
+# STUDIO-BUILD (design F:/aftmp/DESIGN-STUDIO-AUDIT.md, «Приёмка»): the build itself is the subject. Every step is a
+# script call on the Windows host, no editor except [smoke_dll], which plays Scenarios/smoke_editor.scn on the
+# Development tree. Configurations: Development (win-dev, module DLLs, unity batches of 16, adaptive unity),
+# DebugGame (win-debug), Shipping (win-ship, static monolith, /GL + /LTCG). Times are wall clock from .ninja_log
+# (max(end) - min(start)); the reference numbers are the design's «Целевые числа».
+#
+# Дано: a clean tree on the commit under test; no editor running; ccache 4.x on PATH (CMakeLists.txt finds it).
+#
+# [clean_build]
+# Когда: rm -rf build/cmake/win-dev; ccache -C; bash .claude/tools/build_land.sh <tree> <log>   (preset win-dev)
+# Тогда [clean_build]: Editor finishes in <= 20 min wall (.ninja_log span <= 1 200 000 ms); objects <= 900;
+#   cmake_pch compiles <= 3 (Common, Engine, Editor); no first-party TU > 30 s; 0 LNK1327; a second configure
+#   with unchanged CMake files prints no "Configuring" step.
+# Тогда [bconfig_link]: the Editor.exe link edge (.ninja_log) <= 300 s on the clean build and <= 90 s on an
+#   incremental one; build/Bin/Development holds Editor.exe beside the module DLLs (Common.dll, DesertEngine.dll,
+#   DesertUI.dll, Render2DCore.dll, the five editor layer DLLs); 0 LNK2011 (PCH object), 0 LNK1189 (export count),
+#   0 LNK2019 across modules.
+#
+# [one_cpp]
+# Когда: touch Desert/Desert/Source/Engine/Graphic/MeshRendererForward.cpp; python scripts/Dev/adaptive_unity.py
+#   build/cmake/win-dev; ninja -C build/cmake/win-dev Editor
+# Тогда [one_cpp]: <= 60 s; .ninja_log holds exactly one .obj (the file outside its unity batch) plus the engine
+#   DLL link; Editor.exe is not relinked.
+#
+# [one_header]
+# Когда: touch Desert/Common/Source/Common/Content/ContentKinds.hpp; ninja -C build/cmake/win-dev Editor
+# Тогда [one_header]: <= 300 objects, <= 6 min wall. Same with Common/Json/Document.hpp: <= 150 objects.
+#
+# [cache]
+# Когда: a second clean build of the same revision in another worktree (F:/DesertEngine-wt), same ccache.
+# Тогда [cache]: ccache -s shows hits >= 90 %, Direct > 0 (base_dir = the tree, hash_dir off, depend_mode off).
+#
+# [census]
+# Когда: python scripts/Dev/arch_census.py --build build/cmake/win-dev
+# Тогда [census]: exit 0 on HEAD; no rule rises.
+#
+# [smoke_dll]
+# Когда: python .claude/tools/play_scenario.py <tree> Scenarios/smoke_editor.scn   (Development tree)
+# Тогда [smoke_dll]: Scenarios/smoke_editor.scn first frame draws the editor UI with one ImGui context, and logs come
+#   from one spdlog registry; PASS; the frame is byte-equal to the base build's; TURN x5 within +2 % of the base.
+#
+# [shipping]
+# Когда: cmake --preset win-ship; cmake --build --preset win-ship
+# Тогда [shipping]: one Editor.exe and one Runtime.exe in build/Bin/Shipping, no module DLLs beside them;
+#   build.ninja carries /LTCG /OPT:REF /OPT:ICF on their links and /GL on the desert_ltcg libraries;
+#   dumpbin /dependents Editor.exe lists no Desert*.dll, Common.dll or editor layer DLL.
+#
+# [configs]
+# Когда: cmake --preset win-dev with a Visual Studio (multi-config) generator forced by -G
+# Тогда [configs]: configure stops with the FATAL_ERROR naming the single-config Ninja presets.
+#
+# [crash]
+# Когда: a scenario that forces a crash in the Development editor.
+# Тогда [crash]: <crash root>/<SHA7>-*/crash.dmp exists; scripts/Dev/sym.sh --dump prints the stack with function
+#   names from the module DLL PDBs.

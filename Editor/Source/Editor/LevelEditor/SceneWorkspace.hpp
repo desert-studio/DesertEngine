@@ -130,7 +130,8 @@ namespace Desert::Editor
         // The worlds inside UI render-texture elements, of the primary scene and of every document, recorded
         // before any pass of the frame opens (Vulkan has no nested render pass).
         void TickRenderTextures( const Common::Timestep& ts );
-        void RebuildRenderRegistry();
+        void RebuildRenderRegistry(); // the active scene's
+        void RebuildRenderRegistry( const std::shared_ptr<Desert::Core::Scene>& scene );
         // THE FRAME'S OWN CENSUS: the four after-the-frame entries of the control gate (ControlService::
         // OnFramePresented). The views decide them while they record, on the render task, so they are read in the
         // frame's own order (EditorLayer's job "Editor: frame census", OVERLAP-ON-5), never at the announcement
@@ -171,22 +172,32 @@ namespace Desert::Editor
         // different world; keeping it would leave Outliner "1 selected" and Details "Entity not found". Stop is
         // the one caller that re-selects afterwards: its snapshot is the authored world the selection came from
         // (PlaySession::Stop, as UE's EndPlayMap selects the PIE selection's editor counterparts).
-        void ActiveSceneReplaced();
+        // @p scene is any document's, active or not (Play's own, with another document active): the registry rebuilt
+        // is that document's, and the selection goes only when it is the active document's.
+        void SceneReplaced( const std::shared_ptr<Desert::Core::Scene>& scene );
+        void ActiveSceneReplaced()
+        {
+            SceneReplaced( m_ActiveScene );
+        }
 
-        // THE ACTIVE SCENE'S OLD WORLD IS GONE (its entities cleared, Scene::Clear): every view of it releases
+        // A SCENE'S OLD WORLD IS GONE (its entities cleared, Scene::Clear): every view of it releases
         // what it built from that world (SceneRenderer::ReleaseWorldResources), the device is idled and the
         // deferred deletions are drained - UE's world teardown (GC + FlushRenderingCommands) before the next world
         // loads. Called by the opener between Clear and the load; without it the old world's device memory was
         // still resident, or owed deletion, at the next world's peak (FIELD-MEM p3: a reopen peaked 1080 MB
         // higher).
-        void ReleaseActiveWorld();
+        void ReleaseWorld( const std::shared_ptr<Desert::Core::Scene>& scene );
+        void ReleaseActiveWorld()
+        {
+            ReleaseWorld( m_ActiveScene );
+        }
         /// The device-memory window of one scene open (VulkanAllocator::BeginSceneOpen): starts it at the top
         /// of an open, and samples the footprint at the end of the load, which runs without frames.
         void BeginSceneOpenMeasure( std::string_view scene );
         void SampleSceneOpenMeasure();
 
-        // The standard ECS systems, shared by the primary scene and every extra document.
-        void BuildSceneSystems( Desert::Core::Scene& scene );
+        // CreateWorldSystems with the editor's services, for the primary scene and every extra document.
+        [[nodiscard]] Common::BoolResultStr CreateSystems( Desert::Core::Scene& scene ) const;
 
         // ── which document the editor is bound to ──────────────────────────────────────────────────
         void SetActiveScene( uint64_t id );

@@ -242,7 +242,8 @@ namespace Desert::Graphic
         TemporalMethod    Method  = TemporalMethod::None;
         TemporalAAQuality Quality = TemporalAAQuality::Medium;
 
-        // Texture LOD bias every material sampler adds while a temporal method upscales (Split.Mode Upscale,
+        // Texture LOD bias every material sampler adds: the quality's (ViewInputs::TextureMipBias, the mip the
+        // streamer was asked for) plus, while a temporal method upscales (Split.Mode Upscale,
         // Method not None): log2(Render.Width / Output.Width) (negative), so textures are sampled at the detail of
         // the OUTPUT pixel the upscaler reconstructs (UE: the screen-percentage mip bias). 0 at Native,
         // Supersample and under the spatial upscale (one sample per render pixel: nothing reconstructs the finer

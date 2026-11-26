@@ -9,10 +9,10 @@
 #define MEGALIGHTS_TRACE
 #include <Common/MegaLights.glslh>
 
-Uniform(10) texture2D ReservoirsTexture; // "MegaLights: Spatial Resampling"
-#define ReservoirsTexture sampler2D(ReservoirsTexture, PointClampSampler)
-layout(binding = 11, rgba32f) writeonly uniform image2D OutReservoirsTexture; // shaded now, history next frame
-layout(binding = 17, rgba16f) writeonly uniform image2D OutSurfaceTexture;    // xyz = normal, w = clip w (0 = none)
+// MegaLightsSample (Common/MegaLightsSample.glslh), stacked layers: "MegaLights: Generate Samples"
+layout(set = 0, binding = 10) uniform utexture2D SamplesTexture;
+#define SamplesTexture usampler2D(SamplesTexture, PointClampSampler)
+layout(binding = 11, rg32ui) writeonly uniform uimage2D OutSamplesTexture; // the same, with their visibility
 
 LocalSize(8, 8, 1);
 
@@ -29,15 +29,12 @@ void main()
 	uint random                   = MegaLightsSeed(pixel, 3u);
 	for (uint k = 0u; k < samples; ++k)
 	{
-		const ivec2         texel = MegaLightsReservoirTexel(pixel, k);
-		RisReservoir r     = RisUnpackReservoir(texelFetch(ReservoirsTexture, texel, 0));
-		if (!p.Valid)
-			r = RisEmptyReservoir();
-		else if (r.Light >= 0 && r.W > 0.0)
-			r.W *= MegaLightsVisibility(p, r.Light, random);
-		imageStore(OutReservoirsTexture, texel, RisPackReservoir(r));
+		const ivec2      texel = MegaLightsSampleTexel(pixel, k);
+		MegaLightsSample s     = MegaLightsUnpackSample(texelFetch(SamplesTexture, texel, 0).rg);
+		if (s.Light >= 0)
+			s.Visibility = p.Valid ? MegaLightsVisibility(p, s.Light, random) : 0.0;
+		imageStore(OutSamplesTexture, texel, uvec4(MegaLightsPackSample(s), 0u, 0u));
 	}
-	imageStore(OutSurfaceTexture, pixel, p.Valid ? vec4(p.N, p.ViewDepth) : vec4(0.0));
 }
 
 #endif // MEGALIGHTS_TRACE_SAMPLES_GLSLH

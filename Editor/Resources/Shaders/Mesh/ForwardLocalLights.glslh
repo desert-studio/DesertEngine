@@ -70,6 +70,9 @@ layout( std430, binding = kLocalShadowViewsBinding ) readonly buffer LocalShadow
 layout( binding = kLocalShadowMasksBinding ) uniform texture2DArray LocalShadowMasksTexture;
 #define DesertLocalShadowScreenMask( slot ) texelFetch( sampler2DArray( LocalShadowMasksTexture, PointClampSampler ), ivec3( ivec2( gl_FragCoord.xy ), slot ), 0 ).r
 #endif
+// The closest-depth HZB, walked for the shadow of a casting light without a map (Mesh/LocalLightShadow.glslh).
+layout( binding = kClosestHzbBinding ) uniform texture2D ClosestHzbTexture;
+#define ClosestHzbTexture sampler2D( ClosestHzbTexture, PointClampSampler )
 #include <Mesh/LocalLightShadow.glslh>
 
 // The lights of one pixel's froxel, in the order the full loop sums them (points, then spots). An overflowed cell

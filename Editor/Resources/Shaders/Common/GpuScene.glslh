@@ -105,7 +105,8 @@ struct GpuSceneInstance
     float CullDistanceStart;   // offset 52 — cm; 0/0 = no distance cull
     float CullDistanceEnd;     // offset 56
     uint  WorldBoundsRow;      // offset 60 — DESERT_GPU_INVALID_INDEX unless the primitive has WORLD_BOUNDS
-};
+    uint  ComponentInstance;   // offset 64 — the component's index of the instance: the distance fade's hash seed
+};                             // stride 80
 
 // THE ONLY UNPACK of a packed transform (GpuDriven::UnpackAffine is its C++ twin): Rows are the matrix's rows, GLSL
 // mat4 takes columns, so column c = (Rows[0][c], Rows[1][c], Rows[2][c], c == 3 ? 1 : 0).

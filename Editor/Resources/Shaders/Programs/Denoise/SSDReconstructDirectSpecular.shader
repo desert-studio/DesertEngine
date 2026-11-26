@@ -3,11 +3,11 @@ Shader "SSDReconstructDirectSpecular"
 {
     // The screen-space denoiser's RECONSTRUCTION of MegaLights' specular direct light (UE MegaLights denoises its
     // specular lighting apart from the diffuse: MegaLightsDenoiserSpatial.usf), at full resolution from "MegaLights:
-    // Shade Samples"' demodulated specular estimate (rgb = light, a = 1 on a surface). The diffuse reconstruction's
+    // Shade Samples"' demodulated specular estimate (rgb = light, a = 1 where it answered). The diffuse reconstruction's
     // (2r+1)^2 bilateral kernel - tangent plane (UE BILATERAL_POSITION_BASED(2)), normals (UE BILATERAL_NORMAL) -
     // plus the agreement of the two texels' GGX lobes (UE BILATERAL_TOKOYASHI, SSDLobeSimilarity), and a kernel
     // no wider than the pixel's lobe on the screen (SSDLobePixelRadii): a mirror-like highlight is not spread over
-    // its neighbours, a rough one is. Karis-weighted, so one firefly cannot drag the kernel. Written premultiplied
+    // its neighbours, a rough one is. A tap's light does not weigh it (Common/SSDWeights.glslh). A tap with a = 0 answered nothing and adds nothing. Written premultiplied
     // to ReconstructedSignalTexture.
 
     Compute
@@ -20,8 +20,7 @@ Shader "SSDReconstructDirectSpecular"
 
         Uniform(1) texture2D GBufferNormalTexture;   // rgb = world normal, a = roughness
         Uniform(2) texture2D GBufferDepthTexture;    // device depth (nearest)
-        Uniform(3) texture2D RawSignalTexture;           // MegaLights' specular: rgb = light, a = 1 on a surface
-        #define RawSignalTexture sampler2D(RawSignalTexture, PointClampSampler)
+        Uniform(3) texture2D RawSignalTexture;           // MegaLights' specular: rgb = light, a = 1 where it answered
         layout(binding = 6, rgba16f) writeonly uniform image2D ReconstructedSignalTexture; // premultiplied (rgb * a, a)
 
         // ScreenSpaceDenoiser::ViewUniforms (std140).
@@ -67,7 +66,7 @@ Shader "SSDReconstructDirectSpecular"
         	const int   radius           = clamp(int(lobeRadii.y + 0.5), 0, max(int(Reconstruction.x + 0.5), 1));
         	const float maxPlaneDistance = max(pixelRadius * 2.0 * float(max(radius, 1)) * sqrt(2.0), 1e-3);
 
-        	vec4  sum       = vec4(0.0); // premultiplied, Karis-weighted
+        	vec4  sum       = vec4(0.0); // premultiplied
         	float weightSum = 0.0;
         	for (int y = -radius; y <= radius; ++y)
         		for (int x = -radius; x <= radius; ++x)
@@ -79,12 +78,11 @@ Shader "SSDReconstructDirectSpecular"
         				continue; // sky
         			const vec3 otherV = SSDViewVector((vec2(p) + 0.5) / size, other.Position,
         			                                  InverseJitteredViewProjection);
-        			const vec4 s      = texelFetch(RawSignalTexture, p, 0);
+        			const vec4 s      = texelFetch(sampler2D(RawSignalTexture, PointClampSampler), p, 0);
         			const float w = (float(radius + 1) - abs(float(x))) * (float(radius + 1) - abs(float(y))) *
         			                SSDPlaneWeight(ref, other.Position, maxPlaneDistance) *
         			                SSDNormalWeight(ref.Normal, other.Normal) *
-        			                SSDLobeSimilarity(lobe, SSDRoughnessLobe(other.Roughness, other.Normal, otherV)) *
-        			                SSDKarisWeight(s.rgb);
+        			                SSDLobeSimilarity(lobe, SSDRoughnessLobe(other.Roughness, other.Normal, otherV));
         			sum       += vec4(s.rgb * s.a, s.a) * w;
         			weightSum += w;
         		}

@@ -2,9 +2,9 @@
 # settings in cmake/*.cmake. The build of record on both platforms (scripts/Windows/BuildWindows.bat,
 # scripts/MacOS/BuildMacOS.sh).
 #
-#   cmake --preset windows-msvc-ninja        (from an x64 developer prompt: vcvars64)
-#   cmake --build --preset windows-msvc-ninja-debug
-#   cmake --preset macos-clang-ninja && cmake --build --preset macos-clang-ninja-release
+#   cmake --preset win-dev && cmake --build --preset win-dev      (from an x64 developer prompt: vcvars64)
+#   cmake --preset mac-dev && cmake --build --preset mac-dev
+# One configuration per tree: win-dev / win-debug / win-ship (Development, DebugGame, Shipping; cmake/DesertWorkspace.cmake).
 cmake_minimum_required(VERSION 3.28)
 
 # A compiler launcher (sccache first, then ccache) when one is installed: chosen before project() so the
@@ -30,8 +30,16 @@ if(DESERT_COMPILER_LAUNCHER)
     #                      the #line output instead, whatever the language.
     #   max_size=100G      an MSVC PCH result is ~1 GB raw / ~180 MB compressed; at 3 GB the cache evicted itself (9095
     #                      cleanups), at 20 GB still 352 cleanups and 7 % hits on a batch build (11-24).
+    #   base_dir, hash_dir=false  paths under the repository root are hashed relative to it, and the working directory
+    #                      not at all: two worktrees (S:/wt/<task>, F:/DesertEngine) share one result (STUDIO-AUDIT B-CACHE).
+    #   compiler_check=content  the compiler is identified by its contents, not its mtime: a Visual Studio update that
+    #                      rewrites cl.exe without changing it keeps the cache.
+    #   sloppiness         a header's ctime/mtime (a checkout touches every file), the PCH's defines, __TIME__/__DATE__
+    #                      and system headers do not decide a hit; the contents do.
     if(WIN32 AND DESERT_COMPILER_LAUNCHER MATCHES "ccache(\\.exe)?$")
-        set(_desert_launcher "${DESERT_COMPILER_LAUNCHER}" depend_mode=false max_size=100G)
+        set(_desert_launcher "${DESERT_COMPILER_LAUNCHER}" depend_mode=false max_size=100G
+            "base_dir=${CMAKE_SOURCE_DIR}" hash_dir=false compiler_check=content
+            "sloppiness=include_file_ctime,include_file_mtime,pch_defines,time_macros,system_headers")
     endif()
     set(CMAKE_C_COMPILER_LAUNCHER   ${_desert_launcher})
     set(CMAKE_CXX_COMPILER_LAUNCHER ${_desert_launcher})
@@ -126,5 +134,5 @@ endif()
 # The dedicated headless server (NET-ARCH §6): render-free, no Apple framework, built for Linux by Server/Dockerfile.
 add_subdirectory(Server)
 
-# Per-source rules (vendored warnings off, Debug runtime checks, unity opt-outs) once every target exists.
+# Per-source rules (vendored warnings off, DebugGame runtime checks, unity exclusions) once every target exists.
 cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL desert_finalize_targets)

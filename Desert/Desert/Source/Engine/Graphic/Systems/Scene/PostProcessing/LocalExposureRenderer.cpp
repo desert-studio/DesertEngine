@@ -1,6 +1,7 @@
 #include "LocalExposureRenderer.hpp"
 
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
+#include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -181,7 +182,7 @@ namespace Desert::Graphic::System
             return Common::MakeError( "PostFX: LocalExposureFusionSetup: the pipeline is not initialised" );
         const ShaderPush::LEFusionSetup push{ 1.0f / m_PreExposure,
                                     exposure.ManualExposure,
-                                    exposure.ExposureKey,
+                                    kExposureMiddleGrey,
                                     exposure.AutoExposure ? 1.0f : 0.0f,
                                     LocalExposureFusionHighlightScale( m_Params ),
                                     LocalExposureFusionShadowScale( m_Params ),

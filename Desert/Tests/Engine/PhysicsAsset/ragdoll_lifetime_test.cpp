@@ -17,7 +17,7 @@
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <gtest/gtest.h>
 
 #include <glm/gtc/matrix_transform.hpp>

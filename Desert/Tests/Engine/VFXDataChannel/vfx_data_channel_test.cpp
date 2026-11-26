@@ -19,7 +19,7 @@
 #include <VFX/Public/VFXEmitterSpawn.hpp>
 #include <VFX/Public/VFXWorld.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <string>
 #include <vector>

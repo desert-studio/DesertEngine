@@ -67,7 +67,7 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include "ImportRecordSourceHash.hpp"
 #include "MaterialAOParam.hpp"
-#include "WaterWavesWind.hpp"
+#include "WaterWavesUpgrade.hpp"
 #include "MaterialMaskClipParam.hpp"
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
@@ -1789,23 +1789,25 @@ namespace Desert::Migration
                     continue;
                 }
             }
-            // WAVS 1 -> 2 (WATER-UNDERWATER, WaterWavesWind.hpp): Generator.WindAngleDeg is dropped; the waves run
-            // with the scene's wind.
+            // WAVS 1, 2 -> 3 (WaterWavesUpgrade.hpp): no Generator.WindAngleDeg, four FFT cascades.
             if ( path.extension() == ".dwaves" )
             {
                 const auto stated = ReadStatedVersion( path, text, "WAVS" );
-                if ( stated && stated.GetValue() == 1u )
+                if ( stated && stated.GetValue() >= 1u &&
+                     stated.GetValue() < Desert::Assets::kWaterWavesSchemaVersion )
                 {
-                    const auto raised = Desert::Migration::MigrateWaterWavesV1ToV2( text );
+                    const auto raised = Desert::Migration::MigrateWaterWavesToV3( text );
                     if ( !raised )
                     {
-                        err << "FAIL   " << path.string() << " — WAVS 1 -> 2: " << raised.GetError() << "\n";
+                        err << "FAIL   " << path.string() << " — WAVS: " << raised.GetError() << "\n";
                         ++failed;
                         continue;
                     }
-                    out << ( check ? "would raise " : "raised " ) << path.string() << " WAVS 1 -> "
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " WAVS " << stated.GetValue() << " -> "
                         << Desert::Assets::kWaterWavesSchemaVersion << "\n";
-                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    for ( const std::string& dropped : raised.GetValue().Dropped )
+                        out << "       dropped " << dropped << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue().Text, err ) )
                         ++failed;
                     continue;
                 }
@@ -1961,7 +1963,7 @@ namespace Desert::Migration
                     ++failed;
                     continue;
                 }
-                if ( stated.GetValue() >= 1u && stated.GetValue() <= 10u )
+                if ( stated.GetValue() >= 1u && stated.GetValue() <= 11u )
                 {
                     // The chain: each generation below the engine's takes every step from its own on.
                     using Step             = Common::ResultStr<std::string> ( * )( const std::string& );
@@ -1974,10 +1976,11 @@ namespace Desert::Migration
                                                &Desert::Migration::MigrateFoliageTypeV7ToV8,
                                                &Desert::Migration::MigrateFoliageTypeV8ToV9,
                                                &Desert::Migration::MigrateFoliageTypeV9ToV10,
-                                               &Desert::Migration::MigrateFoliageTypeV10ToV11 };
+                                               &Desert::Migration::MigrateFoliageTypeV10ToV11,
+                                               &Desert::Migration::MigrateFoliageTypeV11ToV12 };
                     std::string raisedText = text;
                     bool        stepFailed = false;
-                    for ( uint32_t from = stated.GetValue(); from <= 10u; ++from )
+                    for ( uint32_t from = stated.GetValue(); from <= 11u; ++from )
                     {
                         const auto raised = steps[from - 1u]( raisedText );
                         if ( !raised )
@@ -2007,7 +2010,8 @@ namespace Desert::Migration
                 if ( stated.GetValue() != Desert::Assets::kFoliageTypeSchemaVersion )
                 {
                     err << "FAIL   " << path.string() << " — states FOLT v" << stated.GetValue()
-                        << ", and this tool reads v1 to v3 (raised) and v"
+                        << ", and this tool reads v1 to v"
+                        << ( Desert::Assets::kFoliageTypeSchemaVersion - 1u ) << " (raised) and v"
                         << Desert::Assets::kFoliageTypeSchemaVersion << " only\n";
                     ++failed;
                     continue;

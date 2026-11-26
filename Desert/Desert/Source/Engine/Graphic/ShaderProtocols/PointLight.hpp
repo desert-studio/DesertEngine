@@ -42,12 +42,12 @@
     /* casts contact shadows / on one that does not (the hit texel's NO_CONTACT_SHADOW bit). */                   \
     FIELD( float, ContactShadowCastingIntensity, contactShadowCastingIntensity, { 1.0f } )       /* 52 */         \
     FIELD( float, ContactShadowNonCastingIntensity, contactShadowNonCastingIntensity, { 0.0f } ) /* 56 */         \
-    /* 1 when the light casts shadows in this view (its CastShadows, and the view draws local shadows): a */      \
-    /* receiver with no ShadowView then is one the shadow maps do not cover (the view budget refused the light),  \
-     */                                                                                                           \
-    /* and the surface cache traces its shadow through the global distance field instead. Written by */           \
-    /* MeshRenderer::UpdateLocalShadows with ShadowView. */                                                       \
-    FIELD( int32_t, ShadowCaster, shadowCaster, { 0 } ) /* 60 */                                                  \
+    /* THE LIGHT'S SHADOW BITS (kLightShadow*). kLightShadowInView: the light casts in this view (its CastShadows, */ \
+    /* and the view draws local shadows) - a receiver with no ShadowView is then one the maps do not cover, and the */ \
+    /* surface cache traces it instead. kLightShadowCasts: the light's own CastShadows, whatever the view draws - */  \
+    /* the path tracer and the GI hits trace its visibility only when it is set (UE PATHTRACER_FLAG_CAST_SHADOW_MASK). */ \
+    /* Written by MeshRenderer::UpdateLocalShadows with ShadowView. */                                              \
+    FIELD( int32_t, ShadowFlags, shadowFlags, { 0 } ) /* 60 */                                                      \
     /* UE SourceRadius (cm): the emitter sphere traced shadows aim at (MegaLights); 0 = a point. */               \
     FIELD( float, SourceRadius, sourceRadius, { 0.0f } ) /* 64 */                                                 \
     /* std430 rounds the array stride of a struct with a vec3 to 16 bytes: explicit, so sizeof matches. */        \
@@ -92,6 +92,11 @@
 
 namespace Desert::Graphic::ShaderProtocols
 {
+    /// PointLightPayload::ShadowFlags / SpotLightPayload::ShadowFlags bits; the GLSL constants of the same names are
+    /// generated into Mesh/LightSourceLayouts.glslh (LightSourceLayoutsGlsl, the one spelling).
+    inline constexpr int32_t kLightShadowInView = 1;
+    inline constexpr int32_t kLightShadowCasts  = 2;
+
     /// PointLightPayload and kPointLightPayloadFields (GLSL `struct PointLight`), Std140Block.hpp.
     DESERT_SHADER_STRUCT( PointLightPayload, DESERT_POINT_LIGHT_FIELDS )
     static_assert(

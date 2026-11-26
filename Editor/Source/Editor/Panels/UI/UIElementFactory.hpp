@@ -13,7 +13,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <cstddef>
 #include <format>

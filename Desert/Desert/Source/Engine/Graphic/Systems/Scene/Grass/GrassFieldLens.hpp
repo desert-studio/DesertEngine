@@ -43,6 +43,8 @@ namespace Desert::Graphic::System
         // (Assets::GrassCardHull; UE SubUV cutout), not the whole card rect - the transparent fragments the mask
         // would discard are never rasterised. false = the full card (the look is the same either way).
         bool               BladeCardHull     = true;
+        // Textures.MipBias / 100: what the varieties' texture demand leaves out (TextureStreamingDemand::BiasedPixels).
+        float              TextureMipBias    = 0.0f;
         [[nodiscard]] bool operator==( const GrassQuality& ) const = default;
     };
 

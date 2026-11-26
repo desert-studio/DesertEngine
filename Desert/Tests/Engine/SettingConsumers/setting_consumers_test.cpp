@@ -577,7 +577,6 @@ namespace
          { "Exposure", kSceneRenderer },
          { "WhitePoint", kSceneRenderer },
          { "AutoExposure", kSceneRenderer },
-         { "AutoExposureKey", kSceneRenderer },
          { "AutoExposureSpeed", kSceneRenderer },
          { "AutoExposureMinEV100", kSceneRenderer },
          { "AutoExposureMaxEV100", kSceneRenderer },
@@ -953,17 +952,17 @@ namespace
          { "NotifyRemovals", kDestructibleSync },
          { "CollisionEventMinImpulse", kDestructibleSync },
     };
-    // A water body (WATER-W2): every field is read by ECS::WaterBodyGather into the Water::WaterBodyState the
-    // physics step's WaterSubsystem queries.
-    constexpr const char* kWaterBodyGather = "Desert/Desert/Source/Engine/ECS/System/WaterBodyGather.cpp";
+    // A water body (WATER-W2): the wave set is read by the world's wave record (ECS::WaterWaveSources), the
+    // footprint by ECS::WaterBodyGather into the Water::WaterBodyState the physics step's WaterSubsystem queries.
+    constexpr const char* kWaterBodyGather  = "Desert/Water/Source/Water/Private/WaterBodyGather.cpp";
+    constexpr const char* kWaterWaveSources = "Desert/Water/Source/Water/Private/WaterWaveSources.cpp";
     constexpr Row         kWaterBodyRows[] = {
-         { "WaterWaves", kWaterBodyGather },
+         { "WaterWaves", kWaterWaveSources },
          { "OceanExtents", kWaterBodyGather },
-         { "TargetWaveMaskDepth", kWaterBodyGather },
     };
     // A water zone (WATER-W6): every field is read by ECS::WaterZoneECSSystem into the quadtree description the
     // water renderer walks.
-    constexpr const char* kWaterZoneSystem = "Desert/Desert/Source/Engine/ECS/System/WaterZoneECSSystem.hpp";
+    constexpr const char* kWaterZoneSystem = "Desert/Water/Source/Water/Public/WaterZoneECSSystem.hpp";
     constexpr Row         kWaterZoneRows[] = {
          { "ZoneExtent", kWaterZoneSystem },
          { "TileSize", kWaterZoneSystem },

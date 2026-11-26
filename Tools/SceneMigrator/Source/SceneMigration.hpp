@@ -394,7 +394,8 @@ namespace Desert::Migration
     //       sky's SkyAndAerialPerspectiveLuminanceFactor (LUTs, aerial perspective, distant light, bake) and
     //       becomes the light's AtmosphereSunDiskColorScale (the disc). The volume's manual Exposure (a
     //       multiplier m, default 1) is ManualExposureEV100 = log2(key / m) + 3 at the volume's AutoExposureKey
-    //       (default 0.18) - the same scale through Graphic::ManualExposureScale. A physical sky with no
+    //       (default 0.18) - the same scale through the v57 Graphic::ManualExposureScale (v78 then folds that
+    //       key into AutoExposureBias as log2(key / 0.18), Core::MigrateExposureKeyV77ToV78). A physical sky with no
     //       atmosphere sun light, or a light of zero illuminance under a lit sky, is refused
     //       (MigrateSkySunFromLightV56ToV57). Scenes and prefabs alike.
     inline constexpr int kSceneVersionSkySunFromLight = 57;
@@ -1215,6 +1216,10 @@ namespace Desert::Migration
     // UseFalloffCurve false (a v10 volume grew the type at full density to its edge), the header's GUID kept. A
     // file that does not state FOLT 10 is an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV10ToV11( const std::string& text );
+    // The v12 text of a v11 `.defoliage`: every v11 value kept, EnableDensityScaling joins, true for a Mesh type
+    // without collision and with a cull distance, the header's GUID kept. A file that does not state FOLT 11 is an
+    // error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV11ToV12( const std::string& text );
     // The v6 text of a v5 `.decloudtype`: every v5 value kept, `Shape.Profile.Density` written as
     // Graphic::CloudProfileDensityBaseRamp (CLTY 5 had no altitude density, so every v5 type was dense from
     // its base up — the box H-BASE takes away), the header's GUID kept. A file that does not state CLTY 5 is

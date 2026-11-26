@@ -231,7 +231,7 @@ TEST( CloudProtocolScene, TheSettingsBlockIsWrittenInFull )
 // asserts the two halves of that: the default is High, and no protocol scene may state a tier of its own.
 TEST( CloudProtocolScene, TheTierTheProtocolIsMeasuredAtIsTheMachineDefaultAndThatDefaultIsHigh )
 {
-    // SCAL1: the tier is the Effects group's CloudQuality parameter; a machine that never chose runs the
+    // SCAL1: the tier is the Effects group's three cloud rows; a machine that never chose runs the
     // Effects group at High with no override (whose table value ScalabilityContract pins to High).
     // A fresh machine with no benchmark recommendation starts on MachineSettings::StartFrom's answer.
     const Common::Settings::MachineSettings fresh;

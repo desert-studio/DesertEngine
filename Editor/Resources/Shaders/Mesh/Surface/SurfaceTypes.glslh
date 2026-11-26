@@ -32,7 +32,8 @@
 // THE MATERIAL TEXTURE FETCH, in one place for every surface template and every graph surface. Only a stage
 // that evaluates the surface defines DESERT_SURFACE_SAMPLES_MATERIAL (DShaderParser): a bias argument is a
 // fragment-stage form, and an opaque depth cell declares no camera block. MaterialMipBias is the view's
-// log2(render / output width) under an upscaler, 0 otherwise (SceneViewState::BeginFrame): a TAAU frame at
+// log2(render / output width) under an upscaler plus the quality's Textures.MipBias (SceneViewState::BeginFrame):
+// a TAAU frame at
 // 50 % samples material textures one level sharper, as the output resolution would. Only MATERIAL textures:
 // G-buffer, post and screen-space reads are at the render resolution and keep the implicit level.
 #ifdef DESERT_SURFACE_SAMPLES_MATERIAL
@@ -227,21 +228,17 @@ struct SingleLayerWaterOutput
     vec3  AbsorptionCoefficients; // 1/m
     float PhaseG;                 // Henyey-Greenstein anisotropy of the in-scatter
     vec3  ColorScaleBehindWater;  // tints the scene seen through the water before the absorption
-    float RefractionOffset;       // cm the scene behind shifts per unit of the normal's horizontal tilt
-    // THE FOAM (UE's water material Foam inputs): where it forms is physics (Pass_SingleLayerWater.glslh: the waves'
-    // Jacobian at the crests, the breaker depth at the shore); what it looks like and its thresholds are the
-    // material's.
-    vec3  FoamAlbedo;             // the foam's diffuse colour (its texture times its tint)
-    float FoamCoverage;           // 0..1 the foam texture's structure at this point: where a forming sheet shows
-    float FoamJacobianThreshold;  // whitecaps form where the surface's Jacobian falls below this (1 = still)
-    float FoamJacobianSoftness;   // the Jacobian range over which the whitecap fades in
-    float FoamDecaySeconds;       // e-folding time of foam left behind on the water particle that broke
-    float FoamBreakerIndex;       // gamma = H / d at which a wave breaks on the shallows (McCowan 0.78)
-    float ShoreFadeCm;            // the water column (cm) over which the surface fades in from where it meets
-                                  // the ground (UE's water material depth fade): no hard intersection line
+    // THE FOAM: where it is, is the view's foam map (Water/WaterFoamField.glslh); what it looks like, the material's.
+    vec3  FoamNormal;             // tangent space
+    float FoamHeight;             // 0..1 the foam's structure at this point: a little foam shows its tallest walls
+    float FoamAlbedo;
     float DebugFoamMask;          // 1 = draw only the foam mask (white foam, black water) - a debug material
     float WindRippleMaxGain;      // the ripple tilt's factor under a local wind source at the frame's reference
                                   // speed and above (1 = the local air leaves the ripples as they are)
+    // THE FALL'S LOOK (the material's, read by WaterFallSheet.glslh on a fall's rows only):
+    vec2  FallStrands; // x = the strand mask's height at the pixel (0..1), y = its slope across the sheet (1/cm)
+    vec4  FallShape;   // x, y = the speeds the sheet starts and ends tearing at (cm/s), z = the lip's water
+                       // thickness (cm), w = the width of the frayed edge (cm)
 };
 
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.
@@ -552,12 +549,12 @@ float DesertOpacityMaskDither( const vec2 svPosition, const float frameIndexMod8
     DesertLODTransitionClipped( gl_FragCoord.xy, m_PushConstants.LodFadeSide, cameraUB.LodTransition.x )
 #endif
 #if defined( DESERT_SURFACE_OPACITY_DITHER )
-// A dithering material (DESERT_SURFACE_OPACITY_DITHER > 0.5) cuts below 1 - dither: a pixel is kept with
-// probability = mask, so a mip texel holding the MEAN coverage of leaves smaller than itself keeps their share of
-// the pixel (UE's spelling clips mask - clip + dither - 1; ours drops the clip so a fully opaque texel always stays
-// and the kept share is the mask itself, Wyman & McGuire's hashed alpha test). The clip value is unused then.
+// A dithering material (DESERT_SURFACE_OPACITY_DITHER > 0.5) keeps mask - clip + 0.83 * dither >= 0.5 (UE
+// GetDitheredMaterialMask, BlueNoiseCommon.ush GetBlueNoiseDitheredCoverage): a pixel of a mip texel holding the
+// MEAN coverage of leaves smaller than itself is kept in a share of the frames. UE's 0.83 makes a zero mask never
+// stay and a full one always stay at the default clip, 0.3333.
 #define DESERT_SURFACE_CLIP_THRESHOLD() \
-    ( DESERT_SURFACE_OPACITY_DITHER > 0.5 ? 1.0 - DesertOpacityMaskDither( gl_FragCoord.xy, cameraUB.FrameIndexMod8 ) \
+    ( DESERT_SURFACE_OPACITY_DITHER > 0.5 ? Material.OpacityMaskClipValue + 0.5 - 0.83 * DesertOpacityMaskDither( gl_FragCoord.xy, cameraUB.FrameIndexMod8 ) \
                                           : Material.OpacityMaskClipValue )
 #else
 #define DESERT_SURFACE_CLIP_THRESHOLD() Material.OpacityMaskClipValue

@@ -65,7 +65,11 @@ namespace Desert::Assets::Serialization
      *  11 - Procedural.DensityFalloff joins (PROC-FOLIAGE-BLOCK, UE UFoliageType::DensityFalloff): the type may
      *       thin towards the edge of the procedural volume. SceneMigrator raises a v10 file
      *       (MigrateFoliageTypeV10ToV11) with UseFalloffCurve false, what every v10 volume grew (full density to
-     *       its edge). The engine reads v11 only.
+     *       its edge).
+     *  12 - EnableDensityScaling joins (SCAL-COVER, UE UFoliageType::bEnableDensityScaling): the Foliage quality
+     *       may thin the drawn instances. SceneMigrator raises a v11 file (MigrateFoliageTypeV11ToV12) with true
+     *       for a Mesh type that does not collide and has a cull distance (ground cover), false for any other.
+     *       The engine reads v12 only.
      *
      * An unknown value is refused in both directions; there is no migration step in the runtime.
      */
@@ -328,12 +332,13 @@ namespace Desert::Assets::Serialization
         Prefab
     };
 
-    /// Why a Prefab type has no CullDistance, Wind or IncludeInHLOD: each is a property of an instanced mesh
-    /// draw (UE shows them on UFoliageType_InstancedStaticMesh only). The validator refuses a Prefab type that
+    /// Why a Prefab type has no CullDistance, Wind, IncludeInHLOD or density scaling: each is a property of an
+    /// instanced mesh draw (UE shows them on UFoliageType_InstancedStaticMesh only). The validator refuses a
+    /// Prefab type that
     /// sets them, and the Details panel greys them out with this text.
     inline constexpr const char* kFoliagePrefabMeshOnlyReason =
          "a Prefab type places entities, which draw, cull, collide and stream as themselves; cull distance, wind, "
-         "HLOD and collision belong to an instanced mesh (UE FoliageType_Actor has none of them)";
+         "HLOD, density scaling and collision belong to an instanced mesh (UE FoliageType_Actor has none of them)";
 
     /**
      * @brief One `.defoliage`: what to scatter and how (UE: UFoliageType_InstancedStaticMesh).
@@ -396,6 +401,9 @@ namespace Desert::Assets::Serialization
         /// is not drawn while its cell is far, and so holds its mesh only while a cell of it is resident; a type
         /// in the HLOD keeps its mesh for as long as the HLOD stands in (Core::Rules::BuildInstancingHLOD).
         bool IncludeInHLOD = true;
+        /// Whether the Foliage quality may draw a share of the instances (UE bEnableDensityScaling, default false;
+        /// Foliage.InstanceDensityScalePercent). Collision keeps every instance, and so does the foliage mode.
+        bool EnableDensityScaling = false;
         /// What the procedural simulation grows from the type (FOLT 7). Applies to both kinds, as in UE.
         FoliageProcedural Procedural;
         /// Whether and how the instances collide (FOLT 9). A Prefab type's instances collide through the prefab's

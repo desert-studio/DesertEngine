@@ -37,6 +37,7 @@ namespace Desert::Graphic
              { SceneViewSlot::SunDistanceFieldShadow, kSceneViewSunDistanceFieldShadowName, kTex },
              { SceneViewSlot::TranslucencyLightingVolume, kTranslucencyLightingVolumeName, kTex },
              { SceneViewSlot::LocalShadowMasks, kSceneViewLocalShadowMasksName, kTex },
+             { SceneViewSlot::ClosestHzb, kSceneViewClosestHzbName, kTex },
              { SceneViewSlot::SceneShadingWord, kSceneViewSceneShadingWordName, kTex },
              { SceneViewSlot::MegaLightsVolumeR, kMegaLightsVolumeNames[0], kTex },
              { SceneViewSlot::MegaLightsVolumeG, kMegaLightsVolumeNames[1], kTex },
@@ -108,7 +109,7 @@ namespace Desert::Graphic
         for ( const RDG::ShaderSlot& slot : layout.Slots )
             for ( const SceneViewSlotName& row : kSceneViewSlotTable )
                 if ( slot.Kind == row.Kind && slot.Name == row.Name )
-                    slots.Bits |= uint64_t( 1 ) << static_cast<uint32_t>( row.Slot );
+                    slots.Set( row.Slot );
         return slots;
     }
 
@@ -118,7 +119,7 @@ namespace Desert::Graphic
         for ( const std::string& name : fill.Slots )
             for ( const SceneViewSlotName& row : kSceneViewSlotTable )
                 if ( name == row.Name )
-                    slots.Bits |= uint64_t( 1 ) << static_cast<uint32_t>( row.Slot );
+                    slots.Set( row.Slot );
         return slots;
     }
 

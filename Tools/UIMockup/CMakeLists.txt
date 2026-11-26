@@ -1,11 +1,10 @@
-# UIMockup: renders the editor theme to a PNG with no engine linked; ThemeManager.cpp and Dear
-# ImGui (GLFW + OpenGL3 backends) compiled straight in, fonts copied next to it. Absent from Shipping
+# UIMockup: renders the editor theme to a PNG with no engine linked; ThemeManager.cpp and the ImGui GLFW + OpenGL3
+# backends compiled straight in against the GLFW and ImGui libraries, fonts copied next to it. Absent from Shipping
 # (desert_remove_configuration).
 desert_glob(_sources "Source/*.hpp" "Source/*.cpp")
 set(_imgui "${DESERT_ROOT}/ThirdParty/ImGui")
 desert_add_executable(UIMockup FOLDER Tools SOURCES ${_sources}
     "${DESERT_ROOT}/Editor/Source/Editor/Core/ThemeManager.cpp"
-    "${_imgui}/imgui.cpp" "${_imgui}/imgui_draw.cpp" "${_imgui}/imgui_tables.cpp" "${_imgui}/imgui_widgets.cpp"
     "${_imgui}/backends/imgui_impl_glfw.cpp" "${_imgui}/backends/imgui_impl_opengl3.cpp")
 desert_remove_configuration(UIMockup Shipping)
 target_include_directories(UIMockup PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DESERT_ROOT}/Editor/Source")
@@ -15,7 +14,7 @@ desert_external_includes(UIMockup
     "${_imgui}/backends"
     "${DESERT_ROOT}/ThirdParty/GLFW/include"
     "${DESERT_ROOT}/ThirdParty/stb/include")
-target_link_libraries(UIMockup PRIVATE GLFW)
+target_link_libraries(UIMockup PRIVATE GLFW ImGui)
 desert_platform_defines(UIMockup)
 foreach(font Roboto-Regular.ttf Roboto-Bold.ttf materialdesignicons-webfont.ttf)
     add_custom_command(TARGET UIMockup POST_BUILD

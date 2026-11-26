@@ -20,7 +20,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <functional>
 #include <memory>
@@ -156,8 +156,6 @@ namespace Desert::AI::StateTree
             std::function<std::unique_ptr<IStateTreeCondition>()> MakeCondition; // Kind == Condition
             std::function<std::unique_ptr<IStateTreeEvaluator>()> MakeEvaluator; // Kind == Evaluator
         };
-
-        static NodeRegistry& Get();
 
         /// Refused when the name is taken (a second registration would silently replace a node in every tree).
         Common::BoolResultStr                Register( Entry entry );

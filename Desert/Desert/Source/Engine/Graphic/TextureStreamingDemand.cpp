@@ -230,6 +230,11 @@ namespace Desert::Graphic
         return 2.0f * screenRadius * static_cast<float>( viewHeight );
     }
 
+    float TextureStreamingDemand::BiasedPixels( const float screenPixels, const float mipBias )
+    {
+        return screenPixels * std::exp2( -mipBias );
+    }
+
     std::pair<glm::vec3, float> TextureStreamingDemand::WorldSphere( const Common::Math::AABB& local,
                                                                      const glm::mat4&          transform )
     {
@@ -350,7 +355,7 @@ namespace Desert::Graphic
     }
 
     void TextureStreamingDemand::NoteWarmups( const void* world, const Geometry::LODView& view,
-                                              const uint32_t viewHeight )
+                                              const uint32_t viewHeight, const float mipBias )
     {
         std::vector<std::shared_ptr<WarmupAsk>> asks;
         {
@@ -361,7 +366,8 @@ namespace Desert::Graphic
         }
         for ( const auto& ask : asks )
         {
-            const float pixels = ScreenPixels( ask->Center, ask->Radius, view, viewHeight );
+            const float pixels =
+                 BiasedPixels( ScreenPixels( ask->Center, ask->Radius, view, viewHeight ), mipBias );
             float       held   = ask->Pixels.load( std::memory_order_relaxed );
             while ( pixels > held &&
                     !ask->Pixels.compare_exchange_weak( held, pixels, std::memory_order_relaxed ) )

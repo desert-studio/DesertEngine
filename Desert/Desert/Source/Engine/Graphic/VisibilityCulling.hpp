@@ -109,13 +109,14 @@ namespace Desert::Graphic
     // UE scales MaxDrawDistance and the foliage CullDistance by ViewDistanceScale x
     // CalculateFieldOfViewDistanceScale(View.DesiredFOV) (SceneVisibility.cpp; Engine/Public/UnrealEngine.h), a
     // per-project lerp over FOV in cvars; here the lens itself is the scale, with no curve to tune.
-    // 1 for an orthographic projection (|Projection[2][3]| = 0): its "distance" is not a size.
+    // view.DrawDistance is the machine's share of it (UE ViewDistanceScale).
+    // An orthographic projection (|Projection[2][3]| = 0) has no lens scale: its "distance" is not a size.
     [[nodiscard]] inline float DrawDistanceScale( const Geometry::LODView& view )
     {
         if ( std::abs( view.Projection[2][3] ) == 0.0f )
-            return 1.0f;
+            return view.DrawDistance;
         const float focal = std::abs( view.Projection[0][0] );
-        return focal > 0.0f ? focal : 1.0f;
+        return ( focal > 0.0f ? focal : 1.0f ) * view.DrawDistance;
     }
 
     // WHETHER A PLACED MESH IS WITHIN ITS MAX DRAW DISTANCE (UE's LDMaxDrawDistance) from @p view: the distance

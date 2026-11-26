@@ -29,4 +29,4 @@ A file over 2500 lines may not grow by 100. Split by responsibility (a pass, a s
 Net rates as constants (`Net/Replication.hpp`) instead of project settings; systems list duplicated (`RuntimeLayer.cpp`, `SceneWorkspace.cpp`); `LevelTravel` and `Input`/`EngineContext` singletons; `SoundClass` enum instead of an asset; `Window.hpp` title. A change that touches one of these fixes it whole.
 
 ## Questions a design answers
-Who owns it? Who may write it? When is it rebuilt? What does a second world / view / player do? What is deleted? What does UE do, and why is ours the same or different? What does it cost in ms and MB, and at which tier?
+Who owns it? Who may write it? When is it rebuilt? What does a second world / view / player do? What is deleted? Which established C++ pattern fits (C++ Core Guidelines, RAII, SOLID, GoF, value semantics, data-oriented design for hot paths) — owner 11-26: UE is not the architecture reference for code; deviate from the pattern only when it measurably hurts performance, and say so with the number. What does it cost in ms and MB, and at which tier?

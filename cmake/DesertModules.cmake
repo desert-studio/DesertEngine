@@ -472,6 +472,25 @@ function(desert_depend_on_codegen target)
     add_dependencies(${target} ${DESERT_CODEGEN_LIB})
 endfunction()
 
+# A first-party module library (Common, every engine module, UI, Render2DCore, the editor layers): its type follows the
+# configuration (STUDIO-AUDIT B-DLL). Development and DebugGame: SHARED, one DLL (dylib, so) per module, so an edit
+# relinks that module and not one executable holding every object; every symbol is exported
+# (WINDOWS_EXPORT_ALL_SYMBOLS: CMake writes the .def from the objects, no source annotation). No DEFINE_SYMBOL: the
+# members of a shared PCH group must compile with the same definitions (C2855 otherwise), and nothing reads it.
+# Shipping (DESERT_MONOLITHIC): STATIC, linked into one executable with /LTCG.
+function(desert_module_library name)
+    cmake_parse_arguments(ARG "" "FOLDER" "SOURCES" ${ARGN})
+    if(DESERT_MONOLITHIC)
+        add_library(${name} STATIC ${ARG_SOURCES})
+    else()
+        add_library(${name} SHARED ${ARG_SOURCES})
+        set_target_properties(${name} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON DEFINE_SYMBOL "")
+    endif()
+    if(ARG_FOLDER)
+        set_target_properties(${name} PROPERTIES FOLDER "${ARG_FOLDER}")
+    endif()
+endfunction()
+
 # DesertModuleLibs.Link(): every module library, top of the table first, then SPIRV-Cross and the Vulkan SDK libraries.
 function(desert_link_engine target)
     set(_names "")

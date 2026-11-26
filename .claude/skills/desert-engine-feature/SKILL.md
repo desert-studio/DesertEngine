@@ -24,4 +24,8 @@ Stages 1–3 of different features run in parallel; stages 4–5 are one queue b
 - Size: one engineer run is about 300 calls. Larger is split by INTERFACE (header contract first, owners of disjoint files), all landing together.
 - One-defect fixes (≤ 2 items) skip stages 1 and 3 and stay in the small lane.
 - A card is «Готово» only after stage 5; a card older than 48 h in «На проверке» goes first in the next editor session.
+- Compile after the FIRST engineer run of a feature (measured 2026-11-25: five unbuilt runs on one feature cost 21.8M). One more run may close the review before the build; `board_guard` refuses a third.
+- `ACCEPT` with MINORs: the author closes them in one run and nobody reviews again. A second review follows only `RETURN`.
+- While a build, a scenario run or a landing is in progress, do not start work on top of the code being built.
 - At most 3 features in flight. Finish before starting.
+- No task is stretched over days (owner 2026-11-26: «не растягивать задачу на 1000 лет»). A design with N packages is still ONE feature: all its packages start the same day as parallel `engineer` runs on disjoint files (2..4 at once), meet in ONE batch build and ONE acceptance, and land that day. A «Порядок» of serial runs spread over days is a design error: the lead returns it before any launch. Only a true data dependency (B needs A's interface) waits, and then for a header contract, not for A's landing.

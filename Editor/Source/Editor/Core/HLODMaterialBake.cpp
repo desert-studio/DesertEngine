@@ -5,7 +5,7 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/SceneRenderCollectors.hpp>
+#include <Engine/Core/WorldSystems.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
@@ -202,9 +202,11 @@ namespace Desert::Editor
              Common::Json::FromStruct( job.Source.Proxy );
         loaded.Scene.Entities.push_back( std::move( proxy ) );
 
-        m_Scene = std::make_shared<::Desert::Core::Scene>( "HLODMaterialBake", m_Renderer.get() );
+        m_Scene = std::make_shared<::Desert::Core::Scene>( "HLODMaterialBake", m_Renderer.get(),
+                                                           ::Desert::Core::WorldKind::Capture );
         // Without the render collectors the static mesh queue stays empty and every job bakes the clear colour.
-        ::Desert::Core::AddSceneRenderCollectors( *m_Scene );
+        if ( auto made = ::Desert::Core::CreateWorldSystems( *m_Scene, {} ); !made )
+            return Common::MakeError( made.GetError() );
         if ( auto inited = m_Scene->Init( ::Desert::Core::Scene::InitPurpose::Offscreen ); !inited )
             return Common::MakeError( "the bake scene failed to initialise: " + inited.GetError() );
         auto deserialized = ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets )

@@ -20,7 +20,7 @@ namespace Desert::Localization
     /**
      * @brief THE current language, and every string table loaded under it.
      *
-     * A global and flat store, deliberately, and for the same reasons `UI::UIDataStore` next door is one:
+     * The process's store, deliberately, unlike the UI data a world owns (`UI::UIWorld`):
      * a key is a name, a process presents one language at a time, and the writer (gameplay, the editor's
      * language menu) must not have to know a UI exists.
      *

@@ -11,6 +11,7 @@ Write the design to the path in your prompt, with exactly these sections:
 - `## Отличия` — EVERY difference between ours and the reference, each with a proven cause (`file:line`, a measured number, or a knock-out experiment). Mark a cause you could not prove `НЕ ДОКАЗАНО` and name the experiment.
 - `## Архитектура` — one solution: data owner, contracts (headers in full), passes/systems, what is DELETED, what it costs (ms, MB), two rejected alternatives and why. No parallel path next to the old one.
 - `## Порядок` — the edits in order, file by file, so one engineer finishes them in one run.
+- Never a multi-day series of runs (owner 2026-11-26). If the work is larger than one run, split it into 2..4 PARALLEL runs over disjoint files, with the shared header contract written first, all landing in one batch the same day.
 - `## Приёмка` — scenario file, frames and the visible statement for each («Тогда [кадр]: …»), reference side by side, numbers that must hold.
 
 A difference left out is a defect of the design. Final message: the path, the number of differences, the unproven ones. At most 10 lines.

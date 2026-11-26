@@ -4,7 +4,7 @@
 #include <Engine/Core/WorldContext.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -162,7 +162,7 @@ namespace Desert::Scripting
 
         // Calls OnUIMessage(msg) on EVERY loaded script that defines it. A UI message has no owner — a
         // button belongs to the canvas, not to a script — so it broadcasts, and each script decides what
-        // (if anything) it answers. Drained from UI::UIMessageQueue once per frame by ScriptSystem.
+        // (if anything) it answers. Drained from the world's message queue (UI::UIWorld) once per frame by ScriptSystem.
         void BroadcastUIMessage( const std::string& message );
 
         // Drops ALL of an entity's slot environments (entity destroyed / component removed).

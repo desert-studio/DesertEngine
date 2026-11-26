@@ -252,12 +252,6 @@ namespace Desert::Graphic
         return reloaded;
     }
 
-    EnvironmentCacheWriter& EnvironmentCacheWriter::Get()
-    {
-        static EnvironmentCacheWriter writer;
-        return writer;
-    }
-
     Common::BoolResultStr EnvironmentCacheWriter::Begin( ImageCube& cube, EnvironmentCacheEntry entry )
     {
         auto* vulkanCube = dynamic_cast<API::Vulkan::VulkanImageCube*>( &cube );

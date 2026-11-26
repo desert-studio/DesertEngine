@@ -1659,13 +1659,11 @@ namespace Desert::Graphic::ShaderPush
     {
         glm::vec4 Window{};
         glm::vec4 Sun{};
-        glm::vec4 Camera{};
     };
-    static_assert( sizeof( WaterCausticsSplat ) == 48u, "WaterCausticsSplat: std430 push block size" );
+    static_assert( sizeof( WaterCausticsSplat ) == 32u, "WaterCausticsSplat: std430 push block size" );
     template <> inline constexpr bool IsBlock<WaterCausticsSplat> = true;
     static_assert( offsetof( WaterCausticsSplat, Window ) == 0u, "WaterCausticsSplat::Window: std430 offset" );
     static_assert( offsetof( WaterCausticsSplat, Sun ) == 16u, "WaterCausticsSplat::Sun: std430 offset" );
-    static_assert( offsetof( WaterCausticsSplat, Camera ) == 32u, "WaterCausticsSplat::Camera: std430 offset" );
 
 } // namespace Desert::Graphic::ShaderPush
 

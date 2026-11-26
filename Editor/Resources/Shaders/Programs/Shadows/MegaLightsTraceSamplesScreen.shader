@@ -2,7 +2,7 @@
 Shader "MegaLightsTraceSamplesScreen"
 {
     // "MegaLights: Trace Samples" on a device with neither ray query nor virtual shadow maps
-    // (StochasticVisibility::Screen): each surviving sample's light tested once from the representative surface - its
+    // (StochasticVisibility::Screen): each sample's light tested once from the representative surface - its
     // contact shadow, then the screen trace over the closest HZB; what the screen does not hold casts no shadow.
     // The body is Common/MegaLightsTraceSamples.glslh, shared with the ray-query and virtual programs.
 

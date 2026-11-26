@@ -10,7 +10,7 @@ namespace Desert::Graphic
     {
         SetExposure( params.Exposure );
         SetBloomIntensity( params.BloomIntensity );
-        SetExposureKey( params.ExposureKey );
+        SetMiddleGrey( kExposureMiddleGrey );
         SetAutoExposureEnabled( params.AutoExposure ? 1.0f : 0.0f );
         SetChromaticBloom( params.ChromaticBloom );
         // 3 = the buffer visualization (SceneComposite.shader): not a Core::TonemapOperator a scene can author.

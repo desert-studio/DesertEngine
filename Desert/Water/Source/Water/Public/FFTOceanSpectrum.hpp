@@ -2,9 +2,9 @@
 
 // THE FFT OCEAN'S SPECTRUM (WATER-RIVERS-FFT): Tessendorf's statistical ocean ("Simulating Ocean Water", 2001,
 // sec. 3.3-3.4) over a JONSWAP spectrum (Hasselmann et al. 1973) with a Mitsuyasu cos^2s directional spread, split
-// into THREE CASCADES of 256 x 256 (the Atlas / "Wakes, Explosions and Lighting" (GDC 2019) and Jump Trajectory
-// FFT-ocean layout): three square patches of non-commensurate sizes, each owning one band of wave numbers, so the
-// sum repeats only past the least common multiple of the three - never inside a view.
+// into FOUR CASCADES of 256 x 256 (the Atlas / "Wakes, Explosions and Lighting" (GDC 2019) and Jump Trajectory
+// FFT-ocean layout): four square patches of non-commensurate sizes, each owning one band of wave numbers, so the
+// sum repeats only past the least common multiple of the four - never inside a view.
 //
 // THIS FILE IS THE CPU HALF: the initial spectrum h0(k) of every cascade, a pure function of the `.dwaves`
 // parameters and its seed (the same seed gives the same ocean on every machine - the random numbers are this
@@ -16,6 +16,8 @@
 // Units: the project's centimetre. Wave numbers are radians per centimetre, gravity is 980 cm/s^2 (as
 // Common/GerstnerWave.glslh), amplitudes are centimetres. Axes: the plane is (world X, world Z) relative to the
 // body's WaveOrigin, Y up.
+
+#include <Water/Public/WaterDepthTransform.hpp>
 
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
@@ -33,12 +35,20 @@ namespace Desert::Water
     static_assert( ( 1u << kFFTOceanResolutionLog2 ) == kFFTOceanResolution );
 
     /// The cascades (layers of the GPU arrays; WaterMeshTiles.glslh WATER_FFT_CASCADES).
-    inline constexpr uint32_t kFFTOceanCascades = 3;
+    inline constexpr uint32_t kFFTOceanCascades = 4;
+    /// Each cascade's patch is laid on the plane turned by this angle (the spectrum is turned back, so the wind is
+    /// the same): the lattices share no axis and the sum has no period short of tens of kilometres.
+    inline constexpr std::array<float, kFFTOceanCascades> kFFTOceanLatticeDegrees{ 0.0f, 19.0f, 41.0f, 67.0f };
+    /// The first cascades (waves longer than 9 m) are the SWELL: near a shore the shore wave carries their energy
+    /// (WaterShoreWeight), the shorter ones only shoal and break by their own band.
+    inline constexpr uint32_t kShoreSwellBands = 2;
+    /// The waves' gravity, cm/s^2: the number Common/GerstnerWave.glslh and WaterFFTSpectrum.shader evolve by.
+    inline constexpr float kWaveGravityCm = 980.0f;
 
     /// What a wave set's surface IS (`.dwaves` Source). A Gerstner set is its generator's sum everywhere; an FFT
     /// set is its Tessendorf ocean where the tier allows (Scalability Effects.WaterWaveMethod = FFT) and its
-    /// Gerstner generator - the same file's - below that tier and for the CPU's queries (REMAINDER: the GPU
-    /// cascades read back for buoyancy).
+    /// Gerstner generator - the same file's - below that tier, for the renderer and the CPU's queries alike
+    /// (ECS::WaterWaveSources).
     enum class WaterWaveSource
     {
         Gerstner,
@@ -60,7 +70,8 @@ namespace Desert::Water
     };
 
     /// The authored ocean's shape (one `.dwaves` FFT block). Defaults: 300 km of fetch, the standard JONSWAP
-    /// peak, patches of 250 m / 61 m / 17.3 m (ratios ~4.1 and ~3.5: no common tile short of kilometres).
+    /// peak, patches of 1 km / 237 m / 53 m / 11.3 m: the longest patch holds the swell many times over, so its repeat is
+    /// past any view.
     struct FFTOceanSpectrumParams
     {
         /// The distance the wind has blown over open water, km (JONSWAP fetch): short fetch = young, choppy sea.
@@ -76,13 +87,13 @@ namespace Desert::Water
         /// A multiplier of every amplitude (an art knob over the physical spectrum).
         float HeightScale = 1.0f;
         /// Waves shorter than this are left to the material's ripple maps, cm. At least the smallest cascade's
-        /// Nyquist wavelength 2 * CascadeSizes[2] / 256 (13.5 cm for the default 1730 cm patch): the default of
+        /// Nyquist wavelength 2 * CascadeSizes[3] / 256 (8.8 cm for the default 1130 cm patch): the default of
         /// 4 cm was below it, so every wave set - authored FFT block or not - was refused (WATER-UNDERWATER).
         float ShortestWavelength = 14.0f;
         // THE WHITECAPS' LIFETIME is not here (WATER-UNDERWATER pass 4): it is the body material's
-        // FoamDecaySeconds for the FFT foam history (WaterRenderer::PrepareFFTFrame) and the Gerstner foam alike.
+        // FoamDecaySeconds, which the view's foam map decays by (WaterRenderer::PrepareFoam).
         /// The patch side of each cascade, cm, largest first.
-        std::array<float, kFFTOceanCascades> CascadeSizes{ 25000.0f, 6100.0f, 1730.0f };
+        std::array<float, kFFTOceanCascades> CascadeSizes{ 100000.0f, 23700.0f, 5300.0f, 1130.0f };
         int32_t                              Seed = 0;
 
         [[nodiscard]] bool operator==( const FFTOceanSpectrumParams& ) const = default;
@@ -96,6 +107,10 @@ namespace Desert::Water
         float                  BandLow   = 0.0f; // |k| this cascade starts at, rad/cm (inclusive)
         float                  BandHigh  = 0.0f; // |k| the next cascade starts at, rad/cm (exclusive)
         std::vector<glm::vec4> H0;
+        // Of the band's own deep-water waves: what the depth's transform and the pixel's roughness need of it.
+        float SignificantHeight = 0.0f; // 4 sqrt( m0 ), cm
+        float PeakOmega         = 0.0f; // rad/s, of the mode the band's energy is centred on
+        float SlopeVariance     = 0.0f; // both axes together
     };
 
     struct FFTOceanSpectrum
@@ -124,4 +139,7 @@ namespace Desert::Water
     /// Deterministic in Seed: the same wind gives the same sea, and a wind change rescales the same random phases.
     [[nodiscard]] FFTOceanSpectrum BuildFFTOceanSpectrum( const FFTOceanSpectrumParams& params,
                                                           const FFTOceanWind&           wind ) noexcept;
+
+    /// The swell of the spectrum as the shore wave takes it: the first kShoreSwellBands cascades together.
+    [[nodiscard]] ShoreWaveParams FFTOceanSwell( const FFTOceanSpectrum& spectrum, float beachSlope ) noexcept;
 } // namespace Desert::Water

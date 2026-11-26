@@ -1,6 +1,7 @@
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
+#include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -175,7 +176,7 @@ namespace Desert::Graphic
                 continue;
             }
             entry.Live = live[i];
-            if ( const auto begun = EnvironmentCacheWriter::Get().Begin( *cube, entry ); !begun )
+            if ( const auto begun = Renderer::GetInstance().GetEnvironmentCache().Begin( *cube, entry ); !begun )
                 LOG_ERROR( "[SceneEnvironment] '{}' was converted but will not be cached to '{}': {}",
                            converted.Filepath.string(), entry.Path.string(), begun.GetError() );
         }

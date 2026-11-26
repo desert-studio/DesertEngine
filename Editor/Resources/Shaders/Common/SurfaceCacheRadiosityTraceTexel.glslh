@@ -44,6 +44,8 @@ Uniform(16) texture2D GBufferATexture;
 #define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
 Uniform(17) texture2D GBufferEmissiveTexture;
 #define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
+Uniform(25) utexture2D GBufferShadingWordTexture;
+#define GBufferShadingWordTexture usampler2D(GBufferShadingWordTexture, PointClampSampler)
 
 // The world radiance cache, read by a hit no card holds (GIHitRadianceLit's bounce).
 #include <Common/RadianceCache.glslh>

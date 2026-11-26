@@ -65,7 +65,7 @@ namespace
         ASSERT_TRUE( Localization::Get().RegisterTable( id, language, parsed.ExtractValue() ) );
     }
 
-    // The service is a process-wide singleton, exactly like UI::UIDataStore next door. Every test puts it
+    // The service is a process-wide singleton. Every test puts it
     // back the way it found it, or the next one is testing the previous one's leftovers.
     struct Fixture : public ::testing::Test
     {

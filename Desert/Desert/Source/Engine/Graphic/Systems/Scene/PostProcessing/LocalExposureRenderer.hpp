@@ -139,7 +139,6 @@ namespace Desert::Graphic::System
         struct FusionExposure
         {
             float ManualExposure = 1.0f;
-            float ExposureKey    = 0.18f;
             bool  AutoExposure   = false;
             bool  Reinhard       = false; // the scene operator (Core::TonemapOperator::Reinhard)
         };

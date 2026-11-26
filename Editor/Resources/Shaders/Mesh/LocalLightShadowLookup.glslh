@@ -378,6 +378,27 @@ int PointShadowFace(vec3 fromLight)
     return fromLight.z > 0.0 ? 4 : 5;
 }
 
+// Whether a light has a map to answer a receiver (its transmission is the map's alone), and whether it has any shadow
+// source here (the map, or its screen mask). A casting light (kLightShadowInView) with none got no room this frame: the
+// readers below answer 1 for it and the surface readers (Mesh/LocalLightShadow.glslh) trace the screen instead.
+bool LocalLightHasShadowMap(int shadowView, int shadowMaskSlot)
+{
+#ifdef DESERT_LOCAL_SHADOW_VSM
+    return shadowMaskSlot >= 0;
+#else
+    return shadowView >= 0;
+#endif
+}
+
+bool LocalLightHasShadow(int shadowView, int shadowMaskSlot)
+{
+#ifdef DESERT_LOCAL_SHADOW_SCREEN_MASK
+    if (shadowMaskSlot >= 0)
+        return true;
+#endif
+    return LocalLightHasShadowMap(shadowView, shadowMaskSlot);
+}
+
 float PointLightShadow(PointLight source, vec3 worldPosition, vec3 N)
 {
 #ifdef DESERT_LOCAL_SHADOW_SCREEN_MASK
@@ -417,7 +438,7 @@ float SpotLightShadow(SpotLight source, vec3 worldPosition, vec3 N)
 }
 
 // The light through a subsurface receiver's occluders (LocalShadowTransmissionAt / VsmLocalTransmission); 1 for a
-// light that casts no shadow.
+// light without a map (LocalLightHasShadowMap).
 float PointLightTransmission(PointLight source, vec3 worldPosition, float density)
 {
 #ifdef DESERT_LOCAL_SHADOW_VSM

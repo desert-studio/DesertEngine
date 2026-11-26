@@ -5,13 +5,13 @@
 // FIXED number of light samples per pixel instead of every light of its froxel with its shadow map. The samples
 // live at HALF resolution (UE r.MegaLights.DownsampleFactor 2): one SAMPLE PIXEL per 2x2 block of render pixels,
 // shaded at the block's representative pixel (MegaLightsScreenPixel: one of the four, rotated per frame). They are
-// chosen by weight without visibility, reused over time and space (ReSTIR DI, Bitterli et al. 2020: weighted
-// reservoirs whose target is the sample's unshadowed contribution), and only the survivors are traced - ONE ray
-// per sample (UE MegaLights traces each sample once): a screen-space contact shadow first, then a ray query toward
-// a point of the light's source sphere (UE SourceRadius: soft shadows). Every render pixel then shades its block's
-// traced samples with its own surface (UE ShadeLightSamples), diffuse and specular apart, and the two are denoised
-// as separate signals. The text every MegaLights pass shares: the view block, the G-buffer reads, the sample-pixel
-// space, the light index space (the light grid's: points first, then spots), the reservoir and its update.
+// drawn anew every frame by weighted reservoir sampling over every light of the pixel's light-grid cell, without
+// visibility; a light the tile did not see last frame (Common/MegaLightsSample.glslh, the visible-light hash) is
+// drawn less often. Each sample is traced ONCE: a screen-space contact shadow first, then a ray query toward
+// a point of the light's source sphere (UE SourceRadius: soft shadows). Every render pixel then shades the samples
+// of one of its four sample pixels with its own surface (UE ShadeLightSamples), diffuse and specular apart, and the
+// two are denoised as separate signals. The text every MegaLights pass shares: the view block, the G-buffer reads,
+// the sample-pixel space, the light index space (the light grid's: points first, then spots) and the sample.
 //
 // The includer, before this file: `Uniform sampler PointClampSampler;`. Defines:
 //   MEGALIGHTS_SHADING - the pass evaluates a light at its pixel (the target function, the shading): GBufferA and
@@ -36,7 +36,7 @@
 // from the list's power tree on their OWN random stream (the local lights' draws stay those of a frame without
 // them), a triangle is shaded by its vector irradiance as a rect light is (Mesh/LightSources.glslh), and its
 // shadow ray aims at a random point of it.
-// Reservoir textures are sample-pixel sized (MegaLightsSampleSize), stacked in layers; the G-buffer is render sized.
+// Sample textures are sample-pixel sized (MegaLightsSampleSize), stacked in layers; the G-buffer is render sized.
 
 #include <Common/ReconstructPosition.glslh>
 #include <Mesh/LightSources.glslh>
@@ -44,10 +44,9 @@
 #include <Mesh/Spotlight.glslh>  // binding 16
 #include <Mesh/MegaLightsDemodulation.glslh>
 #include <Common/LightSourceSampling.glslh>
-#include <Common/RisReservoir.glslh>
 
-// The most reservoirs a pixel keeps (MegaLights.hpp kMegaLightsMaxSamplesPerPixel; Scalability
-// Shadows.MegaLightsSamplesPerPixel 1..4). The reservoir textures stack the layers vertically: layer k of sample
+// The most samples a sample pixel draws (MegaLights.hpp kMegaLightsMaxSamplesPerPixel; Scalability
+// Shadows.MegaLightsSamplesPerPixel 1..4). The sample textures stack the layers vertically: layer k of sample
 // pixel (x, y) is texel (x, y + k * sample height).
 #define MEGALIGHTS_MAX_SAMPLES 4
 
@@ -58,10 +57,12 @@ Uniform(0) MegaLightsViewUB
 	mat4  PreviousViewProjection;        // unjittered, the view's previous frame
 	mat4  InverseJitteredViewProjection; // the one the G-buffer was rasterised with
 	mat4  JitteredWorldToClip;    // the same, forward: the contact shadow marches the G-buffer depth with it
-	vec4  CameraPosition;            // xyz = the eye (cm)
-	uvec4 Counts;                    // x = point lights, y = spot lights, z = samples per pixel, w = spatial samples
-	vec4  Params;                    // x = temporal history cap (frames), y = history readable (> 0.5),
-	                                   // z = shadow-ray normal bias (cm), w = spatial reuse radius (sample pixels)
+	vec4  CameraPosition;            // xyz = the eye (cm), w = exposure of the target function (UE PreExposure)
+	uvec4 Counts;                    // x = point lights, y = spot lights, z = samples per pixel,
+	                                   // w = the visible-light hash of the previous frame is readable (0 / 1)
+	vec4  Params;                    // x = max shading weight, y = of a light hidden last frame,
+	                                   // z = shadow-ray normal bias (cm), w = the share of its sampling weight a
+	                                   // light hidden last frame keeps
 	uvec4 MegaLightsFrame;           // x = frame index, y = render width, z = render height, w = downsample factor
 	vec4  ContactShadowView;         // SceneResources ContactShadowView: x = steps (0 = off), y = tan(fov / 2),
 	                                   // z = dither frame (Common/ContactShadow.glslh)
@@ -161,16 +162,9 @@ bool MegaLightsLightIsEmissive(int light)
 	return light >= MegaLightsLocalLightCount();
 }
 
-ivec2 MegaLightsReservoirTexel(ivec2 samplePixel, uint layer)
+ivec2 MegaLightsSampleTexel(ivec2 samplePixel, uint layer)
 {
 	return ivec2(samplePixel.x, samplePixel.y + int(layer) * MegaLightsSampleSize().y);
-}
-
-// The sample pixel whose traced samples a render pixel shades (UE ShadeLightSamples: ScreenCoord /
-// DownsampleFactor).
-ivec2 MegaLightsSamplePixelOf(ivec2 renderPixel)
-{
-	return renderPixel / MegaLightsDownsampleFactor();
 }
 
 // ---- Random (PCG hash, Jarzynski & Olano 2020) -------------------------------------------------------------------
@@ -223,11 +217,11 @@ vec3 MegaLightsLightPosition(int light)
 	return light < points ? pointLights[light].position : spotLights[light - points].position;
 }
 
-// A light whose shadowCaster is 0 casts no shadow in this view (UE CastShadows off): visible without a ray.
+// A light without kLightShadowInView casts no shadow in this view (UE CastShadows off): visible without a ray.
 bool MegaLightsLightCastsShadow(int light)
 {
 	const int points = int(Counts.x);
-	return (light < points ? pointLights[light].shadowCaster : spotLights[light - points].shadowCaster) != 0;
+	return DesertLightShadowsInView(light < points ? pointLights[light].shadowFlags : spotLights[light - points].shadowFlags);
 }
 
 // UE SourceRadius (cm): the sphere a shadow ray aims at; 0 = a point.
@@ -322,7 +316,7 @@ struct MegaLightsPixel
 	bool  Valid;     // a surface (the G-buffer's normal is not the cleared zero, the depth is not the far plane)
 	vec3  Position;  // world, cm
 	vec3  N;         // unit world normal
-	float ViewDepth; // clip w through ViewProjection: the depth the temporal reuse compares
+	float ViewDepth; // clip w through ViewProjection: the distance the upsample scales its plane test by
 #ifdef MEGALIGHTS_SHADING
 	int           Model;
 	DesertSurface Surface;
@@ -376,19 +370,19 @@ void MegaLightsUnshadowedLobes(MegaLightsPixel p, int light, out vec3 diffuse, o
 	diffuse             = max(total - specular, vec3(0.0));
 }
 
-// THE TARGET FUNCTION p^ of every resampling step: the luminance of the unshadowed contribution (UE MegaLights
-// weighs its candidates by the same unshadowed estimate). Re-evaluated at the pixel that receives a sample, never
-// carried over from the pixel that drew it.
+// THE TARGET FUNCTION: the sampling weight of a light at the pixel, the PERCEIVED brightness of its unshadowed
+// contribution (UE MegaLightsSampling.ush, log2(luminance x exposure + 1)): under linear luminance one bright light
+// behind a wall takes every sample from the dim ones that do light the pixel.
 float MegaLightsTargetPdf(MegaLightsPixel p, int light)
 {
 	if (light < 0 || light >= MegaLightsLightCount())
 		return 0.0;
-	return max(dot(MegaLightsUnshadowed(p, light), vec3(0.2126, 0.7152, 0.0722)), 0.0);
+	const float luminance = max(dot(MegaLightsUnshadowed(p, light), vec3(0.2126, 0.7152, 0.0722)), 0.0);
+	return log2(luminance * CameraPosition.w + 1.0);
 }
 #endif
 
-// ---- The reservoir: Common/RisReservoir.glslh (RisReservoir, RisMerge), shared with the path tracer's light
-// grid; MegaLights stores it RGBA32F (RisPackReservoir), one layer per sample (MegaLightsReservoirTexel).
+#include <Common/MegaLightsSample.glslh>
 
 // ---- Visibility --------------------------------------------------------------------------------------------------
 #ifdef MEGALIGHTS_TRACE
@@ -419,42 +413,11 @@ int MegaLightsLightShadowMaskSlot(int light)
 #include <Common/MegaLightsScreenTrace.glslh>
 #endif
 
-// LIGHT THROUGH THE RECEIVER. A subsurface receiver (SubsurfaceOpacity >= 0) lit from behind its normal is reached
-// only by the light its model transmits, and that light is attenuated by the matter it crossed - exp(-thickness x
-// density), the thickness from the occluder nearest the LIGHT to the receiver, density from the receiver's opacity -
-// as the virtual shadow map (VsmLocalTransmission) and the shadow atlas (Mesh/LocalLightShadow.glslh) attenuate it.
-// A yes/no ray there would black out every leaf behind another leaf or its own mesh.
-bool MegaLightsTransmits(MegaLightsPixel p, vec3 dir)
-{
-	return p.SubsurfaceOpacity >= 0.0 && dot(p.N, dir) < 0.0;
-}
-
-#if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY)
-// Traced from the light back to the receiver, so the closest hit is the occluder nearest the light - the surface a
-// shadow map stores. @p origin / @p dir / @p rayLength: the receiver's shadow ray.
-float MegaLightsRayQueryTransmission(vec3 origin, vec3 dir, float rayLength, float density)
-{
-	if (rayLength <= 0.0)
-		return 1.0;
-	const float hit = RayQueryClosestBlocker(origin + dir * rayLength, -dir, rayLength, RAY_TRACING_MASK_SHADOW_CASTER);
-	return exp(-(rayLength - hit) * density);
-}
-#endif
-
-#if defined(MEGALIGHTS_VISIBILITY_SCREEN)
-// The screen holds one occluder of the ray, the one the walk stops at; its distance is the thickness the screen knows.
-float MegaLightsScreenTransmission(vec3 origin, vec3 dir, float rayLength, float density)
-{
-	float hit = 0.0;
-	return MegaLightsScreenTraceHit(origin, dir, rayLength, hit) ? exp(-hit * density) : 1.0;
-}
-#endif
-
 // AN EMISSIVE TRIANGLE'S TEST: one ray to a point uniform over the triangle (EmissiveLightsSamplePoint, two draws of
 // the sample's stream: the shadow softens with the occluder's distance over frames, as the sphere's), off the
 // surface as a local light's, stopped short of the emitter by the bias and a relative margin (the emitter's own
 // surface is not its occluder). The ray query when the program has it, else the screen trace; no contact shadow
-// and no virtual shadow map (the triangle has neither).
+// and no virtual shadow map (the triangle has neither). Binary for every receiver, as MegaLightsVisibility.
 float MegaLightsEmissiveVisibility(MegaLightsPixel p, int light, inout uint random)
 {
 	const uint             triangle = uint(light - MegaLightsLocalLightCount());
@@ -470,15 +433,6 @@ float MegaLightsEmissiveVisibility(MegaLightsPixel p, int light, inout uint rand
 	const vec3  dir    = toPoint / distance;
 	const vec3  origin = p.Position + p.N * (dot(p.N, dir) >= 0.0 ? bias : -bias);
 	const float reach  = max(distance - max(2.0 * bias, 1e-3 * distance), 0.0);
-	if (MegaLightsTransmits(p, dir))
-	{
-		const float density = ContactShadowSubsurfaceDensity(p.SubsurfaceOpacity);
-#if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY)
-		return MegaLightsRayQueryTransmission(origin, dir, reach, density);
-#else
-		return MegaLightsScreenTransmission(origin, dir, reach, density);
-#endif
-	}
 #if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY)
 	return RayQueryVisibility(origin, dir, reach, RAY_TRACING_MASK_SHADOW_CASTER);
 #else
@@ -491,7 +445,9 @@ float MegaLightsEmissiveVisibility(MegaLightsPixel p, int light, inout uint rand
 // subtends (UE SampleSphereLight / UniformSampleCone: SourceRadius makes the shadow soft over frames), first
 // marched through the screen depth as the light's contact shadow (UE MegaLights screen traces: the detail the TLAS
 // does not hold), then one ray query over the TLAS from the point (off the surface along its normal, on the
-// light's side - UE r.RayTracing.NormalBias) to the sphere, stopped short by the same bias.
+// light's side: a ray that enters a leaf starts under its back, UE bFlipNormalBiasDirection) to the sphere, stopped
+// short by the same bias. BINARY for every receiver, a thin leaf too (UE: only SUBSURFACE and SUBSURFACE_PROFILE
+// measure a thickness): what a crown scatters beyond its first leaf is indirect light.
 float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 {
 	if (MegaLightsLightIsEmissive(light))
@@ -528,8 +484,6 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 		return 0.0;
 	const vec3  origin    = p.Position + p.N * (dot(p.N, dir) >= 0.0 ? bias : -bias);
 	const float rayLength = max(reach - 2.0 * bias, 0.0);
-	const bool  transmits = MegaLightsTransmits(p, dir);
-	const float density   = transmits ? ContactShadowSubsurfaceDensity(p.SubsurfaceOpacity) : 0.0;
 #if !defined(MEGALIGHTS_VISIBILITY_RAY_QUERY) && !defined(MEGALIGHTS_VISIBILITY_SCREEN)
 #error "MegaLights.glslh: MEGALIGHTS_TRACE needs a MEGALIGHTS_VISIBILITY_* source"
 #endif
@@ -542,20 +496,9 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 	if (source == 0)
 #endif
 #if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY)
-	return contact * (transmits ? MegaLightsRayQueryTransmission(origin, dir, rayLength, density)
-	                            : RayQueryVisibility(origin, dir, rayLength, RAY_TRACING_MASK_SHADOW_CASTER));
+	return contact * RayQueryVisibility(origin, dir, rayLength, RAY_TRACING_MASK_SHADOW_CASTER);
 #endif
 #if defined(MEGALIGHTS_VISIBILITY_SCREEN)
-	if (transmits)
-	{
-#if defined(MEGALIGHTS_VISIBILITY_VSM)
-		// The light's map stores the occluder nearest it: the whole thickness, with no need of the screen's.
-		const int map = MegaLightsLightShadowMaskSlot(light);
-		if (map >= 0)
-			return contact * VsmLocalTransmission(vsmLocalLights[map], p.Position, density);
-#endif
-		return contact * MegaLightsScreenTransmission(origin, dir, rayLength, density);
-	}
 	if (MegaLightsScreenTraceOccluded(origin, dir, rayLength))
 		return 0.0;
 #if defined(MEGALIGHTS_VISIBILITY_VSM)
@@ -565,8 +508,8 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 	// SourceRadius softens the shadow with the occluder's distance, as the traced ray does.
 	const int slot = MegaLightsLightShadowMaskSlot(light);
 	if (slot >= 0)
-		return contact * VsmLocalVisibilityRay(vsmLocalLights[slot], p.Position, p.N, dir,
-		                                       rayLength, MegaLightsRandom(random));
+		return contact * VsmLocalVisibilityRay(vsmLocalLights[slot], p.Position,
+		                                       dot(p.N, dir) >= 0.0 ? p.N : -p.N, dir, rayLength, MegaLightsRandom(random));
 #endif
 	return contact;
 #endif

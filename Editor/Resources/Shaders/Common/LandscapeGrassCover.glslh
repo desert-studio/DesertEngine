@@ -23,6 +23,7 @@
 #ifndef LANDSCAPE_GRASS_COVER_GLSLH
 #define LANDSCAPE_GRASS_COVER_GLSLH
 
+#include <Common/FoliageEnergy.glslh>
 #include <Common/GrassFieldShare.glslh>
 #include <Common/TerrainInstance.glslh>
 
@@ -91,7 +92,7 @@ LandscapeGrassCover LandscapeGrassCoverAt( TerrainInstance t, vec4 w0, vec4 w1, 
 
 // Lays cover @p c over the ground's @p albedo / @p N / @p roughness / @p ao seen along @p V (unit, towards the eye)
 // with geometric normal @p Ng. Returns the share of the view the cover takes and, in @p transmission, the
-// TwoSidedFoliage SubsurfaceColor of the pixel (the blades' albedo times their material's, by that share).
+// TwoSidedFoliage SubsurfaceColor of the pixel (the transmitted part of the blades' albedo, by that share).
 float LandscapeApplyGrassCover( LandscapeGrassCover c, vec3 V, vec3 Ng, inout vec3 albedo, inout vec3 N,
                                 inout float roughness, inout float ao, out vec3 transmission )
 {
@@ -106,12 +107,14 @@ float LandscapeApplyGrassCover( LandscapeGrassCover c, vec3 V, vec3 Ng, inout ve
     vec3  facing = lh > 1.0e-4 ? across / lh : Ng;
     vec3  canopy = normalize( Ng * mu + facing * ( sqrt( max( 1.0 - mu * mu, 0.0 ) ) * 0.63661977 ) );
 
-    albedo       = mix( albedo, c.Albedo, cover );
+    vec3  blades = c.Albedo;
+    FoliageSplitAlbedo( blades, c.Subsurface, transmission );
+    transmission *= cover;
+    albedo       = mix( albedo, blades, cover );
     N            = normalize( mix( N, canopy, cover ) );
     roughness    = mix( roughness, c.Roughness, cover );
     float k      = 0.5 * c.Lai;
     ao           = mix( ao, ( 1.0 - exp( -k ) ) / k, cover );
-    transmission = c.Albedo * c.Subsurface * cover;
     return cover;
 }
 

@@ -56,7 +56,6 @@
                     "Path": "assets:Water/Waves/CalmOcean.dwaves"
                 },
                 "OceanExtents": [4096000.0, 4096000.0],
-                "TargetWaveMaskDepth": 200.0,
                 "WaterMaterial": {
                     "Guid": "d73a046d0e3147928403692c8ea26f73",
                     "Path": "assets:Water/Materials/M_Water_Lake.demat"
@@ -229,7 +228,6 @@
                     "ManualExposureEV100": 0.5260688662528992,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
-                    "AutoExposureKey": 0.18000000715255737,
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,

@@ -9,7 +9,7 @@
     {
       "name": "base",
       "hidden": true,
-      "generator": "Ninja Multi-Config",
+      "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/cmake/${presetName}",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
@@ -17,8 +17,8 @@
       }
     },
     {
-      "name": "windows-msvc-ninja",
-      "displayName": "Windows x64, MSVC, Ninja (run from an x64 developer prompt: vcvars64)",
+      "name": "windows",
+      "hidden": true,
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_C_COMPILER": "cl",
@@ -31,8 +31,8 @@
       }
     },
     {
-      "name": "macos-clang-ninja",
-      "displayName": "macOS arm64, Apple clang, Ninja",
+      "name": "macos",
+      "hidden": true,
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_C_COMPILER": "clang",
@@ -45,12 +45,49 @@
       }
     },
     {
+      "name": "win-dev",
+      "displayName": "Windows x64, MSVC, Development: module DLLs, unity, FASTLINK (from an x64 developer prompt: vcvars64)",
+      "inherits": "windows",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Development" }
+    },
+    {
+      "name": "win-debug",
+      "displayName": "Windows x64, MSVC, DebugGame: module DLLs, /Od, debug CRT",
+      "inherits": "windows",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "DebugGame" }
+    },
+    {
+      "name": "win-ship",
+      "displayName": "Windows x64, MSVC, Shipping: static monolith, /GL + /LTCG",
+      "inherits": "windows",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Shipping" }
+    },
+    {
+      "name": "mac-dev",
+      "displayName": "macOS arm64, Apple clang, Development: module dylibs, unity",
+      "inherits": "macos",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Development" }
+    },
+    {
+      "name": "mac-debug",
+      "displayName": "macOS arm64, Apple clang, DebugGame",
+      "inherits": "macos",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "DebugGame" }
+    },
+    {
+      "name": "mac-ship",
+      "displayName": "macOS arm64, Apple clang, Shipping: static monolith",
+      "inherits": "macos",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Shipping" }
+    },
+    {
       "name": "linux-server-clang",
-      "displayName": "Linux x86-64, clang, Ninja: the dedicated server only (Server/Dockerfile, CI server-linux)",
+      "displayName": "Linux x86-64, clang, Ninja, Shipping: the dedicated server only, one static binary (Server/Dockerfile, CI server-linux)",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_C_COMPILER": "clang",
         "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Shipping",
         "DESERT_WITH_TESTS": "OFF",
         "DESERT_SERVER_ONLY": "ON"
       },
@@ -59,90 +96,19 @@
         "lhs": "${hostSystemName}",
         "rhs": "Linux"
       }
-    },
-    {
-      "name": "windows-msvc-ninja-unity",
-      "displayName": "Windows x64, MSVC, Ninja, unity files (CI)",
-      "inherits": "windows-msvc-ninja",
-      "cacheVariables": {
-        "DESERT_UNITY": "ON"
-      }
-    },
-    {
-      "name": "macos-clang-ninja-unity",
-      "displayName": "macOS arm64, Apple clang, Ninja, unity files (CI)",
-      "inherits": "macos-clang-ninja",
-      "cacheVariables": {
-        "DESERT_UNITY": "ON"
-      }
     }
   ],
   "buildPresets": [
+    { "name": "win-dev", "configurePreset": "win-dev" },
+    { "name": "win-debug", "configurePreset": "win-debug" },
+    { "name": "win-ship", "configurePreset": "win-ship" },
+    { "name": "mac-dev", "configurePreset": "mac-dev" },
+    { "name": "mac-debug", "configurePreset": "mac-debug" },
+    { "name": "mac-ship", "configurePreset": "mac-ship" },
     {
-      "name": "linux-server-clang-release",
+      "name": "linux-server-clang",
       "configurePreset": "linux-server-clang",
-      "configuration": "Release",
       "targets": [ "DesertServer" ]
-    },
-    {
-      "name": "windows-msvc-ninja-debug",
-      "configurePreset": "windows-msvc-ninja",
-      "configuration": "Debug"
-    },
-    {
-      "name": "windows-msvc-ninja-release",
-      "configurePreset": "windows-msvc-ninja",
-      "configuration": "Release"
-    },
-    {
-      "name": "windows-msvc-ninja-shipping",
-      "configurePreset": "windows-msvc-ninja",
-      "configuration": "Shipping"
-    },
-    {
-      "name": "windows-msvc-ninja-unity-debug",
-      "configurePreset": "windows-msvc-ninja-unity",
-      "configuration": "Debug"
-    },
-    {
-      "name": "windows-msvc-ninja-unity-release",
-      "configurePreset": "windows-msvc-ninja-unity",
-      "configuration": "Release"
-    },
-    {
-      "name": "windows-msvc-ninja-unity-shipping",
-      "configurePreset": "windows-msvc-ninja-unity",
-      "configuration": "Shipping"
-    },
-    {
-      "name": "macos-clang-ninja-debug",
-      "configurePreset": "macos-clang-ninja",
-      "configuration": "Debug"
-    },
-    {
-      "name": "macos-clang-ninja-release",
-      "configurePreset": "macos-clang-ninja",
-      "configuration": "Release"
-    },
-    {
-      "name": "macos-clang-ninja-shipping",
-      "configurePreset": "macos-clang-ninja",
-      "configuration": "Shipping"
-    },
-    {
-      "name": "macos-clang-ninja-unity-debug",
-      "configurePreset": "macos-clang-ninja-unity",
-      "configuration": "Debug"
-    },
-    {
-      "name": "macos-clang-ninja-unity-release",
-      "configurePreset": "macos-clang-ninja-unity",
-      "configuration": "Release"
-    },
-    {
-      "name": "macos-clang-ninja-unity-shipping",
-      "configurePreset": "macos-clang-ninja-unity",
-      "configuration": "Shipping"
     }
   ]
 }

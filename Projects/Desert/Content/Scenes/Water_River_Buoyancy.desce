@@ -209,7 +209,6 @@
                     "ManualExposureEV100": 0.5260688662528992,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
-                    "AutoExposureKey": 0.18000000715255737,
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
@@ -294,7 +293,6 @@
                     "Path": ""
                 },
                 "OceanExtents": [51200.0, 51200.0],
-                "TargetWaveMaskDepth": 2048.0,
                 "WaterMaterial": {
                     "Guid": "7012a81f62884202b922e14c2317132a",
                     "Path": "assets:Water/Materials/M_Water_River.demat"

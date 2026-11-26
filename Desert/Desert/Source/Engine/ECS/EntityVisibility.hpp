@@ -1,6 +1,6 @@
 #pragma once
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
 #include <Engine/World/Partition/HiddenByDataLayersComponent.hpp>
 

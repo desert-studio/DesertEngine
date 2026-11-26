@@ -5,7 +5,7 @@
 // activation through these hooks and never names the VFX module; the module fills them at StartupModule
 // (VFX/Private/VFXModule.cpp). Unfilled (an executable without the VFX module): an entity has no effect to drive.
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <optional>
 

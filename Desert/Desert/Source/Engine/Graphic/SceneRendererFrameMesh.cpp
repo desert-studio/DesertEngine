@@ -1155,11 +1155,6 @@ namespace Desert::Graphic
         if ( meshRenderer == nullptr )
             return;
         const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
-        // The persistent WaterInfo ground, imported into this graph and left shader-readable for the next frame.
-        const RDG::TextureRef waterInfo =
-             textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
-        if ( !waterInfo.IsValid() )
-            return;
         // No front layer this frame: the graph's black texture for both (as the glass), "no trace".
         const RDG::TextureRef black           = textures.GraphRefs().System.Black;
         const RDG::TextureRef frontReflection = frontLayer.Reflection.IsValid() ? frontLayer.Reflection : black;
@@ -1178,48 +1173,36 @@ namespace Desert::Graphic
         }
         if ( !water->HasDraws() )
             return;
-        const RDG::TextureRef waves           = FrameWaterWaves( graph, textures );
+        const System::WaterFrameRefs waterRefs = FrameWater( graph, textures );
+        if ( !waterRefs.IsValid() )
+            return;
         AddRaster(
              graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return water->RenderManual( context ); },
-             [water, sceneCopy, waterInfo, waves, frontReflection, frontDepth, view,
-              frame]( RDG::PassBuilder& pass ) {
-                 water->DeclareDraws( pass, sceneCopy, waterInfo, waves, frontReflection, frontDepth, view,
-                                      frame );
-             } );
+             [water, sceneCopy, waterRefs, frontReflection, frontDepth, view, frame]( RDG::PassBuilder& pass )
+             { water->DeclareDraws( pass, sceneCopy, waterRefs, frontReflection, frontDepth, view, frame ); } );
     }
 
-    RDG::TextureRef SceneRendererImpl::FrameWaterWaves( RDG::Builder& graph, FrameTextures& textures )
+    System::WaterFrameRefs SceneRendererImpl::FrameWater( RDG::Builder& graph, FrameTextures& textures )
     {
-        const RDG::TextureRef black = textures.GraphRefs().System.Black;
-        auto*                 water = m_Systems.Water.get();
-        if ( water == nullptr || !water->FrameWavesAreFFT() )
-            return black;
-        if ( const RDG::TextureRef recorded = water->RecordedWaves( graph ); recorded.IsValid() )
-            return recorded;
-        // The h0 cascades (uploaded once per wave set) and the persistent two-frame atlas, left sampled by the
-        // water's vertex and fragment stages for the next frame.
-        const RDG::TextureRef initial =
-             textures.Import( water->GetFFTInitialSpectrum(), "WaterFFT.H0", RDG::Access::SampledCompute );
-        const RDG::TextureRef atlas =
-             textures.Import( water->GetFFTWaves(), "WaterFFT.Waves", RDG::Access::SampledGraphics );
-        // The ground the surf foam breaks on; none composed yet: black, no surf.
-        const RDG::TextureRef waterInfo =
-             water->GetWaterInfo() != nullptr
-                   ? textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics )
-                   : black;
+        auto* const            water = m_Systems.Water.get();
         const ViewFrame* const frame = GetViewFrame();
-        const RDG::TextureRef  waves =
-             initial.IsValid() && atlas.IsValid() && frame != nullptr
-                   ? water->AddWavePasses( graph, initial, atlas, waterInfo,
-                                          static_cast<float>( frame->TimeSeconds ) )
-                   : RDG::TextureRef{};
-        if ( waves.IsValid() )
-            return waves;
-        LOG_ERROR(
-             "[SceneRenderer] Water: the FFT ocean's images cannot be imported - the waves read black (flat)" );
-        return black;
+        if ( water == nullptr || frame == nullptr )
+            return {};
+        if ( const System::WaterFrameRefs recorded = water->RecordedFrame( graph ); recorded.IsValid() )
+            return recorded;
+        // Every one left sampled by the water's graphics stages for the next frame.
+        const auto imported = [&]( const std::shared_ptr<Image2D>& image, const char* name, const RDG::Access access )
+        { return image != nullptr ? textures.Import( image, name, access ) : RDG::TextureRef{}; };
+        System::WaterFrameImports imports;
+        imports.River = imported( water->GetRiverFlow(), "Water.River", RDG::Access::SampledGraphics );
+        if ( water->FrameWavesAreFFT() )
+            imports.Spectrum = imported( water->GetFFTInitialSpectrum(), "Water.H0", RDG::Access::SampledCompute );
+        imports.FoamHistory = imported( water->GetFoamHistory(), "Water.FoamHistory", RDG::Access::SampledGraphics );
+        imports.FoamTarget  = imported( water->GetFoamTarget(), "Water.Foam", RDG::Access::SampledGraphics );
+        imports.Black       = textures.GraphRefs().System.Black;
+        return water->AddFramePasses( graph, imports, static_cast<float>( frame->TimeSeconds ) );
     }
 
 #if DESERT_DEV_INSTRUMENTS

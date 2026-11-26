@@ -342,6 +342,7 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
          { "LocalShadowAtlasTexture", { C::kLocalShadowAtlasBinding } },
          { "LocalShadowViewsUB", { C::kLocalShadowViewsBinding } },
          { "LocalShadowMasksTexture", { C::kLocalShadowMasksBinding } },
+         { "ClosestHzbTexture", { C::kClosestHzbBinding } },
          { "GpuSceneInstances", { C::kGpuSceneInstancesBinding } },
          { "GpuSceneVisibleInstances", { C::kGpuSceneVisibleInstancesBinding } },
          { "GpuSceneDrawSlots", { C::kGpuSceneDrawSlotsBinding } },

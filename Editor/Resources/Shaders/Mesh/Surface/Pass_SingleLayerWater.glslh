@@ -9,9 +9,8 @@
 //     sample lands in front of the surface;
 //   - Beer-Lambert transmittance over the view ray's length through the water (the opaque depth is the bottom: UE's
 //     SceneDepthWithoutSingleLayerWater) plus the single-scattered sun (Henyey-Greenstein) and sky;
-//   - the FOAM, where the waves make it: whitecaps where the surface's Jacobian folds (the crest breaking in deep
-//     water), surf where the wave height outgrows the depth (H / d past the breaker index); the foam stays on the
-//     water particle that broke and decays (WaterFoamAmount). Its look and thresholds are the material's;
+//   - the FOAM, where the waves made it: the view's foam map (WaterFoamSample), which remembers what broke, carries
+//     it on the current and lets it decay. Its look is the material's;
 //   - the interface through the SHADING MODEL (ShadingModels/SingleLayerWater.shadingmodel): the sun's specular and
 //     the reflection, the volume weighted by what the split-sum Fresnel lets through; the point and spot lights of
 //     the froxel through the same model, each under its shadow; the sun under its shadow maps;
@@ -34,6 +33,7 @@ layout( location = 3 ) out float oThinGeometryCoverage;
 Uniform sampler LinearClampSampler;
 Uniform sampler PointClampSampler;
 // The cascades and the cloud layer's map are read linear, repeat (Graphic::SceneViewDetail::BindWhere's states).
+#define DESERT_LINEAR_REPEAT_SAMPLER
 Uniform sampler LinearRepeatSampler;
 #include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
 
@@ -112,8 +112,8 @@ layout( binding = kSceneShadingWordBinding ) uniform utexture2D SceneShadingWord
 // After the lighting half of Mesh/AmbientIBL.glslh: this header includes the generated models, whose own
 // include of AmbientIBL would otherwise take its sampler-less half first (as Pass_Forward.glslh orders it).
 #include <Common/ThinGeometryCoverage.glslh>
-// The body's waves (binding 24, ahead of the tiles): the foam reads the same Gerstner sum the vertex path moved.
-#include <Mesh/Surface/WaterMeshTiles.glslh>
+// The body's waves (binding 24, ahead of the tiles): the one surface, here per pixel.
+#include <Mesh/Surface/WaterRiver.glslh>
 #include <Water/WaterUnderwater.glslh>
 // The scene's air (WIND-FIELD-GPU): the gust fronts and the local sources the foliage sways by roughen the
 // ripples.
@@ -149,59 +149,20 @@ float WaterHenyeyGreenstein( float cosTheta, float g )
     return ( 1.0 - g2 ) / ( 4.0 * kWaterPi * pow( max( 1.0 + g2 - 2.0 * g * cosTheta, 1e-4 ), 1.5 ) );
 }
 
-// THE FOAM A WATER PARTICLE CARRIES (Tessendorf 2001 sec. 4.4; the accumulate-and-decay of AAA ocean foam buffers,
-// e.g. Atlas/Sea of Thieves): foam forms on a particle while the wave over it breaks and fades e-fold per `decay`
-// seconds after. Gerstner IS a Lagrangian description (the plane point labels one particle for all time), so the
-// particle's past is the same sum at earlier times - no history buffer, no advection error:
-// foam(t) = max over ages a of formed(t - a) * exp(-a / decay). The ages are dense near now, where a crest passes in
-// a fraction of a period, and sparse where the foam has faded; their offset turns every frame (`jitter`) so the
-// temporal filter integrates between them. A wave breaks two ways, both judged at each age:
-//   - WHITECAP, deep water: the crest steepens until the surface over the particle is squeezed toward folding - the
-//     Jacobian of the horizontal map below the material's threshold. The wave set cannot fold the mesh itself
-//     (WaterWavesService refuses a steepness sum past 1), so a calm set never reaches the threshold and a steep one
-//     reaches it only where its crests line up.
-//   - SURF, the shallows: the passing crest outgrows the depth - local wave height 2 eta over the still depth d past
-//     the breaker index (McCowan 1894: H / d = 0.78; the material states it, beaches range 0.6-1.2). Between crests
-//     the particle carries only what the last breaker left, so the surf is bands behind each bore, not a sheet.
-// `depth` <= 0: nothing behind the water (open sea), no bottom for a wave to break on.
-// THE FFT OCEAN keeps no past of its own (each frame is a fresh transform), so its whitecaps read the foam history
-// band instead (WaterFFTFinalize accumulates each cascade's compression and decays it by the body material's
-// FoamDecaySeconds, the same value as below; WaterFFTFoamHistory): the foam trails behind the crest that folded. Its surf has a
-// history of its own, in the world and over the ground (WaterFFTSurfFoam; Programs/Water/WaterSurfFoam.shader).
-float WaterFoamAmount( int waveSet, vec2 label, float time, float jitter, float depth, float atten, float viewDist,
-                       SingleLayerWaterOutput w )
-{
-    if ( waveSet < 0 )
-        return 0.0; // a flat body: no waves to break
-    if ( WaterWavesAreFFT( waveSet ) )
-    {
-        const vec3  weight   = WaterFFTCascadeWeights( viewDist );
-        const float J        = mix( 1.0, 1.0 - WaterFFTFoamHistory( label, weight ), atten );
-        const float whitecap = clamp( ( w.FoamJacobianThreshold - J ) / max( w.FoamJacobianSoftness, 1e-3 ), 0.0, 1.0 );
-        // The still (X, Z) is the label plus the set's origin (WaterWavePlane).
-        const float surf = depth > 0.0 ? WaterFFTSurfFoam( label + WaterWaveSets[waveSet].Header.zw ) : 0.0;
-        return max( whitecap, surf );
-    }
-    const int   kAges = 12;
-    const float decay = max( w.FoamDecaySeconds, 0.05 );
-    const float span  = 2.5 * decay; // e^-2.5: what is older is under a tenth
-    float       foam  = 0.0;
-    for ( int k = 0; k < kAges; ++k )
-    {
-        const float x        = ( float( k ) + jitter ) / float( kAges );
-        const float age      = span * x * x;
-        const float J        = mix( 1.0, WaterWavesJacobian( waveSet, label, time - age, viewDist ), atten ); // the damped surface
-        const float whitecap = clamp( ( w.FoamJacobianThreshold - J ) / max( w.FoamJacobianSoftness, 1e-3 ), 0.0, 1.0 );
-        float       surf     = 0.0;
-        if ( depth > 0.0 )
-        {
-            const float eta = atten * WaterWavesDisplacement( waveSet, label, time - age, viewDist ).y;
-            surf = smoothstep( 0.7 * w.FoamBreakerIndex, w.FoamBreakerIndex, 2.0 * eta / max( depth, 1.0 ) );
-        }
-        foam = max( foam, max( whitecap, surf ) * exp( -age / decay ) );
-    }
-    return foam;
-}
+// THE FOAM (Water/WaterFoamField.glslh): what the view's foam map holds at this particle of still water.
+layout( set = 1, binding = 10 ) uniform texture2D WaterFoamTexture;
+#define WATER_FOAM_FETCH( t ) texelFetch( WaterFoamTexture, t, 0 )
+#define WATER_FOAM_ORIGIN( l ) WaterFoamOrigin[l].xyz
+#define WATER_FOAM_SIDE WaterFoamShape.x
+#include <Water/WaterFoamField.glslh>
+#include <Mesh/Surface/WaterFallSheet.glslh>
+
+// Water's index of refraction, and how much one centimetre's crossing of aerated water scatters (1/m at full bubbles).
+const float kWaterIor             = 1.333;
+const float kWaterBubbleScatter   = 4.0;
+const float kWaterFoamMaxCoverage = 0.85; // holes always stay in the lace
+// A water film this thin (cm) no longer hides the ground it wets.
+const float kWaterFilmCm = 3.0;
 
 void main()
 {
@@ -215,22 +176,43 @@ void main()
     // A river's fall gives way where the river's own surface is drawn (its overlap at the lip and the foot).
     if ( WaterTileIsFall( i.VertexColor.b ) && WaterFallUnderRiver( i.WorldPosition ) )
         discard;
-    // The FFT ocean's normal per pixel (WaterPixelWaveFrame): the glint is as sharp as the finest cascade, not the
-    // grid. The ripple maps then bend THIS frame (EvaluateSurface's tangent-space normal goes through i.TBN).
-    mat3 waveTBN;
-    if ( WaterPixelWaveFrame( i.UV1, i.VertexColor, i.CameraPosition, i.Time, waveTBN ) )
-    {
-        const float facing = gl_FrontFacing ? 1.0 : -1.0; // DesertSurfaceInput's two-sided turn
-        i.TBN              = waveTBN * facing;
-        i.Normal           = i.TBN[2];
-    }
-    // The tile's body record (VertexColor.a = 1 + the tile's row: WaterFragmentTile), its wave set (-1 = a flat body)
-    // and the particle's distance for the FFT cascades' fade, all as the vertex path took them.
-    const WaterTileRow tile = WaterFragmentTile( i.VertexColor );
-    const int   waveSet  = WaterWaveSetOf( tile.Body.z );
-    const float viewDist = WaterViewDistance( i.UV1, i.VertexColor.g, i.CameraPosition );
-    SurfaceOutput                s = EvaluateSurface( i );
+    // THE SURFACE PER PIXEL (WaterPixelSurface): the glint is as sharp as the finest wave, not the grid, and what is
+    // finer than the pixel widens the lobe. The ripple maps then bend THIS frame (EvaluateSurface's tangent-space
+    // normal goes through i.TBN). A fall's sheet keeps its mesh's frame, bent by its strands.
+    const bool  fall      = WaterTileIsFall( i.VertexColor.b );
+    const float footprint = sqrt( length( dFdx( i.WorldPosition.xz ) ) * length( dFdy( i.WorldPosition.xz ) ) );
+    const int   waveSet   = WaterWaveSetOf( WaterFragmentTile( i.VertexColor ).Body.z );
+    const float facing    = gl_FrontFacing ? 1.0 : -1.0; // DesertSurfaceInput's two-sided turn
+    WaterSurface   field  = WaterPixelSurface( i.UV1, i.VertexColor, i.Time, i.Time, footprint );
+    // The material's water (and, on a fall, its strands and tearing) before the sheet is shaped by it.
     const SingleLayerWaterOutput w = EvaluateSingleLayerWater( i );
+    WaterFallSheet sheet  = WaterFallSheetNone();
+    if ( fall )
+    {
+        field.Variance = 0.0;
+        sheet          = WaterFallSheetAt( i.UV0, i.VertexColor, i.Time, w );
+        i.TBN          = mat3( i.TBN[0], i.TBN[1], normalize( i.TBN * sheet.Normal ) );
+        i.Normal       = i.TBN[2];
+    }
+    else
+    {
+        // The beach: the sheet lies under the sand the run-up does not reach (an ocean's; a river carrying its
+        // mouth's waves has its banks for a beach, WaterBankClipped).
+        if ( waveSet >= 0 && i.VertexColor.b < 0.5 && field.Depth + field.Displacement.y < 0.0 )
+            discard;
+        vec3 waveN = WaterSurfaceNormal( field.Slope );
+        if ( i.VertexColor.b > 0.5 )
+        {
+            const vec3 riverN = WaterRiverSurfaceNormal( i.WorldPosition.xz );
+            waveN = normalize( vec3( waveN.xz / max( waveN.y, 0.05 ) + riverN.xz / max( riverN.y, 0.05 ), 1.0 ).xzy );
+        }
+        i.TBN    = WaterSurfaceFrame( waveN ) * facing;
+        i.Normal = i.TBN[2];
+    }
+    SurfaceOutput                s = EvaluateSurface( i );
+    // GGX alpha^2 is twice the per-axis slope variance the pixel does not resolve.
+    const float alpha = s.Roughness * s.Roughness;
+    s.Roughness       = sqrt( sqrt( alpha * alpha + 2.0 * field.Variance ) );
     const float                  windRipple = WaterWindRippleScale( i.WorldPosition, w.WindRippleMaxGain );
     if ( windRipple != 1.0 )
         s.Normal = SurfaceScaleTangentNormal( s.Normal, windRipple );
@@ -254,35 +236,83 @@ void main()
                             CloudShadowFactor( i.WorldPosition );
     const vec3  sun = sunLit * sunShadow;
 
-    // --- The scene behind, refracted (UE SingleLayerWater's distortion: the offset grows with the water in front).
+    // --- The scene behind, refracted (Snell): the eye's ray bends into the water and meets the bottom at the water's
+    // VERTICAL depth there - a calm flat bottom shifts as it does in the sea, not by a share of the view's length.
     const vec2  screen   = vec2( textureSize( WaterSceneDepth, 0 ) );
     const vec2  uv       = gl_FragCoord.xy / screen;
     const float baseDev  = texture( WaterSceneDepth, uv ).r;
     const vec3  baseBack = WaterWorldAt( uv, baseDev );
     const float baseLen  = baseDev <= 0.0 ? 1e7 : distance( i.WorldPosition, baseBack );
-    const vec3  bent     = i.WorldPosition + vec3( N.x, 0.0, N.z ) * w.RefractionOffset * clamp( baseLen / 100.0, 0.0, 1.0 );
-    const vec4  clipOff  = cameraUB.JitteredViewProjection * vec4( bent, 1.0 );
-    vec2        refrUv   = clamp( vec2( 0.5, -0.5 ) * ( clipOff.xy / clipOff.w ) + 0.5, vec2( 0.0 ), vec2( 1.0 ) );
-    float       refrDev  = texture( WaterSceneDepth, refrUv ).r;
-    vec3        refrBack = WaterWorldAt( refrUv, refrDev );
-    const bool  inFront  = refrDev > 0.0 && dot( refrBack - i.CameraPosition, -V ) < dot( i.WorldPosition - i.CameraPosition, -V );
-    if ( inFront )
+    const float baseDown = baseDev <= 0.0 ? 1e7 : max( i.WorldPosition.y - baseBack.y, 0.0 );
+    const vec3  bentDir  = refract( -V, gl_FrontFacing ? N : -N, 1.0 / kWaterIor );
+    vec2        refrUv   = uv;
+    float       refrDev  = baseDev;
+    vec3        refrBack = baseBack;
+    vec3        behind   = texture( SceneColorTexture, uv ).rgb; // pre-exposed
+    if ( baseDev > 0.0 && dot( bentDir, bentDir ) > 0.5 )
     {
-        refrUv   = uv;
-        refrDev  = baseDev;
-        refrBack = baseBack;
+        const vec3 bent    = i.WorldPosition + bentDir * min( baseDown / max( -bentDir.y, 0.2 ), baseLen );
+        const vec4 clipOff = cameraUB.JitteredViewProjection * vec4( bent, 1.0 );
+        const vec2 bentUv  = clamp( vec2( 0.5, -0.5 ) * ( clipOff.xy / clipOff.w ) + 0.5, vec2( 0.0 ), vec2( 1.0 ) );
+        // Four taps about the bent point; each that lies in front of the surface is refused (a swimmer's silhouette
+        // never bleeds into the water beside it). None left: the straight view.
+        const float surfaceAhead = dot( i.WorldPosition - i.CameraPosition, -V );
+        const vec2  base  = floor( bentUv * screen - 0.5 );
+        const vec2  frac2 = bentUv * screen - 0.5 - base;
+        vec3  sum   = vec3( 0.0 );
+        vec3  back  = vec3( 0.0 );
+        float total = 0.0;
+        for ( int k = 0; k < 4; ++k )
+        {
+            const vec2  d   = vec2( float( k & 1 ), float( k >> 1 ) );
+            const vec2  tap = ( base + d + 0.5 ) / screen;
+            const float dev = texture( WaterSceneDepth, tap ).r;
+            const vec3  at  = WaterWorldAt( tap, dev );
+            if ( dev <= 0.0 || dot( at - i.CameraPosition, -V ) < surfaceAhead )
+                continue;
+            const float weight = ( d.x > 0.5 ? frac2.x : 1.0 - frac2.x ) * ( d.y > 0.5 ? frac2.y : 1.0 - frac2.y ) + 1e-4;
+            sum   += weight * texture( SceneColorTexture, tap ).rgb;
+            back  += weight * at;
+            total += weight;
+        }
+        if ( total > 0.0 )
+        {
+            behind   = sum / total;
+            refrBack = back / total;
+        }
     }
-    const float pathCm = refrDev <= 0.0 ? 1e7 : distance( i.WorldPosition, refrBack );
-    const vec3  behind = texture( SceneColorTexture, refrUv ).rgb; // pre-exposed
+    // The falling sheet is as thick as its flow leaves it; a body of water, as deep as its bottom.
+    const float downCm = fall ? sheet.ThicknessCm : ( baseDev <= 0.0 ? 1e7 : max( i.WorldPosition.y - refrBack.y, 0.0 ) );
+    const float pathCm = fall ? sheet.ThicknessCm : ( baseDev <= 0.0 ? 1e7 : distance( i.WorldPosition, refrBack ) );
 
-    // --- The water volume: Beer-Lambert over the path, plus the single-scattered sun and sky.
-    const vec3  sigmaS = w.ScatteringCoefficients;
-    const vec3  sigmaT = max( w.AbsorptionCoefficients + sigmaS, vec3( 1e-5 ) );
-    const vec3  trans  = exp( -sigmaT * ( pathCm * 0.01 ) );
-    const vec3  albedo = sigmaS / sigmaT;
-    const vec3  skyIrr = DesertAmbientIrradiance( vec3( 0.0, 1.0, 0.0 ) );
-    const float phase  = WaterHenyeyGreenstein( dot( -V, L ), w.PhaseG );
-    const vec3  inscat = ( sun * max( L.y, 0.0 ) * phase + skyIrr / ( 4.0 * kWaterPi ) ) * albedo * ( 1.0 - trans );
+    // --- The foam map at this particle: R what covers the surface, G the bubbles under it.
+    const vec4  foamMap = !fall && WaterFoamShape.y > 0.5 ? WaterFoamSample( i.UV1, footprint ) : vec4( 0.0 );
+    const float amount  = fall ? sheet.Foam : foamMap.r;
+
+    // --- The water volume: Beer-Lambert over the path, plus the single-scattered sun and sky. The sun's own way down
+    // to each point of the path is lost too: with k = the metres the light makes per metre of view, the integral of
+    // exp(-s t (1 + k)) over the path.
+    const vec3  sigmaS   = w.ScatteringCoefficients + vec3( kWaterBubbleScatter * foamMap.g );
+    const vec3  sigmaT   = max( w.AbsorptionCoefficients + sigmaS, vec3( 1e-5 ) );
+    const float pathM    = pathCm * 0.01;
+    const float downM    = downCm * 0.01;
+    const vec3  trans    = exp( -sigmaT * pathM );
+    const vec3  albedo   = sigmaS / sigmaT;
+    const vec3  skyIrr   = DesertAmbientIrradiance( vec3( 0.0, 1.0, 0.0 ) );
+    const float phase    = WaterHenyeyGreenstein( dot( -V, L ), w.PhaseG );
+    const float sunDownY = max( -refract( -L, vec3( 0.0, 1.0, 0.0 ), 1.0 / kWaterIor ).y, 0.2 );
+    const float sunWay   = downM / ( sunDownY * max( pathM, 1e-4 ) );
+    const vec3  sunIn    = ( 1.0 - exp( -sigmaT * pathM * ( 1.0 + sunWay ) ) ) / ( 1.0 + sunWay );
+    // A crest with the sun behind it glows: the light crosses the crest's own thickness (its height over its slope).
+    const float crest    = fall ? sheet.ThicknessCm : max( field.Displacement.y, 0.0 );
+    const float thinCm   = fall ? sheet.ThicknessCm : crest / max( length( field.Slope ), 0.05 );
+    const float swellCm  = waveSet >= 0 ? max( WaterWaveSets[waveSet].Swell.y, 1.0 ) : 1.0;
+    const float crestW   = fall ? 1.0 : ( waveSet >= 0 ? smoothstep( 0.1, 0.6, crest / swellCm ) : 0.0 );
+    const float through4 = pow( clamp( dot( -V, normalize( L + N * 0.3 ) ), 0.0, 1.0 ), 4.0 );
+    const vec3  glow     = sun * albedo * exp( -sigmaT * thinCm * 0.01 ) * ( through4 * crestW / ( 4.0 * kWaterPi ) );
+    const vec3  inscat   = ( sun * max( L.y, 0.0 ) * phase * sunIn + skyIrr * 0.25 * ( 1.0 - trans ) ) * albedo + glow;
+    // The bottom is lit through the water above it: what the light lost on its way down.
+    behind *= fall ? vec3( 1.0 ) : exp( -sigmaT * min( downM, 100.0 ) );
 
     // --- The interface, through the shading model: the sun's specular and the environment's reflection (the
     // reflection of a surface seen from above is of the upper hemisphere).
@@ -323,28 +353,13 @@ void main()
     const vec3 ownLight   = inscat * exposure * through + ( direct + reflected ) * exposure;
     const vec3 water      = behind * seenBehind + ownLight * fog.a + fog.rgb * ( vec3( 1.0 ) - trans * through );
 
-    // --- The foam: where the waves make it (physics, above), how it looks (the material). A fading amount
-    // eats the texture's structure from its edges (a lace of its densest cells, its border softer the thinner it is; a
-    // full amount covers) and its last quarter fades out whole, so a sheet's own border is no cut; it is a rough diffuse layer on top, lit by the sun and sky. It
-    // is opaque, so the fog in front of it is the full fog (its light attenuated, the fog's inscattering added).
-    const float jitter    = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) +
-                                   fract( i.Time * 7.31 ) );
-    // The particle's still (X, Z) - the point the vertex path damped its waves at - for both the depth and the damping;
-    // the damping by the tile's own body's TargetWaveMaskDepth (WaterTileRow.Medium.x), as the vertex path's.
-    const float depth     = WaterGroundDepth( i.UV1, i.VertexColor.g );
-    // A flat body (no wave set) makes no wave foam.
-    const float atten     = waveSet >= 0 ? ( depth > 0.0 ? GerstnerDepthAttenuation( depth, max( tile.Medium.x, 1.0 ) ) : 1.0 ) : 0.0;
-    // A river's bank band (WaterRiverBankBand: ~50 cm inside the baked bank line) foams as a shore does, waves or not.
-    const float bankBand  = WaterRiverBankBand( i.WorldPosition.xz, i.VertexColor.b );
-    const float amount    = clamp( max( WaterFoamAmount( waveSet, WaterWavePlane( waveSet, i.UV1 ), i.Time, jitter, depth,
-                                                         atten, viewDist, w ),
-                                        max( bankBand, WaterFallFoam( i.UV0, i.VertexColor ) ) ),
-                                   0.0, 1.0 );
-    const float soft      = mix( 0.25, 0.1, amount );
-    const float foam      = smoothstep( 0.0, 0.25, amount ) *
-                       smoothstep( 1.0 - amount - 2.0 * soft * amount, 1.0 - amount + soft, w.FoamCoverage );
-    const vec3  foamN     = normalize( i.Normal );
-    const vec3  foamLit   = w.FoamAlbedo * ( sun * max( dot( foamN, L ), 0.0 ) / kWaterPi + DesertAmbientIrradiance( foamN ) );
+    // --- The foam: where the waves made it (the map), how it looks (the material). The amount is the share of the
+    // structure's height field under water: a little shows its tallest walls, more fills the cells. A rough diffuse
+    // layer on top, lit by the sun and sky. It is opaque, so the fog in front of it is the full fog.
+    const float lace    = kWaterFoamMaxCoverage * clamp( amount, 0.0, 1.0 );
+    const float foam    = smoothstep( 1.0 - lace, 1.0 - lace + 0.2, w.FoamHeight ) * smoothstep( 0.0, 0.05, amount );
+    const vec3  foamN   = normalize( i.TBN * w.FoamNormal );
+    const vec3  foamLit = w.FoamAlbedo * ( sun * max( dot( foamN, L ), 0.0 ) / kWaterPi + DesertAmbientIrradiance( foamN ) );
 
     // --- THE SURFACE SEEN FROM BELOW (WATER-UNDERWATER; UE SingleLayerWater's back face): the eye is in the water,
     // so the interface refracts the air above into Snell's window (the sky and the scene over the water, bent toward
@@ -410,16 +425,16 @@ void main()
         return;
     }
 
-    // --- The shore (UE's water material depth fade): where the surface meets the ground or a mesh, the water
-    // column along the view ray goes to zero and the surface fades into the unbent scene behind it, so the
-    // meeting line is soft wherever the two surfaces cross - no hard intersection edge.
+    // --- The shore: the water column goes to zero where the surface meets the ground, and the surface thins into the
+    // unbent scene behind it.
     // A river's surface also fades in over the bank mask's bilinear edge (WATER_RIVER_BANK_CLIP = the clip line,
     // WaterOutsideBank; 1 a half 50 cm texel inside), so the clip is never a hard edge where the bank's ground stands
     // below the baked level.
     const float bankFade = i.VertexColor.b > 0.5 && !WaterTileIsFall( i.VertexColor.b )
                                ? smoothstep( WATER_RIVER_BANK_CLIP, 1.0, WaterFlowAt( i.WorldPosition.xz ).z )
                                : 1.0;
-    const float shore    = ( w.ShoreFadeCm > 0.0 ? smoothstep( 0.0, w.ShoreFadeCm, baseLen ) : 1.0 ) * bankFade;
+    // Where the column runs out the surface is a film, then nothing.
+    const float shore    = ( fall ? sheet.Opacity : 1.0 - exp( -baseDown / kWaterFilmCm ) ) * bankFade;
     const vec3  plain = texture( SceneColorTexture, uv ).rgb;
 
     oColor = vec4( mix( plain, mix( water, foamLit * exposure * fog.a + fog.rgb, foam ), shore ), 1.0 );

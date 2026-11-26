@@ -1,5 +1,5 @@
-# The editor libraries: the editor's five layered static libraries, which source
-# belongs to which, and the one way to link them.
+# The editor libraries: the editor's five layered module libraries (DLLs in Development/DebugGame, static in
+# Shipping: desert_module_library), which source belongs to which, and the one way to link them.
 #
 # Each source under Editor/Source/Editor/ belongs to the layer whose directory is the LONGEST prefix of its path;
 # a source in no layer, or a file directly under Editor/Source/ that no layer claims, fails configure.
@@ -72,18 +72,22 @@ endforeach()
 file(GLOB_RECURSE DESERT_EDITOR_OBJC_FILES LIST_DIRECTORIES false CONFIGURE_DEPENDS "${DESERT_EDITOR_SOURCE_ROOT}/Editor/*.mm")
 list(SORT DESERT_EDITOR_OBJC_FILES)
 
-# DesertEditorLibs.Link(wholeArchive): the five layers top first (EditorObjC ahead of them on macOS); with
-# WHOLE_ARCHIVE every object reaches the binary (component editors register themselves from static initialisers).
+# DesertEditorLibs.Link(): the five layers top first (EditorObjC ahead of them on macOS). Component editors register
+# themselves from static initialisers, so every object of a layer must reach the process. A layer DLL links all of
+# its objects and runs their initialisers when it loads. The Shipping monolith (DESERT_MONOLITHIC) links the layers
+# as archives, from which a linker takes only the objects something references: there the archives are linked whole
+# (/WHOLEARCHIVE, -force_load, --whole-archive), the static-link spelling of "every object of the module".
 function(desert_link_editor_libs target)
-    cmake_parse_arguments(ARG "WHOLE_ARCHIVE" "" "" ${ARGN})
     set(_names ${DESERT_EDITOR_LAYERS})
     list(REVERSE _names)
     if(DESERT_IS_MACOS)
         list(PREPEND _names ${DESERT_EDITOR_OBJC_LIB})
     endif()
-    if(ARG_WHOLE_ARCHIVE)
-        desert_link_whole_archive(${target} ${_names})
-    else()
-        target_link_libraries(${target} PRIVATE ${_names})
-    endif()
+    foreach(lib IN LISTS _names)
+        if(DESERT_MONOLITHIC)
+            target_link_libraries(${target} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,${lib}>")
+        else()
+            target_link_libraries(${target} PRIVATE ${lib})
+        endif()
+    endforeach()
 endfunction()

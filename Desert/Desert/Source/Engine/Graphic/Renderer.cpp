@@ -4,6 +4,7 @@
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/BRDFLut.hpp>
+#include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Graphic/GpuMemoryBudget.hpp>
@@ -32,6 +33,12 @@
 namespace Desert::Graphic
 {
     static RendererAPI* s_RendererAPI = nullptr;
+
+    Renderer::Renderer() : m_EnvironmentCache( std::make_unique<EnvironmentCacheWriter>() )
+    {
+    }
+
+    Renderer::~Renderer() = default;
 
     [[nodiscard]] Common::BoolResultStr Renderer::InitGraphicAPI()
     {
@@ -183,7 +190,11 @@ namespace Desert::Graphic
             GpuMemoryBudget::Get().Update( device->QueryMemory() );
 #endif
 
-        return s_RendererAPI->WaitFrameSlot();
+        if ( const Common::BoolResultStr waited = s_RendererAPI->WaitFrameSlot(); !waited )
+            return waited;
+        // Every host begins its frames here, so no host has to remember the environment cache's readbacks.
+        m_EnvironmentCache->Pump();
+        return BOOLSUCCESS;
     }
 
     uint32_t Renderer::GetCurrentFrameIndex()
@@ -551,6 +562,9 @@ namespace Desert::Graphic
         // Mirror image of Init(), and called from ~Application so it runs inside main. Everything below
         // is owned by a static that outlives the Application object; a static destructor cannot be
         // ordered against the device, so the release has to be said out loud here instead.
+        // Its readbacks own staging buffers and command buffers: finished while the device is alive.
+        m_EnvironmentCache->Drain();
+
         m_BRDFTexture.reset();
         Runtime::ResourceRegistry::ClearAll();
         Geometry::PrimitiveMeshFactory::ReleaseShared();

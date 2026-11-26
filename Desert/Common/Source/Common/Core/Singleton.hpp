@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Core/Core.hpp>
+
 #include <memory>
 #include <utility>
 
@@ -11,6 +13,7 @@ namespace Common
     public:
         static T& GetInstance()
         {
+            DESERT_VERIFY( m_Instance, "a singleton is read before CreateInstance" );
             return *m_Instance;
         }
 

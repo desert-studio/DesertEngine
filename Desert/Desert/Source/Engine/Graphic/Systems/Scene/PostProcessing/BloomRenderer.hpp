@@ -123,11 +123,10 @@ namespace Desert::Graphic::System
             m_PreExposure = preExposure;
         }
         // Auto-exposure on: the threshold is the authored one (exposed units) and the shader divides it by
-        // this frame's exposure, key / adapted luminance — the composite's own formula.
-        void SetAutoExposure( bool enabled, float key )
+        // this frame's exposure, middle grey / adapted luminance — the composite's own formula.
+        void SetAutoExposure( bool enabled )
         {
             m_AutoExposure = enabled;
-            m_ExposureKey  = key;
         }
         // The chain's mip count cap, PostProcess.BloomMips (Scalability; High = 6, the former constant). Read per
         // frame by GetChainDesc, so a change applies on the next frame's graph.
@@ -221,7 +220,6 @@ namespace Desert::Graphic::System
         float    m_Threshold = 1.0f;
         float    m_PreExposure  = 1.0f;
         bool     m_AutoExposure = false;
-        float    m_ExposureKey  = 0.18f;
         TonemapRenderer::LocalExposureFrame m_LocalExposure;
         float                               m_ManualExposure = 1.0f;
         uint32_t m_MaxMips   = 6; // until the first SetMaxMips: the High table value

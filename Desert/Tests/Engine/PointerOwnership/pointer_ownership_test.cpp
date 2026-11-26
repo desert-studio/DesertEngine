@@ -22,7 +22,7 @@
 
 #include <Engine/Graphic/Render2D/Render2DExecutorRetire.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>

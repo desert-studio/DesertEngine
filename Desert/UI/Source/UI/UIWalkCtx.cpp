@@ -345,9 +345,9 @@ namespace Desert::UI::Walk
         if ( b.Key.empty() )
             return out;
 
-        // The cell's locals before the process-wide store — the one question, asked in the one place
+        // The cell's locals before the world's store — the one question, asked in the one place
         // the layout walk asks it too, so the two cannot disagree about a frame.
-        const UIDataStore& store = BindingStore( &cell, b.Key, cell.RowRecord );
+        const UIDataStore& store = BindingStore( tree.World(), &cell, b.Key, cell.RowRecord );
         switch ( b.Target )
         {
             case UIBindTarget::Text:
@@ -504,12 +504,13 @@ namespace Desert::UI::Walk
     // The options of a dropdown (UE UComboBoxString's option list, ComboBoxString.h:21). Bound: one per record
     // of the data-store collection, labelled by its LabelField — read in place each frame, so a script that
     // adds a server to the list adds an option. Unbound: the authored ';'-separated Options.
-    std::vector<std::string> DropdownOptions( IUITextSource& text, const UIDropdownData& d )
+    std::vector<std::string> DropdownOptions( IUITextSource& text, const UIDataStore& data,
+                                              const UIDropdownData& d )
     {
         if ( d.Collection.empty() )
             return SplitOptions( text, d.Options );
         std::vector<std::string> out;
-        if ( const UICollection* c = UIDataStore::Get().FindCollection( d.Collection ) )
+        if ( const UICollection* c = data.FindCollection( d.Collection ) )
         {
             out.reserve( static_cast<std::size_t>( c->Size() ) );
             for ( int i = 0; i < c->Size(); ++i )

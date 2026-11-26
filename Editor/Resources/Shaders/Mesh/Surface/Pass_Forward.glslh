@@ -153,6 +153,7 @@ layout( std430, set = 1, binding = 8 ) readonly buffer WaterCausticsFrameUB
 // THE lighting of this pass: the template's model (DESERT_SHADING_MODEL_INDEX, defined by the parser) through the
 // dispatch the registry generates. This pass names no model.
 #include <Generated/ShadingModels.glslh>
+#include <Mesh/Surface/SurfacePayload.glslh>
 // After the dispatch, not before: it includes the generated models itself, and a model included ahead of the
 // whole AmbientIBL text above takes its sampler-less half (DefaultLit.shadingmodel), leaving this lighting pass
 // without DesertSampleAmbient.
@@ -222,12 +223,12 @@ void main()
 
     // Floored first, as the G-buffer writer floors it, then widened by the normal's spread across the pixel.
     const float roughness = DesertSpecularAA( max( s.Roughness, kDesertMinRoughness ), N );
-    const DesertSurface surface = DesertMakeSurface( i.WorldPosition, N, i.CameraPosition - i.WorldPosition,
-                                                     s.BaseColor, s.Metallic, roughness,
-                                                     DesertQuantizePayloadFloat( s.Specular ) );
     // The payload a model reads, at the 8 bits an opaque surface's reaches it through the G-buffer.
-    const DesertPayload payload = DesertQuantizePayload(
-         DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );
+    vec3                baseColor = s.BaseColor;
+    const DesertPayload payload   = DesertQuantizePayload( DesertEncodeSurfacePayload( s, baseColor ) );
+    const DesertSurface surface = DesertMakeSurface( i.WorldPosition, N, i.CameraPosition - i.WorldPosition,
+                                                     baseColor, s.Metallic, roughness,
+                                                     DesertQuantizePayloadFloat( s.Specular ) );
 
     // The sun is occluded by the cascades (unless the surface does not receive them) and then by the cloud
     // layer — the cloud factor AFTER the toggle, exactly as the deferred composite assembles it.

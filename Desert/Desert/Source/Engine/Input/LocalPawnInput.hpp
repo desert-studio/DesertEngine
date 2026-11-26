@@ -10,7 +10,7 @@
 // (ClientNetDriver::NextInput) and predicts with the same step. The script's requests (self:jump / crouch / swim,
 // UE ACharacter::Jump / Crouch from a Blueprint) press the same declared actions.
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/vec3.hpp>
 
 namespace Desert::Core

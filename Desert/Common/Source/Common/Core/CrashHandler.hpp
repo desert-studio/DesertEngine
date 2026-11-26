@@ -72,12 +72,11 @@ namespace Common::Crash
     // MoveReportRoot.
     const std::filesystem::path& ReportRootDirectory();
 
-    // THE CONTEXT IS FORMATTED HERE, NOT IN THE HANDLER. Both copy into a fixed buffer owned by this
+    // THE CONTEXT IS FORMATTED HERE, NOT IN THE HANDLER. Every setter copies into a fixed buffer owned by this
     // module; the handler only memcpy's bytes out of it. Anything that formats — std::format, an
     // allocation, a lock — is unusable from a signal handler and unreliable from an unhandled
     // exception filter whose thread may have smashed its own stack. Values longer than the buffer are
-    // truncated rather than dropped, since a truncated scene path still identifies the crash.
-    void SetScenePath( std::string_view inScenePath );
+    // truncated rather than dropped. The live worlds report themselves (CrashWorlds.hpp).
 
     // THE GPU THE PROCESS ACTUALLY RENDERS ON, as the graphics API reported it for the device it created —
     // not the first DXGI adapter, which on a laptop is the integrated one. The OS half of the context is

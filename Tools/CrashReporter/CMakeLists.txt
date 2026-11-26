@@ -1,12 +1,12 @@
 # CrashReporter: DesertCrashReporter links NOTHING of the engine (it must survive the engine's
-# crash): GLFW + Dear ImGui compiled straight in with the GLFW/OpenGL3 backends. Fonts copied next to it.
+# crash): the GLFW and ImGui libraries (DLLs outside Shipping, cmake/DesertWorkspace.cmake THIRD-PARTY PROCESS STATE)
+# and the GLFW/OpenGL3 backends compiled straight in. Fonts copied next to it.
 desert_glob(_sources "Source/*.hpp" "Source/*.cpp")
 set(_imgui "${DESERT_ROOT}/ThirdParty/ImGui")
 desert_add_executable(DesertCrashReporter WINDOWED FOLDER Tools SOURCES ${_sources}
-    "${_imgui}/imgui.cpp" "${_imgui}/imgui_draw.cpp" "${_imgui}/imgui_tables.cpp" "${_imgui}/imgui_widgets.cpp"
     "${_imgui}/backends/imgui_impl_glfw.cpp" "${_imgui}/backends/imgui_impl_opengl3.cpp")
 desert_external_includes(DesertCrashReporter "${_imgui}" "${_imgui}/backends" "${DESERT_ROOT}/ThirdParty/GLFW/include")
-target_link_libraries(DesertCrashReporter PRIVATE GLFW)
+target_link_libraries(DesertCrashReporter PRIVATE GLFW ImGui)
 desert_platform_defines(DesertCrashReporter)
 foreach(font Roboto-Regular.ttf Roboto-Bold.ttf RobotoMono-Regular.ttf fontawesome-webfont.ttf)
     add_custom_command(TARGET DesertCrashReporter POST_BUILD

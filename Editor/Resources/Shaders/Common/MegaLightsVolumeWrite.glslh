@@ -196,12 +196,12 @@ float VolumeVsmVisibility(int light, vec3 p)
 // (Common::Scalability::StochasticVisibility: 0 RayQuery, 1 vsm+screen, 2 Screen), as the surface samples do
 // (Common/MegaLights.glslh MegaLightsVisibility): the ray query; or the screen trace from the point, then (vsm+screen)
 // the light's virtual shadow map. A source this program does not hold is not in the frame's set
-// (SceneRenderer::StochasticTraceSources). A light whose shadowCaster is 0 (CastShadows off) is not tested.
+// (SceneRenderer::StochasticTraceSources). A light without kLightShadowInView (CastShadows off) is not tested.
 float VolumeVisibility(int light, vec3 p, inout uint random)
 {
 	const int  points = int(Counts.x);
-	const bool casts  = (light < points ? pointLights[light].shadowCaster
-	                                    : spotLights[light - points].shadowCaster) != 0;
+	const bool casts  = DesertLightShadowsInView(light < points ? pointLights[light].shadowFlags
+	                                                            : spotLights[light - points].shadowFlags);
 	if (!casts)
 		return 1.0;
 	vec3  origin;

@@ -69,7 +69,7 @@ vec3 DesertAmbientSpecular( vec3 worldDirection, float roughness );
 //   GBufferA           RGBA8    BaseColor.rgb, Metallic.a                       — full
 //   GBufferB           RGBA16F  world Normal.rgb, Roughness.a                   — full
 //   GBufferShadingWord RG32_UINT the shading word below
-//   GBufferEmissive    RGBA16F  Emissive.rgb, AmbientOcclusion.a                — full
+//   GBufferEmissive    RGBA16F  Emissive.rgb, occlusion and caster sign in .a (Common/GBufferOcclusion.glslh)
 // World position is not stored: every reader reconstructs it from the scene depth (Common/ReconstructPosition.glslh).
 // The word is a pair of 32-bit unsigned integers (uvec2), written and read with integer operations only (an
 // integer target is never filtered: readers texelFetch it). Its bit fields, numbered across the pair (0..31 = .x,

@@ -4,7 +4,7 @@
 #include <gtest/gtest.h>
 #include <Engine/ECS/FoliageFieldEntities.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <Engine/ECS/RelationshipComponent.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
 

@@ -67,40 +67,88 @@ namespace Desert::Water
     /// The falling sheet's thickness (cm): a point this close to the sheet's mid-plane is in the falling water
     /// (RiverFallAt) - what a floating body caught by the fall is dragged down by.
     inline constexpr float kRiverFallSheetThicknessCm = 40.0f;
+    /// A sheet's drop below the receiving water's level, cm: the falling water plunges on under the surface, so a
+    /// wave trough never opens a gap under it (the receiving surface hides it by depth / WaterFallUnderRiver).
+    inline constexpr float kRiverFallPlungeCm = 100.0f;
+    /// The samples of one fall's flight from its lip to its plunge (the sheet's rows), plus one flat sample of
+    /// overlap on the river above the lip.
+    inline constexpr uint32_t kRiverFallSheetSamples = 16u;
+    /// THE PLUNGE (the white boil where the fall lands): its radius past the sheet's half width per cm of drop, and
+    /// the share of the landing speed the surface current leaves the landing line with, decaying to 0 at the radius
+    /// (calibrated on the reference frame: Seljalandsfoss, 60 m drop, boil ~25-30 m across).
+    inline constexpr float kPlungeRadiusPerDrop = 0.5f;
+    inline constexpr float kPlungeOutflowShare  = 0.3f;
+    /// A river sample this close above an ocean's level (cm) inside its footprint is the river's mouth (it covers
+    /// the spline's Catmull-Rom overshoot, ~11 cm on Water_Falls).
+    inline constexpr float kRiverMouthToleranceCm = 20.0f;
 
-    /// One sample of a fall's centre line (the river's spline samples over the steep reach, one flat sample of
-    /// overlap at each end so the sheet meets the river surface above and below it).
+    /// One sample of a fall's centre line: the water's flight (RiverFall), uniform in flight time, after one flat
+    /// sample of overlap on the river above the lip so the sheet starts on the river's surface.
     struct RiverFallSample
     {
-        glm::vec3 Position{ 0.0f };  // world, cm: the sheet's centre line
-        glm::vec3 Direction{ 0.0f }; // unit 3D tangent of the fall (down the sheet)
-        float     Distance = 0.0f;   // along the 3D centre line from the fall's first sample, cm
-        /// How far below the lip the sheet is here, cm (>= 0): the water's speed along the sheet follows from it
-        /// (RiverFallSpeed). Geometry only, so the bake is the same whatever reads it.
-        float Drop = 0.0f;
+        glm::vec3 Position{ 0.0f };  // world, cm: the sheet's centre line (the water's flight, see RiverFall)
+        glm::vec3 Direction{ 0.0f }; // unit 3D tangent (the water's velocity direction)
+        float     Distance = 0.0f;   // along the centre line from the first sample, cm
+        float     Drop     = 0.0f;   // below the lip, cm (>= 0)
+        float     Speed    = 0.0f;   // the water's speed here, cm/s: sqrt(v0^2 + 2 g Drop), baked once
     };
 
-    /// THE VELOCITY FROM THE SLOPE: the water leaves the lip at the river's @p flowSpeed (cm/s) and gains by free
-    /// fall down the sheet, v^2 = v0^2 + 2 g dh (@p drop cm below the lip, @p gravity cm/s^2: the scene's).
-    [[nodiscard]] float RiverFallSpeed( float flowSpeed, float drop, float gravity ) noexcept;
+    /// Where a fall lands (the boil): the foam source and the surface current away from the landing line.
+    struct FallPlunge
+    {
+        glm::vec3 Foot{ 0.0f };             // the landing line's centre on the receiving level, world cm
+        glm::vec3 Across{ 1.0f, 0.0f, 0.0f };
+        glm::vec2 Downstream{ 1.0f, 0.0f }; // unit XZ: the flight's horizontal direction
+        float     HalfWidth    = 0.0f;      // cm
+        float     Radius       = 0.0f;      // HalfWidth + kPlungeRadiusPerDrop * Height, cm
+        float     LandingSpeed = 0.0f;      // cm/s
+        float     OutflowSpeed = 0.0f;      // kPlungeOutflowShare * LandingSpeed, cm/s at the landing line
+    };
 
-    /// One waterfall of a river (a run of steep spline stretches), world space.
+    /// One waterfall, world space. THE FLIGHT: the water leaves the lip horizontally at FlowSpeed and falls under
+    /// the scene's gravity; where the authored bed (the spline) stands above that flight the water slides on the
+    /// bed and leaves it again where the bed drops away (a chute and a free fall are one rule). The flight ends
+    /// kRiverFallPlungeCm under the level below the steep run.
     struct RiverFall
     {
-        std::vector<RiverFallSample> Samples; // >= 2
+        std::vector<RiverFallSample> Samples; // kRiverFallSheetSamples + 1
         /// Unit horizontal vector across the sheet (the river's width direction at the lip).
         glm::vec3 Across{ 1.0f, 0.0f, 0.0f };
         float     Width = 0.0f; // the river's width, cm
-        /// The lip (top of the steep reach) and the foot (where the fall meets the water below), world cm.
+        /// The lip (top of the steep reach), world cm.
         glm::vec3 Lip{ 0.0f };
+        /// Where the flight meets the level below (Plunge.Foot), world cm.
         glm::vec3 Foot{ 0.0f };
-        /// The river's FlowSpeed (cm/s): the speed the water leaves the lip at (RiverFallSpeed's v0).
+        /// The river's FlowSpeed (cm/s): the speed the water leaves the lip at.
         float FlowSpeed = 0.0f;
-        /// The lip's height over the foot, cm.
+        /// The lip's height over the level below, cm.
         float Height = 0.0f;
-        /// The river's flow distance (RiverFlowField texel w) at the lip, cm: the sheet's flow phase continues the
-        /// river's, so the texture runs over the edge without a seam.
-        float LipFlowDistance = 0.0f;
+        /// The river's flow distance (RiverFlowField texel w) at the first sample, cm: the sheet's flow phase
+        /// continues the river's, so the texture runs over the edge without a seam.
+        float      LipFlowDistance = 0.0f;
+        FallPlunge Plunge;
+    };
+
+    /// An ocean body a river may end in (WaterRiverBakes collects them; part of the river's bake key).
+    struct RiverReceiver
+    {
+        uint32_t  Id = 0u;     // entt::entity of the ocean body
+        glm::vec2 Min{ 0.0f }; // its footprint, world XZ cm
+        glm::vec2 Max{ 0.0f };
+        float     Level = 0.0f; // its still level, cm
+    };
+
+    /// Where a river enters an ocean (UE: the river-to-ocean transition, but for queries as well as for drawing):
+    /// the first spline sample downstream of the river's last fall that lies inside a receiver's footprint at or
+    /// below its level + kRiverMouthToleranceCm. The river's bake stops there; the receiver owns the water beyond.
+    struct RiverMouth
+    {
+        uint32_t  Into = 0u;     // RiverReceiver::Id
+        glm::vec2 Point{ 0.0f }; // world XZ, cm
+        /// Over this distance upstream (cm) the river takes on the receiver's waves, 0 at the distance, 1 at the
+        /// mouth: min(river width, the XZ distance from the last fall's plunge to the mouth); 0 when the last fall
+        /// lands at or past the mouth (the fall pours straight into the receiver).
+        float Radius = 0.0f;
     };
 
     /// What a point meets in a fall's sheet (RiverFallAt).
@@ -134,6 +182,8 @@ namespace Desert::Water
         /// steep carry no bank mask: the fall's sheet is drawn there instead of the flat surface, and the CPU
         /// answers the sheet (RiverFallAt), not a level.
         std::vector<RiverFall> Falls;
+        /// The ocean this river ends in; its texels stop at Mouth.Point (the receiver owns the water beyond).
+        std::optional<RiverMouth> Mouth;
     };
 
     /// The largest side a flow field is baked at (texels): a longer river gets coarser texels, not a bigger image.
@@ -144,7 +194,7 @@ namespace Desert::Water
     /// WaterOutsideBank, `WATER_RIVER_BANK_CLIP`) and for every CPU query (WaterBodyCovers) alike.
     inline constexpr float kRiverBankClip = 0.5f;
 
-    /// The flow at @p xz (world XZ, cm) exactly as the water surface reads it (WaterMeshTiles.glslh WaterFlowAt):
+    /// The flow at @p xz (world XZ, cm) exactly as the water surface reads it (WaterRiver.glslh WaterFlowAt):
     /// xy = the surface velocity (cm/s), z = the bank mask, bilinear between the texel centres, a neighbour off
     /// the field counting as zero. Zero for an empty field.
     [[nodiscard]] glm::vec3 SampleRiverFlowBilinear( const RiverFlowField& field, glm::vec2 xz ) noexcept;
@@ -158,25 +208,39 @@ namespace Desert::Water
     [[nodiscard]] std::optional<float> SampleRiverSurfaceY( const RiverFlowField& field, glm::vec2 xz ) noexcept;
 
     /// The falling sheet at @p point (world cm): the nearest fall stretch whose mid-plane lies within half of
-    /// kRiverFallSheetThicknessCm of the point and whose width spans it, its water falling at RiverFallSpeed under
-    /// @p gravity (cm/s^2, the scene's); nullopt elsewhere.
-    [[nodiscard]] std::optional<RiverFallHit> RiverFallAt( const RiverFlowField& field, const glm::vec3& point,
-                                                           float gravity ) noexcept;
+    /// kRiverFallSheetThicknessCm of the point and whose width spans it, its water moving at the baked
+    /// RiverFallSample::Speed; nullopt elsewhere.
+    [[nodiscard]] std::optional<RiverFallHit> RiverFallAt( const RiverFlowField& field,
+                                                           const glm::vec3&      point ) noexcept;
+
+    /// The surface current a plunge drives at @p xz (world XZ cm): away from the landing line,
+    /// OutflowSpeed * (1 - d / Radius)^2 with d the distance to Foot; 0 past Radius. The GPU twin is
+    /// WaterRiver.glslh WaterPlungeAt.
+    [[nodiscard]] glm::vec2 PlungeVelocityAt( const FallPlunge& plunge, glm::vec2 xz ) noexcept;
+
+    /// The share (0..1) of the receiver's waves a river carries at @p xz: 1 - |xz - Mouth.Point| / Mouth.Radius,
+    /// clamped; 0 with no mouth or a zero radius. The GPU twin is WaterRiver.glslh WaterMouthWeight.
+    [[nodiscard]] float RiverMouthWeight( const RiverFlowField& field, glm::vec2 xz ) noexcept;
 
     /// Bakes @p points (already in world space) into a flow field of about @p cmPerTexel (clamped so neither side
-    /// exceeds kRiverFlowMaxSize), its steep reaches found as falls (RiverFlowField::Falls). An empty field
-    /// (Size 0) for fewer than two points or a non-positive width.
+    /// exceeds kRiverFlowMaxSize), its steep reaches found as falls flown under @p gravity (cm/s^2, > 0) and its
+    /// mouth into one of @p receivers (RiverFlowField::Mouth; the field stops there). An empty field (Size 0) for
+    /// fewer than two points or a non-positive width.
     [[nodiscard]] RiverFlowField BakeRiverFlow( std::span<const glm::vec3> points, float width, float flowSpeed,
-                                                float flowPeriod, float cmPerTexel ) noexcept;
+                                                float flowPeriod, float cmPerTexel, float gravity,
+                                                std::span<const RiverReceiver> receivers ) noexcept;
 
-    /// One river body as the ECS authors it (ECS::WaterBodyData + the entity's location): what a bake reads.
+    /// One river body as the ECS authors it (ECS::WaterBodyData + the entity's location) and the world it flows
+    /// in: what a bake reads.
     struct RiverBakeInput
     {
-        std::span<const glm::vec3> LocalPoints; // relative to Origin
-        glm::vec3                  Origin{ 0.0f };
-        float                      Width      = 800.0f;
-        float                      FlowSpeed  = 150.0f;
-        float                      FlowPeriod = 1.0f;
+        std::span<const glm::vec3>     LocalPoints; // relative to Origin
+        glm::vec3                      Origin{ 0.0f };
+        float                          Width      = 800.0f;
+        float                          FlowSpeed  = 150.0f;
+        float                          FlowPeriod = 1.0f;
+        float                          Gravity    = 0.0f; // SceneSettings::Gravity, cm/s^2 (> 0)
+        std::span<const RiverReceiver> Receivers;         // the world's unrefused ocean bodies
     };
 
     /// The texel size every river is baked at, cm (BakeRiverFlow coarsens it for a river longer than

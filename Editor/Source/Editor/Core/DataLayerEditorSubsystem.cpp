@@ -6,7 +6,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <algorithm>
 #include <format>

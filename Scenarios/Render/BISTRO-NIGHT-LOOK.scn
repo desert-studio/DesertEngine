@@ -1,0 +1,563 @@
+# BISTRO-NIGHT-LOOK (design F:/aftmp/DESIGN-BISTRO-NIGHT-LOOK.md, Приёмка): the Bistro night against the path tracer of
+# this build, after the light visibility flag (D2), one exposure offset (D12, v78), shadowed coloured bulbs, emissive
+# luminances, moon shadows, night fog, bloom and the after-rain street (content of F:/BistroFoliageProj).
+# Numbers (Приёмка 3): linear L per region, 4x4 blocks. C1 S_hw vs S_pt facade/street/awning/hedge L +-25 %, R/G +-15 %;
+# C2 shield B/G and R/G +-15 % of S_pt; C3 the K1/K4 shares; C4 emitters in cd/m2 +-20 % (lamp globe 3400, bulbs
+# 4225 x Y-ratio, signs 300/800/150); C5 cypress S_hw <= S_pt +25 %; C6 day_B16 mean |d| <= 1/255 vs the pre-change
+# build; C7 the profile-dump after S_hw and W_hw: GPU frame <= +2.0 ms vs before, [Memory] census within budget.
+# Fog and bloom are off in every PT compare (D15: the PT has no fog). EV100 below is the probe's; acceptance writes the
+# graded value here and in the PPV once (design 4.10). K3 (k_emissive_off_*, D1c) is not in this file: the control protocol has
+# no asset subject (ControlProtocol.hpp kSubjects) and Material.setMaterialParam reaches slot 0 only - design, Поправки.
+# day_B16 first: the day scene opens before any night edit, so no unsaved-scene question stands between them.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+Когда --subject viewport set Camera.Position -20,250,330
+Когда --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Когда frames 240
+Тогда-вид day_B16 [day_B16] the B16 day street at the level's methods: mean |d| <= 1/255 against the same frame of the pre-change build (v78 and the visibility flag leave a day scene unchanged)
+Когда run Scene "Open Scene GI_Bistro_Night.desce"
+Когда frames 30
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure false
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.ManualExposureEV100 0.5260688
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.EnableBloom false
+Дано set 7130000000000010000 ExponentialHeightFogData.Enabled false
+Когда frames 180
+Тогда-вид S_level [S_level] the level's own methods, fog and bloom off: facades, street, awning underside within +-35 % of S_pt
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run Quality "Quality: Shadows.Method HardwareTraced"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда frames 180
+Тогда-вид S_hw [S_hw] HW GI, shadows, reflections: the shield teal-grey as in S_pt, not blue; the cypress <= S_pt +25 %; facades, street, awning underside within +-25 % of S_pt
+Когда profile-dump
+# K1 (D1a): the room lights off under HW GI.
+Когда set 7130000000000000001 PointLightData.Intensity 0
+Когда set 7130000000000000004 PointLightData.Intensity 0
+Когда set 7130000000000000006 PointLightData.Intensity 0
+Когда set 7130000000000000007 PointLightData.Intensity 0
+Когда set 7130000000000000008 PointLightData.Intensity 0
+Когда set 7130000000000000009 PointLightData.Intensity 0
+Когда set 7130000000000000010 PointLightData.Intensity 0
+Когда set 7130000000000000011 PointLightData.Intensity 0
+Когда set 7130000000000000012 PointLightData.Intensity 0
+Когда set 7130000000000000013 PointLightData.Intensity 0
+Когда set 7130000000000000014 PointLightData.Intensity 0
+Когда set 7130000000000000015 PointLightData.Intensity 0
+Когда set 7130000000000000016 PointLightData.Intensity 0
+Когда set 7130000000000000017 PointLightData.Intensity 0
+Когда set 7130000000000000018 PointLightData.Intensity 0
+Когда set 7130000000000000019 PointLightData.Intensity 0
+Когда set 7130000000000000020 PointLightData.Intensity 0
+Когда set 7130000000000000021 PointLightData.Intensity 0
+Когда set 7130000000000000022 PointLightData.Intensity 0
+Когда set 7130000000000000023 PointLightData.Intensity 0
+Когда set 7130000000000000024 PointLightData.Intensity 0
+Когда set 7130000000000000025 PointLightData.Intensity 0
+Когда set 7130000000000000026 PointLightData.Intensity 0
+Когда set 7130000000000000027 PointLightData.Intensity 0
+Когда set 7130000000000000028 PointLightData.Intensity 0
+Когда set 7130000000000000029 PointLightData.Intensity 0
+Когда set 7130000000000000030 PointLightData.Intensity 0
+Когда set 7130000000000000031 PointLightData.Intensity 0
+Когда set 7130000000000000032 PointLightData.Intensity 0
+Когда set 7130000000000000033 PointLightData.Intensity 0
+Когда set 7130000000000000034 PointLightData.Intensity 0
+Когда set 7130000000000000037 PointLightData.Intensity 0
+Когда set 7130000000000000038 PointLightData.Intensity 0
+Когда set 7130000000000000039 PointLightData.Intensity 0
+Когда set 7130000000000000040 PointLightData.Intensity 0
+Когда set 7130000000000000041 PointLightData.Intensity 0
+Когда set 7130000000000000042 PointLightData.Intensity 0
+Когда set 7130000000000000043 PointLightData.Intensity 0
+Когда set 7130000000000000044 PointLightData.Intensity 0
+Когда set 7130000000000000045 PointLightData.Intensity 0
+Когда set 7130000000000000046 PointLightData.Intensity 0
+Когда set 7130000000000000047 PointLightData.Intensity 0
+Когда set 7130000000000000048 PointLightData.Intensity 0
+Когда set 7130000000000000049 PointLightData.Intensity 0
+Когда set 7130000000000000050 PointLightData.Intensity 0
+Когда set 7130000000000000051 PointLightData.Intensity 0
+Когда set 7130000000000000052 PointLightData.Intensity 0
+Когда set 7130000000000000053 PointLightData.Intensity 0
+Когда set 7130000000000000054 PointLightData.Intensity 0
+Когда set 7130000000000000055 PointLightData.Intensity 0
+Когда set 7130000000000000056 PointLightData.Intensity 0
+Когда set 7130000000000000057 PointLightData.Intensity 0
+Когда set 7130000000000000058 PointLightData.Intensity 0
+Когда set 7130000000000000059 PointLightData.Intensity 0
+Когда set 7130000000000000060 PointLightData.Intensity 0
+Когда set 7130000000000000061 PointLightData.Intensity 0
+Когда set 7130000000000000079 PointLightData.Intensity 0
+Когда set 7130000000000000082 PointLightData.Intensity 0
+Когда set 7130000000000000083 PointLightData.Intensity 0
+Когда set 7130000000000000084 PointLightData.Intensity 0
+Когда set 7130000000000000086 PointLightData.Intensity 0
+Когда set 7130000000000000087 PointLightData.Intensity 0
+Когда set 7130000000000000092 PointLightData.Intensity 0
+Когда set 7130000000000000127 PointLightData.Intensity 0
+Когда set 7130000000000000136 PointLightData.Intensity 0
+Когда set 7130000000000000154 PointLightData.Intensity 0
+Когда frames 180
+Тогда-вид k_rooms_off_hw [k_rooms_off_hw] rooms at 0: the share of the S_pt - S_hw gap per region it removes is logged (D1a)
+Когда set 7130000000000000001 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000004 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000006 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000007 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000008 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000009 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000010 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000011 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000012 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000013 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000014 PointLightData.Intensity 13560.7998046875
+Когда set 7130000000000000015 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000016 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000017 PointLightData.Intensity 13560.7998046875
+Когда set 7130000000000000018 PointLightData.Intensity 6287.39990234375
+Когда set 7130000000000000019 PointLightData.Intensity 6287.39990234375
+Когда set 7130000000000000020 PointLightData.Intensity 6287.39990234375
+Когда set 7130000000000000021 PointLightData.Intensity 6287.39990234375
+Когда set 7130000000000000022 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000023 PointLightData.Intensity 10934.599609375
+Когда set 7130000000000000024 PointLightData.Intensity 6109.60009765625
+Когда set 7130000000000000025 PointLightData.Intensity 5810.89990234375
+Когда set 7130000000000000026 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000027 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000028 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000029 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000030 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000031 PointLightData.Intensity 1950.199951171875
+Когда set 7130000000000000032 PointLightData.Intensity 1950.199951171875
+Когда set 7130000000000000033 PointLightData.Intensity 1950.199951171875
+Когда set 7130000000000000034 PointLightData.Intensity 1950.199951171875
+Когда set 7130000000000000037 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000038 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000039 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000040 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000041 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000042 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000043 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000044 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000045 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000046 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000047 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000048 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000049 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000050 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000051 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000052 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000053 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000054 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000055 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000056 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000057 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000058 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000059 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000060 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000061 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000079 PointLightData.Intensity 644.4000244140625
+Когда set 7130000000000000082 PointLightData.Intensity 644.4000244140625
+Когда set 7130000000000000083 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000084 PointLightData.Intensity 644.4000244140625
+Когда set 7130000000000000086 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000087 PointLightData.Intensity 644.4000244140625
+Когда set 7130000000000000092 PointLightData.Intensity 644.4000244140625
+Когда set 7130000000000000127 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000136 PointLightData.Intensity 644.4000244140625
+Когда set 7130000000000000154 PointLightData.Intensity 853.4000244140625
+# K4 (D4): one source at a time under HW GI.
+Когда set 7130000000000000062 PointLightData.Intensity 0
+Когда set 7130000000000000063 PointLightData.Intensity 0
+Когда set 7130000000000000064 PointLightData.Intensity 0
+Когда set 7130000000000000065 PointLightData.Intensity 0
+Когда set 7130000000000000066 PointLightData.Intensity 0
+Когда set 7130000000000000067 PointLightData.Intensity 0
+Когда set 7130000000000000068 PointLightData.Intensity 0
+Когда set 7130000000000000069 PointLightData.Intensity 0
+Когда set 7130000000000000070 PointLightData.Intensity 0
+Когда set 7130000000000000071 PointLightData.Intensity 0
+Когда set 7130000000000000072 PointLightData.Intensity 0
+Когда set 7130000000000000073 PointLightData.Intensity 0
+Когда set 7130000000000000074 PointLightData.Intensity 0
+Когда set 7130000000000000075 PointLightData.Intensity 0
+Когда set 7130000000000000076 PointLightData.Intensity 0
+Когда set 7130000000000000077 PointLightData.Intensity 0
+Когда set 7130000000000000098 PointLightData.Intensity 0
+Когда set 7130000000000000099 PointLightData.Intensity 0
+Когда set 7130000000000000100 PointLightData.Intensity 0
+Когда set 7130000000000000101 PointLightData.Intensity 0
+Когда set 7130000000000000102 PointLightData.Intensity 0
+Когда set 7130000000000000103 PointLightData.Intensity 0
+Когда set 7130000000000000104 PointLightData.Intensity 0
+Когда set 7130000000000000105 PointLightData.Intensity 0
+Когда set 7130000000000000107 PointLightData.Intensity 0
+Когда set 7130000000000000108 PointLightData.Intensity 0
+Когда set 7130000000000000109 PointLightData.Intensity 0
+Когда set 7130000000000000110 PointLightData.Intensity 0
+Когда set 7130000000000000111 PointLightData.Intensity 0
+Когда set 7130000000000000112 PointLightData.Intensity 0
+Когда set 7130000000000000113 PointLightData.Intensity 0
+Когда set 7130000000000000114 PointLightData.Intensity 0
+Когда set 7130000000000000118 PointLightData.Intensity 0
+Когда set 7130000000000000119 PointLightData.Intensity 0
+Когда set 7130000000000000120 PointLightData.Intensity 0
+Когда set 7130000000000000121 PointLightData.Intensity 0
+Когда set 7130000000000000122 PointLightData.Intensity 0
+Когда set 7130000000000000123 PointLightData.Intensity 0
+Когда set 7130000000000000124 PointLightData.Intensity 0
+Когда set 7130000000000000125 PointLightData.Intensity 0
+Когда set 7130000000000000128 PointLightData.Intensity 0
+Когда set 7130000000000000129 PointLightData.Intensity 0
+Когда set 7130000000000000130 PointLightData.Intensity 0
+Когда set 7130000000000000131 PointLightData.Intensity 0
+Когда set 7130000000000000132 PointLightData.Intensity 0
+Когда set 7130000000000000133 PointLightData.Intensity 0
+Когда set 7130000000000000134 PointLightData.Intensity 0
+Когда set 7130000000000000135 PointLightData.Intensity 0
+Когда set 7130000000000000137 PointLightData.Intensity 0
+Когда set 7130000000000000138 PointLightData.Intensity 0
+Когда set 7130000000000000139 PointLightData.Intensity 0
+Когда set 7130000000000000140 PointLightData.Intensity 0
+Когда set 7130000000000000141 PointLightData.Intensity 0
+Когда set 7130000000000000142 PointLightData.Intensity 0
+Когда set 7130000000000000143 PointLightData.Intensity 0
+Когда set 7130000000000000144 PointLightData.Intensity 0
+Когда set 7130000000000000146 PointLightData.Intensity 0
+Когда set 7130000000000000147 PointLightData.Intensity 0
+Когда set 7130000000000000148 PointLightData.Intensity 0
+Когда set 7130000000000000149 PointLightData.Intensity 0
+Когда set 7130000000000000150 PointLightData.Intensity 0
+Когда set 7130000000000000151 PointLightData.Intensity 0
+Когда set 7130000000000000152 PointLightData.Intensity 0
+Когда set 7130000000000000153 PointLightData.Intensity 0
+Когда frames 180
+Тогда-вид k_bulbs_off_hw [k_bulbs_off_hw] bulbs at 0: says whether the bulbs turn the shield's B/G
+Когда set 7130000000000000062 PointLightData.Intensity 98.4188
+Когда set 7130000000000000063 PointLightData.Intensity 29.326
+Когда set 7130000000000000064 PointLightData.Intensity 29.326
+Когда set 7130000000000000065 PointLightData.Intensity 29.326
+Когда set 7130000000000000066 PointLightData.Intensity 29.326
+Когда set 7130000000000000067 PointLightData.Intensity 150.0
+Когда set 7130000000000000068 PointLightData.Intensity 150.0
+Когда set 7130000000000000069 PointLightData.Intensity 83.521
+Когда set 7130000000000000070 PointLightData.Intensity 98.4188
+Когда set 7130000000000000071 PointLightData.Intensity 98.4188
+Когда set 7130000000000000072 PointLightData.Intensity 98.4188
+Когда set 7130000000000000073 PointLightData.Intensity 98.4188
+Когда set 7130000000000000074 PointLightData.Intensity 29.326
+Когда set 7130000000000000075 PointLightData.Intensity 29.326
+Когда set 7130000000000000076 PointLightData.Intensity 83.521
+Когда set 7130000000000000077 PointLightData.Intensity 63.8857
+Когда set 7130000000000000098 PointLightData.Intensity 29.326
+Когда set 7130000000000000099 PointLightData.Intensity 63.8857
+Когда set 7130000000000000100 PointLightData.Intensity 63.8857
+Когда set 7130000000000000101 PointLightData.Intensity 63.8857
+Когда set 7130000000000000102 PointLightData.Intensity 67.1329
+Когда set 7130000000000000103 PointLightData.Intensity 67.1329
+Когда set 7130000000000000104 PointLightData.Intensity 150.0
+Когда set 7130000000000000105 PointLightData.Intensity 83.521
+Когда set 7130000000000000107 PointLightData.Intensity 98.4188
+Когда set 7130000000000000108 PointLightData.Intensity 67.1329
+Когда set 7130000000000000109 PointLightData.Intensity 67.1329
+Когда set 7130000000000000110 PointLightData.Intensity 67.1329
+Когда set 7130000000000000111 PointLightData.Intensity 150.0
+Когда set 7130000000000000112 PointLightData.Intensity 150.0
+Когда set 7130000000000000113 PointLightData.Intensity 83.521
+Когда set 7130000000000000114 PointLightData.Intensity 29.326
+Когда set 7130000000000000118 PointLightData.Intensity 98.4188
+Когда set 7130000000000000119 PointLightData.Intensity 67.1329
+Когда set 7130000000000000120 PointLightData.Intensity 67.1329
+Когда set 7130000000000000121 PointLightData.Intensity 67.1329
+Когда set 7130000000000000122 PointLightData.Intensity 150.0
+Когда set 7130000000000000123 PointLightData.Intensity 150.0
+Когда set 7130000000000000124 PointLightData.Intensity 83.521
+Когда set 7130000000000000125 PointLightData.Intensity 29.326
+Когда set 7130000000000000128 PointLightData.Intensity 98.4188
+Когда set 7130000000000000129 PointLightData.Intensity 63.8857
+Когда set 7130000000000000130 PointLightData.Intensity 63.8857
+Когда set 7130000000000000131 PointLightData.Intensity 63.8857
+Когда set 7130000000000000132 PointLightData.Intensity 150.0
+Когда set 7130000000000000133 PointLightData.Intensity 150.0
+Когда set 7130000000000000134 PointLightData.Intensity 83.521
+Когда set 7130000000000000135 PointLightData.Intensity 29.326
+Когда set 7130000000000000137 PointLightData.Intensity 98.4188
+Когда set 7130000000000000138 PointLightData.Intensity 67.1329
+Когда set 7130000000000000139 PointLightData.Intensity 67.1329
+Когда set 7130000000000000140 PointLightData.Intensity 67.1329
+Когда set 7130000000000000141 PointLightData.Intensity 150.0
+Когда set 7130000000000000142 PointLightData.Intensity 150.0
+Когда set 7130000000000000143 PointLightData.Intensity 83.521
+Когда set 7130000000000000144 PointLightData.Intensity 29.326
+Когда set 7130000000000000146 PointLightData.Intensity 98.4188
+Когда set 7130000000000000147 PointLightData.Intensity 67.1329
+Когда set 7130000000000000148 PointLightData.Intensity 67.1329
+Когда set 7130000000000000149 PointLightData.Intensity 67.1329
+Когда set 7130000000000000150 PointLightData.Intensity 150.0
+Когда set 7130000000000000151 PointLightData.Intensity 150.0
+Когда set 7130000000000000152 PointLightData.Intensity 83.521
+Когда set 7130000000000000153 PointLightData.Intensity 29.326
+Когда set 7240518839215467023 DirectionalLightData.Intensity 0
+Когда frames 180
+Тогда-вид k_moon_off_hw [k_moon_off_hw] moon at 0: says whether the moon turns the shield's B/G
+Когда set 7240518839215467023 DirectionalLightData.Intensity 0.25
+Когда set 4576059197435775655 SkyAtmosphereData.NightColor 0,0,0
+# AutoRebakeEnvironment rebakes beyond a 5 degree sun change only: 22 -> 23 -> 22 forces it (design D4).
+Когда set 4576059197435775655 TimeOfDayData.TimeOfDay 23
+Когда frames 30
+Когда set 4576059197435775655 TimeOfDayData.TimeOfDay 22
+Когда frames 180
+Тогда-вид k_sky_off_hw [k_sky_off_hw] night sky fill at 0: says whether the sky turns the shield's B/G
+Когда set 4576059197435775655 SkyAtmosphereData.NightColor 0.009999999776482582,0.019999999552965164,0.05000000074505806
+Когда set 4576059197435775655 TimeOfDayData.TimeOfDay 23
+Когда frames 30
+Когда set 4576059197435775655 TimeOfDayData.TimeOfDay 22
+Когда frames 180
+Когда run View "View mode: Lumen Scene (Lit)"
+Когда frames 30
+Тогда-вид d_cards_S [d_cards_S] the surface-cache cards from S: the string lights and the paris_building_01 bottoms have cards, or editor.log names why not (D14)
+Когда run View "View mode: Lit"
+Когда frames 60
+# 30 cm to the right (0.8,0,-0.6), 1 cm per frame, the shot at once (temporal stability of the fog history).
+Когда set 7130000000000010000 ExponentialHeightFogData.Enabled true
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.EnableBloom true
+Когда frames 180
+Тогда-вид S_hw_settled [S_hw_turn] the settled frame the move is measured against
+Когда --subject viewport set Camera.Position -19.2,250,329.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -18.4,250,328.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -17.6,250,328.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -16.8,250,327.6
+Когда frames 1
+Когда --subject viewport set Camera.Position -16.0,250,327.0
+Когда frames 1
+Когда --subject viewport set Camera.Position -15.2,250,326.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -14.4,250,325.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -13.6,250,325.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -12.8,250,324.6
+Когда frames 1
+Когда --subject viewport set Camera.Position -12.0,250,324.0
+Когда frames 1
+Когда --subject viewport set Camera.Position -11.2,250,323.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -10.4,250,322.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -9.6,250,322.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -8.8,250,321.6
+Когда frames 1
+Когда --subject viewport set Camera.Position -8.0,250,321.0
+Когда frames 1
+Когда --subject viewport set Camera.Position -7.2,250,320.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -6.4,250,319.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -5.6,250,319.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -4.8,250,318.6
+Когда frames 1
+Когда --subject viewport set Camera.Position -4.0,250,318.0
+Когда frames 1
+Когда --subject viewport set Camera.Position -3.2,250,317.4
+Когда frames 1
+Когда --subject viewport set Camera.Position -2.4,250,316.8
+Когда frames 1
+Когда --subject viewport set Camera.Position -1.6,250,316.2
+Когда frames 1
+Когда --subject viewport set Camera.Position -0.8,250,315.6
+Когда frames 1
+Когда --subject viewport set Camera.Position 0.0,250,315.0
+Когда frames 1
+Когда --subject viewport set Camera.Position 0.8,250,314.4
+Когда frames 1
+Когда --subject viewport set Camera.Position 1.6,250,313.8
+Когда frames 1
+Когда --subject viewport set Camera.Position 2.4,250,313.2
+Когда frames 1
+Когда --subject viewport set Camera.Position 3.2,250,312.6
+Когда frames 1
+Когда --subject viewport set Camera.Position 4.0,250,312.0
+Когда frames 1
+Тогда-вид S_hw_turn [S_hw_turn] right after the move: no fog or bloom shimmer, mean |dL| on the lamp halos <= 10 % of S_hw_settled
+Когда --subject viewport set Camera.Position -20,250,330
+Когда --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Когда set 7130000000000010000 ExponentialHeightFogData.Enabled false
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.EnableBloom false
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда run Quality "Quality: PathTracing.Denoiser Off"
+Когда run Quality "Quality: PathTracing.SamplesPerPixel 64"
+Когда frames 200
+Тогда-вид S_pt [S_pt] the reference: no fireflies over 0.5 % of the pixels; the bulbs' light ends at their 4 m radius
+Когда set 7130000000000000001 PointLightData.Intensity 0
+Когда set 7130000000000000004 PointLightData.Intensity 0
+Когда set 7130000000000000006 PointLightData.Intensity 0
+Когда set 7130000000000000007 PointLightData.Intensity 0
+Когда set 7130000000000000008 PointLightData.Intensity 0
+Когда set 7130000000000000009 PointLightData.Intensity 0
+Когда set 7130000000000000010 PointLightData.Intensity 0
+Когда set 7130000000000000011 PointLightData.Intensity 0
+Когда set 7130000000000000012 PointLightData.Intensity 0
+Когда set 7130000000000000013 PointLightData.Intensity 0
+Когда set 7130000000000000014 PointLightData.Intensity 0
+Когда set 7130000000000000015 PointLightData.Intensity 0
+Когда set 7130000000000000016 PointLightData.Intensity 0
+Когда set 7130000000000000017 PointLightData.Intensity 0
+Когда set 7130000000000000018 PointLightData.Intensity 0
+Когда set 7130000000000000019 PointLightData.Intensity 0
+Когда set 7130000000000000020 PointLightData.Intensity 0
+Когда set 7130000000000000021 PointLightData.Intensity 0
+Когда set 7130000000000000022 PointLightData.Intensity 0
+Когда set 7130000000000000023 PointLightData.Intensity 0
+Когда set 7130000000000000024 PointLightData.Intensity 0
+Когда set 7130000000000000025 PointLightData.Intensity 0
+Когда set 7130000000000000026 PointLightData.Intensity 0
+Когда set 7130000000000000027 PointLightData.Intensity 0
+Когда set 7130000000000000028 PointLightData.Intensity 0
+Когда set 7130000000000000029 PointLightData.Intensity 0
+Когда set 7130000000000000030 PointLightData.Intensity 0
+Когда set 7130000000000000031 PointLightData.Intensity 0
+Когда set 7130000000000000032 PointLightData.Intensity 0
+Когда set 7130000000000000033 PointLightData.Intensity 0
+Когда set 7130000000000000034 PointLightData.Intensity 0
+Когда set 7130000000000000037 PointLightData.Intensity 0
+Когда set 7130000000000000038 PointLightData.Intensity 0
+Когда set 7130000000000000039 PointLightData.Intensity 0
+Когда set 7130000000000000040 PointLightData.Intensity 0
+Когда set 7130000000000000041 PointLightData.Intensity 0
+Когда set 7130000000000000042 PointLightData.Intensity 0
+Когда set 7130000000000000043 PointLightData.Intensity 0
+Когда set 7130000000000000044 PointLightData.Intensity 0
+Когда set 7130000000000000045 PointLightData.Intensity 0
+Когда set 7130000000000000046 PointLightData.Intensity 0
+Когда set 7130000000000000047 PointLightData.Intensity 0
+Когда set 7130000000000000048 PointLightData.Intensity 0
+Когда set 7130000000000000049 PointLightData.Intensity 0
+Когда set 7130000000000000050 PointLightData.Intensity 0
+Когда set 7130000000000000051 PointLightData.Intensity 0
+Когда set 7130000000000000052 PointLightData.Intensity 0
+Когда set 7130000000000000053 PointLightData.Intensity 0
+Когда set 7130000000000000054 PointLightData.Intensity 0
+Когда set 7130000000000000055 PointLightData.Intensity 0
+Когда set 7130000000000000056 PointLightData.Intensity 0
+Когда set 7130000000000000057 PointLightData.Intensity 0
+Когда set 7130000000000000058 PointLightData.Intensity 0
+Когда set 7130000000000000059 PointLightData.Intensity 0
+Когда set 7130000000000000060 PointLightData.Intensity 0
+Когда set 7130000000000000061 PointLightData.Intensity 0
+Когда set 7130000000000000079 PointLightData.Intensity 0
+Когда set 7130000000000000082 PointLightData.Intensity 0
+Когда set 7130000000000000083 PointLightData.Intensity 0
+Когда set 7130000000000000084 PointLightData.Intensity 0
+Когда set 7130000000000000086 PointLightData.Intensity 0
+Когда set 7130000000000000087 PointLightData.Intensity 0
+Когда set 7130000000000000092 PointLightData.Intensity 0
+Когда set 7130000000000000127 PointLightData.Intensity 0
+Когда set 7130000000000000136 PointLightData.Intensity 0
+Когда set 7130000000000000154 PointLightData.Intensity 0
+Когда frames 200
+Тогда-вид k_rooms_off_pt [k_rooms_off_pt] rooms at 0 under the PT: with k_rooms_off_hw, the share of the gap K1 removes
+Когда set 7130000000000000001 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000004 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000006 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000007 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000008 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000009 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000010 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000011 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000012 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000013 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000014 PointLightData.Intensity 13560.7998046875
+Когда set 7130000000000000015 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000016 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000017 PointLightData.Intensity 13560.7998046875
+Когда set 7130000000000000018 PointLightData.Intensity 6287.39990234375
+Когда set 7130000000000000019 PointLightData.Intensity 6287.39990234375
+Когда set 7130000000000000020 PointLightData.Intensity 6287.39990234375
+Когда set 7130000000000000021 PointLightData.Intensity 6287.39990234375
+Когда set 7130000000000000022 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000023 PointLightData.Intensity 10934.599609375
+Когда set 7130000000000000024 PointLightData.Intensity 6109.60009765625
+Когда set 7130000000000000025 PointLightData.Intensity 5810.89990234375
+Когда set 7130000000000000026 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000027 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000028 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000029 PointLightData.Intensity 9180.7001953125
+Когда set 7130000000000000030 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000031 PointLightData.Intensity 1950.199951171875
+Когда set 7130000000000000032 PointLightData.Intensity 1950.199951171875
+Когда set 7130000000000000033 PointLightData.Intensity 1950.199951171875
+Когда set 7130000000000000034 PointLightData.Intensity 1950.199951171875
+Когда set 7130000000000000037 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000038 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000039 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000040 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000041 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000042 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000043 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000044 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000045 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000046 PointLightData.Intensity 10352.2001953125
+Когда set 7130000000000000047 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000048 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000049 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000050 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000051 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000052 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000053 PointLightData.Intensity 10454.400390625
+Когда set 7130000000000000054 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000055 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000056 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000057 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000058 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000059 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000060 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000061 PointLightData.Intensity 8996.099609375
+Когда set 7130000000000000079 PointLightData.Intensity 644.4000244140625
+Когда set 7130000000000000082 PointLightData.Intensity 644.4000244140625
+Когда set 7130000000000000083 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000084 PointLightData.Intensity 644.4000244140625
+Когда set 7130000000000000086 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000087 PointLightData.Intensity 644.4000244140625
+Когда set 7130000000000000092 PointLightData.Intensity 644.4000244140625
+Когда set 7130000000000000127 PointLightData.Intensity 853.4000244140625
+Когда set 7130000000000000136 PointLightData.Intensity 644.4000244140625
+Когда set 7130000000000000154 PointLightData.Intensity 853.4000244140625
+Когда --subject viewport set Camera.Position 0,190,1400
+Когда --subject viewport set Camera.Direction -0.15,-0.05,-0.99
+Когда frames 200
+Тогда-вид W_pt_wet [W_pt_wet] the wet street under the PT, fog and bloom off: the specular streak positions of W_hw_wet
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run Quality "Quality: Shadows.Method HardwareTraced"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда frames 180
+Тогда-вид W_hw_wet [W_hw_wet] the wet street under HW, fog and bloom off: streaks where W_pt_wet has them, street L within +-25 % (D16)
+Когда set 7130000000000010000 ExponentialHeightFogData.Enabled true
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.EnableBloom true
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure true
+Когда frames 240
+Тогда-вид W_hw [W_hw] every NightLamp draws a stretched streak on the cobbles, puddles mirror lamps and signs, light cones in the fog under each lamp, halos on globes and bulbs only, the signs the brightest non-lamp pixels; beside the City Sample night street
+Когда profile-dump
+Когда --subject viewport set Camera.Position 0,1520,2200
+Когда --subject viewport set Camera.Direction 0,-0.5,-0.866
+Когда frames 240
+Тогда-вид O_hw [O_hw] the bulbs light only their 4 m reach, no coloured wash on the facades behind the hedges; the fog thickens with distance, the far street hazed
+Когда --subject viewport set Camera.Position -20,250,330
+Когда --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Когда frames 240
+Тогда-вид auto [auto] auto exposure at the graded bias: the street region within +-0.5 EV of middle grey
+Когда frames 300
+Тогда-вид auto_300 [auto] 300 frames later: mean L within 2 % of auto (no drift from the clock D13 or adaptation)
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Shadows.Method Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: PathTracing.SamplesPerPixel Level"
+Когда run Quality "Quality: PathTracing.Denoiser Level"
+Когда run Quality "Quality: Resolution.Percent Level"

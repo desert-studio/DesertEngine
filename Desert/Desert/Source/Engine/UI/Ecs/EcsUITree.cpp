@@ -1,6 +1,8 @@
 #include "EcsUITree.hpp"
 
 #include <algorithm>
+#include <Common/Core/Core.hpp>
+#include <UI/UIWorld.hpp>
 #include <Engine/ECS/RelationshipComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
@@ -238,6 +240,13 @@ namespace Desert::UI
         out.reserve( found.size() );
         for ( const auto e : found )
             out.push_back( ToNode( e ) );
+    }
+
+    UIWorld& EcsUITree::World() const
+    {
+        UIWorld* const world = m_Reg->try_ctx<UIWorld>();
+        DESERT_VERIFY( world != nullptr, "a UI walk over a registry that is no world's (Scene sets its UIWorld)" );
+        return *world;
     }
 
     // The canvas entity's own TransformComponent translation — what the world-space billboard has always

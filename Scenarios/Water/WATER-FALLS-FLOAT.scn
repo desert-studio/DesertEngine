@@ -3,7 +3,8 @@
 # sheet (WaterRenderer fall rows, Vertex_WaterMesh.glslh WaterFallVertex) and answered by Water::RiverFallAt.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Falls.desce
 # A barrel (Capsule R 25, Mass 70, Buoyancy Collider) 10 m above the lip is carried to it by the current, dragged
-# down the sheet by the falling water's velocity (WaterQueryResult::Velocity = RiverFallSpeed) and floats in the lake.
+# down the sheet by the falling water's velocity (WaterQueryResult::Velocity = the baked flight's RiverFallSample::Speed)
+# and floats in the lake, pushed off the foot by the plunge's outflow (PlungeVelocityAt).
 Дано --subject viewport set Camera.Position 100,600,-2200
 Дано --subject viewport set Camera.Direction -0.1,-0.15,1
 Когда run Action "Simulate"

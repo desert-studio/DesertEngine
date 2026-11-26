@@ -20,6 +20,8 @@ ENGINE = re.compile(r"^Desert/(?!Tests/|Projects/).*\.(hpp|cpp|h)$")
 # Tables of numbers and icon names are data, not code.
 CODE = re.compile(r"^(Desert|Editor|Runtime|Server)/(?!Tests/|Projects/|.*Generated/|.*(?:SMAAAreaTexData|IconsMaterialDesignIcons)\.h)"
                   r".*\.(hpp|cpp|h)$")
+# The sources whose worlds share a process.
+STATICS = re.compile(r"^(Desert/(Desert/Source/Engine|Common/Source/Common/Core|UI|Audio|Landscape|Water|VFX)|Editor/Source|Runtime)/.*\.(hpp|cpp|h)$")
 MAX_LINES = 2500
 RULES = {
     # A process-wide object: breaks two worlds in one process (audit 8, 13, 14).
@@ -27,10 +29,68 @@ RULES = {
                                      r":\s*public\s+[\w:]*Singleton\s*<")),
     # The engine knows a game's content by name.
     "content-name": (ENGINE, re.compile(r'"[^"\n]*\b(Bistro|Downtown|GI_Bistro_Night|Sandbox)\w*[^"\n]*"')),
+    # Mutable state at namespace scope (the g_ convention): no owner, shared by every world.
+    "namespace-state": (STATICS, re.compile(r"^\s*(?!.*\b(?:const|constexpr|constinit|extern|return|using)\b)"
+                                            r"(?:(?:static|inline|thread_local)\s+)*[A-Za-z_][\w:]*(?:<.*>)?[\s*]+"
+                                            r"g_\w+\s*(?:\[[^\]]*\]\s*)?(?:[;{=]|$)", re.M)),
     # An engine library reaches up into the editor.
     "engine-includes-editor": (ENGINE, re.compile(r'#include\s*[<"](Editor|EditorCore)/')),
     "todo": (CODE, re.compile(r"//.*\b(TODO|FIXME|HACK)\b")),
 }
+
+
+NOT_CODE = re.compile(r'R"(?P<d>[^ ()\\\t\n]*)\(.*?\)(?P=d)"|//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\\n])*"'
+                      r"|(?<![0-9A-Fa-f])'(?:\\.|[^'\\\n])+'", re.S)
+DIRECTIVE = re.compile(r"^\s*#\s*(\w+)")
+TOKEN = re.compile(r"[{};]|\bstatic\b")
+
+
+def hidden_statics(text):
+    """The lines of function-local statics that are not const: state with no owner, shared by every world."""
+    text = NOT_CODE.sub(lambda m: '""' + "\n" * m.group().count("\n"), text)
+    lines, branches, continued = text.split("\n"), [], False
+    for i, line in enumerate(lines):
+        directive = DIRECTIVE.match(line)
+        if directive and not continued:
+            word = directive.group(1)
+            if word.startswith("if"):
+                branches.append(True)
+            elif word.startswith("el") and branches:
+                branches[-1] = False  # one branch only, so the braces of the two do not add up
+            elif word == "endif" and branches:
+                branches.pop()
+        blank = directive or continued or not all(branches)
+        continued = (directive is not None or continued) and line.rstrip().endswith("\\")
+        if blank:
+            lines[i] = ""
+    text = "\n".join(lines)
+    found, scopes, start = [], [], 0
+    for m in TOKEN.finditer(text):
+        token = m.group()
+        if token == "static":
+            if scopes and scopes[-1] == "function":
+                head = re.split(r"[=({;]", text[m.end():m.end() + 400], maxsplit=1)[0]
+                while "<" in head and re.search(r"<[^<>]*>", head):
+                    head = re.sub(r"<[^<>]*>", "", head)
+                # A const pointee does not make the pointer const: only what follows the last '*' counts.
+                own = head.rsplit("*", 1)[-1] if not re.search(r"\b(constexpr|constinit)\b", head) else head
+                if not re.search(r"\b(const|constexpr|constinit)\b", own):
+                    found.append(text.count("\n", 0, m.start()) + 1)
+            continue
+        if token == "{":
+            head = text[start:m.start()]
+            while re.search(r"<[^<>]*>", head):
+                head = re.sub(r"<[^<>]*>", "", head)
+            if re.search(r"\b(namespace|extern)\b", head):
+                scopes.append("namespace")
+            elif re.search(r"\b(class|struct|union|enum)\b", head) and not re.search(r"\)\s*(const|noexcept|override)?\s*$", head):
+                scopes.append("class")
+            else:
+                scopes.append("function")
+        elif token == "}" and scopes:
+            scopes.pop()
+        start = m.end()
+    return found
 
 
 def scan():
@@ -51,6 +111,10 @@ def scan():
                          and not (rule != "todo" and l.lstrip().startswith("//"))]
                 if found:
                     hits.setdefault(rule, {})[f] = found
+        if STATICS.match(f) and "static" in text:
+            found = hidden_statics(text)
+            if found:
+                hits.setdefault("hidden_statics", {})[f] = found
         if len(lines) > MAX_LINES:
             # Counted in steps of 100 lines, so a big file may not keep growing but a line or two is no event.
             hits.setdefault("file-too-big", {})[f] = [1] * ((len(lines) - MAX_LINES) // 100 + 1)
@@ -75,8 +139,15 @@ def main():
         if rises and "--accept-rise" not in sys.argv:
             print(f"arch_census: {len(rises)} rise(s), baseline not written")
             return 1
+        reasons = list((base or {}).get("_accepted_rises", []))
+        if rises:
+            at = sys.argv.index("--accept-rise") + 1
+            if at >= len(sys.argv) or sys.argv[at].startswith("--"):
+                print("arch_census: --accept-rise names no reason, baseline not written")
+                return 1
+            reasons.append(sys.argv[at])
         with open(BASE, "w", encoding="utf-8", newline="\n") as out:
-            json.dump(counts, out, indent=1, sort_keys=True)
+            json.dump({**counts, "_accepted_rises": reasons} if reasons else counts, out, indent=1, sort_keys=True)
             out.write("\n")
         print("arch_census: baseline", total)
         return 0

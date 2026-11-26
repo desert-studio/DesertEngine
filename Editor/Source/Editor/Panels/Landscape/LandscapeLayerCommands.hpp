@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 #include <Engine/Assets/Common.hpp>
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 namespace Desert::World::Landscape
 {

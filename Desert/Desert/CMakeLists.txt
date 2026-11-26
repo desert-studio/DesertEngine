@@ -1,4 +1,5 @@
-# One static library per engine module, built from the module table (cmake/DesertModuleTable.cmake).
+# One library per engine module (a DLL in Development/DebugGame, static in Shipping: desert_module_library), built from
+# the module table (cmake/DesertModuleTable.cmake).
 # The libraries are named Desert<Module> (DesertModules.LegacyLibName); which files each one compiles is decided
 # by cmake/DesertModuleTable.cmake's placement rows (cmake/DesertModules.cmake).
 
@@ -32,6 +33,29 @@ set(_thirdparty_Core ${_luau})
 desert_engine_header_tool_command(_header_tool_command)
 
 set(_source "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+set(_postprocessing "${_source}/Engine/Graphic/Systems/Scene/PostProcessing")
+
+# Sources that never share a unity batch (cmake/DesertWorkspace.cmake desert_unity_exclude), each with the name it
+# would clash on.
+file(GLOB _d3d12 "${_source}/Engine/Graphic/API/D3D12/*.cpp")
+desert_unity_exclude(REASON "windows.h / d3d12.h macros (min, max, near, far, CreateWindow) leak into the batch"
+    ${_d3d12} "${_source}/Engine/Core/Device.cpp")
+desert_unity_exclude(REASON "anonymous-namespace Finite() also in Animation/Rig/ControlHierarchy.cpp"
+    "${_source}/Engine/Animation/Rig/ControlShape.cpp")
+desert_unity_exclude(REASON "anonymous-namespace kBytesPerVoxel / kFormatRgba8 / kMinResolution also in the other cloud volume and bake sources"
+    "${_source}/Engine/Assets/CloudNoiseVolume.cpp"
+    "${_source}/Engine/Assets/CloudNoiseVolumeSheet.cpp"
+    "${_source}/Engine/Assets/CloudProceduralVolume.cpp")
+desert_unity_exclude(REASON "anonymous-namespace FileHeader / kByteOrderTag also in Assets/Serialization/MeshBinary.cpp"
+    "${_source}/Engine/Assets/Serialization/TextureBinary.cpp")
+desert_unity_exclude(REASON "anonymous-namespace kGroupSize / GroupCount() also in the other compute-pass renderers"
+    "${_source}/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp"
+    "${_postprocessing}/AutoExposureRenderer.cpp"
+    "${_postprocessing}/BloomRenderer.cpp"
+    "${_postprocessing}/LensFlareRenderer.cpp"
+    "${_postprocessing}/LightShaftRenderer.cpp")
+desert_unity_exclude(REASON "anonymous-namespace FloorDiv() also in Landscape/Private/LandscapeBrush.cpp"
+    "${DESERT_ROOT}/Desert/Landscape/Source/Landscape/Private/LandscapeEditCache.cpp")
 
 function(_desert_engine_module_library name)
     set(target "Desert${name}")
@@ -58,9 +82,9 @@ function(_desert_engine_module_library name)
         _desert_add("${_rel}" "${DESERT_ROOT}/${file}")
     endforeach()
 
-    desert_add_library(${target} SOURCES ${_common} ${_vendored_${name}})
+    desert_module_library(${target} SOURCES ${_common} ${_vendored_${name}})
     desert_enable_unity(${target})
-    # Runtime code: whole-program optimised under DESERT_LTCG (every module library, one shared PCH).
+    # Runtime code: whole-program optimised in Shipping (every module library, one shared PCH).
     desert_ltcg(${target})
 
     # pch.hpp, force-included into every source (pchheader/pchsource/forceincludes); every module library
@@ -76,9 +100,9 @@ function(_desert_engine_module_library name)
     if(_no_pch)
         set_source_files_properties(${_no_pch} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
     endif()
-    # The distance-field and card builders are optimised even in Debug (a Debug bake is otherwise unusable):
-    # desert_finalize_targets() compiles them as <target>-DebugOptimized with Debug /O2, no runtime checks and the
-    # PCH off in Debug only.
+    # The distance-field and card builders are optimised even in DebugGame (a DebugGame bake is otherwise unusable):
+    # desert_finalize_targets() compiles them as <target>-DebugOptimized with DebugGame /O2, no runtime checks and the
+    # PCH off in DebugGame only.
     foreach(src IN LISTS _common)
         if(src MATCHES "/Engine/Assets/(MeshDistanceFieldBuild|MeshCardBuild)\\.cpp$")
             set_property(SOURCE "${src}" PROPERTY DESERT_DEBUG_OPTIMIZE ON)
@@ -121,6 +145,13 @@ function(_desert_engine_module_library name)
         target_link_libraries(${target} PRIVATE ${DESERT_OPTICK} ${_thirdparty_${name}})
     else()
         target_link_libraries(${target} PRIVATE ${DESERT_OPTICK} ${_thirdparty_default})
+    endif()
+    # GLFW (the window, the surface, input) is called by the window and render modules and the modules above them;
+    # the server closure has none of these (cmake/DesertModules.cmake RENDER-FREE MODULES), so it never links GLFW.
+    desert_module_closure(${name} _closure)
+    list(APPEND _closure ${name})
+    if("ApplicationCore" IN_LIST _closure OR "RenderCore" IN_LIST _closure OR "Renderer" IN_LIST _closure)
+        target_link_libraries(${target} PRIVATE GLFW)
     endif()
 
     # Engine's client net driver (Engine/Net/ClientNetDriver: Play as a network client) runs Desert/Net's session;

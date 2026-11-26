@@ -8,7 +8,7 @@
 // water subsystem buoyancy and scripts query) and Landscape (Landscape/Private/LandscapeModule.cpp: a body per
 // drawn tile); foliage is next.
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <memory>
 #include <vector>

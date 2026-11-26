@@ -6,7 +6,7 @@ One release per platform build: tag `<platform>-<sha12>`, platform = win | mac.
 Each release carries `<tag>-bin.zip` (executables + shared libraries) and, unless
 --no-symbols, `<tag>-symbols.zip` (.pdb / .dSYM).
 
-  publish <tree> [--bin DIR] [--config Release] [--no-symbols]
+  publish <tree> [--bin DIR] [--config Development] [--no-symbols]
   fetch   <tag | latest> <dir> [--platform win|mac] [--symbols]
   list    [--platform win|mac]
   prune   --keep N [--platform win|mac]
@@ -169,7 +169,7 @@ def main():
     p = sub.add_parser("publish")
     p.add_argument("tree")
     p.add_argument("--bin")
-    p.add_argument("--config", default="Release")
+    p.add_argument("--config", default="Development")
     p.add_argument("--no-symbols", action="store_true")
     p.set_defaults(fn=cmd_publish)
     p = sub.add_parser("fetch")

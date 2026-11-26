@@ -317,12 +317,10 @@ namespace Desert::Graphic::RayTracing
             const std::vector<glm::mat4>& transforms = *data.Transforms;
             for ( std::size_t instance = 0; instance < transforms.size(); ++instance )
             {
-                if ( !KeepsInstanceAtDistance( cull, static_cast<uint32_t>( instance ),
-                                               glm::vec3( transforms[instance][3] ), inputs.ViewOrigin ) )
+                const uint32_t component = ComponentInstanceIndex( data.InstanceIds.get(), instance );
+                if ( !KeepsInstanceAtDistance( cull, component, glm::vec3( transforms[instance][3] ),
+                                               inputs.ViewOrigin ) )
                     continue;
-                const uint32_t component = data.InstanceIds && instance < data.InstanceIds->size()
-                                                ? ( *data.InstanceIds )[instance]
-                                                : static_cast<uint32_t>( instance );
                 uint8_t lod = 0;
                 if ( !lodErrors.empty() )
                 {

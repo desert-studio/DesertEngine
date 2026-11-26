@@ -252,6 +252,13 @@ namespace Desert::Graphic::System
             m_DicePoolCache = cache;
         }
 
+        // The height error, in screen pixels, the main camera's section LOD may show (CameraSectionLods; UE Nanite's
+        // 1 px target, Lindstrom's screen-space error): a section's grid is the coarsest whose largest height
+        // error projects under it. Scalability ViewDistance.LandscapeGridErrorPercent / 100 (100 % = 1 px).
+        void SetGridErrorPixels( const float pixels )
+        {
+            m_GridErrorPixels = pixels;
+        }
         // THE WIREFRAME VIEW (DebugViewState::WireframeMode, as MeshRenderer::SetWireframe): the forward base pass
         // draws through the line-polygon twin of its pipeline, writing its own depth, and the depth prepass draws
         // no ground. In a player's build the argument is dropped: nothing there can set the flag
@@ -654,6 +661,7 @@ namespace Desert::Graphic::System
         // The pipeline the base pass records with: ForwardPipeline(), or under the wireframe view its line-polygon
         // twin (built on first use from the same spec; a refusal is said once and the solid pipeline draws).
         [[nodiscard]] GraphicsPipeline* BasePassPipeline();
+        float                             m_GridErrorPixels = 1.0f; // SetGridErrorPixels
 #if DESERT_DEV_INSTRUMENTS
         bool                              m_Wireframe = false;
         std::shared_ptr<GraphicsPipeline> m_WireframePipeline;    // twin of m_Pipeline

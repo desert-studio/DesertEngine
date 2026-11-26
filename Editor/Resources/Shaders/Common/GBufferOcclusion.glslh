@@ -1,0 +1,23 @@
+#ifndef GBUFFER_OCCLUSION_GLSLH
+#define GBUFFER_OCCLUSION_GLSLH
+
+// GBufferEmissive.a: the material's occlusion, and in its sign whether the texel's model lights its far side
+// (DesertHasBackfaceDiffuse). A GI ray's screen hit reads the emissive texel anyway and fetches the shading word only
+// where this says it has something to say (GIHitLighting.glslh GIHitMaterial). Read texel-exact: never filtered.
+
+float PackGBufferOcclusion( float occlusion, bool transmits )
+{
+    return transmits ? -1.0 - occlusion : occlusion;
+}
+
+bool GBufferTransmits( float stored )
+{
+    return stored < 0.0;
+}
+
+float GBufferOcclusion( float stored )
+{
+    return stored < 0.0 ? -1.0 - stored : stored;
+}
+
+#endif // GBUFFER_OCCLUSION_GLSLH

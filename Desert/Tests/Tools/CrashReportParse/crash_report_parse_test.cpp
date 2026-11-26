@@ -38,7 +38,7 @@ namespace
                               "dirty=1\n"
                               "[context]\n"
                               "machine=DESKTOP\n"
-                              "scene=none\n"
+                              "world=document edit Scenes/A.desce\n"
                               "os=Windows 11 Pro 10.0.26200\n"
                               "gpu=NVIDIA GeForce RTX 3070 Ti\n";
 
@@ -176,7 +176,7 @@ namespace
     }
 
     // A report as a Shipping writer emits it: config=Shipping, and no sha / branch / dirty / machine /
-    // scene key, no file:line in [stack], an empty [log].
+    // world key, no file:line in [stack], an empty [log].
     const std::string kPlayerReport = "DESERTCRASH 1\n"
                                       "[report]\n"
                                       "host=Runtime\n"
@@ -208,7 +208,7 @@ TEST( CrashReportParse, TheDeveloperViewDrawsEveryDevelopmentRow )
     EXPECT_TRUE( view.showLog );
     EXPECT_TRUE( view.showPath );
     const std::vector<std::string> expected = { "Kind", "Code",    "Module", "Version",
-                                                "Time", "Machine", "GPU",    "Scene" };
+                                                "Time", "Machine", "GPU",    "World" };
     EXPECT_EQ( Labels( view ), expected );
     EXPECT_NE( view.summary[3].value.find( "branch task/CR1c" ), std::string::npos ) << view.summary[3].value;
     EXPECT_NE( view.summary[5].value.find( "DESKTOP" ), std::string::npos ) << view.summary[5].value;
