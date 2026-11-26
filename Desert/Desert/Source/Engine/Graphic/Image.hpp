@@ -170,6 +170,17 @@ namespace Desert::Graphic
                  "Image2D::BeginReadbackBytes not supported by this backend" );
         }
 
+        /// THE FRAME'S OWN COPY (UE FScreenshotRequest: the screenshot is read inside the Draw that rendered the
+        /// frame). The RGBA8 copy is recorded into the command buffer the CALLING frame records now - a job in
+        /// the frame's order, after its views and before its submit - so it is submitted by that frame's
+        /// PresentFinalImage and holds that frame's pixels whatever a later frame renders. IsComplete() once that
+        /// frame's submission has executed the copy. Refused, by name, when the frame records into nothing.
+        NO_DISCARD virtual Common::ResultStr<std::shared_ptr<ImageReadback>> RecordReadbackInFrame()
+        {
+            return Common::MakeError<std::shared_ptr<ImageReadback>>(
+                 "Image2D::RecordReadbackInFrame not supported by this backend" );
+        }
+
         // Re-uploads tightly-packed pixel data into the EXISTING GPU image without recreating it — the
         // image (and any descriptor sets bound to its pointer) stays valid, so this is the safe, churn-free
         // way to stream changing content (video frames) every frame. `data` must match the image's format

@@ -553,19 +553,17 @@ namespace Desert::Engine
             // The frame this iteration built (step 6 moves the count on): its presented notifications' stamp.
             const uint64_t builtFrame = FrameManager::GetInstance().GetGameFrameCount();
             // Each layer captures what its presented notification needs of THIS frame (the serial that built it,
-            // its shot record). Handed over, BEFORE step 6 enqueues the submit and present (OVERLAP-ON-5): a job a
+            // its shot record), BEFORE step 6 enqueues the submit and present, IN BOTH MODES (OVERLAP-ON-5): a job a
             // layer enqueues in its capture runs in this frame's order, after its views and before its submit and
-            // present (EditorLayer's "Editor: frame census"). Inline, at step 7 as before (the serial order).
+            // present (EditorLayer's "Editor: frame census", "Editor: shot copy" - the shot's image is copied in
+            // the frame's own submission, UE FScreenshotRequest).
             std::vector<std::function<void()>> captured;
-            const auto                         captureFramePresented = [this, handedOver, &captured]()
             {
                 DESERT_PROFILE_SCOPE( "CaptureFramePresented" );
                 for ( const auto& layer : m_LayerStack )
                     if ( std::function<void()> notify = layer->CaptureFramePresented( handedOver ) )
                         captured.push_back( std::move( notify ) );
-            };
-            if ( handedOver )
-                captureFramePresented();
+            }
             // 6. Submit all recorded commands and Present. No fence wait here (GPU-COST-11): the only block left in
             // this row is vkQueuePresentKHR's own ("Vulkan: Present", a full presentation queue under FIFO vsync);
             // the GPU throttle is step 3's "Wait for GPU".
@@ -602,11 +600,9 @@ namespace Desert::Engine
             // answered it, gets its instant here. Default is a no-op (Common::Layer::OnFramePresented).
             {
                 DESERT_PROFILE_SCOPE( "OnFramePresented" );
-                // The notifications captured above (handed over) or now (inline) run once the frame is out: now
-                // when it was presented inline, else at the next iteration's frame boundary (step 4b), behind its
-                // submit and present. A run that ended at step 6 announces nothing of this frame, as before.
-                if ( !handedOver )
-                    captureFramePresented();
+                // The notifications captured before step 6 run once the frame is out: now when it was presented
+                // inline, else at the next iteration's frame boundary (step 4b), behind its submit and present. A
+                // run that ended at step 6 announces nothing of this frame, as before.
                 for ( std::function<void()>& notify : captured )
                     presentedPending.push_back( PresentedNotification{ builtFrame, std::move( notify ) } );
                 if ( !handedOver )

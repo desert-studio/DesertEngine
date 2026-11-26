@@ -1870,8 +1870,7 @@ namespace Desert::Graphic::System
                 f.Path              = path;
                 f.FirstInstance     = firstInstance;
                 f.InstanceCount     = instanceCount;
-                // The row's this-frame-only bit is the cull's, not the draw's: it never re-feeds a primitive.
-                f.Flags = scene.Primitive( primitive ).Flags & ~GpuDriven::PrimitiveFlags::kNoOcclusionHistory;
+                f.Flags             = scene.Primitive( primitive ).Flags;
                 f.HiddenSubmeshMask = ~0ull;
                 f.MaterialRows.assign( submeshes, row );
                 f.Surfaces.assign( submeshes, surface );
@@ -2882,20 +2881,10 @@ namespace Desert::Graphic::System
             if ( data.LodFeedback )
                 data.LodFeedback->Vat.store( data.VatAddress != 0, std::memory_order_relaxed );
         };
-        // The frame's tally and the level's report, once per record after every decision is final - and its
-        // occlusion history: a figure this renderer draws for the first time, on another path than last frame
-        // or after a teleport has none this frame (UE FPrimitiveOcclusionHistory), whatever its LOD chain.
-        const auto account =
-             [&]( SkinnedMeshRenderData& data, const float screenSize, const std::optional<uint32_t> leader )
+        // The frame's tally and the level's report, once per record after every decision is final.
+        const auto account = [&]( const SkinnedMeshRenderData& data, const float screenSize,
+                                  const std::optional<uint32_t> leader )
         {
-            const bool     baked = data.VatAddress != 0;
-            const uint32_t teleports =
-                 data.LodFeedback != nullptr ? data.LodFeedback->Teleports.load( std::memory_order_relaxed ) : 0u;
-            const auto [drawn, drawnFresh] = m_SkinnedDrawn.try_emplace(
-                 data.Entity, SkinnedDrawnHistory{ .Baked = baked, .Teleports = teleports } );
-            const bool pathChanged  = drawnFresh || drawn->second.Baked != baked;
-            data.NoOcclusionHistory = pathChanged || drawn->second.Teleports != teleports;
-            drawn->second           = SkinnedDrawnHistory{ .Baked = baked, .Teleports = teleports };
             const auto& lods = data.Mesh->GetSkinnedLODs();
             if ( lods.empty() )
             {
@@ -2914,8 +2903,11 @@ namespace Desert::Graphic::System
             }
             else
                 ++crowdSkeletal;
-            if ( pathChanged )
+            const bool baked             = data.VatAddress != 0;
+            const auto [path, pathFresh] = m_SkinnedPathReported.try_emplace( data.Entity, baked );
+            if ( pathFresh || path->second != baked )
             {
+                path->second                   = baked;
                 const Common::Math::AABB local = Geometry::LocalBounds( data.Mesh->GetSubmeshes() );
                 Common::Math::AABB       world{ glm::vec3( FLT_MAX ), glm::vec3( -FLT_MAX ) };
                 for ( uint32_t corner = 0; corner < 8u; ++corner )
@@ -2986,9 +2978,6 @@ namespace Desert::Graphic::System
                 }
                 inherit( data, m_SkinnedQueue[leader->second] );
                 account( data, 0.0f, data.Leader.LeaderEntity );
-                // One figure: clothing on a body without occlusion history has none either.
-                data.NoOcclusionHistory =
-                     data.NoOcclusionHistory || m_SkinnedQueue[leader->second].NoOcclusionHistory;
             }
         }
         m_Crowd->Report( crowdSkeletal, crowdVat, crowdDraws, crowdGrown, crowdMaxScale );
@@ -3368,9 +3357,7 @@ namespace Desert::Graphic::System
                                  .Bones  = data.BoneMatrices,
                                  .Mesh   = data.Mesh,
                                  .Flags  = Flags::kSkinned | Flags::kMovableCaster |
-                                          rigidFlags( data.CastShadows, true, data.ReceivesDecals ) |
-                                          previousPositions( data.Mesh ) |
-                                          ( data.NoOcclusionHistory ? Flags::kNoOcclusionHistory : 0u ),
+                                          rigidFlags( data.CastShadows, true, data.ReceivesDecals ) | previousPositions( data.Mesh ),
                                  .ForcedLod = static_cast<int32_t>( data.Lod ),
                                  .Content   = skinnedContent( data ) } );
         // The proxies no record claimed this sync left the scene (or the view): released with their bindings.

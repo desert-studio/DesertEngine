@@ -32,8 +32,6 @@
 #define DESERT_GPU_PRIMITIVE_IMPOSTOR_CARD       512u
 // 128 is DESERT_GPU_DRAW_EMISSION_IS_LIGHT (below), never a primitive bit; 256/512 are the impostor pair.
 #define DESERT_GPU_PRIMITIVE_NO_DECALS           1024u
-// This frame only: teleported, first drawn or changed draw path - phase 1 skips last frame's HZB (kNoOcclusionHistory).
-#define DESERT_GPU_PRIMITIVE_NO_OCCLUSION_HISTORY 2048u
 // Never in Primitives[]: DesertResolveDrawOf sets it on a resolved draw's Flags from its slot's
 // DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT (the submesh's material has Emissive Lights Scene on), so the binned
 // G-buffer cell marks the shading word's EMISSION_IS_LIGHT (Mesh/Surface/Pass_GBuffer.glslh).

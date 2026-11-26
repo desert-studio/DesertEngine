@@ -1,6 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <Editor/Panels/Scalability/AntiAliasingPaletteCommands.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/DisplayOutput.hpp>
@@ -749,9 +750,11 @@ namespace Desert::Editor
                  } );
         }
 
-        // Screenshot mode: this frame's render is recorded. It is read back, counted and written once it has
-        // been SUBMITTED (ShotDirector::EndFrame in OnFramePresented); read here, the image is the last frame's.
-        m_Shots.FrameRecorded( shotRecorded, m_Startup.StartupLoading(), m_Startup.ContentSettling() );
+        // Screenshot mode: this frame's render is recorded and counted here, in tick order (its game frame names
+        // it in the log); its image is copied in its own submission (CaptureFramePresented) and written once it
+        // has been SUBMITTED (ShotDirector::EndFrame in OnFramePresented).
+        m_Shots.FrameRecorded( shotRecorded, m_Startup.StartupLoading(), m_Startup.ContentSettling(),
+                               ::Desert::Engine::FrameManager::GetInstance().GetGameFrameCount() );
 
         return BOOLSUCCESS;
     }
@@ -796,12 +799,57 @@ namespace Desert::Editor
 
     std::function<void()> EditorLayer::CaptureFramePresented( bool handedOver )
     {
-        const ControlService::BuiltFrame                 built = m_Control.CaptureBuiltFrame();
-        const std::optional<ShotDirector::RecordedFrame> shot  = m_Shots.TakePendingFrame();
+        const ControlService::BuiltFrame           built = m_Control.CaptureBuiltFrame();
+        std::optional<ShotDirector::RecordedFrame> shot  = m_Shots.TakePendingFrame();
+        // THE SHOT'S OWN COPY (UE FScreenshotRequest), IN BOTH MODES: a job in this frame's order, after its views
+        // and interface and before its submit and present (Application::Run captures before enqueueing them),
+        // records the copy of THIS frame's final image into the frame's own command buffer. The announcement then
+        // writes those pixels, whatever frame the live image shows by then (D1/D3, NET-PAWN-TELEPORT-FRAME).
+        // The image is taken here, on the game thread; the job touches only it.
+        auto shotCopy = std::make_shared<ShotDirector::RecordedFrame>();
+        if ( shot && ShotDirector::WantsPixels( *shot ) )
+        {
+            std::shared_ptr<Graphic::Image2D> image =
+                 m_Workspace.ActiveScene() ? m_Workspace.ActiveScene()->GetFinalImage() : nullptr;
+            if ( !image )
+                shotCopy->PixelsRefusal = "the active scene has no final image to copy";
+            else
+            {
+                const ::Desert::Engine::RenderTask::ScopedOwner frameWork(
+                     ::Desert::Engine::RenderTask::FrameOwner() );
+                ::Desert::Engine::RenderTask::Get().Enqueue(
+                     "Editor: shot copy",
+                     [shotCopy, image]() -> Common::BoolResultStr
+                     {
+                         auto recorded = image->RecordReadbackInFrame();
+                         if ( !recorded.IsSuccess() )
+                         {
+                             shotCopy->PixelsRefusal = recorded.GetError();
+                             return BOOLSUCCESS; // the shot's refusal, named by WriteShotPng; not the frame's
+                         }
+                         shotCopy->Pixels       = recorded.ExtractValue();
+                         shotCopy->PixelsWidth  = image->GetWidth();
+                         shotCopy->PixelsHeight = image->GetHeight();
+                         return BOOLSUCCESS;
+                     } );
+            }
+        }
+        // Read at the announcement, behind step 4b's fence (or after the inline frame): the job has run.
+        const auto withPixels = [shot, shotCopy]() -> std::optional<ShotDirector::RecordedFrame>
+        {
+            if ( !shot )
+                return std::nullopt;
+            ShotDirector::RecordedFrame frame = *shot;
+            frame.Pixels                      = shotCopy->Pixels;
+            frame.PixelsWidth                 = shotCopy->PixelsWidth;
+            frame.PixelsHeight                = shotCopy->PixelsHeight;
+            frame.PixelsRefusal               = shotCopy->PixelsRefusal;
+            return frame;
+        };
         // Inline (serial mode, the overlap off) nothing records under the announcement: the census is read
         // there, at today's point of it.
         if ( !handedOver )
-            return [this, built, shot] { AnnounceFramePresented( built, shot, nullptr ); };
+            return [this, built, withPixels] { AnnounceFramePresented( built, withPixels(), nullptr ); };
         // THE FRAME'S OWN CENSUS (OVERLAP-ON-5; UE: what a frame reports about itself is captured by a render
         // command in that frame's order and read on the game thread after the fence). The views write the four
         // entries while they record on the render task; this job runs after this frame's views and before its
@@ -820,7 +868,7 @@ namespace Desert::Editor
                      return BOOLSUCCESS;
                  } );
         }
-        return [this, built, shot, census] { AnnounceFramePresented( built, shot, census.get() ); };
+        return [this, built, withPixels, census] { AnnounceFramePresented( built, withPixels(), census.get() ); };
     }
 
     void EditorLayer::AnnounceFramePresented( const ControlService::BuiltFrame&                 built,

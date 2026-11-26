@@ -180,7 +180,6 @@ namespace Desert::ECS
                 {
                     anim.LodFeedback->Seen.store( false, std::memory_order_relaxed );
                     anim.LodFeedback->Vat.store( false, std::memory_order_relaxed );
-                    anim.LodFeedback->Teleports.fetch_add( 1u, std::memory_order_relaxed );
                 }
                 ConfigureLodAndRate( entity, anim, *skinnedMeshPtr );
                 if ( teleported )

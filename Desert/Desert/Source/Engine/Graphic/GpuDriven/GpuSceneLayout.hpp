@@ -64,14 +64,6 @@ namespace Desert::Graphic::GpuDriven
         // UE !bReceivesDecals: the binned G-buffer cell skips the DBuffer fetch (GLSL DESERT_GPU_PRIMITIVE_NO_DECALS;
         // the per-draw twin is Graphic::PrimitiveFlag::NoDecals).
         inline constexpr uint32_t kNoDecals = 1u << 10;
-        // THIS FRAME ONLY, NO OCCLUSION HISTORY (UE FPrimitiveOcclusionHistory: a primitive that teleported or
-        // became relevant this frame has no valid query of its own and is drawn as visible): the instance cull's
-        // phase 1 does not reject it by LAST frame's HZB, which was built where it was not; the frustum still
-        // applies, and from the next frame it is tested as usual. Set on the frame a skinned record is first
-        // drawn, changes draw path (baked vertex animation <-> skeletal) or teleports
-        // (MeshRenderer::SelectSkinnedLods). Not a draw's property: the binned feed leaves it out of the cached
-        // draw's flags (MeshRenderer::FeedDrawCommandCache).
-        inline constexpr uint32_t kNoOcclusionHistory = 1u << 11;
     } // namespace PrimitiveFlags
 
     // THE BINNED DRAW'S INSTANCE ID STREAM (decision 10-27, UE5 instance id stream): a mesh-pass pipeline binds one

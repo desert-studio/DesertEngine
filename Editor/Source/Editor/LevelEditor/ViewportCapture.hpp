@@ -8,6 +8,8 @@
 // and `<project>/.thumbnail.png` for the launcher tile. A member of EditorLayer BY VALUE, declared after the
 // SceneWorkspace whose active scene it reads.
 
+#include "Editor/LevelEditor/ShotDirector.hpp" // ShotDirector::RecordedFrame (WriteShotPng)
+
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // the shot's detached staging (WindowPngWrite)
 
 #include <chrono>
@@ -28,9 +30,15 @@ namespace Desert::Editor
         {
         }
 
-        // Read the resolved viewport back off the GPU and write it to @p path as a PNG, creating the parent
-        // directory if it is missing. False on any failure, always with the reason logged.
+        // Read the resolved viewport back off the GPU NOW and write it to @p path as a PNG, creating the parent
+        // directory if it is missing. False on any failure, always with the reason logged. Only for a picture
+        // that names no frame (F9, the control channel's `shot.viewport`): a capture frame is WriteShotPng.
         bool WriteViewportPng( const std::string& path );
+
+        // A FRAME OF THE CAPTURE: writes @p frame's own pixels (the copy recorded in its submission,
+        // RecordedFrame::Pixels) to @p path. Refused, with the reason logged, when the frame has no copy or the
+        // copy has not completed - never a live read in its place.
+        bool WriteShotPng( const std::string& path, const ShotDirector::RecordedFrame& frame );
 
         // `--shot-hdr`: view 0's HDR scene colour as the renderer holds it - before eye adaptation, tonemap, the
         // sRGB encode and the 8-bit quantisation, in pre-exposed units (scene radiance x the frame's

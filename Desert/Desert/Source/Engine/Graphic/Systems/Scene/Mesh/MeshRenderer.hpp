@@ -678,12 +678,6 @@ namespace Desert::Graphic::System
             // SelectSkinnedLods; the GpuScene row's world (SyncGpuScene) carries it to every pass.
             float                       MinScreenScale = 1.0f;
             glm::vec3                   MinScreenPivot = glm::vec3( 0.0f );
-            // NO OCCLUSION HISTORY THIS FRAME (UE FPrimitiveOcclusionHistory): the figure is drawn by this
-            // renderer for the first time, changed draw path (VatAddress set <-> clear) or was teleported since
-            // its last frame here. Its GpuScene row carries PrimitiveFlags::kNoOcclusionHistory for this frame, so
-            // the main view's phase 1 does not hold it back by last frame's HZB. Set by SelectSkinnedLods; a
-            // follower takes its leader's (one figure).
-            bool NoOcclusionHistory = false;
             // A follower mesh's leader (UE LeaderPoseComponent, Animation::LeaderPoseLink): its level (clamped
             // to its own), VAT hand-off and growth are not decided from its own bounds but taken from the leader's
             // record in this queue (SelectSkinnedLods).
@@ -4057,16 +4051,9 @@ namespace Desert::Graphic::System
         // The skeletal LOD readout (WP-FAR-10): the level each skinned entity was last reported at; a submit at
         // another level logs "[SkinnedLOD]" with that level's skin work (vertices, bones, influences).
         std::unordered_map<uint32_t, uint32_t> m_SkinnedLodReported;
-        // Per skinned record, what this renderer last drew of it: the path (true = the baked vertex animation) and
-        // its animation's teleport count (Animation::SkinnedLodFeedback::Teleports). A record that changes path
-        // logs "[SkinnedPath]" with its drawn translation and world box, the frame it changed; a new entry, a new
-        // path or a new count is a frame without occlusion history (SkinnedMeshRenderData::NoOcclusionHistory).
-        struct SkinnedDrawnHistory
-        {
-            bool     Baked     = false;
-            uint32_t Teleports = 0u;
-        };
-        std::unordered_map<uint32_t, SkinnedDrawnHistory> m_SkinnedDrawn;
+        // Per skinned record, the path it was last drawn on (true = the baked vertex animation): a record that
+        // changes path logs "[SkinnedPath]" with its drawn translation and world box, the frame it changed.
+        std::unordered_map<uint32_t, bool>     m_SkinnedPathReported;
         bool                                   m_SkinnedLodNoCameraReported = false;
         // SelectSkinnedLods' scratch: each leader's record in m_SkinnedQueue by its entity, filled only on a frame
         // that queues a follower (reused, no per-frame allocation once grown).

@@ -210,6 +210,44 @@ namespace Desert::Editor
         return written;
     }
 
+    bool ViewportCapture::WriteShotPng( const std::string& path, const ShotDirector::RecordedFrame& frame )
+    {
+        if ( !frame.Pixels )
+        {
+            LOG_ERROR( "[Shot] frame_{:05d} (game frame {}) has no copy of its own image: {} ('{}')",
+                       frame.SequenceIndex, frame.GameFrame,
+                       frame.PixelsRefusal.empty() ? std::string( "the frame never recorded one" ) : frame.PixelsRefusal,
+                       path );
+            return false;
+        }
+        if ( !frame.Pixels->IsComplete() )
+        {
+            LOG_ERROR( "[Shot] frame_{:05d} (game frame {}): the copy of its image has not completed ('{}')",
+                       frame.SequenceIndex, frame.GameFrame, path );
+            return false;
+        }
+        if ( !CreateParentDirectory( path ) )
+            return false;
+        auto read = frame.Pixels->ReadRGBA8();
+        if ( !read.IsSuccess() )
+        {
+            LOG_ERROR( "[Shot] frame_{:05d}: {} ('{}')", frame.SequenceIndex, read.GetError(), path );
+            return false;
+        }
+        const std::vector<uint8_t>& px = read.GetValue();
+        const uint32_t              w  = frame.PixelsWidth;
+        const uint32_t              h  = frame.PixelsHeight;
+        if ( px.size() != static_cast<size_t>( w ) * h * 4 )
+        {
+            LOG_ERROR( "[Shot] frame_{:05d}: the copy is {} bytes, expected {}x{}x4 ('{}')", frame.SequenceIndex,
+                       px.size(), w, h, path );
+            return false;
+        }
+        const bool written = WritePngRGBA8( path, w, h, px.data() );
+        LOG_INFO( "[Shot] {} -> {} ({}x{})", written ? "wrote" : "FAILED to write", path, w, h );
+        return written;
+    }
+
     bool ViewportCapture::WriteSceneColorPfm( const std::string& path )
     {
         const auto* scene = m_Workspace.ActiveScene().get();

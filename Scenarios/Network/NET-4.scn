@@ -43,8 +43,11 @@
 Консоль server teleport 1 2300 100 520
 Ждать server 30 \[Net\] player 1: pawn \d+ teleported to
 Ждать A 60 \[Net\] correction 1 at .*drawn at once
-Тогда A clientA_teleport the FIRST frame drawn after the «drawn at once» correction (the frame whose net tick logged it): A's own mannequin body - grey-brown capsule, ~40-50 px wide, ~230 px tall - stands out against the sky and the slope at x ~880-940, between rows ~40 and ~400, in front of the fence's right end, whole (top and bottom caps inside the frame); a frame with only sky/grass at those pixels FAILS, whatever the log says; no second mannequin; the client keeps drawing
-Тогда A clientA_teleport_next E1 (DESIGN_REVIEW): the frame after clientA_teleport - the same mannequin body at x ~880-940, rows ~40-400, whole; only sky/grass there FAILS
+# NET-PAWN-TELEPORT-FRAME fix 8: a Тогда is the frame its tick RECORDED - the first `[Shot] recorded frame_N (game frame G)`
+# after the matched line, written from that frame's own image copy - and the runner keeps frame N+1 beside it as <name>_next.png.
+Тогда A clientA_teleport the frame whose tick logged the «drawn at once» correction (`[Shot] recorded frame_N` follows the correction line): A's own mannequin body - grey-brown capsule, ~40-50 px wide, ~230 px tall - stands out against the sky and the slope at x ~880-940, between rows ~40 and ~400, in front of the fence's right end, whole (top and bottom caps inside the frame); >= 3000 mannequin px (B-R>30, B-G>10, sum<520), side by side with clientA_teleport_ground; a frame with only sky/grass at those pixels FAILS, whatever the log says; no second mannequin; the client keeps drawing
+# Тогда [clientA_teleport_next] (clientA_teleport_next.png, kept by the runner): the next frame - the same mannequin lower by at most one
+# frame of fall, the same width +-5 px; only sky/grass there FAILS.
 # Тогда [net4_teleport_ground]: landed, server = client drawn; 10 s later both unchanged (< 1 cm); one correction.
 Ждать A 60 8x \[Net\] t=
 Ждать server 30 2x player 1 account 1 \(
