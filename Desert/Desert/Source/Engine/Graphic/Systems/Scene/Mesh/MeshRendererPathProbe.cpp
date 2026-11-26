@@ -23,7 +23,7 @@ namespace Desert::Graphic::System
             facts.Fed = std::find( fed.begin(), fed.end(), data.GpuPrimitive ) != fed.end();
             if ( !data.Sections.empty() )
             {
-                const uint64_t hidden = data.Sections.front().HiddenSubmeshes;
+                const uint64_t hidden = data.Sections.begin()->HiddenSubmeshes;
                 facts.BinnedGBuffer =
                      m_DrawCommandCache->SubmeshesBinned( GpuDriven::MeshPass::GBuffer, data.GpuPrimitive, hidden );
                 facts.BinnedCascade = m_DrawCommandCache->SubmeshesBinned( GpuDriven::MeshPass::ShadowCascade,
