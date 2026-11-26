@@ -1,4 +1,8 @@
 #include <Common/Utilities/FileSystem.hpp>
+
+#if defined( DESERT_PLATFORM_WINDOWS )
+#include <windows.h>
+#endif
 #include "VFS.hpp"
 
 #if defined( DESERT_PLATFORM_MACOS )

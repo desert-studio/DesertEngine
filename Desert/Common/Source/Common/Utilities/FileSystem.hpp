@@ -3,10 +3,6 @@
 
 #include <iostream>
 
-#if defined( DESERT_PLATFORM_WINDOWS )
-#include <windows.h>
-#endif // DESERT_PLATFORM_WINDOWS
-
 #include <chrono>
 #include <cstdint>
 #include <functional>
