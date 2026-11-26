@@ -187,6 +187,12 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:DebugGame>:Debug>DLL")
 # vc143.pdb every compile of a target writes into. Shipping writes a .pdb per target (/Zi) for the full link .pdb.
 set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<CONFIG:Shipping>,ProgramDatabase,Embedded>")
 
+# /Yl-: no __@@_PchSym_ reference symbol in the precompiled-header objects. Every target links its PCH holder's
+# object itself, so the reference has nothing to pull in, and WINDOWS_EXPORT_ALL_SYMBOLS cut the symbol at its '@'
+# into a `__ DATA` export the linker matched only fuzzily: ambiguous, LNK2001 `__`, once shaderc_combined's own
+# PchSym symbols joined DesertShaderCompiler's link (B-INT build #12).
+add_compile_options($<$<AND:$<CXX_COMPILER_ID:MSVC>,$<COMPILE_LANGUAGE:CXX>>:/Yl->)
+
 add_compile_definitions(
     $<$<CONFIG:Shipping>:DESERT_CONFIG_SHIPPING>
     # EnTT's own counters (entt::family) atomic in every target or none; its type index is process-wide
