@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <format>
 #include <utility>
 #include <string_view>
@@ -49,6 +50,26 @@ namespace Desert::Net
                    m_FastestOffset;
     }
 
+    std::optional<double> ReplicationClient::SnapshotInterval() const
+    {
+        // Server times, not arrival times: the server's steps are exact, the arrivals carry the jitter.
+        std::vector<double> server;
+        server.reserve( m_Arrivals.size() );
+        for ( const auto& [at, offset] : m_Arrivals )
+            server.push_back( at - offset );
+        std::sort( server.begin(), server.end() );
+        std::vector<double> intervals;
+        intervals.reserve( server.size() );
+        for ( std::size_t i = 1; i < server.size(); ++i )
+            if ( const double interval = server[i] - server[i - 1]; interval > 0.5 / kNetStepHz )
+                intervals.push_back( interval );
+        if ( intervals.empty() )
+            return std::nullopt;
+        const auto middle = intervals.begin() + static_cast<std::ptrdiff_t>( intervals.size() / 2 );
+        std::nth_element( intervals.begin(), middle, intervals.end() );
+        return *middle;
+    }
+
     void ReplicationClient::AdvanceRenderClock()
     {
         const double local = LocalSeconds();
@@ -59,11 +80,30 @@ namespace Desert::Net
         if ( m_Arrivals.empty() )
             return;
         // Two snapshot intervals (the pair the pawn is drawn between) plus the jitter, never below the one-lost-
-        // snapshot floor; the delay grows quickly (a late snapshot is a visible hold) and shrinks slowly.
-        constexpr double interval = kSnapshotEverySteps / kNetStepHz;
-        const double     target =
-             std::clamp( 2.0 * interval + m_Jitter, kInterpolationDelaySeconds, kMaxInterpolationDelaySeconds );
+        // snapshot floor; the delay grows quickly (a late snapshot is a visible hold) and shrinks slowly. The
+        // interval is the cadence measured (the project's Net settings set it on the server); until two snapshots
+        // have come the delay stays where it starts, at the floor.
+        const std::optional<double> interval = SnapshotInterval();
+        const double                target =
+             interval ? std::clamp( 2.0 * *interval + m_Jitter, kInterpolationDelaySeconds,
+                                    kMaxInterpolationDelaySeconds )
+                      : m_Delay;
         m_Delay += std::clamp( target - m_Delay, -0.05 * dt, 0.5 * dt );
+        // WP-FAR-15: a pawn sent every N-th step is drawn two of ITS intervals behind (Relevancy.hpp
+        // PawnInterpolationDelay), the part beyond the connection's delay sliding at the same rates. A pawn whose
+        // newest sample stands still needs none: holding that sample is exact, and a dormant pawn's keep-alive
+        // period must not leave it seconds behind when it walks again.
+        constexpr double kStandingCmPerS2 = 1.0; // below 1 cm/s
+        for ( auto& [id, pawn] : m_Pawns )
+        {
+            const NetVec3 velocity = pawn.History.Newest().Velocity;
+            const bool     standing =
+                 velocity.X * velocity.X + velocity.Y * velocity.Y + velocity.Z * velocity.Z < kStandingCmPerS2;
+            const double extra =
+                 standing ? 0.0
+                          : std::max( PawnInterpolationDelay( pawn.PeriodSteps, m_Jitter, m_Delay ) - m_Delay, 0.0 );
+            pawn.ExtraDelay += std::clamp( extra - pawn.ExtraDelay, -0.05 * dt, 0.5 * dt );
+        }
         const double wanted = local - m_FastestOffset - m_Delay;
         // The error is measured against where the clock lands at local rate (render + dt), not where it was: the
         // old form counted the frame's own dt as error, ran the clock 10 % fast every frame and drifted it seconds
@@ -188,8 +228,8 @@ namespace Desert::Net
                         m_Own = kInvalidNetId;
                     m_Destroyed.push_back( destroy->Id );
                     if ( destroy->Reason == EDestroyReason::NotRelevant )
-                        m_Log( std::format( "relevancy: pawn net id {} (player {}) removed from relevancy - the "
-                                            "server finds its finest cell out of this client's loading range",
+                        m_Log( std::format( "relevancy: pawn net id {} (player {}) left this client's view - the "
+                                            "server finds it past the view shape's exit margin",
                                             destroy->Id, player ) );
                     else
                         m_Log( std::format( "destroy: pawn net id {}", destroy->Id ) );
@@ -226,9 +266,12 @@ namespace Desert::Net
                     }
                     const double time = snapshot->ServerStep / kNetStepHz;
                     MeasureArrival( time, received );
-                    for ( const PawnState& state : snapshot->Pawns )
-                        if ( auto it = m_Pawns.find( state.Id ); it != m_Pawns.end() )
-                            it->second.History.Push( time, state );
+                    for ( const SnapshotEntry& entry : snapshot->Pawns )
+                        if ( auto it = m_Pawns.find( entry.Pawn.Id ); it != m_Pawns.end() )
+                        {
+                            it->second.History.Push( time, entry.Pawn );
+                            it->second.PeriodSteps = entry.PeriodSteps;
+                        }
                 }
                 break;
             case EReplicationMessage::ObjectState:
@@ -275,7 +318,36 @@ namespace Desert::Net
         const auto it = m_Pawns.find( id );
         if ( it == m_Pawns.end() || it->second.History.Empty() )
             return std::nullopt;
-        return it->second.History.Sample( RenderServerSeconds() );
+        const RemotePawn& pawn = it->second;
+        return pawn.History.Sample( RenderServerSeconds() - pawn.ExtraDelay, PawnExtrapolationCap( pawn.PeriodSteps ) );
+    }
+
+    std::optional<double> ReplicationClient::PawnDelay( NetId id ) const
+    {
+        const auto it = m_Pawns.find( id );
+        if ( it == m_Pawns.end() )
+            return std::nullopt;
+        return m_Delay + it->second.ExtraDelay;
+    }
+
+    void ReplicationClient::ReportView( const ViewReport& view )
+    {
+        if ( m_State != EState::InSession )
+            return;
+        const double local = LocalSeconds();
+        // The yaw's change is taken around the circle (359 -> 1 is two degrees).
+        const auto changed = [&]( const ViewReport& sent )
+        {
+            const float yaw = std::abs( std::remainder( view.FacingYawDeg - sent.FacingYawDeg, 360.0f ) );
+            return yaw >= kViewAngleStepDeg ||
+                   std::abs( view.SectorAngleDeg - sent.SectorAngleDeg ) >= kViewAngleStepDeg ||
+                   std::abs( view.RangeCm - sent.RangeCm ) >= kViewRangeStepCm;
+        };
+        if ( m_SentView && !changed( *m_SentView ) && local - m_ViewSentAt < kViewResendSeconds )
+            return;
+        m_Transport.Send( m_Connection, EncodeViewReport( view ), ENetLane::State );
+        m_SentView   = view;
+        m_ViewSentAt = local;
     }
 
     std::vector<NetId> ReplicationClient::TakeSpawned()

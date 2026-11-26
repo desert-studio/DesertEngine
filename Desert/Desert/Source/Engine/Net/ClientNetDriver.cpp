@@ -294,6 +294,7 @@ namespace Desert::Core
         ApplyStableDestroyed( scene );
         ApplyStableState( scene );
         ReportResidency( scene );
+        ReportView( scene );
 
         // The input on the server's fixed step: one numbered step per 1/60 s of this client's clock, dilated by the
         // clock sync; each step is simulated here as it is sent (the prediction) - none before the own pawn is.
@@ -359,6 +360,25 @@ namespace Desert::Core
                       "queue {:.1f}, clock x{:.2f}{}",
                       m_Clock, line.empty() ? std::string( " none" ) : line, scene.GetPlayers().size(),
                       m_Client->PendingInputs(), predictor.Corrections(), m_ServerQueue, 1.0 / m_Dilation, shown );
+            LogPawnRates();
+        }
+    }
+
+    void ClientNetDriver::LogPawnRates() const
+    {
+        const auto& pawns = m_Client->Pawns();
+        const auto  own   = pawns.find( m_Client->OwnPawn() );
+        if ( own == pawns.end() || own->second.History.Empty() )
+            return; // no own pawn yet: no distance to state
+        const Net::NetVec3 from = own->second.History.Newest().Position;
+        for ( const auto& [id, pawn] : pawns )
+        {
+            if ( pawn.Owned || pawn.History.Empty() )
+                continue;
+            const std::uint32_t period = pawn.PeriodSteps;
+            LOG_INFO( "[Net] pawn {} (player {}): {:.0f} m, period {} ({:.3g} Hz), delay {:.2f} s", id, pawn.Player,
+                      Net::GroundDistanceCm( from, pawn.History.Newest().Position ) / 100.0f, period,
+                      Net::kNetStepHz / static_cast<double>( period ), m_Client->PawnDelay( id ).value_or( 0.0 ) );
         }
     }
 
@@ -633,6 +653,36 @@ namespace Desert::Core
     namespace
     {
         bool ApplyStableChange( Scene& scene, const Net::ReplicationClient::StableChange& change );
+    }
+
+    void ClientNetDriver::ReportView( Scene& scene )
+    {
+        const auto* of = scene.GetRegistry().try_ctx<WorldStreamerOfScene>();
+        if ( of == nullptr || of->Streamer == nullptr || of->Streamer->LastSources().empty() )
+            return; // the played world is not streamed: the server's circle alone
+        const Rules::StreamingSource& source = of->Streamer->LastSources().front();
+        // The source's forward on the ground; none (an instrument) is the world's -Z, as the rules read it.
+        glm::vec2 forward = source.Facing ? glm::vec2( source.Facing->x, source.Facing->z ) : glm::vec2( 0.0f, -1.0f );
+        if ( glm::length( forward ) < 1e-6f )
+            forward = { 0.0f, -1.0f };
+        // Yaw about +Y, 0 facing -Z, counter-clockwise seen from above (Rules::Detail::TurnAboutUp): the axis
+        // (-sin, -cos).
+        Net::ViewReport view;
+        view.FacingYawDeg = glm::degrees( std::atan2( -forward.x, -forward.y ) );
+        if ( source.Shapes.empty() )
+            view.RangeCm = source.LoadingRange.value_or( 0.0f ); // its own circle; none = the grid's
+        else
+        {
+            // The first shape: a sector turned by its yaw, reaching its own radius. One on the grid's range states
+            // none of its own - the server's circle already reaches the main grid's loading range.
+            const Rules::StreamingSourceShape& shape = source.Shapes.front();
+            view.FacingYawDeg += shape.Yaw;
+            const bool sector    = shape.IsSector && shape.SectorAngle > 0.0f && shape.SectorAngle < 360.0f;
+            view.SectorAngleDeg  = sector ? shape.SectorAngle : 360.0f;
+            view.RangeCm         = shape.UseGridLoadingRange ? 0.0f : shape.Radius;
+        }
+        view.FacingYawDeg = std::remainder( view.FacingYawDeg, 360.0f );
+        m_Client->ReportView( view );
     }
 
     void ClientNetDriver::ReportResidency( Scene& scene )
