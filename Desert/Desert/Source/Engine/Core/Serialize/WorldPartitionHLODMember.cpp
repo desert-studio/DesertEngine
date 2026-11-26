@@ -19,15 +19,25 @@ namespace Desert::Core::Rules
                 content.push_back( path );
         }
 
+        // Every asset a batch key names, content-hashed by the checksum. The binding below names EVERY field of
+        // the key, so a field added to InstancedStaticMeshComponentSer stops this from compiling until it is
+        // sorted here: an asset reference joins the content, anything else is keyed by its text alone.
         void AddKeyContent( std::vector<std::string>& content, const Assets::InstancedStaticMeshComponentSer& key )
         {
-            AddContentKey( content, key.MeshGuid.value_or( std::string{} ),
-                           key.MeshPath.value_or( std::string{} ) );
-            const std::size_t guids = key.MaterialGuids.has_value() ? key.MaterialGuids->size() : 0;
-            const std::size_t paths = key.MaterialPaths.has_value() ? key.MaterialPaths->size() : 0;
+            const auto& [meshPath, meshGuid, materialPaths, materialGuids, primitive, instanceTransforms,
+                         castShadows, castContactShadow, maxDrawDistance] = key;
+            // Not asset references: a built-in shape, the instances and draw flags (in the key's text).
+            (void)primitive;
+            (void)instanceTransforms;
+            (void)castShadows;
+            (void)castContactShadow;
+            (void)maxDrawDistance;
+            AddContentKey( content, meshGuid.value_or( std::string{} ), meshPath.value_or( std::string{} ) );
+            const std::size_t guids = materialGuids.has_value() ? materialGuids->size() : 0;
+            const std::size_t paths = materialPaths.has_value() ? materialPaths->size() : 0;
             for ( std::size_t slot = 0; slot < std::max( guids, paths ); ++slot )
-                AddContentKey( content, slot < guids ? ( *key.MaterialGuids )[slot] : std::string{},
-                               slot < paths ? ( *key.MaterialPaths )[slot] : std::string{} );
+                AddContentKey( content, slot < guids ? ( *materialGuids )[slot] : std::string{},
+                               slot < paths ? ( *materialPaths )[slot] : std::string{} );
         }
     } // namespace
 
@@ -43,7 +53,11 @@ namespace Desert::Core::Rules
             std::sort( member.Content.begin(), member.Content.end() );
             member.Content.erase( std::unique( member.Content.begin(), member.Content.end() ),
                                   member.Content.end() );
-            member.Relevant = !member.Batches.empty() || !member.Holes.empty();
+            // UE IsHLODRelevant: a record is relevant when an HLOD builder takes it - a batch, or its module's
+            // own builder. A record whose every part is a hole (a skinned mesh, a custom-shader or editor mesh,
+            // an unreadable block) makes no cell want an HLOD; its holes are named in its cell's row when the cell
+            // has one for other members.
+            member.Relevant = !member.Batches.empty() || member.OwnBuilder != nullptr;
             return Common::MakeSuccess( std::move( member ) );
         };
 

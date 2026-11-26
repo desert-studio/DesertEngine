@@ -103,6 +103,35 @@ namespace Desert::Core
         {
             return plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Bounds;
         }
+
+        // ONE PLAN UNDER THE HLODs (WP-HLOD-HASH): SavedHLODStatus plans the snapshot itself, and Play places its
+        // hierarchy's depth-1 nodes on the executor's cell units by index. Both are made from the same records,
+        // bounds and partition, so they cut the same units; a unit that differs is an error naming it, never a
+        // node silently drawn on another cell or dropped.
+        Common::BoolResultStr SamePlanUnits( const WorldPartitionSerialized&  partition,
+                                             const Rules::WorldPartitionPlan& judged,
+                                             const Rules::WorldPartitionPlan& streamed )
+        {
+            const std::size_t units = Rules::ResidencyUnitCount( streamed );
+            if ( Rules::ResidencyUnitCount( judged ) != units ||
+                 judged.AlwaysLoaded.size() != streamed.AlwaysLoaded.size() )
+                return Common::MakeError( std::format(
+                     "the HLOD status planned {} cell unit(s) ({} always loaded) and the streaming {} ({})",
+                     Rules::ResidencyUnitCount( judged ), judged.AlwaysLoaded.size(), units,
+                     streamed.AlwaysLoaded.size() ) );
+            for ( std::size_t unit = 0; unit < units; ++unit )
+            {
+                const std::string judgedName   = Rules::HLODRowName( partition, judged, unit );
+                const std::string streamedName = Rules::HLODRowName( partition, streamed, unit );
+                if ( judgedName != streamedName ||
+                     Rules::ResidencyUnitMembers( judged, unit ) != Rules::ResidencyUnitMembers( streamed, unit ) )
+                    return Common::MakeError(
+                         std::format( "cell unit {} is {} in the HLOD status and {} in the streaming plan, or "
+                                      "holds other records",
+                                      unit, judgedName, streamedName ) );
+            }
+            return BOOLSUCCESS;
+        }
     } // namespace
 
     namespace
@@ -340,8 +369,8 @@ namespace Desert::Core
                     }
                     else
                     {
-                        const WorldCells::HLODWorldStatus& status = judged.GetValue();
-                        hlodIssues                                = WorldCells::OutdatedHLODIssues( status );
+                        WorldCells::HLODWorldStatus status = judged.ExtractValue();
+                        hlodIssues                         = WorldCells::OutdatedHLODIssues( status );
                         // One line for every node without a current HLOD, not one per node: an edit that dirties a
                         // layer leaves hundreds of them, and the count with the first names says the same.
                         if ( const std::vector<std::string> outdated = status.OutdatedNames(); !outdated.empty() )
@@ -354,40 +383,42 @@ namespace Desert::Core
                                  "have none ({2}{3}). Run Build > Build HLODs.",
                                  snapshot->SceneName, outdated.size(), named, outdated.size() > 8 ? ", ..." : "" );
                         }
-                        // The saved row a node is drawn from: its own when Current, none otherwise (no HLOD
-                        // wanted, or outdated and named above).
-                        std::unordered_map<std::string, const WorldCells::BuiltHLODCell*> rows;
-                        for ( const WorldCells::HLODNodeStatus& node : status.Nodes )
-                            if ( node.State == WorldCells::HLODNodeState::Current )
-                                rows.emplace( node.Name, node.Row );
-                        auto hierarchy = Rules::PlanHLODHierarchy( *partition, plan );
-                        if ( !hierarchy )
-                            return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
-                                                              "': " + hierarchy.GetError() );
-                        if ( hierarchy.GetValue().Streams() )
+                        // THE ONE HIERARCHY (UE: PIE reads the HLOD actors the builder saved, it never plans them
+                        // again): Play draws status.Hierarchy, node by node, from the row its status found. Its
+                        // depth-1 nodes stand for units of the status's plan, which must be the executor's units.
+                        if ( auto agreed = SamePlanUnits( *partition, status.Plan, plan ); !agreed )
                         {
-                            // THE HLOD CELLS (WP-FAR-8): every node's row, read when its HLOD cell is wanted.
+                            LOG_ERROR( "[WorldPartition] Play of '{0}' runs WITHOUT HLODs: {1}. Run Build > Build "
+                                       "HLODs.",
+                                       snapshot->SceneName, agreed.GetError() );
+                            hlodIssues.push_back( WorldCells::MissingHLODsIssue( agreed.GetError() ) );
+                        }
+                        else if ( status.Hierarchy.Streams() )
+                        {
+                            // THE HLOD CELLS (WP-FAR-8): every node's row, read when its HLOD cell is wanted. A
+                            // node that is not Current draws nothing (no HLOD wanted, or outdated and named
+                            // above).
                             std::vector<const WorldCells::BuiltHLODCell*> nodeRows;
-                            for ( const Rules::HLODNode& node : hierarchy.GetValue().Nodes )
+                            for ( std::size_t n = 0; n < status.Hierarchy.Nodes.size(); ++n )
                             {
-                                const auto row = rows.find( node.Name );
-                                if ( row == rows.end() )
+                                const Rules::HLODNode&            node  = status.Hierarchy.Nodes[n];
+                                const WorldCells::HLODNodeStatus& state = status.Nodes.at( n );
+                                if ( state.State != WorldCells::HLODNodeState::Current )
                                 {
                                     nodeRows.push_back( nullptr );
                                     continue;
                                 }
                                 if ( !node.ForHLODCell )
-                                    for ( const WorldCells::IndexNotInstanced& missing :
-                                          row->second->NotInstanced )
+                                    for ( const WorldCells::IndexNotInstanced& missing : state.Row->NotInstanced )
                                         holes.push_back( missing.Reason );
-                                for ( const std::uint64_t id : row->second->Ids )
+                                for ( const std::uint64_t id : state.Row->Ids )
                                     if ( byId.contains( Common::UUID( id ) ) )
                                         return Common::MakeError<Result>( "world streaming of '" +
                                                                           snapshot->SceneName +
                                                                           "': an HLOD record of " + node.Name +
                                                                           " has a record's id; rename the world" );
-                                nodeRows.push_back( row->second->File.has_value() && !row->second->Ids.empty()
-                                                         ? row->second
+                                nodeRows.push_back( state.Row->File.has_value() && !state.Row->Ids.empty()
+                                                         ? state.Row
                                                          : nullptr );
                             }
                             LOG_INFO(
@@ -396,7 +427,7 @@ namespace Desert::Core
                                  snapshot->SceneName,
                                  std::ranges::count_if( nodeRows, []( const WorldCells::BuiltHLODCell* row )
                                                         { return row != nullptr; } ),
-                                 hierarchy.GetValue().Cells.size(),
+                                 status.Hierarchy.Cells.size(),
                                  WorldCells::BuiltHLODDirectory( scenePath ).string(), status.Outdated() );
                             // The HLOD residency over the saved rows' record counts, and per unit its nodes' rows
                             // in composite order (ResidencyUnitMembers' order) for the source.
@@ -413,7 +444,7 @@ namespace Desert::Core
                                     streamer->NoteImpostorPair( row->ImpostorCards, row->ImpostorFallbacks );
                                 }
                             }
-                            auto residency = Rules::MakeHLODResidency( *partition, hierarchy.GetValue(), counts );
+                            auto residency = Rules::MakeHLODResidency( *partition, status.Hierarchy, counts );
                             if ( !residency )
                                 return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
                                                                   "': " + residency.GetError() );
@@ -427,56 +458,57 @@ namespace Desert::Core
                                     unitRows[r.Plan.AlwaysLoaded.size() + c].push_back( nodeRows[n] );
                             std::shared_ptr<const Rules::WorldCellSource> source =
                                  std::make_shared<StoredHLODCellSource>( held, std::move( unitRows ) );
-                            Rules::HLODHierarchy streamedHierarchy = hierarchy.ExtractValue();
                             Rules::HLODResidency streamedResidency = residency.ExtractValue();
                             if ( auto begun = streamer->BeginHLODCells(
-                                      std::move( streamedHierarchy ), std::move( streamedResidency ),
+                                      std::move( status.Hierarchy ), std::move( streamedResidency ),
                                       std::move( nodeIds ), std::move( source ), holes );
                                  !begun )
                                 return Common::MakeError<Result>( begun.GetError() );
                             streamed = true;
                         }
-                        for ( std::size_t unit = plan.AlwaysLoaded.size();
-                              !streamed && unit < Rules::ResidencyUnitCount( plan ); ++unit )
+                        else
                         {
-                            const std::string name = Rules::HLODRowName( *partition, plan, unit );
-                            const auto        row  = rows.find( name );
-                            if ( row == rows.end() )
-                                continue; // no HLOD wanted, or outdated and named above
-                            for ( const WorldCells::IndexNotInstanced& missing : row->second->NotInstanced )
-                                holes.push_back( missing.Reason );
-                            // A row without a file, or whose file lists no record, stands in for nothing.
-                            if ( !row->second->File.has_value() || row->second->Ids.empty() )
-                                continue;
-                            // Read when BeginHLODs makes it, not now (CellHLOD): the read shares `held` (this
-                            // block ends before that call); `byId` and `snapshot` outlive it.
-                            const WorldCells::BuiltHLODCell* cell = row->second;
-                            streamer->NoteImpostorPair( cell->ImpostorCards, cell->ImpostorFallbacks );
-                            hlods.push_back( CellHLOD{
-                                 unit,
-                                 [held, &byId, &snapshot, cell,
-                                  name]() -> Common::ResultStr<std::vector<Assets::EntityData>>
-                                 {
-                                     using Records = std::vector<Assets::EntityData>;
-                                     auto records  = WorldCells::StoredCellRecords( *held, *cell );
-                                     if ( !records )
-                                         return Common::MakeError<Records>( "world streaming of '" +
-                                                                            snapshot->SceneName + "', " + name +
-                                                                            ": " + records.GetError() );
-                                     for ( const Assets::EntityData& record : records.GetValue() )
-                                         if ( byId.contains( *record.id ) )
-                                             return Common::MakeError<Records>(
-                                                  "world streaming of '" + snapshot->SceneName +
-                                                  "': an HLOD record of " + name +
-                                                  " has a record's id; rename the world" );
-                                     return records;
-                                 } } );
-                        }
-                        if ( !streamed )
+                            // Every HLOD resident with its world cell: each Current depth-1 node's row, made by
+                            // BeginHLODs for the unit it stands for.
+                            for ( const WorldCells::HLODNodeStatus& state : status.Nodes )
+                            {
+                                const Rules::HLODNode& node = status.Hierarchy.Nodes.at( state.Node );
+                                if ( node.ForHLODCell || state.State != WorldCells::HLODNodeState::Current )
+                                    continue; // no HLOD wanted, or outdated and named above
+                                for ( const WorldCells::IndexNotInstanced& missing : state.Row->NotInstanced )
+                                    holes.push_back( missing.Reason );
+                                // A row without a file, or whose file lists no record, stands in for nothing.
+                                if ( !state.Row->File.has_value() || state.Row->Ids.empty() )
+                                    continue;
+                                // Read when BeginHLODs makes it, not now (CellHLOD): the read shares `held` (this
+                                // block ends before that call); `byId` and `snapshot` outlive it.
+                                const WorldCells::BuiltHLODCell* cell = state.Row;
+                                streamer->NoteImpostorPair( cell->ImpostorCards, cell->ImpostorFallbacks );
+                                hlods.push_back( CellHLOD{
+                                     node.StandsFor,
+                                     [held, &byId, &snapshot, cell,
+                                      name = state.Name]() -> Common::ResultStr<std::vector<Assets::EntityData>>
+                                     {
+                                         using Records = std::vector<Assets::EntityData>;
+                                         auto records  = WorldCells::StoredCellRecords( *held, *cell );
+                                         if ( !records )
+                                             return Common::MakeError<Records>( "world streaming of '" +
+                                                                                snapshot->SceneName + "', " +
+                                                                                name + ": " + records.GetError() );
+                                         for ( const Assets::EntityData& record : records.GetValue() )
+                                             if ( byId.contains( *record.id ) )
+                                                 return Common::MakeError<Records>(
+                                                      "world streaming of '" + snapshot->SceneName +
+                                                      "': an HLOD record of " + name +
+                                                      " has a record's id; rename the world" );
+                                         return records;
+                                     } } );
+                            }
                             LOG_INFO(
                                  "[WorldPartition] Play of '{0}': {1} saved HLOD(s) from {2}, {3} stale cell(s)",
                                  snapshot->SceneName, hlods.size(),
                                  WorldCells::BuiltHLODDirectory( scenePath ).string(), status.Outdated() );
+                        }
                     }
                 }
             }

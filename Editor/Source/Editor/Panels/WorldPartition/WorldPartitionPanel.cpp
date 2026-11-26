@@ -280,7 +280,7 @@ namespace Desert::Editor
             m_EditTags.reserve( index.GetValue().Index.Entities.size() );
             for ( const ::Desert::Core::DescriptorIndex::DescriptorRow& row : index.GetValue().Index.Entities )
                 m_EditTags.push_back( row.Descriptor.Tag );
-            ReadHLODOverlay( *m_Scene->Packages()->BaselinePath() );
+            ReadHLODOverlay();
             m_EditPlanStatus.clear(); // the view stays: a region load replans the same world
             return;
         }
@@ -311,20 +311,15 @@ namespace Desert::Editor
         m_FocusPending = true;
     }
 
-    void WorldPartitionPanel::ReadHLODOverlay( const std::filesystem::path& scenePath )
+    void WorldPartitionPanel::ReadHLODOverlay()
     {
         m_HLODCells.clear();
         m_HLODOverlayStatus.clear();
-        auto status = HLODStatusOf( scenePath );
-        if ( !status )
-        {
-            m_HLODOverlayStatus = "HLOD overlay: " + status.GetError();
-            return;
-        }
-        // No Build HLODs yet: the world has no HLOD to show, built or stale.
-        if ( !status.GetValue().Built )
-            return;
-        m_HLODCells = Map::HLODCellStates( *m_EditPlan, m_EditPartition, status.GetValue().World );
+        const HLODStatus* status = PanelHLODStatus();
+        if ( status == nullptr )
+            m_HLODOverlayStatus = "HLOD overlay: " + m_HLODStatusError;
+        else if ( status->Built ) // no Build HLODs yet: the world has no HLOD to show, built or stale
+            m_HLODCells = Map::HLODCellStates( *m_EditPlan, m_EditPartition, status->World );
     }
 
     void WorldPartitionPanel::OnUIRender()
@@ -1818,7 +1813,13 @@ namespace Desert::Editor
         if ( m_EditorHLODsStale && !IsBuildingHLODs() )
         {
             m_EditorHLODsStale = false;
-            if ( const auto made = m_EditorHLODs.Make( *m_Scene, m_Assets, EditorLayersLoaded() ); !made )
+            // The panel's one status, for a world with HLODs only, refreshed (with its error) before the call.
+            const auto&       partition = m_Scene->GetWorldPartition();
+            const HLODStatus* status =
+                 partition && ::Desert::Core::Rules::AnyGridHLODLayer( *partition ) ? PanelHLODStatus() : nullptr;
+            if ( const auto made =
+                      m_EditorHLODs.Make( *m_Scene, m_Assets, EditorLayersLoaded(), status, m_HLODStatusError );
+                 !made )
                 LOG_ERROR( "[WorldPartition] {0}", made.GetError() );
         }
         const EditorPreferences& prefs = EditorPreferences::Get();
@@ -2236,8 +2237,7 @@ namespace Desert::Editor
             // A mesh, material or texture saved since the last status may have made rows stale.
             if ( ::Desert::Assets::ContentRegistry::WriteSerial() != m_RegistrySerial )
                 m_HLODStatusStale = true;
-            if ( m_HLODStatusStale && !m_Builder )
-                RefreshHLODStatus();
+            (void)PanelHLODStatus();
             if ( ImGui::CollapsingHeader( "HLODs", ImGuiTreeNodeFlags_DefaultOpen ) )
             {
                 if ( m_Builder )

@@ -554,15 +554,11 @@ namespace Desert::Core::WorldCells
         return Common::MakeSuccess( std::move( out ) );
     }
 
-    Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
-                                              std::span<const Rules::EntityDescriptor>      descriptors,
+    Common::ResultStr<CookedWorld> CookWorld( const ExpandedWorld&                          world,
                                               std::span<const Common::Utils::AssetRegistry> registries,
-                                              const PrefabReader& prefabs, const HLODsToPack* hlods )
+                                              const HLODsToPack*                            hlods )
     {
-        auto expanded = ExpandWorldForCook( scene, descriptors, prefabs );
-        if ( !expanded )
-            return Common::MakeError<CookedWorld>( expanded.GetError() );
-        return CookPlanned( expanded.GetValue().World.Scene, expanded.GetValue().Descriptors, registries, hlods );
+        return CookPlanned( world.World.Scene, world.Descriptors, registries, hlods );
     }
 
     static Common::ResultStr<CookedWorld> CookPlanned( const SceneSerialized&                        scene,
@@ -1776,7 +1772,18 @@ namespace Desert::Core::WorldCells
             return Common::MakeError<StoredHLODs>( "'" + ( dir / kBuiltHLODIndexName ).string() +
                                                    "' is not a readable HLOD index: " + parsed.GetError() );
         StoredHLODs stored;
-        stored.Index  = parsed.ExtractValue();
+        stored.Index = parsed.ExtractValue();
+        // An index row whose payload file is gone is not a saved HLOD: the read refuses it by name, so a status
+        // never calls Current a node whose records Play could not load.
+        for ( const BuiltHLODCell& cell : stored.Index.Cells )
+        {
+            std::error_code ec;
+            if ( cell.File.has_value() && !std::filesystem::is_regular_file( dir / *cell.File, ec ) )
+                return Common::MakeError<StoredHLODs>(
+                     std::format( "the HLOD index '{}' lists '{}' for {}, and the file is not there; run "
+                                  "Build > Build HLODs again",
+                                  ( dir / kBuiltHLODIndexName ).string(), *cell.File, cell.Unit ) );
+        }
         stored.Reader = [dir]( std::string_view name ) -> Common::ResultStr<std::vector<unsigned char>>
         {
             auto read = Common::Utils::FileSystem::ReadByteFileContent( dir / std::string( name ) );

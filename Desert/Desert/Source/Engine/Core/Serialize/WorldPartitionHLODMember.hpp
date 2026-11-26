@@ -39,8 +39,8 @@ namespace Desert::Core::Rules
         std::optional<std::vector<std::array<float, 16>>> Instances; // absent = one instance at the record's world
     };
 
-    // The member's typed read. Relevant = it brings a batch or a named hole (UE IsHLODRelevant: a PlayerStart,
-    // a trigger, a light bring neither and make no cell want an HLOD).
+    // The member's typed read. Relevant = it brings a batch or its module's own builder takes it (UE
+    // IsHLODRelevant: a PlayerStart, a trigger, a light, a record that is only holes make no cell want an HLOD).
     struct HLODMember
     {
         bool                         Relevant = false;

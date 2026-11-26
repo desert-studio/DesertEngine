@@ -286,19 +286,18 @@ namespace Desert::Core::WorldCells
     struct HLODsToPack
     {
         const StoredHLODs&                Saved;
-        const Rules::HLODBuilderRegistry& Builders; // Core::HLODBuilders, or the editor's copy of it
+        const Rules::HLODBuilderRegistry& Builders; // the one Core::HLODBuilders (WorldCook, the packager)
     };
     [[nodiscard]] Common::ResultStr<CookedWorld>
     CookWorld( const SceneSerialized& scene, std::span<const Common::Utils::AssetRegistry> registries,
                const PrefabReader& prefabs, const HLODsToPack* hlods = nullptr );
 
-    // The same cook, PLANNED FROM DESCRIPTORS (WP18): `descriptors` (the world's descriptor index,
-    // EntityDescriptorIndex.hpp) are what the cells are decided with; the records only fill the cell files.
-    // Refused when the descriptors are not the records', id for id and in order. An instance record's descriptor
-    // is replaced by its expanded records' (DescribeEntities); every other record keeps the index's.
+    // The same cook over THE WORLD ALREADY EXPANDED (ExpandWorldForCook, WP18/WP21): its descriptors - the
+    // world's descriptor index, an instance's replaced by its expanded records' - are what the cells are decided
+    // with; the records only fill the cell files. The caller that checked this world cooks it: it is expanded
+    // once, never again here.
     [[nodiscard]] Common::ResultStr<CookedWorld>
-    CookWorld( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
-               std::span<const Common::Utils::AssetRegistry> registries, const PrefabReader& prefabs,
+    CookWorld( const ExpandedWorld& world, std::span<const Common::Utils::AssetRegistry> registries,
                const HLODsToPack* hlods = nullptr );
 
     // The bounds source a cook plans with: the first registry that knows the mesh answers.

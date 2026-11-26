@@ -47,7 +47,8 @@ namespace Desert::Editor
     } // namespace
 
     Common::BoolResultStr EditorHLODs::Make( ::Desert::Core::Scene& scene, ::Desert::Assets::AssetManager* assets,
-                                             const std::vector<bool>& layerLoaded )
+                                             const std::vector<bool>& layerLoaded, const HLODStatus* status,
+                                             const std::string_view statusError )
     {
         Release( scene );
         m_Status.clear();
@@ -69,27 +70,31 @@ namespace Desert::Editor
             return BOOLSUCCESS;
         }
         const std::filesystem::path path = *baseline;
-        auto                        world = ::Desert::Core::EditorRegions::PlanWorldOnDisk( path, *partition );
-        if ( !world )
-            return Common::MakeError( std::format( "editor HLODs of '{}': {}", path.string(), world.GetError() ) );
-        auto stored = WC::ReadBuiltHLODs( path );
-        if ( !stored )
+        if ( status == nullptr )
         {
-            m_Status = std::format( "No saved HLODs ({}). Run Build > Build HLODs.", stored.GetError() );
+            m_Status = std::format( "HLOD status: {}", statusError );
             LOG_WARN( "[WorldPartition] Editor HLODs of '{0}': {1}", path.string(), m_Status );
             return BOOLSUCCESS;
         }
+        if ( !status->Built || !status->Stored )
+        {
+            m_Status = "No saved HLODs. Run Build > Build HLODs.";
+            LOG_WARN( "[WorldPartition] Editor HLODs of '{0}': {1}", path.string(), m_Status );
+            return BOOLSUCCESS;
+        }
+        auto world = ::Desert::Core::EditorRegions::PlanWorldOnDisk( path, *partition );
+        if ( !world )
+            return Common::MakeError( std::format( "editor HLODs of '{}': {}", path.string(), world.GetError() ) );
         m_World                               = world.ExtractValue();
         const Rules::WorldPartitionPlan& plan = m_World->Plan;
-        std::unordered_map<std::string, const WC::BuiltHLODCell*> rows;
-        for ( const WC::BuiltHLODCell& row : stored.GetValue().Index.Cells )
-            rows.emplace( row.Unit, &row );
+        const WC::HLODWorldStatus&       one  = status->World;
 
         // Every record of the world, held or not: an HLOD record with one's id would be made over it the moment a
         // region load brings it (Play refuses the same world by the same test). The index lists each HLOD's record
         // ids (StoredCellRecords checks its file against them), so the test needs no proxy file.
         const std::unordered_set<std::uint64_t> worldIds( m_World->RowIds.begin(), m_World->RowIds.end() );
         std::vector<std::size_t>                units;
+        std::unordered_set<std::string>         placed;
         std::size_t                             records = 0;
         const auto refuse = [&]( const std::string& why )
         {
@@ -98,17 +103,19 @@ namespace Desert::Editor
         };
         for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < Rules::ResidencyUnitCount( plan ); ++unit )
         {
-            // The row's key is the node's name (HLODRowName: a cell of runtime data layers carries their suffix).
-            const std::string name = Rules::HLODRowName( *partition, plan, unit );
-            const auto        row  = rows.find( name );
-            if ( row == rows.end() )
+            // The node's name is its row's key (HLODRowName: a cell of runtime data layers carries their suffix).
+            // Only a Current node is drawn: a stale, missing or orphaned row draws nothing, as in Play.
+            const std::string         name = Rules::HLODRowName( *partition, plan, unit );
+            const WC::HLODNodeStatus* node = one.Find( name );
+            if ( node == nullptr || node->State != WC::HLODNodeState::Current )
                 continue;
+            placed.insert( name );
             // A row without a file, or whose file lists no record, stands in for nothing (as in Play).
-            if ( !row->second->File.has_value() || row->second->Ids.empty() )
+            if ( !node->Row->File.has_value() || node->Row->Ids.empty() )
                 continue;
             MadeHLOD& made = m_HLODs.emplace_back();
             made.Unit      = unit;
-            made.Row       = *row->second;
+            made.Row       = *node->Row;
             for ( const std::uint64_t id : made.Row.Ids )
             {
                 if ( worldIds.contains( id ) || scene.FindEntityByID( Common::UUID( id ) ).has_value() )
@@ -121,21 +128,27 @@ namespace Desert::Editor
             records += made.Ids.size();
             units.push_back( unit );
         }
+        // A Current cell HLOD the editor's plan has no cell for is said by name, never dropped in silence.
+        std::vector<std::string> unplaced;
+        for ( const WC::HLODNodeStatus& node : one.Nodes )
+            if ( node.State == WC::HLODNodeState::Current && !one.Hierarchy.Nodes.at( node.Node ).ForHLODCell &&
+                 !placed.contains( node.Name ) )
+                unplaced.push_back( node.Name );
+        if ( !unplaced.empty() )
+            LOG_ERROR( "[WorldPartition] Editor HLODs of '{0}': {1} current HLOD(s) name a cell the editor's plan "
+                       "does not have, so they are not drawn (first: {2})",
+                       path.string(), unplaced.size(), unplaced.front() );
         auto runtime = Rules::HLODRuntime::Make( plan, units );
         if ( !runtime )
             return refuse( runtime.GetError() );
         m_Runtime = runtime.ExtractValue();
-        m_Reader  = std::move( stored.GetValue().Reader );
+        m_Reader  = status->Stored->Reader;
         m_Assets  = assets;
-        // Whether what is drawn is current is the one answer's (SavedHLODStatus via HLODStatusOf), not a count
-        // here.
-        const auto        status = HLODStatusOf( path );
-        const std::string current =
-             status ? std::format( "{} wanted HLOD(s), {} outdated", status.GetValue().World.Wanted(),
-                                   status.GetValue().World.Outdated() )
-                    : std::format( "HLOD status: {}", status.GetError() );
-        m_Status = std::format( "{} saved HLOD(s), {} record(s), each read when drawn; {}.", m_HLODs.size(),
-                                records, current );
+        m_Status  = std::format(
+             "{} saved HLOD(s), {} record(s), each read when drawn; {} wanted HLOD(s), {} "
+              "outdated{}.",
+             m_HLODs.size(), records, one.Wanted(), one.Outdated(),
+             unplaced.empty() ? std::string{} : std::format( ", {} not on the editor's plan", unplaced.size() ) );
         LOG_INFO( "[WorldPartition] Editor HLODs of '{0}': {1}", path.string(), m_Status );
         return SyncHeld( scene, layerLoaded );
     }

@@ -808,26 +808,24 @@ namespace Desert::Editor
             return Common::MakeError<HLODStatus>( saved.GetError() );
         const SavedWorld&  world = saved.GetValue();
         HLODStatus         status;
-        auto index = std::make_shared<WC::BuiltHLODIndex>(); // no saved index: every wanted node is missing
-        if ( HasSavedIndex( scenePath ) )
+        if ( HasSavedIndex( scenePath ) ) // none saved: every wanted node is missing
         {
             auto stored = WC::ReadBuiltHLODs( scenePath );
             if ( !stored )
                 return Common::MakeError<HLODStatus>( stored.GetError() );
-            *index       = std::move( stored.GetValue().Index );
-            status.Built = true;
+            status.Stored = std::make_shared<const WC::StoredHLODs>( stored.ExtractValue() );
+            status.Built  = true;
         }
         // The world the build cuts and the cook checks: prefab instances expanded (WP21).
         auto cut = WC::ExpandWorldForCook( world.Loadable.Scene, world.Descriptors, WC::PrefabFileReader() );
         if ( !cut )
             return Common::MakeError<HLODStatus>( cut.GetError() );
         auto judged = WC::SavedHLODStatus( cut.GetValue().World.Scene, cut.GetValue().Descriptors,
-                                           status.Built ? index.get() : nullptr, Registries(),
+                                           status.Stored ? &status.Stored->Index : nullptr, Registries(),
                                            ::Desert::Core::HLODBuilders() );
         if ( !judged )
             return Common::MakeError<HLODStatus>( judged.GetError() );
         status.World = judged.ExtractValue();
-        status.Index = std::move( index );
         return Common::MakeSuccess( std::move( status ) );
     }
 

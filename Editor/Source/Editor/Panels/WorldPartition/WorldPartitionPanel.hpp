@@ -278,9 +278,9 @@ namespace Desert::Editor
         [[nodiscard]] Common::BoolResultStr Reload( ::Desert::Core::EditorRegions::HeldRegions   next,
                                                     ::Desert::Core::EditorRegions::UnsavedPolicy policy );
         // The HLOD overlay of the Edit plan over the index: which cells' HLODs are built, and which are stale
-        // against the SAVED world - HLODStatusOf, the HLODs section's own reader, so the map and the section never
-        // disagree. Nothing when no HLOD was built for the world; a refusal is m_HLODOverlayStatus.
-        void ReadHLODOverlay( const std::filesystem::path& scenePath );
+        // against the SAVED world - PanelHLODStatus, the one status the HLODs section and the editor HLODs read,
+        // so they never disagree. Nothing when no HLOD was built for the world; a refusal is m_HLODOverlayStatus.
+        void ReadHLODOverlay();
         // The HLODs section (Edit, a world with an HLOD layer): "N wanted HLOD, M outdated", Build HLODs / Force
         // all / Delete HLODs, and the Save and build prompt.
         void DrawHLODBuild();
@@ -288,6 +288,15 @@ namespace Desert::Editor
         // plan was remade, a build or delete finished, or the content registry saw a file written (a mesh or a
         // material saved). More outdated nodes than before raise the notification.
         void RefreshHLODStatus();
+        // The panel's one HLOD status, refreshed first when stale and no build runs: the map overlay, the HLODs
+        // section and the editor HLODs (EditorHLODs::Make) all read it. Null when it could not be made
+        // (m_HLODStatusError says why).
+        [[nodiscard]] const HLODStatus* PanelHLODStatus()
+        {
+            if ( m_HLODStatusStale && !m_Builder )
+                RefreshHLODStatus();
+            return m_HLODStatus ? &*m_HLODStatus : nullptr;
+        }
         void DrawMap( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
                       const ::Desert::Core::WorldPartitionSerialized&  partition,
                       const ::Desert::Core::Rules::ResidencyState*     residency,

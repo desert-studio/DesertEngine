@@ -68,8 +68,9 @@ namespace Desert::Editor
     struct HLODStatus
     {
         bool Built = false; // the world has a saved HLOD index
-        // The saved index World's rows point into (HLODNodeStatus::Row), shared so a copy keeps them valid.
-        std::shared_ptr<const ::Desert::Core::WorldCells::BuiltHLODIndex> Index;
+        // The saved HLODs World's rows point into (HLODNodeStatus::Row) and their files' reader, shared so a copy
+        // keeps them valid; null when none are saved.
+        std::shared_ptr<const ::Desert::Core::WorldCells::StoredHLODs> Stored;
         ::Desert::Core::WorldCells::HLODWorldStatus World; // the one answer (SavedHLODStatus)
     };
 

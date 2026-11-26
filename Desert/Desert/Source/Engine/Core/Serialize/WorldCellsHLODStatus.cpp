@@ -38,8 +38,9 @@ namespace Desert::Core::WorldCells
 
         // The content hash of the file registry key @p key names (HLODContentHasher): an asset envelope's from its
         // table of contents - the tag and hash of every section, read with the header - any other file's from its
-        // bytes, 0 for a file that does not read.
-        std::uint64_t SavedContentHash( const std::string& key )
+        // bytes. A file that does not read (deleted, locked, a path that resolves nowhere) is an error naming the
+        // key and the file: the build could not read it either, and no number may stand for "no content".
+        Common::ResultStr<std::uint64_t> SavedContentHash( const std::string& key )
         {
             const std::filesystem::path file = Common::AssetHandle::PathForStableKey( key );
             {
@@ -60,15 +61,19 @@ namespace Desert::Core::WorldCells
                         for ( const CC::EnvelopeTocEntry& entry : header.GetValue().Toc )
                             toc += std::format( "{:08x}:{:016x};", static_cast<std::uint32_t>( entry.Tag ),
                                                 entry.Hash );
-                        return Common::Utils::Crc32c( toc.data(), toc.size() );
+                        return Common::MakeSuccess<std::uint64_t>(
+                             Common::Utils::Crc32c( toc.data(), toc.size() ) );
                     }
                 }
             }
             // Not an envelope, or one whose header does not read: its bytes are its content.
             auto bytes = Common::Utils::FileSystem::ReadByteFileContent( file );
             if ( !bytes )
-                return 0;
-            return Common::Utils::Crc32c( bytes.GetValue().data(), bytes.GetValue().size() );
+                return Common::MakeError<std::uint64_t>( std::format( "the HLOD input '{}' ({}) does not read: {}",
+                                                                      key, file.generic_string(),
+                                                                      bytes.GetError() ) );
+            return Common::MakeSuccess<std::uint64_t>(
+                 Common::Utils::Crc32c( bytes.GetValue().data(), bytes.GetValue().size() ) );
         }
 
         // THE CONTENT OF THE ASSET KEYS A NODE'S MEMBERS NAME (UE ComputeHLODHash folds each component's mesh and
@@ -85,7 +90,7 @@ namespace Desert::Core::WorldCells
             {
             }
 
-            [[nodiscard]] std::string LinesOf( const std::set<std::string>& keys )
+            [[nodiscard]] Common::ResultStr<std::string> LinesOf( const std::set<std::string>& keys )
             {
                 std::set<std::string>      files;
                 std::set<std::string>      absent;
@@ -150,12 +155,17 @@ namespace Desert::Core::WorldCells
                 {
                     auto known = m_Hashes.find( file );
                     if ( known == m_Hashes.end() )
-                        known = m_Hashes.emplace( file, SavedContentHash( file ) ).first;
+                    {
+                        auto hash = SavedContentHash( file );
+                        if ( !hash )
+                            return Common::MakeError<std::string>( hash.GetError() );
+                        known = m_Hashes.emplace( file, hash.GetValue() ).first;
+                    }
                     text += std::format( "{} {:016x}\n", file, known->second );
                 }
                 for ( const std::string& key : absent )
                     text += key + " absent\n";
-                return text;
+                return Common::MakeSuccess( std::move( text ) );
             }
 
         private:
@@ -230,6 +240,12 @@ namespace Desert::Core::WorldCells
                                      settings.GetValue() );
                 for ( const std::size_t index : part.Members )
                 {
+                    // SpecHLODs reads every member of a unit whose cell has a layer; a parent's sources are such
+                    // units. A member it did not read is a broken invariant, refused by name.
+                    if ( !spec.Members.at( index ).has_value() )
+                        return Common::MakeError<Result>( std::format(
+                             "'{}', {}: record {} (id {}) was never read as an HLOD member", scene.SceneName, name,
+                             index, static_cast<std::uint64_t>( *records[index].id ) ) );
                     const Rules::HLODMember& member = *spec.Members.at( index );
                     if ( !member.Relevant && !member.FoliageLeftOut )
                         continue;
@@ -270,7 +286,11 @@ namespace Desert::Core::WorldCells
             }
             text += std::format( "visible from {:a} row {} cooked {} file {}\n", node.MinVisibleDistance, name,
                                  node.CookedName, node.FileName );
-            text += contents.LinesOf( keys );
+            auto content = contents.LinesOf( keys );
+            if ( !content )
+                return Common::MakeError<Result>(
+                     std::format( "'{}', {}: {}", scene.SceneName, name, content.GetError() ) );
+            text += content.GetValue();
             text += std::format( "builder {}\n", kHLODBuilderVersion );
             return Common::MakeSuccess( Common::Utils::Crc32c( text.data(), text.size() ) );
         }
