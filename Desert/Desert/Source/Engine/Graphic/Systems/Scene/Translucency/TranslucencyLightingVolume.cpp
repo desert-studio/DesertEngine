@@ -19,7 +19,7 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        constexpr const char* kShaderName = "TranslucencyLightingVolume";
+        constexpr const char* kTranslucencyVolumeShaderName = "TranslucencyLightingVolume";
         // LocalSize of the fill: 4x4x4 cells.
         constexpr uint32_t kGroup = 4;
         // Common/TranslucencyLightingVolume.glslh TLV_CASCADES: the cascades stacked along z.
@@ -35,7 +35,7 @@ namespace Desert::Graphic::System
 
     std::vector<Core::CookedProgramVariant> TranslucencyLightingVolumeRenderer::ProgramVariants()
     {
-        return { { std::string( kShaderName ), VsmVariant() } };
+        return { { std::string( kTranslucencyVolumeShaderName ), VsmVariant() } };
     }
 
     Common::BoolResultStr TranslucencyLightingVolumeRenderer::Initialize()
@@ -43,13 +43,13 @@ namespace Desert::Graphic::System
         const auto shaderService = Runtime::ResourceRegistry::GetShaderService();
         if ( !shaderService )
             return Common::MakeError( std::string( "TranslucencyLightingVolumeRenderer: no shader service" ) );
-        const auto shader = shaderService->GetByName( kShaderName );
+        const auto shader = shaderService->GetByName( kTranslucencyVolumeShaderName );
         if ( !shader )
             return Common::MakeError(
                  std::format( "TranslucencyLightingVolumeRenderer: compute shader '{}' is not "
                               "registered (Programs/Translucency/{}.shader)",
-                              kShaderName, kShaderName ) );
-        const auto pipeline = ComputePipeline::Create( { .Shader = shader, .DebugName = kShaderName } );
+                              kTranslucencyVolumeShaderName, kTranslucencyVolumeShaderName ) );
+        const auto pipeline = ComputePipeline::Create( { .Shader = shader, .DebugName = kTranslucencyVolumeShaderName } );
         if ( !pipeline )
             return Common::MakeError(
                  std::format( "TranslucencyLightingVolumeRenderer: {}", pipeline.GetError() ) );
@@ -86,12 +86,12 @@ namespace Desert::Graphic::System
         const auto shaderService = Runtime::ResourceRegistry::GetShaderService();
         if ( !shaderService )
             return refuse( "no shader service" );
-        auto acquired = shaderService->AcquireVariant( kShaderName, VsmVariant() );
+        auto acquired = shaderService->AcquireVariant( kTranslucencyVolumeShaderName, VsmVariant() );
         if ( !acquired )
-            return refuse( std::format( "{} ({}) was refused: {}", kShaderName, kLocalShadowVsmDefine,
+            return refuse( std::format( "{} ({}) was refused: {}", kTranslucencyVolumeShaderName, kLocalShadowVsmDefine,
                                         acquired.GetError() ) );
         const auto  shader    = acquired.ExtractValue();
-        std::string debugName = std::string( kShaderName ) + "|DESERT_LOCAL_SHADOW_VSM";
+        std::string debugName = std::string( kTranslucencyVolumeShaderName ) + "|DESERT_LOCAL_SHADOW_VSM";
         const auto  pipeline  = ComputePipeline::Create( { .Shader = shader, .DebugName = debugName } );
         if ( !pipeline )
             return refuse( pipeline.GetError() );

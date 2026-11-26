@@ -38,10 +38,10 @@ namespace Desert::Graphic::System
         // A decal shader's push block: DecalPush { uint FirstRow; three pads } (16 bytes); a material's own push
         // values may follow it, up to the 128 bytes every Vulkan device guarantees.
         constexpr std::size_t kDecalPushBytes = 16u;
-        constexpr std::size_t kMaxPushBytes   = 128u;
+        constexpr std::size_t kDecalMaxPushBytes   = 128u;
         // Reserved once: a scene's decals grow the lists past this only once, never per frame.
         constexpr std::size_t kInitialDecals   = 256u;
-        constexpr std::size_t kInitialPrograms = 16u;
+        constexpr std::size_t kDecalInitialPrograms = 16u;
 
         Image2D* ResolveTextureImage( uint64_t textureHandle )
         {
@@ -95,8 +95,8 @@ namespace Desert::Graphic::System
         m_Frame.reserve( kInitialDecals );
         m_Rows.reserve( kInitialDecals );
         m_Draws.reserve( kInitialDecals );
-        m_Programs.reserve( kInitialPrograms );
-        m_ProgramsByMaterial.reserve( kInitialPrograms );
+        m_Programs.reserve( kDecalInitialPrograms );
+        m_ProgramsByMaterial.reserve( kDecalInitialPrograms );
     }
 
     void DecalRenderer::Add( const DecalProxy& proxy )
@@ -398,13 +398,13 @@ namespace Desert::Graphic::System
             const RDG::PassBindings       bindings( context, context.GetBindingBlock( program.Block ) );
             const MaterialExecutor*       executor = program.Material->GetMaterialExecutor();
             const Common::Memory::Buffer& pushed   = executor->GetPushConstantBuffer();
-            if ( pushed.Size > kMaxPushBytes )
+            if ( pushed.Size > kDecalMaxPushBytes )
                 return Common::MakeFormattedError( "{}: decal shader '{}' has a {}-byte push block (at most {})",
                                                    context.GetPassName(), program.Material->GetShaderName(),
-                                                   pushed.Size, kMaxPushBytes );
+                                                   pushed.Size, kDecalMaxPushBytes );
             // The draw's push block: the material's values with DecalPush.FirstRow over its first word; the
             // instance index walks the run's rows (DefaultDecal.shader DecalRows[FirstRow + gl_InstanceIndex]).
-            std::array<std::byte, kMaxPushBytes> push{};
+            std::array<std::byte, kDecalMaxPushBytes> push{};
             if ( pushed.Data != nullptr && pushed.Size != 0u )
                 std::memcpy( push.data(), pushed.Data, pushed.Size );
             std::memcpy( push.data(), &draw.FirstRow, sizeof( draw.FirstRow ) );
