@@ -7,6 +7,7 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/ContentScan.hpp>
+#include <Common/Content/ImportRecord.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/AssetPathIndex.hpp>
@@ -847,6 +848,22 @@ namespace Desert::Assets
             return std::nullopt;
         }
 
+        // DOES THE ASSET A ROW NAMES STILL EXIST: its file, or - for a static mesh imported since AF4h, which has
+        // no file of its own - the import record that stands for it (FIX8, ImportRecord.hpp; UE: the reimported
+        // asset stays in its package, so its registry entry survives the rewrite). The one answer every "is it
+        // gone" question asks: a directory relist that tested the `.stmesh` alone removed the row of every
+        // combined import whose record was rewritten, and the next Reimport could not name its mesh
+        // (GAME-SHADER-DIR).
+        inline bool AssetOnDisk( const std::filesystem::path& file )
+        {
+            const std::filesystem::path full = Common::Constants::Path::FullPath( file );
+            std::error_code             ec;
+            if ( std::filesystem::exists( full, ec ) )
+                return true;
+            return KindForFile( file ) == Common::Content::ContentKind::StaticMesh &&
+                   Common::Content::ImportRecordStandingFor( full ).has_value();
+        }
+
         // ONE FILE CHANGED ON DISK — appeared, was rewritten or went away — and the registry follows it
         // without a walk. Called by the editor's hot reload for exactly the files it saw move; the full
         // `Refresh` remains the safety net for what arrived while nobody was looking. A file that is not a
@@ -856,8 +873,7 @@ namespace Desert::Assets
             if ( !KindForFile( file ) )
                 return;
 
-            std::error_code ec;
-            if ( std::filesystem::exists( Common::Constants::Path::FullPath( file ), ec ) )
+            if ( AssetOnDisk( file ) )
             {
                 NoteFile( file );
                 return;
