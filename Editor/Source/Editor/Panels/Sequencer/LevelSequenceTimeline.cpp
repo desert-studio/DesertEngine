@@ -809,13 +809,13 @@ namespace Desert::Editor
 
         // The Camera Cut track (sequence level), FIRST under the ruler as UE pins it: one bar per cut, labelled
         // with the camera binding.
-        for ( const auto& track : sequence.Tracks )
+        // ONE row: the sequence's camera-cut track by its role (UE GetCameraCutTrack), the lookup authoring and
+        // playback share. A sequence-level track is bound to no actor: Selected hides it, Keyed asks its keys (a
+        // cut has none).
+        if ( const LevelTL::Track* cuts = LevelTL::FindCameraCutTrack( sequence );
+             cuts != nullptr && Sequencer::TrackPasses( *cuts, false, filters ) )
         {
-            // A sequence-level track is bound to no actor: Selected hides it, Keyed asks its keys (a cut has
-            // none).
-            if ( track.Property != ECS::kLevelSequenceCameraCutProperty ||
-                 !Sequencer::TrackPasses( track, false, filters ) )
-                continue;
+            const LevelTL::Track& track = *cuts;
             const float rowY = ImGui::GetCursorScreenPos().y;
             ImGui::SetCursorScreenPos( ImVec2( contentX0, rowY ) );
             DrawLevelRowLabel( ICON_MDI_VIDEO " Camera Cuts", contentX0, contentX0 );

@@ -450,16 +450,18 @@ namespace Desert::ECS
         // then true of every refusal, including the ones Validate states and this function does not repeat.
         T::Sequence edited = sequence;
 
-        const T::BindingGuid master = T::BindingGuid::ForMaster();
-        if ( T::FindBinding( edited, master ) == nullptr )
-            edited.Bindings.push_back( T::Binding{ master, T::BindingKind::Sequence, {}, "Camera Cuts", {} } );
-
-        T::Track* track = nullptr;
-        for ( T::Track& candidate : edited.Tracks )
-            if ( candidate.Binding == master && candidate.Kind == T::TrackKind::CameraCut )
-                track = &candidate;
+        // UE UMovieScene::GetCameraCutTrack: the sequence's one camera-cut track, found by its role - the
+        // lookup playback and the timeline share. A minted master binding id is as good as the derived one.
+        T::Track* track = T::FindCameraCutTrack( edited );
         if ( track == nullptr )
         {
+            const auto sequenceBinding = std::find_if( edited.Bindings.begin(), edited.Bindings.end(),
+                                                       []( const T::Binding& binding )
+                                                       { return binding.Kind == T::BindingKind::Sequence; } );
+            const T::BindingGuid master =
+                 sequenceBinding != edited.Bindings.end() ? sequenceBinding->Guid : T::BindingGuid::ForMaster();
+            if ( sequenceBinding == edited.Bindings.end() )
+                edited.Bindings.push_back( T::Binding{ master, T::BindingKind::Sequence, {}, "Camera Cuts", {} } );
             T::Track created;
             created.Binding  = master;
             created.Property = kLevelSequenceCameraCutProperty;
