@@ -11,5 +11,4 @@ Mesh/LightGrid.glslh:LightGridWorldRange — a lookup result with a bool member;
 Programs/PathTracing/PathTracer.shader:PathTracingDenoiseSample — the per-path auxiliary outputs written to images, not a buffer layout
 Programs/PathTracing/PathTracerDenoise.shader:Gathered — an accumulator of one denoise gather loop; function-local
 Programs/PathTracing/PathTracerDenoise.shader:DenoiseSurface — a per-pixel value read from the GBuffer for edge stops; function-local
-Common/WorldParameters.glslh:WorldParameterSlot — a key/value pair of the world-parameter table, declared only in GLSL; matches by its two member names alone
 Common/SkyMedium.glslh:SkyAtmParams — atmosphere constants the shader derives from the sky look (km); the GlslAsCpp sky tests compile this very text, there is no C++ copy

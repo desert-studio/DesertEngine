@@ -195,7 +195,7 @@ namespace Desert::Editor::Tools
         // UE UMeshGroupPaintTool's preview: the mesh itself tinted with each triangle's group colour, drawn BY
         // THE SCENE RENDER with its depth (Render::ToolPreview), so whatever stands in front of it covers it;
         // the group borders are depth-tested lines lifted off their surface, not an overlay over the frame.
-        using Vertex                         = Graphic::MaterialDebugLine::LineVertex;
+        using Vertex                         = Graphic::DebugLineVertex;
         const Geometry::DynamicMesh3& mesh   = *m_Session->Working;
         const glm::dmat3              normal = glm::transpose( glm::inverse( glm::dmat3( world ) ) );
         const auto at = [&]( int v ) { return glm::vec3( world * glm::dvec4( mesh.GetVertex( v ), 1.0 ) ); };

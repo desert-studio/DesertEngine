@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingLayout.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
 
 #include <algorithm>
@@ -26,38 +27,7 @@
 // (GITraceRayQuery.glslh). Device-free: the builder is pure.
 namespace Desert::Graphic::RayTracing
 {
-    // std430, 48 B, one per BLAS segment; Common/RayQueryVisibility.glslh mirrors it.
-    struct RayTracingGeometryRecord
-    {
-        uint64_t VertexAddress = 0; // VkDeviceAddress of the buffer the BLAS read positions from
-        uint64_t IndexAddress  = 0; // VkDeviceAddress of the index buffer
-        uint32_t VertexStride  = 0; // layout, as RayTracingGeometrySegment
-        uint32_t FirstVertex   = 0;
-        uint32_t FirstIndex    = 0;                 // in indices (IndexByteOffset / 4)
-        uint32_t Material      = kNoMetadataRecord; // RayTracingMaterialRecord row; none = opaque
-        uint32_t NormalOffset  = kNoMetadataRecord; // bytes into the vertex; none = the layout has no normal
-        uint32_t UvOffset      = kNoMetadataRecord; // bytes into the vertex; none = the layout has no UV
-        uint32_t SubmeshIndex  = 0;
-        uint32_t Pad           = 0;
-    };
-    static_assert( sizeof( RayTracingGeometryRecord ) == 48 );
-
-    // std430, 16 B: what an alpha test needs, no more.
-    struct RayTracingMaterialRecord
-    {
-        uint32_t OpacityTexture = 0; // BindlessTextureSlot of the opacity source
-        uint32_t OpacitySampler = 0; // BindlessSamplerSlot
-        float    OpacityCutoff  = 0.5f;
-        // bit0 two-sided; bits1-2 channel (0 = A, 1..3 = R/G/B). bit3 = a LANDSCAPE VISIBILITY source
-        // (kMaterialFlagLandscapeVisibility): the texture is a tile's stacked weightmap, the UV the tile-local
-        // sample coordinate, bits4-6 the visibility layer, bit7 = two pages; the test is the raster's hole test.
-        // bit8 = a multi-channel signed distance source (kMaterialFlagSdfMedian).
-        uint32_t Flags = 0;
-
-        bool operator==( const RayTracingMaterialRecord& ) const = default;
-    };
-    static_assert( sizeof( RayTracingMaterialRecord ) == 16 );
-
+    // RayTracingGeometryRecord and RayTracingMaterialRecord: RayTracingLayout.hpp.
     inline constexpr uint32_t kMaterialFlagTwoSided = 1u << 0;
     inline constexpr uint32_t kMaterialChannelShift = 1u;
     inline constexpr uint32_t kMaterialChannelAlpha = 0u;

@@ -2,6 +2,8 @@
 
 #include <Engine/Geometry/MeshTypes.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingLayout.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -230,8 +232,6 @@ namespace Desert::Graphic::RayTracing
                                        : ResourceKind::TopLevelAccelerationStructure;
         return ResourceOwnership::Take( kind, bytes );
     }
-
-    inline constexpr uint32_t kNoMetadataRecord = ~0u;
 
     // DEFORM-RT-TRAMPLE: the pressed blade BLASes a grass level builds beside its standing one (press k / K, k
     // = 1..K; GrassBladeRayTracing.hpp). RayTracingGpuInstances.shader holds their addresses in PressLo / PressHi

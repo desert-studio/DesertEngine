@@ -26,9 +26,9 @@ namespace Desert::Editor::Render
     {
         // World space, three vertices per triangle, already ordered far to near (the translucent faces
         // blend in the order a depth write would have kept); the vertex colour carries the shading.
-        std::vector<Graphic::MaterialDebugLine::LineVertex> Triangles;
+        std::vector<Graphic::DebugLineVertex> Triangles;
         // World space, two vertices per edge: the form's edges, depth-tested like the faces.
-        std::vector<Graphic::MaterialDebugLine::LineVertex> Edges;
+        std::vector<Graphic::DebugLineVertex> Edges;
         // One per edge: the unit world normal of the surface the edge lies on (its most grazing face). The pass
         // lifts each edge off that surface by what the surface's depth changes across a pixel - the slope-scaled
         // depth bias a rasterizer gives polygons and never gives line primitives.
@@ -68,7 +68,7 @@ namespace Desert::Editor::Render
         std::unique_ptr<Graphic::MaterialDebugLine> m_FaceMaterial;
         std::unique_ptr<Graphic::MaterialDebugLine> m_EdgeMaterial;
         // This frame's edges, lifted off their surfaces for this view (LiftEdges).
-        std::vector<Graphic::MaterialDebugLine::LineVertex> m_LiftedEdges;
+        std::vector<Graphic::DebugLineVertex> m_LiftedEdges;
         // The preview Gather took on the game thread for this view's frame (null: the tool shows none).
         std::shared_ptr<const ToolPreviewMesh> m_GatheredMesh;
         // What this view's Declare uploaded (0 = that draw does not draw), and why the edges were refused

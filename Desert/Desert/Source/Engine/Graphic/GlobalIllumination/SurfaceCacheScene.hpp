@@ -116,8 +116,8 @@ namespace Desert::Graphic::SurfaceCache
         AtlasRect CaptureRect; // texels of the capture atlas
     };
 
-    // One page copy out of the capture atlas into the surface cache (std430, Common/SurfaceCache.glslh
-    // SurfaceCardPageCopy). 32 bytes.
+    // One page copy out of the capture atlas into the surface cache: two of SurfaceCacheCardCopy.shader's
+    // `uvec4 Copies[]` (it reads words, not a struct). 32 bytes.
     struct CardPageCopy
     {
         glm::uvec4 Capture{ 0u };  // xy = the card's capture rectangle origin, zw = the card's resolution

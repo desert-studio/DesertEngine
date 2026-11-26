@@ -78,20 +78,6 @@ namespace Desert::Graphic::DistanceField
                        DFShared::DF_OBJECT_ROW_BOUNDS_MAX == 6 && DFShared::DF_OBJECT_ROW_FLAGS == 7 &&
                        DFShared::DF_OBJECT_ROW_TO_PREVIOUS_WORLD == 8 );
 
-        // std430 `struct MeshSDFCullParams` of Common/MeshSDFGrid.glslh.
-        struct MeshSDFCullPayload
-        {
-            MeshSDFGridPlacement     Grid;
-            glm::mat4                ClipToWorld{ 1.0f };
-            glm::vec4                ClipDepth{ 0.0f };
-            std::array<glm::vec4, 6> Planes{};
-            glm::uvec4               Counts{ 0u };
-        };
-        static_assert( sizeof( MeshSDFCullPayload ) == 304 );
-        // Common/MeshSDFGrid.glslh: MeshSDFGridHeaderStride, MeshSDFCullFeedbackUints.
-        constexpr uint32_t kGridHeaderStride  = 2u;
-        constexpr uint32_t kCullFeedbackUints = 4u;
-
         // The world plane of clip-space half-space row3 + sign * row(axis) >= 0, normalised.
         glm::vec4 ClipPlane( const glm::mat4& viewProjection, const int axis, const float sign )
         {
@@ -1107,7 +1093,7 @@ namespace Desert::Graphic::DistanceField
         m_NearFieldListRoom = std::max<uint64_t>(
              m_NearFieldListRoom,
              uint64_t{ total } * static_cast<uint64_t>( DFShared::DF_MESH_SDF_GRID_INITIAL_OBJECTS_PER_CELL ) );
-        const uint64_t gridUints = uint64_t{ total } * kGridHeaderStride + m_NearFieldListRoom;
+        const uint64_t gridUints = uint64_t{ total } * kMeshSDFGridHeaderStride + m_NearFieldListRoom;
         if ( gridUints > std::numeric_limits<uint32_t>::max() )
             return Common::MakeFormattedError<bool>(
                  "near-field grid: {} cells and {} list entries do not fit 32-bit indices", total,
@@ -1133,7 +1119,7 @@ namespace Desert::Graphic::DistanceField
         // The scatter's (object, key) pairs, one per list entry, sorted into the grid's lists by step 5.
         const RDG::BufferRef unsorted = graph.CreateBuffer( RDG::BufferDesc{ m_NearFieldListRoom * 8ull },
                                                             "DistanceField.NearField.Unsorted" );
-        const RDG::BufferRef feedback = graph.CreateBuffer( RDG::BufferDesc{ kCullFeedbackUints * 4ull },
+        const RDG::BufferRef feedback = graph.CreateBuffer( RDG::BufferDesc{ kMeshSDFCullFeedbackUints * 4ull },
                                                             "DistanceField.NearField.Feedback" );
 
         constexpr RDG::Access kR = RDG::Access::StorageRead;
@@ -1248,7 +1234,7 @@ namespace Desert::Graphic::DistanceField
         if ( stamp == 0u || !readback.Physical )
             return; // no cull ran in this slot yet, or its graph faulted before the extract
         const std::span<const std::byte>         bytes = readback.Physical->ReadForHost();
-        std::array<uint32_t, kCullFeedbackUints> values{};
+        std::array<uint32_t, kMeshSDFCullFeedbackUints> values{};
         if ( bytes.size() < sizeof( values ) )
         {
             LOG_ERROR( "[DistanceField] the near-field cull's feedback is not host-readable ({} bytes)",

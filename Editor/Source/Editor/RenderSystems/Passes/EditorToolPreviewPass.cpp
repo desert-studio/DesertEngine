@@ -50,7 +50,7 @@ namespace Desert::Editor::Render
         constexpr float kFloorPixels = 0.25f; // the lift of a surface square to the view: depth precision only
 
         Common::BoolResultStr LiftEdges( const Graphic::ViewFrame& view, const ToolPreviewMesh& mesh,
-                                         std::vector<Graphic::MaterialDebugLine::LineVertex>& out )
+                                         std::vector<Graphic::DebugLineVertex>& out )
         {
             if ( mesh.EdgeSurfaces.size() * 2 != mesh.Edges.size() )
                 return Common::MakeError(

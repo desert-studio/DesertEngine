@@ -47,12 +47,6 @@ layout( std430, binding = GI_SURFACE_CACHE_BINDING + 2 ) readonly buffer Surface
     MeshCards surfaceMeshCards[];
 };
 
-// std430 — must match SurfaceCache::InstanceRowPayload (48 bytes).
-struct SurfaceCacheInstance {
-    uvec4 cards;     // x = MeshCards index or GI_NO_MESH_CARDS, y = first page, z = page count
-    vec4  boundsMin; // world box of the instance's cards, cm
-    vec4  boundsMax;
-};
 layout( std430, binding = GI_SURFACE_CACHE_BINDING + 3 ) readonly buffer SurfaceCacheInstancesUB
 {
     SurfaceCacheInstance surfaceCacheInstances[];

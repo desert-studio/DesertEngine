@@ -4,23 +4,16 @@
 // THE HIT GROUP'S SHADER RECORD (UE: FRayTracingMeshCommand's loose parameters, a segment's local root signature):
 // what a closest-hit / any-hit stage knows about the segment it hit beyond the hardware's answer. One record per
 // BLAS segment, in the frame's SBT hit region at the same index as the segment's geometry record (RT-UNIFY: TLAS
-// instance SBT offset = the primitive's FirstSegmentRecord, + the geometry index). C++ twin:
-// Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp RayTracingHitRecordData (std430, 48 B), written by
+// instance SBT offset = the primitive's FirstSegmentRecord, + the geometry index). Its members are
+// RayTracing::RayTracingHitRecordData (RayTracingLayout.hpp, generated), written by
 // BuildRayTracingHitRecords from the same RayTracingGeometryRecord the ray-query walk reads plus the segment's
 // material row.
 //
 // Addresses travel as uvec2 (lo, hi), as in Common/RayQueryVisibility.glslh.
+#include <Generated/RayTracing/RayTracingRecords.glslh> // Systems/RayTracing/RayTracingLayout.hpp
 layout( shaderRecordEXT, std430 ) buffer DesertRayHitRecord
 {
-    uvec2 VertexAddress; // the buffer the BLAS read positions from
-    uvec2 IndexAddress;  // its uint32 index buffer
-    uint  VertexStride;
-    uint  FirstVertex;
-    uint  FirstIndex;   // in indices
-    uint  NormalOffset; // bytes into the vertex; 0xFFFFFFFF = the layout has no normal
-    uint  UvOffset;     // bytes into the vertex; 0xFFFFFFFF = the layout has no UV
-    uint  Pad;          // std430: MaterialRow at byte 40
-    uvec2 MaterialRow;  // the segment's MaterialParams row (the template's struct), 16-byte aligned
+    DESERT_RayHitRecordData_MEMBERS
 }
 RayHitRecord;
 

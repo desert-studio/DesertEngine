@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/Materials/Debug/DebugMaterialLayout.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -24,26 +25,20 @@ namespace Desert::Graphic
     class MaterialDebugLine final : public Material
     {
     public:
-        struct LineVertex
-        {
-            glm::vec4 PositionWS; // xyz world position
-            glm::vec4 Color;      // rgba
-        };
-
         MaterialDebugLine() : Material( "MaterialDebugLine", "DebugLine" )
         {
         }
 
         // The camera block from the view the lines are drawn over (MakeCameraUB; the shader reads the unjittered
         // ViewProjection), then the lines themselves.
-        void Update( const ViewFrame& view, const std::vector<LineVertex>& lines )
+        void Update( const ViewFrame& view, const std::vector<DebugLineVertex>& lines )
         {
             SceneCameraBind( this, view );
 
             if ( !lines.empty() )
                 if ( auto* sb = Get<StorageBufferProperty>( MaterialDebugLineShaderParameters::Lines ) )
-                    sb->SetRawData( const_cast<LineVertex*>( lines.data() ),
-                                    static_cast<uint32_t>( lines.size() * sizeof( LineVertex ) ) );
+                    sb->SetRawData( const_cast<DebugLineVertex*>( lines.data() ),
+                                    static_cast<uint32_t>( lines.size() * sizeof( DebugLineVertex ) ) );
         }
     };
 } // namespace Desert::Graphic

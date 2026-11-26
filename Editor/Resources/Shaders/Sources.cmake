@@ -95,7 +95,6 @@ set(DESERT_SOURCES
     "Common/RayTracingSceneReads.glslh"
     "Common/ReSTIRGI.glslh"
     "Common/ReconstructPosition.glslh"
-    "Common/ReflectionCaptureGpu.glslh"
     "Common/ReflectionCaptureMip.glslh"
     "Common/ReflectionEnvironment.glslh"
     "Common/RisReservoir.glslh"

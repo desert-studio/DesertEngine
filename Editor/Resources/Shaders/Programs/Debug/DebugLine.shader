@@ -10,11 +10,7 @@ Shader "DebugLine"
 
         #include <Common/CameraUB.glslh>
 
-        struct LineVertex
-        {
-            vec4 PositionWS; // xyz = world position (w unused)
-            vec4 Color;      // rgba
-        };
+        #include <Generated/Debug/DebugMaterials.glslh> // Materials/Debug/DebugMaterialLayout.hpp
 
         ReadBuffer(1) Lines
         {

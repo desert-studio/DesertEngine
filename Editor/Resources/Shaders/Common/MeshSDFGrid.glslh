@@ -16,18 +16,9 @@
 // The one statement of the grid's placement and of the cell <-> depth mapping: the cull and the tracer include it.
 
 #include <Common/DistanceFieldShared.glslh>
-
-// std430 - DistanceField::MeshSDFGridPlacement (MeshDistanceFieldReads.hpp), 112 bytes.
-struct MeshSDFGrid {
-    mat4  worldToClip;   // the view's unjittered view-projection
-    uvec4 cells;         // x, y = cells across the view, z = depth slices, w = cells in all
-    vec4  zDistribution; // DF_MESH_SDF_GRID_LOG_Z_SCALE, _LOG_Z_OFFSET, _Z_SCALE, DF_MESH_SDF_GRID_PIXEL_SIZE
-    vec4  screen;        // xy = the view's extent in pixels, zw = 1 / that
-};
-
-// A cell's header in the grid buffer: [cell * stride] = the first index of its list (in the same buffer),
-// [cell * stride + 1] = the list's length. The lists begin at cells.w * stride.
-const uint MeshSDFGridHeaderStride = 2u;
+// The grid (struct MeshSDFGrid), the cull's record (struct MeshSDFCullParams), MeshSDFGridHeaderStride and
+// MeshSDFCullFeedbackUints: DistanceField/DistanceFieldLayout.hpp.
+#include <Generated/DistanceField/DistanceField.glslh>
 
 // The depth slice of view depth @p depth (cm), fractional.
 float MeshSDFGridSliceAt( MeshSDFGrid grid, float depth )
@@ -57,23 +48,5 @@ int MeshSDFGridCellAt( MeshSDFGrid grid, vec3 position )
     const uvec2 xy = min( uvec2( ( ndc * 0.5 + 0.5 ) * grid.screen.xy / grid.zDistribution.w ), grid.cells.xy - 1u );
     return int( ( uint( max( slice, 0.0 ) ) * grid.cells.y + xy.y ) * grid.cells.x + xy.x );
 }
-
-// THE CULL'S RECORD (std430 - DistanceField::MeshSDFCullPayload, 304 bytes): the grid, the way back from a cell to
-// the world, the near field's frustum, the object count.
-struct MeshSDFCullParams {
-    MeshSDFGrid grid;
-    mat4        clipToWorld; // the inverse of grid.worldToClip
-    vec4        clipDepth;   // the projection's clip z and w as functions of view z: z = x * vz + y, w = z * vz + w
-    vec4        planes[6];   // world, inward: dot( xyz, p ) + w >= 0 inside - the view's four sides, the camera's
-                             // plane, the plane at DF_MESH_SDF_GRID_MAX_DISTANCE
-    uvec4       counts;      // x = objects in the object buffer, y = the uints the lists may fill (the grid buffer
-                             // holds the headers, then that many), z = this cull's stamp (MeshSDFCullFeedback)
-};
-
-// What the cull hands back to the CPU (MeshSDFCullGridOffsets.shader writes it,
-// DistanceField::GlobalDistanceField::ReadNearFieldFeedback reads it frames later), 4 uints: [0] the list entries the
-// frame needed, [1] the entries it had room for (counts.y; needed > room = the frame's lists refused, every cell
-// empty), [2] the longest list, [3] the stamp of the cull that wrote it (counts.z).
-const uint MeshSDFCullFeedbackUints = 4u;
 
 #endif // MESH_SDF_GRID_GLSLH

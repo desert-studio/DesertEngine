@@ -7,7 +7,7 @@
 
 #include <array>
 #include <vector>
-#include <Engine/Graphic/DistanceField/GlobalDistanceFieldCeiling.hpp>
+#include <Engine/Graphic/GlobalIllumination/GILayout.hpp>
 #include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
@@ -257,18 +257,7 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::BufferRef                        InstanceSurfaceCacheRows; // "GIInstanceSurfaceCacheRows"
     };
 
-    // "GITracerSoftwareUB" — std430, must match the block in Common/GITracer.glslh.
-    struct TracerSoftwarePayload
-    {
-        std::array<glm::vec4, 4>            GlobalDistanceFieldLevels{};
-        DistanceField::MeshSDFGridPlacement MeshSDFGrid; // MeshDistanceFieldReads::NearFieldGridPlacement
-        // GlobalDistanceField::FrameField::OccupiedBox: where a far-field march ends (GIFarFieldOccupiedExit).
-        std::array<glm::vec4, 2> GlobalDistanceFieldOccupiedBox{};
-        // GlobalDistanceField::FrameField::Ceiling: where a far-field march ends past the last column it is not
-        // above (GIFarFieldCeilingCut); Grid.zw = 0 (nothing placed) leaves the march uncut.
-        DistanceField::GlobalDistanceFieldCeiling GlobalDistanceFieldCeiling{};
-    };
-    static_assert( sizeof( TracerSoftwarePayload ) == 208 + sizeof( DistanceField::GlobalDistanceFieldCeiling ) );
+    // "GITracerSoftwareUB": GlobalIllumination::TracerSoftwarePayload (GILayout.hpp).
 
     // The shader names of the hardware tracer's four reads (Common/GITracer.glslh declares them at
     // GI_TRACER_BINDING + 0..3; the record blocks are Common/RayQueryVisibility.glslh's, shared with RT-SHADOWS).
@@ -283,23 +272,7 @@ namespace Desert::Graphic::GlobalIllumination
     inline constexpr RDG::StorageBufferParameter         kHardwareTracerInstanceSurfaceCacheRows{
          kHardwareTracerInstanceSurfaceCacheRowsName };
 
-    // THE GI FRAME RECORD — what every GI pass knows of the frame, neutral to the tracer. std430 — must match
-    // `struct GIFrame` in Common/GIFrame.glslh. 256 bytes. Uploaded once per frame by the frame's owner and bound
-    // as "GIFrameUB" by the radiance cache's passes and the screen probe gather.
-    struct GIFramePayload
-    {
-        glm::mat4 ViewProjection{ 1.0f };    // the jittered matrix the G-buffer was rasterised with
-        glm::mat4 InvViewProjection{ 1.0f }; // its inverse
-        glm::vec4 Camera{ 0.0f };            // xyz = camera world position (cm)
-        glm::vec4 SunTravel{ 0.0f };         // xyz = direction the sunlight travels, w = 1 when there is a sun
-        glm::vec4 SunRadiance{ 0.0f };       // rgb = colour * intensity, w = 1 when it casts shadows
-        glm::vec4 Light1Travel{ 0.0f };   // atmosphere light 1 (the moon): xyz = travel, w = 1 when there is one
-        glm::vec4 Light1Radiance{ 0.0f }; // rgb = colour * intensity, w = 1 when it casts shadows
-        glm::vec4 SkyYawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f };
-        glm::vec4 SkyGain{ 1.0f };
-        glm::vec4 Screen{ 0.0f }; // xy = G-buffer extent (pixels), zw = 1 / that
-    };
-    static_assert( sizeof( GIFramePayload ) == 256 );
+    // THE GI FRAME RECORD is GIFramePayload (GILayout.hpp, Generated/GI/GIFrame.glslh).
 
     // Empty when @p frame holds every resource its tracer reads; otherwise what is missing (for the consumer's
     // one error line).

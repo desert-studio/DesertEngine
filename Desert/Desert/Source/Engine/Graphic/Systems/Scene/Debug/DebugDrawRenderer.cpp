@@ -96,7 +96,7 @@ namespace Desert::Graphic
 
         // A thick segment as two triangles facing the camera: the quad's width runs across both the segment
         // and the eye ray, so it reads as a band from any side (UE FBatchedElements' thick lines).
-        void AppendQuad( std::vector<MaterialDebugLine::LineVertex>& out, const Core::DebugDrawLine& line,
+        void AppendQuad( std::vector<DebugLineVertex>& out, const Core::DebugDrawLine& line,
                          const glm::vec3& eye )
         {
             const glm::vec3 dir     = line.End - line.Start;
@@ -118,7 +118,7 @@ namespace Desert::Graphic
         // of its centre (UE DrawDebugPoint: a screen-space square, its size independent of the distance). The
         // corners are offset in clip space and taken back to the world through @p inverseViewProjection, so the
         // line shader's ViewProjection puts them on those exact pixels for any projection.
-        void AppendPoint( std::vector<MaterialDebugLine::LineVertex>& out, const Core::DebugDrawPoint& point,
+        void AppendPoint( std::vector<DebugLineVertex>& out, const Core::DebugDrawPoint& point,
                           const glm::mat4& viewProjection, const glm::mat4& inverseViewProjection,
                           const glm::uvec2 extent )
         {
@@ -240,7 +240,7 @@ namespace Desert::Graphic
                  const ViewFrame* view = m_Owner.GetViewFrame();
                  if ( view == nullptr || m_World == nullptr )
                      return;
-                 std::array<std::vector<MaterialDebugLine::LineVertex>, kBatchCount> batches;
+                 std::array<std::vector<DebugLineVertex>, kBatchCount> batches;
                  for ( const Core::DebugDrawLine& line : m_World->GetLines() )
                  {
                      auto& out = batches[BatchOf( line )];
