@@ -4,6 +4,7 @@
 #include <Engine/Core/Serialize/ComponentRegistration.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
 
+#include <Common/Core/Core.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <span>
@@ -37,20 +38,19 @@ namespace Desert::Core::Serialize
 
         void RegisterLinkedRows( ComponentRegistrar& registrar )
         {
-            if ( ModuleSerializers().LinkedRows == nullptr )
-            {
-                LOG_ERROR( "[Scene] no generated component rows were linked: the executable must compile "
+            // An executable without its generated rows cannot read or write a single component block: an
+            // invariant of the link, refused here rather than continued as a registry missing every row.
+            DESERT_VERIFY( ModuleSerializers().LinkedRows != nullptr,
+                           "[Scene] no generated component rows were linked: the executable must compile "
                            "Components.gen.cpp (desert_link_engine, cmake/DesertModules.cmake)" );
-                return;
-            }
             ModuleSerializers().LinkedRows( registrar );
         }
 
         void Order( std::span<const ModuleComponent> rows, std::vector<ComponentSerializer>& out )
         {
             // The feature modules register their hand-written serializers at StartupModule, which the executable
-            // runs at static initialisation (Desert/Launch/LinkedModules.cpp); Engine's own startup is started here
-            // too (a no-op once done). The registry is built on first use, after static initialisation.
+            // runs at static initialisation (Desert/Launch/LinkedModules.cpp); Engine's own startup is started
+            // here too (a no-op once done). The registry is built on first use, after static initialisation.
             StartupEngineModules();
             ModuleSerializers().Ordered = true;
 

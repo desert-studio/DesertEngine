@@ -2377,9 +2377,18 @@ namespace Desert::Editor
             for ( const ::Desert::Core::Scene* scene : ::Desert::Core::Scene::LiveScenes() )
             {
                 ++snapshot.Scenes;
-                if ( Graphic::RenderStateOf( *scene ).GetDistanceFields().GetBrickAtlas() != nullptr )
+                // A scene made without renderer state (no SceneRenderState maker ran for it) owns no GI pool;
+                // it is named, not dereferenced, as EditorStartup::ReflectionCapturesFilling checks the same.
+                if ( scene->GetRenderState() == nullptr )
+                {
+                    LOG_ERROR( "[Control] scene '{}' has no renderer state - its GI pools are not counted",
+                               scene->GetSceneName() );
+                    continue;
+                }
+                Graphic::SceneRenderState& renderState = Graphic::RenderStateOf( *scene );
+                if ( renderState.GetDistanceFields().GetBrickAtlas() != nullptr )
                     ++snapshot.DistanceFieldPools;
-                if ( Graphic::RenderStateOf( *scene ).GetSurfaceCache().IsConfigured() )
+                if ( renderState.GetSurfaceCache().IsConfigured() )
                     ++snapshot.SurfaceCaches;
             }
         }
