@@ -28,18 +28,10 @@ Shader "WaterUnderwater"
         Uniform(4) textureCube EnvironmentIrradianceTexture;
         #define EnvironmentIrradianceTexture samplerCube(EnvironmentIrradianceTexture, LinearClampSampler)
 
-        // A uniform block, not a push block: 176 bytes is past the 128 Vulkan guarantees (WaterRenderer::UploadUnderwater).
-        Uniform(5) UnderwaterUB
-        {
-            mat4 InvViewProjection; // the view's jittered inverse (the depth was rasterised jittered)
-            vec4 CameraSurface;     // xyz = the camera (cm), w = the surface height at the camera (cm)
-            vec4 Scattering;        // rgb = scattering 1/m, a = phase g
-            vec4 Absorption;        // rgb = absorption 1/m, a = the view's pre-exposure
-            vec4 ToSun;             // xyz = toward the sun
-            vec4 SunRadiance;       // rgb = colour * intensity (not pre-exposed)
-            vec4 SkyYawCosSin;      // xy = the sky look's (cos yaw, sin yaw)
-            vec4 SkyGain;           // rgb = the sky look's tint * intensity
-        };
+        // A uniform block, not a push block: 176 bytes is past the 128 Vulkan guarantees (WaterRenderer::UploadUnderwater;
+        // Water/Private/WaterLayout.hpp UnderwaterUBData).
+        #include <Generated/Water/WaterUnderwater.glslh>
+        Uniform(5) UnderwaterUB { DESERT_UnderwaterUniforms_MEMBERS };
 
         #include <Common/SkyLook.glslh>
         #include <Water/WaterUnderwater.glslh>

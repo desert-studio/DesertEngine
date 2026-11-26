@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/Materials/Debug/MaterialCubemapSphereLayout.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/TextureCubeProperty.hpp>
@@ -37,7 +38,7 @@ namespace Desert::Graphic
             if ( !camera || !cube )
                 return;
 
-            CubemapSphereUB data{};
+            CubemapSphereGpu data{};
             data.Projection    = camera->GetProjectionMatrix();
             data.View          = camera->GetViewMatrix();
             data.InvProjection = glm::inverse( data.Projection );
@@ -53,17 +54,5 @@ namespace Desert::Graphic
             // that did not turn would read as a slider that does nothing.
             SceneSkyLookBind( this, look );
         }
-
-    private:
-        struct CubemapSphereUB
-        {
-            glm::mat4 Projection;
-            glm::mat4 View;
-            glm::mat4 InvProjection;
-            glm::mat4 InvView;
-            glm::vec4 CameraPos;
-            glm::vec4 Params; // x = sphere radius (world units), y = cube is the backdrop (0/1), z = lod, w =
-                              // long-lat (0/1)
-        };
     };
 } // namespace Desert::Graphic

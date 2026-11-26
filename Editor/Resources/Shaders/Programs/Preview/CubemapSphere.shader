@@ -25,14 +25,10 @@ Shader "CubemapSphere"
 
     Fragment
     {
+        #include <Generated/Preview/CubemapSphere.glslh>
         Uniform(0) CubemapSphereUB
         {
-            mat4 Projection;
-            mat4 View;
-            mat4 InvProjection;
-            mat4 InvView;
-            vec4 CameraPos; // xyz; w unused
-            vec4 Params;    // x = sphere radius (world units); y > 0.5 = the cube is the backdrop too; z = lod; w > 0.5 = long-lat
+            DESERT_CubemapSphereGpu_MEMBERS
         } u;
 
         // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
@@ -42,10 +38,10 @@ Shader "CubemapSphere"
         #define CubeMapTexture samplerCube(CubeMapTexture, CubeMapTextureSampler)
         // The sky's look — how the two cubes above are read (Common/SkyLook.glslh). The Details
         // panel's ball beside the Rotation slider must turn with it.
+        #include <Generated/Environment/SkyLook.glslh>
         Uniform(2) SkyLookUB
         {
-            vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
-            vec4 Gain;      // rgb = tint * intensity
+            DESERT_SkyLookGPU_MEMBERS
         } skyLook;
         #include <Common/SkyLook.glslh>
         #include <Common/SkyPanorama.glslh>
@@ -113,14 +109,10 @@ Shader "CubemapSphere"
     {
         #include <Common/FullscreenTriangle.glslh>
 
+        #include <Generated/Preview/CubemapSphere.glslh>
         Uniform(0) CubemapSphereUB
         {
-            mat4 Projection;
-            mat4 View;
-            mat4 InvProjection;
-            mat4 InvView;
-            vec4 CameraPos;
-            vec4 Params;
+            DESERT_CubemapSphereGpu_MEMBERS
         } u;
 
         Out(0) vec3 v_Near;

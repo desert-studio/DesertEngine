@@ -1,4 +1,5 @@
 #include <Water/Public/WaterRenderer.hpp>
+#include <Water/Private/WaterLayout.hpp>
 
 // THE FOAM OF ONE VIEW (Water/WaterFoamField.glslh, Programs/Water/WaterFoamUpdate.shader): a clipmap that remembers
 // where the waves broke, where the beach is wet and what the currents carried.
@@ -46,16 +47,6 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        // Programs/Water/WaterFoamUpdate.shader WaterFoamUB, std140.
-        struct WaterFoamUBData
-        {
-            std::array<glm::vec4, Water::kFoamLevels> Previous{}; // xy = the history's window origins
-            glm::vec4 Time{ 0.0f }; // x = the time (s), y = since the history (s), z = 1 with a history, w = the bodies
-            // The rectangle of the world the history does not stand in (min X, min Z, max X, max Z); empty: min > max.
-            glm::vec4 Changed{ 1.0f, 1.0f, 0.0f, 0.0f };
-            glm::vec4 PlungeCount{ 0.0f }; // x = the plunges in WaterFoamPlunges
-        };
-        static_assert( sizeof( WaterFoamUBData ) == 6 * sizeof( glm::vec4 ) );
         constexpr Core::Formats::ImageFormat kFoamFormat = Core::Formats::ImageFormat::RGBA8F;
         // A history older than this is another sea.
         constexpr float kFoamHistoryMaxAgeSeconds = 2.0f;
@@ -238,7 +229,7 @@ namespace Desert::Graphic::System
                 continue; // a river with no bake has no banks: no water of it stands anywhere
             const Water::WaterFoamParams    params = MaterialValuesOf( look.Material, stamp ).Foam;
             const int32_t                   set    = look.River >= 0 ? -1 : static_cast<int32_t>( m_FrameBodyWaveLanes[b] ) - 1;
-            frame.Bodies.push_back( FoamBody{
+            frame.Bodies.push_back( WaterFoamBody{
                  .Footprint = glm::vec4( body.FootprintMin, body.FootprintMax ),
                  .Level     = glm::vec4( body.SurfaceY, static_cast<float>( set ), static_cast<float>( look.River + 1 ),
                                          look.River >= 0 ? 0.0f : slope ),
@@ -259,7 +250,7 @@ namespace Desert::Graphic::System
                 if ( glm::any( glm::lessThan( foot + plunge.Radius, outerMin ) ) ||
                      glm::any( glm::greaterThan( foot - plunge.Radius, outerMax ) ) )
                     continue;
-                frame.Plunges.push_back( FoamPlunge{
+                frame.Plunges.push_back( WaterFoamPlunge{
                      .FootRadius = glm::vec4( plunge.Foot, plunge.Radius ),
                      .AcrossHalf = glm::vec4( plunge.Across.x, plunge.Across.z, plunge.HalfWidth, plunge.OutflowSpeed ),
                      .Landing    = glm::vec4( plunge.Downstream, plunge.LandingSpeed, 0.0f ) } );
@@ -311,9 +302,9 @@ namespace Desert::Graphic::System
              graph.CreateBuffer( RDG::BufferDesc{ bodyBytes.size_bytes() }, "Water.FoamBodies" );
         graph.QueueBufferUpload( bodies, bodyBytes );
         // A frame with no plunge binds one zero row (a storage buffer is never empty); PlungeCount.x says 0.
-        static constexpr FoamPlunge      kNoPlunge{};
+        static constexpr WaterFoamPlunge kNoPlunge{};
         const std::span<const std::byte> plungeBytes =
-             frame.Plunges.empty() ? std::as_bytes( std::span<const FoamPlunge>( &kNoPlunge, 1 ) )
+             frame.Plunges.empty() ? std::as_bytes( std::span<const WaterFoamPlunge>( &kNoPlunge, 1 ) )
                                    : std::as_bytes( std::span( frame.Plunges ) );
         const RDG::BufferRef plunges =
              graph.CreateBuffer( RDG::BufferDesc{ plungeBytes.size_bytes() }, "Water.FoamPlunges" );

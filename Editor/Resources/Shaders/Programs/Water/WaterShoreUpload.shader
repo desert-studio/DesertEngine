@@ -5,11 +5,9 @@ Shader "WaterShoreUpload"
     {
         // THE SHORE FIELD'S UPLOAD (WaterShoreUpload.cpp): one rectangle of the bake's packed texels into the map
         // the water samples (Water/WaterDepthField.glslh); the rest of the map stays as it is.
-        Buffer(0) WaterShoreUploadParams
-        {
-            ivec4 ShoreRect; // the rectangle [x0, x1) x [z0, z1) as (x0, z0, x1, z1)
-            ivec4 ShoreRows; // x = the rows' width (the buffer starts at row z0, texel 0)
-        };
+        // ShoreRect, ShoreRows: Water/Private/WaterLayout.hpp ShoreUploadParams.
+        #include <Generated/Water/WaterShoreUpload.glslh>
+        Buffer(0) WaterShoreUploadParams { DESERT_ShoreUploadParams_MEMBERS };
         Buffer(1) WaterShoreUploadTexels
         {
             uvec2 ShoreTexels[]; // Water::PackShoreTexel

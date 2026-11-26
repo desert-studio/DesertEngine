@@ -111,7 +111,7 @@ namespace Desert::Graphic
             key.Phase        = glm::vec4( 0.0f );
             key.Fade         = glm::vec4( 0.0f );
             key.Albedo       = glm::vec4( 0.0f );
-            key.Aerial       = glm::vec3( 0.0f );
+            key.Aerial       = glm::vec4( 0.0f );
         }
         if ( windRigid )
         {

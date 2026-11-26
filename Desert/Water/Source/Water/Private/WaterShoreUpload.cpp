@@ -1,4 +1,5 @@
 #include <Water/Public/WaterRenderer.hpp>
+#include <Water/Private/WaterLayout.hpp>
 
 // THE SHORE FIELD ON THE GPU: the bake's packed texels into the map the view's water samples. Only what a re-bake
 // changed is uploaded; a bake over another grid replaces the map.
@@ -28,14 +29,6 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        // Programs/Water/WaterShoreUpload.shader WaterShoreUploadParams, std430.
-        struct ShoreUploadParams
-        {
-            glm::ivec4 Rect{ 0 };
-            glm::ivec4 Rows{ 0 };
-        };
-        static_assert( sizeof( ShoreUploadParams ) == 32 );
-
         // The map of a world whose bake is not there yet: one texel of the open sea.
         constexpr uint64_t kOpenSeaRevision = std::numeric_limits<uint64_t>::max();
 

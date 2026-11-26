@@ -16,6 +16,7 @@
 #include <Water/Public/WaterZoneDraw.hpp>
 #include <Water/Public/WaterShoreField.hpp>
 #include <Water/Public/WaterFoamClipmap.hpp>
+#include <Water/Public/WaterLayout.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
 
@@ -94,7 +95,7 @@ namespace Desert::Graphic::System
         // WaterTiles' leading members (the header rows and every wave set of the frame) - and every body that
         // draws this frame (its footprint and still level) with its wave lane (WaterTileRow.Body.z: 1 + its set in
         // WaterWaveSets, 0 = flat; parallel to GetFrameBodies), after PrepareFrame; all empty when no water draws.
-        static constexpr std::size_t kWavesBlockBytes = ( 17 + 4 * ( 2 + 2 * 32 ) ) * 4 * sizeof( float );
+        static constexpr std::size_t kWavesBlockBytes = sizeof( WaterWavesBlock );
         [[nodiscard]] std::span<const std::byte> GetFrameWavesBlock() const
         {
             if ( m_Walk.Programs.empty() || m_Upload.size() < kWavesBlockBytes )
@@ -428,30 +429,12 @@ namespace Desert::Graphic::System
         std::shared_ptr<std::atomic<uint64_t>> m_WavesHold;
 
         // THE FOAM (WaterFoamSimulation.cpp). The frame's parameters, set by PrepareFoam when the foam runs.
-        // One body's foam (Programs/Water/WaterFoamUpdate.shader WaterFoamBody, std430): each texel of the map
-        // follows the body whose footprint holds it.
-        struct FoamBody
-        {
-            glm::vec4 Footprint{ 0.0f }; // min X, min Z, max X, max Z
-            glm::vec4 Level{ 0.0f };     // x = still Y, y = its wave set (-1: none), z = 1 + its river of the frame, w = its beach's slope
-            glm::vec4 Source{ 0.0f };    // x = jacobian threshold, y = softness, z = whitecap gain
-            glm::vec4 Decay{ 0.0f };     // x = foam, y = bubbles, z = wetness (s)
-            glm::vec4 Drift{ 0.0f };     // xy = the wind's surface drift (cm/s)
-        };
-        // One fall's plunge (WaterFoamUpdate.shader WaterFoamPlunge, std430; Water::FallPlunge): the white boil the
-        // fall lands in and the outflow that spreads its foam.
-        struct FoamPlunge
-        {
-            glm::vec4 FootRadius{ 0.0f }; // xyz = Foot, w = Radius (cm)
-            glm::vec4 AcrossHalf{ 0.0f }; // xy = Across.xz, z = HalfWidth (cm), w = OutflowSpeed (cm/s)
-            glm::vec4 Landing{ 0.0f };    // xy = Downstream, z = LandingSpeed (cm/s), w = 0
-        };
         struct FoamFrame
         {
             std::array<glm::ivec2, Water::kFoamLevels> Origin{};
-            std::vector<FoamBody>                      Bodies;
+            std::vector<WaterFoamBody>                 Bodies; // WaterLayout.hpp
             // Every plunge of the frame's rivers whose boil reaches the outer window (no cap).
-            std::vector<FoamPlunge> Plunges;
+            std::vector<WaterFoamPlunge> Plunges;
         };
         // Places the windows around @p eye, reads every body's foam values and writes the waves block's foam lanes.
         // @p fftSet: the wave set the FFT ocean draws (its wind drifts the foam), -1 none. @p rivers: the frame's

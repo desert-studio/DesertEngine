@@ -389,8 +389,8 @@ Shader "CloudRaymarch"
         // triple (front depth, mean extinction, optical depth across the shell); a sample inside the layer
         // marches its first kilometre toward the sun itself and reads the rest of the way from the map in
         // one fetch — CloudSelfShadowOpticalDepth below. One source for the cloud's shadow on the ground and
-        // on itself. The C++ side of the block is Graphic::CloudSelfShadowParams (CloudShadowPayload.hpp),
-        // whose static_asserts pin every offset.
+        // on itself. The block is declared once, Graphic::CloudSelfShadowParams (Engine/Graphic/Clouds/
+        // CloudLayout.hpp), and generated at Graphic::kCloudSelfShadowBinding.
         //
         // ALWAYS BOUND, fallback included, on the terms every sampler above is bound on; CloudSelfShadowMap.y
         // says whether it holds this frame's map. REPEAT like the ground receiver's fetch: the border fade
@@ -398,14 +398,7 @@ Shader "CloudRaymarch"
         #include <Common/CloudShadowMap.glslh>
         Uniform(18) texture2D CloudSelfShadowMapTexture;
         #define CloudSelfShadowMapTexture sampler2D(CloudSelfShadowMapTexture, LinearRepeatSampler)
-        layout(std430, binding = 19) readonly buffer CloudSelfShadowBuffer
-        {
-            mat4  CloudSelfShadowWorldToMap; // world (cm) -> the map's clip space, this frame's projection
-            // x = the kilometres the map's clip z spans, y = 1 when the map is this frame's and must be read,
-            // z = the UV width of the border fade, w = the short ray's length (km).
-            vec4  CloudSelfShadowMap;
-            float CloudSelfShadowLocalSamples; // the short ray's sample count
-        };
+        #include <Generated/Clouds/CloudSelfShadow.glslh>
 
         // GPU-FARFIELD-4: THE MARCH COUNTERS, zeroed per frame and read back into the profile dump
         // (Graphic::System::CloudMarchCounters, "[Profiler] Clouds march"). One word each, in this order.

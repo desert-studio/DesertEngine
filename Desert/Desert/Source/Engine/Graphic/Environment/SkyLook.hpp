@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/Environment/SkyLookLayout.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 
 #include <glm/glm.hpp>
@@ -63,16 +64,6 @@ namespace Desert::Graphic
 
         [[nodiscard]] bool operator==( const SkyLook& ) const = default;
     };
-
-    /// `SkyLookUB` as every environment-sampling shader declares it (two vec4s: std140 and std430 agree).
-    /// Identity is (1, 0) and white — the value a procedural sky and "no sky" both bind, because a
-    /// declared-but-unwritten uniform is whatever the last writer left there.
-    struct SkyLookGPU
-    {
-        glm::vec4 YawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f }; // xy = (cos yaw, sin yaw)
-        glm::vec4 Gain{ 1.0f, 1.0f, 1.0f, 1.0f };      // rgb = tint * intensity
-    };
-    static_assert( sizeof( SkyLookGPU ) == 32, "SkyLookUB is two vec4s in every shader that declares it" );
 
     [[nodiscard]] inline SkyLookGPU ToGPU( const SkyLook& look )
     {

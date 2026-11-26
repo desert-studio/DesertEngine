@@ -45,10 +45,7 @@ Shader "SkyAerialPerspectiveLut"
         layout(binding = 0, rgba16f) restrict writeonly uniform image3D AerialPerspectiveLutTexture;
 
         // The SAME sky parameter buffer every other sky consumer reads (Graphic::kSkyPayloadBinding).
-        ReadBuffer(1) SkyBuffer
-        {
-            vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT];
-        };
+        #include <Generated/Sky/SkyBuffer.glslh>
 
         // The cached pair, valid whenever this pass runs — SkyboxRenderer dispatches them first.
         // Bindings = Graphic::kSkyTransmittanceLutBinding / kSkyMultiScatterLutBinding.
@@ -101,10 +98,10 @@ Shader "SkyAerialPerspectiveLut"
         Uniform sampler LinearClampSampler;
         Uniform(4) texture2D CloudShadowMapTexture;
         #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearClampSampler)
+        #include <Generated/Clouds/CloudShadow.glslh>
         ReadBuffer(5) SkyCloudShadowBuffer
         {
-            mat4 CloudShadowWorldToMap;
-            vec4 CloudShadowParams;
+            DESERT_CloudShadowUniforms_MEMBERS
         };
         #include <Common/CloudShadowReceiver.glslh>
 
@@ -149,9 +146,7 @@ Shader "SkyAerialPerspectiveLut"
             const int column = int(gl_LocalInvocationID.y) * AP_GROUP_COLUMNS + int(gl_LocalInvocationID.x);
             const int slot   = slice * AP_GROUP_COLUMNS * AP_GROUP_COLUMNS + column;
 
-            SkyPacked s;
-            for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
-                s.v[i] = SkyPackedData[i];
+            SkyPacked s = SkyPackedData;
 
             SkyAtmParams atm = SkyMakeAtmParams(UnpackMediumRayleigh(s), UnpackMediumMie(s),
                                                 UnpackMediumMieAbsorption(s), UnpackMediumOzone(s),

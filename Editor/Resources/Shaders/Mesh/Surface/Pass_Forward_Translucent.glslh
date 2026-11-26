@@ -47,10 +47,10 @@ layout( binding = 9 ) uniform textureCube EnvironmentIrradianceTexture;
 #define EnvironmentIrradianceTexture samplerCube(EnvironmentIrradianceTexture, LinearClampSampler)
 layout( binding = 10 ) uniform texture2D BrdfLutTexture;
 #define BrdfLutTexture sampler2D(BrdfLutTexture, LinearClampSampler)
+#include <Generated/Environment/SkyLook.glslh>
 layout( binding = 22 ) uniform SkyLookUB
 {
-    vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
-    vec4 Gain;      // rgb = tint * intensity
+    DESERT_SkyLookGPU_MEMBERS
 }
 skyLook;
 #include <Common/SkyLook.glslh>
@@ -65,10 +65,10 @@ layout( binding = 19 ) uniform texture2D SceneColorTexture;
 // The cloud layer's shadow on the world: it takes the sun's highlight away with it.
 layout( binding = 20 ) uniform texture2D CloudShadowMapTexture;
 #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearRepeatSampler)
+#include <Generated/Clouds/CloudShadow.glslh>
 layout( binding = 21 ) uniform CloudShadowUB
 {
-    mat4 CloudShadowWorldToMap;
-    vec4 CloudShadowParams;
+    DESERT_CloudShadowUniforms_MEMBERS
 };
 
 #include <Common/CloudShadowReceiver.glslh>
@@ -77,11 +77,11 @@ layout( binding = 21 ) uniform CloudShadowUB
 // WaterCausticsFrame, bound by name). Set 1 after ViewIndirect's 0..6.
 layout( set = 1, binding = 7 ) uniform texture2D WaterCausticsTexture;
 #define WaterCausticsTexture sampler2D(WaterCausticsTexture, LinearRepeatSampler)
+#include <Generated/Water/WaterCaustics.glslh>
 layout( std430, set = 1, binding = 8 ) readonly buffer WaterCausticsFrameUB
 {
-    vec4 WaterCausticsWindow;
-    vec4 WaterCausticsShape;
-    vec4 WaterCausticsBodies[];
+    DESERT_WaterCausticsFrameHead_MEMBERS
+    WaterCausticsBody WaterCausticsBodies[];
 };
 #define WATER_CAUSTICS_FRAME
 #include <Common/WaterCaustics.glslh>

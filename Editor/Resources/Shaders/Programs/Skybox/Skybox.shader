@@ -34,10 +34,10 @@ Shader "Skybox"
         Uniform(1) textureCube samplerCubeMap;
         Uniform(3) sampler samplerCubeMapSampler;
         #define samplerCubeMap samplerCube(samplerCubeMap, samplerCubeMapSampler)
+        #include <Generated/Environment/SkyLook.glslh>
         Uniform(2) SkyLookUB
         {
-            vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
-            vec4 Gain;      // rgb = tint * intensity
+            DESERT_SkyLookGPU_MEMBERS
         } skyLook;
         #include <Common/SkyLook.glslh>
 

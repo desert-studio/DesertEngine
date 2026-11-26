@@ -4,8 +4,7 @@
 // WaterWaveMips.shader (its mips); Water/WaterSurfaceField.glslh reads the array.
 //
 // The CPU half and its units: FFTOceanSpectrum.hpp (centimetres, radians per centimetre, seconds; the plane is
-// (world X, world Z) relative to the body's WaveOrigin, in the cascade's turned lattice). The C++ twin of
-// WaterFFTParams is WaterWaveSimulation.cpp's.
+// (world X, world Z) relative to the body's WaveOrigin, in the cascade's turned lattice).
 #ifndef DESERT_WATER_FFT_GLSLH
 #define DESERT_WATER_FFT_GLSLH
 
@@ -26,11 +25,8 @@
 const float WATER_FFT_GRAVITY = 980.0;
 const float WATER_FFT_TWO_PI  = 6.2831853071795865;
 
-struct WaterFFTParams
-{
-    vec4 Cascade; // the patch sides of cascades 0..3, cm
-    vec4 Shape;   // x = choppiness (lambda), y = IFFT direction (0 = rows, 1 = columns), z = the view's time (s), w = what the array holds: 0 nothing, 1 the previous frame, 2 this very frame's time (a second view)
-};
+// WaterFFTParams (Cascade, Shape): Water/Private/WaterLayout.hpp.
+#include <Generated/Water/WaterFFT.glslh>
 
 // Complex product of a and b (x = real, y = imaginary).
 vec2 WaterFFTMul( vec2 a, vec2 b )

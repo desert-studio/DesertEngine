@@ -8,6 +8,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/Scene/SingleLayerWaterPass.hpp>
 #include <Water/Public/WaterQuadTree.hpp>
+#include <Water/Public/WaterLayout.hpp>
 
 #include <glm/glm.hpp>
 
@@ -46,29 +47,7 @@ namespace Desert::Graphic::System
         static constexpr std::array kAll{ RDG::Erase( WaterCausticsEnergy ), RDG::Erase( WaterCausticsImage ) };
     };
 
-    // The frame row's head, std430 (Common/WaterCaustics.glslh WaterCausticsFrameUB), followed by Shape.x rows of
-    // WaterCausticsBodyRow (the block's runtime array WaterCausticsBodies, three vec4 per body): read by every
-    // receiver with the map (SceneViewInputs::WaterCausticsFrame) and by the splat.
-    struct WaterCausticsFrameHead
-    {
-        glm::vec4 Window{
-             0.0f };             // xy = the map's lower world (X, Z), z = 1 / side (cm), w = 1 when there is a map
-        glm::vec4 Shape{ 0.0f }; // x = the body rows that follow, yzw = 0
-    };
-    static_assert( sizeof( WaterCausticsFrameHead ) == 2 * sizeof( glm::vec4 ), "std430 head of two vec4" );
-    // One body of the frame whose footprint meets the map's square.
-    struct WaterCausticsBodyRow
-    {
-        glm::vec4 Footprint{ 0.0f }; // xy = min (X, Z), zw = max (cm)
-        glm::vec4 Level{ 0.0f };     // x = the still surface Y (cm), y = its wave lane (WaterRenderer's: 1 + the
-                                     // frame's wave set, 0 = flat; WaterMeshTiles.glslh WaterWaveSetOf),
-                                     // z = its share of the
-                                     // beach slope (1 = an ocean, 0 = a river)
-        // Its material's (WaterSurface.shader Caustics*): x = the depth the map comes in over, y = the depth its
-        // contrast falls by 1/e over (cm), z = its strength (1 = the map as computed).
-        glm::vec4 Look{ 0.0f };
-    };
-    static_assert( sizeof( WaterCausticsBodyRow ) == 3 * sizeof( glm::vec4 ), "std430 body of three vec4" );
+    // The frame row (WaterCausticsFrameHead + WaterCausticsBodyRow rows): Water/Public/WaterLayout.hpp.
 
     // What every receiver binds when the caustics draw (FrameTransients::WaterCausticsMap / WaterCausticsFrame ->
     // SceneViewInputs): two valid refs of this frame's graph. A frame without caustics keeps the graph's 'off'

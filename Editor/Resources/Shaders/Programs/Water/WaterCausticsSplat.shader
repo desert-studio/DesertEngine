@@ -17,11 +17,11 @@ Shader "WaterCausticsSplat"
         #include <Mesh/Surface/WaterMeshTiles.glslh>
 
         // The frame row (Common/WaterCaustics.glslh): its body table gives each texel's still level.
+        #include <Generated/Water/WaterCaustics.glslh>
         layout(std430, binding = 1) readonly buffer WaterCausticsFrameUB
         {
-        	vec4 WaterCausticsWindow;
-        	vec4 WaterCausticsShape;
-        	vec4 WaterCausticsBodies[];
+        	DESERT_WaterCausticsFrameHead_MEMBERS
+        	WaterCausticsBody WaterCausticsBodies[];
         };
         #define WATER_CAUSTICS_FRAME
         #include <Common/WaterCaustics.glslh>
@@ -78,7 +78,7 @@ Shader "WaterCausticsSplat"
                 float targetDepth = 0.0;
                 for ( int i = 0; i < int( WaterCausticsShape.x ); ++i )
                 {
-                    const vec4 footprint = WaterCausticsBodies[3 * i];
+                    const vec4 footprint = WaterCausticsBodies[i].Footprint;
                     if ( any( lessThan( target, footprint.xy ) ) || any( greaterThan( target, footprint.zw ) ) )
                         continue;
                     const float d = WaterCausticsBodyLevel( i ) - WaterShoreAt( target ).GroundCm;

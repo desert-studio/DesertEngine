@@ -10,12 +10,8 @@ layout( binding = 25 ) uniform texture2D WaterShoreTexture;
 
 const float WATER_SHORE_FAR_CM = 60000.0;
 
-struct WaterShoreSample
-{
-    float GroundCm;
-    float ShoreDistanceCm;
-    vec2  ShoreDirection;
-};
+// WaterShoreSample (GroundCm, ShoreDistanceCm, ShoreDirection): Water/Public/WaterLayout.hpp.
+#include <Generated/Water/WaterShoreSample.glslh>
 
 WaterShoreSample WaterShoreAt( vec2 worldXZ )
 {

@@ -1026,8 +1026,8 @@ TEST( CloudShadowReceiver, NoShaderReconstructsTheShadowForItself )
 
 TEST( CloudShadowReceiver, NoMaterialPacksTheUniformBlockForItself )
 {
-    // The C++ half of the same relation. `CloudShadowUniforms` is filled in exactly ONE place —
-    // CloudShadowPackUniforms, beside the struct — and reaches a descriptor set through exactly one
+    // The C++ half of the same relation. `CloudShadowUniforms` is declared once (CloudLayout.hpp), filled in
+    // exactly ONE place — CloudShadowPackUniforms — and reaches a descriptor set through exactly one
     // writer, CloudShadowUpload. A material that assembles the block itself is free to decide differently
     // what `Params.y` means, and the symptom is one render path shading with a shadow the other has
     // switched off.
@@ -1045,8 +1045,8 @@ TEST( CloudShadowReceiver, NoMaterialPacksTheUniformBlockForItself )
                 continue;
 
             const std::string name = entry.path().filename().string();
-            // The struct and the function that fills it.
-            if ( name == "CloudShadowPayload.hpp" )
+            // The struct (CloudLayout.hpp, the cloud blocks' one declaration) and the function that fills it.
+            if ( name == "CloudLayout.hpp" || name == "CloudShadowPayload.hpp" )
             {
                 declarations++;
                 continue;
@@ -1063,7 +1063,7 @@ TEST( CloudShadowReceiver, NoMaterialPacksTheUniformBlockForItself )
                  << name << " builds the cloud-shadow uniform block itself; call CloudShadowUpload instead";
         }
 
-    EXPECT_EQ( declarations, 1 ) << "Engine/Graphic/Clouds/CloudShadowPayload.hpp was not found";
+    EXPECT_EQ( declarations, 2 ) << "Engine/Graphic/Clouds/CloudLayout.hpp or CloudShadowPayload.hpp was not found";
     EXPECT_EQ( writers, 1 ) << "Engine/Graphic/Clouds/CloudShadowBinding.hpp was not found";
 }
 

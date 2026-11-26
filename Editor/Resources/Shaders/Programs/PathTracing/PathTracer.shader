@@ -99,9 +99,9 @@ Shader "PathTracer"
             Uniform sampler LinearRepeatSampler;
             Uniform(16) texture2D CloudShadowMapTexture;
             #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearRepeatSampler)
+            #include <Generated/Clouds/CloudShadow.glslh>
             Uniform(17) CloudShadowUB {
-                mat4 CloudShadowWorldToMap;
-                vec4 CloudShadowParams;
+                DESERT_CloudShadowUniforms_MEMBERS
             };
             #include <Common/CloudShadowReceiver.glslh>
 

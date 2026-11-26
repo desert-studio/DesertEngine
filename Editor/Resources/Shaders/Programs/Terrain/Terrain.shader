@@ -188,12 +188,10 @@ Shader "Terrain"
         Uniform sampler LinearRepeatSampler;
         Uniform(20) texture2D CloudShadowMapTexture;
         #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearRepeatSampler)
+        #include <Generated/Clouds/CloudShadow.glslh>
         Uniform(21) CloudShadowUB
         {
-        	mat4 CloudShadowWorldToMap;
-        	// x = the kilometres the map's clip z spans, y = 1 when the map is real and must be read,
-        	// z = the UV width of the border fade, w = the artist's shadow strength.
-        	vec4 CloudShadowParams;
+        	DESERT_CloudShadowUniforms_MEMBERS
         };
 
         // THE receiver, shared verbatim with the deferred composite and the mesh shaders.
@@ -203,11 +201,11 @@ Shader "Terrain"
         // WaterCausticsMap / WaterCausticsFrame, bound by name). Set 1 after ViewIndirect's 0..6.
         layout(set = 1, binding = 7) uniform texture2D WaterCausticsTexture;
         #define WaterCausticsTexture sampler2D(WaterCausticsTexture, LinearRepeatSampler)
+        #include <Generated/Water/WaterCaustics.glslh>
         layout(std430, set = 1, binding = 8) readonly buffer WaterCausticsFrameUB
         {
-        	vec4 WaterCausticsWindow;
-        	vec4 WaterCausticsShape;
-        	vec4 WaterCausticsBodies[];
+        	DESERT_WaterCausticsFrameHead_MEMBERS
+        	WaterCausticsBody WaterCausticsBodies[];
         };
         #define WATER_CAUSTICS_FRAME
         #include <Common/WaterCaustics.glslh>
@@ -261,10 +259,10 @@ Shader "Terrain"
         #define EnvironmentIrradianceTexture samplerCube(EnvironmentIrradianceTexture, LinearClampSampler)
         layout( binding = 19 ) uniform texture2D BrdfLutTexture;
         #define BrdfLutTexture sampler2D(BrdfLutTexture, LinearClampSampler)
+        #include <Generated/Environment/SkyLook.glslh>
         layout( binding = 22 ) uniform SkyLookUB
         {
-            vec4 YawCosSin; // xy = (cos yaw, sin yaw) - Graphic::SkyLookGPU
-            vec4 Gain;      // rgb = tint * intensity
+            DESERT_SkyLookGPU_MEMBERS
         }
         skyLook;
         // The view's indirect light as every forward pass reads it (Mesh/Surface/ViewIndirect.glslh): the reflection
