@@ -3,7 +3,7 @@
 #include <Common/Core/Logger.hpp>
 
 #define GLFW_EXPOSE_NATIVE_WIN32
-#include <GLFW/glfw3.h>
+#include <Engine/Core/Glfw.hpp>
 #include <GLFW/glfw3native.h>
 
 namespace Desert::Graphic::API::D3D12
