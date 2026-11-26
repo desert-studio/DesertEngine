@@ -45,6 +45,11 @@ namespace Desert::Animation
         // AnimToTexture figure on the game thread, after the skeletal pose ticked), never a pose left from
         // before the hand-off.
         std::atomic<bool> SkeletalPoseReady{ true };
+        // Animation -> renderer: how many times the instance was teleported (ECS::MarkPoseTeleported, taken by
+        // AnimationECSSystem). A count, not a flag: every view's renderer compares it with the count it last drew
+        // and treats a figure whose count moved as having no occlusion history that frame (UE
+        // FPrimitiveOcclusionHistory after a teleport) - no view consumes it from another.
+        std::atomic<uint32_t> Teleports{ 0u };
         // Animation only (its own thread): the clock runs here while Vat holds, from the Animator's playhead at
         // the hand-off; the Animator is put back on it when the instance returns to skeletal.
         bool  VatClockRunning = false;

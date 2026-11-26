@@ -657,8 +657,11 @@ Shader "InstanceCull"
                 return;
             }
 
+            // A primitive with no occlusion history this frame (teleported, first drawn, new draw path) is never
+            // held back by last frame's HZB: that depth was built without it at this place (UE
+            // FPrimitiveOcclusionHistory). Phase 2 retests every held-back instance, skinned ones included.
             if ( !empty && Params2.w != 0u && ( view.Flags & DESERT_GPU_CULL_VIEW_TEST_HZB ) != 0u &&
-                 ( primitive.Flags & DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION ) == 0u &&
+                 ( primitive.Flags & ( DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION | DESERT_GPU_PRIMITIVE_NO_OCCLUSION_HISTORY ) ) == 0u &&
                  GpuCull_IsOccludedByHzb( GpuCullHzbTexture, PointClampSampler, view, view.PrevViewProjection, boxMin, boxMax ) )
             {
                 const uint slot = atomicAdd( OccludedCount, 1u );
