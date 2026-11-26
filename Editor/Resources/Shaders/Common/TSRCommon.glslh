@@ -16,42 +16,8 @@
 
 #include <Common/ReconstructPosition.glslh>
 
-layout(std430, binding = 0) readonly buffer TSRParamsBuffer
-{
-    mat4  InverseViewProjection;  // this frame, unjittered
-    mat4  PreviousViewProjection; // previous frame, unjittered
-    mat4  PreviousInverseProjection;  // previous frame, unjittered: device depth -> view depth
-    vec2  RenderSize;
-    vec2  HistorySize;
-    vec2  OutputSize;
-    vec2  JitterUv;           // this frame's jitter in uv (JitterNdc * (0.5, -0.5))
-    float HistoryValid;
-    float HistorySampleCount;
-    float HistoryHysteresis;
-    float WeightClampingRejection;
-    float WeightClampingPixelSpeedAmplitude;
-    float InverseWeightClampingPixelSpeed;
-    float InputToHistoryFactor;
-    float FlickeringFramePeriod;
-    float DepthPixelRadiusScale;
-    float DepthPixelRadiusBias;
-    float EnableFlickeringHeuristic; // r.TSR.ShadingRejection.Flickering: 0 / 1 (UE bEnableFlickeringHeuristic)
-    float ReprojectionField;         // r.TSR.ReprojectionField: 0 / 1 (UE bReprojectionField, a uniform)
-    mat4  InverseProjection;             // this frame, unjittered: device depth -> view
-    mat4  Projection;                // this frame, unjittered: view -> clip
-    mat4  ClipToResurrectionClip;    // this frame's unjittered clip -> the resurrection frame's clip
-    float ReprojectionFieldAntiAliasVelocityThreshold; // UE TemporalSuperResolution.cpp :2531
-    float ResurrectionEnabled; // 1 when a persistent frame can be resurrected this frame (UE bEnableResurrection)
-    float ThinGeometryDetection;  // the project's r.TSR.ThinGeometryDetection: 0 / 1 (TSR.DilateVelocity's offset)
-    float ThinGeometryFrameIndex; // the frame count since the history reset, mod 64 (the coverage dither)
-    // Pre-exposure (ViewFrame::PreExposure): the scene colour arrives multiplied by PreExposure; the colour
-    // history was stored at the previous frame's (UE HistoryPreExposureCorrection = PreExposure / PrevPreExposure)
-    // and a persistent frame at its own (UE ResurrectionPreExposureCorrection = PreExposure / slice's).
-    float PreExposure;
-    float HistoryPreExposureCorrection;
-    float ResurrectionPreExposureCorrection;
-    float PreExposurePad;
-};
+#include <Generated/Post/TsrParams.glslh>
+layout(std430, binding = 0) readonly buffer TSRParamsBuffer { DESERT_TsrParams_MEMBERS };
 
 const float kGCSPreceptionAdd   = 0.17;          // UE TSRColorSpace.ush
 const float kMoireLumaToChannel = 3.0;           // UE TSRColorSpace.ush

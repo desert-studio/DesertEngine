@@ -27,7 +27,7 @@ layout( location = 1 ) out vec4 oVelocity;
 layout( location = 3 ) out float oThinGeometryCoverage;
 
 // The scene directional light (struct DirectionLight + DirectionLightsUB, binding 14): GENERATED from
-// Engine/Graphic/ShaderProtocols/DirectionLight.hpp by the shader includer.
+// Engine/Graphic/ShaderProtocols/LightLayout.hpp by Tools/ShaderProtocolGen.
 #include <Common/DirectionLightsUB.glslh>
 
 // Shared sampler states (UE's shared samplers): every scene/view input below is a separate texture read through one
@@ -37,7 +37,7 @@ layout( location = 3 ) out float oThinGeometryCoverage;
 // The repeat state is numbered by the program build (`Uniform sampler`, ShaderMapBuild AssignSharedSamplerBindings):
 // a fixed 13 collided with the grass blade path's GrassBladeShape (Vertex_GrassBlade.glslh) in GrassBlade.Forward.
 // The clamp state too: a fixed 14 collided with the generated DirectionLightsUB (Engine/Graphic/ShaderProtocols/
-// DirectionLight.hpp, kDirectionLightsUBBinding), which every lit program includes (TERRAIN-BIND14).
+// LightLayout.hpp, kDirectionLightsUBBlock), which every lit program includes (TERRAIN-BIND14).
 Uniform sampler LinearRepeatSampler;
 Uniform sampler LinearClampSampler;
 // THE MEGALIGHTS TRANSLUCENCY VOLUME (Shadows Stochastic): on, the local lights come from it, shadowed, in place of

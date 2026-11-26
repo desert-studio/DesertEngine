@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
+#include <Engine/Graphic/View/DepthOfFieldLayout.hpp>
 
 #include <glm/glm.hpp>
 
@@ -110,34 +111,6 @@ namespace Desert::Graphic
 
     [[nodiscard]] ViewExtent    DofHalfExtent( ViewExtent output );
     [[nodiscard]] RDG::Extent3D DofTileExtent( ViewExtent output );
-
-    // The parameters every DOF pass reads (one buffer, binding "DepthOfFieldBuffer" in all six shaders).
-    struct DofParams
-    {
-        glm::vec2 OutputSize;
-        glm::vec2 RenderSize;
-        glm::vec2 HalfSize;
-        glm::vec2 TileCount;
-        glm::vec4 DepthToView;            // DofDepthToView
-        float     FocalDistanceMm = 0.0f; // s
-        float     FocalLengthMm   = 0.0f; // f
-        float     CocScale        = 0.0f; // A f / 2 * OutputWidth / SensorWidth: output-pixel radius numerator
-        float     MaxRadius       = 0.0f; // output pixels
-        int32_t   Rings           = 0;
-        int32_t   DilateTiles     = 0;
-        float     Pad[2]          = {};
-    };
-    static_assert( offsetof( DofParams, RenderSize ) == 8 );
-    static_assert( offsetof( DofParams, HalfSize ) == 16 );
-    static_assert( offsetof( DofParams, TileCount ) == 24 );
-    static_assert( offsetof( DofParams, DepthToView ) == 32 );
-    static_assert( offsetof( DofParams, FocalDistanceMm ) == 48 );
-    static_assert( offsetof( DofParams, FocalLengthMm ) == 52 );
-    static_assert( offsetof( DofParams, CocScale ) == 56 );
-    static_assert( offsetof( DofParams, MaxRadius ) == 60 );
-    static_assert( offsetof( DofParams, Rings ) == 64 );
-    static_assert( offsetof( DofParams, DilateTiles ) == 68 );
-    static_assert( sizeof( DofParams ) == 80 );
 
     [[nodiscard]] DofParams MakeDofParams( const DepthOfFieldSettings& settings, const ViewFrame& frame );
 

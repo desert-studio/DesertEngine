@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
+#include <Engine/Graphic/View/MotionBlurLayout.hpp>
 
 #include <glm/glm.hpp>
 
@@ -94,29 +95,6 @@ namespace Desert::Graphic
                                                      uint32_t height, uint32_t x, uint32_t y );
 
     [[nodiscard]] RDG::Extent3D MotionBlurTileExtent( ViewExtent render );
-
-    // The parameters every motion blur pass reads (one buffer, binding "MotionBlurBuffer" in all four shaders).
-    struct MotionBlurParams
-    {
-        glm::vec2 RenderSize;           // pixels: velocity, depth, flattened velocity
-        glm::vec2 OutputSize;           // pixels: resolved colour, output
-        glm::vec2 TileCount;            // tiles
-        float     VelocityScale = 0.0f; // MotionBlurVelocityScale
-        float     MaxPixels     = 0.0f; // MotionBlurMaxPixels
-        int32_t   Samples       = 0;
-        float     Pad[3]        = {};
-        // ViewFrame::ClipToPrevClip: Flatten derives the camera's motion of a pixel nothing wrote velocity for
-        // (Common/Velocity.glslh DesertCameraVelocityAtInfinity), so a turning camera blurs the sky with the
-        // world.
-        glm::mat4 ClipToPrevClip{ 1.0f };
-    };
-    static_assert( offsetof( MotionBlurParams, OutputSize ) == 8 );
-    static_assert( offsetof( MotionBlurParams, TileCount ) == 16 );
-    static_assert( offsetof( MotionBlurParams, VelocityScale ) == 24 );
-    static_assert( offsetof( MotionBlurParams, MaxPixels ) == 28 );
-    static_assert( offsetof( MotionBlurParams, Samples ) == 32 );
-    static_assert( offsetof( MotionBlurParams, ClipToPrevClip ) == 48 ); // std430 mat4: 16-byte aligned
-    static_assert( sizeof( MotionBlurParams ) == 112 );
 
     [[nodiscard]] MotionBlurParams MakeMotionBlurParams( const MotionBlurSettings& settings,
                                                          const ViewFrame&          frame );

@@ -3,6 +3,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
+#include <Engine/Graphic/View/TemporalAALayout.hpp>
 
 #include <glm/glm.hpp>
 
@@ -69,30 +70,6 @@ namespace Desert::Graphic
         mutable std::mutex                                      m_PipelineMutex;
         mutable std::array<std::shared_ptr<ComputePipeline>, 3> m_Pipelines{};
     };
-
-    // The resolve's parameters, the C++ side of TemporalAA.shader's `TemporalAABuffer` (std430). A buffer and not
-    // a push constant: two matrices are already the 128 bytes Vulkan guarantees for push constants.
-    struct TemporalAAParams
-    {
-        glm::mat4 InvViewProjection;   // this frame, unjittered: output pixel uv (+ device depth) -> world
-        glm::mat4 PrevViewProjection;  // previous frame, unjittered: world -> previous clip
-        glm::vec2 RenderSize;          // pixels
-        glm::vec2 OutputSize;          // pixels
-        glm::vec2 JitterUv;            // this frame's jitter in uv: JitterNdc * (0.5, -0.5)
-        float     HistoryValid = 0.0f; // 1 when the history holds this view's previous frame
-        // ViewFrame::PreExposure / PrevPreExposure (UE HistoryPreExposureCorrection): the history was resolved
-        // from last frame's pre-exposed scene colour.
-        float HistoryPreExposureCorrection = 1.0f;
-        float PreExposure                  = 1.0f; // ViewFrame::PreExposure: the scene colour arrives x this
-        float Pad[3]                       = {};
-    };
-    static_assert( offsetof( TemporalAAParams, PrevViewProjection ) == 64 );
-    static_assert( offsetof( TemporalAAParams, RenderSize ) == 128 );
-    static_assert( offsetof( TemporalAAParams, OutputSize ) == 136 );
-    static_assert( offsetof( TemporalAAParams, JitterUv ) == 144 );
-    static_assert( offsetof( TemporalAAParams, HistoryValid ) == 152 );
-    static_assert( offsetof( TemporalAAParams, PreExposure ) == 160 );
-    static_assert( sizeof( TemporalAAParams ) == 176 );
 
     // The parameters of this frame's resolve (pure; the suite pins the values the shader relies on).
     [[nodiscard]] TemporalAAParams MakeTemporalAAParams( const ViewFrame& frame, RDG::Extent3D output );

@@ -5,7 +5,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
-#include <Engine/Graphic/ShaderProtocols/GeneratedProtocolIncludes.hpp>
+#include <Engine/Core/ShaderCompiler/GeneratedShaderIncludes.hpp>
 
 #include <cctype>
 #include <filesystem>
@@ -84,7 +84,7 @@ namespace Desert::Core
         std::string HandWrittenVertexInput( const std::string& source )
         {
             for ( const std::string& name : Preprocess::DShaderParser::DeclaredInputNames( source ) )
-                if ( Graphic::ShaderProtocols::IsGeneratedVertexInputName( name ) )
+                if ( IsGeneratedVertexInputName( name ) )
                     return std::format( "declares the vertex input '{}' by hand; it is generated from the C++ vertex "
                                         "format — #include <Mesh/MeshVertexInputs.glslh>, "
                                         "<Mesh/MeshVertexInputsSkinned.glslh> or <Common/UIVertexInputs.glslh>",
@@ -129,10 +129,12 @@ namespace Desert::Core
                     return CreateErrorIncludeResult( std::format( "{}: {}", requested, twin ) );
                 return MakeResult( fullPath.string(), Preprocess::DShaderParser::TranslateSugar( *substituted ) );
             }
-            // A protocol block (Common/CameraUB.glslh) is GENERATED from its C++ struct (Std140Block.hpp): the
-            // struct is the one layout truth, so its GLSL is never a file that could disagree with it.
-            if ( const std::string* generated = Graphic::ShaderProtocols::FindGeneratedProtocolInclude( requested ) )
-                return MakeResult( fullPath.string(), Preprocess::DShaderParser::TranslateSugar( *generated ) );
+            // A protocol block (Common/CameraUB.glslh) is GENERATED at build time from its C++ declaration
+            // (Tools/ShaderProtocolGen): the declaration is the one layout truth, so its GLSL is never a hand-written
+            // file that could disagree with it.
+            if ( const GeneratedShaderInclude* generated = FindGeneratedShaderInclude( requested ) )
+                return MakeResult( fullPath.string(),
+                                   Preprocess::DShaderParser::TranslateSugar( std::string( generated->Text ) ) );
             // The generated shading-model dispatch is the loaded set's own text, never a file that may predate it;
             // a set that failed to load fails every program that includes it, with the scan's error.
             if ( requested == ShadingModels::kGeneratedInclude )
@@ -307,9 +309,9 @@ namespace Desert::Core
                         if ( const std::string* substituted = walk.Variant.Find( requested ) )
                             found = LocateIn( walk, *substituted, angleLabel, " (the variant's substitution)", {},
                                               depth + 1 );
-                        else if ( const std::string* generated =
-                                       Graphic::ShaderProtocols::FindGeneratedProtocolInclude( requested ) )
-                            found = LocateIn( walk, *generated, angleLabel, " (generated from its C++ protocol)",
+                        else if ( const GeneratedShaderInclude* generated = FindGeneratedShaderInclude( requested ) )
+                            found = LocateIn( walk, std::string( generated->Text ), angleLabel,
+                                              " (generated from its C++ protocol)",
                                               {}, depth + 1 );
                         else if ( requested != ShadingModels::kGeneratedInclude )
                         {

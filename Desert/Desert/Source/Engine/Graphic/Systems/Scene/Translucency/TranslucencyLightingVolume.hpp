@@ -10,6 +10,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/Scene/Fog/VolumetricFogRenderer.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
+#include <Engine/Graphic/Systems/Scene/Translucency/TranslucencyLightingVolumeLayout.hpp>
 
 #include <glm/glm.hpp>
 
@@ -23,30 +24,6 @@
 namespace Desert::Graphic
 {
     struct ViewFrame;
-
-    // The fill's parameter block (Programs/Translucency/TranslucencyLightingVolume.shader
-    // TranslucencyLightingVolumeParams), member for member, std430.
-    struct TranslucencyLightingVolumeGpuPayload
-    {
-        glm::mat4                ViewProjection{ 1.0f };
-        std::array<glm::mat4, 4> CascadeViewProj{};
-        glm::vec4                Camera{ 0.0f };       // xyz = camera (cm), w = cells per cascade edge
-        glm::vec4                RenderSize{ 0.0f };   // xy = render pixels
-        glm::vec4                SunDirection{ 0.0f }; // xyz = toward the sun, w = 1 when present
-        glm::vec4                SunRadiance{ 0.0f };  // rgb = irradiance, w = cascades
-        glm::vec4                CascadeBias{ 0.0f };
-        glm::mat4                CloudShadowWorldToMap{ 1.0f };
-        glm::vec4                CloudShadowParams{ 0.0f };
-        glm::mat4                RainOcclusionWorldToMap{ 1.0f };
-        glm::vec4                RainOcclusionParams{ 0.0f };
-    };
-    static_assert( offsetof( TranslucencyLightingVolumeGpuPayload, Camera ) == 320 );
-    static_assert( offsetof( TranslucencyLightingVolumeGpuPayload, CloudShadowWorldToMap ) == 400 );
-    static_assert( offsetof( TranslucencyLightingVolumeGpuPayload, RainOcclusionWorldToMap ) == 480 );
-    static_assert( sizeof( TranslucencyLightingVolumeGpuPayload ) == 560 );
-
-    // Must equal the shader's `binding = 1` (SetStorageBuffer takes the number, not reflection).
-    inline constexpr uint32_t kTranslucencyLightingVolumeParamsBinding = 1;
 
     // The machine's Effects.TranslucencyLightingVolumeDim (UE r.TranslucencyLightingVolumeDim): cells per cascade
     // edge, even (Common/TranslucencyLightingVolume.glslh centres a cascade on the camera's cell).

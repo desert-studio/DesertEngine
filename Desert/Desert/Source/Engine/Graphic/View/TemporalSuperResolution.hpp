@@ -3,6 +3,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
+#include <Engine/Graphic/View/TemporalSuperResolutionLayout.hpp>
 
 #include <glm/glm.hpp>
 
@@ -182,65 +183,6 @@ namespace Desert::Graphic
     // The persistent frame to resurrect from this frame (UE GetResurrectionFrameRollingIndex: the oldest recorded
     // one), or -1: none recorded, or the oldest is the previous frame (UE bCanResurrectHistory).
     [[nodiscard]] int TsrResurrectionSlot( const TsrHistory& previous, uint64_t thisFrame );
-
-    // The pass chain's shared parameters, the C++ side of `TSRParamsBuffer` in
-    // Programs/TemporalSuperResolution/TSRCommon.glslh (std430). One buffer per frame, read by every pass.
-    struct TsrParams
-    {
-        glm::mat4 InvViewProjection;  // this frame, unjittered: uv (+ device depth) -> world
-        glm::mat4 PrevViewProjection; // previous frame, unjittered: world -> previous clip
-        glm::mat4 PrevInvProjection;  // previous frame, unjittered: previous device depth -> view depth
-        glm::vec2 RenderSize;         // pixels
-        glm::vec2 HistorySize;        // pixels
-        glm::vec2 OutputSize;         // pixels
-        glm::vec2 JitterUv;           // this frame's jitter in uv: JitterNdc * (0.5, -0.5)
-        float     HistoryValid = 0.0f;
-        // UE TemporalSuperResolution.cpp :3220-3226, from r.TSR.History.SampleCount (16),
-        // r.TSR.ShadingRejection.SampleCount (2), r.TSR.Velocity.WeightClampingSampleCount (4) and
-        // r.TSR.Velocity.WeightClampingPixelSpeed (1) at this history / output ratio.
-        float HistorySampleCount                = 16.0f;
-        float HistoryHisteresis                 = 1.0f / 16.0f;
-        float WeightClampingRejection           = 0.0f;
-        float WeightClampingPixelSpeedAmplitude = 0.0f;
-        float InvWeightClampingPixelSpeed       = 1.0f;
-        float InputToHistoryFactor              = 1.0f; // History.Width / Render.Width
-        float FlickeringFramePeriod             = 2.0f; // UE r.TSR.ShadingRejection.Flickering.Period
-        // World-space radius of one render pixel at view depth d: d * DepthPixelRadiusScale + DepthPixelRadiusBias
-        // (perspective: scale 1 / (H * |P11|), ortho: bias 1 / (H * |P11|); UE
-        // GetDepthPixelRadiusForProjectionType).
-        float DepthPixelRadiusScale      = 0.0f;
-        float DepthPixelRadiusBias       = 0.0f;
-        float     EnableFlickeringHeuristic = 1.0f; // TsrQuality::ShadingRejectionFlickering (UE: a uniform)
-        float     ReprojectionField         = 1.0f; // TsrQuality::ReprojectionField (UE bReprojectionField)
-        glm::mat4 InvProjection{ 1.0f };            // this frame, unjittered
-        glm::mat4 Projection{ 1.0f };               // this frame, unjittered
-        // This frame's unjittered clip -> the resurrection frame's clip: its ViewProjection x InvViewProjection
-        // (UE ClipToResurrectionClip); identity while ResurrectionEnabled is 0.
-        glm::mat4 ClipToResurrectionClip{ 1.0f };
-        // UE :2531: square(max(r.TSR.ReprojectionField.AntiAliasPixelSpeed (0.125) / (Render / Output), 1 / 64)).
-        float ReprojectionFieldAntiAliasVelocityThreshold = 0.0f;
-        float ResurrectionEnabled                         = 0.0f; // a persistent frame is resurrectable
-        float ThinGeometryDetection                       = 0.0f; // TsrQuality::ThinGeometryDetection
-        float ThinGeometryFrameIndex                      = 0.0f; // TsrHistory::AccumulatedFrames mod 64
-        float PreExposure                                 = 1.0f; // ViewFrame::PreExposure
-        // PreExposure / PrevPreExposure (UE HistoryPreExposureCorrection): the colour history's correction.
-        float HistoryPreExposureCorrection = 1.0f;
-        // PreExposure / the resurrected frame's (UE ResurrectionPreExposureCorrection); 1 without resurrection.
-        float ResurrectionPreExposureCorrection = 1.0f;
-        float PreExposurePad                    = 0.0f;
-    };
-    static_assert( offsetof( TsrParams, PrevInvProjection ) == 128 );
-    static_assert( offsetof( TsrParams, RenderSize ) == 192 );
-    static_assert( offsetof( TsrParams, JitterUv ) == 216 );
-    static_assert( offsetof( TsrParams, HistoryValid ) == 224 );
-    static_assert( offsetof( TsrParams, FlickeringFramePeriod ) == 252 );
-    static_assert( offsetof( TsrParams, DepthPixelRadiusScale ) == 256 );
-    static_assert( offsetof( TsrParams, ReprojectionField ) == 268 );
-    static_assert( offsetof( TsrParams, InvProjection ) == 272 );
-    static_assert( offsetof( TsrParams, ClipToResurrectionClip ) == 400 );
-    static_assert( offsetof( TsrParams, ReprojectionFieldAntiAliasVelocityThreshold ) == 464 );
-    static_assert( offsetof( TsrParams, PreExposure ) == 480 );
-    static_assert( sizeof( TsrParams ) == 496 );
 
     // The parameters of this frame's chain (pure). @p resurrection: the persistent frame resurrected from this
     // frame, null for none.

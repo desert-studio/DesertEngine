@@ -106,11 +106,11 @@ namespace Desert::Graphic::System
         // passing literature values must convert through Common::Units.
         static RDG::BufferRef UploadUniforms( RDG::Builder& graph, const SSAOUniforms::Inputs& inputs )
         {
-            const SSAOUniforms::SSAOUBData data = SSAOUniforms::Make( inputs );
+            const SSAOUBData               data = SSAOUniforms::Make( inputs );
             const RDG::BufferRef           buffer =
-                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( SSAOUniforms::SSAOUBData ) }, "SSAO.UB" );
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( SSAOUBData ) }, "SSAO.UB" );
             graph.QueueBufferUpload( buffer,
-                                     std::as_bytes( std::span<const SSAOUniforms::SSAOUBData>( &data, 1 ) ) );
+                                     std::as_bytes( std::span<const SSAOUBData>( &data, 1 ) ) );
             return buffer;
         }
 

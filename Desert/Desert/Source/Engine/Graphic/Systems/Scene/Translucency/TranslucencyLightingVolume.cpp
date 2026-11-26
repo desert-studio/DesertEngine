@@ -63,7 +63,7 @@ namespace Desert::Graphic::System
         m_ParamsBuffer = ShaderResources::StorageBuffer::Create(
              "TranslucencyLightingVolumeParams",
              static_cast<uint32_t>( sizeof( TranslucencyLightingVolumeGpuPayload ) ),
-             kTranslucencyLightingVolumeParamsBinding, /*persistent=*/false );
+             kTranslucencyLightingVolumeParamsBlock.Binding.Value, /*persistent=*/false );
         if ( !m_ParamsBuffer )
             return Common::MakeError(
                  std::string( "TranslucencyLightingVolumeRenderer: could not create the parameter buffer" ) );
@@ -202,7 +202,7 @@ namespace Desert::Graphic::System
                        uploaded.GetError() );
             return nodes;
         }
-        pipeline->SetStorageBuffer( kTranslucencyLightingVolumeParamsBinding, m_ParamsBuffer.get() );
+        pipeline->SetStorageBuffer( kTranslucencyLightingVolumeParamsBlock.Binding.Value, m_ParamsBuffer.get() );
 
         // Named here, not as a conditional inside the by-value argument (MSVC 19.44 hangs on that shape).
         RDG::TextureRef rainOcclusionMap = refs.System.White;

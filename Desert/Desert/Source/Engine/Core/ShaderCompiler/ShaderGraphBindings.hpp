@@ -291,9 +291,9 @@ namespace Desert::Core
 
     /**
      * THE TABLE SHADERS READ: every slot above, by its C++ name, as Generated/SceneBindings.glslh hands it to GLSL
-     * (`#define kSceneFogVolumeBinding 48`; Graphic::ShaderProtocols::SceneBindingsGlsl, served by the shader
-     * includer and hashed by the cache key like every generated protocol include - there is no file on disk to
-     * edit). A shader never spells one of these numbers: it includes that header and writes
+     * (`#define kSceneFogVolumeBinding 48`; written from kSceneBindingNames by Tools/ShaderProtocolGen, served by
+     * the shader includer and hashed by the cache key like every generated protocol include - there is no file on
+     * disk to edit). A shader never spells one of these numbers: it includes that header and writes
      * `layout( binding = kSceneFogVolumeBinding )`, so moving a range here moves every declaration with it, and
      * the changed generated text recompiles every program that reads one. One name in both languages, so sym.sh
      * --refs finds the C++ binder and the GLSL declaration together. A slot added above without a row here is a

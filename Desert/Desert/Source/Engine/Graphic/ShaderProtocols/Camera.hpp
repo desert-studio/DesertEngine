@@ -1,107 +1,24 @@
 #pragma once
 
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
-#include <Engine/Graphic/ShaderProtocols/Std140Block.hpp>
+#include <Engine/Graphic/ShaderProtocols/CameraLayout.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 
 #include <glm/glm.hpp>
 
-#include <array>
-#include <cstddef>
-#include <string>
-#include <string_view>
+#include <type_traits>
 
-// THE MEMBERS OF THE CAMERA BLOCK, listed ONCE. They expand into ShaderProtocols::Camera's members and into
-// kCameraFields, from which the includer GENERATES Common/CameraUB.glslh (there is no such file on disk). The
-// order is the std140 order: mat4 at 64-byte steps, vec2s together, each vec3 completed by a float, the explicit
-// tail pad; the static_assert below makes any other order a build error.
-//
-// It is THE view block (UE's FViewUniformShaderParameters): one per view per frame, the shader view of the
-// per-frame ViewFrame (TAA1 step 3), for the raster AND for ray tracing: every ray generation that traces into
-// hit groups binds it (PathTracer "PathTracing: Trace", SSR "Deferred: Reflections (HitLighting)"), so a hit cell
-// that includes Common/CameraUB.glslh reads the program's own binding (VulkanRayTracingPipeline: a hit cell reads
-// only what the program binds); the landscape's hit reads CameraPos and GrassLens here (GPU-COST-25), and so does
-// the landscape's raster with its matrices and PreExposure - it keeps no copy of the view (GPU-COST-26).
-// WHICH MATRIX (ViewFrame.hpp): raster geometry -> JitteredViewProjection;
-// world position from depth -> InvJitteredViewProjection; reprojection -> PrevViewProjection vs ViewProjection
-// (both unjittered); Projection / View stay the camera's own, unjittered.
-//
-// FIELD( C++ type, member, GLSL name, initialiser ) — the GLSL type is the C++ type's Std140Type.
-#define DESERT_CAMERA_UB_FIELDS( FIELD )                                                                          \
-    FIELD( glm::mat4, Projection, Projection, { 1.0f } )                               /* offset   0 */           \
-    FIELD( glm::mat4, View, View, { 1.0f } )                                           /* offset  64 */           \
-    FIELD( glm::mat4, JitteredViewProjection, JitteredViewProjection, { 1.0f } )       /* offset 128 */           \
-    FIELD( glm::mat4, ViewProjection, ViewProjection, { 1.0f } )                       /* offset 192 */           \
-    FIELD( glm::mat4, PrevViewProjection, PrevViewProjection, { 1.0f } )               /* offset 256 */           \
-    FIELD( glm::mat4, InvJitteredViewProjection, InvJitteredViewProjection, { 1.0f } ) /* offset 320 */           \
-    FIELD( glm::vec2, JitterNdc, JitterNdc, { 0.0f } )                                 /* offset 384 */           \
-    FIELD( glm::vec2, PrevJitterNdc, PrevJitterNdc, { 0.0f } )                         /* offset 392 */           \
-    FIELD( glm::vec3, CameraPos, CameraPos, { 0.0f } )                                 /* offset 400, world cm */ \
-    FIELD( float, Time, Time, { 0.0f } )                       /* offset 412, seconds (ViewFrame::TimeSeconds) */ \
-    FIELD( glm::vec3, PrevCameraPos, PrevCameraPos, { 0.0f } ) /* offset 416 */                                   \
-    FIELD( float, PrevTime, PrevTime, { 0.0f } )               /* offset 428 */                                   \
-    FIELD( float, MaterialMipBias, MaterialMipBias, { 0.0f } ) /* offset 432 */                                   \
-    /* light views only: the caster's slope depth bias per unit tan (Common/ShadowCasterBias.glslh) */            \
-    FIELD( float, ShadowSlopeBias, ShadowSlopeBias, { 0.0f } ) /* offset 436 */                                   \
-    /* light views only: where the slope term stops */                                                            \
-    FIELD( float, ShadowSlopeClamp, ShadowSlopeClamp, { 0.0f } ) /* offset 440 */                                 \
-    /* Parallax occlusion (Mesh/Surface/SurfaceParallax.glslh): the machine's step counts (Scalability group */   \
-    /* Shading) and the main directional light's direction TOWARD the sun (zero when the scene has none) */       \
-    /* for the relief's self-shadow. Every view carries the steps (a light view marches the relief too). */       \
-    FIELD( float, ParallaxMinSteps, ParallaxMinSteps, { 0.0f } )       /* offset 444 (ViewFrame::Parallax) */     \
-    FIELD( glm::vec3, SunDirection, SunDirection, { 0.0f } )           /* offset 448 */                           \
-    FIELD( float, ParallaxMaxSteps, ParallaxMaxSteps, { 0.0f } )       /* offset 460 */                           \
-    FIELD( float, ParallaxShadowSteps, ParallaxShadowSteps, { 0.0f } ) /* offset 464 */                           \
-    /* every HDR scene-colour write is multiplied by PreExposure (UE View.PreExposure); a history stored last */  \
-    /* frame is rescaled by PreExposure / PrevPreExposure */                                                      \
-    FIELD( float, PreExposure, PreExposure, { 1.0f } )         /* offset 468, ViewFrame::PreExposure */           \
-    FIELD( float, PrevPreExposure, PrevPreExposure, { 1.0f } ) /* offset 472, ViewFrame::PrevPreExposure */       \
-    /* UE View.StateFrameIndexMod8: the view's frame count mod 8, the temporal step of a dithered opacity mask */ \
-    FIELD( float, FrameIndexMod8, FrameIndexMod8, { 0.0f } ) /* offset 476 */                                     \
-    /* light views only: the shadow wind rule's measure (ViewFrame::CasterWindOrigin) */                          \
-    FIELD( glm::vec4, CasterWindOrigin, CasterWindOrigin, { 0.0f } ) /* offset 480 */                             \
-    /* scene views only: the view's grass field lens (ViewFrame::GrassLens, x DistanceScale, y */                 \
-    /* PixelsPerUnit) the landscape's far grass cover is laid through, by the raster and a ray hit alike */       \
-    FIELD( glm::vec4, GrassLens, GrassLens, { 0.0f } ) /* offset 496 */                                           \
-    /* light views only: the shadow wind rule's caster ring (ViewFrame::CasterWindRing, x the inner distance; */  \
-    /* y, z, w unused) */                                                                                         \
-    FIELD( glm::vec4, CasterWindRing, CasterWindRing, { 0.0f } ) /* offset 512 */                                 \
-    /* UE SvPositionToScreenPosition: a fragment's gl_FragCoord.xy to its JITTERED NDC through the view's */      \
-    /* raster viewport (ViewFrame::RasterRect), ndc = xy * PixelToNdc.xy + PixelToNdc.zw; the G-buffer cell's */  \
-    /* clip position (Mesh/Surface/Pass_GBuffer.glslh DesertGBufferClipFromPixel). 0 for a view with no rect */   \
-    FIELD( glm::vec4, PixelToNdc, PixelToNdc, { 0.0f } ) /* offset 528 (MakePixelToNdc) */                        \
-    /* scene views: the dithered LOD transition (ViewFrame::TemporalLOD; Mesh/Surface/LODTransition.glslh): */    \
-    /* x how far the fade has come (0..1), y 1 while the view fades its level changes; a cascade's light */       \
-    /* view carries its scene view's (WriteLightCamera): its casters clip the view's dither */                    \
-    FIELD( glm::vec4, LodTransition, LodTransition, { 0.0f } ) /* offset 544 */                                   \
-    /* every view: the gust fronts the foliage sway is scaled by (ViewFrame::WindGust, Common/WindGust.glslh: */  \
-    /* xy the fronts' offset, gust cells; z 1 / GustSize; w Gustiness, 0 = none), now and one step before */      \
-    FIELD( glm::vec4, WindGust, WindGust, { 0.0f } )         /* offset 560 */                                     \
-    FIELD( glm::vec4, PrevWindGust, PrevWindGust, { 0.0f } ) /* offset 576 */                                     \
-    /* every view: the local wind sources nearest the main camera (ViewFrame::LocalWind, */                       \
-    /* Graphic::SelectLocalWind, Common/LocalWind.glslh: [i] = position, 1 / Radius; the speeds four to a */      \
-    /* vec4, in reference-speed units), now and one step before */                                                \
-    FIELD( CameraLocalWindSources, LocalWind, LocalWind[8], {} )                  /* offset 592 */                \
-    FIELD( CameraLocalWindSpeeds, LocalWindSpeed, LocalWindSpeed[2], {} )         /* offset 720 */                \
-    FIELD( CameraLocalWindSources, PrevLocalWind, PrevLocalWind[8], {} )          /* offset 752 */                \
-    FIELD( CameraLocalWindSpeeds, PrevLocalWindSpeed, PrevLocalWindSpeed[2], {} ) /* offset 880 */                \
-    /* block size 912 */
-
+// THE CAMERA BLOCK'S WRITER AND BINDING PARAMETER. Its layout, and the generated Common/CameraUB.glslh, are
+// CameraLayout.hpp's.
 namespace Desert::Graphic::ShaderProtocols
 {
-    // The local wind arrays' C++ types (a FIELD's type is one macro argument: no comma). Their GLSL names spell
-    // the same lengths: LocalWind[8], LocalWindSpeed[2].
-    using CameraLocalWindSources = decltype( LocalWindSources::Source );
-    using CameraLocalWindSpeeds  = decltype( LocalWindSources::Speed );
-    static_assert( kMaxLocalWindSources == 8, "CameraUB spells LocalWind[8] and LocalWindSpeed[2]" );
+    static_assert( std::is_same_v<CameraLocalWindSources, decltype( LocalWindSources::Source )> &&
+                        std::is_same_v<CameraLocalWindSpeeds, decltype( LocalWindSources::Speed )>,
+                   "CameraUB's LocalWind arrays are the ViewFrame's LocalWindSources arrays" );
+    static_assert( kMaxLocalWindSources == 8, "CameraUB holds LocalWind[8] and LocalWindSpeed[2]" );
 
-    /// Camera and kCameraFields — the block's std140 fields, what Common/CameraUB.glslh is generated from
-    /// (Std140Block.hpp).
-    DESERT_SHADER_STRUCT( Camera, DESERT_CAMERA_UB_FIELDS, static constexpr RDG::UniformBufferParameter Parameter{ "CameraUB" }; inline const static std::string Name = std::string( Parameter.Name ); )
-    static_assert( Std140LayoutMatches( kCameraFields, sizeof( Camera ) ),
-                   "ShaderProtocols::Camera is not laid out as std140 places the generated CameraUB block: "
-                   "reorder or pad DESERT_CAMERA_UB_FIELDS" );
-    static_assert( sizeof( Camera ) == 912 );
+    /// The camera block as a binding parameter (RDGShaderParameters.hpp), named by the generated block.
+    inline constexpr RDG::UniformBufferParameter kCameraUBParameter{ kCameraUBBlock.BlockName };
 
     /// PURE. CameraUB::PixelToNdc of a raster viewport @p rect (x, y its origin, z, w its size, target pixels),
     /// drawn as the engine draws every view - negative height, +Y up (VulkanRendererAPI::SetViewportRegion,
@@ -113,21 +30,6 @@ namespace Desert::Graphic::ShaderProtocols
             return glm::vec4( 0.0f );
         return glm::vec4( 2.0f / rect.z, -2.0f / rect.w, -1.0f - 2.0f * rect.x / rect.z,
                           1.0f + 2.0f * rect.y / rect.w );
-    }
-
-    /// The include path the shader includer answers with the generated block (angle include, shader-root relative).
-    inline constexpr std::string_view kCameraUBInclude = "Common/CameraUB.glslh";
-
-    /// The camera block's set-0 slot (GeneratedProtocolIncludes.hpp holds the protocols' slots apart).
-    inline constexpr uint32_t kCameraUBBinding = 0u;
-
-    /// The GLSL of the camera block — generated once per process from kCameraFields.
-    [[nodiscard]] inline const std::string& CameraUBGlsl()
-    {
-        static const std::string glsl =
-             GenerateUniformBlockGlsl( "DESERT_CAMERA_UB_GLSLH", "Engine/Graphic/ShaderProtocols/Camera.hpp",
-                                       kCameraUBBinding, Camera::Name, "cameraUB", kCameraFields );
-        return glsl;
     }
 
     // THE one writer of the camera block: every material that declares CameraUB is filled from the frame's

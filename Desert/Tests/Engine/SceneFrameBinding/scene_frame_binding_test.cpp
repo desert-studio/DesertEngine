@@ -196,11 +196,11 @@ namespace
     std::vector<std::string> SceneBindingNames()
     {
         std::vector<std::string> names = {
-             Desert::Graphic::ShaderProtocols::Camera::Name,
+             std::string( Desert::Graphic::ShaderProtocols::kCameraUBParameter.Name ),
              Desert::Graphic::ShaderProtocols::PointLight::Name,
              Desert::Graphic::ShaderProtocols::SpotLight::Name,
              Desert::Graphic::ShaderProtocols::DirectionLight::Name,
-             Desert::Graphic::ShaderProtocols::LightsMetadata::Name,
+             std::string( Desert::Graphic::ShaderProtocols::kLightsMetadataParameter.Name ),
              SceneResources::kShadowBlockName,
              SceneResources::kEnvIrradianceName,
              SceneResources::kEnvSpecularName,

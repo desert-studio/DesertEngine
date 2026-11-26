@@ -1,13 +1,14 @@
 // TAA1 step 3 — THE CAMERA BLOCK IS THE SHADER VIEW OF THE ViewFrame.
 //
 // (1) C++ <-> GLSL twin: ShaderProtocols::Camera has, member for member, the std140 offsets of the CameraUB block
-//     generated for Common/CameraUB.glslh (ShaderProtocols::CameraUBGlsl), and sizeof equals the block size (so a writer
-//     uploading sizeof never runs past the reflected buffer).
+//     Tools/ShaderProtocolGen generated for Common/CameraUB.glslh (Core::FindGeneratedShaderInclude), and sizeof
+//     equals the block size (so a writer uploading sizeof never runs past the reflected buffer).
 //     Mutations: reordering / dropping a member on either side; removing the explicit tail pads.
 // (2) MakeCameraUB is a field-for-field copy of the ViewFrame (jittered vs unjittered not swapped, Prev* from
 //     the previous frame). Mutations: writing ViewProjection into JitteredViewProjection; Prev* from the current.
 // (3) MakeStillViewFrame (a camera that is not a view: shadow light cameras, an editor preview) has no jitter and
 //     no history: Prev* equal the current values, the jittered matrices the unjittered ones.
+#include <Engine/Core/ShaderCompiler/GeneratedShaderIncludes.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 
@@ -122,7 +123,10 @@ namespace
 TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
 {
     // The block the includer serves for Common/CameraUB.glslh — generated from the struct, no file on disk.
-    const Std140Block block = ParseCameraBlock( Desert::Graphic::ShaderProtocols::CameraUBGlsl() );
+    const Desert::Core::GeneratedShaderInclude* generated =
+         Desert::Core::FindGeneratedShaderInclude( "Common/CameraUB.glslh" );
+    ASSERT_NE( generated, nullptr ) << "Common/CameraUB.glslh is not generated";
+    const Std140Block block = ParseCameraBlock( std::string( generated->Text ) );
 
     const std::vector<BlockMember> cpp = {
          { "Projection", offsetof( Camera, Projection ) },

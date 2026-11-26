@@ -234,12 +234,12 @@ namespace Desert::Graphic::SceneResources
         static const std::vector<Entry> table = []
         {
             std::vector<Entry> t{
-                 { ShaderProtocols::Camera::Name, SceneRead::Camera },
+                 { std::string( ShaderProtocols::kCameraUBParameter.Name ), SceneRead::Camera },
                  { kTimeBlockName, SceneRead::Time },
                  { ShaderProtocols::PointLight::Name, SceneRead::Lights },
                  { ShaderProtocols::SpotLight::Name, SceneRead::Lights },
                  { ShaderProtocols::DirectionLight::Name, SceneRead::Lights },
-                 { ShaderProtocols::LightsMetadata::Name, SceneRead::Lights },
+                 { std::string( ShaderProtocols::kLightsMetadataParameter.Name ), SceneRead::Lights },
                  { kShadowBlockName, SceneRead::Shadow },
                  { kEnvIrradianceName, SceneRead::Environment },
                  { kEnvSpecularName, SceneRead::Environment },
