@@ -38,7 +38,7 @@ namespace Desert::Graphic::System
         // A decal shader's push block: DecalPush { uint FirstRow; three pads } (16 bytes); a material's own push
         // values may follow it, up to the 128 bytes every Vulkan device guarantees.
         constexpr std::size_t kDecalPushBytes = 16u;
-        constexpr std::size_t kDecalMaxPushBytes   = 128u;
+        constexpr std::size_t kDecalMaxPushBytes = 128u;
         // Reserved once: a scene's decals grow the lists past this only once, never per frame.
         constexpr std::size_t kInitialDecals   = 256u;
         constexpr std::size_t kDecalInitialPrograms = 16u;

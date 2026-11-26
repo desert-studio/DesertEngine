@@ -15,7 +15,7 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        constexpr const char* kRainStreakShaderName      = "RainStreaks";
+        constexpr const char* kRainStreakShaderName = "RainStreaks";
         constexpr uint32_t    kVerticesPerDrop = 6; // two triangles (RainStreaks.shader corners)
     } // namespace
 
