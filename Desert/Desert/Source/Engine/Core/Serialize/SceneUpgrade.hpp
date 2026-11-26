@@ -83,19 +83,18 @@ namespace Desert::Core
     inline constexpr int kSceneVersionLandscapeSplineEntities = 76;
 
     //  77 - TUBE LIGHTS (NG-AREA-LIGHTS; UE ULocalLightComponent::SourceLength). Every PointLight / SpotLight
-    //  record
-    //       that does not state SourceLength states 0 - a sphere, the meaning every older light had
+    //       record that does not state SourceLength states 0 - a sphere, the meaning every older light had
     //       (MigrateTubeSourceLengthV76ToV77). A prefab override is a delta and is left alone.
     inline constexpr int kSceneVersionTubeSourceLength = 77;
 
     //  78 - BLOOM AND AUTO EXPOSURE AS UE (RENDER-BLOOM-UE). A PostProcessVolume's Settings lose EnableBloom
-    //  (false
-    //       -> BloomIntensity 0, true keeps the intensity) and AutoExposureSpeed (-> AutoExposureSpeedUp =
-    //       AutoExposureSpeedDown); BloomThreshold <= 0 -> -1. A record also states what the v77 defaults gave it
-    //       (bloom off, threshold 2, speed 1.5, auto exposure off) and the 0 / 95 histogram window it was graded
-    //       under; an override is a delta and re-states only its own keys. A Settings that is not an object, or a
-    //       key of the wrong type, is refused (MigrateBloomUEV77ToV78). This step is the PostProcessVolume block's
-    //       upgrade from COMPONENT Version 1 to Version( 2 ) (ECS/PostProcessVolumeComponent.hpp).
+    //       (false -> BloomIntensity 0, true keeps the intensity, or states the v77 0.8 where none is stated) and
+    //       AutoExposureSpeed (-> AutoExposureSpeedUp = AutoExposureSpeedDown); BloomThreshold <= 0 -> -1. A
+    //       record (one without Settings too) also states what the v77 defaults gave it (bloom off, threshold 2,
+    //       speed 1.5, auto exposure off) and the 0 / 95 histogram window it was graded under; an override is a
+    //       delta and re-states only its own keys. A Settings that is not an object, or a key of the wrong type,
+    //       is refused (MigrateBloomUEV77ToV78). This step is the PostProcessVolume block's upgrade from COMPONENT
+    //       Version 1 to Version( 2 ) (ECS/PostProcessVolumeComponent.hpp).
     inline constexpr int kSceneVersionBloomUE = 78;
 
     static_assert( kSceneVersionBloomUE == kSceneVersion,

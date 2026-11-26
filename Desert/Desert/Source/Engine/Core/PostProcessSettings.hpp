@@ -244,10 +244,10 @@ namespace Desert::Core
         // UE AutoExposureLowPercent / HighPercent: the histogram's darkest Low % and brightest (100 - High) % are
         // left out of the average. Clamped to 1..99 with Low <= High at use (Graphic::MakeAutoExposureWindow, UE
         // PostProcessEyeAdaptation.cpp:607-608). v78 stated 0 / 95 on older scenes, the window they were graded under.
-        PROPERTY( DisplayName( "Low Percent" ), Category( "Exposure" ), Range( 0.0f, 100.0f ), Units( "%" ),
+        PROPERTY( DisplayName( "Low Percent" ), Category( "Exposure" ), Range( 1.0f, 99.0f ), Units( "%" ),
                   Tooltip( "Darkest share of the histogram left out of the average (UE Low Percent)." ) )
         float AutoExposureLowPercent = 10.0f;
-        PROPERTY( DisplayName( "High Percent" ), Category( "Exposure" ), Range( 0.0f, 100.0f ), Units( "%" ),
+        PROPERTY( DisplayName( "High Percent" ), Category( "Exposure" ), Range( 1.0f, 99.0f ), Units( "%" ),
                   Tooltip( "The average stops at this share of the histogram: the brightest rest is left out." ) )
         float AutoExposureHighPercent = 90.0f;
         // UE AutoExposureSpeedUp / SpeedDown, stops per second: adaptation runs in log2 luminance, exponential

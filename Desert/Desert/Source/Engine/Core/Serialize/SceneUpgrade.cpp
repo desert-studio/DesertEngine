@@ -368,18 +368,23 @@ namespace Desert::Core
             EditBlock( components, "PostProcessVolume",
                        [&]( rfl::Generic::Object& block )
                        {
-                           const auto stated = block.get( "Settings" );
-                           if ( !stated.has_value() )
-                               return false;
-                           auto fields = stated.value().to_object();
-                           if ( !fields.has_value() )
+                           // A record without Settings had every v77 default: it is restated from an empty object.
+                           const auto           stated = block.get( "Settings" );
+                           rfl::Generic::Object settings;
+                           if ( stated.has_value() )
                            {
-                               report.Refused.push_back(
-                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
-                                                 rfl::json::write( stated.value() ) ) );
-                               return false;
+                               auto fields = stated.value().to_object();
+                               if ( !fields.has_value() )
+                               {
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                     rfl::json::write( stated.value() ) ) );
+                                   return false;
+                               }
+                               settings = std::move( fields.value() );
                            }
-                           rfl::Generic::Object settings = std::move( fields.value() );
+                           else if ( !record )
+                               return false;
                            const auto number = [&]( const char* key, std::optional<double> fallback )
                                 -> std::optional<double>
                            {
@@ -425,8 +430,10 @@ namespace Desert::Core
                                    put( "BloomIntensity", rfl::Generic( 0.0 ) );
                                    ++report.BloomOff;
                                }
-                               else if ( record )
+                               else
                                {
+                                   // An override switching bloom on over a base this step set to 0 states the
+                                   // intensity it meant: its own, or the v77 default.
                                    const auto intensity = number( "BloomIntensity", kV77BloomIntensity );
                                    if ( intensity.has_value() )
                                        put( "BloomIntensity", rfl::Generic( intensity.value() ) );
