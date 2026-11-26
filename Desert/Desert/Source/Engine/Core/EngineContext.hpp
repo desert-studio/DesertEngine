@@ -68,7 +68,7 @@ namespace Desert
          */
         /// A plain read of the value copied when the device was set (UE: GRHI* globals): no weak_ptr lock per
         /// draw, and no reference into a device that teardown may already have destroyed.
-        [[nodiscard]] const Engine::DeviceCapabilities& GetCapabilities() const
+        [[nodiscard]] const Engine::GpuCapabilities& GetCapabilities() const
         {
             DESERT_VERIFY( m_HasCapabilities );
             return m_Capabilities;
@@ -79,7 +79,7 @@ namespace Desert
         /// when a vendor runtime changes what it offers; it calls this right after, on the main thread before the
         /// views begin, so the copy above stays one value with one source. @p source is the device's own
         /// capabilities; a device that is not this context's (a second device, a test host) changes nothing.
-        void RefreshCapabilities( const Engine::DeviceCapabilities& source ) noexcept
+        void RefreshCapabilities( const Engine::GpuCapabilities& source ) noexcept
         {
             const std::shared_ptr<Engine::Device> device = m_Device.lock();
             if ( device == nullptr || &device->GetCapabilities() != &source )
@@ -104,7 +104,7 @@ namespace Desert
         std::weak_ptr<Graphic::RendererContext> m_RendererContext;
         // The device's capabilities: copied when the device is set (Initialize / SetDevice) and again whenever
         // the device rebuilds its catalog (RefreshCapabilities) - never a stale copy of a catalog it replaced.
-        Engine::DeviceCapabilities m_Capabilities;
+        Engine::GpuCapabilities m_Capabilities;
         bool                       m_HasCapabilities = false;
 
         void CaptureCapabilities( const std::shared_ptr<Engine::Device>& device )

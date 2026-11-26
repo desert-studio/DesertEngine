@@ -206,7 +206,7 @@ TEST( TextureCompressionBC, TheCapabilityIsPublishedFromDeviceCaps )
     const std::string caps   = Collapse( StripComments( ReadAll( fs::path( root ) / kCapsPath ) ) );
 
     EXPECT_NE( caps.find( "bool SupportsTextureCompressionBC" ), std::string::npos )
-         << "DeviceCapabilities must carry SupportsTextureCompressionBC; the encoder work downstream "
+         << "GpuCapabilities must carry SupportsTextureCompressionBC; the encoder work downstream "
             "branches on it.";
     EXPECT_NE( device.find( "m_Capabilities.SupportsTextureCompressionBC = m_DeviceCaps.Has( "
                             "Capability::TextureCompressionBC );" ),

@@ -942,7 +942,7 @@ namespace Desert::Graphic::API::D3D12
 
     void D3D12Device::FillCapabilities( const AdapterChoice& choice ) noexcept
     {
-        Engine::DeviceCapabilities& caps = m_Caps;
+        Engine::GpuCapabilities& caps = m_Caps;
         caps.Name                        = NarrowUtf16( choice.Desc.Description );
         caps.VendorId                    = choice.Desc.VendorId;
         caps.DeviceId                    = choice.Desc.DeviceId;

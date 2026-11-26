@@ -32,7 +32,8 @@
 Дано set 3651295826201078030 DirectionalLightData.Intensity 1.0
 Когда frames 64
 Когда run Action "Simulate"
-Когда advance 4
+Когда advance 2
+Когда advance 2
 Дано --subject viewport set Camera.Position 600,1200,0
 Дано --subject viewport set Camera.Direction 0.01,-1,0.01
 Тогда-вид 12_float пена удара растеклась кругом (пятно >= 15 м в поперечнике) и уносится по озеру; бочка Barrel_70 отнесена от места удара

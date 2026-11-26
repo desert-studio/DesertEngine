@@ -975,6 +975,20 @@
                     "SubsurfaceScale": 1.0
                 }
             }
+        },
+        {
+            "id": 4002,
+            "siblingIndex": 4,
+            "Tag": "Camera",
+            "Translation": [0.0, 0.0, 500.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Camera": {
+                "AutoActivateForPlayer": true,
+                "FOV": 45.0,
+                "Near": 10.0,
+                "Far": 100000.0
+            }
         }
     ],
     "Settings": {

@@ -3,6 +3,7 @@
 #include "TextAssetHeader.hpp"
 #include "MeshBinaryHeader.hpp"
 
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Utilities/Crc32c.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>

@@ -145,7 +145,7 @@ namespace Desert::Graphic::API::Vulkan
 
         VkFormat m_DepthFormat = VK_FORMAT_UNDEFINED;
 
-        Engine::DeviceCapabilities m_Capabilities;
+        Engine::GpuCapabilities m_Capabilities;
         bool                       m_SurfaceProbed = false;
         VkSurfaceKHR               m_ProbedSurface = VK_NULL_HANDLE; // the surface the catalog was completed with
         // What the vendor runtimes answered when the catalog was last built (RefreshRuntimeOffers).
@@ -184,7 +184,7 @@ namespace Desert::Graphic::API::Vulkan
         ~VulkanLogicalDevice() override;
 
         // Device interface implementation
-        [[nodiscard]] const Engine::DeviceCapabilities& GetCapabilities() const override;
+        [[nodiscard]] const Engine::GpuCapabilities& GetCapabilities() const override;
         virtual void                                    WaitIdle() const override;
         [[nodiscard]] Engine::DeviceMemoryReport        QueryMemory() const override;
         [[nodiscard]] virtual std::string               GetName() const override;

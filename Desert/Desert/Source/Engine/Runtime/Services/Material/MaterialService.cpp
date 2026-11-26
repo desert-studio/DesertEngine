@@ -671,6 +671,8 @@ namespace Desert::Runtime
     bool MaterialService::RequestIfUnread( const std::shared_ptr<Assets::MaterialAsset>& asset ) const
     {
         const WriteGuard serviceLock( Fence::LockOnly );
+        // Ready means read AND completed: the completion below publishes it (SurfaceMaterialAsset::
+        // ResolveDependencies, under this lock), never the worker's read, so EnsureLoaded asks the same question.
         if ( asset->IsReadyForUse() )
             return true;
         const auto handle = asset->GetMetadata().Handle;
@@ -700,8 +702,12 @@ namespace Desert::Runtime
                      return;
                  }
                  // The shader is resolved by name through the manager, which a worker may not touch.
+                 // That resolve is also what makes it ready (SurfaceMaterialAsset::ResolveDependencies).
                  if ( const auto manager = m_Assets.lock() )
                      loaded->ResolveDependencies( *manager );
+                 else
+                     LOG_ERROR( "[MaterialService] '{}' was read after its asset manager closed; it stays unready",
+                                loaded->GetMetadata().Filepath.string() );
                  ++m_InvalidationVersion;
              },
              [this, handle]
@@ -980,6 +986,30 @@ namespace Desert::Runtime
                                                                   const void*                owner ) const
     {
         return SiblingOf( built, path, pass, view, permutation, owner );
+    }
+
+    MaterialService::ViewVariantAnswer MaterialService::ResolveViewVariant( const Graphic::Material* built,
+                                                                            Graphic::MeshVertexPath  path,
+                                                                            Graphic::MeshPass        pass,
+                                                                            uint32_t                 view ) const
+    {
+        // The steady frame reads (R10): a built copy is answered under the shared lock.
+        {
+            const ReadGuard read;
+            if ( auto* copy = FindSibling( built, path, pass, view, Core::ShaderVariant{}, nullptr ) )
+                return ViewVariantAnswer{ copy, false };
+        }
+        // A miss decides under ONE exclusive hold: the read SiblingOf starts completes on a worker under this same
+        // lock, so "pending" cannot turn into "loaded" between the lookup and the answer.
+        const WriteGuard  serviceLock( Fence::LockOnly );
+        ViewVariantAnswer answer;
+        answer.Material = SiblingOf( built, path, pass, view, Core::ShaderVariant{}, nullptr );
+        if ( answer.Material == nullptr )
+        {
+            const auto it  = m_BuiltToAsset.find( built );
+            answer.Pending = it != m_BuiltToAsset.end() && m_Requests.contains( it->second );
+        }
+        return answer;
     }
 
     void MaterialService::ReleaseViewVariants( const void* owner )

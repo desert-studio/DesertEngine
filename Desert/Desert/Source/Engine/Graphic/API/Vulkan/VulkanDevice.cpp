@@ -193,7 +193,7 @@ namespace Desert::Graphic::API::Vulkan
                       typeName, m_Capabilities.VideoMemory / ( 1024ull * 1024ull ) );
             // WHICH driver answered (core 1.2): on macOS the ICD is the pinned MoltenVK built by
             // scripts/MacOS/BuildMoltenVK.sh, and this line is how a run proves it was not Homebrew's.
-            // The device's cross-API identity (core 1.1) rides the same query: DeviceCapabilities::DeviceUuid.
+            // The device's cross-API identity (core 1.1) rides the same query: GpuCapabilities::DeviceUuid.
             VkPhysicalDeviceIDProperties     ids{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES };
             VkPhysicalDeviceDriverProperties driver{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES, &ids };
             VkPhysicalDeviceProperties2      props2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driver };
@@ -389,7 +389,7 @@ namespace Desert::Graphic::API::Vulkan
         Destroy();
     }
 
-    const Engine::DeviceCapabilities& VulkanLogicalDevice::GetCapabilities() const
+    const Engine::GpuCapabilities& VulkanLogicalDevice::GetCapabilities() const
     {
         return m_PhysicalDevice->GetCapabilities();
     }

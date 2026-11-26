@@ -56,6 +56,7 @@ namespace Desert::Assets
 
         // Never Load()ed, so nothing else would set this — and an asset that is not ready for use is
         // skipped by everything that would draw it.
+        copy->m_Read        = true;
         copy->m_ReadyForUse = true;
         // And never READABLE from a file either: this is the flag eviction asks before it would release
         // the copy and let a reload steal the subject's identity. See Unload().
@@ -137,6 +138,11 @@ namespace Desert::Assets
     void SurfaceMaterialAsset::ResolveDependencies( AssetManager& manager )
     {
         ResolveShader( &manager );
+        // READY IS PUBLISHED HERE, by the one step that finishes the asset: a read on a worker leaves the
+        // template unresolved, and a shell that answered ready between the read and this call built cells from
+        // a null shader handle ("no resolved surface template", WATER-FALLS b_wf8: M_FallMist / M_FallSpray).
+        // MaterialService's completion runs it under the service lock, so its readers see read AND resolved.
+        m_ReadyForUse = m_Read;
     }
 
     Common::BoolResultStr SurfaceMaterialAsset::LoadFromFile()
@@ -155,7 +161,7 @@ namespace Desert::Assets
             // mesh->material link resolved through GetAssetHandleByExternal and missed after a restart.
             m_MaterialUUID = m_Metadata.Handle;
 
-            m_ReadyForUse = true;
+            m_Read = true; // ready once ResolveDependencies finished it
         };
 
         // A BROKEN FILE IS A FAILED LOAD (UE: a package that does not load is an error, and the slot that
@@ -166,6 +172,7 @@ namespace Desert::Assets
         const auto refuse = [this]( std::string reason ) -> Common::BoolResultStr
         {
             m_Data        = MaterialData{};
+            m_Read        = false;
             m_ReadyForUse = false;
             return Common::MakeError<bool>( std::move( reason ) );
         };
@@ -222,7 +229,7 @@ namespace Desert::Assets
         // would replace the authored file with defaults and mint the file a NEW GUID (StampMaterialHeader keeps
         // only a GUID it was loaded with), cutting every scene and mesh that names this material by GUID. A new
         // material (no file yet) is loaded-as-empty and ready, so it still saves and is minted its first GUID.
-        if ( !m_ReadyForUse )
+        if ( !m_Read )
             return Common::MakeFormattedError<std::string>(
                  "'{}' is not loaded (evicted or never read), so it holds no authored values and not the GUID its "
                  "file states; writing it would replace the file with an empty material under a new identity. "
@@ -290,6 +297,7 @@ namespace Desert::Assets
         ResolveShader( nullptr );
         // A broken record's failure (AssetBase::LoadFailure) is NOT cleared here: only a Load() that
         // succeeds clears it, so Save() keeps refusing to write an empty material over the authored file.
+        m_Read        = false;
         m_ReadyForUse = false;
         return BOOLSUCCESS;
     }

@@ -1,6 +1,7 @@
 #include "IconService.hpp"
 
 #include <Engine/Core/Formats/SdfAtlasEncoding.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
 #include <TextCore/Vector/IconBake.hpp>
@@ -223,6 +224,10 @@ namespace Desert::Runtime
                                                      .Usage      = Core::Formats::Image2DUsage::Image2D,
                                                      .Properties = Core::Formats::Sample };
 
+        // A PROCESS-WIDE SERVICE'S ATLAS: it is built when a view first asks for it, inside that view's
+        // attribution scope, and outlives the view; the category scope clears the view's instance, so the
+        // view's close does not report it as its own leak (as FontService's atlas was, WORLD-LIFETIMES).
+        const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::UserInterface );
         auto atlas = Graphic::Image2D::Create( spec );
         if ( !atlas )
         {

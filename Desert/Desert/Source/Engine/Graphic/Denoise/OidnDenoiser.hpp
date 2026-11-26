@@ -30,7 +30,7 @@ namespace Desert::Graphic::Denoise
     // pins it - and nothing links it, so an executable without it starts and PathTracing.Denoiser OIDN reports
     // the library missing by name.
     //
-    // THE DEVICE: OIDN's physical device whose UUID is the Vulkan device's (DeviceCapabilities::DeviceUuid; a
+    // THE DEVICE: OIDN's physical device whose UUID is the Vulkan device's (GpuCapabilities::DeviceUuid; a
     // CUDA, HIP, SYCL or Metal module of OIDN offers it), so the filter runs on the GPU that rendered the image,
     // on that GPU's memory. When no OIDN GPU module offers that GPU (no module for the vendor, an unsupported
     // architecture, a driver too old), or the device imports neither the catalog's memory handle type nor its

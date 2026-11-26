@@ -135,6 +135,8 @@ set(DESERT_SOURCES
     "Platform/DebuggerPresence.hpp"
     "Platform/MacOS/MacOSCamera.hpp"
     "Platform/MacOS/MacOSCamera.mm"
+    "Platform/ThreadCpuClock.cpp"
+    "Platform/ThreadCpuClock.hpp"
     "Project/EngineRegistry.hpp"
     "Project/ProjectFormat.hpp"
     "Settings/CapabilityCatalog.cpp"

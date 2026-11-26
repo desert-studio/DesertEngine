@@ -39,7 +39,12 @@ endif()
 
 target_include_directories(Common PRIVATE "Source/" "Source/Common")
 desert_external_includes(Common ${DESERT_COMMON_INCLUDE_DIRS})
-target_link_libraries(Common PRIVATE ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
+target_link_libraries(Common PRIVATE ${DESERT_OPTICK})
+# Common's PUBLIC headers (Json/Json.hpp, Json/ReadWrite.hpp, Json/Detail/RflBridge.hpp) instantiate reflect-cpp
+# templates that call its compiled half (rfl::Generic, rfl::json::Writer, yyjson): every target that links Common
+# links the static ReflectCpp itself. It holds no process-wide state, so each module DLL carries its own copy of
+# what it calls; exporting reflect-cpp from Common.dll would need dllimport on a third-party header.
+target_link_libraries(Common PUBLIC ${DESERT_COMMONSPECIFIC_LIBRARIES})
 # Logger.hpp is in CommonPCH and calls spdlog inline: every target that links Common links the one spdlog.
 target_link_libraries(Common PUBLIC spdlog)
 desert_config_platform_defines(Common)

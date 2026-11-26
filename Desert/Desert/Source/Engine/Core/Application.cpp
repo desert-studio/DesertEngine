@@ -128,7 +128,7 @@ namespace Desert::Engine
         m_RendererContext->Init();
 
         // 6. Setup SwapChain
-        auto swapChainResult = m_Window->SetupSwapChain();
+        auto swapChainResult = m_Window->SetupSwapChain( m_Device );
         DESERT_VERIFY( swapChainResult.IsSuccess(), "Failed to setup SwapChain" );
 
         // 7. Initialize Global Renderer
@@ -410,7 +410,7 @@ namespace Desert::Engine
                     RenderTask::Get().Join();
                     deliverPresented();
                 }
-                const auto prepared = m_Window->PrepareNextFrame();
+                const auto prepared = m_Window->PrepareNextFrame( *m_RendererContext );
                 if ( !prepared.IsSuccess() )
                 {
                     if ( EndRunOnDeviceLoss( "preparing the next frame" ) )
@@ -692,7 +692,8 @@ namespace Desert::Engine
         DESERT_PROFILE_SCOPE( "PresentInterimFrame" );
         if ( const auto presented = window.PresentFinalImage(); !presented.IsSuccess() )
             return Common::MakeError( std::format( "presenting the interim frame: {}", presented.GetError() ) );
-        if ( const auto prepared = window.PrepareNextFrame(); !prepared.IsSuccess() )
+        if ( const auto prepared = window.PrepareNextFrame( *EngineContext::GetInstance().GetRendererContext() );
+             !prepared.IsSuccess() )
             return Common::MakeError(
                  std::format( "the frame boundary after the interim frame: {}", prepared.GetError() ) );
         if ( const auto begun = Graphic::Renderer::GetInstance().BeginFrame(); !begun.IsSuccess() )
