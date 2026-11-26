@@ -94,9 +94,13 @@ namespace Desert::Graphic::ShaderProtocols
     consteval ShaderField MakeShaderField( std::string_view name, std::size_t offset )
     {
         using G        = GlslTypeOf<T>;
-        uint32_t count = 0;
-        if constexpr ( requires { G::Count; } )
-            count = G::Count;
+        constexpr uint32_t count = []() consteval -> uint32_t
+        {
+            if constexpr ( requires { G::Count; } )
+                return G::Count;
+            else
+                return 0u;
+        }();
         // The C++ element is the size its GLSL type is (a struct: its sizeof), so the C++ array stride is the
         // element size and ShaderLayoutMatches compares it with the GLSL stride.
         static_assert( sizeof( T ) == static_cast<std::size_t>( G::Size ) * ( count == 0 ? 1u : count ),
