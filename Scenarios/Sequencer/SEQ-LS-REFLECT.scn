@@ -20,6 +20,11 @@
 Когда set 7710000000000000004 LevelSequenceComponent.Loop Once
 Когда set 7710000000000000004 LevelSequenceComponent.AutoPlay true
 Когда select 7710000000000000004
+Когда 3 frames render
+# Fix 1: the Level Sequence component was added last, so it is the bottom section of Details, below the StaticMesh
+# component. No DesertCtl verb selects a component row (UE's component-tree click), so Details is scrolled to its
+# end with the wheel; the scroll clamps at the bottom, so the excess notches are harmless.
+Когда input scroll Details 150,400 -30
 Когда 10 frames render
 Тогда ls_details Details of SeqActor shows the Level Sequence component with Sequence = SEQ_Proof, Loop = Once, Auto Play checked, Play Rate 1
 # [ls_play_cut] Play: AutoPlay starts the sequence; at ~0.5 s the Camera Cut track's first section (SeqCamA) owns the view.
