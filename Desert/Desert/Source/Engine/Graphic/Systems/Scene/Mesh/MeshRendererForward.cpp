@@ -3792,6 +3792,9 @@ namespace Desert::Graphic::System
         {
             if ( data.Mesh == nullptr )
                 continue;
+            // NET-PAWN-TELEPORT-FRAME measurement (PathProbeFacts::CpuGBuffer): the G-buffer's walk of the record.
+            const auto probe     = cellPass == MeshPass::GBuffer ? m_PathProbe.find( data.Entity ) : m_PathProbe.end();
+            int8_t     probeWalk = 1; // left to the bins until a section is walked (2: CPU group, 0: no material)
             for ( const auto& section : data.Sections )
                 if ( section.Material != nullptr && section.Instance != nullptr &&
                      CpuWalkHidden(
@@ -3802,8 +3805,14 @@ namespace Desert::Graphic::System
                                                  kBinnedMainView ),
                           /*skinned: never a VG primitive*/ nullptr, data.GpuPrimitive, section.HiddenSubmeshes,
                           scratch.WalkWords ) )
-                    if ( DataDrivenMaterial* const mat = passMaterial( section.Material ) )
+                {
+                    DataDrivenMaterial* const mat = passMaterial( section.Material );
+                    if ( mat != nullptr )
                         groupFor( mat ).push_back( { &data, &section } );
+                    probeWalk = mat != nullptr || probeWalk == 2 ? int8_t{ 2 } : int8_t{ 0 };
+                }
+            if ( probe != m_PathProbe.end() )
+                probe->second.CpuGBuffer = std::max( probe->second.CpuGBuffer, probeWalk );
         }
 
         // AL1-12 INSIDE THE GRAPH (RDG-PSO), as DrawStaticMeshes: a material whose skinned cell is still in the

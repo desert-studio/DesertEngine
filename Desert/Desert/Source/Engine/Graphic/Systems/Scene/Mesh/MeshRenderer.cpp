@@ -1938,12 +1938,14 @@ namespace Desert::Graphic::System
         }
 
         // Only the changed primitives reach the cache (UE: a cached command is rebuilt when its primitive is).
+        std::vector<GpuDriven::PrimitiveIndex> probeFed; // NET-PAWN-TELEPORT-FRAME measurement (PathProbeFacts)
         for ( const GpuDriven::PrimitiveIndex primitive : m_BinnedFrameTouched )
         {
             const BinnedFeedSlot&      slot  = m_BinnedFeed[primitive];
             const BinnedPrimitiveFeed& entry = slot.Frame;
             if ( slot.IsHeld && slot.Held == entry )
                 continue;
+            probeFed.push_back( primitive );
             const GpuDriven::PrimitiveDrawDesc desc{ .Mesh              = entry.Mesh,
                                                      .MaterialRows      = entry.MaterialRows,
                                                      .FirstInstance     = entry.FirstInstance,
@@ -1973,6 +1975,7 @@ namespace Desert::Graphic::System
         }
         m_BinnedHeld.swap( m_BinnedFrameTouched );
         m_DrawCommandCache->Rebuild();
+        RecordPathProbe( probeFed ); // NET-PAWN-TELEPORT-FRAME measurement
     }
 
     Common::ResultStr<GpuDriven::DrawCommandBuffers> MeshRenderer::BeginFrameBins( RDG::Builder& graph )
@@ -2907,6 +2910,8 @@ namespace Desert::Graphic::System
             const auto [path, pathFresh] = m_SkinnedPathReported.try_emplace( data.Entity, baked );
             if ( pathFresh || path->second != baked )
             {
+                if ( !pathFresh )
+                    m_PathProbeWatch[data.Entity] = 4; // this frame's before, its own and the two after
                 path->second                   = baked;
                 const Common::Math::AABB local = Geometry::LocalBounds( data.Mesh->GetSubmeshes() );
                 Common::Math::AABB       world{ glm::vec3( FLT_MAX ), glm::vec3( -FLT_MAX ) };
@@ -3010,6 +3015,8 @@ namespace Desert::Graphic::System
         // (WIREFRAME-QUIESCENCE), and under deferred it wiped the counts of the passes declared before it.
         m_StandInDraws = 0;
         SelectSkinnedLods();
+        PrintPathProbe(); // the last frame's facts, complete now
+        m_PathProbeFrame = frame;
         registry.BeginFrame( frame );
         GpuDriven::GpuScene& scene = registry.Scene();
 

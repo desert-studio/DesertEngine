@@ -4054,6 +4054,31 @@ namespace Desert::Graphic::System
         // Per skinned record, the path it was last drawn on (true = the baked vertex animation): a record that
         // changes path logs "[SkinnedPath]" with its drawn translation and world box, the frame it changed.
         std::unordered_map<uint32_t, bool>     m_SkinnedPathReported;
+        // NET-PAWN-TELEPORT-FRAME measurement (wip, removed by the fix it points at): per skinned record, what
+        // each stage held for it in one frame - the draw command cache's feed and publish, the G-buffer's CPU walk
+        // and the sun cascades' CPU walk. A record that changes draw path prints "[PathProbe]" for the frame
+        // before the change, the frame of it and the two after (PrintPathProbe, at the next SyncGpuScene).
+        struct PathProbeFacts
+        {
+            uint64_t Frame         = 0;
+            uint32_t Primitive     = ~0u;
+            bool     Baked         = false;
+            bool     NoBones       = false; // BoneMatrices empty: the cascades' CPU walk skips the record
+            bool     Claimed       = false; // the feed claimed the primitive this frame
+            bool     Fed           = false; // the feed handed it to DrawCommandCache::AddPrimitive this frame
+            bool     BinnedGBuffer = false; // after Rebuild: SubmeshesBinned( GBuffer ) for its first section
+            bool     BinnedCascade = false; // after Rebuild: SubmeshesBinned( ShadowCascade )
+            bool     BinnedVsm     = false; // after Rebuild: SubmeshesBinned( VirtualShadow )
+            // -1 not reached, 0 left out (no pass material / out of every cascade), 1 left to the bins, 2 CPU
+            // draw.
+            int8_t CpuGBuffer = -1;
+            int8_t CpuCascade = -1;
+        };
+        std::unordered_map<uint32_t, PathProbeFacts> m_PathProbe;      // by entity, this frame's
+        std::unordered_map<uint32_t, int>            m_PathProbeWatch; // by entity: frames left to print
+        uint64_t                                     m_PathProbeFrame = 0;
+        void                                         PrintPathProbe();
+        void RecordPathProbe( std::span<const GpuDriven::PrimitiveIndex> fed );
         bool                                   m_SkinnedLodNoCameraReported = false;
         // SelectSkinnedLods' scratch: each leader's record in m_SkinnedQueue by its entity, filled only on a frame
         // that queues a follower (reused, no per-frame allocation once grown).
