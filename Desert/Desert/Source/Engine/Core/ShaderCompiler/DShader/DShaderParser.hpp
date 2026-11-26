@@ -140,6 +140,10 @@ namespace Desert::Core::Preprocess
     // Depth (GRASS-VIS-12): the deferred early-Z pass rasters a G-buffer group's clusters through
     // "<T>/<Path>.Depth.Binned.VirtualGeometry" first, then the G-buffer's cluster cell EQUAL
     // (MeshRenderer::EarlyZBinTwinsOf).
+    // VG-SW-RASTER: the VG visibility resolve cell "<Path>.VisibilityResolve.Binned.VirtualGeometry" of every
+    // kSurfaceVirtualGeometryPaths path (Mesh/Surface/VgVisibilityResolve.glslh): the material pass of the pixels
+    // the software raster won, one draw per main-view GBuffer IndirectGroup, tested EQUAL on the material depth.
+    inline constexpr std::string_view kSurfaceVirtualGeometryResolvePass = "VisibilityResolve";
     inline constexpr std::array<std::string_view, kSurfaceBinnedCellPasses.size()> kSurfaceVirtualGeometryCellPasses =
          kSurfaceBinnedCellPasses;
     // The index the generated `#define Material MaterialRows[...]` reads: the push block's MaterialIndex unless
@@ -151,14 +155,23 @@ namespace Desert::Core::Preprocess
     // THE SURFACE'S WEATHER RESPONSE (WTH-WET; UE: CitySample's wet material functions). Every Opaque / Masked
     // template with a material row gets two ENGINE-OWNED row parameters appended to its Properties — a weight
     // RespondsToWeather (1 = fully) and Porosity — so a material and its instances state them like any other
-    // parameter, and its Forward and GBuffer cells get kSurfaceWeatherDefine plus the world's table, whose
-    // kSurfaceWetnessParameter value the pass headers apply through Mesh/Surface/SurfaceWeather.glslh after
+    // parameter, and its Forward and GBuffer cells get kSurfaceWeatherDefine plus the world's table, whose rain
+    // values (Wetness, PuddleLevel, RainIntensity..., keyed in Common/WeatherRain.glslh and pinned in
+    // Graphic/WorldParameterTable.hpp) the pass headers apply through Mesh/Surface/SurfaceWeather.glslh after
     // EvaluateSurface. A template that declares either name itself is refused: the engine owns them.
     inline constexpr std::string_view kSurfaceWeatherDefine          = "DESERT_SURFACE_WEATHER";
-    inline constexpr std::string_view kSurfaceWetnessKeyDefine       = "DESERT_WORLD_PARAMETER_WETNESS";
-    inline constexpr std::string_view kSurfaceWetnessParameter       = "Wetness";
     inline constexpr std::string_view kSurfaceRespondsToWeatherParam = "RespondsToWeather";
     inline constexpr std::string_view kSurfacePorosityParam          = "Porosity";
+    // THE SURFACE'S LANDSCAPE BLEND (RVT-MESH-BLEND; UE: Runtime Virtual Texture Sample of the landscape's BaseColor /
+    // Normal / WorldHeight RVT + a height lerp in the mesh's material). A lit Opaque / Masked template that states
+    // `LandscapeBlend` in its Surface block gets two ENGINE-OWNED row parameters appended after the weather's -
+    // LandscapeBlendHeight (cm above the ground; 0 = off) and LandscapeBlendSharpness - and its Forward and GBuffer
+    // cells get kSurfaceLandscapeBlendDefine: the pass headers then blend the surface into the landscape under it
+    // through Mesh/Surface/SurfaceLandscapeBlend.glslh after the weather. Opt-in per template, as UE's RVT sample
+    // node: only these cells declare the RVT (a scene-view input, Common/LandscapeVirtualTexture.glslh).
+    inline constexpr std::string_view kSurfaceLandscapeBlendDefine         = "DESERT_SURFACE_LANDSCAPE_BLEND";
+    inline constexpr std::string_view kSurfaceLandscapeBlendHeightParam    = "LandscapeBlendHeight";
+    inline constexpr std::string_view kSurfaceLandscapeBlendSharpnessParam = "LandscapeBlendSharpness";
     // THE PARTICLE SPRITE USAGE (UE: a material's bUsedWithParticleSprites). A template that declares
     // `Usage ParticleSprites` gets ONE more cell, `ParticleSprite.Forward`, after the mesh cells: the sprite
     // vertex path (Vertex_ParticleSprite.glslh, the particle's colour / relative time / random into
@@ -380,6 +393,7 @@ namespace Desert::Core::Preprocess
         // the G-buffer, which has no responsive slot, and writes the velocity TAA reprojects it with.
         bool ResponsiveAA = false;
         bool Impostor     = false; // `VertexFactory Impostor`: kSurfaceImpostorDefine in every cell
+        bool LandscapeBlend = false; // `LandscapeBlend`: kSurfaceLandscapeBlendDefine in its Forward / GBuffer cells
         Common::UUID             ShadingModel{ ShadingModels::kDefaultLitGuid };
         std::vector<std::string> Cells; // `<Path>.<Pass>`, in kSurfaceVertexPaths × kSurfaceCellPasses order
         // `RayTracing.Hit` when the template has its hit cell (also in Cells); otherwise empty, and RayHitRefusal

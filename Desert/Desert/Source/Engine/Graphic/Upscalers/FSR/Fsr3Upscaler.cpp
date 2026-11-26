@@ -97,6 +97,9 @@ namespace Desert::Graphic
 
             ~Fsr3History() override
             {
+                // The ledger row is the view's and leaves with its history, as a retired wrapper's does
+                // (RendererContext::ReleaseRetiredAtViewClose): only the device objects wait for the frames.
+                m_State->Memory = ResourceOwnership{};
                 // A frame in flight may still execute this context's dispatch: retire it with the frame ring.
                 const auto ctx = EngineContext::GetInstance().GetRendererContext();
                 auto*      allocator =

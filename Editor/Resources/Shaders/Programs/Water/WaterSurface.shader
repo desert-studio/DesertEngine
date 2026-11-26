@@ -10,6 +10,8 @@ Shader "WaterSurface"
     Domain Surface
     Usage WaterMesh
     TwoSided
+    // A new water material's template (Content Browser "New Water Material", Common::Content::kWaterMaterialRole).
+    Role WaterMaterial
 
     Properties Binding(2)
     {
@@ -28,6 +30,7 @@ Shader "WaterSurface"
         Float       RippleAngleB ("Ripple Direction B (deg)", Range(-180,180), Category("Ripples")) = -70
         Float       RippleSpeed ("Ripple Speed (cm/s)", Range(0,500), Category("Ripples")) = 20
         Float       RippleStrength ("Ripple Strength", Range(0,4), Category("Ripples")) = 1
+        Float       RippleSlopeRms ("Ripple Maps' Slope RMS", Range(0,1), Category("Ripples")) = 0.1
         Float       WindRippleMaxGain ("Wind Ripple Max Gain", Range(1,4), Category("Ripples")) = 2
         Texture2D   FoamTexture ("Foam Colour", Category("Foam"), Intent(Colour)) = "white"
         Texture2D   FoamStructure ("Foam Structure", Category("Foam"), Intent(Mask)) = "white"
@@ -45,30 +48,84 @@ Shader "WaterSurface"
 
     Surface
     {
-        // One ripple layer: a tangent-space normal map scrolled across the water at its own size and heading. UV v
-        // runs with -Z, as the water mesh's tangent frame (Vertex_WaterMesh.glslh).
-        vec3 WaterRipple( BindlessTexture map, vec2 worldXZ, float tileCm, float angleDeg, float speed, float seconds )
+        // One ripple octave's slope: a normal map turned by `turnDeg` (so no map's own grain lines up with another's),
+        // scrolled at its size's deep-water pace. The octave fades as the pixel's footprint nears its smallest waves;
+        // the slope variance it stops drawing is returned in `lost`, for the roughness. UV v runs with -Z, as the
+        // water mesh's tangent frame (Vertex_WaterMesh.glslh).
+        vec2 WaterRippleOctave( BindlessTexture map, vec2 worldXZ, float tileCm, float turnDeg, float weight,
+                                float footprintCm, float seconds, inout float lost )
         {
-            const float r   = radians( angleDeg );
-            const vec2  dir = vec2( cos( r ), sin( r ) );
-            const vec2  p   = ( worldXZ + dir * speed * seconds ) / max( tileCm, 1.0 );
-            return SurfaceSampleTangentNormal( map, vec2( p.x, -p.y ) );
+            const float tile = max( tileCm, 1.0 );
+            const float r    = radians( turnDeg );
+            const mat2  turn = mat2( cos( r ), sin( r ), -sin( r ), cos( r ) );
+            // Waves in a map are about 1/16 of its tile; two pixels a wave is the limit of what can be drawn.
+            const float drawn  = 1.0 - smoothstep( 0.25, 1.0, footprintCm * 16.0 * 0.5 / tile );
+            const float sigma  = Material.RippleSlopeRms * weight;
+            lost += sigma * sigma * ( 1.0 - drawn * drawn );
+            const float pace = Material.RippleSpeed * sqrt( tile / max( Material.RippleTileSizeA, 1.0 ) );
+            const vec2  uv   = turn * vec2( worldXZ.x, -worldXZ.y ) / tile + vec2( pace * seconds / tile, 0.0 );
+            const vec3  n    = SurfaceSampleTangentNormal( map, uv );
+            return transpose( turn ) * ( n.xy / max( n.z, 0.1 ) ) * ( weight * drawn );
+        }
+
+        // Four octaves from tens of centimetres to over ten metres, headings spread about the two directions (UE's water
+        // material's detail normals). xyz = the tangent normal, w = the per-axis slope variance left to the roughness.
+        vec4 WaterRipples( vec2 worldXZ, float footprintCm, float seconds )
+        {
+            const float strength = Material.RippleStrength;
+            float lost  = 0.0;
+            vec2  slope = vec2( 0.0 );
+            slope += WaterRippleOctave( Material.RippleNormalA, worldXZ, Material.RippleTileSizeA * 3.1,
+                                        Material.RippleAngleA, 0.55 * strength, footprintCm, seconds, lost );
+            slope += WaterRippleOctave( Material.RippleNormalB, worldXZ, Material.RippleTileSizeA,
+                                        Material.RippleAngleB, 0.5 * strength, footprintCm, seconds, lost );
+            slope += WaterRippleOctave( Material.RippleNormalA, worldXZ, Material.RippleTileSizeB,
+                                        Material.RippleAngleA + 97.0, 0.2 * strength, footprintCm, seconds, lost );
+            slope += WaterRippleOctave( Material.RippleNormalB, worldXZ, Material.RippleTileSizeB * 0.37,
+                                        Material.RippleAngleB + 53.0, 0.1 * strength, footprintCm, seconds, lost );
+            return vec4( normalize( vec3( slope, 1.0 ) ), lost );
         }
 
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
             SurfaceOutput s = DefaultSurfaceOutput();
-            // Two ripple maps crossing (UE's water material's detail normals), whiteout-blended, tilted by strength.
-            const vec3 a = WaterRipple( Material.RippleNormalA, i.WorldPosition.xz, Material.RippleTileSizeA,
-                                        Material.RippleAngleA, Material.RippleSpeed, i.Time );
-            const vec3 b = WaterRipple( Material.RippleNormalB, i.WorldPosition.xz, Material.RippleTileSizeB,
-                                        Material.RippleAngleB, Material.RippleSpeed, i.Time );
-            s.Normal    = normalize( vec3( ( a.xy + b.xy ) * Material.RippleStrength, a.z * b.z ) );
+#ifdef WATER_MAX_WAVES
+            // A river's surface flows along its spline (WaterMeshTiles.glslh WaterFlowPhases: two copies advected
+            // half a period apart, each faded out as it resets); still water reads one copy.
+            vec2  p0, p1;
+            float w1;
+            // On a river's fall the sheet's own coordinate (WaterFlowCoord): the ripples stream down it.
+            WaterFlowPhases( WaterFlowCoord( i.WorldPosition.xz, i.UV0, i.VertexColor ), i.VertexColor, i.Time, p0, p1, w1 );
+            const vec2  ddx       = dFdx( i.WorldPosition.xz );
+            const vec2  ddy       = dFdy( i.WorldPosition.xz );
+            const float footprint = sqrt( max( dot( ddx, ddx ), dot( ddy, ddy ) ) );
+            vec4 ripples = WaterRipples( p0, footprint, i.Time );
+            if ( w1 > 0.0 )
+            {
+                ripples     = mix( ripples, WaterRipples( p1, footprint, i.Time ), w1 );
+                ripples.xyz = normalize( ripples.xyz );
+            }
+#else
+            const vec4 ripples = WaterRipples( i.WorldPosition.xz, 0.0, i.Time );
+#endif
+            s.Normal    = ripples.xyz;
             s.BaseColor = vec3( 0.0 );
             s.Metallic  = 0.0;
-            s.Roughness = Material.Roughness;
+            // The slopes too fine to draw widen the lobe: GGX alpha^2 is twice the per-axis slope variance.
+            const float alpha = Material.Roughness * Material.Roughness;
+            s.Roughness = sqrt( sqrt( alpha * alpha + 2.0 * ripples.w ) );
             s.Specular  = Material.Specular;
             return s;
+        }
+
+        // The foam sheet at a still-water (X, Z), at two scales so it does not repeat: rgb = albedo, a = coverage.
+        vec4 WaterFoamSheet( vec2 stillXZ )
+        {
+            const vec2 foamUv  = vec2( stillXZ.x, -stillXZ.y ) / max( Material.FoamTileSize, 1.0 );
+            const vec2 foamUv2 = mat2( 0.8, -0.6, 0.6, 0.8 ) * foamUv * 0.37 + vec2( 0.31, 0.17 );
+            return vec4( SurfaceSampleMaterial( Material.FoamTexture, foamUv ).rgb * Material.FoamTint.rgb,
+                         0.5 * ( SurfaceSampleMaterial( Material.FoamStructure, foamUv ).r +
+                                 SurfaceSampleMaterial( Material.FoamStructure, foamUv2 ).r ) );
         }
 
         SingleLayerWaterOutput EvaluateSingleLayerWater( SurfaceInput i )
@@ -81,11 +138,18 @@ Shader "WaterSurface"
             w.RefractionOffset       = Material.RefractionStrength;
             // The foam rides the water particle (UV1 = its still-water X, Z; Vertex_WaterMesh.glslh), at two scales
             // so the sheet does not repeat.
-            const vec2 foamUv        = vec2( i.UV1.x, -i.UV1.y ) / max( Material.FoamTileSize, 1.0 );
-            const vec2 foamUv2       = mat2( 0.8, -0.6, 0.6, 0.8 ) * foamUv * 0.37 + vec2( 0.31, 0.17 );
-            w.FoamAlbedo             = SurfaceSampleMaterial( Material.FoamTexture, foamUv ).rgb * Material.FoamTint.rgb;
-            w.FoamCoverage           = 0.5 * ( SurfaceSampleMaterial( Material.FoamStructure, foamUv ).r +
-                                     SurfaceSampleMaterial( Material.FoamStructure, foamUv2 ).r );
+            // On a river the sheet is carried by the flow, two-phase as the normals (EvaluateSurface).
+            vec2  foam0 = i.UV1, foam1 = i.UV1;
+            float foamW1 = 0.0;
+#ifdef WATER_MAX_WAVES
+            // A fall's foam streaks down its sheet (WaterFlowCoord: the sheet's coordinate, stretched along the flow).
+            foam0 = WaterFlowCoord( i.UV1, i.UV0, i.VertexColor );
+            WaterFlowPhases( foam0, i.VertexColor, i.Time, foam0, foam1, foamW1 );
+#endif
+            const vec4 sheet0        = WaterFoamSheet( foam0 );
+            const vec4 sheet         = foamW1 > 0.0 ? mix( sheet0, WaterFoamSheet( foam1 ), foamW1 ) : sheet0;
+            w.FoamAlbedo             = sheet.rgb;
+            w.FoamCoverage           = sheet.a;
             w.FoamJacobianThreshold  = Material.FoamJacobianThreshold;
             w.FoamJacobianSoftness   = Material.FoamJacobianSoftness;
             w.FoamDecaySeconds       = Material.FoamDecaySeconds;

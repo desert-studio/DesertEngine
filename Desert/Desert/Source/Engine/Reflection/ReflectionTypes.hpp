@@ -58,6 +58,10 @@ namespace Desert::Reflection
         bool        IsColor   = false; // PROPERTY(Color)               → color editor
         bool        IsAsset   = false; // PROPERTY(Asset<TextureAsset>) → asset picker
         std::string AssetType;         // reflected asset type name (e.g. "TextureAsset")
+        // PROPERTY(Asset<MaterialAsset>, Role( WaterMaterial )) - the template role (ShaderAssetHeader.hpp
+        // k*Role) an asset slot accepts (UE meta=(AllowedClasses)): the picker lists only the materials whose
+        // template is the one loaded shader declaring that role. Empty = any asset of AssetType.
+        std::string AssetRole;
         bool        Thumbnail = false; // PROPERTY(Thumbnail)
         bool        ReadOnly  = false; // PROPERTY(ReadOnly)
         bool        Hidden    = false; // PROPERTY(Hidden)
@@ -114,6 +118,12 @@ namespace Desert::Reflection
         // render method whose renderer has not landed (Common/Settings/RenderMethods.hpp) — so the refusal is an
         // error where the value is set, never a silent substitute where it is read.
         std::string_view ( *Refuse )( std::int64_t value ) = nullptr;
+
+        // PROPERTY(WasNamed("Old")) — the field's earlier names (Unity FormerlySerializedAs, UE CoreRedirects
+        // without the ini): a record that lacks the field's own key is read from the first of these it has
+        // (ReflectionSerializer). The header tool's Desert/Schema/ComponentSchema.lock refuses a component
+        // field's rename that does not state it.
+        std::vector<std::string> WasNamed;
     };
 
     struct TypeInfo; // fwd
@@ -181,6 +191,16 @@ namespace Desert::Reflection
         void ( *ContainerResize )( void* /*field*/, std::size_t /*count*/ )     = nullptr;
         Value ( *ContainerGet )( const void* /*field*/, std::size_t /*index*/ ) = nullptr;
         bool ( *ContainerSet )( void* /*field*/, std::size_t /*index*/, const Value& /*value*/ ) = nullptr;
+
+        // A std::vector OF A REFLECTED STRUCT (UE TArray<FStruct>, ElementType Struct): the element's own
+        // TypeInfo and the element's address, so a walker that is not the JSON lambda - the reference
+        // serializer, the dependency gatherer of a data asset (UE's asset registry walking every nested
+        // property) - reaches the fields INSIDE each element. ElementStruct is resolved lazily from TypeName's
+        // element spelling (ReflectionRegistry::ResolveStructLinks), as StructType is; the accessors are
+        // codegen'd only for a Struct element (ContainerAccess.hpp) and answer null past the end.
+        const TypeInfo* ElementStruct                                                          = nullptr;
+        const void* ( *ContainerElementAt )( const void* /*field*/, std::size_t /*index*/ )   = nullptr;
+        void* ( *ContainerElementMut )( void* /*field*/, std::size_t /*index*/ )              = nullptr;
 
         const std::string& DisplayName() const
         {

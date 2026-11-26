@@ -36,6 +36,19 @@ Shader "ScreenProbeIntegrate"
     {
         LocalSize(8, 8, 1);
         #define SP_INTEGRATE_GROUP_THREADS 64u // the LocalSize above
+        // THE TEMPORAL FILTER IN THE INTEGRATE (FPS-SP-INTEGRATE; UE ScreenProbeTemporalReprojectionCS reads only the
+        // pixel's own integrated value and its packed history taps): a denoised frame's integrate permutations blend
+        // each pixel with its reprojected history in the thread that integrated it and write the view's new history
+        // set (SPIntegrateWrite), so the three RGBA16F intermediates are neither written nor read again and the
+        // separate per-pixel temporal pass (and its async slot) is gone. SP_INTEGRATE_TEMPORAL on the full
+        // permutation; the simple-diffuse one takes SP_INTEGRATE_SIMPLE_DIFFUSE_TEMPORAL (one define a program).
+        // RESTIR-GI: a denoised frame without the view's history (UE ScreenProbeTemporalReprojectionCS without
+        // VALID_HISTORY) runs the same two permutations plus SP_INTEGRATE_NO_HISTORY: the taps and the previous
+        // set are not declared - nothing stands in for them - and the new set starts at this frame's value.
+#if defined( SP_INTEGRATE_SIMPLE_DIFFUSE_TEMPORAL )
+        #define SP_INTEGRATE_SIMPLE_DIFFUSE
+        #define SP_INTEGRATE_TEMPORAL
+#endif
 
         #include <Common/GIFrame.glslh>
         #include <Common/ScreenProbes.glslh>
@@ -238,15 +251,47 @@ Shader "ScreenProbeIntegrate"
         {
             GIFrame giFrame;
         };
-        Uniform sampler LinearClampSampler; // the world radiance cache, and the full permutation's filtered probes
+#if defined( SP_INTEGRATE_UNCOVERED ) || !defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
+        // The world radiance cache (the uncovered pass) and the full permutation's filtered probes; the simple-diffuse
+        // permutation samples through neither since FPS-SP-COMPOSITE-WAIT, so it declares no linear sampler.
+        Uniform sampler LinearClampSampler;
+#else
+        // The radiance cache's lookups (Common/RadianceCache.glslh) still have to compile here, uncalled: they name
+        // the point sampler this permutation declares and samples through for the G-buffer.
+        #define LinearClampSampler PointClampSampler
+#endif
         Uniform sampler PointClampSampler;
         Uniform(6) texture2D GBufferDepthTexture;
         #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
         Uniform(7) texture2D GBufferBTexture;
         #define GBufferBTexture sampler2D(GBufferBTexture, PointClampSampler)
+#if defined( SP_INTEGRATE_TEMPORAL )
+        // The uncovered pass's three outputs (read at the pixels its mask lists: they take the temporal filter
+        // here), the history classification's packed taps (ScreenProbeDisocclusion, this frame), the view's
+        // previous set and its new one (SceneViewState ScreenProbeGatherHistory), which the composite reads.
+        Uniform(10) texture2D DiffuseIndirect;
+        #define DiffuseIndirect sampler2D(DiffuseIndirect, PointClampSampler)
+        Uniform(11) texture2D RoughSpecularIndirect; // .a = LightIsMoving (0 at an uncovered pixel)
+        #define RoughSpecularIndirect sampler2D(RoughSpecularIndirect, PointClampSampler)
+        Uniform(19) texture2D BackfaceDiffuseIndirect;
+        #define BackfaceDiffuseIndirect sampler2D(BackfaceDiffuseIndirect, PointClampSampler)
+#ifndef SP_INTEGRATE_NO_HISTORY
+        Uniform(28) utexture2D ScreenProbeHistoryTaps;
+        #define ScreenProbeHistoryTaps usampler2D(ScreenProbeHistoryTaps, PointClampSampler)
+        Uniform(29) texture2D DiffuseIndirectHistory;
+        Uniform(30) texture2D RoughSpecularIndirectHistory; // .a = the fast-update amount
+        Uniform(31) texture2D BackfaceDiffuseIndirectHistory;
+        Uniform(32) texture2D HistoryGuide;
+#endif
+        layout(binding = 33, rgba16f) restrict writeonly uniform image2D NewHistoryDiffuseIndirect;
+        layout(binding = 34, rgba16f) restrict writeonly uniform image2D NewHistoryRoughSpecularIndirect;
+        layout(binding = 35, rgba16f) restrict writeonly uniform image2D NewHistoryBackfaceDiffuseIndirect;
+        layout(binding = 36, rgba16f) restrict writeonly uniform image2D NewHistoryGuide;
+#else
         layout(binding = 10, rgba16f) restrict writeonly uniform image2D ScreenProbeDiffuseOutTexture;
         layout(binding = 11, rgba16f) restrict writeonly uniform image2D ScreenProbeSpecularOutTexture;
         layout(binding = 19, rgba16f) restrict writeonly uniform image2D ScreenProbeBackfaceOutTexture;
+#endif
         Uniform(20) texture2D ShortRangeAoTexture; // half-res, oct world bent normal + AO (ScreenProbes.glslh)
         #define ShortRangeAoTexture sampler2D(ShortRangeAoTexture, PointClampSampler)
         ReadBuffer(12) RadianceCacheParamsUB
@@ -272,6 +317,14 @@ Shader "ScreenProbeIntegrate"
         Uniform(27) utexture2D GBufferShadingWord;
         #define GBufferShadingWord usampler2D(GBufferShadingWord, PointClampSampler)
         #include <Generated/ShadingModels.glslh>
+#if defined( SP_INTEGRATE_TEMPORAL )
+#if defined( SP_INTEGRATE_NO_HISTORY )
+        #define SCREEN_PROBE_FOLIAGE_DECLARED
+#else
+        #define SCREEN_PROBE_HISTORY_DECLARED
+#endif
+        #include <Common/ScreenProbeTemporal.glslh>
+#endif
         ReadBuffer(1) ScreenProbeIndexUB
         {
             uint screenProbeIndex[];
@@ -726,6 +779,7 @@ Shader "ScreenProbeIntegrate"
 #endif
 #endif // !SP_INTEGRATE_UNCOVERED
 
+#if defined( SP_INTEGRATE_UNCOVERED )
         // NO SCREEN PROBE HOLDS THE PIXEL (UE would draw it dark, its weights over max(sum, Epsilon)): it reads the
         // world radiance cache, as the ProbeVolume method does for every pixel (IrradianceFieldGather) - the same
         // cache the probes' own rays end in - and is never black (FOLIAGE-LOOK-2 x1_uncovered: the black leaves).
@@ -774,7 +828,39 @@ Shader "ScreenProbeIntegrate"
             imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( backface, 1.0 ) );
         }
 
-#if defined( SP_INTEGRATE_UNCOVERED )
+        // THE CHEAP FIRST TEST (FPS-SP-INTEGRATE; UE's tile classification ahead of the costly work): a surface
+        // pixel one of whose four UNIFORM corners alone weighs above SP_ADAPTIVE_EPSILON is held - SPInterpolateSlots
+        // keeps that corner's weight (it scans no adaptive probe for it) and the other corners only add non-negative
+        // weights, so the total passes too. The same corner weight as SPInterpolateSlots' (bilinear x
+        // SPProbeWeight of the same uniform probe, read straight from the buffers: no neighbourhood load). True:
+        // the pixel may be uncovered, SPPixelUncovered decides; false: it is held (or not a surface), exactly.
+        bool SPPixelUncoveredCandidate( ivec2 pixel )
+        {
+            if ( any( greaterThanEqual( pixel, ivec2( giFrame.screen.xy ) ) ) )
+                return false;
+            const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
+            if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
+                return false;
+            const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
+            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, pixel, 0 ).r,
+                                                             giFrame.invViewProjection );
+            const vec3  n        = normalize( gb.xyz );
+            const float distance = max( length( p - giFrame.camera.xyz ), 1e-3 );
+            const vec2  c        = vec2( pixel - ivec2( SPJitter() ) ) / float( SP_DOWNSAMPLE );
+            const ivec2 b        = ivec2( floor( c ) );
+            const vec2  f        = c - vec2( b );
+            for ( int i = 0; i < 4; ++i )
+            {
+                const uint id = SPUniformProbeAt( b + ivec2( i & 1, i >> 1 ) );
+                if ( id == SP_INVALID )
+                    continue;
+                const vec2 bilinear = mix( 1.0 - f, f, vec2( i & 1, i >> 1 ) );
+                if ( bilinear.x * bilinear.y * SPProbeWeight( screenProbes[id], p, n, distance ) > SP_ADAPTIVE_EPSILON )
+                    return false;
+            }
+            return true;
+        }
+
         // Whether no probe holds @p pixel, a G-buffer surface (SPIntegratePixel's test: the same position, normal,
         // distance and SPInterpolateSlots, the same total against SP_ADAPTIVE_EPSILON).
         bool SPPixelUncovered( ivec2 pixel )
@@ -797,6 +883,76 @@ Shader "ScreenProbeIntegrate"
             return !( dot( heldW, vec4( 1.0 ) ) >= SP_ADAPTIVE_EPSILON );
         }
 #else
+        // THE INTEGRATE'S WRITE of an on-screen pixel: its diffuse (distance in .a), rough specular (LightIsMoving in
+        // .a) and backface; SPIntegrateWriteSky off the G-buffer's surfaces. Without the temporal filter (a frame
+        // not denoised) the three outputs; with it (SP_INTEGRATE_TEMPORAL) ScreenProbeTemporalReprojectionCS's
+        // blend, unchanged from the former ScreenProbeTemporal pass: this frame's value with the pixel's
+        // reprojected history (the history classification's packed taps) by the frames it holds, capped by the
+        // fast-update amount of the moving share; the new set's four texels.
+#if defined( SP_INTEGRATE_TEMPORAL )
+        void SPIntegrateWrite( ivec2 pixel, vec3 n, vec3 diffuse, float distance, vec3 specular, float lightIsMoving,
+                               vec3 backface )
+        {
+            const bool foliage       = SPPixelIsFoliage( pixel );
+            float      frames        = 0.0;
+            float      fastUpdateOut = 0.0; // UE OutFastUpdateModeAmount: this frame's amount, kept
+#ifndef SP_INTEGRATE_NO_HISTORY
+            // UE (VALID_HISTORY): this frame's amount from the moving share, held at least at the history's.
+            const SPHistoryTaps taps = SPUnpackHistoryTaps( texelFetch( ScreenProbeHistoryTaps, pixel, 0 ).xy );
+            const vec4 historySpecular = SPHistoryAverage( RoughSpecularIndirectHistory, taps );
+            fastUpdateOut              = SPFastUpdateModeAmount( lightIsMoving );
+            const float fastUpdate =
+                 max( fastUpdateOut, min( historySpecular.a, SP_TEMPORAL_MAX_FAST_UPDATE_MODE_AMOUNT ) );
+            if ( SPHistoryAnyValid( taps ) )
+            {
+                frames = min( min( SPHistoryFrames( taps ) + 1.0, SP_TEMPORAL_MAX_FRAMES_ACCUMULATED ),
+                              ( 1.0 - fastUpdate ) * SP_TEMPORAL_MAX_FRAMES_ACCUMULATED );
+                const float alpha = 1.0 / ( 1.0 + frames );
+                diffuse  = mix( SPHistoryAverage( DiffuseIndirectHistory, taps ).rgb, diffuse, alpha );
+                specular = mix( historySpecular.rgb, specular, alpha );
+                backface = mix( SPHistoryAverage( BackfaceDiffuseIndirectHistory, taps ).rgb, backface, alpha );
+            }
+#endif
+            imageStore( NewHistoryDiffuseIndirect, pixel, vec4( diffuse, distance ) );
+            imageStore( NewHistoryRoughSpecularIndirect, pixel, vec4( specular, fastUpdateOut ) );
+            imageStore( NewHistoryBackfaceDiffuseIndirect, pixel, vec4( backface, 1.0 ) );
+            imageStore( NewHistoryGuide, pixel, vec4( n, SPPackGuideW( frames, foliage ) ) );
+        }
+
+        void SPIntegrateWriteSky( ivec2 pixel )
+        {
+            imageStore( NewHistoryDiffuseIndirect, pixel, vec4( 0.0 ) );
+            imageStore( NewHistoryRoughSpecularIndirect, pixel, vec4( 0.0 ) );
+            imageStore( NewHistoryBackfaceDiffuseIndirect, pixel, vec4( 0.0 ) );
+            imageStore( NewHistoryGuide, pixel, vec4( 0.0 ) );
+        }
+
+        // A pixel the uncovered pass's mask lists (a surface, on screen): its three outputs, filtered here.
+        void SPIntegrateUncoveredTemporal( ivec2 pixel )
+        {
+            const vec3 n        = normalize( texelFetch( GBufferBTexture, pixel, 0 ).xyz );
+            const vec4 diffuse  = texelFetch( DiffuseIndirect, pixel, 0 );
+            const vec4 specular = texelFetch( RoughSpecularIndirect, pixel, 0 );
+            SPIntegrateWrite( pixel, n, diffuse.rgb, diffuse.a, specular.rgb, specular.a,
+                              texelFetch( BackfaceDiffuseIndirect, pixel, 0 ).rgb );
+        }
+#else
+        void SPIntegrateWrite( ivec2 pixel, vec3 n, vec3 diffuse, float distance, vec3 specular, float lightIsMoving,
+                               vec3 backface )
+        {
+            imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( diffuse, distance ) );
+            imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( specular, lightIsMoving ) );
+            imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( backface, 1.0 ) );
+        }
+
+        void SPIntegrateWriteSky( ivec2 pixel )
+        {
+            imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( 0.0 ) );
+            imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( 0.0 ) );
+            imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( 0.0 ) );
+        }
+#endif
+
         // The probes that hold the pixel (world position @p p, shading normal @p n, @p distance from the camera)
         // and what they answer at the SH basis @p basis: the weighted sums of their irradiance, moving shares and
         // backface (each over its own total: the diffuse and the moving share over the returned total, the
@@ -858,9 +1014,7 @@ Shader "ScreenProbeIntegrate"
             const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
             if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
             {
-                imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( 0.0 ) );
-                imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( 0.0 ) );
-                imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( 0.0 ) );
+                SPIntegrateWriteSky( pixel );
                 return;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
@@ -967,9 +1121,7 @@ Shader "ScreenProbeIntegrate"
             // is this test; only a total that rounds across SP_ADAPTIVE_EPSILON in the other pipeline lands here):
             // the outputs stay zero, never an unwritten texel the temporal filter would take into its history.
 
-            imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( diffuse, distance ) );
-            imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( specular, lightIsMoving ) );
-            imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( backface, 1.0 ) );
+            SPIntegrateWrite( pixel, n, diffuse, distance, specular, lightIsMoving, backface );
         }
 
 #if defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
@@ -1068,9 +1220,7 @@ Shader "ScreenProbeIntegrate"
             const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
             if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
             {
-                imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( 0.0 ) );
-                imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( 0.0 ) );
-                imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( 0.0 ) );
+                SPIntegrateWriteSky( pixel );
                 return;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
@@ -1122,24 +1272,79 @@ Shader "ScreenProbeIntegrate"
             const vec3 diffuse = irradiance * ( ao / total );
             back /= total;
             // A simple-diffuse tile: every pixel's rough specular IS its irradiance (diffuseLerp 1).
-            imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( diffuse, distance ) );
-            imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( diffuse, back.a ) );
-            imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( back.rgb, 1.0 ) );
+            SPIntegrateWrite( pixel, n, diffuse, distance, diffuse, back.a, back.rgb );
         }
 #endif // SP_INTEGRATE_SIMPLE_DIFFUSE
 #endif // SP_INTEGRATE_UNCOVERED (SPPixelUncovered / SPIntegratePixel)
 
+#if defined( SP_INTEGRATE_UNCOVERED )
         // THE UNCOVERED PIXELS above: the group's pixels no probe holds, by local index (LocalSize 8x8).
         shared uint s_UncoveredCount;
         shared uint s_UncoveredPixels[SP_INTEGRATE_GROUP_THREADS];
         shared uint s_UncoveredMask[2];
+        // THE UNCOVERED PASS, CLASSIFIED IN THE GROUP (FPS-SP-INTEGRATE; UE classifies its integrate tiles before
+        // the costly work): one workgroup per 8x8 tile of the whole extent (a direct dispatch on the graphics
+        // queue), in three steps each a tile-uniform branch:
+        //   1. every pixel's cheap exact test (SPPixelUncoveredCandidate: its four uniform corners, straight from
+        //      the buffers) - nearly every tile ends here, its mask words zero: no probe neighbourhood, no AO
+        //      texels, no radiance cache;
+        //   2. a tile with a candidate loads its probe neighbourhood and runs SPInterpolateSlots (SPPixelUncovered,
+        //      the integrates' own test) for the candidates only;
+        //   3. a tile with an uncovered pixel loads its short-range AO texels and reads the world radiance cache
+        //      for those pixels, one lane each (SPIntegrateUncovered).
+        // Was: every tile loaded its 3x3 neighbourhood (144 probe entries) and its 25 AO texels and ran the full
+        // SPInterpolateSlots on all 64 pixels (0.415 ms, FIELD_Barn NG16). The same mask, the same values.
+        shared uint s_UncoveredCandidates;
 
         void main()
         {
-#if defined( SP_INTEGRATE_UNCOVERED )
-            // One workgroup per 8x8 tile of the whole extent (a direct dispatch on the graphics queue).
-            const ivec2 tileOrigin = ivec2( gl_WorkGroupID.xy ) * 8;
-#elif defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
+            const ivec2 tileOrigin   = ivec2( gl_WorkGroupID.xy ) * 8;
+            const ivec2 pixel        = tileOrigin + ivec2( gl_LocalInvocationID.xy );
+            const bool  shortRangeAO = ( screenProbeParams.atlas.z & SP_FLAG_SHORT_RANGE_AO ) != 0u;
+            if ( gl_LocalInvocationIndex < 2u )
+                s_UncoveredMask[gl_LocalInvocationIndex] = 0u;
+            if ( gl_LocalInvocationIndex == 0u )
+            {
+                s_UncoveredCount      = 0u;
+                s_UncoveredCandidates = 0u;
+            }
+            barrier();
+            const bool candidate = SPPixelUncoveredCandidate( pixel );
+            if ( candidate )
+                atomicAdd( s_UncoveredCandidates, 1u );
+            barrier();
+            if ( s_UncoveredCandidates != 0u )
+            {
+#if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
+                SPNeighbourhoodLoad( tileOrigin );
+                barrier();
+#endif
+                if ( candidate && SPPixelUncovered( pixel ) )
+                {
+                    s_UncoveredPixels[atomicAdd( s_UncoveredCount, 1u )] = gl_LocalInvocationIndex;
+                    atomicOr( s_UncoveredMask[gl_LocalInvocationIndex >> 5u], 1u << ( gl_LocalInvocationIndex & 31u ) );
+                }
+                barrier();
+            }
+            // Both words of every tile, every frame (the integrates skip by them; no reset).
+            if ( gl_LocalInvocationIndex < 2u )
+                screenProbeUncoveredMask[SPUncoveredMaskWord( tileOrigin, gl_LocalInvocationIndex )] =
+                     s_UncoveredMask[gl_LocalInvocationIndex];
+            if ( s_UncoveredCount == 0u )
+                return;
+            SPShortRangeAOLoadTile( tileOrigin, shortRangeAO );
+            // The group's first lanes, one a listed pixel (a pixel's result is its own, whichever lane takes it).
+            if ( gl_LocalInvocationIndex < s_UncoveredCount )
+            {
+                const uint local = s_UncoveredPixels[gl_LocalInvocationIndex];
+                SPIntegrateUncovered( tileOrigin + ivec2( int( local % 8u ), int( local / 8u ) ), tileOrigin,
+                                      shortRangeAO );
+            }
+        }
+#else
+        void main()
+        {
+#if defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
             // One workgroup per tile of this permutation's list (the classification): the simple tiles from the
             // front, the full ones from the back; the 2D grid's groups past the list's count do nothing.
             const uint listIndex = gl_WorkGroupID.y * SP_INTEGRATE_GROUPS_X + gl_WorkGroupID.x;
@@ -1159,38 +1364,15 @@ Shader "ScreenProbeIntegrate"
             // gather in the composite instead. The tile's AO texels load before any pixel's work: the whole group
             // reaches the barriers (the flag and the tile are uniform over it; no lane returns before them).
             const bool shortRangeAO = ( screenProbeParams.atlas.z & SP_FLAG_SHORT_RANGE_AO ) != 0u;
-            if ( gl_LocalInvocationIndex < 2u )
-                s_UncoveredMask[gl_LocalInvocationIndex] = 0u; // published by the barrier in SPShortRangeAOLoadTile
-            if ( gl_LocalInvocationIndex == 0u )
-                s_UncoveredCount = 0u;
 #if defined( SP_INTERPOLATE_NEIGHBOURHOOD )
             // Published by the barrier in SPShortRangeAOLoadTile, which every thread reaches whatever the flag.
             SPNeighbourhoodLoad( tileOrigin );
 #endif
             SPShortRangeAOLoadTile( tileOrigin, shortRangeAO );
-            const uint word = gl_LocalInvocationIndex >> 5u;
-            const uint bit  = 1u << ( gl_LocalInvocationIndex & 31u );
-#if defined( SP_INTEGRATE_UNCOVERED )
-            // The tile's uncovered pixels: listed for the second phase, and recorded in the mask the integrates
-            // skip by.
-            if ( SPPixelUncovered( pixel ) )
-            {
-                s_UncoveredPixels[atomicAdd( s_UncoveredCount, 1u )] = gl_LocalInvocationIndex;
-                atomicOr( s_UncoveredMask[word], bit );
-            }
-            barrier();
-            if ( gl_LocalInvocationIndex < 2u )
-                screenProbeUncoveredMask[SPUncoveredMaskWord( tileOrigin, gl_LocalInvocationIndex )] =
-                     s_UncoveredMask[gl_LocalInvocationIndex];
-            // THE UNCOVERED PIXELS: the group's first lanes, one a listed pixel (a pixel's result is its own,
-            // whichever lane takes it).
-            if ( gl_LocalInvocationIndex < s_UncoveredCount )
-            {
-                const uint local = s_UncoveredPixels[gl_LocalInvocationIndex];
-                SPIntegrateUncovered( tileOrigin + ivec2( int( local % 8u ), int( local / 8u ) ), tileOrigin,
-                                      shortRangeAO );
-            }
-#elif defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
+            const uint word    = gl_LocalInvocationIndex >> 5u;
+            const uint bit     = 1u << ( gl_LocalInvocationIndex & 31u );
+            const bool covered = ( screenProbeUncoveredMask[SPUncoveredMaskWord( tileOrigin, word )] & bit ) == 0u;
+#if defined( SP_INTEGRATE_SIMPLE_DIFFUSE )
             // HALF-RESOLUTION SIMPLE DIFFUSE: the 16 half samples on the first lanes, then every pixel the uncovered
             // pass did not list from them (the barrier is reached by the whole group: the tile is uniform over it).
             if ( gl_LocalInvocationIndex < SP_HALF_SAMPLES )
@@ -1198,14 +1380,20 @@ Shader "ScreenProbeIntegrate"
                                        uvec2( screenProbeUncoveredMask[SPUncoveredMaskWord( tileOrigin, 0u )],
                                               screenProbeUncoveredMask[SPUncoveredMaskWord( tileOrigin, 1u )] ) );
             barrier();
-            if ( ( screenProbeUncoveredMask[SPUncoveredMaskWord( tileOrigin, word )] & bit ) == 0u )
+            if ( covered )
                 SPHalfUpsamplePixel( pixel, tileOrigin, shortRangeAO );
 #else
-            // A pixel the uncovered pass listed is its: this pass writes every other one.
-            if ( ( screenProbeUncoveredMask[SPUncoveredMaskWord( tileOrigin, word )] & bit ) == 0u )
+            // A pixel the uncovered pass listed is its: this pass integrates every other one.
+            if ( covered )
                 SPIntegratePixel( pixel, tileOrigin, shortRangeAO );
 #endif
+#if defined( SP_INTEGRATE_TEMPORAL )
+            // The uncovered pass's pixels take the temporal filter here: this pass writes the whole new history.
+            else
+                SPIntegrateUncoveredTemporal( pixel );
+#endif
         }
+#endif // SP_INTEGRATE_UNCOVERED
 #endif // SP_INTEGRATE_CLASSIFY
     }
 }

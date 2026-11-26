@@ -12,7 +12,7 @@ namespace Desert::Core::Serialize::Generated
 {
     void RegisterComponents_Foliage( [[maybe_unused]] ComponentRegistrar& r )
     {
-        r.Add( ReflectedMemberBlock<::Desert::ECS::ProceduralFoliageComponent, decltype( ::Desert::ECS::ProceduralFoliageComponent::Data )>{ "ProceduralFoliage", "ProceduralFoliageData", &::Desert::ECS::ProceduralFoliageComponent::Data, ReflectedBlockRun::SkyAndAtmosphere } );
+        r.Add( ReflectedMemberBlock<::Desert::ECS::ProceduralFoliageComponent, decltype( ::Desert::ECS::ProceduralFoliageComponent::Data )>{ "ProceduralFoliage", "ProceduralFoliageData", &::Desert::ECS::ProceduralFoliageComponent::Data, ReflectedBlockRun::SkyAndAtmosphere, 1 } );
     }
 } // namespace Desert::Core::Serialize::Generated
 // NOLINTEND

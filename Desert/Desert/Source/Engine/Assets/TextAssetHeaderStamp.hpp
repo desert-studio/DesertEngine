@@ -73,8 +73,9 @@ namespace Desert::Assets
     inline constexpr uint32_t kFoliageTypeSchemaVersion = 11;
     // A .dwaves: the water wave set file layout (UE UWaterWavesAsset), stated in the header from its first
     // version (WATER-W1).
+    // v2 (WATER-UNDERWATER): Generator.WindAngleDeg is gone; the waves run with the scene's wind (ECS::WindAt).
     inline constexpr uint32_t kWaterWavesSchemaTag     = Common::Content::FourCC( "WAVS" );
-    inline constexpr uint32_t kWaterWavesSchemaVersion = 1;
+    inline constexpr uint32_t kWaterWavesSchemaVersion = 2;
     // A .delayerinfo: the landscape layer info file layout, stated in the header from its first version (LS-12b).
     // v2 (GR-1): the layer named a grass type by {Guid, Path}, the header's one Dependency.
     // v3 (LS-16): that field left with the landscape grass generator; the header states no Dependencies.
@@ -167,6 +168,11 @@ namespace Desert::Assets
     // stated nothing - that generation is 0, and a file of it is refused by name.
     inline constexpr uint32_t kShaderSchemaTag     = Common::Content::FourCC( "SHDR" );
     inline constexpr uint32_t kShaderSchemaVersion = 1;
+    // A .dasset: a game's typed data asset - `Type` (the payload's reflected struct name) and `Data` (its fields),
+    // stated from its first version (ASSET-TYPES-OPEN; Serialization/DataAsset.hpp). The payload struct's own
+    // field changes are NOT counted here: a field the file lacks keeps the struct's default.
+    inline constexpr uint32_t kDataAssetSchemaTag     = Common::Content::FourCC( "DATA" );
+    inline constexpr uint32_t kDataAssetSchemaVersion = 1;
 
     // The version the header states for `tag`; 0 when there is no header or it does not state that tag -
     // the same "absent is version 0, never current" the gates have always applied.

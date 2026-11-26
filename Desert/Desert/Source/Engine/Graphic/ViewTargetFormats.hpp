@@ -85,12 +85,18 @@ namespace Desert::Graphic::ViewTargetFormats
     // survive it and the game UI drawn on the final image (ExtensionPoint::UI) has one display format.
     inline constexpr ImageFormat kSMAABlend      = kTonemap;
     inline constexpr ImageFormat kBloom          = ImageFormat::RGBA16F;
+    // Convolution bloom (PostProcess.BloomMethod Convolution, BloomRenderer): the frame's and the kernel's 2D
+    // spectra - FFT butterflies accumulate in full float (UE's FFT targets are 32F too); BloomFFT.glslh's rgba32f.
+    inline constexpr ImageFormat kBloomSpectrum  = ImageFormat::RGBA32F;
     inline constexpr ImageFormat kLightShaft     = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kLensFlare      = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kHeightFog      = ImageFormat::RGBA16F;
 
     // VolumetricCloudRenderer::EnsureTraceTargets.
     inline constexpr ImageFormat kCloudTrace = ImageFormat::RGBA16F;
+    // The cloud reconstruction's (CloudTemporalResolve.shader) full-resolution cloud-front device depth (reversed-Z), the composite's fragment depth: one
+    // 32-bit float, the depth attachment's own precision.
+    inline constexpr ImageFormat kCloudFrontDepth = ImageFormat::R32F;
 
     // The path tracer (System::PathTracer). The accumulation sums up to PathTracing.MaxSamples paths per pixel
     // (rgb) and counts them (a): a half float stops adding 1 at 2048, so it is 32-bit. The sky's equal-area
@@ -131,6 +137,13 @@ namespace Desert::Graphic::ViewTargetFormats
     // The screen probe gather's temporal guide, per pixel (ScreenProbeGatherHistory): the world normal and the
     // frames the history accumulated.
     inline constexpr ImageFormat kGIFinalGatherGuide = ImageFormat::RGBA16F;
+    // The ReSTIR final gather's reservoirs (GlobalIllumination::ReSTIRGather,
+    // ScreenProbeGatherHistory::Reservoir): the sample's hit point and the reservoir's state (W, M, the visible
+    // point's distance, its packed normal) in 32-bit floats - a world position in cm and a packed normal's bits do
+    // not survive half floats; the sample's radiance in half floats (the final gather's own precision).
+    inline constexpr ImageFormat kReSTIRReservoirHit      = ImageFormat::RGBA32F;
+    inline constexpr ImageFormat kReSTIRReservoirRadiance = ImageFormat::RGBA16F;
+    inline constexpr ImageFormat kReSTIRReservoirState    = ImageFormat::RGBA32F;
 
     // EVERY SHADOW MAP IS ONE DEPTH-ONLY D32F IMAGE (UE: the shadow depth pass writes depth and nothing else,
     // ShadowDepthPixelShader.usf). The cascades (two per cascade: the sampled map and its cache of static casters,

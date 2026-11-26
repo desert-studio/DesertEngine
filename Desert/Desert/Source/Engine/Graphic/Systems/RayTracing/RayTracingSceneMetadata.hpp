@@ -195,7 +195,7 @@ namespace Desert::Graphic::RayTracing
                      segments.size() );
             if ( const void* owner = filledBy[primitive.FirstSegmentRecord]; owner != nullptr )
             {
-                if ( owner != primitive.Geometry )
+                if ( owner != primitive.LayoutOwner() )
                     return Common::MakeFormattedError<Result>(
                          "RayTracingMetadata: GPU-scene row {} shares segment record {} with a different BLAS",
                          primitive.GpuSceneRow, primitive.FirstSegmentRecord );
@@ -206,7 +206,7 @@ namespace Desert::Graphic::RayTracing
                  !filled )
                 return Common::MakeError<Result>( filled.GetError() );
             std::fill_n( filledBy.begin() + primitive.FirstSegmentRecord, primitive.SegmentRecordCount,
-                         primitive.Geometry );
+                         primitive.LayoutOwner() );
         }
         return Common::MakeSuccess( std::move( build ) );
     }

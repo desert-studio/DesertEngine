@@ -1,0 +1,19 @@
+#ifndef DESERT_RAY_TRACING_SCENE_READS_GLSLH
+#define DESERT_RAY_TRACING_SCENE_READS_GLSLH
+
+// THE VIEW'S SCENE READS A HIT GROUP MAKES BEYOND THE CAMERA BLOCK, declared by every ray generation that traces the
+// scene's hit group table (Programs/PathTracing/PathTracer.shader, Programs/Deferred/SSR.shader "HitLighting"): a ray
+// tracing pipeline's layout is its ray generation's and miss stages' (VulkanRayTracingPipeline: a hit cell may only
+// read a binding the program already declares), so the world's weather the hits lay on a surface
+// (Common/WeatherRain.glslh, through Mesh/Surface/Pass_RayHit.glslh and Programs/Terrain/TerrainRayHit.shader) needs
+// its three bindings here:
+//   the world's parameter table (Common/WorldParameters.glslh, kWorldParametersBinding);
+//   the view's rain occlusion map and block (Common/RainOcclusion.glslh, kRainOcclusionMapBinding /
+//   kRainOcclusionBlockBinding).
+// The C++ passes bind them by name with the raster's own resources (RayTracingSceneReadsInputs,
+// Graphic/Systems/RayTracing/RayTracingSceneReads.hpp): the same table and map the G-buffer reads this frame, so a
+// reflection is never wetter or drier than the surface it shows.
+#include <Common/WorldParameters.glslh>
+#include <Common/RainOcclusion.glslh>
+
+#endif

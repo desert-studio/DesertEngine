@@ -41,6 +41,7 @@ namespace Desert::Assets
             facts.ForcedLOD                = mesh.ForcedLOD.value_or( -1 );
             facts.LODBias                  = mesh.LODBias.value_or( 0 );
             facts.ReceiveShadows           = mesh.ReceiveShadows.value_or( true );
+            facts.ReceivesDecals           = mesh.ReceivesDecals.value_or( true );
             facts.TranslucencySortPriority = mesh.TranslucencySortPriority.value_or( 0 );
             facts.HiddenSubmeshes          = mesh.HiddenSubmeshes.value_or( 0 );
             facts.MaxDrawDistance          = mesh.MaxDrawDistance.value_or( 0.0f );
@@ -96,6 +97,8 @@ namespace Desert::Assets
             blockers.emplace_back( "a LOD bias" );
         if ( !facts.ReceiveShadows )
             blockers.emplace_back( "receive-shadows off" );
+        if ( !facts.ReceivesDecals )
+            blockers.emplace_back( "receives-decals off" );
         if ( facts.TranslucencySortPriority != 0 )
             blockers.emplace_back( "a translucency sort priority" );
         if ( facts.HiddenSubmeshes != 0 )

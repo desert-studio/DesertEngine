@@ -54,4 +54,14 @@ namespace Desert::Graphic
         // RetireAfterFramesInFlight; dies at once with no renderer). A trace pass captures its own reference.
         static void Retire( std::shared_ptr<RayTracingPipeline>&& outgoing ) noexcept;
     };
+
+    // SHADER EXECUTION REORDERING (RT-OMM-SER; UE PathTracing raygen NVAPI HitObject + NvReorderThread). A ray
+    // generation that splits its material ray into hitObjectTraceRayNV + reorderThreadNV(hit material) +
+    // hitObjectExecuteShaderNV is compiled under kRayTracingReorderDefine (DShaderParser enables
+    // GL_NV_shader_invocation_reorder for it). A system acquires that permutation iff RayTracingReorderOffered():
+    // the device catalog lists RayTracingFeature::InvocationReorder (VulkanCapabilityCatalog: the extension enabled on
+    // hardware RT beside the pipeline mode) - the device's fact, never a setting. Readers: System::PathTracer
+    // (TraceVariant), System::SSRRenderer (the hit-lit ray generation, HitLightingVariant).
+    inline constexpr const char* kRayTracingReorderDefine = "DESERT_SER=1";
+    [[nodiscard]] bool           RayTracingReorderOffered();
 } // namespace Desert::Graphic

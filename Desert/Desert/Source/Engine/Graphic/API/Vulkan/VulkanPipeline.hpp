@@ -175,6 +175,17 @@ namespace Desert::Graphic::API::Vulkan
         {
             return Current();
         }
+        // THE RECORD A DRAW MAY RECORD FROM, or null: the one readiness gate of every graphics draw (PSO1). The
+        // state is asked BEFORE the record is read: a build publishes its record and only then becomes Built, so
+        // a record handed out here has its layouts. Null = skip the whole draw: nothing of a pipeline that is not
+        // Built is bound, pushed or written into a set.
+        [[nodiscard]] const BuiltPipeline* GetBuiltForDraw() const noexcept
+        {
+            if ( GetBuildState() != BuildState::Built )
+                return nullptr;
+            const BuiltPipeline& built = Current(); // null pipeline: a Release emptied it between the two reads
+            return built.Pipeline != VK_NULL_HANDLE ? &built : nullptr;
+        }
 
         // The descriptor set layouts the published pipeline layout was built from, one per set.
         const std::vector<DescriptorSetLayoutRef>& GetLayouts() const

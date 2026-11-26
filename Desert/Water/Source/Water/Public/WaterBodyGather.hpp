@@ -26,6 +26,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -37,11 +38,16 @@ namespace Desert::ECS
         using WavesLookup =
              std::function<Common::ResultStr<std::shared_ptr<const std::vector<Water::GerstnerWave>>>(
                   const Assets::AssetHandle& )>;
+        /// The newest CPU mirror of the FFT ocean a wave set names (Runtime::WaterWavesService::Surfaces), null
+        /// for a Gerstner set or before the first read-back (the body then answers with its Gerstner waves).
+        using SurfaceLookup =
+             std::function<std::shared_ptr<const Water::FFTSurfaceSnapshot>( const Assets::AssetHandle& )>;
 
         /// Every water body of the registry that is ready, in entity order. The span is the gather's own
         /// storage: valid until the next Gather or Reset.
         [[nodiscard]] std::span<const Water::WaterBodyState> Gather( entt::registry&    registry,
-                                                                     const WavesLookup& lookup );
+                                                                     const WavesLookup& lookup,
+                                                                     const SurfaceLookup& surfaces = {} );
 
         /// Forgets the refusals and the retained bodies: a new Play reports them again.
         void Reset();
@@ -52,6 +58,14 @@ namespace Desert::ECS
         std::vector<entt::entity>          m_Members;           // the registry's water bodies, in view order
         std::vector<Water::WaterBodyState> m_Bodies;            // this gather's ready bodies, storage reused
         std::unordered_set<entt::entity>   m_Refused;
+        // Each river's bake and the RiverBakeKey it was baked for: re-baked only when its spline, width, flow or
+        // location changed (a transform move raises no WaterBodyRevision, so the key - not the revision - decides).
+        struct RiverBake
+        {
+            uint64_t                                     Key = 0;
+            std::shared_ptr<const Water::RiverFlowField> Flow;
+        };
+        std::unordered_map<entt::entity, RiverBake> m_Rivers;
     };
 
     /// Raised by every WaterBodyComponent construct / patch / destroy (WaterBodyGather's membership key).

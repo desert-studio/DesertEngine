@@ -1,0 +1,38 @@
+#ifndef DESERT_TERRAIN_RAIN_GLSLH
+#define DESERT_TERRAIN_RAIN_GLSLH
+
+// THE WORLD'S RAIN ON THE LANDSCAPE (WTH-PUDDLES): the ground's one call into Common/WeatherRain.glslh, the text every
+// lit mesh surface is wetted by (Mesh/Surface/SurfaceWeather.glslh), so the ground and a mesh lying on it are wet,
+// puddled, rippled alike. Shared by the landscape's two lit programs (TerrainGBuffer.shader, Terrain.shader: the
+// vertex's position and normal, the Material's Porosity) and its hit group (Programs/Terrain/TerrainRayHit.shader: the
+// hit point, the triangle's normal, the row's LandscapeMaterial.Weather.x - the same Porosity, TerrainRenderer's
+// TerrainRowValuesOf), so a reflection of the ground shows the puddles the raster draws. The ground faces the sky
+// wherever the view's rain occlusion says so.
+//
+// Standing water buries the grass's far cover under it (no blades stand out of a puddle at that distance): @p cover
+// and @p transmission fall with the water, as they fall under the snow.
+#include <Common/WeatherRain.glslh>
+
+// @p position the ground's world point, @p geomN its GEOMETRIC normal (the raster's v_Normal, the hit's triangle),
+// never s.N: the far cover bends s.N towards the eye (the snow's reason, TerrainGBuffer.shader).
+void DesertApplyLandscapeRain( inout TerrainSurface s, const vec3 position, const vec3 geomN, const float porosity,
+                               inout float metallic, inout float specular, inout float cover, inout vec3 transmission )
+{
+    DesertWetSurface w;
+    w.BaseColor = s.Albedo;
+    w.NormalWS  = s.N;
+    w.Roughness = s.Roughness;
+    w.Metallic  = metallic;
+    w.Specular  = specular;
+    w.AO        = s.AO;
+    w           = DesertApplyRain( w, position, geomN, DesertRainExposure( position, geomN, 0.0 ), 1.0, porosity, true );
+    s.Albedo     = w.BaseColor;
+    s.N          = w.NormalWS;
+    s.Roughness  = w.Roughness;
+    metallic     = w.Metallic;
+    specular     = w.Specular;
+    cover        = cover * ( 1.0 - w.Puddle );
+    transmission *= 1.0 - w.Puddle;
+}
+
+#endif

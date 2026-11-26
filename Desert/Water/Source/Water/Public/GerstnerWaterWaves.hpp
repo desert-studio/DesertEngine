@@ -45,8 +45,8 @@ namespace Desert::Water
         float   MinAmplitude      = 4.0f;
         float   MaxAmplitude      = 80.0f;
         float   AmplitudeFalloff  = 2.0f;
-        /// The dominant wind direction, degrees from +X toward +Z.
-        float WindAngleDeg              = 0.0f;
+        // No wind angle: the waves run with the scene's wind (UE AWaterBody takes it from the wind source, not
+        // from the asset), handed to GenerateGerstnerWaves by WaterWavesService::SetWind.
         float DirectionAngularSpreadDeg = 1325.0f;
         float SmallWaveSteepness        = 0.4f;
         float LargeWaveSteepness        = 0.2f;
@@ -56,8 +56,10 @@ namespace Desert::Water
     };
 
     /// The waves a generator stands for, in UE's order and from UE's random stream (the same seed gives UE's
-    /// waves). NumWaves below 1 gives none.
-    [[nodiscard]] std::vector<GerstnerWave> GenerateGerstnerWaves( const GerstnerWaveGenerator& generator );
+    /// waves). NumWaves below 1 gives none. @p windAngleDeg is the dominant direction the waves run in, degrees
+    /// from +X toward +Z: the scene's wind at the body (ECS::WindAt), not a property of the set.
+    [[nodiscard]] std::vector<GerstnerWave> GenerateGerstnerWaves( const GerstnerWaveGenerator& generator,
+                                                                   float                        windAngleDeg );
 
     /// The sum of the amplitudes: no point of the surface rises higher or sinks lower (UE MaxWaveHeight).
     [[nodiscard]] float MaxWaveHeight( std::span<const GerstnerWave> waves );

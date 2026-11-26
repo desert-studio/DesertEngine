@@ -19,7 +19,8 @@
 //     per-slot material draws of one mesh) OR their visible submeshes, so a mesh split over material slots traces
 //     whole. A row hiding some submeshes traces its (mesh, mask) variant BLAS; hiding all is NothingVisible.
 //   * ISM / foliage: one primitive per instance, its own row (InstancedMeshRenderData::FirstGpuInstance), sharing
-//     the mesh's BLAS. Wind / WPO is not evaluated: the instance transform as authored (UE default).
+//     the BLAS of its RT-LOD (the coarsest level under the ray-tracing error at its distance, one per (mesh, level));
+//     a swaying instance near the view traces its own wind BLAS, refit within a budget (RayTracingFoliage.hpp).
 //   * GPU-instanced (the landscape grass): one primitive per producer (its sections merged) holding the mesh's
 //     BLAS and segment run; the TLAS rows are written on the GPU from the transforms and the drawn count the
 //     raster's indirect draw reads (RayTracingGpuInstanceSource). One shared BLAS per variety at the drawn level,
@@ -29,6 +30,8 @@
 //   * skinned: one primitive per record, its BLAS the per-frame dynamic one (SelectDynamicGeometry).
 namespace Desert::Graphic::RayTracing
 {
+    class RayTracingFoliageLod;
+
     struct RayTracingGatherInputs
     {
         std::span<const System::MeshRenderer::StaticMeshRenderData>    Static;
@@ -38,6 +41,11 @@ namespace Desert::Graphic::RayTracing
         std::span<const System::MeshRenderer::GpuInstancedRenderData>  GpuInstanced; // the landscape grass
         glm::vec3 ViewOrigin{};             // cm; for the ISM distance cull only
         float     DrawDistanceScale = 1.0f; // Graphic::DrawDistanceScale of the view's lens
+        // The view's RT-LOD selection (RayTracingFoliage.hpp), read and advanced by a TLAS gather; null (a scene
+        // gather): every ISM instance at LOD 0.
+        RayTracingFoliageLod* FoliageLod = nullptr;
+        // Its threshold (RayTracingFoliageSettings::LodErrorPerCm); 0: every ISM instance at LOD 0.
+        float FoliageLodErrorPerCm = 0.0f;
     };
 
     // RayTracingGatherResult: RayTracingScene.hpp (held by RayTracingSceneRenderer without this header).

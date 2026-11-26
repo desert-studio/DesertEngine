@@ -15,6 +15,8 @@
 #include <Engine/Reflection/ReflectionTypes.hpp>
 #include <Engine/Reflection/Value.hpp>
 
+#include <Common/Core/AssetHandle.hpp>
+
 #include <entt/entt.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
@@ -257,6 +259,20 @@ namespace Desert::Reflection
         static Value To( entt::entity v )
         {
             return Value::UInt( static_cast<std::uint64_t>( static_cast<Id>( v ) ) );
+        }
+    };
+
+    /// An asset handle travels as its id, the UInt a Luau asset handle (kAssetHandleTag) reads into
+    /// (LuauBinder FieldType::AssetHandle): a struct argument's Asset<...> field, e.g. DecalImpactSpawn::Material.
+    template <>
+    struct ValueTraits<Common::AssetHandle>
+    {
+        static constexpr FieldType Kind = FieldType::UInt;
+        static bool                Fits( const Value& ) { return true; }
+        static Common::AssetHandle From( const Value& v ) { return Common::AssetHandle( *v.Get<std::uint64_t>() ); }
+        static Value               To( const Common::AssetHandle& v )
+        {
+            return Value::UInt( static_cast<std::uint64_t>( v ) );
         }
     };
 

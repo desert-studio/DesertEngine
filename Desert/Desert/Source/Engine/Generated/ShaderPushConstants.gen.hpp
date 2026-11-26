@@ -77,6 +77,60 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( BakeProceduralSky, BakeClouds ) == 0u, "BakeProceduralSky::BakeClouds: std430 offset" );
     static_assert( offsetof( BakeProceduralSky, BakeFace ) == 16u, "BakeProceduralSky::BakeFace: std430 offset" );
 
+    // Programs/Bloom/BloomConvolutionKernel.shader (Compute)
+    struct BloomConvolutionKernel
+    {
+        glm::vec2 KernelSize{};
+        float KernelLod{};
+        std::int32_t Width{};
+        std::int32_t Height{};
+    };
+    static_assert( sizeof( BloomConvolutionKernel ) == 20u, "BloomConvolutionKernel: std430 push block size" );
+    template <> inline constexpr bool IsBlock<BloomConvolutionKernel> = true;
+    static_assert( offsetof( BloomConvolutionKernel, KernelSize ) == 0u, "BloomConvolutionKernel::KernelSize: std430 offset" );
+    static_assert( offsetof( BloomConvolutionKernel, KernelLod ) == 8u, "BloomConvolutionKernel::KernelLod: std430 offset" );
+    static_assert( offsetof( BloomConvolutionKernel, Width ) == 12u, "BloomConvolutionKernel::Width: std430 offset" );
+    static_assert( offsetof( BloomConvolutionKernel, Height ) == 16u, "BloomConvolutionKernel::Height: std430 offset" );
+
+    // Programs/Bloom/BloomConvolutionPack.shader (Compute)
+    struct BloomConvolutionPack
+    {
+        glm::vec2 ContentSize{};
+        std::int32_t Width{};
+        std::int32_t Height{};
+    };
+    static_assert( sizeof( BloomConvolutionPack ) == 16u, "BloomConvolutionPack: std430 push block size" );
+    template <> inline constexpr bool IsBlock<BloomConvolutionPack> = true;
+    static_assert( offsetof( BloomConvolutionPack, ContentSize ) == 0u, "BloomConvolutionPack::ContentSize: std430 offset" );
+    static_assert( offsetof( BloomConvolutionPack, Width ) == 8u, "BloomConvolutionPack::Width: std430 offset" );
+    static_assert( offsetof( BloomConvolutionPack, Height ) == 12u, "BloomConvolutionPack::Height: std430 offset" );
+
+    // Programs/Bloom/BloomConvolutionUnpack.shader (Compute)
+    struct BloomConvolutionUnpack
+    {
+        glm::vec2 ContentSize{};
+        std::int32_t Width{};
+        float InverseCount{};
+    };
+    static_assert( sizeof( BloomConvolutionUnpack ) == 16u, "BloomConvolutionUnpack: std430 push block size" );
+    template <> inline constexpr bool IsBlock<BloomConvolutionUnpack> = true;
+    static_assert( offsetof( BloomConvolutionUnpack, ContentSize ) == 0u, "BloomConvolutionUnpack::ContentSize: std430 offset" );
+    static_assert( offsetof( BloomConvolutionUnpack, Width ) == 8u, "BloomConvolutionUnpack::Width: std430 offset" );
+    static_assert( offsetof( BloomConvolutionUnpack, InverseCount ) == 12u, "BloomConvolutionUnpack::InverseCount: std430 offset" );
+
+    // Programs/Bloom/BloomConvolve.shader (Compute)
+    struct BloomConvolve
+    {
+        std::int32_t LineLength{};
+        std::int32_t Log2Length{};
+        std::int32_t Width{};
+    };
+    static_assert( sizeof( BloomConvolve ) == 12u, "BloomConvolve: std430 push block size" );
+    template <> inline constexpr bool IsBlock<BloomConvolve> = true;
+    static_assert( offsetof( BloomConvolve, LineLength ) == 0u, "BloomConvolve::LineLength: std430 offset" );
+    static_assert( offsetof( BloomConvolve, Log2Length ) == 4u, "BloomConvolve::Log2Length: std430 offset" );
+    static_assert( offsetof( BloomConvolve, Width ) == 8u, "BloomConvolve::Width: std430 offset" );
+
     // Programs/Bloom/BloomDownsample.shader (Compute)
     struct BloomDownsample
     {
@@ -105,6 +159,23 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( BloomDownsample, LocalExposureThreshold ) == 48u, "BloomDownsample::LocalExposureThreshold: std430 offset" );
     static_assert( offsetof( BloomDownsample, LocalExposureUV ) == 64u, "BloomDownsample::LocalExposureUV: std430 offset" );
     static_assert( offsetof( BloomDownsample, LocalExposureSlice ) == 80u, "BloomDownsample::LocalExposureSlice: std430 offset" );
+
+    // Programs/Bloom/BloomFFT.shader (Compute)
+    struct BloomFFT
+    {
+        std::int32_t LineLength{};
+        std::int32_t Log2Length{};
+        std::int32_t Axis{};
+        float Direction{};
+        std::int32_t Width{};
+    };
+    static_assert( sizeof( BloomFFT ) == 20u, "BloomFFT: std430 push block size" );
+    template <> inline constexpr bool IsBlock<BloomFFT> = true;
+    static_assert( offsetof( BloomFFT, LineLength ) == 0u, "BloomFFT::LineLength: std430 offset" );
+    static_assert( offsetof( BloomFFT, Log2Length ) == 4u, "BloomFFT::Log2Length: std430 offset" );
+    static_assert( offsetof( BloomFFT, Axis ) == 8u, "BloomFFT::Axis: std430 offset" );
+    static_assert( offsetof( BloomFFT, Direction ) == 12u, "BloomFFT::Direction: std430 offset" );
+    static_assert( offsetof( BloomFFT, Width ) == 16u, "BloomFFT::Width: std430 offset" );
 
     // Programs/Bloom/BloomUpsample.shader (Compute)
     struct BloomUpsample
@@ -284,6 +355,15 @@ namespace Desert::Graphic::ShaderPush
     template <> inline constexpr bool IsBlock<EmissiveLights_Reduce> = true;
     static_assert( offsetof( EmissiveLights_Reduce, ListCounts ) == 0u, "EmissiveLights_Reduce::ListCounts: std430 offset" );
     static_assert( offsetof( EmissiveLights_Reduce, Runs ) == 16u, "EmissiveLights_Reduce::Runs: std430 offset" );
+
+    // Programs/Compute/FoliageWindRayTracing.shader (Compute)
+    struct FoliageWindRayTracing
+    {
+        glm::uvec4 Job{};
+    };
+    static_assert( sizeof( FoliageWindRayTracing ) == 16u, "FoliageWindRayTracing: std430 push block size" );
+    template <> inline constexpr bool IsBlock<FoliageWindRayTracing> = true;
+    static_assert( offsetof( FoliageWindRayTracing, Job ) == 0u, "FoliageWindRayTracing::Job: std430 offset" );
 
     // Programs/DistanceField/GlobalDistanceFieldComposite.shader (Compute)
     struct GlobalDistanceFieldComposite
@@ -707,6 +787,43 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( NeuralRadianceCache, Adam ) == 32u, "NeuralRadianceCache::Adam: std430 offset" );
     static_assert( offsetof( NeuralRadianceCache, Adam2 ) == 48u, "NeuralRadianceCache::Adam2: std430 offset" );
 
+    // Programs/RayTracing/OpacityMicromapBake.shader (Compute)
+    struct OpacityMicromapBake
+    {
+        glm::uvec2 VertexAddress{};
+        glm::uvec2 IndexAddress{};
+        std::uint32_t VertexStride{};
+        std::uint32_t FirstVertex{};
+        std::uint32_t FirstIndex{};
+        std::uint32_t UvOffset{};
+        std::uint32_t TriangleCount{};
+        std::uint32_t OpacityTexture{};
+        std::uint32_t OpacitySampler{};
+        float OpacityCutoff{};
+        std::uint32_t MaterialFlags{};
+        std::uint32_t Std430Pad0[1]{};
+        glm::uvec2 DataAddress{};
+        glm::uvec2 TrianglesAddress{};
+        glm::uvec2 IndicesAddress{};
+    };
+    static_assert( sizeof( OpacityMicromapBake ) == 80u, "OpacityMicromapBake: std430 push block size" );
+    template <> inline constexpr bool IsBlock<OpacityMicromapBake> = true;
+    static_assert( offsetof( OpacityMicromapBake, VertexAddress ) == 0u, "OpacityMicromapBake::VertexAddress: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, IndexAddress ) == 8u, "OpacityMicromapBake::IndexAddress: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, VertexStride ) == 16u, "OpacityMicromapBake::VertexStride: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, FirstVertex ) == 20u, "OpacityMicromapBake::FirstVertex: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, FirstIndex ) == 24u, "OpacityMicromapBake::FirstIndex: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, UvOffset ) == 28u, "OpacityMicromapBake::UvOffset: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, TriangleCount ) == 32u, "OpacityMicromapBake::TriangleCount: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, OpacityTexture ) == 36u, "OpacityMicromapBake::OpacityTexture: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, OpacitySampler ) == 40u, "OpacityMicromapBake::OpacitySampler: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, OpacityCutoff ) == 44u, "OpacityMicromapBake::OpacityCutoff: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, MaterialFlags ) == 48u, "OpacityMicromapBake::MaterialFlags: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, Std430Pad0 ) == 52u, "OpacityMicromapBake::Std430Pad0: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, DataAddress ) == 56u, "OpacityMicromapBake::DataAddress: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, TrianglesAddress ) == 64u, "OpacityMicromapBake::TrianglesAddress: std430 offset" );
+    static_assert( offsetof( OpacityMicromapBake, IndicesAddress ) == 72u, "OpacityMicromapBake::IndicesAddress: std430 offset" );
+
     // Programs/Debug/Overdraw.shader (Vertex)
     struct Overdraw
     {
@@ -952,13 +1069,15 @@ namespace Desert::Graphic::ShaderPush
         glm::vec4 LightSphere{};
         glm::vec4 TraceParams{};
         glm::vec4 SpotCone{};
+        glm::vec4 SourceAxis{};
     };
-    static_assert( sizeof( RayTracedLocalShadow ) == 112u, "RayTracedLocalShadow: std430 push block size" );
+    static_assert( sizeof( RayTracedLocalShadow ) == 128u, "RayTracedLocalShadow: std430 push block size" );
     template <> inline constexpr bool IsBlock<RayTracedLocalShadow> = true;
     static_assert( offsetof( RayTracedLocalShadow, InverseJitteredViewProjection ) == 0u, "RayTracedLocalShadow::InverseJitteredViewProjection: std430 offset" );
     static_assert( offsetof( RayTracedLocalShadow, LightSphere ) == 64u, "RayTracedLocalShadow::LightSphere: std430 offset" );
     static_assert( offsetof( RayTracedLocalShadow, TraceParams ) == 80u, "RayTracedLocalShadow::TraceParams: std430 offset" );
     static_assert( offsetof( RayTracedLocalShadow, SpotCone ) == 96u, "RayTracedLocalShadow::SpotCone: std430 offset" );
+    static_assert( offsetof( RayTracedLocalShadow, SourceAxis ) == 112u, "RayTracedLocalShadow::SourceAxis: std430 offset" );
 
     // Programs/Shadows/RayTracedLocalShadowPack.shader (Compute)
     struct RayTracedLocalShadowPack
@@ -1242,6 +1361,17 @@ namespace Desert::Graphic::ShaderPush
     template <> inline constexpr bool IsBlock<SkyViewLut> = true;
     static_assert( offsetof( SkyViewLut, CameraPositionWorld ) == 0u, "SkyViewLut::CameraPositionWorld: std430 offset" );
 
+    // Programs/VirtualGeometry/SoftwareRaster.shader (Compute)
+    struct SoftwareRaster
+    {
+        glm::mat4 ViewProjection{};
+        glm::uvec4 Params{};
+    };
+    static_assert( sizeof( SoftwareRaster ) == 80u, "SoftwareRaster: std430 push block size" );
+    template <> inline constexpr bool IsBlock<SoftwareRaster> = true;
+    static_assert( offsetof( SoftwareRaster, ViewProjection ) == 0u, "SoftwareRaster::ViewProjection: std430 offset" );
+    static_assert( offsetof( SoftwareRaster, Params ) == 64u, "SoftwareRaster::Params: std430 offset" );
+
     // Programs/TemporalAA/SpatialUpscale.shader (Compute)
     struct SpatialUpscale
     {
@@ -1512,6 +1642,30 @@ namespace Desert::Graphic::ShaderPush
     static_assert( sizeof( VisibilityClear ) == 16u, "VisibilityClear: std430 push block size" );
     template <> inline constexpr bool IsBlock<VisibilityClear> = true;
     static_assert( offsetof( VisibilityClear, Extent ) == 0u, "VisibilityClear::Extent: std430 offset" );
+
+    // Programs/VirtualGeometry/VisibilityMaterialDepth.shader (Fragment)
+    struct VisibilityMaterialDepth
+    {
+        glm::uvec4 VgRows{};
+        glm::uvec4 VgTables{};
+    };
+    static_assert( sizeof( VisibilityMaterialDepth ) == 32u, "VisibilityMaterialDepth: std430 push block size" );
+    template <> inline constexpr bool IsBlock<VisibilityMaterialDepth> = true;
+    static_assert( offsetof( VisibilityMaterialDepth, VgRows ) == 0u, "VisibilityMaterialDepth::VgRows: std430 offset" );
+    static_assert( offsetof( VisibilityMaterialDepth, VgTables ) == 16u, "VisibilityMaterialDepth::VgTables: std430 offset" );
+
+    // Programs/Water/WaterCausticsSplat.shader (Compute)
+    struct WaterCausticsSplat
+    {
+        glm::vec4 Window{};
+        glm::vec4 Sun{};
+        glm::vec4 Camera{};
+    };
+    static_assert( sizeof( WaterCausticsSplat ) == 48u, "WaterCausticsSplat: std430 push block size" );
+    template <> inline constexpr bool IsBlock<WaterCausticsSplat> = true;
+    static_assert( offsetof( WaterCausticsSplat, Window ) == 0u, "WaterCausticsSplat::Window: std430 offset" );
+    static_assert( offsetof( WaterCausticsSplat, Sun ) == 16u, "WaterCausticsSplat::Sun: std430 offset" );
+    static_assert( offsetof( WaterCausticsSplat, Camera ) == 32u, "WaterCausticsSplat::Camera: std430 offset" );
 
 } // namespace Desert::Graphic::ShaderPush
 

@@ -1,5 +1,5 @@
 // CloudResolveBuffer, the one parameter block of the cloud reconstruction: read by CloudTemporalResolve.shader
-// (the reprojection) and by CloudUpsample.shader (the full-resolution compose), both bound to the one buffer
+// (the reprojection and the full-resolution compose, one dispatch), bound to the one buffer
 // VolumetricCloudRenderer uploads per frame (m_ResolveParamsBuffer).
 
 // The C++ side of this block is Graphic::CloudResolveParams (Engine/Graphic/Clouds/CloudPayload.hpp),

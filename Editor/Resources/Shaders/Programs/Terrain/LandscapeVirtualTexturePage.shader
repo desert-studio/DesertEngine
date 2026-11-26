@@ -10,19 +10,24 @@ Shader "LandscapeVirtualTexturePage"
         // weightmap through the bindless table, then Common/LandscapeSurface.glslh EvaluateLandscapeLayers - the
         // raster's and the hit group's own statement of the layer blend - with the layer maps fetched at the
         // texel's footprint. Stored: Color = sqrt(albedo / 2), Normal = (tangent normal xy * 0.5 + 0.5,
-        // roughness), Occlusion = AO (Common/LandscapeVirtualTexture.glslh decodes).
+        // roughness), Occlusion = AO, Height = the ground's world height (UE's WorldHeight RVT: the tile's
+        // heightmap through the bindless table - the row's Weightmap.w - on Common/LandscapeHeight.glslh's
+        // surface, as a fraction of the header's range, words 28 and 29) (Common/LandscapeVirtualTexture.glslh
+        // decodes).
         LocalSize(8, 8, 1);
 
         #include <Common/BindlessTextures.glslh>
         #include <Common/TerrainInstance.glslh>
         #include <Common/LandscapeSurface.glslh>
+        #include <Common/LandscapeHeight.glslh>
 
         // A tile's row: TerrainRayHit.glslh LandscapeRayHitRowRef's layout (C++: RayTracing::LandscapeRayHitRow).
         struct LandscapeVirtualRow
         {
             TerrainInstance   Tile;
             vec4              Tint;
-            uvec4             Weightmap; // x = weightmap bindless slot (0 = none), y = its sampler, z = the maps' sampler
+            uvec4             Weightmap; // x = weightmap bindless slot (0 = none), y = its sampler, z = the maps' sampler,
+                                         // w = the heightmap's bindless slot (0 = none; TerrainRenderer::AddVirtualTexturePasses)
             LandscapeMaterial MaterialValues;
             uvec4             LayerMaps[8]; // input k's maps' bindless slots: x albedo, y normal, z ARM, w height
         };
@@ -49,6 +54,7 @@ Shader "LandscapeVirtualTexturePage"
         layout( binding = 4, rgb10_a2 ) writeonly uniform image2D LandscapeVirtualColorAtlas;
         layout( binding = 5, rgb10_a2 ) writeonly uniform image2D LandscapeVirtualNormalAtlas;
         layout( binding = 6, r8 ) writeonly uniform image2D LandscapeVirtualOcclusionAtlas;
+        layout( binding = 7, r16 ) writeonly uniform image2D LandscapeVirtualHeightAtlas;
 
         const uint kVirtualPageTexels = 128u;
         const uint kVirtualPageBorder = 4u;
@@ -88,6 +94,35 @@ Shader "LandscapeVirtualTexturePage"
                 w1 = SampleBindlessLod( map, LandscapeWeightmapPageUV( g, 1.0, size, pages ), 0.0 );
         }
 
+        // THE GROUND'S WORLD HEIGHT (cm) at @p xz on tile @p tile: its heightmap's four samples around the point on the
+        // landscape's one surface (Common/LandscapeHeight.glslh LandscapeTriangle, the split the raster, the ray and
+        // the CPU share). Texel (x + 1, z + 1) is sample (x, z) (LandscapeVertexEval.glslh TileHeightCm).
+        float LandscapeVirtualSampleCm( uint heightmap, uint samplerSlot, ivec2 texel, float zScale )
+        {
+            const float unorm = texelFetch( sampler2D( BindlessTextures[nonuniformEXT( heightmap )],
+                                                       BindlessSamplers[nonuniformEXT( samplerSlot )] ),
+                                            texel, 0 ).r;
+            return LandscapeHeightCmFromSample( LandscapeSampleFromUnorm( unorm ), zScale );
+        }
+
+        float LandscapeVirtualWorldHeight( TerrainInstance tile, uint heightmap, uint samplerSlot, vec2 xz )
+        {
+            const float spacing = tile.LandscapeFrame.w;
+            const float quads   = tile.LandscapeTile.z;
+            const vec2  g       = clamp( ( xz - tile.LandscapeFrame.xz ) / spacing - tile.LandscapeTile.xy, vec2( 0.0 ),
+                                         vec2( quads ) );
+            const vec2  cell    = vec2( LandscapeCellOf( g.x, quads + 1.0 ), LandscapeCellOf( g.y, quads + 1.0 ) );
+            const vec2  f       = g - cell;
+            const ivec2 c       = ivec2( cell ) + 1;
+            const float zScale  = tile.LandscapeTile.w;
+            const float h = LandscapeTriangle( LandscapeVirtualSampleCm( heightmap, samplerSlot, c, zScale ),
+                                               LandscapeVirtualSampleCm( heightmap, samplerSlot, c + ivec2( 1, 0 ), zScale ),
+                                               LandscapeVirtualSampleCm( heightmap, samplerSlot, c + ivec2( 0, 1 ), zScale ),
+                                               LandscapeVirtualSampleCm( heightmap, samplerSlot, c + ivec2( 1, 1 ), zScale ),
+                                               f.x, f.y );
+            return tile.LandscapeFrame.y + h;
+        }
+
         void main()
         {
             const uvec2 t = gl_GlobalInvocationID.xy;
@@ -117,6 +152,7 @@ Shader "LandscapeVirtualTexturePage"
                 imageStore( LandscapeVirtualColorAtlas, dst, vec4( sqrt( 0.5 ), sqrt( 0.5 ), sqrt( 0.5 ), 1.0 ) );
                 imageStore( LandscapeVirtualNormalAtlas, dst, vec4( 0.5, 0.5, 0.9, 1.0 ) );
                 imageStore( LandscapeVirtualOcclusionAtlas, dst, vec4( 1.0 ) );
+                imageStore( LandscapeVirtualHeightAtlas, dst, vec4( 0.0 ) );
                 return;
             }
             g_VirtualRow      = row - 1u;
@@ -136,6 +172,11 @@ Shader "LandscapeVirtualTexturePage"
             imageStore( LandscapeVirtualNormalAtlas, dst,
                         vec4( clamp( tn.xy * 0.5 + 0.5, vec2( 0.0 ), vec2( 1.0 ) ), clamp( l.Roughness, 0.0, 1.0 ), 1.0 ) );
             imageStore( LandscapeVirtualOcclusionAtlas, dst, vec4( clamp( l.AO, 0.0, 1.0 ) ) );
+            const uvec4 maps   = VirtualRows[g_VirtualRow].Weightmap;
+            const float lo     = uintBitsToFloat( VirtualPageTable[28] );
+            const float hi     = uintBitsToFloat( VirtualPageTable[29] );
+            const float height = maps.w != 0u ? LandscapeVirtualWorldHeight( tile, maps.w, maps.y, xz ) : lo;
+            imageStore( LandscapeVirtualHeightAtlas, dst, vec4( clamp( ( height - lo ) / max( hi - lo, 1.0e-3 ), 0.0, 1.0 ) ) );
         }
     }
 }

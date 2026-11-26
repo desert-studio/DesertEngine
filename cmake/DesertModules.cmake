@@ -528,6 +528,8 @@ function(desert_engine_header_tool_command out)
         --reflect-enums "${DESERT_ROOT}/Desert/Common/Source/Common/Settings"
         --reflect-enums "${DESERT_ROOT}/Desert/PhysicsCore/Source/PhysicsCore"
         --reflect-components "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp"
+        # The stored shape of every COMPONENT block: a removed/renamed/retyped field fails the build here.
+        --schema-lock "${DESERT_ROOT}/Desert/Schema/ComponentSchema.lock"
         ${_check}
         --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp
         "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/EngineSubsystems.gen.cpp"

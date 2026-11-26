@@ -73,6 +73,9 @@ namespace Common::Scalability
                "SSAORenderer GTAO horizon taps per direction (SSAO.shader kMaxTaps = 32)", 24, Vis::Advanced },
              { P::BloomMips, G::PostProcess, "PostProcess.BloomMips", 2, 6, CL::None,
                "BloomRenderer::SetMaxMips (SceneRenderer::BeginScene)", 6, Vis::Advanced },
+             { P::BloomMethod, G::PostProcess, "PostProcess.BloomMethod", 0, LastOf( kBloomMethodNames.size() ),
+               CL::None, "BloomRenderer::SetMethod (SceneRenderer::BeginScene -> SceneRenderer::AddFrameBloom)",
+               Of( BloomMethod::Convolution ), Vis::Advanced },
              { P::MotionBlurQuality, G::PostProcess, "PostProcess.MotionBlurQuality", 0, 2, CL::None,
                "Graphic::MotionBlurSamplesForQuality (SceneRenderer::BeginScene -> MotionBlur gather taps)", 2,
                Vis::Advanced },
@@ -388,15 +391,22 @@ namespace Common::Scalability
                Vis::Advanced },
              { P::ScreenProbeSparseStableRays, G::GlobalIllumination,
                "GlobalIllumination.ScreenProbeSparseStableRays", 0, 1, CL::None,
-               "SceneRenderer -> GlobalIllumination::ScreenProbeGather (ScreenProbeGatherInputs::SparseStableRays: "
+               "SceneRenderer -> GlobalIllumination::ScreenProbeGather "
+               "(ScreenProbeGatherInputs::SparseStableRays: "
                "settled uniform probes trace a checkerboard half of their texels)",
                1, Vis::Advanced },
+             { P::ScreenProbeGatherMethod, G::GlobalIllumination, "GlobalIllumination.FinalGather", 0,
+               LastOf( kScreenProbeGatherMethodNames.size() ), CL::None,
+               "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather "
+               "(ScreenProbeGatherInputs::ReSTIR: "
+               "the ReSTIR gather on the hardware tracer, else the screen probes)",
+               Of( ScreenProbeGatherMethod::ScreenProbes ), Vis::Advanced },
              { P::GlobalIlluminationScreenSpaceRays, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceRays",
                1, 32, CL::None, "SceneRenderer::BeginScene -> SSGIRenderer::Settings::RaysPerPixel", 8,
                Vis::Advanced },
              { P::GlobalIlluminationScreenSpaceSteps, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSteps",
-               8, 128, CL::None, "SceneRenderer::BeginScene -> SSGIRenderer::Settings::Iterations",
-               32, Vis::Advanced },
+               8, 128, CL::None, "SceneRenderer::BeginScene -> SSGIRenderer::Settings::Iterations", 32,
+               Vis::Advanced },
              { P::GlobalIlluminationScreenSpaceDenoiserRadius, G::GlobalIllumination,
                "GlobalIllumination.ScreenSpaceDenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> SSGIRenderer -> ScreenSpaceDenoiser::DenoiseDiffuseIndirect", 2,
@@ -436,12 +446,31 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> RayTracingSceneRenderer::SetTlasUpdatesBeforeRebuild (the TLAS is "
                "built after this many in-place updates in a row; 0 = every frame)",
                60, Vis::Advanced },
+             { P::GlobalIlluminationRayTracingLodError, G::GlobalIllumination,
+               "GlobalIllumination.RayTracingLodError", 0, 1000, CL::None,
+               "SceneRenderer::BeginScene -> RayTracingSceneRenderer::SetFoliageSettings -> "
+               "RayTracingFoliageLod::Select (an ISM instance's RT-LOD: error per distance, 1/10000; 0 = LOD 0)",
+               50, Vis::Advanced },
+             { P::GlobalIlluminationFoliageWindRefitBudget, G::GlobalIllumination,
+               "GlobalIllumination.FoliageWindRefitBudget", 0, 4096, CL::None,
+               "SceneRenderer::BeginScene -> RayTracingSceneRenderer::SetFoliageSettings -> "
+               "RayTracingFoliageWind::AddPasses (swaying instances refit per frame; 0 = all rest pose)",
+               64, Vis::Advanced },
+             { P::GlobalIlluminationFoliageWindDistance, G::GlobalIllumination,
+               "GlobalIllumination.FoliageWindDistance", 0, 100000, CL::None,
+               "SceneRenderer::BeginScene -> RayTracingSceneRenderer::SetFoliageSettings -> "
+               "RayTracingFoliageWind::AddPasses (cm; farther swaying instances trace their rest pose)",
+               3000, Vis::Advanced },
              { P::ViewDistanceVirtualGeometryMaxPixelsPerEdge, G::ViewDistance,
                "ViewDistance.VirtualGeometryMaxPixelsPerEdge", 1, 1000, CL::None,
                "SceneRenderer::AddFrameVirtualGeometry -> VirtualGeometryRenderer::AddClusterCull (cluster LOD "
                "cut, "
                "tenths of a pixel)",
                10, Vis::Advanced },
+             { P::VirtualGeometrySoftwareRaster, G::ViewDistance, "VirtualGeometry.SoftwareRaster", 0, 1, CL::None,
+               "SceneRenderer::AddFrameVirtualGeometry -> ClusterCullView::SwRasterMaxEdgePixels (the HW/SW split) "
+               "-> VirtualGeometryRenderer::AddSoftwareRaster",
+               0, Vis::Advanced },
              { P::AsyncCompute, G::Effects, "RenderPipeline.AsyncCompute", 0, 1, CL::AsyncCompute,
                "SceneRenderer::OnUpdate -> RDG::Builder::SetAsyncCompute (the view graph's AsyncCompute passes on "
                "the "
@@ -472,7 +501,8 @@ namespace Common::Scalability
                "strip level by its projected height and its sub-pixel cull, GrassCull GrassBladeCurveLevel)",
                8, Vis::Advanced },
              { P::FoliageGrassBladeCardHull, G::Foliage, "Foliage.GrassBladeCardHull", 0, 1, CL::None,
-               "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (a blade's "
+               "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::PrepareVariety (a "
+               "blade's "
                "raster strip spans its card's cooked hull, Vertex_GrassBlade BladeHullSide)",
                0, Vis::Advanced },
              { P::EarlyZPass, G::ViewDistance, "RenderPipeline.EarlyZPass", 0, 2, CL::None,
@@ -529,9 +559,10 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> GrassRenderer::SetCullAsync (the grass camera cull, its finalize and "
                "the camera's and cascades' draw gathers as one async compute segment; 0 = the graphics queue)",
                1, Vis::Advanced },
-             { P::RenderPipelineLandscapeDiceCullAsync, G::ViewDistance, "RenderPipeline.LandscapeDiceCullAsync", 0,
-               1, CL::None,
-               "SceneRenderer -> TerrainRenderer::AddDiceCullPass (DiceOcclusion::Async: the landscape camera dice "
+             { P::RenderPipelineLandscapeDiceCullAsync, G::ViewDistance, "RenderPipeline.LandscapeDiceCullAsync",
+               0, 1, CL::None,
+               "SceneRenderer -> TerrainRenderer::AddDiceCullPass (DiceOcclusion::Async: the landscape camera "
+               "dice "
                "cull as an async compute segment joined before the terrain depth prepass; 0 = the graphics queue)",
                1, Vis::Advanced },
              { P::RenderPipelineGpuCrashBreadcrumbs, G::Effects, "RenderPipeline.GpuCrashBreadcrumbs", 0, 1,
@@ -551,17 +582,19 @@ namespace Common::Scalability
                1, Vis::Advanced },
              { P::LandscapeVirtualTextureSizeLog2, G::Textures, "Textures.LandscapeVirtualTextureSizeLog2", 12, 17,
                CL::None,
-               "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT mip0 side, log2 "
+               "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT mip0 side, "
+               "log2 "
                "texels)",
                16, Vis::Advanced },
-             { P::LandscapeVirtualTexturePoolPages, G::Textures, "Textures.LandscapeVirtualTexturePoolPages", 8, 64,
-               CL::None,
+             { P::LandscapeVirtualTexturePoolPages, G::Textures, "Textures.LandscapeVirtualTexturePoolPages", 8,
+               64, CL::None,
                "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT atlas side in "
                "pages)",
                32, Vis::Advanced },
-             { P::LandscapeVirtualTextureUpdatesPerFrame, G::Textures, "Textures.LandscapeVirtualTextureUpdatesPerFrame",
-               8, 256, CL::None,
-               "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT pages rendered per "
+             { P::LandscapeVirtualTextureUpdatesPerFrame, G::Textures,
+               "Textures.LandscapeVirtualTextureUpdatesPerFrame", 8, 256, CL::None,
+               "SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality (landscape RVT pages "
+               "rendered per "
                "frame, r.VT.MaxUploadsPerFrame)",
                64, Vis::Advanced },
              { P::ViewDistanceHLODImpostors, G::ViewDistance, "ViewDistance.HLODImpostors", 0, 1, CL::None,
@@ -570,9 +603,22 @@ namespace Common::Scalability
                1, Vis::Advanced },
              { P::ViewDistanceLODDistanceScalePercent, G::ViewDistance, "ViewDistance.LODDistanceScalePercent", 25,
                400, CL::None,
-               "SceneRenderer::BeginScene -> MeshRenderer::SetLODDistanceScale (static + skinned mesh LOD selection "
+               "SceneRenderer::BeginScene -> MeshRenderer::SetLODDistanceScale (static + skinned mesh LOD "
+               "selection "
                "distance, percent)",
                100, Vis::Advanced },
+             { P::EffectsWaterCaustics, G::Effects, "Effects.WaterCaustics", 0, 1, CL::None,
+               "SceneRenderer::OnUpdate -> WaterCaustics::SetEnabled (the sun refracted through the water's waves "
+               "into a 512^2 caustics map the deferred direct pass multiplies the sun under the water by)",
+               1, Vis::Advanced },
+             { P::EffectsWaterWaveMethod, G::Effects, "Effects.WaterWaveMethod", 0,
+               LastOf( kWaterWaveMethodNames.size() ), CL::None,
+               "WaterRenderer::PrepareFrame (an FFT wave set's Tessendorf cascades, or its Gerstner generator)",
+               Of( WaterWaveMethod::FFT ), Vis::Basic },
+             { P::EffectsDecalImpactPoolSize, G::Effects, "Effects.DecalImpactPoolSize", 0, 4096, CL::None,
+               "DecalECSSystem::Update -> DecalImpactPool::SetCapacity (the impact decals World.spawnDecal keeps; "
+               "a spawn into a full ring replaces the oldest; 0 = none)",
+               1024, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).
@@ -611,10 +657,16 @@ namespace Common::Scalability
                 return kReflectionMethodNames;
             if ( parameter == Parameter::ShadowsMethod )
                 return kShadowMethodNames;
+            if ( parameter == Parameter::EffectsWaterWaveMethod )
+                return kWaterWaveMethodNames;
             if ( parameter == Parameter::PathTracingRadianceCache )
                 return kPathTracingRadianceCacheNames;
+            if ( parameter == Parameter::ScreenProbeGatherMethod )
+                return kScreenProbeGatherMethodNames;
             if ( parameter == Parameter::EarlyZPass )
                 return kEarlyZPassNames;
+            if ( parameter == Parameter::BloomMethod )
+                return kBloomMethodNames;
             if ( parameter >= Parameter::DlssPresetNative && parameter <= Parameter::DlssPresetUltraPerformance )
                 return kDlssPresetNames;
             if ( parameter >= Parameter::DlssRRPresetNative &&

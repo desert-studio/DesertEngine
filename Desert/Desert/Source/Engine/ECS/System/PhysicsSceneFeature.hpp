@@ -29,6 +29,12 @@ namespace Desert::ECS
         virtual void BeginFrame() = 0;
         /// The registry made current (listeners attached, the feature's entities synced into the world).
         virtual void Sync( entt::registry& registry ) = 0;
+        /// Before the frame's fixed steps, with the scene's game clock at their start (seconds): a feature's own
+        /// clock is set to it (Water: the wave time the renderer draws at). A feature with no clock does nothing.
+        virtual void BeginSteps( double gameTimeSeconds )
+        {
+            (void)gameTimeSeconds;
+        }
         /// Before each fixed substep (the world's pre-step callback), with its fixed @p dt: a feature's own clock.
         /// A feature with no clock of its own (Destruction) does nothing here.
         virtual void PreStep( float dt )

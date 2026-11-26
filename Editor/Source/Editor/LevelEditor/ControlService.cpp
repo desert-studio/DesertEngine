@@ -1,6 +1,7 @@
 #include "Editor/LevelEditor/ControlService.hpp"
 
 #include "Editor/Baking/MaterialBaking.hpp"
+#include "Editor/Baking/MeshImpostorBaking.hpp"
 
 #include "Editor/Core/AssetOpen.hpp"
 #include "Editor/Core/EditorPreferences.hpp"
@@ -765,7 +766,9 @@ namespace Desert::Editor
         quiescence.Set( Control::PendingWork::EditorHLODs, editorHLODsReading && !behindOverlay );
         // UE's Bake Materials is modal too: the reply to "Bake Material to Textures" waits for the offscreen
         // render and its five texture assets (Editor/Baking/MaterialBaking).
-        quiescence.Set( Control::PendingWork::MaterialBake, ::Desert::Editor::Baking::IsBakeOfSelectionRunning() );
+        // A per-mesh Bake Impostor is the same kind of modal offscreen bake (Editor/Baking/MeshImpostorBaking).
+        quiescence.Set( Control::PendingWork::MaterialBake, ::Desert::Editor::Baking::IsBakeOfSelectionRunning() ||
+                                                                 ::Desert::Editor::Baking::IsImpostorBakeRunning() );
         // Build Minimap the same way: the reply to `run "Build Minimap"` waits for the texture and the block's edit.
         quiescence.Set( Control::PendingWork::MiniMapBuild, miniMapBuildRunning );
         // UE's drop of a source file into the level imports it modally (the factory runs before the actor is
@@ -2365,7 +2368,9 @@ namespace Desert::Editor
                                                        .VsmFallbackSubmeshes = vg.VsmFallbackSubmeshes,
                                                        .Overflow             = vg.Overflow,
                                                        .OccludedClusters     = vg.OccludedClusters,
-                                                       .BinnedVgInstances    = vg.BinnedVgInstances };
+                                                       .BinnedVgInstances    = vg.BinnedVgInstances,
+                                                       .HwClusters           = vg.HwClusters,
+                                                       .SwClusters           = vg.SwClusters };
             }
             // The scene-owned GI pools: one per live scene that brought each up, never one per view.
             for ( const ::Desert::Core::Scene* scene : ::Desert::Core::Scene::LiveScenes() )

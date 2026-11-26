@@ -114,6 +114,7 @@ layout( binding = kSceneShadingWordBinding ) uniform utexture2D SceneShadingWord
 #include <Common/ThinGeometryCoverage.glslh>
 // The body's waves (binding 24, ahead of the tiles): the foam reads the same Gerstner sum the vertex path moved.
 #include <Mesh/Surface/WaterMeshTiles.glslh>
+#include <Water/WaterUnderwater.glslh>
 // The scene's air (WIND-FIELD-GPU): the gust fronts and the local sources the foliage sways by roughen the
 // ripples.
 #include <Common/WindGust.glslh>
@@ -163,8 +164,24 @@ float WaterHenyeyGreenstein( float cosTheta, float g )
 //     the breaker index (McCowan 1894: H / d = 0.78; the material states it, beaches range 0.6-1.2). Between crests
 //     the particle carries only what the last breaker left, so the surf is bands behind each bore, not a sheet.
 // `depth` <= 0: nothing behind the water (open sea), no bottom for a wave to break on.
-float WaterFoamAmount( vec2 label, float time, float jitter, float depth, float atten, SingleLayerWaterOutput w )
+// THE FFT OCEAN keeps no past of its own (each frame is a fresh transform), so its whitecaps read the foam history
+// band instead (WaterFFTFinalize accumulates each cascade's compression and decays it by the body material's
+// FoamDecaySeconds, the same value as below; WaterFFTFoamHistory): the foam trails behind the crest that folded. Its surf has a
+// history of its own, in the world and over the ground (WaterFFTSurfFoam; Programs/Water/WaterSurfFoam.shader).
+float WaterFoamAmount( int waveSet, vec2 label, float time, float jitter, float depth, float atten, float viewDist,
+                       SingleLayerWaterOutput w )
 {
+    if ( waveSet < 0 )
+        return 0.0; // a flat body: no waves to break
+    if ( WaterWavesAreFFT( waveSet ) )
+    {
+        const vec3  weight   = WaterFFTCascadeWeights( viewDist );
+        const float J        = mix( 1.0, 1.0 - WaterFFTFoamHistory( label, weight ), atten );
+        const float whitecap = clamp( ( w.FoamJacobianThreshold - J ) / max( w.FoamJacobianSoftness, 1e-3 ), 0.0, 1.0 );
+        // The still (X, Z) is the label plus the set's origin (WaterWavePlane).
+        const float surf = depth > 0.0 ? WaterFFTSurfFoam( label + WaterWaveSets[waveSet].Header.zw ) : 0.0;
+        return max( whitecap, surf );
+    }
     const int   kAges = 12;
     const float decay = max( w.FoamDecaySeconds, 0.05 );
     const float span  = 2.5 * decay; // e^-2.5: what is older is under a tenth
@@ -173,12 +190,12 @@ float WaterFoamAmount( vec2 label, float time, float jitter, float depth, float 
     {
         const float x        = ( float( k ) + jitter ) / float( kAges );
         const float age      = span * x * x;
-        const float J        = mix( 1.0, WaterWavesJacobian( label, time - age ), atten ); // the damped surface
+        const float J        = mix( 1.0, WaterWavesJacobian( waveSet, label, time - age, viewDist ), atten ); // the damped surface
         const float whitecap = clamp( ( w.FoamJacobianThreshold - J ) / max( w.FoamJacobianSoftness, 1e-3 ), 0.0, 1.0 );
         float       surf     = 0.0;
         if ( depth > 0.0 )
         {
-            const float eta = atten * WaterWavesDisplacement( label, time - age ).y;
+            const float eta = atten * WaterWavesDisplacement( waveSet, label, time - age, viewDist ).y;
             surf = smoothstep( 0.7 * w.FoamBreakerIndex, w.FoamBreakerIndex, 2.0 * eta / max( depth, 1.0 ) );
         }
         foam = max( foam, max( whitecap, surf ) * exp( -age / decay ) );
@@ -188,9 +205,30 @@ float WaterFoamAmount( vec2 label, float time, float jitter, float depth, float 
 
 void main()
 {
-    const SurfaceInput i =
+    SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, DESERT_SURFACE_VARYING_TBN, v_Surface.UV1,
                               DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
+    // A river's tile past its banks (the quadtree leaf overshoots the ribbon): no water there; an ocean drawn under
+    // a river's cut leaf inside them: the river is drawn there (WaterBankClipped).
+    if ( WaterBankClipped( i.WorldPosition.xz, i.VertexColor.b ) )
+        discard;
+    // A river's fall gives way where the river's own surface is drawn (its overlap at the lip and the foot).
+    if ( WaterTileIsFall( i.VertexColor.b ) && WaterFallUnderRiver( i.WorldPosition ) )
+        discard;
+    // The FFT ocean's normal per pixel (WaterPixelWaveFrame): the glint is as sharp as the finest cascade, not the
+    // grid. The ripple maps then bend THIS frame (EvaluateSurface's tangent-space normal goes through i.TBN).
+    mat3 waveTBN;
+    if ( WaterPixelWaveFrame( i.UV1, i.VertexColor, i.CameraPosition, i.Time, waveTBN ) )
+    {
+        const float facing = gl_FrontFacing ? 1.0 : -1.0; // DesertSurfaceInput's two-sided turn
+        i.TBN              = waveTBN * facing;
+        i.Normal           = i.TBN[2];
+    }
+    // The tile's body record (VertexColor.a = 1 + the tile's row: WaterFragmentTile), its wave set (-1 = a flat body)
+    // and the particle's distance for the FFT cascades' fade, all as the vertex path took them.
+    const WaterTileRow tile = WaterFragmentTile( i.VertexColor );
+    const int   waveSet  = WaterWaveSetOf( tile.Body.z );
+    const float viewDist = WaterViewDistance( i.UV1, i.VertexColor.g, i.CameraPosition );
     SurfaceOutput                s = EvaluateSurface( i );
     const SingleLayerWaterOutput w = EvaluateSingleLayerWater( i );
     const float                  windRipple = WaterWindRippleScale( i.WorldPosition, w.WindRippleMaxGain );
@@ -251,7 +289,8 @@ void main()
     const DesertSurface S = DesertMakeSurface( i.WorldPosition, N, V, vec3( 0.0 ), 0.0, s.Roughness, s.Specular );
     const DesertPayload P = DesertQuantizePayload( DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
     // L points toward the sun; DesertSunLight takes the direction its light travels.
-    const DesertLight   sunLight = DesertSunLight( -L, sunLit, sunShadow, sunShadow );
+    const DesertLight   sunLight = DesertSunLight( -L, sunLit, sunShadow, sunShadow,
+                                                         directionLights.directionLights.Direction.w );
     // ...and each point and spot light of the froxel under its shadow (or the MegaLights volume's), through the same
     // model. The volume's scattering stays the sun's and the sky's (UE SingleLayerWater's), so the local lights'
     // isotropic remainder (Indirect) has no diffuse surface to light here.
@@ -284,23 +323,103 @@ void main()
     const vec3 ownLight   = inscat * exposure * through + ( direct + reflected ) * exposure;
     const vec3 water      = behind * seenBehind + ownLight * fog.a + fog.rgb * ( vec3( 1.0 ) - trans * through );
 
-    // --- The foam: where the waves make it (physics, above), how it looks (the material). A thin sheet shows only
-    // the texture's densest cells, a thick one covers; it is a rough diffuse layer on top, lit by the sun and sky. It
+    // --- The foam: where the waves make it (physics, above), how it looks (the material). A fading amount
+    // eats the texture's structure from its edges (a lace of its densest cells, its border softer the thinner it is; a
+    // full amount covers) and its last quarter fades out whole, so a sheet's own border is no cut; it is a rough diffuse layer on top, lit by the sun and sky. It
     // is opaque, so the fog in front of it is the full fog (its light attenuated, the fog's inscattering added).
     const float jitter    = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) +
                                    fract( i.Time * 7.31 ) );
-    // The particle's still (X, Z) - the point the vertex path damped its waves at - for both the depth and the damping.
+    // The particle's still (X, Z) - the point the vertex path damped its waves at - for both the depth and the damping;
+    // the damping by the tile's own body's TargetWaveMaskDepth (WaterTileRow.Medium.x), as the vertex path's.
     const float depth     = WaterGroundDepth( i.UV1, i.VertexColor.g );
-    const float atten     = depth > 0.0 ? GerstnerDepthAttenuation( depth, WaterInfoFrame.w ) : 1.0;
-    const float amount    = clamp( WaterFoamAmount( WaterWavePlane( i.UV1 ), i.Time, jitter, depth, atten, w ), 0.0, 1.0 );
-    const float foam      = amount * smoothstep( 0.85 - amount, 1.25 - amount, w.FoamCoverage );
+    // A flat body (no wave set) makes no wave foam.
+    const float atten     = waveSet >= 0 ? ( depth > 0.0 ? GerstnerDepthAttenuation( depth, max( tile.Medium.x, 1.0 ) ) : 1.0 ) : 0.0;
+    // A river's bank band (WaterRiverBankBand: ~50 cm inside the baked bank line) foams as a shore does, waves or not.
+    const float bankBand  = WaterRiverBankBand( i.WorldPosition.xz, i.VertexColor.b );
+    const float amount    = clamp( max( WaterFoamAmount( waveSet, WaterWavePlane( waveSet, i.UV1 ), i.Time, jitter, depth,
+                                                         atten, viewDist, w ),
+                                        max( bankBand, WaterFallFoam( i.UV0, i.VertexColor ) ) ),
+                                   0.0, 1.0 );
+    const float soft      = mix( 0.25, 0.1, amount );
+    const float foam      = smoothstep( 0.0, 0.25, amount ) *
+                       smoothstep( 1.0 - amount - 2.0 * soft * amount, 1.0 - amount + soft, w.FoamCoverage );
     const vec3  foamN     = normalize( i.Normal );
     const vec3  foamLit   = w.FoamAlbedo * ( sun * max( dot( foamN, L ), 0.0 ) / kWaterPi + DesertAmbientIrradiance( foamN ) );
+
+    // --- THE SURFACE SEEN FROM BELOW (WATER-UNDERWATER; UE SingleLayerWater's back face): the eye is in the water,
+    // so the interface refracts the air above into Snell's window (the sky and the scene over the water, bent toward
+    // the zenith) and past the critical angle (48.6 deg off the normal) reflects the water below in full (total
+    // internal reflection). Then the same medium as the underwater volume (Water/WaterUnderwater.glslh) from the eye
+    // to the surface. No shore fade and no air fog: the eye is under the water.
+    if ( !gl_FrontFacing )
+    {
+        // N faces the eye (WaterFacingNormal): down, into the water. Water to air: eta = 1.333 / 1.0.
+        const vec3  up     = -V;
+        const vec3  T      = refract( up, N, 1.333 );
+        const bool  tir    = dot( T, T ) < 1e-6;
+        const float F0w    = 0.0204; // ((1.333 - 1) / (1.333 + 1))^2
+        const float cosAir = tir ? 0.0 : clamp( dot( T, -N ), 0.0, 1.0 );
+        const float Fw     = tir ? 1.0 : F0w + ( 1.0 - F0w ) * pow( 1.0 - cosAir, 5.0 );
+
+        // What the window lets through: the scene over the water where the bent ray meets it (the opaque copy at
+        // that point's projection, when it is in view and above the water), else the sky along the bent ray; plus
+        // the sun's disc seen through the rough interface.
+        vec3 window = vec3( 0.0 );
+        if ( !tir )
+        {
+            window = ApplySkyGain(
+                          textureLod( EnvironmentSpecularTexture, SkyLookDirection( T, skyLook.YawCosSin.xy ), 0.0 ).rgb,
+                          skyLook.Gain.rgb ) *
+                     exposure;
+            if ( baseDev > 0.0 && baseBack.y > i.WorldPosition.y )
+            {
+                const vec3 aboveAt = i.WorldPosition + T * distance( i.WorldPosition, baseBack );
+                const vec4 aClip   = cameraUB.JitteredViewProjection * vec4( aboveAt, 1.0 );
+                const vec2 aUv     = vec2( 0.5, -0.5 ) * ( aClip.xy / aClip.w ) + 0.5;
+                if ( aClip.w > 0.0 && all( greaterThanEqual( aUv, vec2( 0.0 ) ) ) && all( lessThanEqual( aUv, vec2( 1.0 ) ) ) )
+                {
+                    const float aDev = texture( WaterSceneDepth, aUv ).r;
+                    if ( aDev > 0.0 && WaterWorldAt( aUv, aDev ).y > i.WorldPosition.y )
+                        window = texture( SceneColorTexture, aUv ).rgb; // pre-exposed
+                }
+            }
+            const float r2   = max( s.Roughness * s.Roughness, 2e-3 );
+            const float lobe = exp( ( dot( T, L ) - 1.0 ) / r2 ) / ( kWaterPi * r2 );
+            window += sunLit * sunShadow * lobe * exposure;
+        }
+        // What the interface reflects back down: the water itself (its light scattered at the surface, looking down).
+        const vec3 sigmaSw  = w.ScatteringCoefficients;
+        const vec3 sigmaTw  = max( w.AbsorptionCoefficients + sigmaSw, vec3( 1e-5 ) );
+        const vec3 skyIrrW  = DesertAmbientIrradiance( vec3( 0.0, 1.0, 0.0 ) );
+        const vec3 mirrored = UnderwaterInscatterRadiance( sigmaSw, sigmaTw, w.PhaseG, reflect( up, N ), L, sun,
+                                                           skyIrrW, 0.0 ) *
+                              exposure;
+        vec3 under = window * ( 1.0 - Fw ) + mirrored * Fw;
+        // The foam on top, seen against the light: its lit layer over the window.
+        under = mix( under, foamLit * exposure, foam );
+        // The medium from the eye up to the surface.
+        vec3       fogIn;
+        const vec3 fogT = UnderwaterSegment( sigmaSw, sigmaTw, w.PhaseG, up,
+                                             max( i.WorldPosition.y - i.CameraPosition.y, 0.0 ),
+                                             distance( i.CameraPosition, i.WorldPosition ), L, sun, skyIrrW, fogIn );
+        oColor = vec4( under * fogT + fogIn * exposure, 1.0 );
+        if ( w.DebugFoamMask > 0.5 )
+            oColor = vec4( vec3( amount ) * exposure * 4.0, 1.0 );
+        oVelocity             = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip, v_Surface.ObjectMoved );
+        oThinGeometryCoverage = kThinGeometryCoverageSurface;
+        return;
+    }
 
     // --- The shore (UE's water material depth fade): where the surface meets the ground or a mesh, the water
     // column along the view ray goes to zero and the surface fades into the unbent scene behind it, so the
     // meeting line is soft wherever the two surfaces cross - no hard intersection edge.
-    const float shore = w.ShoreFadeCm > 0.0 ? smoothstep( 0.0, w.ShoreFadeCm, baseLen ) : 1.0;
+    // A river's surface also fades in over the bank mask's bilinear edge (WATER_RIVER_BANK_CLIP = the clip line,
+    // WaterOutsideBank; 1 a half 50 cm texel inside), so the clip is never a hard edge where the bank's ground stands
+    // below the baked level.
+    const float bankFade = i.VertexColor.b > 0.5 && !WaterTileIsFall( i.VertexColor.b )
+                               ? smoothstep( WATER_RIVER_BANK_CLIP, 1.0, WaterFlowAt( i.WorldPosition.xz ).z )
+                               : 1.0;
+    const float shore    = ( w.ShoreFadeCm > 0.0 ? smoothstep( 0.0, w.ShoreFadeCm, baseLen ) : 1.0 ) * bankFade;
     const vec3  plain = texture( SceneColorTexture, uv ).rgb;
 
     oColor = vec4( mix( plain, mix( water, foamLit * exposure * fog.a + fog.rgb, foam ), shore ), 1.0 );

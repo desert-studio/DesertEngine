@@ -435,6 +435,10 @@ namespace Desert::Graphic
         // The frame asks for the async compute queue (RDG::PassFlags::AsyncCompute): set by the frame code that
         // adds the nodes, which knows how far the first reader is, never by the system that declares them.
         bool AsyncCompute = false;
+        // With AsyncCompute: the frame fixed the queue of the node's whole chain
+        // (RDG::PassFlags::AsyncComputeFixed), so the measured async balance never moves one node of it to
+        // Graphics.
+        bool AsyncComputeFixed = false;
     };
 
     // A system's compute nodes of one frame (AddComputeNodes). CPU-RDG-ALLOC: in the frame graph's arena

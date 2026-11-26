@@ -94,6 +94,7 @@ namespace Common::Content
         VFXModule,
         IesProfile,
         SparseVolume,
+        DataAsset,
         COUNT,
     };
 
@@ -225,10 +226,13 @@ namespace Common::Content
              // UE UTextureLightProfile: one IES photometric profile a local light names (Engine/Assets/
              // Serialization/IesProfile.hpp), imported from a `.ies` beside it (Editor/Import/IesProfileImporter).
              /* IesProfile           */ { "IesProfile", ".dies", &P::ASSETS_PATH },
-             // A baked sparse volume (UE USparseVolumeTexture, Engine/Assets/SparseVolume.hpp): a simulated smoke /
-             // fire grid as bricks + page table, imported from a `.vol` beside it; a HeterogeneousVolumeComponent
-             // names it by handle.
+             // A baked sparse volume (UE USparseVolumeTexture, Engine/Assets/SparseVolume.hpp): a simulated smoke
+             // / fire grid as bricks + page table, imported from a `.vol` beside it; a
+             // HeterogeneousVolumeComponent names it by handle.
              /* SparseVolume         */ { "SparseVolume", ".dsvol", &P::ASSETS_PATH },
+             // A game's typed data asset (UE UPrimaryDataAsset, Engine/Assets/Serialization/DataAsset.hpp): a
+             // reflected struct a game module registers by name (DataAssetTypeRegistry), one kind for all of them.
+             /* DataAsset            */ { "DataAsset", ".dasset", &P::ASSETS_PATH },
         } };
     }
 

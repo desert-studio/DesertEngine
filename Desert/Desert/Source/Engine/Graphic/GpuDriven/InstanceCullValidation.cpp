@@ -87,6 +87,41 @@ namespace Desert::Graphic::GpuDriven
             return false;
         }
 
+        // InstanceCull.shader ImpostorGate (THE IMPOSTOR SWITCH, WP-FAR-12F): bit 0 = the impostor side is drawn
+        // at the older temporal sample, bit 1 = at the newer; 3 for every row that is not a pair, 0 = culled. The
+        // source draws NEAR, the card FAR of the row's switch screen size (LocalBoundsExtent.w).
+        uint32_t ImpostorGate( const GpuCullView& view, const GpuScenePrimitive& primitive, const glm::mat4& world,
+                               const bool emptyBounds )
+        {
+            const bool card   = ( primitive.Flags & PrimitiveFlags::kImpostorCard ) != 0u;
+            const bool source = ( primitive.Flags & PrimitiveFlags::kImpostorSource ) != 0u;
+            if ( !card && !source )
+                return 3u;
+            const float halfSize = 0.5f * primitive.LocalBoundsExtent.w;
+            if ( ( view.Flags & CullViewFlags::kLodDisabled ) != 0u || emptyBounds || halfSize <= 0.0f )
+                return card ? 0u : 3u;
+            const float scale = std::max(
+                 glm::length( glm::vec3( world[0] ) ),
+                 std::max( glm::length( glm::vec3( world[1] ) ), glm::length( glm::vec3( world[2] ) ) ) );
+            const glm::vec3 extent( primitive.LocalBoundsExtent );
+            const float     radius = glm::length( 2.0f * extent ) * 0.5f * scale;
+            const glm::vec3 centre =
+                 glm::vec3( world * glm::vec4( glm::vec3( primitive.LocalBoundsCenter ), 1.0f ) );
+            const bool dither = ( view.Flags & CullViewFlags::kLodDither ) != 0u;
+            uint32_t   gate   = 0u;
+            for ( uint32_t sample = 0; sample < 2u; ++sample )
+            {
+                const Geometry::LODView at{ .Origin        = dither ? glm::vec3( view.LodTemporalOrigins[sample] )
+                                                                    : glm::vec3( view.LodOrigin ),
+                                            .Projection    = view.LodProjection,
+                                            .DistanceScale = view.LodDistanceScale };
+                const bool isFar = halfSize * halfSize > Geometry::BoundsScreenRadiusSquared( centre, radius, at );
+                if ( isFar == card )
+                    gate |= 1u << sample;
+            }
+            return gate;
+        }
+
         // InstanceCull.shader CoversDrawnVsmCell (:138-171), over the host copy of "VSM: Dirty Mask".
         bool CoversDrawnVsmCell( const GpuCullView& view, const glm::vec3& boxMin, const glm::vec3& boxMax,
                                  std::span<const uint32_t> mask )
@@ -329,6 +364,10 @@ namespace Desert::Graphic::GpuDriven
                         box.Min -= glm::vec3( pad, 0.0f, pad );
                         box.Max += glm::vec3( pad, 0.0f, pad );
                     }
+                    // InstanceCull.shader: the impostor pair's side drawn at neither temporal sample is culled.
+                    const uint32_t impostorGate = ImpostorGate( view.Gpu, primitive, world, empty );
+                    if ( impostorGate == 0u )
+                        return 0u;
                     if ( !empty )
                     {
                         bool inside = view.Frustum.Intersects( box );
@@ -391,7 +430,8 @@ namespace Desert::Graphic::GpuDriven
                     const bool movableCaster =
                          ( ( primitive.Flags & PrimitiveFlags::kMovableCaster ) != 0u && !restPose ) ||
                          DrawsLodDithered( passSlots.PrimitiveDraws, passSlots.DrawSlots, instance.Primitive, lod,
-                                           older );
+                                           older ) ||
+                         impostorGate == 1u || impostorGate == 2u; // an impostor side fading in its switch band
                     if ( ( ( view.Gpu.Flags & CullViewFlags::kCasterStaticLayer ) != 0u && movableCaster ) ||
                          ( ( view.Gpu.Flags & CullViewFlags::kCasterMovableLayer ) != 0u && !movableCaster ) )
                         return 0u;

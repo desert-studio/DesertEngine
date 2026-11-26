@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -39,35 +40,36 @@ namespace Desert::Graphic::System
         bool operator==( const LandscapeVirtualTextureQuality& ) const = default;
     };
 
-    // One queued tile as the page render reads it: its rectangle on the ground (cm) and its hit-group row
-    // (RayTracing::LandscapeRayHitRow, the per-frame view fields zeroed), and the key whose change re-renders the
-    // resident pages over the rectangle (a paint stroke: Weights.Revision; a material or layer edit: the row).
+    // One queued tile as the page render reads it: its rectangle on the ground (cm), its hit-group row
+    // (RayTracing::LandscapeRayHitRow, the per-frame view fields zeroed; Weightmap.w = the heightmap's bindless
+    // slot), the world heights its samples can span (cm), and the key whose change re-renders the resident pages
+    // over the rectangle (a paint stroke: Weights.Revision; a sculpt stroke: the heightmap's generation; a
+    // material or layer edit: the row).
     struct LandscapeVirtualTextureTile
     {
         glm::vec2                       Origin{ 0.0f }; // x, z (cm) of the tile's corner
         float                           Side = 0.0f;    // cm
         Core::Formats::MaterialParamRow Row;
-        uint64_t                        Key = 0u;
+        float                           HeightMin = 0.0f; // cm: the lowest sample (0) and the highest (65535)
+        float                           HeightMax = 0.0f;
+        uint64_t                        Key       = 0u;
     };
 
     // What the G-buffer binds (TerrainGBuffer.shader, Common/LandscapeVirtualTexture.glslh). Valid only in the
     // graph AddPasses declared them in. A disabled view binds a zero header (the shader then blends per pixel).
-    struct LandscapeVirtualTextureBindings
-    {
-        RDG::BufferRef  PageTable;
-        RDG::TextureRef Color;
-        RDG::TextureRef Normal;
-        RDG::TextureRef Occlusion;
-        RDG::BufferRef  Feedback;
-    };
+    // One statement of the five refs: the frame graph's (FrameTransients::LandscapeVirtualTexture), published by
+    // TerrainRenderer::AddVirtualTexturePasses and bound by name by BindSceneViewInputs.
+    using LandscapeVirtualTextureBindings = LandscapeVirtualTextureRefs;
 
     // THE LANDSCAPE'S RUNTIME VIRTUAL TEXTURE (LANDSCAPE-RVT; UE Runtime Virtual Texture for landscape): the
     // layer blend (Common/LandscapeSurface.glslh EvaluateLandscapeLayers: albedo, tangent-space normal,
-    // roughness, occlusion - a function of the ground's xz alone, so sculpting does not invalidate a page)
-    // rendered once into 128-texel pages (+4 border) of a virtual square over the queued tiles, kept in three
-    // persistent atlases and sampled by the G-buffer through one page table. The G-buffer marks the pages it wants
-    // in a feedback bit field, read back frames later; the CPU keeps the mirror, the LRU and the invalidation.
-    // Owned by TerrainRenderer, one per view.
+    // roughness, occlusion - a function of the ground's xz alone - and the ground's world height, UE's WorldHeight
+    // RVT, which a sculpt stroke re-renders through the tile's key) rendered once into 128-texel pages (+4 border)
+    // of a virtual square over the queued tiles, kept in four persistent atlases and sampled through one page
+    // table by the G-buffer and by every mesh that blends into the ground
+    // (Mesh/Surface/SurfaceLandscapeBlend.glslh). A reader marks the pages it wants in a feedback bit field, read
+    // back frames later; the CPU keeps the mirror, the LRU and the invalidation. Owned by TerrainRenderer, one per
+    // view.
     class LandscapeVirtualTexture
     {
     public:
@@ -150,6 +152,8 @@ namespace Desert::Graphic::System
     RDG::ExternalTexture      m_Color;
     RDG::ExternalTexture      m_Normal;
     RDG::ExternalTexture      m_Occlusion;
+    RDG::ExternalTexture      m_Height;
+    glm::vec2                 m_HeightRange{ 0.0f }; // cm: the height atlas' 0 and 1 (header words 28, 29)
     std::vector<FeedbackSlot> m_Feedback;
 
     std::shared_ptr<ComputePipeline> m_PagePipeline;

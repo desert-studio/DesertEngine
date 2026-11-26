@@ -313,6 +313,9 @@ namespace Desert::Core
         {
             uint32_t                               Set     = 0;
             bool                                   Sampled = false;
+            // Declared by a ray generation: its layout is the hit group table's (Common/RayTracingSceneReads.glslh,
+            // VulkanRayTracingPipeline), so the hit cells sample through it even when no stage of this program does.
+            bool                                   ForHitCells = false;
             std::vector<std::pair<size_t, size_t>> Words; // (stage index, binding word)
             std::string                            Declaring;
         };
@@ -364,6 +367,7 @@ namespace Desert::Core
                              shaderName, resource.Name, entry.Set, resource.Set );
                     entry.Set = resource.Set;
                     entry.Sampled |= resource.Sampled;
+                    entry.ForHitCells |= stages[s].Stage == Core::Formats::ShaderStage::RayGen;
                     entry.Words.emplace_back( s, resource.BindingWord );
                     entry.Declaring += std::format( "{}{}", entry.Declaring.empty() ? "" : ", ", stageName );
                     continue;
@@ -401,7 +405,7 @@ namespace Desert::Core
 
         for ( auto& [name, entry] : shared )
         {
-            if ( !entry.Sampled )
+            if ( !entry.Sampled && !entry.ForHitCells )
                 return Common::MakeFormattedError(
                      "shader '{}': the shared sampler '{}' is declared in [{}] and no stage samples through it; "
                      "declare it in the stage that samples, or remove it",

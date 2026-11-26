@@ -5,6 +5,10 @@
 // (vertex colour, UV1; a mesh without them binds the shared white / (0,0) buffer at the same stride) — and
 // DesertMeshTextureUV, GENERATED from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp). The full
 // set in every pass: an input a depth cell does not read costs nothing, a subset would be a second list.
+#if defined( DESERT_SURFACE_VIRTUAL_GEOMETRY ) && defined( DESERT_SURFACE_PASS_VisibilityResolve )
+// The VG visibility resolve (VG-SW-RASTER): tiles, not clusters.
+#include <Mesh/Surface/Vertex_VgVisibilityResolve.glslh>
+#else
 #ifdef DESERT_SURFACE_VIRTUAL_GEOMETRY
 // THE VIRTUAL GEOMETRY CELL (`.VirtualGeometry`, DShaderParser kSurfaceVirtualGeometryPaths; a binned cell; UE:
 // Nanite's instanced static mesh): no vertex buffer - one draw instance is one visible cluster of ONE instance of
@@ -436,3 +440,4 @@ void main()
 #endif
 }
 #endif // DESERT_SURFACE_PASS_VisibilityResolve
+#endif // the VG visibility resolve

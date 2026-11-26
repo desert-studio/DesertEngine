@@ -821,17 +821,17 @@ namespace Desert::Graphic
         gather.AdaptiveProbePercent = m_ScreenProbeAdaptivePercent;
         gather.ShortRangeAO         = m_ScreenProbeShortRangeAO;
         gather.SparseStableRays     = m_ScreenProbeSparseStableRays;
+        gather.ReSTIR               = m_ReSTIRGather;
         gather.Downsample           = m_ScreenProbeDownsample;
         gather.TracedTexels         = m_ScreenProbeTracedTexels;
         gather.PrevViewProjection = frame.PrevViewProjection;
         gather.PrevCameraPosition = frame.PrevCameraPosition;
         gather.PrevPreExposure      = frame.PrevPreExposure;
         gather.PreExposure          = frame.PreExposure;
-        // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history, or the
-        // system black texture with the leg off when the view has no screen trace.
-        gather.HZB = screenTrace.HZB.IsValid() ? screenTrace.HZB : refs.System.Black;
-        gather.SceneColorHistory =
-             screenTrace.SceneHistory.IsValid() ? screenTrace.SceneHistory : refs.System.Black;
+        // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history; without a
+        // screen trace both stay invalid and the leg is its no-walk permutation (nothing stands in for them).
+        gather.HZB               = screenTrace.HZB;
+        gather.SceneColorHistory = screenTrace.SceneHistory;
         gather.SceneColorHistoryReadable =
              screenTrace.HZB.IsValid() && screenTrace.SceneHistory.IsValid() && screenTrace.SceneHistoryReadable;
         // The temporal filter's reprojection and the view's own history (SceneViewState, never the gather's).
@@ -839,7 +839,6 @@ namespace Desert::Graphic
         gather.JitterNdc        = frame.JitterNdc;
         gather.PrevJitterNdc    = frame.PrevJitterNdc;
         gather.ViewHistoryValid = frame.HistoryValid();
-        gather.Black            = refs.System.Black;
         // The gather denoises on every temporal method, Ray Reconstruction too: its noise is the screen probes'
         // - probe-sized, spatially correlated - which RR (made for per-pixel ray noise) keeps as dark blobs that
         // come and go on a still wall (FIELD_Barn face under RR: a 170..721 px patch in 1 of 8 still shots
@@ -957,6 +956,42 @@ namespace Desert::Graphic
              { deferred->DeclareGridBindings( pass, lights, LightGridLayout::WorldClipmaps ); },
              [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->RecordGrid( context, cells ); } );
+    }
+
+    // WATER-CAUSTICS: the sun refracted through this frame's water waves onto the floor ("Water: Caustics Splat" /
+    // "Resolve"), for every sun receiver of the view (SceneViewInputs::WaterCausticsMap / WaterCausticsFrame: the
+    // deferred direct pass, the forward meshes, the glass, the forward terrain). Overwrites the graph's 'off' pair
+    // (FrameTextures::SetSceneViewInputsOff, factor exactly 1) only when the caustics draw this frame.
+    void SceneRendererImpl::AddFrameWaterCaustics( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    {
+        // A scene capture (ViewProfile::SceneCapture: a reflection capture's face view) keeps the 'off' pair: its
+        // cube lives for many frames, and one instant of the moving pattern frozen into it would light the
+        // captured floor with lines that no longer follow the waves. So does a view without the system (it
+        // is the water module's, SingleLayerWaterPass.hpp) or with Effects.WaterCaustics 0 - the latter imports
+        // nothing, so its graph is the graph without caustics.
+        System::ISingleLayerWaterPass* const water = m_Systems.Water.get();
+        if ( m_ViewProfile.SceneCapture || water == nullptr || !water->CausticsEnabled() )
+            return;
+        const FrameGraphRefs                         refs = textures.GraphRefs();
+        System::ISingleLayerWaterPass::CausticsInputs caustics{ .SunTravel = glm::vec3( GetFrameSun().Direction ),
+                                                                .Camera    = frame.CameraPosition,
+                                                                .TimeSeconds = static_cast<float>( frame.TimeSeconds ),
+                                                                .Black       = refs.System.Black };
+        if ( water->FrameHasWaves() )
+        {
+            if ( water->GetWaterInfo() != nullptr )
+                caustics.WaterInfo =
+                     textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
+            // The FFT ocean's atlas the surface draws with (recorded once per graph; black without an FFT set).
+            caustics.FFTWaves = FrameWaterWaves( graph, textures );
+        }
+        const std::optional<System::ISingleLayerWaterPass::CausticsFrame> made =
+             water->AddCausticsPasses( graph, caustics );
+        if ( made.has_value() )
+        {
+            textures.Transients.WaterCausticsMap   = made->Map;
+            textures.Transients.WaterCausticsFrame = made->Row;
+        }
     }
 
     void SceneRendererImpl::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
@@ -2162,6 +2197,7 @@ namespace Desert::Graphic
         graph.QueueBufferUpload( inputs.CloudShadow,
                                  std::as_bytes( std::span<const CloudShadowUniforms>( &cloudShadow, 1 ) ) );
         inputs.HitGroups       = &m_ReflectionHitGroups;
+        inputs.SceneReads      = AddFrameRayTracingSceneReads( graph, textures );
         auto emissive          = AddFrameEmissiveLights( graph );
         if ( !emissive )
             return Common::MakeError( emissive.GetError() );
@@ -2174,7 +2210,8 @@ namespace Desert::Graphic
         // The angle one pixel subtends at the centre of the view: the camera ray's cone (ray cone LOD).
         inputs.PixelSpread     = std::atan( 2.0f / ( frame.Projection[1][1] * static_cast<float>( extent.y ) ) );
         inputs.SceneHash       = PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash,
-                                                       cloudShadow, frame.GrassLens );
+                                                       cloudShadow, frame.GrassLens ) ^
+                                 RayTracingSceneReadsHash();
         inputs.DynamicGeometry = rt.DynamicGeometry;
         // PathTracing.Denoiser RR and the upscaler this frame resolves with denoises: the paths go to it raw
         // (System::PathTracer, THE DENOISER). Asked of the upscaler that was made too: a runtime refusal reaches
@@ -2359,6 +2396,7 @@ namespace Desert::Graphic
 
         System::SSRRenderer::TracedReads reads;
         reads.Tracer = MakeTracerFrame( graph, textures, tracer );
+        reads.SceneReads = AddFrameRayTracingSceneReads( graph, textures );
         if ( const std::string_view missing = GlobalIllumination::TracerFrameMissing( reads.Tracer );
              !missing.empty() )
             return refuse( missing );
@@ -2592,30 +2630,43 @@ namespace Desert::Graphic
         if ( worldList )
         {
             using Stage = System::SSRRenderer::TraceStage;
+            // FPS-SSR-FARFIELD: the front layer's software legs run on the async pipe (SSRRenderer::
+            // WorldStagePassFlags), the opaque surface's on Graphics.
+            const RDG::PassFlags worldFlags = ssr.WorldStagePassFlags( *worldList );
             const auto addWorldPass = [&]( const char* const name, const Stage stage, const RDG::BufferRef args )
             {
                 graph.AddPass(
-                     name, RDG::PassFlags::Compute,
+                     name, worldFlags,
                      [&, stage]( RDG::PassBuilder& pass )
                      {
                          ssr.DeclareTraceBindings( pass, trace, traceRay, tiles, inputs, velocity, sceneHistory, hzb,
                                                    traceUniforms, stage, listPtr, worldPtr, tracedPtr, frontPtr );
                      },
                      [ssrPtr = &ssr, cameraPos = glm::vec4( frame.CameraPosition, 1.0f ), settings,
-                      sceneHistoryReadable, seed, stage, args]( RDG::PassContext& context ) -> Common::BoolResultStr {
+                      sceneHistoryReadable, seed, stage,
+                      args]( RDG::PassContext& context ) -> Common::BoolResultStr {
                          return ssrPtr->RecordWorldList( context, cameraPos, settings, sceneHistoryReadable, seed,
                                                          stage, args );
                      } );
             };
-            addWorldPass( hardwareTraced ? "Deferred: Reflections World (HardwareTraced)"
-                                         : "Deferred: Reflections World (SoftwareTraced)",
+            // The front layer's legs are named apart from the opaque surface's: the async balance and the profiler
+            // key a pass by its name, and the two renderers' legs run on different queues.
+            const bool frontLegs = frontLayer != nullptr;
+            addWorldPass( hardwareTraced
+                               ? ( frontLegs ? "Translucency: Front Layer Reflections World (HardwareTraced)"
+                                             : "Deferred: Reflections World (HardwareTraced)" )
+                               : ( frontLegs ? "Translucency: Front Layer Reflections World (SoftwareTraced)"
+                                             : "Deferred: Reflections World (SoftwareTraced)" ),
                           Stage::World, worldList->Args );
             if ( worldList->Legs )
             {
-                addWorldPass( "Deferred: Reflections World Far Field (SoftwareTraced)", Stage::WorldFarField,
-                              worldList->Far );
-                addWorldPass( "Deferred: Reflections World Hit Lighting (SoftwareTraced)", Stage::WorldHitLighting,
-                              worldList->Hits );
+                addWorldPass( frontLegs ? "Translucency: Front Layer Reflections World Far Field (SoftwareTraced)"
+                                        : "Deferred: Reflections World Far Field (SoftwareTraced)",
+                              Stage::WorldFarField, worldList->Far );
+                addWorldPass( frontLegs
+                                   ? "Translucency: Front Layer Reflections World Hit Lighting (SoftwareTraced)"
+                                   : "Deferred: Reflections World Hit Lighting (SoftwareTraced)",
+                              Stage::WorldHitLighting, worldList->Hits );
             }
         }
         if ( hitLit )
@@ -2788,6 +2839,8 @@ namespace Desert::Graphic
                 const SceneViewInputs   view  = SceneViewInputsOf( textures.GraphRefs() );
                 const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
                 const bool              load  = writers.Meshes;
+                // The FFT ocean's waves, recorded here when the front layer is their first reader this frame.
+                const RDG::TextureRef waves = FrameWaterWaves( graph, textures );
                 graph.AddPass(
                      "Translucency: Front Layer G-buffer (Water)", RDG::PassFlags::Raster,
                      [&]( RDG::PassBuilder& pass )
@@ -2799,7 +2852,7 @@ namespace Desert::Graphic
                          pass.ColorTarget( 0, surface.Normal, colorLoad );
                          pass.ColorTarget( 1, surface.Velocity, colorLoad );
                          pass.DepthTarget( surface.Depth, depthLoad );
-                         water->DeclareFrontLayerDraws( pass, waterInfo, view, frame );
+                         water->DeclareFrontLayerDraws( pass, waterInfo, waves, view, frame );
                      },
                      [water]( RDG::PassContext& context ) -> Common::BoolResultStr
                      { return water->RenderFrontLayerManual( context ); } );

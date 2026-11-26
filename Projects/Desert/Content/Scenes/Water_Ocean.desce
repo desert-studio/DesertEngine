@@ -5,11 +5,11 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 76,
+            "SCNE": 77,
             "UNIT": 1,
             "WPAR": 14
         },
-        "Dependencies": ["5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91", "95cdc28154e34f40b1ff8399d707b5b8", "c730e67be3da4598b852ba1021a94692", "cc91578c315f46bdacd58fde6183a144", "f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
+        "Dependencies": ["5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91", "95cdc28154e34f40b1ff8399d707b5b8", "b13683e714584f4889f5e1f86ac62049", "c730e67be3da4598b852ba1021a94692", "f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
     },
     "SceneName": "Water_Ocean",
     "Entities": [
@@ -36,15 +36,20 @@
             "Scale": [1.0, 1.0, 1.0],
             "WaterBody": {
                 "WaterWaves": {
-                    "Guid": "cc91578c315f46bdacd58fde6183a144",
-                    "Path": "assets:Water/Waves/ShoreSwell.dwaves"
+                    "Guid": "b13683e714584f4889f5e1f86ac62049",
+                    "Path": "assets:Water/Waves/FFTOcean.dwaves"
                 },
                 "OceanExtents": [4096000.0, 4096000.0],
                 "TargetWaveMaskDepth": 200.0,
                 "WaterMaterial": {
                     "Guid": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
                     "Path": "assets:Water/Materials/M_Water_Ocean.demat"
-                }
+                },
+                "Type": 0,
+                "RiverSpline": [],
+                "RiverWidth": 800.0,
+                "RiverFlowSpeed": 150.0,
+                "RiverFlowPeriod": 1.0
             }
         },
         {
@@ -308,6 +313,22 @@
             }
         },
         {
+            "id": 7302958142618440311,
+            "siblingIndex": 19,
+            "Tag": "Wind Source",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "WindSource": {
+                "Direction": [1.0, 0.0, 0.0],
+                "Speed": 1200.0,
+                "PointWind": false,
+                "Radius": 1000.0,
+                "Gustiness": 0.5,
+                "GustSize": 2000.0
+            }
+        },
+        {
             "id": 7480392879292652412,
             "siblingIndex": 11,
             "Tag": "PostProcessVolume",
@@ -390,6 +411,8 @@
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
                     "LensDispersion": 0.0,
+                    "BloomConvolutionKernel": 0,
+                    "BloomConvolutionScale": 1.0,
                     "DepthOfFieldFocalDistance": 0.0,
                     "DepthOfFieldFstop": 4.0,
                     "DepthOfFieldSensorWidth": 24.576000213623047,

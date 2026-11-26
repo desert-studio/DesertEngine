@@ -107,6 +107,9 @@ namespace Desert::Runtime
         // No scene argument: every VFXWorld holds the type's asset and reads its levels each tick, so the
         // re-read in place IS the whole of the reload - the next tick culls and scales by the new levels.
         void PollVFXEffectTypes( Assets::AssetManager& assetManager );
+        // No scene argument: a data asset's readers ask DataAsset::Get each time, and a re-read of the same type
+        // assigns into the payload they point at - the re-read in place IS the whole of the reload.
+        void PollDataAssets( Assets::AssetManager& assetManager );
         // No scene argument: VFXSystemService hands every VFXComponent the asset's current snapshot and follows
         // its EditSerial, so the re-read in place IS the whole of the reload.
 

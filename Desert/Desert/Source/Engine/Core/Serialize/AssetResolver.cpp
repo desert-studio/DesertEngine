@@ -1,5 +1,6 @@
 #include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Core/Serialize/ComponentSerializerKit.hpp>
+#include <Engine/Assets/DataAsset.hpp>
 
 namespace Desert::Core::Serialize
 {
@@ -354,6 +355,18 @@ namespace Desert::Core::Serialize
                 auto a = mgr.FindByPath<Assets::WeatherPresetAsset>( full );
                 if ( !a )
                     a = m.CreateAsset<Assets::WeatherPresetAsset>( full, /*loadAfterCreate=*/false );
+                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
+            }
+            if ( type == "DataAsset" )
+            {
+                // A game's typed data asset (a weapon component's WeaponDef, ASSET-TYPES-OPEN). Read here, not
+                // announced: no service owns a `.dasset`, its reader asks DataAsset::Get when it plays.
+                const std::filesystem::path full = FileForStoredReference( path, type );
+                if ( full.empty() )
+                    return 0;
+                auto a = mgr.FindByPath<Assets::DataAsset>( full );
+                if ( !a )
+                    a = m.CreateAsset<Assets::DataAsset>( full, /*loadAfterCreate=*/true );
                 return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
             }
             if ( type == "PhysicsAsset" )

@@ -823,9 +823,15 @@ namespace Desert::Runtime
         const TextureStreamingSettings& settings = m_StreamingSettings;
         const auto&                     demand   = Graphic::TextureStreamingDemand::Get().TakeFrame();
         // THE POOL (r.Streaming.PoolSize), read before the table lock: the scalability state is not the table's.
-        const uint64_t budget = static_cast<uint64_t>( Common::Scalability::QualityState::Resolved().As<uint32_t>(
+        // The row is the most the pool may take; what it gets of it is the video memory's answer (GpuMemoryBudget),
+        // never under a quarter of it - one mip less of everything the row would hold.
+        const uint64_t poolRow = static_cast<uint64_t>( Common::Scalability::QualityState::Resolved().As<uint32_t>(
                                      Common::Scalability::Parameter::TextureStreamingPoolMiB ) ) *
-                                1024ull * 1024ull;
+                                 1024ull * 1024ull;
+        m_PoolBudget.Declare(
+             poolRow / 4u, poolRow,
+             Graphic::TextureStreamingDemand::Get().Pool().ResidentBytes.load( std::memory_order_relaxed ) );
+        const uint64_t budget = m_PoolBudget.Grant();
         // DECIDED SHARED, COMMITTED EXCLUSIVE ONLY WHERE A ROW MOVES (CPU-ONE-SYNC step 12; UE
         // FRenderAssetStreamingManager: residency and wanted mips are read without blocking readers, the pending
         // changes are listed, one short commit applies them). A render worker's Require hit, Get and AwaitedBy

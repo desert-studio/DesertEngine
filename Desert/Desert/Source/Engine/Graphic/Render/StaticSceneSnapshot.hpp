@@ -41,6 +41,7 @@ namespace Desert::Graphic::Render
         bool               CastShadows              = true;
         bool               ReceiveShadows           = true;
         bool               CastContactShadow        = true;
+        bool               ReceivesDecals           = true; // StaticMeshComponent::ReceivesDecals (UE bReceivesDecals)
         // THE IMPOSTOR PAIR (WP-FAR-12E; UE ImpostorBaker's far card as a mesh's last level, the SpeedTree
         // billboard LOD): a StaticMeshComponent naming an Impostor draws as TWO slots - the source sections and
         // the card (Core::HLODImpostorCardMesh with its M_I ImpostorSurface material) - and every view admits
@@ -93,7 +94,12 @@ namespace Desert::Graphic::Render
         uint32_t Section                                         = 0; // into StaticSceneChunk::Sections
         int      ForcedLOD                                       = -1;
         uint64_t MeshRevision                                    = 0;
-        bool     operator==( const StaticSceneAdmission& ) const = default;
+        // WP-FAR-12F: the SOURCE side of an impostor pair that this view draws as its card at both temporal
+        // samples. Still queued, for the ray tracing scene alone (UE keeps the source mesh in the TLAS at every
+        // distance; the card never enters it): raster skips it (MeshRenderer: no slot walk, no shadow caster row),
+        // and the GPU cull's ImpostorGate culls its row in every view.
+        bool RayTracingOnly                                      = false;
+        bool operator==( const StaticSceneAdmission& ) const     = default;
     };
 
     // ONE VIEW'S ADMISSION OF THE RETAINED STATIC SCENE, KEPT ACROSS FRAMES (UE FScene: per-frame work only over

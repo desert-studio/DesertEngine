@@ -5,10 +5,10 @@
       "args": [
         "Tools/DesertCtl/mcp/desert_mcp.py",
         "--socket",
-        "/tmp/desert-editor.sock"
+        "${DESERT_EDITOR_SOCKET:-/tmp/desert-editor.sock}"
       ],
       "env": {
-        "DESERTCTL": "build/Bin/Debug/DesertCtl"
+        "DESERTCTL": "${DESERTCTL:-}"
       }
     }
   }

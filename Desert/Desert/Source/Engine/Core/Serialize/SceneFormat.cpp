@@ -1,23 +1,11 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/SceneUpgrade.hpp>
 
 #include <Common/Content/AssetRedirector.hpp>
 #include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Core
 {
-    namespace
-    {
-        // Where the build this message came from actually put the tool. NDEBUG is the only configuration
-        // marker the workspace defines (cmake/DesertWorkspace.cmake), so this is the whole choice - and
-        // naming the wrong directory would send the reader to a binary that is not there, which is the same
-        // dead end as naming no command at all.
-#ifdef NDEBUG
-        constexpr const char* kMigratorPath = "build/Bin/Release/SceneMigrator";
-#else
-        constexpr const char* kMigratorPath = "build/Bin/Debug/SceneMigrator";
-#endif
-    } // namespace
-
     std::string RefuseSceneVersion( std::string_view source, int foundSceneVersion, int foundUnitVersion,
                                     int foundWorldPartitionVersion, int foundAssetRefVersion,
                                     int foundLightVersion )
@@ -25,13 +13,13 @@ namespace Desert::Core
         return fmt::format(
              "[SceneSerializer] '{0}' is at scene schema v{1} / world units v{2} / world partition v{3} / asset references "
              "v{8} / lights v{10}, and this engine loads scene schema v{4} / world units v{5} / world partition v{6} / "
-             "asset references v{9} / lights v{11} only. NOTHING WAS "
-             "LOADED - no entity, no setting and no scene name was taken from this file, and the scene is exactly "
-             "as it was. The engine does not convert old scenes any more; Tools/SceneMigrator does, once, and "
-             "writes the file back. Run:  {7} \"{0}\"",
+             "asset references v{9} / lights v{11}, and upgrades in memory from scene v{7} / world partition "
+             "v{12} up. NOTHING WAS LOADED - no entity, no setting and no scene name was taken from this file, and "
+             "the scene is exactly as it was. A NEWER file was written by a later build; an older one is "
+             "converted once by Tools/SceneMigrator.",
              source, foundSceneVersion, foundUnitVersion, foundWorldPartitionVersion, kSceneVersion, kUnitVersion,
-             kWorldPartitionVersion, kMigratorPath, foundAssetRefVersion, kAssetRefVersion, foundLightVersion,
-             kLightVersion );
+             kWorldPartitionVersion, kSceneUpgradeFloor, foundAssetRefVersion, kAssetRefVersion, foundLightVersion,
+             kLightVersion, kWorldPartitionUpgradeFloor );
     }
 
     std::string RefuseSceneVersion( std::string_view source, const SceneSerialized& scene )
@@ -73,15 +61,20 @@ namespace Desert::Core
                  fmt::format( "[SceneSerializer] '{0}' is not a readable scene file: {1}. Nothing was loaded.",
                               source, parsed.GetError() ) );
 
-        const SceneSerialized& scene = parsed.GetValue();
-        if ( !SceneIsAtCurrentVersion( scene ) )
-            return Common::MakeError<LoadableScene>( RefuseSceneVersion( source, scene ) );
-
+        SceneSerialized scene = parsed.ExtractValue();
         // The header is the file's identity as well as its versions: a malformed one, or one naming another
         // kind, is refused here rather than half-believed (the AF1 gate: header kind == kind of the extension).
         if ( !scene.Header.has_value() )
             return Common::MakeError<LoadableScene>(
                  fmt::format( "[SceneSerializer] '{0}' states no header. Nothing was loaded.", source ) );
+
+        // UPGRADE ON LOAD (SceneUpgrade.hpp): an older generation is raised in memory, a newer one (or one below
+        // the floor) is refused and nothing is loaded.
+        const SceneUpgradeReport upgrade = UpgradeScene( scene );
+        if ( !upgrade.Refused.empty() )
+            return Common::MakeError<LoadableScene>(
+                 fmt::format( "[SceneSerializer] {0} NOTHING WAS LOADED - the scene is exactly as it was.",
+                              upgrade.Refused ) );
         const Common::Content::AssetHeaderReadContext context{ SceneTextSubsystems() };
         const auto header = Common::Content::TextHeaderToAssetHeader( *scene.Header, context );
         if ( !header )
@@ -92,7 +85,19 @@ namespace Desert::Core
                  "[SceneSerializer] '{0}': the header says kind '{1}', not 'Scene'. Nothing was loaded.", source,
                  scene.Header->Kind ) );
 
-        return Common::MakeSuccess( LoadableScene{ document.ExtractValue(), parsed.ExtractValue() } );
+        if ( upgrade.From == CurrentGenerations() )
+            return Common::MakeSuccess( LoadableScene{ document.ExtractValue(), std::move( scene ), {} } );
+
+        // An upgraded tree: the document the saver merges foreign keys back from is the UPGRADED one, written by
+        // the typed writer - the parsed one still states every key a step dropped or renamed, and a save would
+        // bring them back as "keys this build does not declare". This is what Tools/SceneMigrator writes.
+        auto upgraded = Common::Json::TextDocument::Parse( Common::Json::Write( scene ) );
+        if ( !upgraded )
+            return Common::MakeError<LoadableScene>(
+                 fmt::format( "[SceneSerializer] '{0}': the upgraded tree is not JSON ({1}). Nothing was loaded.",
+                              source, upgraded.GetError() ) );
+        std::string note = DescribeUpgrade( source, upgrade );
+        return Common::MakeSuccess( LoadableScene{ upgraded.ExtractValue(), std::move( scene ), std::move( note ) } );
     }
 
     Common::ResultStr<Common::Json::TextDocument>

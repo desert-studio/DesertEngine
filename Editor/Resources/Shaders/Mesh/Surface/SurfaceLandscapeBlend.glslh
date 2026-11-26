@@ -1,0 +1,50 @@
+#ifndef DESERT_SURFACE_LANDSCAPE_BLEND_GLSLH
+#define DESERT_SURFACE_LANDSCAPE_BLEND_GLSLH
+
+// THE SURFACE'S BLEND INTO THE LANDSCAPE (RVT-MESH-BLEND; UE: a mesh material's Runtime Virtual Texture Sample of the
+// landscape's BaseColor / Normal / WorldHeight RVTs, lerped in by the height above the ground). Included by the two lit
+// pass headers (Pass_Forward.glslh, Pass_GBuffer.glslh) of a cell the parser compiled with
+// DESERT_SURFACE_LANDSCAPE_BLEND - the Forward and GBuffer cells of a `LandscapeBlend` template - and applied to
+// EvaluateSurface's output before the weather, so the foot of a rock takes the ground's colour, roughness, occlusion
+// and SHADED normal (the layer blend's over the ground's slope) where it meets the ground, and the weather then wets
+// the foot and the ground beside it alike. The ground is the one the landscape's G-buffer draws (one source: the RVT,
+// Common/LandscapeVirtualTexture.glslh; a road or decal written into the RVT is blended into as well).
+//
+// The material states the blend like any other parameter (kSurfaceLandscapeBlendHeightParam,
+// kSurfaceLandscapeBlendSharpnessParam in DShaderParser.hpp; an instance overrides them): LandscapeBlendHeight cm
+// above the ground (0 = off: the hard seam), LandscapeBlendSharpness the fall-off's shape over it.
+#include <Common/LandscapeVirtualTexture.glslh>
+
+// The share of the ground at @p above cm over it, for a band @p height cm tall: 1 at and below the ground, 0 at the
+// band's top; sharpness 0 = a long soft fade (exponent 0.5), 1 = a narrow band at the foot (exponent 4).
+float DesertLandscapeBlendWeight( const float above, const float height, const float sharpness )
+{
+    const float t = clamp( above / max( height, 1.0e-3 ), 0.0, 1.0 );
+    return pow( 1.0 - t, mix( 0.5, 4.0, clamp( sharpness, 0.0, 1.0 ) ) );
+}
+
+// The pass headers' one call. @p dx / @p dy the screen derivatives of the surface's world xz, taken before the clip
+// (a discarded neighbour leaves them undefined).
+SurfaceOutput DesertApplySurfaceLandscapeBlend( SurfaceInput i, const vec2 dx, const vec2 dy, SurfaceOutput s )
+{
+    const float height = Material.LandscapeBlendHeight;
+    if ( height <= 0.0 )
+        return s;
+    LandscapeVirtualGroundSample g;
+    if ( !LandscapeVirtualGround( i.WorldPosition, dx, dy, g ) )
+        return s;
+    const float w = DesertLandscapeBlendWeight( i.WorldPosition.y - g.Height, height, Material.LandscapeBlendSharpness );
+    if ( w <= 0.0 )
+        return s;
+    // The ground's shaded normal into the surface's tangent space (SurfaceWeather.glslh's snow does the same).
+    const vec3 groundTS = normalize( transpose( i.TBN ) * g.Normal );
+    s.BaseColor         = mix( s.BaseColor, g.Albedo, w );
+    s.Roughness         = mix( s.Roughness, g.Roughness, w );
+    s.AmbientOcclusion  = mix( s.AmbientOcclusion, g.AO, w );
+    s.Metallic          = mix( s.Metallic, 0.0, w );
+    s.Specular          = mix( s.Specular, 0.5, w );
+    s.Normal            = normalize( mix( s.Normal, groundTS, w ) );
+    return s;
+}
+
+#endif // DESERT_SURFACE_LANDSCAPE_BLEND_GLSLH

@@ -12,7 +12,7 @@ namespace Desert::Core::Serialize::Generated
 {
     void RegisterComponents_VFX( [[maybe_unused]] ComponentRegistrar& r )
     {
-        r.Add( ReflectedMemberBlock<::Desert::ECS::VFXComponent, decltype( ::Desert::ECS::VFXComponent::Data )>{ "VFX", "VFXComponentData", &::Desert::ECS::VFXComponent::Data, ReflectedBlockRun::ActorsAndUI } );
+        r.Add( ReflectedMemberBlock<::Desert::ECS::VFXComponent, decltype( ::Desert::ECS::VFXComponent::Data )>{ "VFX", "VFXComponentData", &::Desert::ECS::VFXComponent::Data, ReflectedBlockRun::ActorsAndUI, 1 } );
     }
 } // namespace Desert::Core::Serialize::Generated
 // NOLINTEND

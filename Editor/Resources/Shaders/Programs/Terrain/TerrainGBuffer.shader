@@ -22,6 +22,9 @@ Shader "TerrainGBuffer"
         Float       DetailNormalStrength ("Detail Normal Strength", Range(0,4), Category("Layers")) = 0
         Float       MacroHueSize ("Macro Hue Size (cm)", Range(100,100000), Category("Layers")) = 6000
         Float       MacroHueStrength ("Macro Hue Strength (radians)", Range(0,1.5), Category("Layers")) = 0
+        // The ground's response to the world's rain (Programs/Terrain/TerrainRain.glslh): how much water it soaks up
+        // when wet, as a mesh material's engine-owned Porosity (1 = soil, asphalt: darker, glossier).
+        Float       Porosity ("Porosity", Range(0,1), Category("Weather")) = 0.8
         // DISPLACEMENT (UE 5.4+ landscape displacement: the material's Displacement output, LandscapeDisplacement.glslh):
         // the layers' blended height moves the ground by (height - Center) x Magnitude along its normal, full up to
         // FadeStart from the camera and gone by FadeEnd. 0 cm = a flat ground; the dicing follows Scalability
@@ -142,25 +145,15 @@ Shader "TerrainGBuffer"
         Out(5) float oThinGeometryCoverage; // slot 5 of the G-buffer target (Common/ThinGeometryCoverage.glslh)
 
         // LANDSCAPE-RVT (Common/LandscapeVirtualTexture.glslh): the landscape's runtime virtual texture this
-        // program reads the layer blend from (TerrainRenderer::DeclareGBufferDraws binds LandscapeVirtualTexture's
-        // page table, atlases and this frame's feedback; a view without it binds a zero header).
+        // program reads the layer blend from. The header declares its page table, atlases and feedback at the
+        // scene-read slots (kLandscapeVirtual*Binding), bound as scene-view inputs (BindSceneViewInputs; a view
+        // without the RVT binds a zero header).
         #define DESERT_TERRAIN_VIRTUAL_TEXTURE
-        ReadBuffer(4) LandscapeVirtualPageTable
-        {
-            uint VirtualPageTable[];
-        };
-        Uniform(5) texture2D LandscapeVirtualColorAtlas;
-        Uniform(6) texture2D LandscapeVirtualNormalAtlas;
-        Uniform(7) texture2D LandscapeVirtualOcclusionAtlas;
-        Uniform sampler LandscapeVirtualSampler;
-        Buffer(14) LandscapeVirtualFeedback
-        {
-            uint VirtualFeedback[];
-        };
 
         #include <Programs/Terrain/TerrainSurface.glslh>
         #include <Generated/ShadingModels.glslh>
         #include <Common/WeatherSnow.glslh>
+        #include <Programs/Terrain/TerrainRain.glslh>
         #include <Common/ThinGeometryCoverage.glslh>
         // The stored roughness is widened by the ground normal's spread across the pixel, as every G-buffer writer's
         // is (Mesh/Surface/GBufferOutputs.glslh): the specular AA.
@@ -183,6 +176,13 @@ Shader "TerrainGBuffer"
             float          cover;
             float          opacity;
             TerrainSurface s = EvaluateTerrainSurfaceCovered( Material.Tint.rgb, transmission, cover, opacity );
+            // The world's rain first (Programs/Terrain/TerrainRain.glslh: the film, puddles in the ground's dips,
+            // ripples while it rains), then its snow over it, as a mesh surface takes them (SurfaceWeather.glslh).
+            // The ground is a dielectric at UE's default Specular until water stands on it.
+            float metallic = 0.0;
+            float specular = 0.5;
+            DesertApplyLandscapeRain( s, v_WorldPos, normalize( v_Normal ), Material.Porosity, metallic, specular, cover,
+                                      transmission );
             // The world's snow (Common/WeatherSnow.glslh) over the ground and the grass's far cover alike: where it
             // lies the ground is snow, DefaultLit, and the cover's transmission is buried with it. The layer reads the
             // GEOMETRIC normal (v_Normal), never s.N: the far cover bends s.N towards the eye (a grazing canopy's
@@ -193,11 +193,12 @@ Shader "TerrainGBuffer"
             s.Roughness = mix( s.Roughness, snow.Roughness, snow.Weight );
             s.AO        = mix( s.AO, snow.AO, snow.Weight );
             s.N         = normalize( mix( s.N, snow.NormalWS, snow.Weight ) );
+            metallic    = mix( metallic, snow.Metallic, snow.Weight );
+            specular    = mix( specular, 0.5, snow.Weight ); // the snow is UE's default dielectric, as before the rain
             cover        = snow.Weight > 0.5 ? 0.0 : cover * ( 1.0 - snow.Weight );
             transmission *= 1.0 - snow.Weight;
             // The decals over the ground (and over its snow), before the specular AA widens the roughness. The
-            // ground is a dielectric: metallic 0 unless a decal lays metal on it.
-            float metallic = 0.0;
+            // ground is a dielectric: metallic 0 unless the water or a decal says otherwise.
             DesertApplyDBuffer( DesertReadDBuffer( ivec2( gl_FragCoord.xy ) ), s.Albedo, s.N, s.Roughness,
                                 metallic, s.AO );
 
@@ -210,9 +211,9 @@ Shader "TerrainGBuffer"
             oGBufferB        = vec4( s.N, DesertSpecularAA( s.Roughness, s.N ) );
             const vec3 sss   = sqrt( clamp( transmission, 0.0, 1.0 ) );
             oGBufferShadingWord = cover > 0.0
-                                       ? DesertPackShadingWord( SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE, 0.0, 0.5,
+                                       ? DesertPackShadingWord( SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE, 0.0, specular,
                                                                 DesertPayload( sss.r, sss.g, sss.b, opacity ) )
-                                       : DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, 0.5,
+                                       : DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, specular,
                                                                 DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
             oGBufferShadingWord = DesertMarkLandscape( oGBufferShadingWord ); // the ground mask (bit 26)
             oGBufferEmissive = vec4( 0.0, 0.0, 0.0, s.AO ); // no emission; material AO from the layers' ARM maps

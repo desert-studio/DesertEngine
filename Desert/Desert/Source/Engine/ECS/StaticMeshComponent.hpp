@@ -58,6 +58,7 @@ namespace Desert::ECS
         bool CastShadows = true;
         bool ReceiveShadows = true;
         bool CastContactShadow = true;
+        bool ReceivesDecals = true;
         float MaxDrawDistance = 0.0f;
         int TranslucencySortPriority = 0;
         uint64_t HiddenSubmeshes = 0;
@@ -139,6 +140,10 @@ namespace Desert::ECS
         [[nodiscard]] const bool& GetCastContactShadow() const
         {
             return CastContactShadow;
+        }
+        [[nodiscard]] const bool& GetReceivesDecals() const
+        {
+            return ReceivesDecals;
         }
         [[nodiscard]] const float& GetMaxDrawDistance() const
         {
@@ -246,6 +251,10 @@ namespace Desert::ECS
         // Intensity (on) or its Non Casting Intensity (off). The G-buffer carries it per pixel (the shading word's
         // NO_CONTACT_SHADOW bit); a mesh drawn after the opaque pass is never in the depth the ray marches.
         bool CastContactShadow = true;
+        // UE's UPrimitiveComponent::bReceivesDecals: whether the frame's decals (box, impact, mesh) draw onto this
+        // mesh. Off = its G-buffer write skips the DBuffer (the primitive's NO_DECALS bit), whatever its
+        // material's own Receive Decals says.
+        bool ReceivesDecals = true;
         // UE's LDMaxDrawDistance: cm from the camera beyond which the mesh is not drawn, measured to its bounds'
         // centre and scaled by the view's lens (Graphic::DrawDistanceScale: a narrower FOV draws farther).
         // 0 = drawn at any distance. A culled mesh casts no shadow either.
@@ -305,6 +314,7 @@ namespace Desert::ECS
         desc.CastShadows = CastShadows;
         desc.ReceiveShadows = ReceiveShadows;
         desc.CastContactShadow = CastContactShadow;
+        desc.ReceivesDecals = ReceivesDecals;
         desc.MaxDrawDistance = MaxDrawDistance;
         desc.TranslucencySortPriority = TranslucencySortPriority;
         desc.HiddenSubmeshes = HiddenSubmeshes;
@@ -328,6 +338,7 @@ namespace Desert::ECS
             && CastShadows == desc.CastShadows
             && ReceiveShadows == desc.ReceiveShadows
             && CastContactShadow == desc.CastContactShadow
+            && ReceivesDecals == desc.ReceivesDecals
             && MaxDrawDistance == desc.MaxDrawDistance
             && TranslucencySortPriority == desc.TranslucencySortPriority
             && HiddenSubmeshes == desc.HiddenSubmeshes
@@ -350,6 +361,7 @@ namespace Desert::ECS
         CastShadows = desc.CastShadows;
         ReceiveShadows = desc.ReceiveShadows;
         CastContactShadow = desc.CastContactShadow;
+        ReceivesDecals = desc.ReceivesDecals;
         MaxDrawDistance = desc.MaxDrawDistance;
         TranslucencySortPriority = desc.TranslucencySortPriority;
         HiddenSubmeshes = desc.HiddenSubmeshes;

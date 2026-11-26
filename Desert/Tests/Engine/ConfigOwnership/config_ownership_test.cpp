@@ -436,7 +436,8 @@ namespace
          { "Quality", Owner::Machine, kMachineSettingsImpl },
          // The benchmark's stored recommendation for this device (SCAL1). Read by MachineSettings::StartFrom:
          // a machine with no saved selection starts on it when its cache key is this device's.
-         // Written by QualityBoot::Start, which runs the GPU benchmark on a first launch (UE RunHardwareBenchmark).
+         // Written by QualityBoot::Start, which runs the GPU benchmark on a first launch (UE
+         // RunHardwareBenchmark).
          { "Recommended", Owner::Machine, kMachineSettingsImpl },
          // VSync (DisplaySettings): how frames reach this machine's monitor. QualityBoot hands it to the window.
          { "Display", Owner::Machine, "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" },
@@ -444,6 +445,11 @@ namespace
          { "DerivedDataCachePath", Owner::Machine, "Desert/Common/Source/Common/Content/DerivedDataCache.cpp" },
          // NO-RT: the device is probed as one without ray tracing; read once, when the device is created.
          { "HideRayTracing", Owner::Machine, "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp" },
+         // RT-OMM-SER: one ray tracing row withheld at the probe (the OMM / SER on-off comparison).
+         { "HideOpacityMicromap", Owner::Machine,
+           "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp" },
+         { "HideInvocationReorder", Owner::Machine,
+           "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp" },
     };
 
     // ------------------------------------------------------------------------------------------------

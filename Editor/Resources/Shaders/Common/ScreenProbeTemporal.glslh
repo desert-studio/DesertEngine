@@ -70,6 +70,17 @@ float SPGuideFrames( float w )
     return SPGuideFoliage( w ) ? w - SP_HISTORY_GUIDE_FOLIAGE : w;
 }
 
+#if defined( SCREEN_PROBE_HISTORY_DECLARED ) || defined( SCREEN_PROBE_FOLIAGE_DECLARED )
+// The pixel's shading model has UE's backface diffuse (two-sided foliage): the foliage threshold and the material
+// test of the history (UE Material.bHasBackfaceDiffuse), and the flag the new history's guide keeps. Needs
+// GBufferShadingWord and Generated/ShadingModels.glslh; SCREEN_PROBE_FOLIAGE_DECLARED alone: the temporal filter's
+// no-history permutation (SP_TEMPORAL_NO_HISTORY), which binds no history.
+bool SPPixelIsFoliage( ivec2 pixel )
+{
+    return DesertHasBackfaceDiffuse( DesertShadingModelIndex( texelFetch( GBufferShadingWord, pixel, 0 ).rg ) );
+}
+#endif
+
 #ifdef SCREEN_PROBE_HISTORY_DECLARED
 // The history's 2x2 bilinear footprint around a pixel's previous position: the top-left tap and each tap's
 // weight (00, 10, 01, 11), zero where the tap failed a test or left the screen.
@@ -78,13 +89,6 @@ struct SPHistoryTaps
     ivec2 origin;
     vec4  weights;
 };
-
-// The pixel's shading model has UE's backface diffuse (two-sided foliage): the foliage threshold and the material
-// test of the history (UE Material.bHasBackfaceDiffuse).
-bool SPPixelIsFoliage( ivec2 pixel )
-{
-    return DesertHasBackfaceDiffuse( DesertShadingModelIndex( texelFetch( GBufferShadingWord, pixel, 0 ).rg ) );
-}
 
 // THE PACKED TAPS (UE StochasticLightingTileClassification's PackedPixelData): the history classification
 // (ScreenProbeDisocclusion) tests a pixel's taps once a frame and stores them in an RG32UI texel, which the temporal
@@ -130,9 +134,10 @@ float SPTemporalNoise( uvec2 pixel, uint frame )
 
 #ifdef SCREEN_PROBE_HISTORY_REPROJECT
 // @p deviceDepth / @p p / @p n: the pixel's G-buffer depth, world position and normal; @p foliage:
-// SPPixelIsFoliage; @p noise: a [0, 1) value of the pixel (UE RandomScalar). No tap is kept when the history is
-// not this view's previous frame (SP_FLAG_HISTORY_VALID). @p fraction: the footprint's bilinear fraction (what
-// SPPackHistoryTaps stores with the kept-tap mask).
+// SPPixelIsFoliage; @p noise: a [0, 1) value of the pixel (UE RandomScalar). Only called with the view's previous
+// frame bound: without it the history classification is not added at all (ScreenProbeGather::AddPasses, UE
+// bIsHistoryValid). @p fraction: the footprint's bilinear fraction (what SPPackHistoryTaps stores with the
+// kept-tap mask).
 SPHistoryTaps SPHistoryReproject( ivec2 pixel, float deviceDepth, vec3 p, vec3 n, bool foliage, float noise,
                                   out vec2 fraction )
 {
@@ -140,8 +145,6 @@ SPHistoryTaps SPHistoryReproject( ivec2 pixel, float deviceDepth, vec3 p, vec3 n
     taps.origin  = ivec2( 0 );
     taps.weights = vec4( 0.0 );
     fraction     = vec2( 0.0 );
-    if ( ( screenProbeParams.atlas.z & SP_FLAG_HISTORY_VALID ) == 0u )
-        return taps;
     // The surface at the pixel's centre sits at its unjittered NDC (ndc - jitter); last frame it sat at that minus
     // the velocity, in xy and in device depth (UE GetHistoryScreenPosition); the history pixel holding it was
     // rasterised with last frame's jitter.

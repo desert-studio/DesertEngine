@@ -67,6 +67,7 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include "ImportRecordSourceHash.hpp"
 #include "MaterialAOParam.hpp"
+#include "WaterWavesWind.hpp"
 #include "MaterialMaskClipParam.hpp"
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
@@ -133,9 +134,9 @@ namespace
     // (IsCloudLayout).
     // `.defoliage` rides with them: its one content step (FOLT 1 -> 2, FO-3) runs in the same loop.
     // `.dfx` too: its content step (VFXS 1 -> 2, VFX-09) runs in the same loop.
-    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph", ".decloudtype", ".destrings",
-                                                ".detheme",    ".derig",  ".retarget",    ".skeleton",
-                                                ".defoliage",  ".dfx",    ".dfxtype",     ".dweatherpreset" };
+    constexpr std::array kLayoutOnlyExtensions{
+         ".danimgraph", ".dgraph",    ".decloudtype", ".destrings", ".detheme",        ".derig", ".retarget",
+         ".skeleton",   ".defoliage", ".dfx",         ".dfxtype",   ".dweatherpreset", ".dwaves" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
@@ -373,6 +374,7 @@ namespace
          TextHeaderGate{ ".dfx", "VFXS", Desert::Assets::kVFXSystemSchemaVersion },
          TextHeaderGate{ ".dfxtype", "VFXT", Desert::Assets::kVFXEffectTypeSchemaVersion },
          TextHeaderGate{ ".dweatherpreset", "WTHP", Desert::Assets::kWeatherPresetSchemaVersion },
+         TextHeaderGate{ ".dwaves", "WAVS", Desert::Assets::kWaterWavesSchemaVersion },
     };
 
     const TextHeaderGate* TextHeaderGateFor( const std::filesystem::path& path )
@@ -627,50 +629,53 @@ namespace
                 << "->v" << Desert::Migration::kWorldPartitionVersionHLODBuilderSettings << " ("
                 << report.HLODMergeMaterialsMoved
                 << " mesh layer(s)' MergeMaterials restated as Settings.MergeMaterials)";
-        if ( report.EntityHLODLayerRaised )
+        if ( report.Upgrade.EntityHLODLayerRaised )
             out << " world partition v"
                 << std::max( report.StatedWorldPartitionVersion,
                              Desert::Migration::kWorldPartitionVersionHLODBuilderSettings )
                 << "->v" << Desert::Migration::kWorldPartitionVersionEntityHLODLayer
                 << " (HLOD layer per entity: additive, nothing restated)";
-        if ( report.ImpostorLayersRaised )
+        if ( report.Upgrade.ImpostorLayersRaised )
             out << " world partition v"
                 << std::max( report.StatedWorldPartitionVersion,
                              Desert::Migration::kWorldPartitionVersionEntityHLODLayer )
                 << "->v" << Desert::Migration::kWorldPartitionVersionImpostorLayers
                 << " (impostor HLOD layers: additive, nothing restated)";
-        if ( report.ReflectedAssetRefsRaised )
-            out << " asset references v" << report.StatedAssetRefVersion << "->v"
-                << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks
-                << " Static Mesh block(s) and " << report.ReflectedAssetRefs.MaterialFields
+        if ( report.Upgrade.ReflectedAssetRefsRaised )
+            out << " asset references v" << report.Upgrade.From.AssetRef << "->v"
+                << Desert::Migration::kAssetRefVersionReflected << " (" << report.Upgrade.ReflectedAssetRefs.MeshBlocks
+                << " Static Mesh block(s) and " << report.Upgrade.ReflectedAssetRefs.MaterialFields
                 << " material field(s) restated as {Guid, Path})";
-        if ( report.SunRotationRaised && ( report.SunRotation.Aimed > 0 || report.SunRotation.Overrides > 0 ||
-                                           report.SunRotation.Undirected > 0 ) )
+        if ( report.Upgrade.SunRotationRaised && ( report.Upgrade.SunRotation.Aimed > 0 || report.Upgrade.SunRotation.Overrides > 0 ||
+                                           report.Upgrade.SunRotation.Undirected > 0 ) )
             out << std::format( " lights v{}->v{} ({} directional light(s) aimed by Rotation, {} override(s) "
                                 "with an identity parent, {} without a direction kept their Rotation)",
-                                report.StatedLightVersion,
-                                Desert::Migration::kLightVersionRotation, report.SunRotation.Aimed,
-                                report.SunRotation.Overrides, report.SunRotation.Undirected );
-        if ( report.VolumetricFogRaised )
+                                report.Upgrade.From.Light,
+                                Desert::Migration::kLightVersionRotation, report.Upgrade.SunRotation.Aimed,
+                                report.Upgrade.SunRotation.Overrides, report.Upgrade.SunRotation.Undirected );
+        if ( report.Upgrade.VolumetricFogRaised )
             out << " scene ->v" << Desert::Migration::kSceneVersionVolumetricFog
                 << " (fog and lights state the Volumetric Fog fields at their defaults)";
-        if ( report.TracedRequestRaised && report.TracedRequest.Restated > 0 )
+        if ( report.Upgrade.TracedRequestRaised && report.Upgrade.TracedRequest.Restated > 0 )
             out << " scene ->v" << Desert::Migration::kSceneVersionTracedRequest << " ("
-                << report.TracedRequest.Restated << " GI / reflection method(s) re-stated as requests: "
+                << report.Upgrade.TracedRequest.Restated << " GI / reflection method(s) re-stated as requests: "
                 << "SoftwareTraced / HardwareTraced are Traced)";
-        if ( report.ComposedGIRaised && ( report.ComposedGI.Restated > 0 || report.ComposedGI.Dropped > 0 ) )
+        if ( report.Upgrade.ComposedGIRaised && ( report.Upgrade.ComposedGI.Restated > 0 || report.Upgrade.ComposedGI.Dropped > 0 ) )
             out << " scene ->v" << Desert::Migration::kSceneVersionComposedGI << " ("
-                << report.ComposedGI.Restated << " GI ScreenSpace request(s) re-stated as Off, "
-                << report.ComposedGI.Dropped << " GIIntensity dropped: GI comes from the method alone)";
-        if ( report.GrassRasterPathRaised && report.GrassRasterPath.Restated > 0 )
+                << report.Upgrade.ComposedGI.Restated << " GI ScreenSpace request(s) re-stated as Off, "
+                << report.Upgrade.ComposedGI.Dropped << " GIIntensity dropped: GI comes from the method alone)";
+        if ( report.Upgrade.GrassRasterPathRaised && report.Upgrade.GrassRasterPath.Restated > 0 )
             out << " scene ->v" << Desert::Migration::kSceneVersionGrassRasterPath << " ("
-                << report.GrassRasterPath.Restated << " GrassVisibilityBuffer bool(s) re-stated as GrassRaster: "
+                << report.Upgrade.GrassRasterPath.Restated << " GrassVisibilityBuffer bool(s) re-stated as GrassRaster: "
                 << "false is Scalability, true VisibilityBuffer)";
-        if ( report.LandscapeSplineEntitiesRaised && report.LandscapeSplineEntities.RootsCleared > 0 )
+        if ( report.Upgrade.LandscapeSplineEntitiesRaised && report.Upgrade.LandscapeSplineEntities.RootsCleared > 0 )
             out << std::format( " scene ->v{} ({} landscape spline entit(ies) split out of {} landscape root(s))",
                                 Desert::Migration::kSceneVersionLandscapeSplineEntities,
-                                report.LandscapeSplineEntities.SplinesCreated,
-                                report.LandscapeSplineEntities.RootsCleared );
+                                report.Upgrade.LandscapeSplineEntities.SplinesCreated,
+                                report.Upgrade.LandscapeSplineEntities.RootsCleared );
+        if ( report.Upgrade.TubeSourceLengthRaised && report.Upgrade.TubeSourceLengthsStated > 0 )
+            out << std::format( " scene ->v{} ({} PointLight / SpotLight block(s) given SourceLength 0)",
+                                Desert::Migration::kSceneVersionTubeSourceLength, report.Upgrade.TubeSourceLengthsStated );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never
@@ -764,7 +769,13 @@ namespace Desert::Migration
             if ( arg == "--check" )
                 check = true;
             else
-                roots.emplace_back( arg );
+            {
+                // Absolute from the start: the tool opens no project, so a relative content path reaching the
+                // writer (Path::FullPath) has nothing to resolve against and aborts the write pass.
+                std::error_code       absEc;
+                std::filesystem::path root = std::filesystem::absolute( arg, absEc );
+                roots.push_back( absEc ? std::filesystem::path( arg ) : root.lexically_normal() );
+            }
         }
 
         if ( roots.empty() )
@@ -846,14 +857,15 @@ namespace Desert::Migration
                  bytes.size() >= 16 &&
                  std::string_view( bytes ).starts_with( std::string_view(
                       Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
-                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated >= 3u && stated <= 7u ) )
+                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated >= 3u && stated <= 9u ) )
             {
                 // 3/4 are re-stated at the current version by the SkeletonGuid raise; 5 only gains the version;
-                // 6/7 gain the submesh LOD-chain row. Every raise re-encodes through the engine, so each writes v8.
+                // 6/7 gain the submesh LOD-chain row, 6-8 the (empty) LOD cut-error row, 7-9 DAGs their streaming
+                // pages + generators. Every raise re-encodes through the engine, so each writes v10.
                 const auto raised = [&]() -> Common::ResultStr<std::string>
                 {
                     if ( stated >= 6u )
-                        return Desert::Migration::MigrateMeshBinaryToV8( path.string(), bytes );
+                        return Desert::Migration::MigrateMeshBinaryToV10( path.string(), bytes );
                     if ( stated == 5u )
                         return Desert::Migration::MigrateMeshBinaryV5ToV6( path.string(), bytes );
                     return Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
@@ -1774,6 +1786,27 @@ namespace Desert::Migration
                         continue;
                     }
                     ++cloudTypesRaised;
+                    continue;
+                }
+            }
+            // WAVS 1 -> 2 (WATER-UNDERWATER, WaterWavesWind.hpp): Generator.WindAngleDeg is dropped; the waves run
+            // with the scene's wind.
+            if ( path.extension() == ".dwaves" )
+            {
+                const auto stated = ReadStatedVersion( path, text, "WAVS" );
+                if ( stated && stated.GetValue() == 1u )
+                {
+                    const auto raised = Desert::Migration::MigrateWaterWavesV1ToV2( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — WAVS 1 -> 2: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " WAVS 1 -> "
+                        << Desert::Assets::kWaterWavesSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                        ++failed;
                     continue;
                 }
             }

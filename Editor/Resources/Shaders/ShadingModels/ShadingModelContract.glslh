@@ -295,12 +295,142 @@ struct DesertLight
     // GGX LTC tables that lobe is integrated with (Runtime::RectLightLtcService; 0 = none). Zero for a punctual.
     vec3 RectLuminance;
     int  RectLtcTexture;
+    // A SPHERE source (UE ULocalLightComponent::SourceRadius; the sun's disc, UE LightSourceAngle): the vector from
+    // the surface to the emitter's centre (world, cm; the sun: L itself, at unit distance) and the emitter's radius
+    // (cm; the sun: the sine of its angular radius). L and Radiance stay the centre's - the diffuse and every
+    // non-specular term read the sphere as the point it is far away - while a model's specular lobe aims at the
+    // sphere's point nearest the reflection ray, energy-normalised for the lobe the sphere widens
+    // (DesertSphereSpecularLight). Zero radius = a punctual source; zero for a rect (its lobe is the LTC's).
+    vec3  SphereCenter;
+    float SphereRadius;
+    // A CAPSULE ("tube") source (UE ULocalLightComponent::SourceLength): half the emitter's segment (world, cm),
+    // centred on SphereCenter - the capsule is SphereRadius around [SphereCenter - SphereAxis, SphereCenter +
+    // SphereAxis]. L and Radiance are then the segment's (UE LineIrradiance: L the mean of the two ends' directions,
+    // Radiance their irradiance), and the specular lobe aims at the segment's point nearest the reflection ray
+    // (DesertSphereSpecularLight). Zero = a sphere (or a point).
+    vec3  SphereAxis;
 };
 
 // Whether the light is a rect source (DesertLight::RectCenter).
 bool DesertIsRectLight( DesertLight light )
 {
     return dot( light.RectExtentX, light.RectExtentX ) > 0.0;
+}
+
+// Whether the light's specular lobe sees an emitter with a size - a sphere, the sun's disc or a capsule - rather than
+// the point L names (DesertSphereSpecularLight). A rect's size is its LTC's, not this.
+bool DesertIsAreaSpecularLight( DesertLight light )
+{
+    return light.SphereRadius > 0.0 || dot( light.SphereAxis, light.SphereAxis ) > 0.0;
+}
+
+// UE New_a2 (BRDF.ush): the GGX alpha^2 of a lobe of alpha^2 @p a2 widened by a source that subtends @p sinAlpha,
+// at the half-vector cosine @p VoH.
+float DesertAreaLightWidenedA2( float a2, float sinAlpha, float VoH )
+{
+    const float a = a2 * inversesqrt( max( a2, 1e-12 ) ); // sqrt( a2 ): the file also compiles as C++
+    return a2 + 0.25 * sinAlpha * ( 3.0 * a + sinAlpha ) / ( VoH + 0.001 );
+}
+
+// THE SPHERE, THE SUN'S DISC AND THE CAPSULE AS A SPECULAR SOURCE - UE5's area light specular (DeferredLighting
+// Common.ush IntegrateBxDF( FCapsuleLight ), BRDF.ush SphereMaxNoH / EnergyNormalization / ClosestPointLineToRay):
+//   - a CAPSULE first moves the centre to the point of its segment nearest the reflection ray R
+//     (ClosestPointLineToRay);
+//   - the SPHERE about that point, of sine-angle sinAlpha = radius / distance * ( 1 - alpha ), is seen by the lobe
+//     at the direction of the sphere's cone nearest R - R itself when R falls inside the cone - which is the
+//     maximum-NoH direction of SphereMaxNoH (its first-order form, without UE's Newton step);
+//   - the lobe widened by the sphere and by the segment's subtended angle is energy-normalised: Energy =
+//     a2 / a2' (sphere) * sqrt( a2' / a2'' ) (line), UE EnergyNormalization - a large bulb or a long tube over a
+//     glossy floor is a soft disc / a stretched highlight as bright in total as the point it replaces;
+//   - the cosine the light arrives at stays the source's own (L, a capsule's mean of its ends), the sphere wrapped
+//     over the horizon (UE SphereHorizonCosWrap), so the lobe's direction moves but its irradiance does not.
+// Every model's specular lobe takes the light through here; its diffuse keeps L. A punctual or rect source is
+// returned as it came.
+DesertLight DesertSphereSpecularLight( DesertLight light, vec3 N, vec3 V, float roughness )
+{
+    if ( !DesertIsAreaSpecularLight( light ) || DesertIsRectLight( light ) )
+        return light;
+    // R = reflect( -V, N ), spelled out (the file also compiles as C++).
+    const vec3 R = N * ( 2.0 * dot( N, V ) ) - V;
+
+    // The capsule's segment: its point nearest R, and the angle it subtends (UE LineIrradiance CosSubtended).
+    vec3  toLight          = light.SphereCenter;
+    float lineCosSubtended = 1.0;
+    const float axisLength2 = dot( light.SphereAxis, light.SphereAxis );
+    if ( axisLength2 > 0.0 )
+    {
+        const vec3  end0   = light.SphereCenter - light.SphereAxis;
+        const vec3  end1   = light.SphereCenter + light.SphereAxis;
+        const vec3  line01 = light.SphereAxis * 2.0;
+        const float A      = 4.0 * axisLength2;
+        const float B      = dot( R, line01 );
+        const float t      = clamp( dot( end0, R * B - line01 ) / max( A - B * B, 1e-6 ), 0.0, 1.0 );
+        toLight            = end0 + line01 * t;
+        lineCosSubtended   = clamp( dot( end0, end1 ) * inversesqrt( max( dot( end0, end0 ) * dot( end1, end1 ), 1e-12 ) ),
+                                    -1.0, 1.0 );
+    }
+
+    // UE View.MinRoughness keeps the energy ratio finite on a mirror.
+    const float alpha       = max( roughness * roughness, 0.0004 );
+    const float a2          = alpha * alpha;
+    const float distance2   = max( dot( toLight, toLight ), 1e-8 );
+    const float invDistance = inversesqrt( distance2 );
+    const vec3  centre      = toLight * invDistance;
+    const float sinAlpha    = clamp( light.SphereRadius * invDistance * ( 1.0 - alpha ), 0.0, 1.0 );
+
+    // SphereMaxNoH: the direction of the sphere's cone nearest R.
+    vec3 lobeL = centre;
+    if ( sinAlpha > 0.0 )
+    {
+        const float cosAlpha2 = 1.0 - sinAlpha * sinAlpha;
+        const float cosAlpha  = cosAlpha2 * inversesqrt( max( cosAlpha2, 1e-12 ) );
+        const float RoL       = dot( R, centre );
+        if ( RoL >= cosAlpha )
+            lobeL = R;
+        else
+        {
+            const vec3  across  = R - centre * RoL;
+            const float across2 = dot( across, across );
+            if ( across2 > 1e-12 )
+                lobeL = centre * cosAlpha + across * ( sinAlpha * inversesqrt( across2 ) );
+        }
+    }
+
+    // EnergyNormalization at the lobe's half vector.
+    const vec3  H      = normalize( V + lobeL );
+    const float VoH    = clamp( dot( V, H ), 0.0, 1.0 );
+    float       energy = 1.0;
+    float       sphereA2 = a2;
+    if ( sinAlpha > 0.0 )
+    {
+        sphereA2 = DesertAreaLightWidenedA2( a2, sinAlpha, VoH );
+        energy   = a2 / sphereA2;
+    }
+    if ( lineCosSubtended < 1.0 )
+    {
+        const float lineTanAlpha2 = ( 1.0001 - lineCosSubtended ) / max( 1.0 + lineCosSubtended, 1e-4 );
+        const float lineTanAlpha  = lineTanAlpha2 * inversesqrt( max( lineTanAlpha2, 1e-12 ) );
+        const float lineA2        = DesertAreaLightWidenedA2( sphereA2, lineTanAlpha, VoH );
+        energy                    = energy * ( sphereA2 * inversesqrt( max( sphereA2 * lineA2, 1e-24 ) ) );
+    }
+
+    // The source's own arrival cosine (SphereHorizonCosWrap over the sphere at the centre's distance), in place of
+    // the cosine the moved direction would bring: the model's lobe multiplies by dot( N, L ) of the L it is given.
+    const float centreDistance2 = max( dot( light.SphereCenter, light.SphereCenter ), 1e-8 );
+    const float sinWrap2  = clamp( light.SphereRadius * light.SphereRadius / centreDistance2, 0.0, 1.0 );
+    const float sinWrap   = sinWrap2 * inversesqrt( max( sinWrap2, 1e-12 ) );
+    float       arrival   = dot( N, light.L );
+    if ( sinWrap > 0.0 && arrival < sinWrap )
+    {
+        const float wrapped = max( arrival, -sinWrap ) + sinWrap;
+        arrival             = wrapped * wrapped / ( 4.0 * sinWrap );
+    }
+    const float lobeCos = dot( N, lobeL );
+    const float cosine  = lobeCos > 1e-4 ? max( arrival, 0.0 ) / lobeCos : 0.0;
+
+    light.L        = lobeL;
+    light.Radiance = light.Radiance * ( energy * cosine );
+    return light;
 }
 
 // The environment at the surface, sampled once by the pass for the model's normal and roughness (the split-sum

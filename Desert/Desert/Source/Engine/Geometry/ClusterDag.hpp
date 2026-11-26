@@ -49,8 +49,11 @@ namespace Desert::Geometry
     inline constexpr float kClusterRootError = 3.0e38f;
     // The relative errors (of the submesh's bounds radius) the discrete LOD chain is cut at: LOD0 = 0 (level 0),
     // then the levels that replace the generated chain (LODChainSettings) of a mesh that is not virtual geometry,
-    // coarsest last.
-    inline constexpr float kClusterDagCutErrors[] = { 0.0f, 0.002f, 0.008f, 0.03f };
+    // coarsest last. FPS-GRASS-LOD: 0.12 and 0.5 continue the chain to a few-triangle silhouette for far
+    // instanced foliage (GrassCull clamps far instances to the coarsest level); each level's error is stored with
+    // it (SubmeshData::LodCutErrors) and caps its screen size by the Nanite ~1 px rule (ResolveLODScreenSizes), so a
+    // coarse level is never drawn where its error would show. At most GrassRenderer kLawBuckets (15) levels.
+    inline constexpr float kClusterDagCutErrors[] = { 0.0f, 0.002f, 0.008f, 0.03f, 0.12f, 0.5f };
 
     struct ClusterSphere
     {
@@ -113,6 +116,50 @@ namespace Desert::Geometry
     };
     static_assert( sizeof( ClusterHierarchyNode ) == 208, "MeshBinary ClusterHierarchy element size" );
 
+    // VG-STREAMING: THE STREAMING PAGES (UE Nanite FPageStreamingState / ClusterPage, NaniteEncode's page
+    // partition). The cook cuts every level of the DAG into pages: a page is a run of whole groups of ONE level,
+    // contiguous in Groups (groups are stored level by level, and their clusters' VertexRefs / Triangles in group
+    // order, so a page's words are one contiguous run of each), its refs + triangles at most kClusterPageMaxWords
+    // words (128 KiB, UE NANITE_STREAMING_PAGE_GPU_SIZE). A group past the cap is a page of its own (a group holds
+    // at most kClusterGroupMaxClusters x (128 + 128) words = 8192, so it always fits).
+    //
+    // ROOT PAGES (UE root pages, always resident): (a) every page of a TERMINAL group (ParentLodError =
+    // kClusterRootError: the top cluster, or a group that could not halve) - nothing coarser covers its surface,
+    // so it may never be absent; a level's terminal and non-terminal groups never share a page - and (b) every
+    // page of the coarsest levels, taken from the top level down while all root words together stay within
+    // kClusterRootPageMaxWords (less pop-in up close for a page or two of memory). The root set is closed
+    // upwards (a root page never depends on a streamed one). The pages are cooked data (MeshBinary v10, the
+    // partition's caps and kClusterPageFormatVersion in the VG DDC key); the runtime that keeps only the root
+    // pages resident and streams the rest on the cut's requests is the VG-STREAMING remainder - until it lands,
+    // a loaded mesh stages every page's words.
+    //
+    // DEPENDENCIES: a group's clusters may draw only where the clusters generated FROM it (its parents, one
+    // level up: Generators) are known not to be fine enough - so a page is installed only when every page
+    // holding a parent of its groups is resident, and evicted only when no resident page depends on it. With
+    // that rule, the finest resident level is the cut: a cluster whose generating group is not resident is a
+    // STREAMING LEAF and draws however coarse it is (UE NANITE_CLUSTER_FLAG_STREAMING_LEAF), so the surface is
+    // covered once, with no hole and no crack (the locked group borders, step 2 above).
+    inline constexpr uint32_t kClusterPageMaxWords     = 32768u; // 128 KiB of refs + triangles
+    inline constexpr uint32_t kClusterRootPageMaxWords = 32768u; // the always-resident coarse levels
+    // The page partition's own revision: a key input of the VG mesh DDC entry (SerializeMeshSettingsForKey).
+    inline constexpr uint32_t kClusterPageFormatVersion = 1u;
+    inline constexpr uint32_t kClusterPageRoot          = 1u << 0; // ClusterPageRecord::Flags
+    static_assert( kClusterGroupMaxClusters * ( kClusterMaxVertices + kClusterMaxTriangles ) <= kClusterPageMaxWords,
+                   "a group always fits one page" );
+
+    struct ClusterPageRecord
+    {
+        uint32_t FirstGroup = 0; // Groups[FirstGroup, +GroupCount): one level, contiguous
+        uint32_t GroupCount = 0;
+        uint32_t FirstVertexRef = 0; // VertexRefs[FirstVertexRef, +VertexRefCount): its groups' clusters' refs
+        uint32_t VertexRefCount = 0;
+        uint32_t FirstTriangle  = 0; // Triangles[FirstTriangle, +TriangleCount)
+        uint32_t TriangleCount  = 0;
+        uint32_t Level          = 0;
+        uint32_t Flags          = 0; // kClusterPageRoot
+    };
+    static_assert( sizeof( ClusterPageRecord ) == 32, "MeshBinary ClusterPages element size" );
+
     // THE COOKED DAG OF ONE SUBMESH. Node 0 is the root.
     struct ClusterDag
     {
@@ -123,7 +170,24 @@ namespace Desert::Geometry
         // One word per triangle: three cluster-local vertex indices (bits 0-7, 8-15, 16-23), bits 24-31 zero.
         std::vector<uint32_t> Triangles;
         uint32_t              LevelCount = 0;
+        // Per cluster: the group whose simplification made it (UE: a cluster's generating group), or
+        // kClusterHierarchyNone for a level-0 cluster.
+        std::vector<uint32_t> Generators;
+        // The streaming pages, level by level (coarsest last), in Groups order. Root pages (kClusterPageRoot) are
+        // NOT a suffix: a terminal group's page is root at whatever level it sits.
+        std::vector<ClusterPageRecord> Pages;
     };
+
+    // Cuts @p dag (Generators filled) into its streaming pages (Pages replaced). Refused: Generators not one per
+    // cluster, groups not stored level by level, a group's words not contiguous after the previous group's.
+    [[nodiscard]] Common::BoolResultStr PaginateClusterDag( ClusterDag& dag );
+
+    // The page rules every loaded DAG is held to (DecodeMeshBinary refuses a v10 DAG that breaks them; the
+    // cook's PaginateClusterDag ends with it): every group in exactly one page, in order, one
+    // level per page, the words of each page the contiguous run of its groups' clusters, at most
+    // kClusterPageMaxWords, every page of a terminal group root, at least one root page, the root set closed
+    // upwards, every generator a group one level below its cluster.
+    [[nodiscard]] Common::BoolResultStr ValidateClusterPages( const ClusterDag& dag );
 
     // The cook options (UE FMeshNaniteSettings). Key inputs of the mesh DDC entry (SerializeMeshSettingsForKey).
     struct ClusterDagSettings

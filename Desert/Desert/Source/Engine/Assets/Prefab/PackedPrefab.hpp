@@ -52,6 +52,7 @@ namespace Desert::Assets
         int      ForcedLOD                = -1;
         int      LODBias                  = 0;
         bool     ReceiveShadows           = true;
+        bool     ReceivesDecals           = true;
         int      TranslucencySortPriority = 0;
         uint64_t HiddenSubmeshes          = 0;
         float    MaxDrawDistance          = 0.0f; // cm

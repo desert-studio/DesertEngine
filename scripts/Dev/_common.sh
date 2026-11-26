@@ -69,7 +69,7 @@ dev_up_to_date() {
     local out
     out=$(ninja -C "$DEV_BUILD" -f "build-$DEV_CONFIG.ninja" -n "$1" 2>/dev/null) || return 1
     grep -q '^ninja: no work to do' <<<"$out" && return 0
-    ! grep -E '^\[[0-9]+/[0-9]+\] ' <<<"$out" | grep -vqE '\] (Re-checking globbed directories|Re-running CMake)\.\.\.$'
+    ! grep -E '^\[[0-9]+/[0-9]+\] ' <<<"$out" | grep -vqE '\] ((Re-checking globbed directories|Re-running CMake)\.\.\.|GenVersion: .*|DesertHeaderTool: .*)$'
 }
 
 # dev_drop_foreign_pch — deletes every DEV_CONFIG precompiled header of this tree that another tree compiled, so the

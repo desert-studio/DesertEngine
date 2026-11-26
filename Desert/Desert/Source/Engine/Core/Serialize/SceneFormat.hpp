@@ -18,11 +18,13 @@
 
 namespace Desert::Core
 {
-    // THE ONE GENERATION OF .desce THIS ENGINE READS AND WRITES. The saver stamps it, the loader REQUIRES
-    // it, and there is no second branch: a file that is not at this generation is refused by name and
-    // nothing is created for it (see RefuseSceneVersion below).
+    // THE GENERATION OF .desce THIS ENGINE WRITES. The saver stamps it; the loader raises an older file to it
+    // IN MEMORY (SceneUpgrade.hpp, UE's FCustomVersion upgrade on load: "upgraded vX->vY in memory, save to
+    // keep"), and refuses a NEWER one, or one below kSceneUpgradeFloor, by name with nothing created for it.
+    // Tools/SceneMigrator is the resave: the same UpgradeSceneRecords, then the file written back.
     //
-    // WHY THERE IS NO MIGRATION HERE. There used to be eight of them, one per schema step, and each was
+    // HISTORY - WHY THE OLD STEPS ARE NOT HERE (they still are not: the steps below the floor move data between
+    // files, so they stay in the tool). There used to be eight of them, one per schema step, and each was
     // written with a shelf life it never got: "deleted once no v<n> file remains". Eight accumulated steps
     // is eight expiries that were never enforced, and DEV_CONTRACT §4.3 - "the runtime knows nothing about
     // the old format" - had been false for every one of them. The steps were not deleted; they MOVED, whole,
@@ -30,9 +32,9 @@ namespace Desert::Core
     // result back, which is the only thing that ever makes a migration expire (§4.6). An old file is
     // converted by one run of that tool instead of by every scene load of every build, forever.
     //
-    // BUMPING THIS. Raising the number is one edit here plus one migration step in Tools/SceneMigrator, and
-    // then a run of the tool over the repository - the run is not optional, because this loader will refuse
-    // every scene that has not had it.
+    // BUMPING THIS. Raising the number is one edit here plus one step in Core/Serialize/SceneUpgrade.hpp
+    // (UpgradeSceneRecords): the loader raises an older file in memory with it, and Tools/SceneMigrator - the
+    // resave - writes the same result back. A step that must write OTHER files stays in the tool, below the floor.
     //
     // AND IT IS NOT ONLY SCENES. A `.deprefab` carries the same Assets::EntityData and states THIS number
     // (Engine/Assets/Prefab/PrefabData.hpp), so raising it moves prefabs too. An entity-level step added to
@@ -123,7 +125,7 @@ namespace Desert::Core
     // v73 (GTX-TIER-LADDER): GI comes from the method alone - the lighting composite's screen-space gather is
     // gone and GIRequest ScreenSpace was then declared, not implemented (SSGIRenderer implements it since
     // SSGI2-GTAO, no scene version); a volume that asked for it asks for Off, and
-    // GIIntensity (read by that gather only) is dropped (Tools/SceneMigrator, MigrateComposedGIV72ToV73).
+    // GIIntensity (read by that gather only) is dropped (Core/Serialize/SceneUpgrade.hpp, MigrateComposedGIV72ToV73).
     //
     // A SUBSYSTEM THAT OWNS PART OF THE FORMAT COUNTS ITS OWN CHANGES (MIGRATE-SUBSYS, owner 2026-10-22; UE
     // FCustomVersion). This number is no longer raised for World Partition: its block and its streamed records are
@@ -131,27 +133,29 @@ namespace Desert::Core
     // that subsystem's steps by the number the file states under that tag. The World Partition steps already taken
     // (v50, v66, v68, v70) stay where they were written - a file below v70 still climbs them by this number.
     // v74 (POST-LOOK-LAND): UE's grade - Filmic is the default tonemapper (ACES stays an operator); a volume
-    // that stated ACES (the former default) states Filmic (Tools/SceneMigrator, MigrateFilmicDefaultV73ToV74).
+    // that stated ACES (the former default) states Filmic (Core/Serialize/SceneUpgrade.hpp, MigrateFilmicDefaultV73ToV74).
     // The white balance, colour grading, film curve and exposure compensation fields are additive (declared
     // defaults are the identity).
     // v75 (FPS-GRASS-VISBUF): PostProcessSettings.GrassVisibilityBuffer (bool) is GrassRaster, a
     // Core::GrassRasterPath (Scalability 0, GBuffer 1, VisibilityBuffer 2): the renderer's choice is the level's
     // Foliage.GrassVisibilityBuffer unless a volume overrides it. false (the former default) -> Scalability,
-    // true -> VisibilityBuffer (Tools/SceneMigrator, MigrateGrassRasterPathV74ToV75).
+    // true -> VisibilityBuffer (Core/Serialize/SceneUpgrade.hpp, MigrateGrassRasterPathV74ToV75).
     // v76 (WP-LANDSCAPE-SPLINES): UE 5.5 ALandscapeSplineActor - every landscape spline is its own entity, a
     // LandscapeSpline block {Landscape: the root's id, Splines}, spatially loaded by its band. The root's
     // Landscape block loses Splines: each connected group of its control points becomes one LandscapeSpline record
-    // (Tools/SceneMigrator, MigrateLandscapeSplineEntitiesV75ToV76).
-    inline constexpr int kSceneVersion = 76;
+    // (Core/Serialize/SceneUpgrade.hpp, MigrateLandscapeSplineEntitiesV75ToV76).
+    // v77 (NG-AREA-LIGHTS): UE SourceLength - PointLight / SpotLight state SourceLength (cm; 0 = a sphere), the
+    // capsule ("tube") emitter along the light's forward (Core/Serialize/SceneUpgrade.hpp, MigrateTubeSourceLengthV76ToV77).
+    inline constexpr int kSceneVersion = 77;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
-    // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
+    // Core/Serialize/SceneUpgrade.hpp, MigrateReflectedAssetRefsV0ToV1). v1 (STATICMESH-FORMAT): static meshes and materials are
     // named {Guid, Path} by reflected fields, the Static Mesh's references are its reflected MeshHandle /
     // MaterialSlots. A file stating no tag is v0.
     inline constexpr int kAssetRefVersion = 1;
 
     // The light components' own format generation, stated under Assets::kLightSchemaTag (its steps:
-    // Tools/SceneMigrator's light chain). v1 (PORT-SUN-ROTATION): a directional light is aimed by its Rotation
+    // Core/Serialize/SceneUpgrade.hpp, MigrateLightRotationV0ToV1). v1 (PORT-SUN-ROTATION): a directional light is aimed by its Rotation
     // (forward -Z), as in UE; before it, its Translation was the direction it travelled. The step restates every
     // directional light's Translation as a Rotation and zeroes the Translation. A file stating no tag is v0.
     inline constexpr int kLightVersion = 1;
@@ -245,6 +249,9 @@ namespace Desert::Core
         Common::Json::TextDocument
                         Document; // the file as parsed - every key, known or not, every number at its width
         SceneSerialized Scene;    // the typed view of that same document
+        // Non-empty: the file was at an older generation and was upgraded in memory (SceneUpgrade.hpp); the
+        // one line the loader logs. The document above is then the upgraded tree's.
+        std::string Upgraded;
     };
     [[nodiscard]] Common::ResultStr<LoadableScene> ParseLoadableScene( std::string_view   source,
                                                                        const std::string& json );

@@ -128,7 +128,9 @@ Shader "RasterBinning"
                 }
                 return;
             }
-            const uint i = gl_GlobalInvocationID.x;
+            // This cut's HW counters [HwFirst, HwDraw[1]): a post cut appends after the main cut's in the shared
+            // list (GpuClusterRasterArgs::HwFirst; 0 for a main cut).
+            const uint i = RasterArgs.HwFirst + gl_GlobalInvocationID.x;
             if ( i >= min( RasterArgs.HwDraw[1], Params.y ) )
                 return;
             const uint row   = Params.y - 1u - i;

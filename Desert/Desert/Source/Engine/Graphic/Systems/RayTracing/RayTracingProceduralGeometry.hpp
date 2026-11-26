@@ -20,8 +20,8 @@ namespace Desert
 }
 
 // THE BLAS OF A PROCEDURAL MESH (UE: a dynamic mesh's FRayTracingGeometry, built by the dynamic-geometry
-// collection). A mesh the uploader made no BLAS for (DynamicMesh: Mesh::MarkGpuStale drops it on every re-upload)
-// gets one here, built INSIDE the frame graph by "RayTracingScene.DynamicGeometry" from its resident vertex and
+// collection). A procedural mesh (Mesh::IsProceduralRayTracingGeometry: a DynamicMesh, re-uploaded on every edit)
+// gets its BLAS here, built INSIDE the frame graph by "RayTracingScene.DynamicGeometry" from its resident vertex and
 // index buffers - once per (mesh, hidden and non-opaque masks) and buffer upload, PREFER_FAST_TRACE, never refit
 // (the vertices change only by a re-upload, which is a new buffer and therefore a new build). Owned by the scene
 // (RayTracingSceneCache), shared by its views: the first view of a frame builds, the next ones instance it.
@@ -71,7 +71,8 @@ namespace Desert::Graphic::RayTracing
             {
                 return std::hash<const void*>{}( key.MeshPtr ) ^
                        ( std::hash<uint64_t>{}( key.Masks.Hidden ) * 0x9E3779B97F4A7C15ull ) ^
-                       ( std::hash<uint64_t>{}( key.Masks.NonOpaque ) * 0xC2B2AE3D27D4EB4Full );
+                       ( std::hash<uint64_t>{}( key.Masks.NonOpaque ) * 0xC2B2AE3D27D4EB4Full ) ^
+                       ( std::size_t{ key.Masks.Lod } * 0x165667B19E3779F9ull );
             }
         };
         struct Entry

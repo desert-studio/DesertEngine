@@ -65,6 +65,12 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Source Radius" ), Category( "Light" ), Range( 0.0f, 1000.0f ), Length, Advanced )
         float SourceRadius = 0.0f;
 
+        // UE ULocalLightComponent::SourceLength: the emitter is a capsule ("tube", a fluorescent tube) of
+        // Source Radius around a segment of this length along the light's forward (the entity's -Z), centred on
+        // the light. Its specular is a stretched highlight, its diffuse the segment's irradiance. 0 = a sphere.
+        PROPERTY( DisplayName( "Source Length" ), Category( "Light" ), Range( 0.0f, 10000.0f ), Length, Advanced )
+        float SourceLength = 0.0f;
+
         PROPERTY( DisplayName( "Falloff" ), Category( "Light" ), Advanced )
         LightFalloff Falloff = LightFalloff::InverseSquare; // UE bUseInverseSquaredFalloff, on by default
 

@@ -176,10 +176,8 @@ int nextShadowLevel(int light, int c, vec3 worldPos)
 #define CASCADED_SHADOW_NOISE_PIXEL gl_FragCoord.xy
 #endif
 
-// UE's r.Shadow.MaxSoftKernelSize: the widest the soft kernel may get, in texels of its cascade.
-const float kMaxSoftKernelTexels = 40.0;
-// The fewest filter taps a penumbra gets (sampleCascade's adaptive kernel): a one-texel disc's four bilinear taps.
-const int kMinFilterTaps = 4;
+// The widest kernel: kMaxSoftKernelTexels (Common/ShadowFilterDisk.glslh, UE r.Shadow.MaxSoftKernelSize).
+// The fewest filter taps a penumbra gets: kMinFilterTaps (Common/ShadowFilterDisk.glslh).
 
 // Bilinear percentage-closer comparison at uv: 1 lit, 0 shadowed. `depth` is the receiver's.
 float shadowCompare2x2(int light, int c, vec2 uv, vec2 size, float depth)

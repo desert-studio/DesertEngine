@@ -1960,34 +1960,35 @@ namespace Desert::Graphic::API::Vulkan
                        } );
 #if DESERT_DEV_INSTRUMENTS
         // FPS-ASYNC-BALANCE: a newly published profiler window (an average over its frames: the smoothing) gives
-        // every pass its GPU self time; the balance flips the AsyncCompute passes its model gains from. A row
-        // drawn inside a view is "<view> | <pass>": the pass's time is the sum over the views. GPU timing off:
-        // no row has GPU calls and the choice stays (AsyncBalance::Rebalance).
+        // the balance every GPU row of the frame - the full measured timeline of both queues, its remainders and
+        // waits included (FPS-ASYNC-BALANCE-MODEL, RDGAsyncBalance.hpp) - and the GPU frame bracket; the balance
+        // flips the AsyncCompute passes its model gains from. A row drawn inside a view is "<view> | <pass>": it
+        // goes to the balance by its pass's name. GPU timing off: no row has GPU calls and the choice stays.
         if ( const Common::Profiling::Profiler& profiler = Common::Profiling::Profiler::Get();
              profiler.PublishCount() != m_BalanceWindow )
         {
             DESERT_PROFILE_SCOPE( "RDG: Async balance" );
             m_BalanceWindow = profiler.PublishCount();
-            std::unordered_map<std::string_view, double> gpuSelf;
+            std::vector<RDG::AsyncBalance::MeasuredRow> rows;
+            double                                      gpuFrameMs = 0.0;
             for ( const Common::Profiling::ScopeResult& row : profiler.LastFrame() )
             {
                 if ( row.GpuCalls == 0 )
                     continue;
                 std::string_view name = row.Name;
+                if ( name == Common::Profiling::kGpuFrameTotalScope )
+                {
+                    gpuFrameMs = row.GpuMs;
+                    continue;
+                }
                 if ( const size_t view = name.find( " | " ); view != std::string_view::npos )
                     name = name.substr( view + 3 );
-                gpuSelf[name] += row.GpuSelfMs;
+                rows.push_back( { name, row.GpuMs, row.GpuSelfMs, row.GpuAsyncSelfMs } );
             }
-            (void)m_AsyncBalance.Rebalance(
-                 [&gpuSelf]( std::string_view pass )
-                 {
-                     const auto found = gpuSelf.find( pass );
-                     if ( found == gpuSelf.end() )
-                         return RDG::AsyncBalance::Cost{};
-                     return RDG::AsyncBalance::Cost{ found->second, true };
-                 },
-                 []( std::string_view line ) { LOG_INFO( "[RDG] {}", line ); } );
+            (void)m_AsyncBalance.Rebalance( { rows, gpuFrameMs },
+                                            []( std::string_view line ) { LOG_INFO( "[RDG] {}", line ); } );
         }
+        m_AsyncBalance.NoteFrame();
 #endif
         m_FrameSlot   = slot;
         m_Queues      = &queues;

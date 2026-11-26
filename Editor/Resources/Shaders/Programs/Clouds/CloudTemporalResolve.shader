@@ -12,9 +12,12 @@ Shader "CloudTemporalResolve"
         // the other three quarters are unwritten transient memory and are never read. The phase advances every
         // frame and the sub-pixel every fourth one, so each half-res pixel is traced once every sixteen frames
         // (Graphic::kCloudTraceWalkFrames) — Unreal's mode-2 rate, its 4x4 Bayer walk, over this half-resolution
-        // reconstruction. This pass turns that stream into a HALF-resolution image, and
-        // CloudUpsample.shader upsamples the result exactly as it upsampled the half-res trace before this
-        // stage existed.
+        // reconstruction. This pass turns that stream into a HALF-resolution image (the view's history for the
+        // next frame) AND, in the same dispatch, composes it to FULL resolution against every pixel's own scene
+        // depth (the compose stage at the end of this file) — Unreal's ReconstructVolumetricRenderTarget and
+        // ComposeVolumetricRT, fused (FPS-CLOUDS-RESOLVE-FUSE): each group reconstructs its half-res tile into
+        // groupshared memory and upsamples from there, so the half-res pair is written once (as history) and
+        // never read back this frame, and the graph has no barrier between the two stages.
         //
         // For each half-res pixel there are three cases:
         //
@@ -135,12 +138,23 @@ Shader "CloudTemporalResolve"
         // targets are: radiance is pre-tonemap HDR and transmittance is in [0,1].
         layout(binding = 4, rgba16f) restrict writeonly uniform image2D ReconstructedScatterTexture;
 
-        // The reconstructed guide, which serves two readers: CloudUpsample.shader upsamples through it,
-        // and NEXT frame's run of this pass reads it back as the history guide to detect disocclusions.
+        // The reconstructed guide, which serves two readers: this pass's compose stage upsamples through it
+        // (from groupshared memory), and NEXT frame's run of this pass reads it back as the history guide to
+        // detect disocclusions.
         // It carries THIS frame's distances with no temporal blending at all — a distance is a property of
         // the geometry in front of the camera now, and mixing it with a distance from three frames ago
         // would produce a number describing nothing, which the composite would then treat as an edge.
         layout(binding = 5, rgba16f) restrict writeonly uniform image2D ReconstructedGuideTexture;
+
+        // The compose stage's two outputs, FULL resolution, read 1:1 by CloudComposite.shader: the cloud
+        // (premultiplied radiance + transmittance) and, beside it, the DEVICE DEPTH (reversed-Z) of each pixel's
+        // nearest cloud front, which the composite writes as its fragment depth (FPS-CLOUDS-WATER). The march
+        // traced against the depth it was given; a frame that traced it at the early (async) placement gave it
+        // the G-buffer depth, the opaque scene WITHOUT the water (UE SceneDepthWithoutSingleLayerWater). The water
+        // draws its own depth after that, and the composite's hardware depth test against it drops the cloud whose
+        // front lies behind the water surface - the pixel's own surface here is the lake bed.
+        layout(binding = 10, rgba16f) restrict writeonly uniform image2D UpsampledCloudTexture;
+        layout(binding = 11, r32f) restrict writeonly uniform image2D UpsampledCloudFrontDepthTexture;
 
         // This frame's QUARTER-resolution trace and its guide.
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
@@ -182,10 +196,22 @@ Shader "CloudTemporalResolve"
         // texel on some frames and not on others, so .y swung between the blade and the sky and the
         // disocclusion test below rejected a good history at every blade edge, every frame.
 
-        // The block layout this pass shares with CloudUpsample.shader (Common/CloudResolveParams.glslh).
+        // The pass's parameter block (Common/CloudResolveParams.glslh).
         #include <Common/CloudResolveParams.glslh>
 
-        LocalSize(8, 8, 1);
+        // ONE GROUP = ONE 16x16 TILE OF THE HALF-RESOLUTION RECONSTRUCTION, and every full-resolution pixel whose
+        // bilinear footprint STARTS in that tile (VolumetricCloudRenderer::kReconstructTile). The footprint's second
+        // texel may lie one past the tile, so the group also reconstructs a one-texel apron on its +x and +y sides
+        // (33 texels, recomputed by the neighbour that owns them; only the owner writes them to the history).
+        LocalSize(16, 16, 1);
+        const int kTile      = 16;
+        const int kTileApron = kTile + 1;
+
+        // The reconstructed tile and its apron, exactly as the history images hold it: rgba16f scatter and the
+        // guide's .xy, packed to halves so the compose stage reads the same bits a texelFetch of the stored pair
+        // would.
+        shared uvec2 TileScatter[kTileApron * kTileApron];
+        shared uint  TileGuide[kTileApron * kTileApron];
 
         // THE DISOCCLUSION THRESHOLD, kilometres. Unreal rejects a history sample whose scene depth has
         // moved by more than a couple of kilometres at cloud scale; below that the difference is the
@@ -449,13 +475,11 @@ Shader "CloudTemporalResolve"
             }
         }
 
-        void main()
+        // THE RECONSTRUCT STAGE for one half-resolution pixel `coord` of a reconstruction `size` texels large:
+        // the scatter (clamped as stored) and the guide (.x front, .y this pixel's scene distance) the history
+        // holds for it.
+        void ReconstructTexel(ivec2 coord, ivec2 size, out vec4 storedScatter, out vec2 storedGuide)
         {
-            ivec2 size  = imageSize(ReconstructedScatterTexture);
-            ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
-            if (coord.x >= size.x || coord.y >= size.y)
-                return;
-
             ivec2 traceSize = textureSize(CloudTraceTexture, 0);
 
             // Which sub-pixel of its 2x2 block this half-res pixel is, and the quarter-res texel that
@@ -679,7 +703,7 @@ Shader "CloudTemporalResolve"
                                 // most kNewSampleWeight of it is this frame's. The traced texel's front belongs
                                 // to whichever sub-pixel the walk is on and to this trace's dither, so carrying
                                 // it put a new distance under every pixel of the block every frame, and the
-                                // composite's edge filter (CloudUpsample.shader) re-weighed them every frame.
+                                // compose stage's edge filter (ComposePixel) re-weighed them every frame.
                                 if (!owned)
                                     frontKm = historyGuide.x;
                             }
@@ -716,15 +740,278 @@ Shader "CloudTemporalResolve"
             // way an occluded texel always did: both channels at its occluder. Its own pixels then take no cloud
             // from it (front at the surface) and a sky pixel beside it weighs it out (cut far from the sky);
             // next frame's resolve rejects it as history, since its .y is not the far plane this pixel reports.
-            vec2 heldGuide = estimate ? vec2(frontKm, ownSceneKm) : vec2(geomKm, geomKm);
-            imageStore(ReconstructedGuideTexture, coord, vec4(heldGuide, 0.0f, 0.0f));
+            storedGuide = estimate ? vec2(frontKm, ownSceneKm) : vec2(geomKm, geomKm);
 
             // Transmittance is clamped both ways because it multiplies the scene behind the cloud: a
             // value above 1 brightens what is BEHIND it, which reads as a glowing rectangle and is very
             // hard to trace back to a filter. Radiance is clamped only against negatives, which no blend
             // of two non-negative values can produce but a poisoned history texel can.
-            imageStore(ReconstructedScatterTexture, coord,
-                       vec4(max(resolved.rgb, vec3(0.0f)), clamp(resolved.a, 0.0f, 1.0f)));
+            storedScatter = vec4(max(resolved.rgb, vec3(0.0f)), clamp(resolved.a, 0.0f, 1.0f));
+        }
+
+        // Reconstructs tile entry `entry` (half-res texel tileOrigin + entry) into groupshared memory, and writes
+        // it to the history when this group owns it. An entry past the reconstruction's last texel is never read
+        // (the compose clamps its footprint to that texel) and is skipped.
+        void ReconstructTileEntry(ivec2 entry, ivec2 tileOrigin, ivec2 halfSize)
+        {
+            ivec2 coord = tileOrigin + entry;
+            if (coord.x >= halfSize.x || coord.y >= halfSize.y)
+                return;
+
+            vec4 scatter;
+            vec2 guide;
+            ReconstructTexel(coord, halfSize, scatter, guide);
+
+            if (entry.x < kTile && entry.y < kTile)
+            {
+                imageStore(ReconstructedGuideTexture, coord, vec4(guide, 0.0f, 0.0f));
+                imageStore(ReconstructedScatterTexture, coord, scatter);
+            }
+            int index          = entry.y * kTileApron + entry.x;
+            TileScatter[index] = uvec2(packHalf2x16(scatter.rg), packHalf2x16(scatter.ba));
+            TileGuide[index]   = packHalf2x16(guide);
+        }
+
+        // =====================================================================================================
+        // THE COMPOSE STAGE — Unreal's ComposeVolumetricRTOverScene (VolumetricRenderTarget.usf) with its
+        // depth-aware upsample (r.VolumetricRenderTarget.UpsamplingMode 4), in compute because it needs the one
+        // input the raster composite cannot have: THIS PIXEL'S OWN SCENE DEPTH. CloudComposite draws into the
+        // scene target with the depth attached, and sampling a bound attachment is a feedback loop; here, ahead of
+        // the translucency phase, the depth is an ordinary sampled image (the same SceneDepth.Compute the march and
+        // the reconstruct stage read).
+        //
+        // WHY (FOLIAGE-CLOUD-FLICKER). Upsampling against the BILINEAR BLEND of the four guide distances is a
+        // guess that, at a grass blade or a leaf against the sky, is a mixture of the blade and the sky and says
+        // nothing about which of the two THIS pixel is: a blade pixel received the sky's cloud on one frame and
+        // none on the next, and TAA was handed a different answer at every foliage edge every frame.
+        //
+        // THE RULE, per full-resolution pixel at scene distance d (km, the far plane for the sky):
+        //   * a half-res texel whose CLOUD FRONT lies at or behind d has no cloud in front of this pixel's
+        //     surface. It contributes "clear" (no radiance, transmittance 1) and AGREES with the pixel: that
+        //     answer is exact here, and it is what makes a blade in front of a cloud take no cloud on any frame;
+        //   * any other texel contributes its scatter, weighted by how well the distance its ray was cut at
+        //     (guide .y, the farthest surface of its block, Common/CloudSceneDepth.glslh) agrees with d, and by
+        //     how well its front agrees with the neighbourhood's.
+        // Over open sky both rules reduce to a front-only edge filter.
+        //
+        // BILINEAR STAYS THE COMMON PATH: a filter that rejects neighbours everywhere quantizes the result onto the
+        // half-res grid. The four texels are tested for coherence first against Unreal's threshold of a tenth of
+        // the reference distance, and only a genuine discontinuity pays for the weighted path, which keeps the
+        // bilinear weight as a FACTOR so the edge stays sub-texel.
+        //
+        // LINEAR HDR, ABSOLUTE: premultiplied radiance in .rgb, transmittance in .a. The view's PreExposure is
+        // applied by CloudComposite, which only copies this image onto the scene with the over-operator.
+        // =====================================================================================================
+
+        // Unreal's coherence threshold: a tenth of the reference distance. Relative, because a kilometre of
+        // disagreement is a silhouette at three kilometres and nothing at fifty.
+        const float kCoherentFraction = 0.1f;
+
+        // A distance disagreement in kilometres as a weight: a neighbour ten metres away still counts, one a
+        // kilometre away does not.
+        float GuideWeight(float deltaKm)
+        {
+            return 1.0f / (deltaKm * 1000.0f + 1.0f);
+        }
+
+        // The first half-res texel of a full-res pixel's bilinear footprint, on one axis: texel centres sit at
+        // (i + 0.5) / halfSize. ONE expression, used both to assign pixels to tiles and inside the compose, so the
+        // two can never disagree about which tile a pixel's footprint starts in.
+        float FootprintTexel(int pixel, int fullSize, int halfSize)
+        {
+            return (float(pixel) + 0.5f) / float(fullSize) * float(halfSize) - 0.5f;
+        }
+        int FootprintBase(int pixel, int fullSize, int halfSize)
+        {
+            return int(floor(FootprintTexel(pixel, fullSize, halfSize)));
+        }
+
+        // The first full-res pixel (on one axis) whose footprint starts at or after half-res texel `firstTexel`;
+        // fullSize when none does. Pixel 0 starts the first tile (its footprint starts at texel -1, clamped to 0).
+        // The estimate inverts FootprintTexel; the two corrections settle its rounding against the exact
+        // expression above (FootprintBase is non-decreasing in the pixel).
+        int FirstPixelOfTile(int firstTexel, int fullSize, int halfSize)
+        {
+            if (firstTexel <= 0)
+                return 0;
+            int pixel = int(ceil((float(firstTexel) + 0.5f) * float(fullSize) / float(halfSize) - 0.5f));
+            pixel     = clamp(pixel, 0, fullSize);
+            for (int i = 0; i < 2; ++i)
+                if (pixel > 0 && FootprintBase(pixel - 1, fullSize, halfSize) >= firstTexel)
+                    --pixel;
+            for (int i = 0; i < 2; ++i)
+                if (pixel < fullSize && FootprintBase(pixel, fullSize, halfSize) < firstTexel)
+                    ++pixel;
+            return pixel;
+        }
+
+        // The compose of one full-resolution pixel, from the group's reconstructed tile.
+        void ComposePixel(ivec2 coord, ivec2 fullSize, ivec2 halfSize, ivec2 tileOrigin)
+        {
+            // THIS PIXEL'S SCENE DISTANCE, by the march's expression: the far plane where nothing was drawn,
+            // the opaque surface where something was. REVERSED-Z: 0 is the far plane and the sky.
+            vec2 uv  = (vec2(coord) + vec2(0.5f, 0.5f)) / vec2(fullSize);
+            vec2 ndc = vec2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
+
+            vec4 farH = InverseViewProjection * vec4(ndc.x, ndc.y, 0.0f, 1.0f);
+            vec3 farP = farH.xyz / max(farH.w, 1e-9f);
+            float pixelKm = length(farP - CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+
+            ivec2 depthSize   = textureSize(SceneDepthTexture, 0);
+            float deviceDepth = texelFetch(SceneDepthTexture, clamp(coord, ivec2(0, 0), depthSize - ivec2(1, 1)), 0).r;
+            if (deviceDepth > 0.0f)
+            {
+                vec4 geomH = InverseViewProjection * vec4(ndc.x, ndc.y, deviceDepth, 1.0f);
+                vec3 geomP = geomH.xyz / max(geomH.w, 1e-9f);
+                pixelKm = length(geomP - CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+            }
+
+            // The 2x2 half-res footprint and its bilinear fractions (FootprintTexel).
+            vec2  texel = vec2(FootprintTexel(coord.x, fullSize.x, halfSize.x),
+                               FootprintTexel(coord.y, fullSize.y, halfSize.y));
+            vec2  frac  = texel - floor(texel);
+            ivec2 base  = ivec2(floor(texel));
+            ivec2 last  = halfSize - ivec2(1, 1);
+
+            ivec2 coords[4];
+            coords[0] = clamp(base + ivec2(0, 0), ivec2(0, 0), last);
+            coords[1] = clamp(base + ivec2(1, 0), ivec2(0, 0), last);
+            coords[2] = clamp(base + ivec2(0, 1), ivec2(0, 0), last);
+            coords[3] = clamp(base + ivec2(1, 1), ivec2(0, 0), last);
+
+            float bilinear[4];
+            bilinear[0] = (1.0f - frac.x) * (1.0f - frac.y);
+            bilinear[1] = frac.x * (1.0f - frac.y);
+            bilinear[2] = (1.0f - frac.x) * frac.y;
+            bilinear[3] = frac.x * frac.y;
+
+            vec4  scatter[4];
+            float frontKm[4]; // the cloud front, clamped at this pixel's surface
+            float cutDeltaKm[4]; // how far the texel's cut distance is from this pixel's surface
+
+            for (int i = 0; i < 4; ++i)
+            {
+                // The footprint starts in this group's tile and its second texel is at most the apron's.
+                ivec2 entry = coords[i] - tileOrigin;
+                int   index = entry.y * kTileApron + entry.x;
+                uvec2 packedScatter = TileScatter[index];
+                vec4  s     = vec4(unpackHalf2x16(packedScatter.x), unpackHalf2x16(packedScatter.y));
+                vec2  guide = unpackHalf2x16(TileGuide[index]);
+                if (guide.x >= pixelKm)
+                {
+                    // The whole of this texel's cloud lies behind this pixel's surface.
+                    scatter[i]    = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                    frontKm[i]    = pixelKm;
+                    cutDeltaKm[i] = 0.0f;
+                }
+                else
+                {
+                    scatter[i]    = s;
+                    frontKm[i]    = guide.x;
+                    cutDeltaKm[i] = abs(guide.y - pixelKm);
+                }
+            }
+
+            float referenceFrontKm = 0.0f;
+            for (int i = 0; i < 4; ++i)
+                referenceFrontKm += bilinear[i] * frontKm[i];
+            // The nearest front among the texels that reach this pixel (a texel the surface occludes stands at
+            // the surface): the composite keeps the pixel's cloud wherever any of it lies in front of a later
+            // surface, as the march's own cut would have.
+            float nearestFrontKm = pixelKm;
+            for (int i = 0; i < 4; ++i)
+                if (bilinear[i] > 0.0f)
+                    nearestFrontKm = min(nearestFrontKm, frontKm[i]);
+
+            float frontSpreadKm = max(max(frontKm[0], frontKm[1]), max(frontKm[2], frontKm[3])) -
+                                  min(min(frontKm[0], frontKm[1]), min(frontKm[2], frontKm[3]));
+            float cutSpreadKm   = max(max(cutDeltaKm[0], cutDeltaKm[1]), max(cutDeltaKm[2], cutDeltaKm[3]));
+
+            // BOTH terms gate the filter: the cloud front catches a cloud edge against open sky, the cut distance
+            // catches a cloud against geometry. Not named `coherent`: that is a GLSL memory qualifier.
+            bool guideAgrees = frontSpreadKm <= referenceFrontKm * kCoherentFraction &&
+                               cutSpreadKm <= pixelKm * kCoherentFraction;
+
+            vec4 cloud = vec4(0.0f);
+            if (guideAgrees)
+            {
+                for (int i = 0; i < 4; ++i)
+                    cloud += bilinear[i] * scatter[i];
+            }
+            else
+            {
+                float weightSum = 0.0f;
+                for (int i = 0; i < 4; ++i)
+                {
+                    float weight = bilinear[i] * GuideWeight(abs(frontKm[i] - referenceFrontKm) + cutDeltaKm[i]);
+                    cloud += weight * scatter[i];
+                    weightSum += weight;
+                }
+                // Positive by construction for finite inputs (some bilinear weight is positive and every
+                // GuideWeight is); the guard turns a NaN arriving from a source texel into one dark pixel
+                // rather than a white flash.
+                cloud /= max(weightSum, 1e-8f);
+            }
+
+            // Radiance clamped against negatives (a NaN can bring one), transmittance both ways: above 1 it
+            // would brighten what is behind the cloud.
+            imageStore(UpsampledCloudTexture, coord, vec4(max(cloud.rgb, vec3(0.0f)), clamp(cloud.a, 0.0f, 1.0f)));
+
+            // THE FRONT AS A DEVICE DEPTH. Along one pixel's ray a perspective projection's device depth is affine
+            // in 1 / distance: device = A + B / d. Two un-projections of this ray fix A and B for any perspective
+            // (finite or infinite far). Devices 1e-3 and 1e-4 sit at about a hundred metres and a kilometre with
+            // the 10 cm near plane (Core/Projection.hpp), where the distance to the camera loses no precision to
+            // the world position it is subtracted from (the near plane itself would: centimetres against a
+            // world coordinate in the hundreds of metres).
+            const float kDeviceA = 1e-3f;
+            const float kDeviceB = 1e-4f;
+            vec4  aH  = InverseViewProjection * vec4(ndc.x, ndc.y, kDeviceA, 1.0f);
+            vec4  bH  = InverseViewProjection * vec4(ndc.x, ndc.y, kDeviceB, 1.0f);
+            float aKm = max(length(aH.xyz / aH.w - CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM), 1e-9f);
+            float bKm = max(length(bH.xyz / bH.w - CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM), 1e-9f);
+            float slope  = (kDeviceA - kDeviceB) / (1.0f / aKm - 1.0f / bKm);
+            float offset = kDeviceA - slope / aKm;
+            // Pulled a hundredth of its distance toward the camera: the march's unjittered matrix un-projects the
+            // jittered depth to a few parts in ten thousand (CloudResolveParams), and a front AT the march's own
+            // cut (the surface the pixel shows) must pass the test against that same surface, never fail it.
+            float pulledFrontKm = max(nearestFrontKm * 0.99f, 1e-9f);
+            float frontDevice   = clamp(offset + slope / pulledFrontKm, 0.0f, 1.0f);
+            imageStore(UpsampledCloudFrontDepthTexture, coord, vec4(frontDevice, 0.0f, 0.0f, 0.0f));
+        }
+
+        void main()
+        {
+            ivec2 halfSize   = imageSize(ReconstructedScatterTexture);
+            ivec2 fullSize   = imageSize(UpsampledCloudTexture);
+            ivec2 group      = ivec2(gl_WorkGroupID.xy);
+            ivec2 local      = ivec2(gl_LocalInvocationID.xy);
+            ivec2 tileOrigin = group * kTile;
+
+            // RECONSTRUCT: the tile, one texel per invocation, then its +x column and +y row of apron (33 texels,
+            // the corner once). No invocation returns before the barrier.
+            ReconstructTileEntry(local, tileOrigin, halfSize);
+            int apron = int(gl_LocalInvocationIndex);
+            if (apron < kTileApron)
+                ReconstructTileEntry(ivec2(apron, kTile), tileOrigin, halfSize);
+            else if (apron < kTileApron + kTile)
+                ReconstructTileEntry(ivec2(kTile, apron - kTileApron), tileOrigin, halfSize);
+            barrier();
+
+            // COMPOSE: every full-res pixel whose footprint starts in this tile — on each axis the pixels from the
+            // tile's first to the next tile's first (the last tile runs to the edge of the frame). Every pixel of
+            // the frame belongs to exactly one tile, because FootprintBase is non-decreasing and clamped into the
+            // reconstruction.
+            ivec2 numGroups = ivec2(gl_NumWorkGroups.xy);
+            ivec2 firstPixel = ivec2(FirstPixelOfTile(tileOrigin.x, fullSize.x, halfSize.x),
+                                     FirstPixelOfTile(tileOrigin.y, fullSize.y, halfSize.y));
+            ivec2 endPixel   = ivec2(group.x + 1 == numGroups.x ? fullSize.x
+                                                                : FirstPixelOfTile(tileOrigin.x + kTile, fullSize.x, halfSize.x),
+                                     group.y + 1 == numGroups.y ? fullSize.y
+                                                                : FirstPixelOfTile(tileOrigin.y + kTile, fullSize.y, halfSize.y));
+            ivec2 extent     = max(endPixel - firstPixel, ivec2(0, 0));
+            int   pixels     = extent.x * extent.y;
+            for (int i = int(gl_LocalInvocationIndex); i < pixels; i += kTile * kTile)
+                ComposePixel(firstPixel + ivec2(i % extent.x, i / extent.x), fullSize, halfSize, tileOrigin);
         }
     }
 }

@@ -21,10 +21,6 @@
 #include <optional>
 #include <unordered_map>
 
-namespace Desert::Graphic::RayTracing
-{
-    class RayTracingGeometryResource;
-}
 namespace Desert::Graphic::VirtualGeometry
 {
     class VirtualMeshRegistration;
@@ -136,18 +132,16 @@ namespace Desert
             return m_Geometry;
         }
 
-        // THE MESH'S BOTTOM-LEVEL ACCELERATION STRUCTURE (UE FRayTracingGeometry on the render data), built from
-        // the same vertex and index buffers by the uploader where the device traces rays; null everywhere else
-        // (no RT device, a skinned mesh, not uploaded yet). It lives and dies with the mesh, so it is released on
-        // the frame-retire rule the mesh's buffers follow (MeshService::RetireEvicted drops the last reference).
-        [[nodiscard]] const std::shared_ptr<Graphic::RayTracing::RayTracingGeometryResource>&
-        GetRayTracingGeometry() const
+        // WHO BUILDS THE MESH'S BOTTOM-LEVEL ACCELERATION STRUCTURE. False (a cooked StaticMesh / SkinnedMesh): the
+        // scene's BLAS owner builds it on the first frame a ray-traced row asks for it, at the RT-LOD that row traces,
+        // and releases it once no row has asked for a while (RayTracingGeometryVariants; UE builds only the
+        // ray-tracing LOD geometry it instances, r.RayTracing.Geometry). True (a DynamicMesh: a primitive, an editable
+        // or a fracture / spline piece whose triangles change at runtime): the RT scene's procedural cache builds it
+        // inside the frame's graph (RayTracingProceduralGeometry.hpp). A property of the mesh kind, never inferred
+        // from whether a BLAS exists yet.
+        [[nodiscard]] virtual bool IsProceduralRayTracingGeometry() const
         {
-            return m_RayTracingGeometry;
-        }
-        void SetRayTracingGeometry( std::shared_ptr<Graphic::RayTracing::RayTracingGeometryResource> geometry )
-        {
-            m_RayTracingGeometry = std::move( geometry );
+            return false;
         }
 
         // THE MESH'S DISPLACEMENT TOPOLOGY (Geometry/DisplacementTessellation.hpp): welded LOD0, clusters, built at
@@ -224,8 +218,9 @@ namespace Desert
         // THE FENCE'S HALF OF AN EDIT (CPU-ONE-SYNC step 5; UE: the game thread builds new render data and the
         // render command queue swaps it in). Called only by SceneRenderer::PrepareMesh, on the game thread with
         // no view job in flight (Scene::OnUpdate's intake, RenderTask::AfterJoin): everything a replay reads -
-        // the render revision MorphedMeshFor and the shadow caches key by, the BLAS, the device geometry - is
-        // replaced HERE, never under a job. MarkGpuStale, the edit's half, only raises the flag.
+        // the render revision MorphedMeshFor and the shadow caches key by, the device geometry - is replaced HERE,
+        // never under a job (a BLAS built from the old buffers is rebuilt by its owner, which keys it by the
+        // buffers' identity: RayTracingGeometryVariants). MarkGpuStale, the edit's half, only raises the flag.
         [[nodiscard]] Common::BoolResultWithCodes<MeshError> EnsureGpuResources()
         {
             if ( !m_GpuStale )
@@ -233,8 +228,6 @@ namespace Desert
             m_GpuStale = false;
             // New content under the same address: every cache keyed by the mesh's render identity redraws it.
             m_RenderRevision.Bump();
-            // A BLAS built from the old positions would let rays hit geometry the raster no longer draws.
-            m_RayTracingGeometry.reset();
             return Invalidate();
         }
         [[nodiscard]] bool IsGpuStale() const
@@ -258,7 +251,7 @@ namespace Desert
         // The CPU data changed and the GPU buffers no longer hold it (or were never made). THE EDIT'S HALF: a
         // pending flag and nothing a replay reads. The game thread may call it while a view job replays this
         // mesh (an editor tool in the interface step, a system's tick past the previous frame's views); the
-        // revision bump, the BLAS release and the upload are the fence's (EnsureGpuResources). The flag itself
+        // revision bump and the upload are the fence's (EnsureGpuResources). The flag itself
         // is game-thread state: no job reads it (ReadyForDraw asks the geometry's residency).
         void MarkGpuStale() noexcept
         {
@@ -273,9 +266,13 @@ namespace Desert
         void ResolveLODScreenSizes()
         {
             const auto levelTriangles = Geometry::LODTriangleCounts( m_Submeshes );
-            m_LODScreenSizes = Geometry::ResolveLODScreenSizes( levelTriangles, m_AuthoredLODScreenSizes, 1.0f );
-            m_FieldLODScreenSizes =
-                 Geometry::ResolveLODScreenSizes( levelTriangles, m_AuthoredLODScreenSizes, m_LODScreenCoverage );
+            // Both chains are capped by the levels' cut errors (~1 px rule): a DAG cut too coarse for a size is
+            // wrong there whichever chain draws it.
+            const auto levelErrors = Geometry::LODLevelCutErrors( m_Submeshes );
+            m_LODScreenSizes =
+                 Geometry::ResolveLODScreenSizes( levelTriangles, m_AuthoredLODScreenSizes, 1.0f, levelErrors );
+            m_FieldLODScreenSizes = Geometry::ResolveLODScreenSizes( levelTriangles, m_AuthoredLODScreenSizes,
+                                                                     m_LODScreenCoverage, levelErrors );
         }
         // Geometry::LODScreenCoverage of the mesh's LOD 0 triangles, set by the subclass that holds them before it
         // resolves the sizes (1: the bounding disc, a mesh whose triangles it does not measure); only the field
@@ -284,8 +281,6 @@ namespace Desert
         std::optional<std::vector<float>> m_AuthoredLODScreenSizes;
         std::vector<float>                m_LODScreenSizes;
         std::vector<float>                m_FieldLODScreenSizes;
-
-        std::shared_ptr<Graphic::RayTracing::RayTracingGeometryResource> m_RayTracingGeometry;
 
         // THE CPU DATA WAITING FOR ITS UPLOAD (StaticMesh / SkinnedMesh: the constructor's arrays, kept until the
         // renderer uploads them into the pool and then released, as the per-mesh buffers released their host

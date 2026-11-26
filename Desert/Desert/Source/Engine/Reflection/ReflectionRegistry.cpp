@@ -36,6 +36,26 @@ namespace Desert::Reflection
         {
             for ( auto& field : type.Fields )
             {
+                // A vector of a reflected struct: its element's TypeInfo, from the spelling inside the
+                // `vector<...>` (short name first, then the last `::` segment, as for StructType below).
+                if ( field.IsContainer && field.ElementType == FieldType::Struct && field.ElementStruct == nullptr )
+                {
+                    const auto open  = field.TypeName.find( '<' );
+                    const auto close = field.TypeName.rfind( '>' );
+                    if ( open != std::string::npos && close != std::string::npos && close > open + 1 )
+                    {
+                        std::string element = field.TypeName.substr( open + 1, close - open - 1 );
+                        while ( !element.empty() && element.front() == ' ' )
+                            element.erase( element.begin() );
+                        while ( !element.empty() && element.back() == ' ' )
+                            element.pop_back();
+                        field.ElementStruct = Find( element );
+                        if ( field.ElementStruct == nullptr )
+                            if ( const auto pos = element.rfind( "::" ); pos != std::string::npos )
+                                field.ElementStruct = Find( element.substr( pos + 2 ) );
+                    }
+                    continue;
+                }
                 if ( field.Type == FieldType::Struct && field.StructType == nullptr )
                 {
                     field.StructType = Find( field.TypeName );

@@ -282,7 +282,22 @@ namespace Desert::Graphic::System
         data.CastShadows              = section.CastShadows;
         data.ReceiveShadows           = section.ReceiveShadows;
         data.CastContactShadow        = section.CastContactShadow;
+        data.ReceivesDecals           = section.ReceivesDecals;
         data.TranslucencySortPriority = section.TranslucencySortPriority;
+        data.ImpostorCard                         = section.ImpostorCard;
+        data.RayTracingOnly                       = admitted.RayTracingOnly;
+        if ( section.ImpostorScreenSize > 0.0f )
+        {
+            data.ImpostorSource = !section.ImpostorCard;
+            // A screen size is proportional to the bounds radius: the card's own (smaller) bounds cross the same
+            // distance at the source size scaled by radius(card) / radius(source).
+            const float sourceRadius =
+                 glm::length( ( section.ImpostorBounds.Max - section.ImpostorBounds.Min ) * 0.5f );
+            const float ownRadius   = glm::length( ( section.LocalBounds.Max - section.LocalBounds.Min ) * 0.5f );
+            data.ImpostorSwitchSize = !section.ImpostorCard ? section.ImpostorScreenSize
+                                      : sourceRadius > 0.0f ? section.ImpostorScreenSize * ownRadius / sourceRadius
+                                                            : 0.0f;
+        }
     }
 
     void MeshRenderer::SubmitStaticScene( const Render::StaticSceneSnapshot&                  scene,
@@ -398,7 +413,8 @@ namespace Desert::Graphic::System
             // default, and the per-object draw pushes its EMISSION_IS_LIGHT (PrimitiveFlagsOf). The toggle moves
             // DrawReadinessKey (Material::EmissiveLightsGeneration), so the rows are re-planned on it.
             const bool emissionIsLight = inst != nullptr && inst->IsEmissiveLightsScene();
-            if ( !data.ReceiveShadows || !data.CastContactShadow || emissionIsLight ||
+            // A primitive that receives no decals draws alone too: its NO_DECALS rides the per-object push.
+            if ( !data.ReceiveShadows || !data.CastContactShadow || !data.ReceivesDecals || emissionIsLight ||
                  ( flags & StaticPlanRows::kHasOverrides ) != 0u )
                 flags |= StaticPlanRows::kAlone;
             rows.Flags[i]  = flags;
@@ -941,7 +957,7 @@ namespace Desert::Graphic::System
                 const VirtualGeometryIssue& vg = *issue.VirtualGeometry;
                 if ( vg.GroupCount != issue.Table->Groups.size() || vg.GroupCarriers.size() != vg.GroupCount ||
                      ( !vg.GroupPipelines.empty() && vg.GroupPipelines.size() != vg.GroupCount ) ||
-                     !vg.GroupArgs.IsValid() || !vg.Rows.IsValid() )
+                     !vg.GroupArgs.IsValid() || ( !vg.ResolveRows && !vg.Rows.IsValid() ) )
                 {
                     Fail( std::format(
                          "virtual geometry raster: {} bins, {} carriers and {} pipelines for {} groups",
@@ -1199,7 +1215,8 @@ namespace Desert::Graphic::System
             if ( m_Binned && m_Binned->VirtualGeometry )
             {
                 declaration.Read( m_Binned->VirtualGeometry->GroupArgs, RDG::Access::IndirectArgs );
-                declaration.Read( m_Binned->VirtualGeometry->Rows, RDG::Access::VertexIndex );
+                if ( !m_Binned->VirtualGeometry->ResolveRows ) // the resolve binds no instance id stream
+                    declaration.Read( m_Binned->VirtualGeometry->Rows, RDG::Access::VertexIndex );
             }
             // A GPU-instanced draw's buffers: the graph places the compute-write -> vertex / indirect barrier from
             // these (its material binds the transforms; the record reads the arguments). Each buffer once.
@@ -1513,11 +1530,18 @@ namespace Desert::Graphic::System
                                              pipeline.GetSpecification().DebugName );
                             vgGroup->Add( 1, 0, true );
                         }
-                        const ClusterIndirectGroupDraw draw{ .Args       = vg.GroupArgs,
-                                                             .ArgsOffset = uint64_t{ group } *
-                                                                           VirtualGeometry::kRasterBinsArgsStride,
-                                                             .Rows     = vg.Rows,
-                                                             .Material = vg.GroupCarriers[group] };
+                        ClusterIndirectGroupDraw draw{ .Args       = vg.GroupArgs,
+                                                       .ArgsOffset = uint64_t{ group } *
+                                                                     VirtualGeometry::kRasterBinsArgsStride,
+                                                       .Rows     = vg.Rows,
+                                                       .Material = vg.GroupCarriers[group] };
+                        if ( vg.ResolveRows ) // the resolve: the tile list's one record for every group
+                        {
+                            draw.ArgsOffset = vg.ResolveArgsOffset;
+                            draw.Rows       = {};
+                            draw.Resolve    = glm::uvec3( static_cast<uint32_t>( group ), vg.ResolveRows->x,
+                                                          vg.ResolveRows->y );
+                        }
                         if ( auto drawn =
                                   api.RenderClusterIndirectGroup( blocks.At( m_VgGroupBlock[group] ), pipeline, draw );
                              !drawn )
@@ -2430,6 +2454,12 @@ namespace Desert::Graphic::System
                 resolved.EmissionIsLight = resolved.Pipeline != nullptr &&
                                            ( row.Instance != nullptr ? row.Instance->IsEmissiveLightsScene()
                                                                      : row.Surface->IsEmissiveLightsScene() );
+                // VG-SW-RASTER: the software raster's clusters of this bin are shaded only through the cell's VG
+                // visibility resolve twin (a `.Parallax` cell or a path without the VG permutation has none).
+                if ( resolved.Pipeline != nullptr && !resolved.DitheredLod )
+                    if ( const auto resolveCell = VisibilityResolveCellOf( BinnedCellOf( *cell ) ) )
+                        resolved.SoftwareRaster =
+                             Runtime::ResourceRegistry::GetShaderService()->GetByName( *resolveCell ) != nullptr;
                 return resolved;
             }
             case GpuDriven::MeshPass::Forward:
@@ -2715,13 +2745,15 @@ namespace Desert::Graphic::System
         uint32_t crowdDraws    = 0;
         uint32_t crowdGrown    = 0;
         float    crowdMaxScale = 1.0f;
-        for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
+        // A RECORD DECIDES ITS OWN FRAME: its level, its hand-off to the baked crowd and its minimum screen size,
+        // from its own bounds and its own animation's feedback. Returns the screen size it priced itself at.
+        const auto decide = [&]( SkinnedMeshRenderData& data ) -> float
         {
-            data.Lod        = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
+            data.Lod            = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
             data.VatAddress     = 0;
             data.VatVertexCount = 0;
             data.MinScreenScale = 1.0f;
-            const auto& lods = data.Mesh->GetSkinnedLODs();
+            const auto& lods       = data.Mesh->GetSkinnedLODs();
             float       screenSize = Geometry::kLOD0ScreenSize;
             if ( data.LodFeedback )
             {
@@ -2749,10 +2781,7 @@ namespace Desert::Graphic::System
                 data.Lod = std::max( data.Lod, feedback.EvaluatedLod.load( std::memory_order_relaxed ) );
             }
             if ( lods.empty() )
-            {
-                ++crowdSkeletal;
-                continue;
-            }
+                return screenSize;
             data.Lod                     = std::min<uint32_t>( data.Lod, static_cast<uint32_t>( lods.size() - 1u ) );
             // The hand-off, by the WP-FAR-10 metric (FOV-aware screen size; a view drawing LOD 0 keeps everyone
             // skeletal), hysteresis on the way back; only from the lowest level, the one the bake is made of.
@@ -2779,9 +2808,11 @@ namespace Desert::Graphic::System
             // skeletal alike (WP-FAR-10D). The clamp is about pixels, so it never asks which path draws the
             // figure: gated on the VAT path, it followed the level index, and Cinematic (LODDistanceScale 0.5)
             // kept every far figure one level short of the baked lowest one - none went VAT, none was grown, and
-            // the crowd High showed at 300 m vanished into sub-pixel skeletal draws. A follower mesh
-            // (SkinSource) keeps its own size: it is grown with its leader's world or not at all.
-            if ( lodView && m_LODEnabled && data.SkinSource == nullptr && screenSize > 0.0f )
+            // the crowd High showed at 300 m vanished into sub-pixel skeletal draws. A displaced twin (SkinSource)
+            // is tessellated from LOD 0 and keeps its size; a follower mesh (Leader) whose leader is queued is
+            // grown with it (inherit, below), never by its own bounds (its sleeve alone would grow about its own
+            // feet and leave the body).
+            if ( lodView && m_LODEnabled && data.SkinSource == nullptr && !data.Leader.Follows() && screenSize > 0.0f )
             {
                 const float trueSize = screenSize * m_LODDistanceScale;
                 if ( trueSize < VertexAnimationCrowd::kMinScreenSize )
@@ -2789,11 +2820,72 @@ namespace Desert::Graphic::System
                     const Common::Math::AABB bounds = Geometry::LocalBounds( data.Mesh->GetSubmeshes() );
                     data.MinScreenScale = std::min( VertexAnimationCrowd::kMinScreenSize / trueSize,
                                                     VertexAnimationCrowd::kMaxMinScreenScale );
-                    data.MinScreenPivot = glm::vec3( 0.5f * ( bounds.Min.x + bounds.Max.x ), bounds.Min.y,
-                                                     0.5f * ( bounds.Min.z + bounds.Max.z ) );
-                    ++crowdGrown;
-                    crowdMaxScale = std::max( crowdMaxScale, data.MinScreenScale );
+                    // The feet in world space: the growth is uniform, so about this point it is the same matrix
+                    // in the figure's frame and in the world's - and a follower can share it (inherit).
+                    data.MinScreenPivot = glm::vec3(
+                         data.Transform * glm::vec4( 0.5f * ( bounds.Min.x + bounds.Max.x ), bounds.Min.y,
+                                                     0.5f * ( bounds.Min.z + bounds.Max.z ), 1.0f ) );
                 }
+            }
+            return screenSize;
+        };
+        // THE FOLLOWER TAKES ITS LEADER'S FRAME (UE USkinnedMeshComponent::SetLeaderPoseComponent: the follower
+        // draws the leader's PredictedLODLevel, clamped to its own levels, and is placed with the leader): the
+        // level, the hand-off to the baked crowd and the growth about the leader's feet - all decided above from
+        // the leader's record, the one source of truth - so the clothing on a far body is the body's size, the
+        // body's level and the body's path (skeletal / VAT) in every pass. Nothing is decided from the
+        // follower's own bounds: one figure, one decision.
+        const auto inherit = [&]( SkinnedMeshRenderData& data, const SkinnedMeshRenderData& lead )
+        {
+            data.VatAddress     = 0;
+            data.VatVertexCount = 0;
+            data.MinScreenScale = lead.MinScreenScale;
+            data.MinScreenPivot = lead.MinScreenPivot;
+            data.Lod            = lead.Lod;
+            const auto& lods    = data.Mesh->GetSkinnedLODs();
+            if ( !lods.empty() )
+            {
+                // The leader's level, clamped to the follower's own (a jacket with fewer levels than the body
+                // sits at its coarsest one), as UE clamps the leader's level to the follower's LOD count.
+                data.Lod = std::min<uint32_t>( lead.Lod, static_cast<uint32_t>( lods.size() - 1u ) );
+                // A leader played from the baked crowd plays its follower from the same clip at the same time,
+                // from the follower's own bake of its lowest level (the level every bake is made of): the
+                // leader's animation and skin cache leave the figure alone, so the follower must too.
+                if ( lead.VatAddress != 0 && lead.LodFeedback && data.SkinSource == nullptr )
+                {
+                    const Animation::SkinnedLodFeedback& feedback = *lead.LodFeedback;
+                    const auto*                          clip     = static_cast<const Animation::AnimationClip*>(
+                         feedback.VatClip.load( std::memory_order_relaxed ) );
+                    if ( clip != nullptr )
+                    {
+                        const VertexAnimationCrowd::Frame frame =
+                             m_Crowd->FrameAddress( *data.Mesh, *clip, feedback.VatTime.load( std::memory_order_relaxed ) );
+                        if ( frame.Address != 0 )
+                        {
+                            data.Lod            = static_cast<uint32_t>( lods.size() - 1u );
+                            data.VatAddress     = frame.Address;
+                            data.VatVertexCount = frame.VertexCount;
+                        }
+                    }
+                }
+            }
+            if ( data.LodFeedback )
+                data.LodFeedback->Vat.store( data.VatAddress != 0, std::memory_order_relaxed );
+        };
+        // The frame's tally and the level's report, once per record after every decision is final.
+        const auto account = [&]( const SkinnedMeshRenderData& data, const float screenSize,
+                                  const std::optional<uint32_t> leader )
+        {
+            const auto& lods = data.Mesh->GetSkinnedLODs();
+            if ( lods.empty() )
+            {
+                ++crowdSkeletal;
+                return;
+            }
+            if ( data.MinScreenScale != 1.0f )
+            {
+                ++crowdGrown;
+                crowdMaxScale = std::max( crowdMaxScale, data.MinScreenScale );
             }
             if ( data.VatAddress != 0 )
             {
@@ -2804,14 +2896,56 @@ namespace Desert::Graphic::System
                 ++crowdSkeletal;
             const auto [reported, fresh] = m_SkinnedLodReported.try_emplace( data.Entity, data.Lod );
             if ( !fresh && reported->second == data.Lod )
-                continue;
+                return;
             reported->second                    = data.Lod;
             const SkinnedMesh::SkinnedLOD& lod  = data.Mesh->GetSkinnedLOD( data.Lod );
             const SkinnedMesh::SkinnedLOD& full = lods.front();
+            if ( leader )
+            {
+                LOG_INFO( "[SkinnedLOD] entity {}: LOD {}/{} skins {} of {} vertices (from {}), {} of {} bones, {} "
+                          "influences, the level of its leader {}{}",
+                          data.Entity, data.Lod, lods.size() - 1u, lod.VertexCount, full.VertexCount, lod.FirstVertex,
+                          lod.RequiredBones, full.RequiredBones, lod.MaxInfluences, *leader,
+                          data.VatAddress != 0 ? " (vertex animation)" : "" );
+                return;
+            }
             LOG_INFO( "[SkinnedLOD] entity {}: LOD {}/{} skins {} of {} vertices (from {}), {} of {} bones, {} "
                       "influences, screen size {:.4f}, LODDistanceScale {}",
                       data.Entity, data.Lod, lods.size() - 1u, lod.VertexCount, full.VertexCount, lod.FirstVertex,
                       lod.RequiredBones, full.RequiredBones, lod.MaxInfluences, screenSize, m_LODDistanceScale );
+        };
+        // The leaders first (every record that is not a follower), then the followers from their leaders'
+        // final records. A follower whose leader is not queued this frame (hidden, culled out of the submit)
+        // decides its own frame, at its own size - as UE draws a follower whose leader has no render state.
+        bool followers = false;
+        for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
+        {
+            if ( data.Leader.Follows() )
+            {
+                followers = true;
+                continue;
+            }
+            account( data, decide( data ), std::nullopt );
+        }
+        if ( followers )
+        {
+            m_ScratchSkinnedLeaders.clear();
+            for ( uint32_t i = 0; i < static_cast<uint32_t>( m_SkinnedQueue.size() ); ++i )
+                if ( !m_SkinnedQueue[i].Leader.Follows() )
+                    m_ScratchSkinnedLeaders.try_emplace( m_SkinnedQueue[i].Entity, i );
+            for ( SkinnedMeshRenderData& data : m_SkinnedQueue )
+            {
+                if ( !data.Leader.Follows() )
+                    continue;
+                const auto leader = m_ScratchSkinnedLeaders.find( *data.Leader.LeaderEntity );
+                if ( leader == m_ScratchSkinnedLeaders.end() )
+                {
+                    account( data, decide( data ), std::nullopt );
+                    continue;
+                }
+                inherit( data, m_SkinnedQueue[leader->second] );
+                account( data, 0.0f, data.Leader.LeaderEntity );
+            }
         }
         m_Crowd->Report( crowdSkeletal, crowdVat, crowdDraws, crowdGrown, crowdMaxScale );
     }
@@ -2829,9 +2963,11 @@ namespace Desert::Graphic::System
     {
         DESERT_PROFILE_SCOPE( "MeshRenderer::SyncGpuScene" );
         namespace Flags       = GpuDriven::PrimitiveFlags;
-        const auto rigidFlags = []( const bool castShadows, const bool castContactShadow ) -> uint32_t
+        const auto rigidFlags = []( const bool castShadows, const bool castContactShadow,
+                                    const bool receivesDecals ) -> uint32_t
         {
-            return ( castShadows ? Flags::kCastsShadow : 0u ) | ( castContactShadow ? 0u : Flags::kNoContactShadow );
+            return ( castShadows ? Flags::kCastsShadow : 0u ) | ( castContactShadow ? 0u : Flags::kNoContactShadow ) |
+                   ( receivesDecals ? 0u : Flags::kNoDecals );
         };
 
         // The frame's stand-in census starts here, the one MeshRenderer step every render path takes before any
@@ -3066,19 +3202,27 @@ namespace Desert::Graphic::System
                 flags |= StaticWalkColumns::kMasked;
             if ( shading.Translucent )
                 flags |= StaticWalkColumns::kTranslucent;
+            // A ray-tracing-only impostor source (StaticMeshRenderData::RayTracingOnly) has no raster walk at all:
+            // no slot draw (opaque / translucent / front layer), no shadow caster - its card draws in its place.
+            if ( data.RayTracingOnly )
+                flags = 0u;
             columns.Meshes.push_back( data.Mesh );
             columns.Hidden.push_back( data.HiddenSubmeshes );
             columns.Instances.push_back( shading.Instance );
             columns.Surfaces.push_back( shading.Surface );
             columns.Flags.push_back( flags );
-            const MotionRecord record{ .Entity    = data.Entity,
-                                       .Part      = data.MotionPart,
-                                       .World     = data.Transform,
-                                       .Mesh      = data.Mesh,
-                                       .Flags     = rigidFlags( data.CastShadows, data.CastContactShadow ),
-                                       .ForcedLod = data.ForcedLOD,
-                                       .LodBias   = data.LODBias,
-                                       .Content   = staticContent( data, shading ) };
+            const MotionRecord record{
+                 .Entity = data.Entity,
+                 .Part   = data.MotionPart,
+                 .World  = data.Transform,
+                 .Mesh   = data.Mesh,
+                 .Flags  = rigidFlags( data.CastShadows, data.CastContactShadow, data.ReceivesDecals ) |
+                          ( data.ImpostorSource ? GpuDriven::PrimitiveFlags::kImpostorSource : 0u ) |
+                          ( data.ImpostorCard ? GpuDriven::PrimitiveFlags::kImpostorCard : 0u ),
+                 .ForcedLod          = data.ForcedLOD,
+                 .LodBias            = data.LODBias,
+                 .ImpostorSwitchSize = data.ImpostorSwitchSize,
+                 .Content            = staticContent( data, shading ) };
             if ( si < retained ) // keyed by its entity's persistent slot (GpuSceneRegistry::SyncStatic)
             {
                 const Render::StaticSceneAdmission& admitted = m_RetainedAdmissions[si];
@@ -3106,7 +3250,7 @@ namespace Desert::Graphic::System
         {
             return a.Entity == b.Entity && a.Part == b.Part && a.World == b.World && a.Mesh == b.Mesh &&
                    a.Flags == b.Flags && a.ForcedLod == b.ForcedLod && a.LodBias == b.LodBias &&
-                   a.Content == b.Content;
+                   a.ImpostorSwitchSize == b.ImpostorSwitchSize && a.Content == b.Content;
         };
         // A record whose Content is a function of the words SubmitGenericMesh compares (and its mesh key): a
         // per-slot draw, or one whose values, hit and shader name are a producer-kept revision with no direct
@@ -3139,7 +3283,7 @@ namespace Desert::Graphic::System
                                    .Part    = data.MotionPart,
                                    .World   = data.Transform,
                                    .Mesh    = data.Mesh,
-                                   .Flags   = rigidFlags( data.CastShadows, true ),
+                                   .Flags   = rigidFlags( data.CastShadows, true, true ),
                                    .Content = genericContent( data ) } );
             rigid.insert( rigid.end(), otherRigid.begin(), otherRigid.end() );
         }
@@ -3162,15 +3306,17 @@ namespace Desert::Graphic::System
         // ranges over vertices nobody skinned this frame - the whole Cinematic crowd vanished at LOD > 0
         // (CINEMATIC-LOD: the CPU chose at distance x 0.5, the GPU at distance x 1). Forced, both agree by
         // construction, every cull view (main, cascades, VSM) included.
-        // A far VAT figure under its minimum screen size (SelectSkinnedLods, WP-FAR-12D) is drawn grown about
-        // its feet: one world for every pass, so its bounds, shadow and velocity follow the drawn figure.
+        // A far figure under its minimum screen size (SelectSkinnedLods, WP-FAR-12D) is drawn grown about its
+        // feet IN WORLD SPACE (MinScreenPivot is a world point): one world for every pass, so its bounds, shadow
+        // and velocity follow the drawn figure. A follower (WP-FAR-10E) carries its leader's scale and feet, so
+        // it grows about the body's feet with the body, wherever its own origin is.
         const auto drawnWorld = []( const SkinnedMeshRenderData& data ) -> glm::mat4
         {
             if ( data.MinScreenScale == 1.0f )
                 return data.Transform;
-            return data.Transform * glm::translate( glm::mat4( 1.0f ), data.MinScreenPivot ) *
+            return glm::translate( glm::mat4( 1.0f ), data.MinScreenPivot ) *
                    glm::scale( glm::mat4( 1.0f ), glm::vec3( data.MinScreenScale ) ) *
-                   glm::translate( glm::mat4( 1.0f ), -data.MinScreenPivot );
+                   glm::translate( glm::mat4( 1.0f ), -data.MinScreenPivot ) * data.Transform;
         };
         for ( const auto& data : m_SkinnedQueue )
             skinned.push_back( { .Entity = data.Entity,
@@ -3178,7 +3324,7 @@ namespace Desert::Graphic::System
                                  .Bones  = data.BoneMatrices,
                                  .Mesh   = data.Mesh,
                                  .Flags  = Flags::kSkinned | Flags::kMovableCaster |
-                                          rigidFlags( data.CastShadows, true ) | previousPositions( data.Mesh ),
+                                          rigidFlags( data.CastShadows, true, data.ReceivesDecals ) | previousPositions( data.Mesh ),
                                  .ForcedLod = static_cast<int32_t>( data.Lod ),
                                  .Content   = skinnedContent( data ) } );
         // The proxies no record claimed this sync left the scene (or the view): released with their bindings.
@@ -3220,7 +3366,7 @@ namespace Desert::Graphic::System
                     break;
                 }
                 fieldFrames.push_back( { .Mesh  = data.Mesh,
-                                         .Flags = rigidFlags( data.CastShadows, data.CastContactShadow ) |
+                                         .Flags = rigidFlags( data.CastShadows, data.CastContactShadow, true ) |
                                                   ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
                                          .BoundsPad         = WindBoundsPad( data.Wind ),
                                          .CullDistanceStart = data.CullDistance.Min,
@@ -3242,7 +3388,7 @@ namespace Desert::Graphic::System
                                     .Transforms        = *data.Transforms,
                                     .CullDistanceStart = data.CullDistance.Min,
                                     .CullDistanceEnd   = data.CullDistance.Max,
-                                    .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ) |
+                                    .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow, true ) |
                                              ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
                                     .BoundsPad = WindBoundsPad( data.Wind ),
                                     .Content   = fieldContent( data ),
@@ -3489,6 +3635,7 @@ namespace Desert::Graphic::System
                 staticData.CastShadows     = data.CastShadows;
                 staticData.ReceiveShadows  = data.ReceiveShadows;
                 staticData.CastContactShadow        = data.CastContactShadow;
+                staticData.ReceivesDecals           = data.ReceivesDecals;
                 staticData.TranslucencySortPriority = data.TranslucencySortPriority;
 
                 m_StaticQueue.push_back( staticData );
@@ -3508,16 +3655,19 @@ namespace Desert::Graphic::System
                     skinnedData.BoneMatrices = std::span<const glm::mat4>( *skinnedData.BoneOwner );
                 skinnedData.Outlined      = data.Outlined;
                 skinnedData.CastShadows   = data.CastShadows;
+                skinnedData.ReceivesDecals = data.ReceivesDecals;
                 // The level is chosen in SyncGpuScene from the frame's frozen main view (SelectSkinnedLods); the
                 // author's forced level / bias ride with the record (UE ForcedLodModel / LOD bias).
                 skinnedData.ForcedLOD = data.ForcedLOD;
                 skinnedData.LODBias   = data.LODBias;
                 skinnedData.LodFeedback = data.LodFeedback; // the animation's side of the level (WP-FAR-11)
+                skinnedData.Leader      = data.Leader;      // a follower is grown with its leader (WP-FAR-10E)
                 skinnedData.MaterialSlots = data.MaterialSlots; // keeps the sections' instances alive (A8-3)
                 // The sections this binding shades with, built on the binding's change only (SkinnedSectionsFor).
                 if ( data.MaterialSlots && !data.MaterialSlots->Slots.empty() )
                     skinnedData.Sections =
-                         SkinnedSectionsFor( data.MaterialSlots, skinnedData.Mesh->GetSubmeshes().size() );
+                         SkinnedSectionsFor( data.MaterialSlots, skinnedData.Mesh->GetSubmeshes().size(),
+                                             data.HiddenSubmeshes );
                 if ( !skinnedData.Sections.empty() )
                     m_SkinnedQueue.push_back( std::move( skinnedData ) );
                 break;
@@ -3526,13 +3676,14 @@ namespace Desert::Graphic::System
     }
 
     const MeshRenderer::SkinnedSectionList& MeshRenderer::SkinnedSectionsFor( const MaterialSlotBindingPtr& binding,
-                                                                             const std::size_t submeshCount )
+                                                                             const std::size_t submeshCount,
+                                                                             const uint64_t    hiddenSubmeshes )
     {
         SkinnedSectionsEntry& entry = m_SkinnedSections[reinterpret_cast<std::uintptr_t>( binding.get() )];
         entry.Seen                  = m_SkinnedSectionsEpoch;
         // Held, so an equal address is this binding; the count moves only with the mesh drawn (a reload under the
         // same binding is a new binding, MeshECSSystem).
-        if ( entry.Binding == binding && entry.SubmeshCount == submeshCount )
+        if ( entry.Binding == binding && entry.SubmeshCount == submeshCount && entry.HiddenSubmeshes == hiddenSubmeshes )
             return entry.Sections;
 
         // Section si shades with slot SectionMaterialSlot( si, slots ), the static rule; the sections of one slot
@@ -3559,7 +3710,11 @@ namespace Desert::Graphic::System
         for ( size_t g = 0; g < groups; ++g )
         {
             const size_t        slot    = visibleBySlot[g].first;
-            const uint64_t      visible = visibleBySlot[g].second;
+            // A section the body hides under clothing (HiddenSections) is not drawn; a slot left with none is
+            // no section at all.
+            const uint64_t      visible = visibleBySlot[g].second & ~hiddenSubmeshes;
+            if ( visible == 0 )
+                continue;
             MaterialInstance*   inst    = slots[slot];
             DataDrivenMaterial* surface = nullptr;
             if ( Material* parent = inst != nullptr ? inst->GetParentMaterial() : nullptr )
@@ -3586,6 +3741,7 @@ namespace Desert::Graphic::System
         }
         entry.Binding      = binding;
         entry.SubmeshCount = submeshCount;
+        entry.HiddenSubmeshes = hiddenSubmeshes;
         entry.Sections     = SkinnedSectionList( std::move( sections ) );
         return entry.Sections;
     }

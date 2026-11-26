@@ -3,6 +3,7 @@
 #include <Engine/Geometry/MeshTypes.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -18,8 +19,9 @@ namespace Desert::Graphic
 // THE BLAS BUILD INPUT OF A STATIC MESH (UE FRayTracingGeometryInitializer + its segments), device-free. One
 // geometry per submesh, all reading the mesh's ONE vertex buffer and ONE index buffer — the same buffers the
 // raster draw binds (MeshBufferUsage gives them the build-input usage where the device has acceleration
-// structures). LOD 0 only: a ray sees the full-detail surface whatever LOD the raster picked (UE does the same for
-// static meshes). The Vulkan object (VkAccelerationStructureGeometryTrianglesDataKHR +
+// structures). LOD 0 unless the key names a coarser RT-LOD (RayTracingSubmeshMasks::Lod: ISM / foliage instances
+// far enough that a coarser level's measured error is below the ray-tracing threshold, RayTracingFoliage.hpp;
+// UE: the ray-tracing LOD of a static mesh / Nanite fallback). The Vulkan object (VkAccelerationStructureGeometryTrianglesDataKHR +
 // VkAccelerationStructureBuildRangeInfoKHR per entry) is a mapping of this and nothing more.
 namespace Desert::Graphic::RayTracing
 {
@@ -72,6 +74,10 @@ namespace Desert::Graphic::RayTracing
     {
         uint64_t Hidden    = 0; // bit i = submesh i has no segment (MeshComponent::HiddenSubmeshes, other slots)
         uint64_t NonOpaque = 0; // bit i = submesh i's segment runs the alpha test (its section material is Masked)
+        // RT-FOLIAGE-BLAS: the level of detail the segments are cut from (RayTracingLodRange per submesh). 0 = the
+        // full-detail surface, the mesh's own BLAS; a coarser level is a variant shared by every instance that
+        // selected it (RayTracingFoliage.hpp), so the key of every BLAS cache carries it with the masks.
+        uint8_t Lod = 0;
 
         bool operator==( const RayTracingSubmeshMasks& ) const = default;
     };
@@ -83,6 +89,20 @@ namespace Desert::Graphic::RayTracing
     {
         const uint32_t indexCount = submesh.LODs.empty() ? submesh.IndexCount : submesh.LODs[0].IndexCount;
         return indexCount / 3u > 0 && submesh.VertexCount > 0;
+    }
+
+    // THE INDEX RANGE A BLAS AT LEVEL @p lod CUTS FROM @p submesh: LODs[lod] clamped to the submesh's coarsest level,
+    // and below that the finest level that still holds a triangle - so a submesh with a LOD-0 segment has one at
+    // every level, and a hit's geometry index maps to the same record whatever level the BLAS was built at. A
+    // submesh with no LOD chain (procedural) answers its own range at every level.
+    [[nodiscard]] inline LODRange RayTracingLodRange( const Submesh& submesh, const uint32_t lod )
+    {
+        if ( submesh.LODs.empty() )
+            return LODRange{ submesh.IndexOffset, submesh.IndexCount };
+        std::size_t level = std::min<std::size_t>( lod, submesh.LODs.size() - 1u );
+        while ( level > 0u && submesh.LODs[level].IndexCount / 3u == 0u )
+            --level;
+        return submesh.LODs[level];
     }
 
     // Every submesh with at least one triangle at LOD 0 that @p hiddenSubmeshes does not hide, in submesh order
@@ -115,9 +135,9 @@ namespace Desert::Graphic::RayTracing
             const Submesh& submesh = submeshes[index];
             if ( IsSubmeshHidden( masks.Hidden, index ) || !HasRayTracingSegment( submesh ) )
                 continue;
-            const uint32_t indexOffset = submesh.LODs.empty() ? submesh.IndexOffset : submesh.LODs[0].IndexOffset;
-            const uint32_t indexCount  = submesh.LODs.empty() ? submesh.IndexCount : submesh.LODs[0].IndexCount;
-            const uint32_t triangles   = indexCount / 3u;
+            const LODRange range       = RayTracingLodRange( submesh, masks.Lod );
+            const uint32_t indexOffset = range.IndexOffset;
+            const uint32_t triangles   = range.IndexCount / 3u;
 
             RayTracingGeometrySegment segment;
             segment.VertexFormat    = RayTracingVertexFormat::Float3;
@@ -150,6 +170,22 @@ namespace Desert::Graphic::RayTracing
         return DescribeMeshGeometry( submeshes, masks, kDeformedPositionLayout );
     }
 
+    // A BAKED OPACITY MICROMAP OF ONE NON-OPAQUE SEGMENT (RT-OMM-SER; UE FRayTracingGeometrySegment's OMM): the
+    // buffers Programs/RayTracing/OpacityMicromapBake.shader wrote on the GPU, named by device address, for the
+    // BLAS build to turn into a VkMicromapEXT and attach to that segment's geometry. Built only where the catalog
+    // offers RayTracingFeature::OpacityMicromap; elsewhere no input carries one and every candidate of a
+    // non-opaque segment reaches the alpha test, as before.
+    struct RayTracingSegmentOpacityMicromap
+    {
+        uint32_t Segment       = 0; // index into RayTracingMeshInput::Segments (a non-opaque one)
+        uint32_t TriangleCount = 0; // == that segment's PrimitiveCount
+        uint64_t DataAddress      = 0; // 64 B of 2-bit states per triangle (kOpacityMicromapLevel 4)
+        uint64_t TrianglesAddress = 0; // VkMicromapTriangleEXT per triangle
+        uint64_t IndexAddress     = 0; // uint32 per triangle: its micromap triangle or a special index
+        // Holds the three buffers until the build that reads them has finished on the GPU.
+        std::shared_ptr<void> Owner;
+    };
+
     // THE DEVICE-LEVEL BLAS INPUT OF ONE MESH (UE FRayTracingGeometryInitializer): the buffers a build reads and
     // the segments over them (vertex stride, position offset and format, index type, per-segment ranges, opaque).
     // The RenderCore builders take this and nothing above it; the side that knows the mesh fills it
@@ -169,6 +205,8 @@ namespace Desert::Graphic::RayTracing
         uint32_t VertexCount = 0;
         // Empty: nothing to build (no visible triangle, or a skinned mesh asked for a static BLAS).
         std::vector<RayTracingGeometrySegment> Segments;
+        // The baked micromaps of non-opaque segments (at most one per segment); empty = a BLAS without micromaps.
+        std::vector<RayTracingSegmentOpacityMicromap> Micromaps;
     };
 
     // Which level an acceleration structure is. The ledger keeps the two under their own kinds (a mesh BLAS and a

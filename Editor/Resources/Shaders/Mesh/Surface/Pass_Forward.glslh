@@ -12,6 +12,9 @@ DESERT_SURFACE_VARYINGS( in )
 #ifdef DESERT_SURFACE_WEATHER
 #include <Mesh/Surface/SurfaceWeather.glslh>
 #endif
+#ifdef DESERT_SURFACE_LANDSCAPE_BLEND
+#include <Mesh/Surface/SurfaceLandscapeBlend.glslh>
+#endif
 
 layout( location = 0 ) out vec4 oColor;
 // The view's velocity (slot 1 of the scene target): the forward opaque pass writes the view's depth, so it writes
@@ -124,6 +127,19 @@ layout( binding = 21 ) uniform CloudShadowUB
 
 #include <Common/CloudShadowReceiver.glslh>
 
+// The water's caustics on the sun under a water body (Common/WaterCaustics.glslh; SceneViewInputs::WaterCausticsMap /
+// WaterCausticsFrame, bound by name). Set 1 after ViewIndirect's 0..6.
+layout( set = 1, binding = 7 ) uniform texture2D WaterCausticsTexture;
+#define WaterCausticsTexture sampler2D(WaterCausticsTexture, LinearRepeatSampler)
+layout( std430, set = 1, binding = 8 ) readonly buffer WaterCausticsFrameUB
+{
+    vec4 WaterCausticsWindow;
+    vec4 WaterCausticsShape;
+    vec4 WaterCausticsBodies[];
+};
+#define WATER_CAUSTICS_FRAME
+#include <Common/WaterCaustics.glslh>
+
 // The reflection captures and the view's radiance cache, the deferred composite's two indirect sources.
 #include <Mesh/Surface/ViewIndirect.glslh>
 
@@ -161,11 +177,23 @@ void main()
     SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, DESERT_SURFACE_VARYING_TBN, v_Surface.UV1,
                               DESERT_SURFACE_VARYING_VERTEX_COLOR, gl_FrontFacing );
+#ifdef DESERT_SURFACE_LANDSCAPE_BLEND
+    // The ground's footprint (SurfaceLandscapeBlend.glslh), before the clip can discard a neighbour.
+    const vec2 groundDx = dFdx( i.WorldPosition.xz );
+    const vec2 groundDy = dFdy( i.WorldPosition.xz );
+#endif
     DESERT_SURFACE_CLIP( i );
 #ifdef DESERT_SURFACE_WEATHER
     i.ObjectScaleUp = v_Surface.ObjectScaleUp;
-    // The material's weather response (Mesh/Surface/SurfaceWeather.glslh), before anything reads the surface.
+    // The material's weather response (Mesh/Surface/SurfaceWeather.glslh), before anything reads the surface; a
+    // `LandscapeBlend` template's foot blends into the ground first (Mesh/Surface/SurfaceLandscapeBlend.glslh), so the
+    // weather wets it as it wets the ground beside it.
+#ifdef DESERT_SURFACE_LANDSCAPE_BLEND
+    const SurfaceOutput s =
+         DesertApplySurfaceWeather( i, DesertApplySurfaceLandscapeBlend( i, groundDx, groundDy, EvaluateSurface( i ) ) );
+#else
     const SurfaceOutput s = DesertApplySurfaceWeather( i, EvaluateSurface( i ) );
+#endif
 #else
     const SurfaceOutput s = EvaluateSurface( i );
 #endif
@@ -230,8 +258,11 @@ void main()
 #endif
     float transmissionShadow = ( receivesSun && subsurfaceOpacity >= 0.0 ) ? sunTransmission * sunContact : 1.0;
     const float cloudShadow = CloudShadowFactor( i.WorldPosition );
-    shadow *= cloudShadow;
-    transmissionShadow *= cloudShadow;
+    // The sun under a water body, focused by its waves: EXACTLY 1.0 above the water, outside every body and with
+    // Effects.WaterCaustics 0 (the deferred direct pass's same factor on the same sun).
+    const float sunOverhead = cloudShadow * WaterCausticsFactor( i.WorldPosition );
+    shadow *= sunOverhead;
+    transmissionShadow *= sunOverhead;
 
     vec3 light = vec3( 0.0 );
     for ( uint d = 0; d < lightsMetadata.DirectionLightCount; d++ )
@@ -239,7 +270,8 @@ void main()
                                              DesertSunLight( directionLights.directionLights.Direction.xyz,
                                                              directionLights.directionLights.ColorIntensity.rgb *
                                                                   directionLights.directionLights.ColorIntensity.a,
-                                                             shadow, transmissionShadow ),
+                                                             shadow, transmissionShadow,
+                                                             directionLights.directionLights.Direction.w ),
                                              surface, payload );
     // The point and spot lights: the MegaLights volume under Shadows Stochastic, else the pixel's froxel
     // (Mesh/ForwardSceneLighting.glslh, the statement the forward ground shares).

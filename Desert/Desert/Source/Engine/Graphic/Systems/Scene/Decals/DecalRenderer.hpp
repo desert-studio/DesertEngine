@@ -38,6 +38,9 @@ namespace Desert::Graphic::System
         float               FadeLength     = 0.0f; // cm; 0 = no distance fade
         float               FadeScreenSize = 0.0f; // fraction of the screen height below which it is not drawn
         float               EdgeFade       = 0.1f;
+        // The source's own fade, 0..1, multiplied into the distance fade: 1 for a DecalComponent, the age fade of
+        // an impact decal (World::DecalImpactPool, UE SetFadeOut).
+        float               Opacity        = 1.0f;
     };
 
     // One row of "Decals.Rows" (std430, Programs/Decals/DefaultDecal.shader DecalRow): what a decal's vertex and

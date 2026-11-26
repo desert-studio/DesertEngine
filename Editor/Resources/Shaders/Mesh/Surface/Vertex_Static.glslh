@@ -5,6 +5,10 @@
 // (vertex colour, UV1; a mesh without them binds the shared white / (0,0) buffer at the same stride) — and
 // DesertMeshTextureUV, GENERATED from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp). The full
 // set in every pass: an input a depth cell does not read costs nothing, a subset would be a second list.
+#if defined( DESERT_SURFACE_VIRTUAL_GEOMETRY ) && defined( DESERT_SURFACE_PASS_VisibilityResolve )
+// The VG visibility resolve (VG-SW-RASTER): tiles, not clusters.
+#include <Mesh/Surface/Vertex_VgVisibilityResolve.glslh>
+#else
 #ifdef DESERT_SURFACE_VIRTUAL_GEOMETRY
 // THE VIRTUAL GEOMETRY CELL (`.VirtualGeometry`, DShaderParser kSurfaceVirtualGeometryCellSuffix; a binned cell):
 // no vertex buffer - one draw instance is one visible cluster (Common/GpuScene.glslh DesertResolveVgDraw), the
@@ -170,3 +174,4 @@ void main()
                                          cameraUB.ShadowSlopeClamp );
 #endif
 }
+#endif // VG visibility resolve (top of this file)

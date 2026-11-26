@@ -14,7 +14,7 @@
 // ONE SPOT LIGHT AS THE SHADERS READ IT, listed ONCE: the members expand into SpotLightPayload and into
 // kSpotLightPayloadFields, from which the includer GENERATES `struct SpotLight` (Mesh/LightSourceLayouts.glslh)
 // and the SpotLightsUB storage buffer (Mesh/SpotLightsUB.glslh, binding 16, included by Mesh/Spotlight.glslh);
-// neither is a file on disk. std430, 128 bytes. CosInner/CosOuter are the COSINES of the inner/outer cone
+// neither is a file on disk. std430, 144 bytes. CosInner/CosOuter are the COSINES of the inner/outer cone
 // half-angles (precomputed on the CPU so the shader avoids acos).
 //
 // FIELD( C++ type, member, GLSL name, initialiser )
@@ -60,7 +60,13 @@
     /* The light's tangent (unit, world; the entity's X): with Direction, the frame IES horizontal angles */      \
     /* are measured in (IesProfile.glslh). */                                                                     \
     FIELD( glm::vec3, Tangent, tangent, {} ) /* 112 */                                                            \
-    FIELD( int32_t, LightFunctionTile, lightFunctionTile, { -1 } ) /* 124 -> 128, -1 = no light function */
+    FIELD( int32_t, LightFunctionTile, lightFunctionTile, { -1 } ) /* 124, -1 = no light function */          \
+    /* UE SourceLength (cm): a capsule ("tube") emitter along Direction, centred on Position (PointLight.hpp */ \
+    /* says how); 0 = a sphere. The pads round the struct to its 16-byte array stride. */                       \
+    FIELD( float, SourceLength, sourceLength, { 0.0f } ) /* 128 */                                              \
+    FIELD( float, Pad0, pad0, { 0.0f } )                 /* 132 */                                              \
+    FIELD( float, Pad1, pad1, { 0.0f } )                 /* 136 */                                              \
+    FIELD( float, Pad2, pad2, { 0.0f } )                 /* 140 -> 144 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -70,7 +76,7 @@ namespace Desert::Graphic::ShaderProtocols
          Std430StructLayoutMatches( kSpotLightPayloadFields, sizeof( SpotLightPayload ) ),
          "SpotLightPayload is not laid out (or strided) as std430 places the generated struct SpotLight: "
          "reorder or pad DESERT_SPOT_LIGHT_FIELDS" );
-    static_assert( sizeof( SpotLightPayload ) == 128 );
+    static_assert( sizeof( SpotLightPayload ) == 144 );
 
     struct SpotLight
     {

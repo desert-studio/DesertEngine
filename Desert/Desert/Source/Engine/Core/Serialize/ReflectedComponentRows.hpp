@@ -28,6 +28,7 @@ namespace Desert::Core::Serialize
         const char* TypeName; // the reflected type, as ReflectionRegistry names it
         TData TComponent::*Member;
         ReflectedBlockRun  Run;
+        unsigned           Version = 1; // COMPONENT( Version( N ) ): the block's stored-shape version
     };
 
     // A block that is the WHOLE reflected component (Skybox).
@@ -40,5 +41,6 @@ namespace Desert::Core::Serialize
         const char*       Key;
         const char*       TypeName;
         ReflectedBlockRun Run;
+        unsigned          Version = 1; // COMPONENT( Version( N ) ): the block's stored-shape version
     };
 } // namespace Desert::Core::Serialize

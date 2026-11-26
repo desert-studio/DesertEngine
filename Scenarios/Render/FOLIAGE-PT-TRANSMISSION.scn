@@ -1,0 +1,22 @@
+# FOLIAGE-PT-TRANSMISSION: light passes THROUGH two-sided foliage. Path tracer: TwoSidedFoliage has a Lambert transmission lobe around -N (PathTracer.shader PathTracingEvaluateCos / BsdfPdf / SampleBsdf) and every light is sampled on both hemispheres. MegaLights: a leaf lit from behind is attenuated by exp(-thickness * density), as under VSM and the shadow atlas, not blacked out by a yes/no ray (MegaLights.glslh MegaLightsTransmits).
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Дано run Quality "Quality: Resolution.Percent 100"
+Когда run Quality "Quality: Shadows.Method Stochastic"
+Когда frames 120
+Тогда-вид 0_ml [ml_hedge] MegaLights: the near hedge has no black patches; leaves whose normal faces away from the lamp are dim green, not 0
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда run Quality "Quality: PathTracing.Denoiser Off"
+Когда run Quality "Quality: PathTracing.SamplesPerPixel 64"
+Когда frames 200
+Тогда-вид 1_pt [pt_cypress] path tracer: the cypress under the lamp is lit through its leaves (the shadowed side glows green, no black crown); no fireflies from the lobe
+Когда run Quality "Quality: PathTracing.SamplesPerPixel Level"
+Когда run Quality "Quality: PathTracing.Denoiser Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Shadows.Method Level"
+Когда run Quality "Quality: Resolution.Percent Level"
+Тогда 2_level overrides removed

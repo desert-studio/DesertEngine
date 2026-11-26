@@ -59,6 +59,16 @@ namespace Desert::Editor
         // The outliner's "Add > Animation > Character (Procedural)": the code-generated humanoid on a skinned
         // mesh with an Animation component, one undo step. The palette's "Spawn Procedural Humanoid" calls it too.
         static Common::UUID SpawnProceduralHumanoid( Desert::Core::Scene& scene );
+        // The outliner's "Add > Lighting" entries for the local lights: an entity named after the light carrying
+        // its component at the component's defaults, one undo step. The palette's "Add light" entries call the same
+        // function, so the two cannot disagree.
+        enum class LocalLightKind : std::uint8_t
+        {
+            Point,
+            Spot,
+            Rect
+        };
+        static Common::UUID SpawnLocalLight( Desert::Core::Scene& scene, LocalLightKind kind );
 
     private:
         // What the outliner calls this entity — one lookup, so the Type column's text, the row icon's

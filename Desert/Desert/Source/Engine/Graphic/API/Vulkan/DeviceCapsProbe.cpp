@@ -318,6 +318,20 @@ namespace Desert::Graphic::API::Vulkan
                     }
                     return device.enable_extension_if_present( std::string( spec.Extension ).c_str() );
                 }
+                case Capability::OpacityMicromap:
+                {
+                    VkPhysicalDeviceOpacityMicromapFeaturesEXT f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT };
+                    f.micromap = VK_TRUE;
+                    return EnableExtensionFeatures( device, f, spec );
+                }
+                case Capability::RayTracingInvocationReorder:
+                {
+                    VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV };
+                    f.rayTracingInvocationReorder = VK_TRUE;
+                    return EnableExtensionFeatures( device, f, spec );
+                }
                 case Capability::Count:
                     break;
             }
@@ -563,6 +577,12 @@ namespace Desert::Graphic::API::Vulkan
             // one the profiled card would give. After HideRayTracing, so machine.json's switch is never undone.
             if ( !restrictions.Profile.Name.empty() )
                 ApplyProfile( probed.Caps, restrictions.Profile );
+            // machine.json's per-row switches (OMM / SER on-off), same point, same reason: the device built from
+            // this object is one whose driver lacks the extension, and the catalog's RayTracingFeatures follow.
+            if ( restrictions.HideOpacityMicromap )
+                Withhold( probed.Caps, Capability::OpacityMicromap );
+            if ( restrictions.HideInvocationReorder )
+                Withhold( probed.Caps, Capability::RayTracingInvocationReorder );
 
             // Table order: every dependency is settled before the row that needs it (static_assert in
             // DeviceCaps.cpp), and a row whose dependencies are absent is not even asked.

@@ -33,9 +33,53 @@ vec2 WaterMorphLocal( vec2 local, WaterTileRow t, vec3 observer, float lodLevel,
     return local;
 }
 
+// A RIVER'S FALL (WaterMeshTiles.glslh WaterTileIsFall; C++ WaterRenderer::AppendFallRows): the row is one
+// stretch of a fall's sheet, its centre line from A (Tile.xyz) to B (Lod.xyz), Tile.w wide across Zone.xy. The grid
+// runs along the stretch on x and across it on y, so the front face is the sheet's normal across x (B - A) - the
+// CPU's (Water::RiverFallAt) - and two stretches sharing a sample meet at the same bits.
+void WaterFallVertex( WaterTileRow t, int tileRow, ivec2 q )
+{
+    const int   quads  = int( t.Zone.w + 0.5 );
+    const float along  = float( q.x ) / float( quads );
+    const float across = float( q.y ) / float( quads ) - 0.5;
+    const vec3  A      = t.Tile.xyz;
+    const vec3  B      = t.Lod.xyz;
+    const vec3  side   = vec3( t.Zone.x, 0.0, t.Zone.y );
+    const vec4  worldPos = vec4( mix( A, B, along ) + side * ( across * t.Tile.w ), 1.0 );
+    const vec3  N      = normalize( cross( side, B - A ) );
+    const vec3  T      = side;
+    const vec3  Bt     = normalize( cross( N, T ) );
+    v_Surface.WorldPosition = worldPos.xyz;
+    v_Surface.Normal        = N;
+    // UV0 = the sheet's own coordinates (WaterFallSheetCoord: across, and along the flow from the river's flow
+    // distance at A, so the river's phase runs on over the lip), metres; UV1 = the particle's (X, Z) as on a tile.
+    v_Surface.UV0           = vec2( across * t.Tile.w, t.Lod.w + along * t.Zone.z ) * 0.01;
+    v_Surface.UV1           = worldPos.xz;
+    v_Surface.VertexColor   = vec4( 0.0, worldPos.y, t.Body.y, float( tileRow + 1 ) );
+    v_Surface.ObjectScaleUp = 1.0;
+    v_Surface.TBN           = mat3( T, Bt, N );
+#ifndef DESERT_SURFACE_CLIP_FROM_PIXEL
+    v_Surface.Clip        = cameraUB.ViewProjection * worldPos;
+#endif
+    v_Surface.PrevClip    = cameraUB.PrevViewProjection * worldPos; // the sheet stands still; its water flows
+    v_Surface.ObjectMoved = 0.0;
+    gl_Position           = cameraUB.JitteredViewProjection * worldPos;
+}
+
 void main()
 {
-    const WaterTileRow t = WaterTileRows[int( m_PushConstants.PrimitiveIndex ) + gl_InstanceIndex];
+    const int          tileRow = int( m_PushConstants.PrimitiveIndex ) + gl_InstanceIndex;
+    const WaterTileRow t       = WaterTileRows[tileRow];
+    if ( WaterTileIsFall( t.Body.y ) )
+    {
+        const ivec2 kFallCorner[6] = ivec2[]( ivec2( 0, 0 ), ivec2( 0, 1 ), ivec2( 1, 0 ), ivec2( 1, 0 ),
+                                              ivec2( 0, 1 ), ivec2( 1, 1 ) );
+        const int   fallQuads      = int( t.Zone.w + 0.5 );
+        const int   fallQuad       = gl_VertexIndex / 6;
+        WaterFallVertex( t, tileRow,
+                         ivec2( fallQuad % fallQuads, fallQuad / fallQuads ) + kFallCorner[gl_VertexIndex % 6] );
+        return;
+    }
     // The LOD rings are centred on the view the quadtree was traversed from (WaterRenderer::PrepareFrame).
     const vec3 observer = cameraUB.CameraPos.xyz;
 
@@ -66,23 +110,36 @@ void main()
     // Zone-relative first (exact multiples of the quad size), then the zone's origin: two tiles sharing an edge add
     // the same two numbers, so the edge is at the same bits in both.
     const vec2 zoneLocal = t.Tile.xy + local;
-    const vec4 restPos   = vec4( t.Zone.x + zoneLocal.x, t.Tile.z, t.Zone.y + zoneLocal.y, 1.0 );
+    const vec2 restXZ    = vec2( t.Zone.x + zoneLocal.x, t.Zone.y + zoneLocal.y );
+    // A river's still level falls along its flow (UE: the river spline's height in WaterInfo): the baked level under
+    // the vertex, the very texels the CPU query reads (WaterRiverSurfaceY), not the tile's one mean level - a
+    // function of the world (X, Z), so tiles that share an edge meet at one height.
+    const bool riverTile = t.Body.y > 0.5;
+    const vec4 restPos   = vec4( restXZ.x, riverTile ? WaterRiverSurfaceY( restXZ, t.Tile.z ) : t.Tile.z, restXZ.y, 1.0 );
 
     // THE WAVES (UE WaterMeshVertexFactory GetWaterVertexFactoryIntermediates -> GetGerstnerShallowWaveOffset): the
     // grid point is a particle of still water, the body's Gerstner sum carries it to its place at this instant. The
     // same function the CPU floats things on (Common/GerstnerWave.glslh).
     const float time     = cameraUB.Time;
-    const vec2  plane    = WaterWavePlane( restPos.xz );
+    // The tile's body's wave set (WaterTileRow.Body.z; -1 = a flat body: a river, a still lake).
+    const int   waveSet  = WaterWaveSetOf( t.Body.z );
+    const vec2  plane    = WaterWavePlane( waveSet, restPos.xz );
+    // The FFT cascades' distance fade is judged from the still particle, as the fragment judges it (WaterViewDistance).
+    const float viewDist = WaterViewDistance( restPos.xz, restPos.y, observer );
     // Damped over the shallows by the ground beneath (UE TargetWaveMaskDepth): a swell dies onto the beach instead
     // of running up it at full height.
-    const float atten    = WaterWaveAttenuation( restPos.xz, restPos.y );
-    const vec3  offset   = WaterWavesDisplacement( plane, time ) * atten;
+    // A body drawn without waves (a river, a flat lake: WaterTileRow.Body.z = 0) stays still.
+    // The depth is the tile's own body's TargetWaveMaskDepth (WaterTileRow.Medium.x), not another body's.
+    const float atten    = waveSet >= 0 ? WaterWaveAttenuation( restPos.xz, restPos.y, t.Medium.x ) : 0.0;
+    const vec3  offset   = WaterWavesDisplacement( waveSet, plane, time, viewDist ) * atten;
     const vec4  worldPos = vec4( restPos.xyz + offset, 1.0 );
 
     // The displaced surface's frame: Y up turned onto the wave normal; tangent along +X, bitangent along -Z
     // (right-handed with the normal, the UV's v running with -Z), so a tangent-space ripple map reads as it does on
     // a plane mesh.
-    const vec3 N = normalize( mix( vec3( 0.0, 1.0, 0.0 ), WaterWavesNormal( plane, time ), atten ) );
+    // The still surface's own normal: up, or a river's slope (WaterRiverSurfaceNormal, the CPU's PlaneNormal).
+    const vec3 stillN = riverTile ? WaterRiverSurfaceNormal( restXZ ) : vec3( 0.0, 1.0, 0.0 );
+    const vec3 N = normalize( mix( stillN, WaterWavesNormal( waveSet, plane, time, viewDist ), atten ) );
     const vec3 T = normalize( vec3( N.y, -N.x, 0.0 ) );
     const vec3 B = normalize( cross( N, T ) );
     v_Surface.WorldPosition = worldPos.xyz;
@@ -91,13 +148,16 @@ void main()
     // UV1 = the particle's label: its still-water (X, Z) in cm. Gerstner is a Lagrangian description, so the foam
     // pass follows ONE water particle back in time through it (Pass_SingleLayerWater.glslh).
     v_Surface.UV1           = restPos.xz;
-    // r = the particle's height above the still level (cm), g = that level (cm).
-    v_Surface.VertexColor   = vec4( offset.y, restPos.y, 0.0, 1.0 );
+    // r = the particle's height above the still level (cm), g = that level (cm), b = 1 on a river's tile (the
+    // fragment clips it to the banks, WaterOutsideBank).
+    // a = 1 + the tile's row in WaterTileRows (WaterFragmentTile): the fragment reads its body's record from it -
+    // the wave set its normal and foam use, the mask depth and the river's flow period.
+    v_Surface.VertexColor   = vec4( offset.y, restPos.y, t.Body.y, float( tileRow + 1 ) );
     v_Surface.ObjectScaleUp = 1.0;
     v_Surface.TBN           = mat3( T, B, N );
     // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh): the particle's place last frame is the
     // same sum one frame earlier (UE's water writes velocity from the previous frame's waves).
-    const vec4 prevPos    = vec4( restPos.xyz + WaterWavesDisplacement( plane, cameraUB.PrevTime ) * atten, 1.0 );
+    const vec4 prevPos    = vec4( restPos.xyz + WaterWavesPreviousDisplacement( waveSet, plane, cameraUB.PrevTime, viewDist ) * atten, 1.0 );
 #ifndef DESERT_SURFACE_CLIP_FROM_PIXEL // a G-buffer cell takes its clip position from the pixel (SurfaceTypes.glslh)
     v_Surface.Clip        = cameraUB.ViewProjection * worldPos;
 #endif

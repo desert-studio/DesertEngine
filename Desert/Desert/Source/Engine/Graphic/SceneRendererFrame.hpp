@@ -40,6 +40,7 @@ namespace Desert::Graphic
                m_StartedColors( Common::Memory::ArenaAllocator<uint32_t>( graph.GetFrameArena() ) )
         {
             ImportSystemTextures();
+            SetSceneViewInputsOff();
         }
 
         // RDG-A2: the cross-renderer transients of this graph (see FrameTransients).
@@ -229,6 +230,22 @@ namespace Desert::Graphic
         }
 
     private:
+        // THE SCENE/VIEW INPUTS' 'OFF' VALUE (UE: the view uniform buffer's setup binds GSystemTextures for a
+        // feature the view does not have): set ONCE here, for every graph that binds scene/view inputs, so a frame
+        // build that adds no producer (a reflection capture, a preview, a frame without water) binds the neutral
+        // value and no receiver faults by name. A producer of this frame overwrites the transient
+        // (SceneRendererImpl::AddFrameWaterCaustics); a caller never states the default itself.
+        void SetSceneViewInputsOff()
+        {
+            // The water's caustics: System.White and a zeroed frame row (Window.w 0 = no map, Shape.x 0 = no body
+            // row), so Common/WaterCaustics.glslh WaterCausticsFactor returns exactly 1.0. The graph culls the
+            // row's clear with the row when no pass of the graph reads it.
+            Transients.WaterCausticsMap   = System.White;
+            Transients.WaterCausticsFrame = m_Graph.CreateBuffer(
+                 RDG::BufferDesc{ kSceneViewWaterCausticsHeadBytes }, "Water.Caustics.Frame (off)" );
+            m_Graph.QueueBufferClear( Transients.WaterCausticsFrame, 0u );
+        }
+
         void ImportSystemTextures()
         {
             using Core::Formats::DefaultTextureKind;
@@ -471,7 +488,8 @@ namespace Desert::Graphic
             graph.AddPass(
                  node.Name,
                  RDG::PassFlags::Compute | RDG::PassFlags::NeverCull |
-                      ( node.AsyncCompute ? RDG::PassFlags::AsyncCompute : RDG::PassFlags::None ),
+                      ( node.AsyncCompute ? RDG::PassFlags::AsyncCompute : RDG::PassFlags::None ) |
+                      ( node.AsyncComputeFixed ? RDG::PassFlags::AsyncComputeFixed : RDG::PassFlags::None ),
                  [&]( RDG::PassBuilder& pass ) { DeclareOn( pass, images[i], node.Access ); },
                  [record = std::move( node.Record ), refs = textures.GraphRefs()](
                       RDG::PassContext& context ) -> Common::BoolResultStr { return record( context, refs ); } );
