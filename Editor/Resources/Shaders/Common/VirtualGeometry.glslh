@@ -1,36 +1,11 @@
-// THE VIRTUAL GEOMETRY TABLES as shaders read them: the std430 twins of Engine/Graphic/VirtualGeometry/
-// VirtualGeometryLayout.hpp (every offset static_asserted there) and the fetches through the device addresses a
-// GpuClusterDag row carries (the mesh's GeometryPool spans; GL_EXT_buffer_reference(_uvec2) is enabled for every
+// THE VIRTUAL GEOMETRY TABLES as shaders read them: the rows and VG_* constants generated from
+// Engine/Graphic/VirtualGeometry/VirtualGeometryLayout.hpp (meanings there), and the fetches through the device
+// addresses a GpuClusterDag row carries (the mesh's GeometryPool spans; GL_EXT_buffer_reference(_uvec2) is enabled for every
 // stage by the assembler, DShaderParser.cpp AssembleStage). A uint64 address is a uvec2 (lo, hi).
 #ifndef DESERT_VIRTUAL_GEOMETRY_GLSLH
 #define DESERT_VIRTUAL_GEOMETRY_GLSLH
 
-struct VgClusterDag
-{
-    uvec2 VertexAddress;    // 0  the submesh's first Desert::Vertex
-    uvec2 VertexRefAddress; // 8  submesh-relative vertex indices, uint32 each
-    uvec2 TriangleAddress;  // 16 one word per triangle: three cluster-local indices (bits 0-7, 8-15, 16-23)
-    uvec2 StreamAddress;    // 24
-    uint  RootNode;         // 32
-    uint  FirstCluster;     // 36
-    uint  ClusterCount;     // 40
-    uint  Submesh;          // 44
-    uint  Pad0;             // 48 (no submesh transform: VgSubmeshToWorld reads the view's draw slot)
-    uint  VertexStride;     // 52 bytes
-    uint  Pad1;             // 56
-    uint  Pad2;             // 60
-};
-
-struct VgCluster
-{
-    vec4 BoxCenter;      // 0  xyz cm submesh space, w = LodError
-    vec4 BoxExtent;      // 16 w = MaxEdgeLength
-    vec4 LodBounds;      // 32
-    uint FirstVertexRef; // 48
-    uint FirstTriangle;  // 52
-    uint Counts;         // 56 bits 0-7 VertexCount, 8-15 TriangleCount, 16-23 Level (PackClusterCounts)
-    uint Dag;            // 60
-};
+#include <Generated/VirtualGeometry/VirtualGeometry.glslh>
 
 uint VgClusterVertexCount( VgCluster c )
 {
@@ -116,56 +91,6 @@ VgMeshVertex VgFetchMeshVertex( VgClusterDag dag, uint ref )
     v.TexCoord1       = vec2( streams.Floats[stream + 1u], streams.Floats[stream + 2u] );
     return v;
 }
-
-// One BVH node over cluster groups, 4 children (GpuClusterHierarchyNode). A leaf child (Child bit 31) names
-// its group's first cluster row (Child & 0x7FFFFFFF) and ClusterCount; its LodBounds and BoxExtent.w are THAT
-// group's sphere and ParentLodError - the very pair its clusters' children carry as LodBounds / LodError.
-#define VG_HIERARCHY_LEAF 0x80000000u
-#define VG_INVALID_INDEX  0xFFFFFFFFu
-struct VgHierarchyNode
-{
-    vec4 BoxCenter[4];    // 0   w = MinLodError below the child
-    vec4 BoxExtent[4];    // 64  w = MaxParentLodError below the child
-    vec4 LodBounds[4];    // 128
-    uint Child[4];        // 192 node row | VG_HIERARCHY_LEAF + cluster row, VG_INVALID_INDEX = empty
-    uint ClusterCount[4]; // 208
-};
-
-struct VgClusterCandidate
-{
-    uint Instance; // 0 GpuScene Instances[] row
-    uint Dag;      // 4 Dags[] row
-    uint Node;     // 8 the node the traversal starts at (the DAG's RootNode)
-    uint View;     // 12
-};
-
-struct VgVisibleCluster
-{
-    uint Instance; // 0
-    uint Cluster;  // 4 Clusters[] row
-    uint View;     // 8
-    uint Flags;    // 12
-};
-
-struct VgRasterArgs
-{
-    uint SwDispatch[3]; // 0 VkDispatchIndirectCommand: min( SW clusters, VG_SW_RASTER_MAX_GROUPS ) workgroups
-    uint SwCount;       // 12 SW clusters: VisibleClusters[0, SwCount)
-    uint HwDraw[4];     // 16 VkDrawIndirectCommand: vertexCount, instanceCount (= HW clusters), firstVertex, firstInstance
-    // 32 VkDispatchIndirectCommand of "VirtualGeometry: Raster Binning" Count / Scatter: ceil( HW clusters /
-    // VG_RASTER_BIN_GROUP_SIZE ) workgroups, counted by the cut as it emits (ClusterCut.shader EmitCluster).
-    uint BinDispatch[3];
-    uint Emitted;       // 44 rows taken from the visible list, SW + HW (never past the capacity)
-    uint SwFirst;       // 48 this cut's first SW row (post cut: the main cut's SwCount; VisibleClusters shared)
-    uint HwFirst;       // 52 this cut's first HW counter value (post cut: the main cut's HwDraw[1])
-    uint Pad0;          // 56
-    uint Pad1;          // 60
-};
-
-// VgVisibleCluster.Flags (VirtualGeometryLayout.hpp VisibleClusterFlags): drawn by SoftwareRaster.shader.
-#define VG_VISIBLE_SOFTWARE 1u
-// SoftwareRaster.shader's indirect X bound (GpuClusterRasterArgs::SwDispatch): the workgroups stride past it.
-#define VG_SW_RASTER_MAX_GROUPS 65535u
 
 // RasterBinning.shader LocalSize: the workgroup the cut counts into VgRasterArgs.BinDispatch.
 #define VG_RASTER_BIN_GROUP_SIZE 64u

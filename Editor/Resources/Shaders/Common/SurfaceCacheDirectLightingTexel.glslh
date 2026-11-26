@@ -46,23 +46,8 @@ Uniform(8) texture2D AtlasEmissiveTexture;
 // side, SurfaceCacheRenderer::DirectLightingInputs), as a storage block of the same members.
 Uniform(9) texture2DArray ShadowCascadesTexture; // one layer per cascade (10..12 free)
 #define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
-ReadBuffer(13) SurfaceCacheShadowUB
-{
-    mat4 LightViewProjection[8];  // [light * 4 + cascade] - Mesh/ShadowUB.glslh's members, same packer
-    vec4 DirectionalShadow[2];    // per slot: x = tan(source angle / 2), y = casts, z = cascades, w = first layer
-    vec4 CascadeTexelWorld[2];
-    vec4 CascadeDepthRange[2];
-    vec4 DebugParams;             // unused here
-    // The view's contact shadow values (SceneResources::PackContactShadow). Unread: a card texel has no
-    // screen depth to march (SceneRenderer::AddFrameSurfaceCache packs 0 steps), and this pass includes no
-    // Common/ContactShadow.glslh, so Mesh/LocalLightShadow.glslh offers it the shadow-map terms only.
-    vec4 ContactShadowView;
-    vec4 SunContactShadow;
-    vec4 ShadowFilter;      // x = PCSS blocker search taps, y = filter taps (sun PCSS + local lights PCF),
-                            // z = 1: the distance-field sun runs (DistanceFieldShadowRuns), w unused
-    mat4 FarShadowViewProj[2]; // per slot: the far shadow (Mesh/ShadowUB.glslh)
-    vec4 FarShadow[2];
-};
+#include <Generated/Materials/ShadowUB.glslh> // ShadowUBData: Materials/SceneResourcesLayout.hpp
+ReadBuffer(13) SurfaceCacheShadowUB { DESERT_ShadowUBData_MEMBERS }; // ContactShadowView unread: a card texel has no screen depth
 #include <Mesh/CascadedShadow.glslh>
 
 Uniform(14) texture2D CloudShadowMapTexture;

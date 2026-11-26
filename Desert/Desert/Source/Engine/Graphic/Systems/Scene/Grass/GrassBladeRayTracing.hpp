@@ -6,6 +6,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingDynamicGeometry.hpp>
+#include <Engine/Graphic/Systems/Scene/Grass/GrassLayout.hpp>
 
 #include <glm/glm.hpp>
 
@@ -43,31 +44,8 @@ namespace Desert
 // other frame: a still frame builds nothing, so the path tracer keeps accumulating.
 namespace Desert::Graphic::System
 {
-    // A variety's blade shape as the GPU reads it: Mesh/Surface/GrassBlade.glslh's GrassBladeShapeData, std430
-    // (the raster's GrassBladeShape buffer and the ray-tracing compute's alike).
-    struct GrassBladeShapeGpu
-    {
-        glm::vec4                Size;    // Height, Stiffness, Curvature, card count
-        glm::vec4                Bend;    // CurvatureSpread, BendSpread, TrampledLength
-        std::array<glm::vec4, 8> Cards{}; // u0, v tip, u1, v root (GRASS_BLADE_MAX_CARDS)
-        // GRASS-VIS: x = the variety's first visibility-buffer raster-stream row, y = the strip's level-0
-        // segments, z = its bucket count (GrassRenderer::PrepareVariety).
-        glm::uvec4                Visibility{ 0u };
-        std::array<glm::uvec4, 2> BucketFirst{}; // the first instance of bucket b < 8, [b / 4][b % 4]
-        // CPU-GRASS-POOL-5: x = the camera list's first slot in the shared ids pool (its CameraIds range), so
-        // the raster's gl_InstanceIndex - x is the variety's own slot; y = 1 when the view's blade setup records
-        // exist this frame (FPS-GRASS-RESOLVE-2, GrassRenderer::CommitBladeSetup; 0: none), read through the bound
-        // GrassBladeSetupRecords block, never by address (FPS-GRASS-BLADE-SETUP-BIND), z = w = 0.
-        glm::uvec4 Lists{ 0u };
-        // FPS-GRASS-HULL: x, y = the opacity mask's level-0 texels, z = 1 when the raster's strip spans only its
-        // card's hull (GrassQuality::BladeCardHull and a cooked hull), w = 0; Hull = GrassBladeDraw::CardHulls.
-        glm::vec4                  HullTexels{ 0.0f };
-        std::array<glm::vec4, 128> Hull{}; // 8 cards x 4 classes x 8 bands, (lo, hi) pairs (GrassBlade.glslh)
-        // FPS-GRASS-RASTER-2: per card x class (k x 4 + c) the one-segment strip's trapezoid (lo, hi at the root,
-        // lo, hi at the tip) holding every band of Hull (GrassBladeHullLine); lo > hi: nothing passes.
-        std::array<glm::vec4, 32> HullLine{};
-    };
-    static_assert( sizeof( GrassBladeShapeGpu ) == 32 + 16 * 8 + 16 * 4 + 16 + 16 * 128 + 16 * 32 );
+    // GrassBladeShapeGpu and GrassMeshVisibilityGpu, the blade shape and a mesh section's raster-stream rows the
+    // GPU reads: GrassLayout.hpp.
 
     // FPS-GRASS-RASTER-2, THE ONE-SEGMENT HULL (UE SubUV cutout fitted to the strip's own rows): the far strip
     // level has one segment, so its two rows took the union of all eight bands - a rectangle as wide as the
@@ -80,26 +58,6 @@ namespace Desert::Graphic::System
     [[nodiscard]] glm::vec4 GrassBladeHullLine( const glm::vec4* bands );
     // The strip levels BucketFirst holds (a blade's buckets are its strip's levels: Segments halved down to one).
     inline constexpr uint32_t kGrassBladeVisibilityMaxBuckets = 8u;
-
-    // GRASS-VIS-MESH-1: a mesh grass SECTION's raster-stream rows - Mesh/Surface/GrassMeshVisibility.glslh's
-    // GrassMeshVisibilityData, std430, byte for byte (GrassRenderer::PrepareVariety writes it every frame: the mesh's
-    // device addresses are read when used).
-    inline constexpr uint32_t kGrassMeshVisibilityMaxSubmeshes = 8u;
-    inline constexpr uint32_t kGrassMeshVisibilityMaxRanges    = 32u;
-    struct GrassMeshVisibilityGpu
-    {
-        glm::uvec4                Visibility{ 0u }; // first row, rows per instance, level count, submesh count
-        // x = the slots the section's list holds (its capacity), y = the camera list's first slot in the ids pool,
-        // z = the setup records' first row in the bound setup buffer, w = 1: records this frame
-        // (FPS-GRASS-MESH-SETUP-5)
-        glm::uvec4                Slots{ 0u };
-        std::array<glm::uvec4, 2> BucketFirst{};    // the first slot of bucket (= level) b < 8, [b / 4][b % 4]
-        // [0] vertex address lo, hi, stream address lo, hi; [1] index address lo, hi, vertex stride, stream stride
-        std::array<glm::uvec4, 2>                                Geometry{};
-        std::array<glm::uvec4, kGrassMeshVisibilityMaxSubmeshes> Submeshes{}; // VertexOffset, VertexCount, drawn, 0
-        std::array<glm::uvec4, kGrassMeshVisibilityMaxRanges>    Ranges{}; // L x submeshes + s: first index, triangles, row offset, 0
-    };
-    static_assert( sizeof( GrassMeshVisibilityGpu ) == 16 * ( 1 + 1 + 2 + 2 + 8 + 32 ) );
 
     // ONE level of the blade strip in blade space: (level + 1) rows of two vertices, position (side -1/+1, height
     // share t 0..1, 1 / segments - the raster's hull row span, FPS-GRASS-HULL), uv (side / 2 + 1/2, t), and two triangles per segment. GrassRenderer::BladeStrip draws it,

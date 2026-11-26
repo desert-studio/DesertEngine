@@ -27,18 +27,7 @@ Shader "VirtualShadowMapAllocate"
         {
             uint Owners[];
         };
-        Buffer(3) VsmAllocator
-        {
-            uint  EmptyCount;
-            uint  CachedCount;
-            uint  AllocationCursor;
-            uint  DirtyCount;
-            uint  Overflow;
-            uint  StaticRedrawn;  // of DirtyCount, the pages whose static layer is redrawn
-            uint  MovableRedrawn; // of DirtyCount, the pages whose static layer is copied (the movers drawn alone)
-            uint  Padding;
-            uvec4 ClearArgs;
-        };
+        Buffer(3) VsmAllocator { DESERT_VsmAllocatorRecord_MEMBERS };
         Buffer(4) VsmLists
         {
             uint Lists[];

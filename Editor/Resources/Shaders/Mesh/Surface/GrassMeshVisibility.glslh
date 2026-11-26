@@ -1,6 +1,6 @@
 // THE MESH GRASS'S RASTER-STREAM ROWS (GRASS-VIS-MESH-1; UE 5 Nanite's visible cluster: a row of the view's
-// visibility buffer, Common/VisibilityBuffer.glslh, is 128 triangles of ONE instance). Mirrors
-// Graphic::System::GrassMeshVisibilityGpu (GrassBladeRayTracing.hpp), std430, one per mesh grass SECTION (one
+// visibility buffer, Common/VisibilityBuffer.glslh, is 128 triangles of ONE instance). GrassMeshVisibilityData
+// (Generated/Grass/Grass.glslh, from GrassLayout.hpp GrassMeshVisibilityGpu), std430, one per mesh grass SECTION (one
 // material; GrassRenderer::PrepareVariety writes it every frame): slot i of the camera's list owns rows
 // [x + i * y, x + (i + 1) * y); the draw of level L, submesh s fills them from Ranges[L * w + s].z on, one row per
 // 128 of its triangles (Pass_Visibility.glslh adds gl_PrimitiveID / 128). The Visibility cell of the Instanced path
@@ -8,23 +8,7 @@
 #ifndef GRASS_MESH_VISIBILITY_GLSLH
 #define GRASS_MESH_VISIBILITY_GLSLH
 
-#define GRASS_MESH_VISIBILITY_MAX_SUBMESHES 8u
-#define GRASS_MESH_VISIBILITY_MAX_RANGES 32u
-
-struct GrassMeshVisibilityData
-{
-    uvec4 Visibility;     // x = first row, y = rows per instance, z = level (bucket) count, w = submesh count
-    uvec4 Slots;          // x = the slots the section's list holds (its capacity), y = the camera list's first
-                          // slot in the shared ids pool (CPU-GRASS-POOL-5); z = the setup records' first row in
-                          // the bound GrassMeshSetup block, w = 1: records this frame, 0: none
-                          // (FPS-GRASS-MESH-SETUP-5)
-    uvec4 BucketFirst[2]; // the first slot of bucket (= LOD level) b < 8, [b / 4][b % 4]
-    // [0] = vertex address lo, hi, stream address lo, hi; [1] = index address lo, hi (uint32 indices), vertex
-    // stride, stream stride (bytes). The mesh's own spans (MeshGeometry byte offsets added).
-    uvec4 Geometry[2];
-    uvec4 Submeshes[GRASS_MESH_VISIBILITY_MAX_SUBMESHES]; // VertexOffset, VertexCount, drawn by this section, 0
-    uvec4 Ranges[GRASS_MESH_VISIBILITY_MAX_RANGES];       // per L * w + s: first index, triangles, row offset, 0
-};
+#include <Generated/Grass/Grass.glslh>
 
 #ifdef DESERT_SURFACE_DRAW_ROWS
 // A compacted bin's draw (GRASS-GPU-DRIVEN-DRAWS, Vertex_Instanced.glslh): the section's rows by address from its

@@ -27,22 +27,8 @@
 #include <Mesh/PointLight.glslh> // binding 6
 #include <Mesh/Spotlight.glslh>  // binding 16
 
-// MegaLightsVolumeUniforms (MegaLightsVolume.hpp), std140.
-Uniform(0) MegaLightsVolumeViewUB
-{
-	mat4  InverseViewProjection;  // unjittered, this frame
-	mat4  View;               // world -> view, this frame
-	mat4  PreviousView;           // the view's previous frame
-	mat4  PreviousViewProjection; // unjittered, the view's previous frame
-	vec4  ZParams;            // near (cm), slices / log(far / near), far (cm), froxel edge (render px)
-	vec4  PreviousZParams;        // the same, of the frame the history was written in
-	uvec4 RenderSize;               // xyz = froxels, w = frame index
-	uvec4 Counts;             // x = point lights, y = spot lights, z = samples per froxel, w = history readable
-	vec4  Params;             // x = history weight (0 = none), y = shadow-ray bias (cm), zw = render extent (px)
-	mat4  JitteredWorldToClip;           // the G-buffer's (the HZB's) world -> clip: the screen trace
-	mat4  InverseJitteredViewProjection; // its inverse
-	vec4  CameraPosition;                // xyz = the eye (cm)
-};
+#include <Generated/Shadows/MegaLights.glslh> // Shadows/MegaLightsLayout.hpp
+Uniform(0) MegaLightsVolumeViewUB { DESERT_MegaLightsVolumeView_MEMBERS };
 
 // The view's light grid (Programs/Deferred/LightGridBuild.shader), as the composite reads it.
 #include <Mesh/LightGrid.glslh>

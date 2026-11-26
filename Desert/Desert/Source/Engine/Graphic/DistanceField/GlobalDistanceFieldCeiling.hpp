@@ -6,6 +6,10 @@
 
 namespace Desert::Graphic::DistanceField
 {
+    // The global distance field's clipmap levels (GlobalDistanceField.hpp; DistanceFieldShadowLayout.hpp sizes its
+    // GdfLevels by it).
+    inline constexpr int kGlobalDistanceFieldClipmaps = 4;
+
     // THE CEILING (FPS-SSR-2; UE Lumen's heightfield bounds / Frostbite hi-Z, as a max mip of the scene's height):
     // over the occupied box's XZ footprint a grid of kGdfCeilingCells^2 columns, each the highest Y (cm) any
     // placed record's box reaches over that column, both grown by the occupied box's margin

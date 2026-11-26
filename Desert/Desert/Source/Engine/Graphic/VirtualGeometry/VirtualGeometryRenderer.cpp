@@ -93,7 +93,6 @@ namespace Desert::Graphic::VirtualGeometry
         static_assert( Geometry::kClusterMaxTriangles == 128u && Geometry::kClusterMaxVertices <= 128u,
                        "SoftwareRaster.shader LocalSize(128) and its shared vertices" );
         constexpr uint64_t kSwDispatchOffset = offsetof( GpuClusterRasterArgs, SwDispatch );
-        static_assert( kSwDispatchOffset == 0u, "Common/VirtualGeometry.glslh VgRasterArgs" );
         constexpr const char* kRasterBinningShader =
              "RasterBinning"; // Programs/VirtualGeometry/RasterBinning.shader
         constexpr uint32_t kBinStepCount   = 0u;
@@ -101,7 +100,6 @@ namespace Desert::Graphic::VirtualGeometry
         constexpr uint32_t kBinStepScatter = 2u;
         // Raster Binning COUNT / SCATTER dispatch from GpuClusterRasterArgs::BinDispatch.
         constexpr uint64_t kBinDispatchOffset = offsetof( GpuClusterRasterArgs, BinDispatch );
-        static_assert( kBinDispatchOffset == 32u, "Common/VirtualGeometry.glslh VgRasterArgs" );
         constexpr uint32_t kStepArgs       = 0u;
         constexpr uint32_t kStepCut        = 1u;
 

@@ -19,13 +19,6 @@ Shader "VirtualShadowMapCullCasters"
 
         #include <Common/VirtualShadowMap.glslh>
 
-        struct VsmCullInstance
-        {
-            vec4  Min;
-            vec4  Max;
-            uvec4 Draw; // x = its draw, y = the instance index its vertex stage fetches
-        };
-
         ReadBuffer(0) VsmFrameData
         {
             VsmFrame Frame;
@@ -41,7 +34,7 @@ Shader "VirtualShadowMapCullCasters"
         };
         ReadBuffer(3) VsmCullDraws
         {
-            uvec4 Draws[]; // x = first record, y = records, z = remap base
+            VsmCullDraw Draws[];
         };
         Buffer(4) VsmCasterArguments
         {
@@ -89,11 +82,11 @@ Shader "VirtualShadowMapCullCasters"
             if ( !VsmLevelPageRect( Levels[level], instance.Min.xyz, instance.Max.xyz, lowPage, highPage, nearest ) ||
                  !CoversDrawnCell( level, lowPage / int( VSM_MASK_CELL_PAGES ), highPage / int( VSM_MASK_CELL_PAGES ) ) )
                 return;
-            const uvec4 draw = Draws[instance.Draw.x];
-            const uint  slot = atomicAdd( Arguments[draw.x * VSM_DRAW_ARGUMENT_WORDS + 1u], 1u );
-            for ( uint r = 1u; r < draw.y; ++r )
-                atomicAdd( Arguments[( draw.x + r ) * VSM_DRAW_ARGUMENT_WORDS + 1u], 1u );
-            Remap[draw.z + slot] = instance.Draw.y;
+            const VsmCullDraw draw = Draws[instance.Draw.x];
+            const uint  slot = atomicAdd( Arguments[draw.FirstRecord * VSM_DRAW_ARGUMENT_WORDS + 1u], 1u );
+            for ( uint r = 1u; r < draw.Records; ++r )
+                atomicAdd( Arguments[( draw.FirstRecord + r ) * VSM_DRAW_ARGUMENT_WORDS + 1u], 1u );
+            Remap[draw.RemapBase + slot] = instance.Draw.y;
         }
     }
 }

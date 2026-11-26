@@ -3,6 +3,7 @@
 #include <Common/Settings/RenderMethods.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Graphic/GlobalIllumination/RadianceCacheCeiling.hpp>
 
 #include <glm/glm.hpp>
 
@@ -41,8 +42,7 @@
 namespace Desert::Graphic::RadianceCache
 {
     // ---- Fixed shape: UE CVar defaults that BaseScalability does not vary ----------------------------------
-    // RADIANCE_PROBE_MAX_CLIPMAPS.
-    inline constexpr uint32_t kMaxClipmaps = 6;
+    // kMaxClipmaps (RADIANCE_PROBE_MAX_CLIPMAPS): RadianceCacheCeiling.hpp.
     // r.Lumen.ScreenProbeGather.RadianceCache.NumClipmaps.
     inline constexpr uint32_t kClipmaps = 4;
     // Cells per clipmap side (…RadianceCache.GridResolution).

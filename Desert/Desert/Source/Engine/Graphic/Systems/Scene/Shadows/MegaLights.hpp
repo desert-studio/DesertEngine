@@ -31,6 +31,7 @@
 #include <string>
 #include <string_view>
 #include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/MegaLightsLayout.hpp>
 
 // MEGALIGHTS (UE 5.5 Renderer/Private/MegaLights; Shadows Stochastic): the view's local lights shaded at a FIXED
 // price per pixel instead of every light of the froxel with its shadow map (no shadow map is drawn for them:
@@ -160,23 +161,6 @@ namespace Desert::Graphic::System
         // power 0) and no candidate is drawn.
         RayTracing::EmissiveLightsFrame Emissive;
     };
-
-    // MegaLightsViewUB (Common/MegaLights.glslh), std140.
-    struct MegaLightsViewUniforms
-    {
-        glm::mat4  ViewProjection;
-        glm::mat4  PrevViewProjection;
-        glm::mat4  InvJitteredViewProjection;
-        glm::mat4  JitteredViewProjection; // the contact shadow's march (Common/ContactShadow.glslh)
-        glm::vec4  CameraPosition;         // xyz, w = PreExposure
-        glm::uvec4 Counts;                 // points, spots, samples per pixel, hash readable
-        glm::vec4  Params;            // max shading weight, of a hidden light, normal bias, hidden light share
-        glm::uvec4 Frame;             // frame index, render width, render height, downsample factor
-        glm::vec4  ContactShadowView; // steps, tan(fov / 2), dither frame
-        glm::uvec4 EmissiveCounts;    // EmissiveLightsFrame::StaticParams of MegaLightsInputs::Emissive
-        glm::uvec4 EmissiveDynamicCounts; // and its DynamicParams
-    };
-    static_assert( sizeof( MegaLightsViewUniforms ) == 368 );
 
     class MegaLightsRenderer
     {
