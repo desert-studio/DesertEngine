@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Core/SimulationStep.hpp>
+
 // PAWN REPLICATION WIRE + CLIENT-SIDE BUFFERS (Docs/contracts/NET-ARCH.md §2, §3.1, §5).
 //
 // After the handshake (NetHandshake.hpp) a session speaks four messages:
@@ -39,7 +41,7 @@ namespace Desert::Net
 {
     using NetId                              = std::uint32_t;
     inline constexpr NetId  kInvalidNetId    = 0;
-    inline constexpr double kNetStepHz       = 60.0; // the server's fixed step (§2); the net frame number
+    inline constexpr double kNetStepHz       = Common::kSimulationStepHz; // the server's fixed step (§2); the net frame number
     // The unacked input steps the client keeps and resends (§2): the InputRing's capacity, 2.1 s at 60 Hz, and so
     // the most one Input message carries. The server moves a pawn by every step in order and waits for a missing
     // one, so every Input message carries EVERY unacked step - never only the newest few: a slow client frame

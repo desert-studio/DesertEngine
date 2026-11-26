@@ -68,10 +68,8 @@ namespace Desert::Net
         std::uint32_t BudgetBytesPerSecond = 65536;
     };
 
-    // Nullopt when the settings are usable; otherwise the one reason, for the server's refusal to start and the
-    // project settings panel. Checks: at least one band, ascending ToCm, every EverySteps >= 1, DormantEverySteps
-    // >= Bands.back().EverySteps, 0 < PawnCullRangeCm <= MaxViewRangeCm, ExitMargin >= 0, budget >= 1024.
-    [[nodiscard]] std::optional<std::string> ValidateRelevancySettings( const RelevancySettings& settings );
+    // The settings are validated ONCE, by Project::ValidateNetSettings (Projects/NetSettings.hpp), before the server
+    // derives them; Net states no second copy of that rule.
 
     // ---- THE CLIENT'S VIEW SHAPE (ViewReport, client -> server, State lane, message EReplicationMessage::ViewReport)
 
