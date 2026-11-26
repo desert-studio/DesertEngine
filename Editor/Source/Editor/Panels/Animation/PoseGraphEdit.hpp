@@ -93,6 +93,10 @@ namespace Desert::Editor::Graph
     /// The parameter bound to @p pin of @p node, empty when unbound.
     [[nodiscard]] std::string BoundParameter( const Animation::Graph::PoseNode& node, std::string_view pin );
 
+    /// Every parameter pin of @p node in pin order: the kind's fixed pins (PinsOf), then a Layered Blend's
+    /// per-layer weights. What the canvas draws on the node (UE: the exposed X / Y / PlayRate / Alpha pins).
+    [[nodiscard]] std::vector<std::string> ParameterPinsOf( const Animation::Graph::PoseNode& node );
+
     /// The label of Pose pin @p pin of @p node: "Base Pose", "Blend Pose 0", "Additive", "In Pose".
     [[nodiscard]] std::string PosePinLabel( const Animation::Graph::PoseNode& node, int pin );
 

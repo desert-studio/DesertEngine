@@ -342,6 +342,17 @@ namespace Desert::Editor::Graph
         return {};
     }
 
+    std::vector<std::string> ParameterPinsOf( const G::PoseNode& node )
+    {
+        std::vector<std::string> pins;
+        for ( const char* pin : G::PinsOf( static_cast<G::PoseNodeKind>( node.Kind ) ).ParameterPins )
+            pins.emplace_back( pin );
+        if ( static_cast<G::PoseNodeKind>( node.Kind ) == G::PoseNodeKind::LayeredBlendPerBone && node.LayeredBlend )
+            for ( size_t layer = 0; layer < node.LayeredBlend->Layers.size(); ++layer )
+                pins.push_back( G::LayerWeightPin( layer ) );
+        return pins;
+    }
+
     std::string PosePinLabel( const G::PoseNode& node, int pin )
     {
         switch ( static_cast<G::PoseNodeKind>( node.Kind ) )

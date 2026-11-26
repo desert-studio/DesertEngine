@@ -264,6 +264,17 @@ namespace Desert::Editor
                              Graph::PosePinLabel( node, static_cast<int>( p ) ).c_str() );
                 ed::EndPin();
             }
+            // The parameter pins (UE's exposed X / Y / PlayRate / Alpha): each shows the graph parameter it reads
+            // every update, bound in the details below; an unbound pin reads its default.
+            for ( const std::string& pin : Graph::ParameterPinsOf( node ) )
+            {
+                const std::string bound = Graph::BoundParameter( node, pin );
+                if ( bound.empty() )
+                    ImGui::TextDisabled( ICON_MDI_ARROW_RIGHT " %s (unbound)", pin.c_str() );
+                else
+                    ImGui::TextColored( ImVec4( 0.6f, 0.9f, 0.6f, 1.0f ), "%s " ICON_MDI_ARROW_RIGHT " %s",
+                                        bound.c_str(), pin.c_str() );
+            }
             ImGui::EndGroup();
             ImGui::SameLine( 0.0f, 24.0f );
             ImGui::BeginGroup();

@@ -33,7 +33,13 @@
 # [bs2d_crouch_early] Crouch jumps to 1 at Speed 0; Y is smoothed over 1.5 s, so after 10 frames the body has barely lowered.
 Когда lua "for _, n in ipairs({'ProofA','ProofB'}) do local e = World.find(n); e:setAnimParam('Speed', 0.0); e:setAnimParam('Crouch', 1.0) end"
 Когда 10 frames render
+# The shot waits for the capture, and preview time is wall time (Core::WorldTime): both clocks are held for the shot so the
+# frame shows the pose 10 frames (well under 0.5 s) after Crouch was set, not wherever the clock was when the capture landed.
+Когда set 7700000000000000011 Animation.UpdateAnimationInEditor false
+Когда set 7700000000000000012 Animation.UpdateAnimationInEditor false
 Тогда-вид bs2d_crouch_early both are still nearly upright: knees only slightly bent, far from a full crouch
+Когда set 7700000000000000011 Animation.UpdateAnimationInEditor true
+Когда set 7700000000000000012 Animation.UpdateAnimationInEditor true
 # [bs2d_crouch_idle] after the smoothing window the point is at (0,1) = Crouch_Idle_Loop.
 Когда 150 frames render
 Тогда-вид bs2d_crouch_idle both crouch in place: knees deeply bent, hips low, arms in front
@@ -54,7 +60,7 @@
 Когда 10 frames render
 Когда run Document "Mannequin_BlendSpace2D: Select Node 'Locomotion2D'"
 Когда 10 frames render
-Тогда bs2d_editor the canvas shows Blend Space 2D 'Locomotion2D' with pins X, Y, PlayRate wired from Speed and Crouch into Output Pose; the details list axes X 0..600 and Y 0..1 (Linear 1.5 s) and five samples; the plot draws five labelled points, three triangles and the preview point; the preview shows the Mannequin and no validation warning
+Тогда bs2d_editor the canvas shows Blend Space 2D 'Locomotion2D' wired into Output Pose with its parameter pins 'Speed -> X', 'Crouch -> Y' and 'PlayRate (unbound)'; the details list axes X 0..600 and Y 0..1 (Linear 1.5 s) and five samples; the plot draws five labelled points, three triangles and the preview point; the preview shows the Mannequin and no validation warning
 # [bs2d_add] the palette adds a fresh Blend Space 2D (three samples, two axes), not saved.
 Когда run Document "Mannequin_BlendSpace2D: Add Blend Space 2D"
 Когда 10 frames render

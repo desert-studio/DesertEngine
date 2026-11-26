@@ -226,7 +226,17 @@ namespace Desert::ECS
                 const Animation::Graph::SequencePlayerNode* baseSequence =
                      baseSource != nullptr && baseSource->Sequence ? &*baseSource->Sequence : nullptr;
                 const bool baseIsSequence = baseSequence != nullptr;
-                if ( baseIsSequence || ( outputMachine != nullptr && !outputMachine->States.empty() ) )
+                // A graph whose Output Pose is a pose node (a blend space, a layered blend, an additive) plays
+                // through the pose graph even with no base source under it: a Blend Space Player at Output Pose
+                // is a leaf with clips of its own (UE AnimGraphNode_BlendSpacePlayer), not "no graph".
+                const Animation::Graph::PoseNode* outputNode =
+                     anim.Graph ? Animation::Graph::FindNode( *anim.Graph, anim.Graph->OutputPose ) : nullptr;
+                const bool outputIsPoseNode =
+                     outputNode != nullptr &&
+                     !Animation::Graph::IsSourceKind(
+                          static_cast<Animation::Graph::PoseNodeKind>( outputNode->Kind ) );
+                if ( baseIsSequence || outputIsPoseNode ||
+                     ( outputMachine != nullptr && !outputMachine->States.empty() ) )
                 {
                     bool graphRebuilt = true;
                     if ( !anim.GraphEvaluator )
@@ -321,6 +331,12 @@ namespace Desert::ECS
                         else if ( baseSequence != nullptr )
                         {
                             PlaySequence( anim, clipRig, baseSource->Name, *baseSequence );
+                        }
+                        else
+                        {
+                            // No base source (a blend space at Output Pose): the component's speed still scales
+                            // every clock the pose graph advances.
+                            anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed );
                         }
 
                         // THE GRAPH'S PARAMETERS, EVERY GRAPH: a blend-space state's axis reads them as a pose
