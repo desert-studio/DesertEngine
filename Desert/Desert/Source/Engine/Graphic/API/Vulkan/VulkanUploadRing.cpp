@@ -1,3 +1,4 @@
+#include <Common/Core/Align.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUploadRing.hpp>
 
 #include <algorithm>
@@ -6,10 +7,7 @@ namespace Desert::Graphic::API::Vulkan
 {
     namespace
     {
-        constexpr uint64_t AlignUp( const uint64_t value, const uint64_t alignment ) noexcept
-        {
-            return ( value + alignment - 1 ) / alignment * alignment;
-        }
+        using Common::AlignUp;
 
         constexpr double ToMiB( const uint64_t bytes ) noexcept
         {
