@@ -79,8 +79,8 @@ namespace Common::Scalability
     // RT, CapabilityCatalog RayTracingModes / RayTracingAccel). Graphic::ResolveRenderMethods lifts the request
     // onto the rendered ladder (LadderOf: Traced -> HardwareTraced, the best tracer), applies the ceiling and
     // walks the device down to SoftwareTraced, and logs the tracer with its reason ("GI tracer: Software (...)").
-    // Stored by number in scene files: scene v72 (Core/Serialize/SceneUpgrade.hpp, MigrateTracedRequestV71ToV72) folded the
-    // numbers SoftwareTraced / HardwareTraced older files wrote into Traced.
+    // Stored by number in scene files: scene v72 (Core/SceneUpgrade/Steps/V72TracedRequest.hpp,
+    // MigrateTracedRequestV71ToV72) folded the numbers SoftwareTraced / HardwareTraced older files wrote into Traced.
     enum class GIRequest : int
     {
         Off = 0,

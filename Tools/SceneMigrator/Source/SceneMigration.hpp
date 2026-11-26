@@ -25,7 +25,19 @@
 #include <span>
 #include <string_view>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
-#include <Engine/Core/Serialize/SceneUpgrade.hpp>
+#include <Engine/Core/SceneUpgrade/SceneUpgrade.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/AssetRef1ReflectedRefs.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/Light1Rotation.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V71VolumetricFog.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V72TracedRequest.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V73ComposedGI.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V74FilmicDefault.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V75GrassRasterPath.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V76LandscapeSplineEntities.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V77TubeSourceLength.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V78ExposureBiasOnly.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/WP13EntityHLODLayer.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/WP14ImpostorLayers.hpp>
 
 // The `.deprefab` payload and its gate. A prefab's entities ARE Core::SceneSerialized::Entities - the
 // same struct, written by the same ComponentRegistry - so it is raised by the SAME step chain rather
@@ -470,8 +482,9 @@ namespace Desert::Migration
     //       Load All. A ROOT record of a scene with a WorldPartition block states no siblingIndex; children keep
     //       theirs (MigrateRootSiblingIndexV69ToV70, this tool's last step). Scenes only.
     //
-    //  71 .. 77 - THE ENGINE'S (SCENE-UPGRADE-ON-LOAD): every step at or above Core::kSceneUpgradeFloor (70) lives
-    //       in Engine/Core/Serialize/SceneUpgrade.hpp, the one copy the loader raises a file with in memory. This
+    //  71 ..    - THE ENGINE'S (SCENE-UPGRADE-ON-LOAD): every step at or above Core::kSceneUpgradeFloor (70) lives
+    //       in Engine/Core/SceneUpgrade/Steps/ (one file each, ordered by the table in SceneUpgradeSteps.cpp),
+    //       the one copy the loader raises a file with in memory. This
     //       tool is the resave: it runs its own steps up to the floor, then Core::UpgradeSceneRecords, then writes.
     using Core::kSceneVersionComposedGI;
     using Core::kSceneVersionFilmicDefault;
@@ -579,14 +592,14 @@ namespace Desert::Migration
     //       it. Scenes only carry layers; a prefab's chain raises the number and changes nothing. (v10 and v11 are
     //       the WP-INT-1117 integration's steps.)
     //       This step is this tool's last World Partition step: v12 is Core::kWorldPartitionUpgradeFloor.
-    //  13, 14 - additive, the engine's (SceneUpgrade.hpp).
+    //  13, 14 - additive, the engine's (Core/SceneUpgrade/Steps/WP13EntityHLODLayer.hpp, WP14ImpostorLayers.hpp).
     using Core::kWorldPartitionVersionEntityHLODLayer;
     using Core::kWorldPartitionVersionHLODBuilderSettings;
     using Core::kWorldPartitionVersionImpostorLayers;
 
     // THE ASSET-REFERENCE AND LIGHT CHAINS (kAssetRefVersionReflected, kLightVersionRotation) are the engine's
-    // whole (SceneUpgrade.hpp): Core::UpgradeSceneRecords runs them, this tool hands it a MaterialGuidLookup over
-    // its assets root.
+    // whole (Core/SceneUpgrade/Steps/AssetRef1ReflectedRefs.hpp, Light1Rotation.hpp): Core::UpgradeSceneRecords
+    // runs them, this tool hands it a MaterialGuidLookup over its assets root.
     using Core::kAssetRefVersionReflected;
     using Core::kLightVersionRotation;
     using Core::MigrateLightRotationV0ToV1;
@@ -936,7 +949,7 @@ namespace Desert::Migration
     // prefab override. PURE.
     DisplayTransferReport MigrateDisplayTransferV64ToV65( std::vector<Assets::EntityData>& entities );
 
-    // v72..v75 (SceneUpgrade.hpp).
+    // v72..v75 (Core/SceneUpgrade/Steps/V72TracedRequest.hpp .. V75GrassRasterPath.hpp).
     using Core::ComposedGIReport;
     using Core::FilmicDefaultReport;
     using Core::GrassRasterPathReport;

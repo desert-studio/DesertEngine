@@ -5703,8 +5703,8 @@ namespace Desert::Migration
             };
         }
 
-        // THE ENGINE'S CHAIN (SceneUpgrade.hpp, SCENE-UPGRADE-ON-LOAD): every step at or above the floors - scene
-        // v71..v77, World Partition v13/v14, the asset-reference and light chains - is the loader's own copy, run
+        // THE ENGINE'S CHAIN (Core/SceneUpgrade/, SCENE-UPGRADE-ON-LOAD): every step at or above the floors - scene
+        // v71.., World Partition v13/v14, the asset-reference and light chains - is the loader's own copy, run
         // here on the records the tool's chain raised to the floors (so it starts from max(stated, floor)). The
         // migrator is the resave of what a load does in memory, not a second implementation of it.
         void RunEngineUpgrade( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,

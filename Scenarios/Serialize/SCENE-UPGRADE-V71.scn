@@ -1,3 +1,3 @@
 # SCENE-UPGRADE-ON-LOAD [1_load]: GI_Bistro_Night.desce is stored at SCNE 71 (never rewritten); the engine upgrades it in memory.
 Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
-Тогда-вид 1_load ночной Bistro как раньше; лог «upgraded v71->v77 in memory, save to keep»
+Тогда-вид 1_load ночной Bistro как раньше; лог «upgraded v71->v78 in memory (... steps ...), save to keep»
