@@ -203,10 +203,11 @@ namespace Desert::Graphic::API::Vulkan
             return m_LogicalDevice;
         }
 
-        // ONE device-wide pipeline cache, seeded from its DDC entry on create and written back while the
-        // app runs (PersistPipelineCache) and on Destroy — so the driver reuses previously-built pipeline binaries
-        // across runs instead of rebuilding every graphics/compute pipeline from scratch each startup. Passed to
-        // every vkCreate*Pipelines call (graphics + compute).
+        // ONE device-wide pipeline cache, passed to every vkCreate*Pipelines call (graphics + compute). On a
+        // driver whose blob is GPU binaries it is seeded from this user's per-device file
+        // (PipelineCacheFile::PlanDirectory keeps exactly that file) and written back while the app runs
+        // (PersistPipelineCache) and on Destroy, so pipeline binaries are reused across runs. On MoltenVK it is
+        // created empty and never persisted: its blob is shader source, and Metal's own cache keeps the binaries.
         // Filled iff DeviceCaps has AccelerationStructure (VulkanRayTracingFunctions.hpp); Complete() is the
         // check.
         [[nodiscard]] const RayTracingDeviceFunctions& GetRayTracingFunctions() const
@@ -274,10 +275,12 @@ namespace Desert::Graphic::API::Vulkan
         }
 
     private:
-        // Create the device-wide VkPipelineCache, seeding it from the on-disk cache if present. The driver
-        // validates the header (vendor/device/UUID) and silently ignores mismatched or corrupt data.
+        // Create the device-wide VkPipelineCache. Deletes this GPU's dead files with one logged reason each
+        // (PipelineCacheFile::PlanDirectory), then seeds from the kept file, which our header refuses with a
+        // logged reason when it is another device's, another format's or torn. No kept file (MoltenVK) = empty
+        // cache and a logged "not persisted" reason.
         void CreatePipelineCache();
-        // The driver's current cache into the DDC entry (atomic), unless it equals what is already there.
+        // The driver's current cache into the per-user file (atomic), unless it equals what is already there.
         Common::BoolResultStr WritePipelineCache();
 
     private:

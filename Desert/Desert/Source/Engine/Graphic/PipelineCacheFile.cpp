@@ -114,6 +114,42 @@ namespace Desert::Graphic::PipelineCacheFile
         return { std::string( payload ), {} };
     }
 
+    DirectoryPlan PlanDirectory( const DriverBlob blob, const DeviceIdentity& identity,
+                                 const std::filesystem::path&              dir,
+                                 const std::vector<std::filesystem::path>& filesInDir )
+    {
+        constexpr std::string_view kExtension = ".bin";
+        const std::string          ownDevice  = std::format( "{:08x}-{:08x}-", identity.Vendor, identity.Device );
+        const std::string          ownFile    = FileName( identity );
+
+        DirectoryPlan plan;
+        if ( blob == DriverBlob::Binary )
+            plan.Keep = dir / ownFile;
+        else
+            plan.Refusal = "the driver's pipeline cache holds shader source (MoltenVK): seeding re-compiles every "
+                           "entry before the window opens, and Metal's shader cache already keeps the binaries";
+
+        for ( const std::filesystem::path& file : filesInDir )
+        {
+            const std::string name = file.filename().string();
+            if ( name.size() < ownDevice.size() + kExtension.size() || !name.starts_with( ownDevice ) ||
+                 !name.ends_with( kExtension ) )
+                continue; // another GPU's file, or not a cache file: not ours to judge
+            if ( blob == DriverBlob::ShaderSource )
+            {
+                plan.Delete.push_back( { file, plan.Refusal } );
+                continue;
+            }
+            if ( name == ownFile )
+                continue;
+            const std::string_view written = std::string_view( name ).substr(
+                 ownDevice.size(), name.size() - ownDevice.size() - kExtension.size() );
+            plan.Delete.push_back(
+                 { file, std::format( "written by driver {}, this device runs {}", written, ownFile ) } );
+        }
+        return plan;
+    }
+
     bool PersistSchedule::Due( const uint64_t builtSoFar, const std::chrono::steady_clock::time_point now )
     {
         if ( builtSoFar == m_BuiltAtLastWrite )

@@ -1,0 +1,6 @@
+# ENG-PSO-CACHE-STARTUP (cold): a 364 MB stale MoltenVK pipeline cache in ~/.desertengine/PipelineCache/Desert Sandbox/ (copied back from DesertEngine-scratch/ENG-PSO-CACHE-STARTUP/stale/ before the run) no longer holds the window: before the fix 512-562 s to [Display] on an 89 MB blob.
+# Before the run, on the fresh build (first launch of that binary = Metal cache cold):
+# cp -p DesertEngine-scratch/ENG-PSO-CACHE-STARTUP/stale/0000106b-1b000207-000028a3-5189f8de1b0002070000000100000000.bin "$HOME/.desertengine/PipelineCache/Desert Sandbox/"
+Проект Projects/Desert/Desert.deproj
+Дано state
+Тогда pso_cold_start the default Desert scene drawn as in dev (sky, ground, lit objects, no error dialog); editor.log: line 1 -> first «[Display] output» < 30 s; a «[PipelineCache] '…5189f8de….bin' deleted (363969802 bytes): the driver's pipeline cache holds shader source (MoltenVK)…» line before it; «[PipelineCache] not persisted:» once; no «seeded from»; afterwards `ls "$HOME/.desertengine/PipelineCache/Desert Sandbox/"` holds no .bin
