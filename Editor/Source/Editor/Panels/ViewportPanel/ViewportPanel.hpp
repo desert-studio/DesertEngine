@@ -210,6 +210,9 @@ namespace Desert::Editor
         NO_DISCARD static Common::BoolResultStr RequestPilot( const Common::UUID& entity );
         NO_DISCARD static Common::BoolResultStr RequestEject();
         NO_DISCARD static bool                  IsPilotingAnywhere( const Common::UUID& entity );
+        // ── CAMERA CUT (CameraPilot.hpp, SetCinematicCamera) ──────────────────────────────────────────
+        static void SetCinematicIn( const ::Desert::Core::Scene& scene, const Common::UUID& camera );
+        static void ReleaseCinematicIn( const ::Desert::Core::Scene& scene, const Common::UUID& camera );
 
         // The Level Viewport commands (ViewportCommands.hpp) on the viewport the user works in — the palette's
         // entry; the F / Esc keys call RunCommand on their own viewport. One executor for both.
@@ -341,7 +344,9 @@ namespace Desert::Editor
         // The cursor the running Modeling tool reports (ToolCursor::None with no tool running).
         [[nodiscard]] Tools::ToolCursor ActiveModelingToolCursor() const;
 
-        // "Piloting: <name>" + Eject, top-left of the image, while m_Pilot is active.
+        // "Camera Cut: <name>" + Unlock, or "Piloting: <name>" + Eject, top-left of the image, while m_Pilot is
+        // active. Unlock switches the user's lock preference off: every Level Sequence document stops pushing on
+        // its next frame, and its release (ReleaseCinematicIn) frees this view.
         void DrawPilotOverlay();
 
         // Draws the active scene's UICanvas over the viewport + (for a selected UI element) a selection marquee
@@ -370,6 +375,9 @@ namespace Desert::Editor
         // button must not also pick the object behind it).
         CameraPilot m_Pilot;
         bool        m_PilotOverlayHovered = false;
+        // UE: viewport options ▸ Allow Cinematic Control. Off: the Sequencer's cuts leave this view alone (and
+        // clearing it drops a cut already in force here).
+        bool m_AllowCinematicControl = true;
 
         // THE PLAYED WORLD'S INPUT (UE: the PIE viewport hands its key events to the PlayerController). While
         // this viewport's scene is played, the keys and buttons it receives — only the focused viewport

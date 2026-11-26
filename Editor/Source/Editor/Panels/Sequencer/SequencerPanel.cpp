@@ -24,6 +24,7 @@
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Editor/Panels/Sequencer/TimelineRuler.hpp>
+#include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
 
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Animation/TrackEditing.hpp>
@@ -173,7 +174,13 @@ namespace Desert::Editor
         (void)Core::ActiveAuthoringContext().Release( m_AuthoringOwner );
 
         // CLOSING A LEVEL SEQUENCE GIVES THE SCENE BACK (UE: Restore State). A scene that died first has
-        // nothing to give back to.
+        // nothing to give back to. Its Camera Cut lets go of the viewports first (UE: the Sequencer's close
+        // restores the pre-animated viewport); another document's cut on the same scene stays.
+        if ( m_LevelCutPushed )
+        {
+            if ( const auto scene = m_Scene.lock() )
+                ReleaseCinematicCamera( *scene, *m_LevelCutPushed );
+        }
         if ( m_LevelPreview.Active() )
         {
             if ( const auto scene = m_Scene.lock() )
