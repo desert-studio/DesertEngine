@@ -2631,6 +2631,21 @@ namespace Desert::Editor
                       "than answered, because the frame that would have proved it will not be drawn.",
                       m_ControlInFlight->Group.empty() ? "request" : m_ControlInFlight->Label );
         }
+        // A window PNG still being written holds the swap chain and a capture ticket on it. Drained here, at the
+        // layer's detach, so the ticket goes back to the swap chain and the last reference to it is the window's:
+        // the surface then dies with its window, ahead of glfwDestroyWindow, never after it on a worker's release.
+        if ( m_ShotWrite )
+        {
+            const std::string error = m_Capture.FinishWindowPng( m_ShotWrite->Write );
+            if ( !error.empty() )
+                LOG_WARN( "[Control] the editor is closing; shot {}'s window PNG was not written: {}",
+                          m_ShotWrite->Id, error );
+            else
+                LOG_INFO(
+                     "[Control] the editor is closing; shot {}'s window PNG is written, its reply is not sent.",
+                     m_ShotWrite->Id );
+            m_ShotWrite.reset();
+        }
         m_ControlGate.Disarm();
         m_ControlSocket.Close();
     }

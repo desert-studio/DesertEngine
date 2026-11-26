@@ -197,16 +197,16 @@ namespace Desert::Editor
 
         /// `--device-profile <name>`: play a lower device on this one (UE DeviceProfiles; the backend-neutral
         /// table in Engine/Graphic/Rhi/DeviceProfile.hpp): its ray tracing rows, vendor upscalers and memory are
-        /// withheld before the device is created. Empty, the default, means this device as it is. The name is
-        /// checked by Graphic::ResolveRhiSelection when the application starts, which refuses an unknown one with
-        /// the list, so the parse stays free of the graphics backend.
-        std::string DeviceProfile;
+        /// withheld before the device is created. Unset, the default, means this device as it is. A stated name, an
+        /// empty one too, is checked by Graphic::ResolveRhiSelection when the application starts, which refuses an
+        /// unknown one with the list, so the parse stays free of the graphics backend.
+        std::optional<std::string> DeviceProfile;
         /// `--rhi <vulkan|d3d12>`: the rendering backend (Graphic::RhiSelection; beats machine.json "Rhi").
-        /// Empty, the default, leaves the choice to machine.json and then Vulkan. Checked at start, as above.
-        std::string Rhi;
+        /// Unset, the default, leaves the choice to machine.json and then Vulkan. Checked at start, as above.
+        std::optional<std::string> Rhi;
         /// `--adapter <auto|n|nvidia|amd|intel|vendor:0x..|name:..>`: which physical adapter the backend opens
-        /// (Graphic::AdapterPreference; beats machine.json "Adapter"). Empty leaves the choice to machine.json.
-        std::string Adapter;
+        /// (Graphic::AdapterPreference; beats machine.json "Adapter"). Unset leaves the choice to machine.json.
+        std::optional<std::string> Adapter;
         /// `--log-level <trace|debug|info|warn|error|critical|off>`: the log's level gate
         /// (Common::Logger::SetLevel), set by the host at start. Unset keeps the build's default:
         /// info outside Debug, trace in Debug.

@@ -52,7 +52,10 @@ namespace Desert::Editor
         // The context first, then the editor fonts into its atlas, then the backend (which uploads them).
         ::ImGui::CreateContext();
         EditorResources::Initialize( UI::IconFontFile().string() );
-        m_ImGuiLayer = ImGui::ImGuiLayer::Create();
+        auto created = ImGui::ImGuiLayer::Create();
+        if ( !created )
+            return Common::MakeFormattedError( "ImGui layer: {}", created.GetError() );
+        m_ImGuiLayer = created.ExtractValue();
         if ( const auto attached = m_ImGuiLayer->OnAttach(); !attached.IsSuccess() )
             return Common::MakeFormattedError( "ImGui layer failed to attach: {}", attached.GetError() );
 

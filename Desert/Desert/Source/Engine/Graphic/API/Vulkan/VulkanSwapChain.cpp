@@ -35,12 +35,14 @@ namespace Desert::Graphic::API::Vulkan
 
     VulkanSwapChain::~VulkanSwapChain()
     {
-        Release();
-        // Tickets nobody released (a shot abandoned by shutdown): nothing resolves them any more, since a resolving
-        // worker holds the swap chain alive.
+        // Tickets nobody released (a shot abandoned by shutdown): nothing resolves them any more, since a
+        // resolving worker holds the swap chain alive. Freed BEFORE Release(): reverse construction order - the
+        // tickets were taken from this swapchain, so they go while the device and the swapchain they were copied
+        // from still stand, and Release()'s device-idle wait finds no capture fence of ours outstanding.
         for ( auto& [id, staging] : m_Tickets )
             ReleaseCapturedStaging( staging );
         m_Tickets.clear();
+        Release();
         // The surface outlives every Release() (a resize rebuilds the swapchain on the same surface) and dies
         // only here, before the platform window it was made from: the window's destructor resets this
         // swapchain ahead of glfwDestroyWindow. Without a renderer context the instance is already gone and

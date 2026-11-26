@@ -345,11 +345,11 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // The backend, the adapter and the device profile the command line asked for. The application resolves them
     // against machine.json once, before the window (Graphic::ResolveRhiSelection), and refuses an unknown name
     // with the list: a frame of the full device saved under a GTX name is the silent fallback refused everywhere.
-    const auto flag = []( const std::string& value ) -> std::optional<std::string>
-    { return value.empty() ? std::nullopt : std::optional<std::string>( value ); };
-    appInfo.Rhi.CommandLineRhi           = flag( options.Rhi );
-    appInfo.Rhi.CommandLineAdapter       = flag( options.Adapter );
-    appInfo.Rhi.CommandLineDeviceProfile = flag( options.DeviceProfile );
+    // A stated flag goes through as stated, an empty value too (refused there, as the Runtime refuses it): only an
+    // absent flag leaves the choice to machine.json.
+    appInfo.Rhi.CommandLineRhi           = options.Rhi;
+    appInfo.Rhi.CommandLineAdapter       = options.Adapter;
+    appInfo.Rhi.CommandLineDeviceProfile = options.DeviceProfile;
 
     return std::make_unique<Desert::Sandbox>( appInfo, std::move( splash ) );
 }
