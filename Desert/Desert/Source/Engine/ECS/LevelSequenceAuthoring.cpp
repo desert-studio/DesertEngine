@@ -1378,6 +1378,14 @@ namespace Desert::ECS
         return step;
     }
 
+    void ReleaseLevelSequencePreviewLayers( entt::registry& registry )
+    {
+        // ClearSequencerLayer is a no-op for an Animator another writer holds (a Play actor keeps its own).
+        for ( const entt::entity entity : registry.view<AnimationComponent>() )
+            if ( auto& animation = registry.get<AnimationComponent>( entity ); animation.Animator )
+                animation.Animator->ClearSequencerLayer( kLevelSequencePreviewWriter );
+    }
+
     void LevelSequencePreview::ReleaseBoneLayers( entt::registry& registry )
     {
         ClearLevelSequenceBoneLayers( registry, m_Layered, kLevelSequencePreviewWriter );

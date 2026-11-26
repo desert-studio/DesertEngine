@@ -498,4 +498,10 @@ namespace Desert::ECS
         /// No overrides: the document is about the ASSET, not about one placed actor's re-pointing of it.
         LevelSequenceComponent m_NoOverrides;
     };
+
+    /// PLAY STARTS: every bone layer the Sequencer preview set (writer `kLevelSequencePreviewWriter`) comes off
+    /// the scene's Animators BEFORE the first Play step (UE: the editor preview restores and drops its claim, PIE
+    /// plays its own player), so a playing Level Sequence actor sets its own layer on the first frame. The
+    /// preview takes its layers back by scrubbing on the first Edit frame after Stop.
+    void ReleaseLevelSequencePreviewLayers( entt::registry& registry );
 } // namespace Desert::ECS

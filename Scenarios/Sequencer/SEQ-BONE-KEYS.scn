@@ -6,6 +6,9 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/SEQ_BoneKeys.desce
 Дано run View "View mode: Lit"
 Дано run Open "Sequences/SEQ_BoneKeys.dseq"
+# The editor camera faces both humanoids from the front, at head height (Hero x=-75, Twin x=75; the Play camera looks down -Z from z=800, so the humanoids face +Z).
+Дано --subject viewport set Camera.Position 0,165,230
+Дано --subject viewport set Camera.Direction 0,-0.08,-0.997
 # [1_base] no bone tracks: both play idle, heads forward.
 Когда set Transport.Time 1.0
 Когда 10 frames render
@@ -16,17 +19,20 @@
 Когда set Bone.Hero.Head.Rotation 0,45,0
 Когда 10 frames render
 Тогда-вид 2_absolute Hero's head is turned about 45 deg to its left, body still in idle; Twin's head faces the camera (same bone name, other actor untouched); the Sequencer shows a Head row under Hero with a key at 1.0 s
-Тогда 2_absolute lua World.find('Hero'):boneLocalRotation('Head') yaw (y) = 45 +-0.5 (bind rotation of Head is identity in Humanoid.skeleton, else the value is the absolute key); World.find('Twin'):boneLocalRotation('Head') = idle value +-0.5; editor.log has no "names no entity"
+# [2_absolute] check: the chunk errors (the step is refused, the run stops) unless the values hold.
+Когда lua "local h = World.find('Hero'):boneLocalRotation('Head'); local t = World.find('Twin'):boneLocalRotation('Head'); assert(math.abs(h.y - 45) <= 0.5, string.format('2_absolute: Hero Head yaw %.2f, expected 45', h.y)); assert(math.abs(t.y - 45) > 20, string.format('2_absolute: Twin Head yaw %.2f follows the key', t.y))"
 # [3_weight] weight 0.5 blends with the idle pose, not with zero (edit 3).
 Когда set Bone.Hero.Head.Weight 0.5
 Когда 10 frames render
 Тогда-вид 3_weight Hero's head is turned about half as far as in 2_absolute (~22 deg), not drooped or collapsed
+Когда lua "local h = World.find('Hero'):boneLocalRotation('Head'); local t = World.find('Twin'):boneLocalRotation('Head'); assert(h.y > 15 and h.y < 30, string.format('3_weight: Hero Head yaw %.2f, expected ~22.5', h.y))"
 # [4_additive] additive 15 deg over idle: the idle breathing still moves the head (edits 4-6).
 Когда set Bone.Hero.Head.Weight 1.0
 Когда set Bone.Hero.Head.Blend 1
 Когда set Bone.Hero.Head.Rotation 0,15,0
 Когда 10 frames render
 Тогда-вид 4_additive Hero's head turned slightly (~15 deg) to its left on top of idle; arms and torso as in 1_base
+Когда lua "local h = World.find('Hero'):boneLocalRotation('Head'); local t = World.find('Twin'):boneLocalRotation('Head'); assert(math.abs((h.y - t.y) - 15) <= 1, string.format('4_additive: Hero-Twin Head yaw %.2f, expected 15 over idle', h.y - t.y))"
 # [5_scrub] scrub away and back: same frame.
 Когда set Transport.Time 0.0
 Когда 1 frames render
@@ -46,12 +52,16 @@
 Когда 1 frames render
 Когда run Action Play
 Когда advance 0.5
-Тогда 6_play_hold lua World.find('Hero'):boneLocalRotation('Head').y = 0 +-0.5 at t=0.5 (Constant holds the first key, not 22.5)
+# [6_play_hold] Constant holds the first key at t=0.5, not 22.5.
+Когда lua "local h = World.find('Hero'):boneLocalRotation('Head'); local t = World.find('Twin'):boneLocalRotation('Head'); assert(math.abs(h.y) <= 0.5, string.format('6_play_hold: Hero Head yaw %.2f at t=0.5, expected 0', h.y))"
 Когда advance 0.6
-Тогда 6_play lua World.find('Hero'):boneLocalRotation('Head').y = 45 +-0.5 at t=1.1 (the key took on the first frame past 1.0 s); editor.log has a "[SkinnedLOD]" line for Hero with rate 2 during Play; no "holds them already" in editor.log
+# [6_play] the key took on the first frame past 1.0 s; by hand: editor.log has a "[SkinnedLOD]" line for Hero with rate 2 during Play and no "holds them already" (the preview released its layer at Play start).
+Когда lua "local h = World.find('Hero'):boneLocalRotation('Head'); local t = World.find('Twin'):boneLocalRotation('Head'); assert(math.abs(h.y - 45) <= 0.5, string.format('6_play: Hero Head yaw %.2f at t=1.1, expected 45', h.y)); assert(math.abs(t.y - 45) > 20, string.format('6_play: Twin Head yaw %.2f follows the key', t.y))"
 Тогда-вид 6_play Hero's head turned ~45 deg to its left (the game camera, 800 cm back); Twin's head forward
 # [7_stop] leaving Play takes the actor's layer off; the Sequencer preview poses the editor scene again at its playhead.
 Когда run Action Stop
+Когда --subject viewport set Camera.Position 0,165,230
+Когда --subject viewport set Camera.Direction 0,-0.08,-0.997
 Когда 10 frames render
 Тогда-вид 7_stop Hero's head turned ~45 deg as the Sequencer playhead (1.0 s) shows; Twin's head forward; no "holds them already" refusal in editor.log
 # [8_undo] undo every edit (10): the bone track is gone, Hero in idle.
@@ -67,6 +77,6 @@
 Когда run Action Undo
 Когда 10 frames render
 Тогда-вид 8_undo Sequencer has no Head row under Hero; Hero and Twin in the identical Idle pose, as in 1_base
-# [9_refused] a bone the rig lacks is refused by name (no "Add Bone Track Hero tail_01" action exists: the menu lists the skeleton's bones).
-Когда set Bone.Hero.tail_01.Rotation 0,10,0
-Тогда 9_refused Output Log names "tail_01" and Hero's skeleton; no row added; 0 VUID in editor.log
+# [9_refused] a bone the rig lacks is refused by name; the step EXPECTS the refusal (DesertCtl --expect-refusal: the run goes on, the reason is kept in the run log). No "Add Bone Track Hero tail_01" action exists: the menu lists the skeleton's bones.
+Когда --expect-refusal set Bone.Hero.tail_01.Rotation 0,10,0
+Тогда 9_refused the toast/Output Log names "tail_01" and Hero's skeleton ("the skeleton of Hero has no such bone"); no row added under Hero; 0 VUID in editor.log
