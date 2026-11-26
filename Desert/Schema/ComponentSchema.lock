@@ -223,7 +223,7 @@ IesBrightnessScale: float
 LightFunctionMaterial: AssetHandle
 LightFunctionScale: vec3
 
-[PostProcessVolume] Version 1
+[PostProcessVolume] Version 2
 Unbound: bool
 Extent: vec3
 BlendRadius: float
@@ -277,7 +277,10 @@ Settings.ManualExposureEV100: float
 Settings.WhitePoint: float
 Settings.AutoExposure: bool
 Settings.AutoExposureKey: float
-Settings.AutoExposureSpeed: float
+Settings.AutoExposureLowPercent: float
+Settings.AutoExposureHighPercent: float
+Settings.AutoExposureSpeedUp: float
+Settings.AutoExposureSpeedDown: float
 Settings.AutoExposureMinEV100: float
 Settings.AutoExposureMaxEV100: float
 Settings.AutoExposureBias: float
@@ -295,9 +298,27 @@ Settings.LocalExposureHighlightThreshold: float
 Settings.LocalExposureShadowThreshold: float
 Settings.LocalExposureHighlightThresholdStrength: float
 Settings.LocalExposureShadowThresholdStrength: float
-Settings.EnableBloom: bool
-Settings.BloomThreshold: float
+Settings.BloomMethod: enum BloomMethod {Gaussian=0, Convolution=1}
 Settings.BloomIntensity: float
+Settings.BloomThreshold: float
+Settings.BloomGaussianIntensity: float
+Settings.BloomSizeScale: float
+Settings.Bloom1Tint: vec3
+Settings.Bloom1Size: float
+Settings.Bloom2Tint: vec3
+Settings.Bloom2Size: float
+Settings.Bloom3Tint: vec3
+Settings.Bloom3Size: float
+Settings.Bloom4Tint: vec3
+Settings.Bloom4Size: float
+Settings.Bloom5Tint: vec3
+Settings.Bloom5Size: float
+Settings.Bloom6Tint: vec3
+Settings.Bloom6Size: float
+Settings.BloomDirtMask: AssetHandle
+Settings.BloomDirtMaskIntensity: float
+Settings.BloomDirtMaskTint: vec3
+Settings.BloomConvolutionIntensity: float
 Settings.LensDispersion: float
 Settings.BloomConvolutionKernel: AssetHandle
 Settings.BloomConvolutionScale: float
