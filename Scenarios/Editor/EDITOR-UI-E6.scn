@@ -7,7 +7,7 @@
 # Layout, reference px (1280x720, computed from WidgetGallery.cpp, NOT measured - check 0_gallery first): gallery
 # column x 300..980 y 60..716; code field x 1000..1260 y 100..270 (E5). Empty point 150,400: left of the column.
 # Points = the viewport panel's points (E2: centre 640,360).
-Проект Desert.deproj --scene Content/Scenes/Desert_Sandbox.desce
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Desert_Sandbox.desce
 Дано run UI "UI: Toggle the widget gallery"
 Тогда-вид 0_gallery галерея по центру, справа панель «Lua» с пустым полем кода
 Когда input click Viewport 1130,150

@@ -5,7 +5,7 @@
 # WidgetGallery.cpp, NOT measured - check 1_gallery first): the drag row is y 626..698 under the list (496..616):
 # list A x 300..520, list B 530..750, well 760..940; chips 64x32 at y 646..678 (centre 662) - A x 308/378/448,
 # B x 538/608/678 (centres A 340,410,480; B 570,640,710). Points = the viewport panel's points (E2: centre 640,360).
-Проект Desert.deproj --scene Content/Scenes/MainMenu.desce
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/MainMenu.desce
 Дано run UI "UI: Toggle the widget gallery"
 Тогда-вид 1_gallery галерея: внизу ряд «список A: Rock Tree Bush | пустой список B | плашка "Colours only"»; ни одной рамки приёма
 Когда input press Viewport 340,662
