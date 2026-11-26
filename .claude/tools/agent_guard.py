@@ -338,6 +338,13 @@ def lead_launch_refusal(tin, s, disk_gb=None):
     if stall >= limits.STALL_PASSES and "## Пересмотр" not in text:
         return (f"{code}: {stall} сдачи без продвижения — тем же путём не запускать: впиши в бриф «## Пересмотр» "
                 "(причина застоя и новый подход).")
+    # Owner 11-26 «вернуться к 15 %»: NET-PAWN-TELEPORT-FRAME burned seven fix passes on guesses. After two failed
+    # fixes the next one is written from an architect's review of the whole path, not from the last symptom.
+    fix_n = re.search(r"BRIEF_FIX(\d+)\.md$", found.group(0))
+    review = os.path.join(os.path.dirname(found.group(0)), "DESIGN_REVIEW.md")
+    if fix_n and int(fix_n.group(1)) > limits.FIXES_BEFORE_REVIEW and not os.path.exists(review):
+        return (f"{code}: починка {fix_n.group(1)} без разбора — после {limits.FIXES_BEFORE_REVIEW} неудачных починок "
+                f"сначала Agent(architect) пишет {review} (причина file:line + дешёвая проверка), бриф — из него.")
     why = feature_brief_refusal(found.group(0), text, code, s) if kind == "engineer" else fix_brief_refusal(found.group(0), text)
     return why or unbuilt_refusal(s, code) or stale_branch_refusal(code, prompt)
 

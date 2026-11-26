@@ -32,6 +32,7 @@ MAX_PACKAGES = 4          # owner 11-26: a design is 1..4 PARALLEL engineer runs
 FEATURES_IN_FLIGHT = 3    # features between `plan` and `landed`
 FEATURE_MAX_AGE_H = 24    # owner 11-26: nothing is stretched over days; an older unlanded feature stops new plans
 STALL_PASSES = 2          # owner 10-22: hand-ins without a new commit before «## Пересмотр» is demanded
+FIXES_BEFORE_REVIEW = 2   # owner 11-26: BRIEF_FIX<N>.md above this needs the architect's DESIGN_REVIEW.md beside it
 RUNS_BEFORE_BUILD = 2     # owner 11-25: hand-ins of one code before a build must have seen it
 STALE_BRANCH_H = 24       # owner 10-29: no new step on a branch whose oldest commit not in dev is older
 MAX_BEHIND = 40           # commits behind dev at which a day-old task branch may not be pushed
