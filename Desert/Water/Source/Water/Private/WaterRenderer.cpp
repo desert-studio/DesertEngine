@@ -333,25 +333,29 @@ namespace Desert::Graphic::System
                       "names no material with a loaded template - the body draws no water" );
             return nullptr;
         }
-        if ( auto it = m_Programs.find( templ.CompileName ); it != m_Programs.end() )
+        if ( auto it = m_Programs.find( templ.Shader ); it != m_Programs.end() )
         {
             if ( !it->second.Pipeline )
                 return nullptr; // a refusal, said once when it was built
             return remember( &it->second );
         }
 
-        WaterProgram&     program = m_Programs[templ.CompileName]; // an empty entry remembers a refusal
+        WaterProgram&     program = m_Programs[templ.Shader]; // an empty entry remembers a refusal
         const std::string cellName =
              std::format( "{}/{}", templ.CompileName, Core::Preprocess::kSurfaceWaterMeshCell );
-        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellName );
-        if ( !shader )
+        // The cell of the material's OWN template file: a stem held by another file is a refusal.
+        const auto owned =
+             Runtime::ResourceRegistry::GetShaderService()->GetByNameOwnedBy( cellName, templ.Shader );
+        if ( !owned )
         {
             if ( FirstWarning( material, WaterWarning::NoWaterCell ) )
-                Warn( material, std::format( "its template '{}' has no {} cell - a water body draws a template of "
-                                             "ShadingModel SingleLayerWater with Usage WaterMesh",
-                                             templ.CompileName, Core::Preprocess::kSurfaceWaterMeshCell ) );
+                Warn( material, std::format( "its template '{}' has no drawable {} cell ({}) - a water body draws "
+                                             "a template of ShadingModel SingleLayerWater with Usage WaterMesh",
+                                             templ.CompileName, Core::Preprocess::kSurfaceWaterMeshCell,
+                                             owned.GetError() ) );
             return nullptr;
         }
+        const auto& shader = owned.GetValue();
 
         if ( auto built = BuildProgram( shader, "WaterSurfacePipeline:" + templ.CompileName, program ); !built )
         {
@@ -360,8 +364,9 @@ namespace Desert::Graphic::System
                       std::format( "its template '{}' does not build: {}", templ.CompileName, built.GetError() ) );
             return nullptr;
         }
-        program.Material    = std::make_unique<DataDrivenMaterial>( cellName );
+        program.Material    = std::make_unique<DataDrivenMaterial>( shader );
         program.CompileName = templ.CompileName;
+        program.Template    = templ.Shader;
         return remember( &program );
     }
 
@@ -376,16 +381,19 @@ namespace Desert::Graphic::System
         // (Pass_FrontLayer.glslh).
         const std::string cellName =
              std::format( "{}/{}", program.CompileName, Core::Preprocess::kSurfaceWaterMeshFrontLayerCell );
-        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellName );
-        if ( !shader )
+        const auto owned =
+             Runtime::ResourceRegistry::GetShaderService()->GetByNameOwnedBy( cellName, program.Template );
+        if ( !owned )
         {
             if ( FirstWarning( material, WaterWarning::NoFrontLayerCell ) )
                 Warn( material,
-                      std::format( "its template '{}' has no {} cell - the water is not in the front "
-                                   "layer and reflects its captures and the sky without the trace",
-                                   program.CompileName, Core::Preprocess::kSurfaceWaterMeshFrontLayerCell ) );
+                      std::format( "its template '{}' has no drawable {} cell ({}) - the water is not in the "
+                                   "front layer and reflects its captures and the sky without the trace",
+                                   program.CompileName, Core::Preprocess::kSurfaceWaterMeshFrontLayerCell,
+                                   owned.GetError() ) );
             return nullptr;
         }
+        const auto& shader = owned.GetValue();
         // UE's FrontLayerTranslucencyGBuffer state over the cell's own (its cull): opaque, depth-tested and
         // depth-written against the front layer's depth, so each pixel keeps its nearest translucent surface.
         GraphicsPipelineSpecification spec;
@@ -409,8 +417,9 @@ namespace Desert::Graphic::System
         }
         auto front         = std::make_unique<WaterProgram>();
         front->Pipeline    = pipeline.GetValue();
-        front->Material    = std::make_unique<DataDrivenMaterial>( cellName );
+        front->Material    = std::make_unique<DataDrivenMaterial>( shader );
         front->CompileName = program.CompileName;
+        front->Template    = program.Template;
         program.FrontLayer = std::move( front );
         return program.FrontLayer.get();
     }

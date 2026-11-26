@@ -18,6 +18,7 @@ namespace Desert::Graphic
 {
     class Framebuffer;
     class GraphicsPipeline;
+    class Shader;
 } // namespace Desert::Graphic
 
 namespace Desert::Graphic::Render2D
@@ -113,8 +114,13 @@ namespace Desert::Graphic::Render2D
         }
 
     private:
-        // Build the pipeline + runtime material for @p shaderName, or nothing with @p refusal set.
-        Entry Build( const std::string& shaderName, std::string& refusal ) const;
+        // Build the pipeline + runtime material for @p shader, or nothing with @p refusal set.
+        Entry Build( const std::shared_ptr<Shader>& shader, std::string& refusal ) const;
+        // Build of the engine's error fill, found by its name (kErrorShaderName).
+        Entry BuildErrorFill( std::string& refusal ) const;
+        // Build of the program of material @p handle's OWN template file (ShaderService::GetByNameOwnedBy): a
+        // template whose name another file holds is a refusal, never that file's program.
+        Entry BuildOfTemplate( const Assets::AssetHandle& handle, std::string& refusal ) const;
 
         // Build + the asset's authored values (overrides) + its name for @p handle, or nothing with @p refusal
         // set. What Resolve builds on a miss and what a hot shader reload rebuilds an entry with.

@@ -40,31 +40,6 @@ namespace Common::Content
             return ext;
         }
 
-        // IS THIS FILE CONTENT, AND OF WHICH KIND — asked of a path rather than by walking a root, so
-        // that the two lists in this file classify identically. The disk scan can iterate the roots;
-        // the tracked list arrives as a flat list of repository paths and has to ask per file. One
-        // answer, one census, two callers.
-        //
-        // The ROOT is tested and not only the extension: `Constants.hpp` puts `Clouds/Types` inside
-        // `Clouds/`, so a `.dcnv` dropped into `Clouds/Types` is not a cloud type and a `.decloudtype`
-        // loose in `Clouds/` is not enumerated by anything. Matching on the extension alone would make
-        // the tracked list disagree with the walk about exactly those files.
-        bool IsUnder( const std::filesystem::path& file, const std::filesystem::path& root )
-        {
-            std::error_code             ec;
-            const std::filesystem::path absoluteFile =
-                 file.is_absolute() ? file.lexically_normal()
-                                    : std::filesystem::absolute( file, ec ).lexically_normal();
-            const std::filesystem::path absoluteRoot =
-                 root.is_absolute() ? root.lexically_normal()
-                                    : std::filesystem::absolute( root, ec ).lexically_normal();
-            if ( ec )
-                return false;
-
-            const std::string relative = absoluteFile.lexically_relative( absoluteRoot ).generic_string();
-            return !relative.empty() && relative != "." && !relative.starts_with( ".." );
-        }
-
         // Runs a command and returns its stdout, or an EMPTY STRING when the command itself failed.
         //
         // THE EXIT STATUS IS READ, and that is the whole reason the caller can return an optional.
@@ -178,6 +153,31 @@ namespace Common::Content
              "makes. The registry is gathered, never committed.";
     } // namespace
 
+    bool IsUnder( const std::filesystem::path& file, const std::filesystem::path& root )
+    {
+        std::error_code             ec;
+        const std::filesystem::path absoluteFile = file.is_absolute()
+                                                        ? file.lexically_normal()
+                                                        : std::filesystem::absolute( file, ec ).lexically_normal();
+        const std::filesystem::path absoluteRoot = root.is_absolute()
+                                                        ? root.lexically_normal()
+                                                        : std::filesystem::absolute( root, ec ).lexically_normal();
+        if ( ec )
+            return false;
+
+        const std::string relative = absoluteFile.lexically_relative( absoluteRoot ).generic_string();
+        return !relative.empty() && relative != "." && !relative.starts_with( ".." );
+    }
+
+    // IS THIS FILE CONTENT, AND OF WHICH KIND — asked of a path rather than by walking a root, so
+    // that the two lists in this file classify identically. The disk scan can iterate the roots;
+    // the tracked list arrives as a flat list of repository paths and has to ask per file. One
+    // answer, one census, two callers.
+    //
+    // The ROOT is tested and not only the extension: `Constants.hpp` puts `Clouds/Types` inside
+    // `Clouds/`, so a `.dcnv` dropped into `Clouds/Types` is not a cloud type and a `.decloudtype`
+    // loose in `Clouds/` is not enumerated by anything. Matching on the extension alone would make
+    // the tracked list disagree with the walk about exactly those files.
     std::optional<ContentKind> KindOfContentFile( const std::filesystem::path& file )
     {
         const std::string extension = LowerExtension( file );

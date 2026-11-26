@@ -12,9 +12,15 @@ namespace Desert::Core
     class Scene;
 }
 
+namespace Desert::Graphic
+{
+    class Shader;
+}
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -80,10 +86,13 @@ namespace Desert::Runtime
     /// default material and this is the only place that knows why.
     void EnsureMaterialRegistered( const Assets::Asset<Assets::MaterialAsset>& material );
 
-    /// The compile name of the template @p material's parent chain reaches (MaterialService::ShaderHandleOf):
-    /// an instance states no template of its own. Empty when the chain reaches none; a refusal when there is
-    /// no material service to walk it. Callers outside the runtime ask HERE rather than reaching the service.
-    NO_DISCARD Common::ResultStr<std::string> MaterialTemplateNameOf( const Assets::AssetHandle& material );
+    /// The program of the template @p material's parent chain reaches (MaterialService::ShaderHandleOf; an
+    /// instance states no template of its own), asked as that template file's OWN program
+    /// (ShaderService::GetByNameOwnedBy): a refusal when the chain reaches no template, when the template's name
+    /// is held by another file, or when there is no material or shader service. Callers outside the runtime ask
+    /// HERE rather than reaching the services.
+    NO_DISCARD Common::ResultStr<std::shared_ptr<Graphic::Shader>>
+               MaterialTemplateProgramOf( const Assets::AssetHandle& material );
 
     /// The slots @p material resolves to through its parent chain (MaterialService::ResolveOverrides). A refusal
     /// when there is no material service or the handle resolves to no registered material.

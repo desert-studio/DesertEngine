@@ -43,18 +43,28 @@ namespace Desert::Graphic::System
         constexpr std::size_t kInitialDecals   = 256u;
         constexpr std::size_t kDecalInitialPrograms = 16u;
 
-        Image2D* ResolveTextureImage( uint64_t textureHandle )
+        // What a decal slot's texture handle answers now: its image, Pending (a read or a cook in flight - the
+        // texture service settles it later), or Missing (not in the project, or failed).
+        struct SlotTexture
+        {
+            Image2D* Image   = nullptr;
+            bool     Pending = false;
+        };
+
+        SlotTexture ResolveSlotTexture( const uint64_t textureHandle )
         {
             if ( textureHandle == 0 )
-                return nullptr;
+                return {};
             auto* textures = Runtime::ResourceRegistry::GetTextureService();
             auto* images   = Runtime::GetImageService();
             if ( textures == nullptr || images == nullptr )
-                return nullptr;
-            auto* texture = textures->Get( Assets::AssetHandle( textureHandle ) );
-            if ( texture == nullptr )
-                return nullptr;
-            return static_cast<Image2D*>( images->Resolve( texture->GetImageHandle() ) );
+                return {};
+            // The answer holds the texture alive while its image is resolved (MaterialService's slot binding).
+            const auto texture = textures->Require( Assets::AssetHandle( textureHandle ) );
+            if ( auto* built = texture.Get() )
+                return SlotTexture{ .Image   = static_cast<Image2D*>( images->Resolve( built->GetImageHandle() ) ),
+                                    .Pending = false };
+            return SlotTexture{ .Image = nullptr, .Pending = texture.IsPending() };
         }
 
         glm::vec4 UnitAxis( const glm::mat4& decalToWorld, const int column )
@@ -202,9 +212,12 @@ namespace Desert::Graphic::System
         {
             Program& program = found->second;
             if ( program.Refused )
-                return RetryRefused( program, material, pipelines );
+            {
+                const Program* retried = RetryRefused( program, material, pipelines );
+                return retried != nullptr ? Drawable( program, material ) : nullptr;
+            }
             FollowShaderReload( program, material, pipelines );
-            return &program;
+            return Drawable( program, material );
         }
 
         // A material still loading is asked again next frame rather than remembered as refused.
@@ -225,7 +238,7 @@ namespace Desert::Graphic::System
             program.Refused = true;
             return nullptr;
         }
-        return &program;
+        return Drawable( program, material );
     }
 
     const DecalRenderer::Program*
@@ -286,8 +299,17 @@ namespace Desert::Graphic::System
             return Common::MakeError( "no shader service" );
         auto* materials = Runtime::ResourceRegistry::GetMaterialService();
 
-        std::string shaderName = kDefaultDecalShaderName;
-        if ( !material.IsNull() )
+        std::string                      shaderName = kDefaultDecalShaderName;
+        std::shared_ptr<Graphic::Shader> shader;
+        if ( material.IsNull() )
+        {
+            shader = shaders->GetByName( shaderName );
+            if ( !shader )
+                return Common::MakeFormattedError( "no shader named '{}' is registered (the default decal is "
+                                                   "Editor/Resources/Shaders/Programs/Decals/DefaultDecal.shader)",
+                                                   shaderName );
+        }
+        else
         {
             if ( materials == nullptr )
                 return Common::MakeError( "no material service" );
@@ -295,13 +317,13 @@ namespace Desert::Graphic::System
             if ( materialTemplate.Shader.IsNull() || materialTemplate.CompileName.empty() )
                 return Common::MakeError( "the handle names no material asset with a loaded template" );
             shaderName = materialTemplate.CompileName;
+            // The program of the material's OWN template file: a stem held by another file is a refusal.
+            auto owned = shaders->GetByNameOwnedBy( shaderName, materialTemplate.Shader );
+            if ( !owned )
+                return Common::MakeFormattedError( "the material's template is not drawable: {}",
+                                                   owned.GetError() );
+            shader = owned.GetValue();
         }
-
-        const auto shader = shaders->GetByName( shaderName );
-        if ( !shader )
-            return Common::MakeFormattedError( "no shader named '{}' is registered (the default decal is "
-                                               "Editor/Resources/Shaders/Programs/Decals/DefaultDecal.shader)",
-                                               shaderName );
         // Recorded before any check can refuse: a refused program is retried when this generation moves.
         program.BuiltShader = shader;
         program.Generation  = shader->GetCodeGeneration();
@@ -338,6 +360,8 @@ namespace Desert::Graphic::System
         program.Material   = std::make_unique<DataDrivenMaterial>( shader );
         program.Channels   = meta.DecalChannelMask;
         program.Generation = shader->GetCodeGeneration();
+        program.Textures.clear();
+        program.AwaitsTextures = false;
         if ( material.IsNull() )
             return BOOLSUCCESS;
 
@@ -349,18 +373,50 @@ namespace Desert::Graphic::System
             if ( !program.Material->SetParam( name, value ) )
                 LOG_WARN( "[Decals] '{}' has no parameter '{}' - the value in the .demat is ignored", shaderName,
                           name );
-        for ( const auto& [name, texture] : overrides.Textures )
+        program.Textures = std::move( overrides.Textures );
+        BindTextures( program, material );
+        return BOOLSUCCESS;
+    }
+
+    void DecalRenderer::BindTextures( Program& program, const Assets::AssetHandle& material ) const
+    {
+        // PENDING IS NOT MISSING (MaterialService's slot rule, UE: a texture parameter re-caches when its texture
+        // finishes streaming): a slot whose texture is still being read or cooked registers this material with
+        // the texture service, which settles it when the texture lands; the program is not drawn until then
+        // (ProgramFor), so the slot default is never on screen and the rebind below runs on a program no frame
+        // in flight reads.
+        auto*             textures   = Runtime::ResourceRegistry::GetTextureService();
+        const std::string shaderName = program.Material->GetShaderName();
+        program.AwaitsTextures       = false;
+        for ( const auto& [name, texture] : program.Textures )
         {
-            Image2D* image = ResolveTextureImage( texture );
-            if ( texture != 0 && image == nullptr )
-                LOG_ERROR( "[Decals] '{}' binds texture {} to '{}' and it did not resolve; the slot keeps the "
-                           "shader's default",
+            const SlotTexture slot = ResolveSlotTexture( texture );
+            if ( slot.Pending && textures != nullptr )
+            {
+                textures->RebuildWhenReady( Assets::AssetHandle( texture ), material );
+                program.AwaitsTextures = true;
+            }
+            else if ( texture != 0 && slot.Image == nullptr )
+                LOG_ERROR( "[Decals] '{}' binds texture {} to '{}' and no texture with that handle is in the "
+                           "project (or it failed to load); the slot keeps the shader's default",
                            shaderName, texture, name );
-            if ( !program.Material->SetTexture( name, image ) )
+            if ( !program.Material->SetTexture( name, slot.Image ) )
                 LOG_WARN( "[Decals] '{}' has no Texture2D '{}' - the binding in the .demat is ignored", shaderName,
                           name );
         }
-        return BOOLSUCCESS;
+    }
+
+    const DecalRenderer::Program* DecalRenderer::Drawable( Program&                   program,
+                                                           const Assets::AssetHandle& material ) const
+    {
+        if ( !program.AwaitsTextures )
+            return &program;
+        // Settled by the texture service when every awaited texture landed (or failed): rebind them all then.
+        const auto* textures = Runtime::ResourceRegistry::GetTextureService();
+        if ( textures != nullptr && textures->AwaitedBy( material ) )
+            return nullptr;
+        BindTextures( program, material );
+        return program.AwaitsTextures ? nullptr : &program;
     }
 
     RDG::BufferRef DecalRenderer::UploadRows( RDG::Builder& graph ) const

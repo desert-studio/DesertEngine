@@ -80,12 +80,16 @@ TEST_F( EngineContentMount, AFileUnderTheMountIsItsKind )
     EXPECT_EQ( kind, std::optional<ContentKind>{ ContentKind::Skeleton } );
 }
 
-TEST_F( EngineContentMount, AnAssetsKindHasTwoRootsAndTheShadersOne )
+TEST_F( EngineContentMount, AnAssetsKindHasTwoRootsAndTheShadersTheEngineAndTheProject )
 {
     const auto& skeleton = Common::Content::KindSpec( ContentKind::Skeleton );
     EXPECT_EQ( Common::Content::ScanRootsOf( skeleton ).size(), 2U );
+    // UE's /Engine + /Project shader mappings: the engine's programs and the project's own Content/Shaders/.
     const auto& shader = Common::Content::KindSpec( ContentKind::Shader );
-    EXPECT_EQ( Common::Content::ScanRootsOf( shader ).size(), 1U );
+    const auto  roots  = Common::Content::ScanRootsOf( shader );
+    ASSERT_EQ( roots.size(), 2U );
+    EXPECT_EQ( roots[0], Path::SHADERDIR_PATH );
+    EXPECT_EQ( roots[1], Path::PROJECT_SHADER_PATH );
 }
 
 TEST_F( EngineContentMount, TheMountHoldsNoSandboxContent )

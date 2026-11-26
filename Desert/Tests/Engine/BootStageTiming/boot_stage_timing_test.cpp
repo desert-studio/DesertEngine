@@ -141,9 +141,9 @@ TEST( BootStageTimingCensus, TheShippingRuntimeWrapsEveryBootContentCallInAStage
          ReadAll( fs::path( root ) / "Desert/Desert/Source/Engine/Assets/BootContent.hpp" ) );
     ASSERT_FALSE( header.empty() );
 
-    // A boot function either loads silently (void) or refuses the boot (BoolResultStr, CompileEngineShaders with
+    // A boot function either loads silently (void) or refuses the boot (BoolResultStr, CompileShaders with
 
-    // no Default Surface); EngineShaderCount is the splash's weight, not a stage.
+    // no Default Surface); ShaderCount is the splash's weight, not a stage.
 
     static const std::regex  declaration( R"(\b(?:void|Common::BoolResultStr)\s+(\w+)\s*\()" );
     std::vector<std::string> declared;

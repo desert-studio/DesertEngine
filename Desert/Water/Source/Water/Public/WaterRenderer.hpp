@@ -305,6 +305,9 @@ namespace Desert::Graphic::System
             bool                          FrontLayerTried = false;
             // The template's compile name, the prefix of every cell of it (set by ProgramFor).
             std::string CompileName;
+            // The template file the cells belong to (set by ProgramFor): every cell is asked of the shader service
+            // as that file's own (GetByNameOwnedBy), never by the bare name.
+            Assets::AssetHandle Template = Assets::AssetHandle::Null();
         };
 
         // The program of @p material's template, built on first use; null (said once per handle) when the handle
@@ -368,7 +371,7 @@ namespace Desert::Graphic::System
         void        WarnOnce( const Assets::AssetHandle& material, WaterWarning cause, std::string_view why );
         static void Warn( const Assets::AssetHandle& material, std::string_view why );
 
-        std::unordered_map<std::string, WaterProgram> m_Programs;        // by template compile name
+        std::unordered_map<Assets::AssetHandle, WaterProgram> m_Programs; // by template file
         // FinishPrepare ran for this frame's TileWalk::Programs (their folds and rows are written): the programs
         // draw. m_FrameFrontLayers: how many of them have a front layer cell (null FrameProgram::FrontLayer:
         // none).

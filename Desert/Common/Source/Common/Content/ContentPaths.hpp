@@ -69,6 +69,11 @@ namespace Common::Content
         // shows the name without loading the asset; the loader reads the same member through its own struct,
         // and the PickerRegistryRows suite holds the two equal over the corpus.
         std::string_view DisplayNameMember = {};
+        // A second root, the project's own, for a kind whose Root is engine-only (outside ASSETS_PATH).
+        // UE's AddShaderSourceDirectoryMapping("/Project", ...): the engine's programs AND the project's are
+        // the one kind in the one registry, the project's keyed under its assets mount (assets:Shaders/...).
+        // Null for every kind rooted inside the assets tree - those already get the engine twin.
+        const std::filesystem::path* ProjectRoot = nullptr;
 
         // A kind with no root and no extension is one a file can only STATE in its header, never be
         // found as by the directory walk: a redirector (AF10b) sits at the old path under the moved
@@ -107,7 +112,9 @@ namespace Common::Content
              // wider root claims no other kind's file.
              /* Material             */ { KindName( ContentKind::Material ), E::MATERIAL_EXTENSION, &P::ASSETS_PATH },
              /* Skybox               */ { KindName( ContentKind::Skybox ), ".detex", &P::SKYBOX_PATH },
-             /* Shader               */ { KindName( ContentKind::Shader ), ".shader", &P::SHADERDIR_PATH },
+             // The engine's programs and the project's own (Content/Shaders/, UE's /Project mapping): one kind,
+             // one registry, two roots (ScanRootsOf).
+             /* Shader               */ { KindName( ContentKind::Shader ), ".shader", &P::SHADERDIR_PATH, {}, &P::PROJECT_SHADER_PATH },
              // The four cloud kinds. CloudNoiseVolume's root is `Clouds/` itself, which CONTAINS the
              // other three roots — that is not a mistake to tidy up: the extension is what separates
              // them, and narrowing this root would change which files the engine finds.
@@ -204,7 +211,9 @@ namespace Common::Content
     // engine's content mount (Constants::Path::ENGINE_CONTENT_PATH), so engine assets a project never copied
     // — the built-in humanoid's skeleton — are in every project's registry, the sandbox's included. The mount
     // is its own tree, never the sandbox's assets root, so the two roots are always distinct. A kind rooted
-    // elsewhere (the engine's shaders, already engine-shared) has its one root.
+    // elsewhere (the engine's shaders, already engine-shared) has its root plus, when it names one, the
+    // project's root (ContentKindSpec::ProjectRoot, UE's /Project shader mapping). With no project open that
+    // root is empty and is not walked: no project, no project content.
     inline std::vector<std::filesystem::path> ScanRootsOf( const ContentKindSpec& spec )
     {
         namespace fs = std::filesystem;
@@ -222,7 +231,11 @@ namespace Common::Content
         const fs::path assets = Trimmed( Constants::Path::ASSETS_PATH );
         const fs::path rel    = Trimmed( *spec.Root ).lexically_relative( assets );
         if ( rel.empty() || *rel.begin() == ".." )
+        {
+            if ( spec.ProjectRoot != nullptr && !spec.ProjectRoot->empty() )
+                roots.push_back( *spec.ProjectRoot );
             return roots;
+        }
 
         const fs::path engine = Trimmed( rel == "." ? fs::path( Constants::Path::ENGINE_CONTENT_PATH )
                                                     : Constants::Path::ENGINE_CONTENT_PATH / rel );

@@ -105,7 +105,7 @@ namespace Desert::Runtime
         /// material is AddToRoot'ed at load and never garbage-collected). No scene names it — a slotless mesh
         /// has no material to name it through — so without this pin the first eviction sweep released it, and
         /// every later DefaultSurfaceTemplate() was refused ("no loaded shader declares 'Default Surface'"): the
-        /// animation editor's preview drew no character. Called by CompileEngineShaders once the template is
+        /// animation editor's preview drew no character. Called by CompileShaders once the template is
         /// found; a second call (a recompile) moves the pin. Dropped by Clear().
         void PinDefaultSurfaceTemplate( const Common::AssetHandle& handle );
 

@@ -3,6 +3,8 @@
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
+#include <Common/Content/ContentScan.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/PipelineBuilds.hpp>
@@ -96,15 +98,47 @@ namespace Desert::Runtime
         {
             return Common::MakeError( "Shader asset is invalid" );
         }
-        // A (re-)registered file answers afresh: a refusal that named it, or named its name before it existed,
-        // is no longer the service's answer. Done under the same exclusive hold as the write it belongs to.
         const Assets::AssetHandle handle = shaderAsset->GetMetadata().Handle;
-        const std::string         stem   = shaderAsset->GetMetadata().Filepath.stem().string();
-        const auto                adopt  = [this, &handle, &stem]()
+        const std::filesystem::path& file   = shaderAsset->GetMetadata().Filepath;
+        const std::string            stem   = file.stem().string();
+
+        // ONE FILE PER PROGRAM NAME, AND THE ENGINE'S NAMES ARE THE ENGINE'S (UE: /Engine is fixed; a project
+        // path naming what /Engine owns is refused). Programs are found by stem, so with two roots of the Shader
+        // kind a project file named like an engine one would replace it. ClaimNameLocked is the one rule; it is
+        // asked here, before anything is compiled (a cheap refusal), and again inside every exclusive hold that
+        // writes the name (adopt), so two Registers of one stem racing through the compile cannot both win.
         {
+            const std::shared_lock check( m_Lock );
+            if ( auto claim = ClaimNameLocked( stem, handle, file ); !claim )
+                return Common::MakeError( claim.GetError() );
+        }
+        // The programs a write replaces or evicts leave the maps under the lock and are released after it
+        // (declared before every hold): a render worker holding one keeps its own reference.
+        std::vector<std::shared_ptr<Graphic::Shader>> replaced;
+        // The project file this engine file took its name from (ClaimNameLocked), logged after the hold.
+        std::string displaced;
+        // A (re-)registered file answers afresh: a refusal that named it, or named its name before it existed,
+        // is no longer the service's answer. Called inside the exclusive hold of the write it belongs to.
+        const auto adopt = [this, &handle, &stem, &file, &replaced, &displaced]() -> Common::BoolResultStr
+        {
+            auto claim = ClaimNameLocked( stem, handle, file );
+            if ( !claim )
+                return Common::MakeError( claim.GetError() );
+            if ( !claim.GetValue().IsNull() )
+                displaced = EvictLocked( claim.GetValue(), stem, replaced );
             ForgetRefusalsOfLocked( handle );
             ForgetRefusalsOfProgram( stem );
             m_NameToHandleMap[stem] = handle;
+            m_ProgramFiles[handle]  = file;
+            return BOOLSUCCESS;
+        };
+        const auto reportDisplaced = [&displaced, &stem, &file]()
+        {
+            if ( !displaced.empty() )
+                LOG_ERROR( "[ShaderService] the engine program '{}' ({}) takes its name back from {}, which is "
+                           "refused: a project shader may not reuse an engine program's name; every material of "
+                           "that file refuses to draw until it is renamed",
+                           stem, file.generic_string(), displaced );
         };
 
         // A MEDIUM PROGRAM IS SOURCE, NOT A PROGRAM. It declares no stages because it is compiled INTO
@@ -126,8 +160,10 @@ namespace Desert::Runtime
         {
             {
                 const std::unique_lock write( m_Lock );
-                adopt();
+                if ( auto adopted = adopt(); !adopted )
+                    return adopted;
             }
+            reportDisplaced();
             LOG_INFO( "[ShaderService] '{}' is a Particle fragment; it compiles into the particle simulation "
                       "rather than into a program of its own.",
                       stem );
@@ -142,9 +178,11 @@ namespace Desert::Runtime
             const std::size_t bytes = stamp.size();
             {
                 const std::unique_lock write( m_Lock );
-                adopt();
+                if ( auto adopted = adopt(); !adopted )
+                    return adopted;
                 m_Stamps[stem] = std::move( stamp );
             }
+            reportDisplaced();
             LOG_INFO( "[ShaderService] '{}' is a DeformStamp ({} bytes of authored source); it compiles into "
                       "the deformation field's stamp program rather than into one of its own.",
                       stem, bytes );
@@ -159,9 +197,11 @@ namespace Desert::Runtime
                  std::make_shared<const std::vector<Core::Formats::ShaderParam>>( std::move( medium.Properties ) );
             {
                 const std::unique_lock write( m_Lock );
-                adopt();
+                if ( auto adopted = adopt(); !adopted )
+                    return adopted;
                 m_Media[handle] = MediumEntry{ std::move( medium.Body ), std::move( schema ) };
             }
+            reportDisplaced();
             LOG_INFO( "[ShaderService] '{}' is a Volume medium ({} bytes of authored source, {} own "
                       "propert(ies)); it compiles into the programs that sample the cloud field rather "
                       "than into one of its own.",
@@ -230,23 +270,22 @@ namespace Desert::Runtime
             }
         }
 
-        // THE ADOPTION, EXCLUSIVE. The programs a re-registration replaces leave the maps under the lock and are
-        // released after it (declared before it): a render worker holding one keeps its own reference.
-        std::vector<std::shared_ptr<Graphic::Shader>> replaced;
+        // THE ADOPTION, EXCLUSIVE. The name is claimed again under this hold (adopt): another Register of the
+        // same stem may have won it during the compile above, and then this file is refused and its programs
+        // are released unused. The program's name is the file's stem (VulkanShader), so adopt writes it.
         {
             const std::unique_lock write( m_Lock );
-            ForgetRefusalsOfLocked( handle );
-            ForgetRefusalsOfProgram( stem );
+            if ( auto adopted = adopt(); !adopted )
+                return adopted;
             if ( auto& slot = m_Shaders[handle]; slot != shader )
                 replaced.push_back( std::exchange( slot, shader ) );
-            m_NameToHandleMap[shader->GetName()] = handle;
-            ForgetRefusalsOfProgram( shader->GetName() );
             // Kept so AcquireVariant can compile the SAME source under a substitution later. Weak: the
             // asset manager owns the asset, and this service must not extend its life.
             m_ShaderAssets[handle] = shaderAsset;
             for ( auto& [passKey, passShader] : passes )
                 replaced.push_back( std::exchange( m_PassShaders[passKey], std::move( passShader ) ) );
         }
+        reportDisplaced();
 
         if ( !device )
             return Common::MakeFormattedError( "ShaderService: '{}' registered before the device exists",
@@ -275,6 +314,90 @@ namespace Desert::Runtime
     {
         const std::shared_lock read( m_Lock );
         return GetLocked( handle );
+    }
+
+    std::string ShaderService::DescribeOwnerLocked( const Assets::AssetHandle& owner ) const
+    {
+        if ( const auto it = m_ProgramFiles.find( owner ); it != m_ProgramFiles.end() )
+            return std::format( "the program of {}", it->second.generic_string() );
+        return std::format( "registered by handle {}", static_cast<uint64_t>( owner ) );
+    }
+
+    Common::ResultStr<Assets::AssetHandle>
+    ShaderService::ClaimNameLocked( const std::string& stem, const Assets::AssetHandle& handle,
+                                    const std::filesystem::path& file ) const
+    {
+        const auto owner = m_NameToHandleMap.find( stem );
+        if ( owner == m_NameToHandleMap.end() || owner->second == handle )
+            return Common::MakeSuccess( Assets::AssetHandle::Null() );
+        const auto ownerFile = m_ProgramFiles.find( owner->second );
+        const bool ownerIsEngine =
+             ownerFile != m_ProgramFiles.end() &&
+             Common::Content::IsUnder( ownerFile->second, Common::Constants::Path::SHADERDIR_PATH );
+        if ( Common::Content::IsUnder( file, Common::Constants::Path::SHADERDIR_PATH ) && !ownerIsEngine )
+            return Common::MakeSuccess( owner->second );
+        return Common::MakeError<Assets::AssetHandle>(
+             std::format( "shader program '{}' ({}) is refused: the name is already {}; a program name is one "
+                          "file, and an engine program's name is the engine's",
+                          stem, file.generic_string(), DescribeOwnerLocked( owner->second ) ) );
+    }
+
+    std::string ShaderService::EvictLocked( const Assets::AssetHandle& owner, const std::string& stem,
+                                            std::vector<std::shared_ptr<Graphic::Shader>>& released )
+    {
+        std::string file = DescribeOwnerLocked( owner );
+        if ( const auto it = m_Shaders.find( owner ); it != m_Shaders.end() )
+        {
+            released.push_back( std::move( it->second ) );
+            m_Shaders.erase( it );
+        }
+        const std::string passPrefix = stem + "/";
+        for ( auto it = m_PassShaders.begin(); it != m_PassShaders.end(); )
+        {
+            if ( it->first.starts_with( passPrefix ) )
+            {
+                released.push_back( std::move( it->second ) );
+                it = m_PassShaders.erase( it );
+            }
+            else
+                ++it;
+        }
+        // The evicted file's variants and generation are derived state it owns: a replacing file with the same
+        // name must never be served a variant compiled from the evicted source.
+        std::erase_if( m_Variants, [&owner]( const auto& entry ) { return entry.second.Handle == owner; } );
+        m_FileGenerations.erase( owner );
+        m_ShaderAssets.erase( owner );
+        m_Media.erase( owner );
+        m_Stamps.erase( stem );
+        m_ProgramFiles.erase( owner );
+        m_NameToHandleMap.erase( stem );
+        ForgetRefusalsOfLocked( owner );
+        return file;
+    }
+
+    Common::ResultStr<std::shared_ptr<Graphic::Shader>>
+    ShaderService::GetByNameOwnedBy( const std::string& name, const Assets::AssetHandle& owner ) const
+    {
+        const std::string      program = name.substr( 0, name.find( '/' ) );
+        const std::shared_lock read( m_Lock );
+        const auto             holder = m_NameToHandleMap.find( program );
+        if ( holder == m_NameToHandleMap.end() )
+            return Common::MakeError<std::shared_ptr<Graphic::Shader>>(
+                 std::format( "no registered program is named '{}'", program ) );
+        if ( holder->second != owner )
+            return Common::MakeError<std::shared_ptr<Graphic::Shader>>(
+                 std::format( "the program named '{}' is {}, not the template {} names (that file was refused at "
+                              "registration: a program name is one file)",
+                              program, DescribeOwnerLocked( holder->second ), static_cast<uint64_t>( owner ) ) );
+        if ( name == program )
+        {
+            if ( auto shader = GetLocked( holder->second ) )
+                return Common::MakeSuccess( std::move( shader ) );
+        }
+        if ( const auto pass = m_PassShaders.find( name ); pass != m_PassShaders.end() )
+            return Common::MakeSuccess( pass->second );
+        return Common::MakeError<std::shared_ptr<Graphic::Shader>>(
+             std::format( "'{}' is not a program of {}", name, DescribeOwnerLocked( holder->second ) ) );
     }
 
     std::shared_ptr<Graphic::Shader> ShaderService::GetLocked( const Assets::AssetHandle& handle ) const
@@ -741,6 +864,7 @@ namespace Desert::Runtime
             passShaders.swap( m_PassShaders );
             m_NameToHandleMap.clear();
             m_ShaderAssets.clear();
+            m_ProgramFiles.clear();
             m_Media.clear();
             m_Stamps.clear();
             m_WarnedNotAMedium.clear();

@@ -1019,13 +1019,15 @@ namespace Desert::Graphic::System
             }
             // The water cell (`Usage WaterMesh` templates only): WaterRenderer draws it as itself or, under
             // VirtualMaps, through its DESERT_LOCAL_SHADOW_VSM permutation
-            // (WaterRenderer::VirtualLocalProgramFor).
+            // (WaterRenderer::VirtualLocalProgramFor). Only the template file's OWN cell: one whose name another
+            // file holds is refused at the draw (WaterRenderer::ProgramFor says so), so it has nothing to warm.
             if ( const auto templ = materials.ShaderHandleOf( handle ); !templ.CompileName.empty() )
             {
                 const std::string waterCell =
                      std::format( "{}/{}", templ.CompileName, Core::Preprocess::kSurfaceWaterMeshCell );
-                if ( const auto water = shaders.GetByName( waterCell ) )
-                    AppendForwardShadowMaskVariants( *water, waterCell, listed, variants, /*virtualOnly*/ true );
+                if ( const auto water = shaders.GetByNameOwnedBy( waterCell, templ.Shader ) )
+                    AppendForwardShadowMaskVariants( *water.GetValue(), waterCell, listed, variants,
+                                                     /*virtualOnly*/ true );
             }
             // The compacted bins' blade cells over the full list (a section or cascade without a list of ids).
             AppendDrawRowsVariants( materials, shaders, handle, MeshVertexPath::GrassBlade, /*ids*/ false, listed,

@@ -158,7 +158,7 @@ namespace Desert::Editor::ImportOptions
         // EVERY ENTITY THAT DRAWS A REIMPORTED MESH DRAWS THE NEW CONTENT FROM THE NEXT FRAME (UE:
         // FReimportManager
         // -> PostReimport recreates the render resources). A loaded mesh drops its parsed payload and its built
-        // GPU mesh; the next Get re-reads the file through the path a first use takes (as a committed modeling
+        // GPU mesh, and is rebuilt at once through the path a first use takes (as a committed modeling
         // edit does, ModelingToolTargetAsset.cpp). A mesh nobody loaded has nothing to refresh. A node mesh that
         // this import no longer writes (Combine Meshes switched) is not deleted: entities placed from it keep it,
         // as UE keeps the old assets until they are deleted by hand.
@@ -187,6 +187,17 @@ namespace Desert::Editor::ImportOptions
                         continue;
                     }
                 (void)service->EvictBuilt( handle );
+                // THE SAME HANDLE, REBUILT NOW (UE: Reimport finishes the asset's compilation before it returns):
+                // the user's command waits on this one mesh (MeshService's editor-tool door), and the eviction
+                // above moved the built revision, so every component drawing the handle re-resolves it next frame.
+                if ( service->LoadNow( handle ) == nullptr )
+                {
+                    LOG_ERROR( "[Import] '{}' was reimported and its mesh did not rebuild (see the error above)",
+                               path.generic_string() );
+                    continue;
+                }
+                LOG_INFO( "[Import] '{}' reimported: mesh {} rebuilt under the same handle", path.generic_string(),
+                          static_cast<uint64_t>( handle ) );
             }
         }
 

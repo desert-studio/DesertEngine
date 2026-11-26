@@ -228,6 +228,14 @@ namespace Desert::Runtime
                                                         const bool displaced )
     {
         const std::string templateName = asset.GetShaderName();
+        // The cells are the template FILE's own: a template whose name another file holds (a project file named
+        // like an engine program, refused at registration) draws nothing rather than that file's cells.
+        if ( const auto owned =
+                  ResourceRegistry::GetShaderService()->GetByNameOwnedBy( templateName, asset.GetShaderHandle() );
+             !owned )
+            return Common::MakeError<std::string>(
+                 std::format( "Material '{}' cannot draw with its template '{}': {}",
+                              asset.GetMetadata().Filepath.generic_string(), templateName, owned.GetError() ) );
         auto              cell         = Graphic::TemplateCellShader(
              templateName, path, pass, []( std::string_view name )
              { return ResourceRegistry::GetShaderService()->GetByName( std::string( name ) ) != nullptr; } );
@@ -557,7 +565,13 @@ namespace Desert::Runtime
         const auto shader = assets->FindByHandle<Assets::ShaderAsset>( handle.GetValue() );
         if ( shader == nullptr )
             return Common::MakeError<std::string>( std::string( "the 'Default Surface' template is not loaded" ) );
-        return Common::MakeSuccess( shader->GetMetadata().Filepath.stem().string() );
+        std::string templateName = shader->GetMetadata().Filepath.stem().string();
+        if ( const auto owned =
+                  ResourceRegistry::GetShaderService()->GetByNameOwnedBy( templateName, handle.GetValue() );
+             !owned )
+            return Common::MakeError<std::string>(
+                 std::format( "the 'Default Surface' template cannot draw: {}", owned.GetError() ) );
+        return Common::MakeSuccess( std::move( templateName ) );
     }
 
     Common::ResultStr<std::string> MaterialService::DefaultSurfaceShader( Graphic::MeshVertexPath path,
@@ -589,6 +603,11 @@ namespace Desert::Runtime
         if ( shader == nullptr )
             return Common::MakeError<std::string>( std::string( "the 'StandInSurface' template is not loaded" ) );
         const std::string templateName = shader->GetMetadata().Filepath.stem().string();
+        if ( const auto owned =
+                  ResourceRegistry::GetShaderService()->GetByNameOwnedBy( templateName, handle.GetValue() );
+             !owned )
+            return Common::MakeError<std::string>(
+                 std::format( "the 'StandInSurface' template cannot draw: {}", owned.GetError() ) );
         auto              cell         = Graphic::MeshShaderFor( templateName, path, pass );
         if ( !cell )
             return Common::MakeError<std::string>(
