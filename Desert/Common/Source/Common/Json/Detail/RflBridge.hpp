@@ -3,16 +3,24 @@
 #include <Common/Json/Document.hpp>
 
 #include <rflcpp/rfl/Processors.hpp>
+#include <rflcpp/rfl/enums.hpp>
+#include <rflcpp/rfl/fields.hpp>
 #include <rflcpp/rfl/generic/Parser.hpp>
 #include <rflcpp/rfl/to_generic.hpp>
 
+#include <optional>
+#include <string>
+#include <string_view>
 #include <type_traits>
+#include <vector>
 
-// STRUCT <-> VALUE TREE (BUILD-MOD-4): the half of Document.hpp that needs reflect-cpp's whole parser. A file that
-// reads a struct out of a Node (As, AsBlock, ReadInto/ReadValue of a struct) or turns one into a Value
-// (FromStruct, ObjectBuilder::Set of a struct) includes this; a file that only walks nodes and scalars does not
-// pay for the parser. Document.hpp declares FromValue/FromStruct with a deduced return type, so a missing include
-// is a compile error at the call, not a link error.
+// THE REFLECT-CPP BRIDGE OF Document.hpp (BUILD-MOD-4, STUDIO-AUDIT B5): every part of the document facade that
+// needs reflect-cpp's compile-time reflection — the struct parser (As, AsBlock, ReadInto/ReadValue of a struct,
+// FromStruct, ObjectBuilder::Set of a struct), enum names (ReadValue/Set of an enum) and member lists
+// (MemberNames). Document.hpp declares each of them with a deduced return type, so a file that reads or writes a
+// struct or an enum without including this header is a compile error naming the function at the call, never a
+// link error; a file that only walks nodes and scalars does not pay for the parser, enum scanning or glm.
+// Budget: scripts/Dev/header_fanout_budget.txt (python scripts/Dev/arch_census.py --rule header-fanout).
 namespace Common::Json
 {
     namespace Detail
@@ -49,11 +57,37 @@ namespace Common::Json
             using Parser = rfl::parsing::Parser<ValueReader, rfl::generic::Writer, T, rfl::Processors<Ps...>>;
             return Parser::read( ValueReader{}, value );
         }
+
+        template <typename E>
+        auto EnumName( E value )
+        {
+            return std::string( rfl::enum_to_string( value ) );
+        }
+
+        template <typename E>
+        auto EnumFromName( std::string_view name )
+        {
+            const auto parsed = rfl::string_to_enum<E>( std::string( name ) );
+            return parsed ? std::optional<E>( parsed.value() ) : std::optional<E>();
+        }
     } // namespace Detail
 
     template <typename T>
-    [[nodiscard]] auto FromStruct( const T& value )
+    auto FromStruct( const T& value )
     {
         return Value( rfl::to_generic( value ) );
+    }
+
+    template <typename T>
+    const auto& MemberNames()
+    {
+        static const std::vector<std::string> names = []
+        {
+            std::vector<std::string> out;
+            for ( const auto& field : rfl::fields<T>() )
+                out.push_back( field.name() );
+            return out;
+        }();
+        return names;
     }
 } // namespace Common::Json

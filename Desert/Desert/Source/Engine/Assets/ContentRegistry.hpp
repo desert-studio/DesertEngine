@@ -5,7 +5,7 @@
 #include <Common/Content/AssetMove.hpp>
 #include <Common/Content/AssetTrash.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Content/ContentScan.hpp>
 
 #include <Common/Core/AssetHandle.hpp>

@@ -15,7 +15,7 @@
 #include <Water/Public/GerstnerWaterWaves.hpp>
 #include <Water/Public/WaterBodyQuery.hpp>
 
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 
 #include <glm/geometric.hpp>
 #include <gtest/gtest.h>

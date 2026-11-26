@@ -17,6 +17,7 @@
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Pose.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Animation/Skeleton.hpp>

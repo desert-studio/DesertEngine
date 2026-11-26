@@ -7,7 +7,7 @@
 #include <Engine/Assets/ContentDirectoryWatch.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
 

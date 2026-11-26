@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Core/Constants.hpp>
 

@@ -32,7 +32,7 @@
 #include "Editor/Panels/VFXEffectType/VFXEffectTypeDocument.hpp"
 #include "Editor/Panels/VFXSystem/VFXSystemDocument.hpp"
 #include "Editor/Panels/VFXModule/VFXModuleDocument.hpp"
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/ResultStr.hpp>

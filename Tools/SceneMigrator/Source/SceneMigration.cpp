@@ -104,7 +104,7 @@
 #include <UI/Args/UIButtonArgs.hpp>
 #include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
 #include <Common/Json/ReadWrite.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Migration
 {

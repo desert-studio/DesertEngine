@@ -10,7 +10,7 @@
 #include <iterator>
 #include <limits>
 #include <type_traits>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Common::Scalability
 {

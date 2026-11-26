@@ -4,6 +4,7 @@
 
 #include <string>
 #include <utility>
+#include <Common/Json/Document.hpp>
 
 namespace Desert::Core::Serialize
 {

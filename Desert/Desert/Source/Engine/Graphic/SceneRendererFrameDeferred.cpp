@@ -44,7 +44,7 @@
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Runtime/Services/Subsurface/SubsurfaceProfileService.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Graphic
 {

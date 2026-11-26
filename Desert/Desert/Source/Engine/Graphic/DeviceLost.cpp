@@ -6,6 +6,7 @@
 #include <atomic>
 #include <mutex>
 #include <string_view>
+#include <Common/Json/Document.hpp>
 
 namespace Desert::Graphic
 {

@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <Common/Content/ContentPaths.hpp>
 
 namespace Desert::Editor
 {

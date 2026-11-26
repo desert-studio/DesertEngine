@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Json/ValueFwd.hpp>
 
 #include <rflcpp/rfl/DefaultIfMissing.hpp>
 #include <rflcpp/rfl/ExtraFields.hpp>
@@ -54,7 +55,7 @@ namespace Common::Json
     // An untyped JSON value: a payload whose struct only its owner knows (a component block of an entity
     // record, keyed by the registry that owns it). It is read and written like any struct, and two values are
     // the same when their Write text is.
-    using Value = rfl::Generic;
+    // (Value = rfl::Generic is spelled once, in ValueFwd.hpp.)
 
     // A JSON object of untyped values, keyed by member name.
     using Object = rfl::Generic::Object;

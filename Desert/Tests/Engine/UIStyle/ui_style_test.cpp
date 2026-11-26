@@ -22,6 +22,7 @@
 #include <Engine/Assets/UIThemeData.hpp>
 #include <UI/UIStyleResolver.hpp>
 #include <UI/UIStyleSlots.hpp>
+#include <Common/Content/ContentKinds.hpp>
 
 #include <gtest/gtest.h>
 

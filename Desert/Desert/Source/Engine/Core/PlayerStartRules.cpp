@@ -10,6 +10,7 @@
 #include <format>
 #include <span>
 #include <vector>
+#include <Common/Json/Document.hpp>
 
 namespace Desert::Core
 {

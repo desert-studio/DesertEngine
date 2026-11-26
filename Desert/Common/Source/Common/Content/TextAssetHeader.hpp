@@ -1,11 +1,15 @@
 #pragma once
 
-#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetGuid.hpp>
+#include <Common/Content/ContentFwd.hpp>
+#include <Common/Content/SubsystemVersion.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
+#include <iosfwd>
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -38,10 +42,6 @@ namespace Common::Content
         // A document holding a header (CloudTypeData) compares its edit against its on-disk copy member-wise.
         [[nodiscard]] bool operator==( const TextAssetHeaderSerialized& ) const = default;
     };
-
-    // 32 lower-case hex digits, Hi then Lo. The inverse refuses anything else, naming what it got.
-    std::string          AssetGuidToText( const AssetGuid& guid );
-    ResultStr<AssetGuid> AssetGuidFromText( std::string_view text );
 
     // The kind whose ContentKindSpec::Name is `name`.
     std::optional<ContentKind> ContentKindNamed( std::string_view name );

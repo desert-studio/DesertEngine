@@ -26,7 +26,7 @@
 #include <vector>
 
 #include <ImGui/imgui.h>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Editor
 {

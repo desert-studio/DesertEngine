@@ -101,7 +101,7 @@
 #include <Engine/UI/Ecs/UIToggleComponent.hpp>
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 #include <VFX/Public/VFXWorld.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 
 namespace Desert::Editor

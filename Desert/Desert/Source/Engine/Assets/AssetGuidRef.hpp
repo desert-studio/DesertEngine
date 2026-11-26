@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Content/AssetGuid.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <format>

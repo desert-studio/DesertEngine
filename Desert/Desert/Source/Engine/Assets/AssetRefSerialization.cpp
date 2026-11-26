@@ -4,7 +4,7 @@
 #include <Common/Core/AssetHandle.hpp>
 
 #include <format>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Assets
 {

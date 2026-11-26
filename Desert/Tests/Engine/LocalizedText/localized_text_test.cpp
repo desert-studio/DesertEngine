@@ -11,6 +11,7 @@
 // names the offending value rather than a default that hides it.
 
 #include <Common/Json/Json.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <gtest/gtest.h>
 
 #include <Engine/Localization/LocalizationService.hpp>

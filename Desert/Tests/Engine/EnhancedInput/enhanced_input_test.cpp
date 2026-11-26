@@ -13,7 +13,7 @@
 #include <fstream>
 #include <sstream>
 
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <gtest/gtest.h>

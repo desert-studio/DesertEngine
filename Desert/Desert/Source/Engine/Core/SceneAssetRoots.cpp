@@ -28,6 +28,7 @@
 #include <Engine/UI/Ecs/UITextComponent2D.hpp>
 #include <Engine/World/Foliage/FoliageComponent.hpp>
 #include <Engine/Core/SceneSettings.hpp>
+#include <Common/Json/Document.hpp>
 
 namespace Desert::Core
 {

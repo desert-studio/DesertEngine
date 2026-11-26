@@ -55,15 +55,21 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT MSVC)
     add_compile_options("$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:SHELL:-Xclang -fno-pch-timestamp>")
 endif()
 
-# Build-cost measurement (BUILD-MOD-4): clang writes <object>.json next to every object, which
-# scripts/Dev/build_cost.sh feeds to ClangBuildAnalyzer (header parse seconds by full path). OFF by default:
-# it changes every compile line, so turning it on rebuilds the tree once.
-option(DESERT_TIME_TRACE "Compile with clang -ftime-trace for scripts/Dev/build_cost.sh" OFF)
+# Build-cost measurement (STUDIO-AUDIT B-GATES): scripts/Dev/build_cost.py reads what the compiler records. clang
+# (clang-cl too) writes <object>.json next to every object for ClangBuildAnalyzer; MSVC prints per-source front/back-end
+# seconds (/Bt+) and the slow functions of code generation (/d2cgsummary) into the build output. OFF by default: it
+# changes every compile line, so turning it on rebuilds the tree once.
+option(DESERT_TIME_TRACE "Record compile timings for scripts/Dev/build_cost.py" OFF)
 if(DESERT_TIME_TRACE)
-    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR MSVC)
-        message(FATAL_ERROR "DESERT_TIME_TRACE needs clang (not clang-cl/MSVC); compiler is ${CMAKE_CXX_COMPILER_ID}")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND MSVC)
+        add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/clang:-ftime-trace>")
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX,OBJCXX>:-ftime-trace>")
+    elseif(MSVC)
+        add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/Bt+>" "$<$<COMPILE_LANGUAGE:C,CXX>:/d2cgsummary>")
+    else()
+        message(FATAL_ERROR "DESERT_TIME_TRACE knows clang and MSVC; compiler is ${CMAKE_CXX_COMPILER_ID}")
     endif()
-    add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX,OBJCXX>:-ftime-trace>")
 endif()
 
 # The presets turn it ON (CMakePresets.json `base`); the build scripts pass it on every configure, so a
