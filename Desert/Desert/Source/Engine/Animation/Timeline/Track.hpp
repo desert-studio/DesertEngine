@@ -15,6 +15,8 @@
  *     LevelSequence    Entity         "Transform" | reflected property path     any value kind
  *                      Entity         "" (skeletal)                        Animation
  *                      Entity         "Events"                             Event
+ *                      Bone (Parent = the Entity binding)   "" (local transform)   Transform — the bone
+ *                                     layer folded over the actor's animated pose (Evaluator.hpp, BoneLayer)
  *                      Sequence       "CameraCut" | "Events"               CameraCut | Event
  *
  * INVARIANTS (`Validate`): `Binding` is a binding of the owning sequence; every section's content is the

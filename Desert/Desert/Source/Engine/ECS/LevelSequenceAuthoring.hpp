@@ -49,13 +49,21 @@ namespace Desert::ECS
     /**
      * @brief "+ Track → Actor" (UE: a Possessable): the Entity binding naming @p entity, created when missing.
      *
-     * The GUID is DERIVED from the entity UUID (`BindingGuid::ForObject`), so binding one entity twice is the
+     * The GUID is DERIVED from the entity UUID (`BindingGuid::ForEntity`), so binding one entity twice is the
      * same binding and not a second row — the find-or-create the bone tracks already follow. Revision++ when
      * the binding is new. Refuses the null UUID.
      */
     [[nodiscard]] Common::ResultStr<Animation::Timeline::BindingGuid>
     AddEntityBinding( Animation::Timeline::Sequence& sequence, const Common::UUID& entity,
                       const std::string& label );
+
+    /**
+     * @brief Whether @p track is @p binding's pose track: the Transform track of an actor (Property
+     * "Transform") or of a bone (Property "", LevelSequenceBoneKeys.hpp). The pose-key edits below
+     * (ticks, move, remove, shape, easing) take EITHER binding through it — one set of key edits for both.
+     */
+    [[nodiscard]] bool IsLevelPoseTrack( const Animation::Timeline::Track& track,
+                                         const Animation::Timeline::BindingGuid& binding );
 
     /// The entity pose a Transform key stores: TransformComponent's Euler rotation as the channel's quaternion.
     [[nodiscard]] Animation::BoneTransform EntityPose( const TransformComponent& transform );
@@ -431,7 +439,8 @@ namespace Desert::ECS
      * `Scrub` poses the registry at a tick through `LevelSequenceEntityHost`, having first RECORDED the state of
      * every entity it is about to write (its Transform, whether it had a VisibilityComponent and its value, and
      * its Animator's clip, playhead, loop and the component's Playing — an Animation section repoints them —
-     * and the slot override of every material parameter a track drives, or that it had none).
+     * and the slot override of every material parameter a track drives, or that it had none). Bone tracks pose
+     * through the Animator's sequencer layer under `kLevelSequencePreviewWriter`, which `Restore` clears.
      * `Restore` writes every recorded state back — the component the preview added is removed again — and
      * forgets it. An entity destroyed while previewed is skipped. The destructor does NOT restore: it has no
      * registry, and a registry that died first has nothing to give back to.
@@ -450,7 +459,7 @@ namespace Desert::ECS
 
         [[nodiscard]] bool Active() const
         {
-            return !m_Saved.empty() || !m_SavedMaterials.empty();
+            return !m_Saved.empty() || !m_SavedMaterials.empty() || !m_Layered.empty();
         }
 
     private:
@@ -478,6 +487,9 @@ namespace Desert::ECS
             std::optional<glm::vec4>       Override;
         };
         std::vector<SavedMaterialParameter> m_SavedMaterials;
+        /// The entities whose Animator carries the preview's bone layer (writer `kLevelSequencePreviewWriter`):
+        /// a scrub that no longer reaches one clears it, `Restore` clears them all.
+        std::vector<entt::entity> m_Layered;
         /// The slot access the scrubs wrote through — `Restore` gives the overrides back through the same.
         LevelSequenceMaterialSlots m_Materials;
         /// No overrides: the document is about the ASSET, not about one placed actor's re-pointing of it.

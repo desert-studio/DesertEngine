@@ -1,0 +1,51 @@
+# SEQ-BONE-KEYS: bone transform keys in the Level Sequencer, layered over the Animation track (UE FK Control Rig).
+# Humanoid's bones are Hips..Head, Shoulder.L.. (Editor/Resources/Engine/Meshes/Skinned/Humanoid.skeleton); its idle clip is "Idle".
+# A document value is a number: Bone.<actor>.<bone>.Blend is 0 Absolute, 1 Additive; Rotation is Euler degrees (pitch, yaw, roll).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/SEQ_BoneKeys.desce
+Дано run View "View mode: Lit"
+Дано run Document "Sequencer: New Level Sequence Sequences/SEQ_BoneKeys.dseq"
+Дано run Document "Sequencer: Add Actor Hero"
+Дано run Document "Sequencer: Add Actor Twin"
+Дано run Document "Sequencer: Add Animation Hero Idle"
+Дано run Document "Sequencer: Add Animation Twin Idle"
+# [1_base] no bone tracks: both play idle, heads forward.
+Когда set Transport.Time 1.0
+Тогда-вид 1_base both humanoids stand in idle, heads facing the camera, arms down; identical poses
+# [2_absolute] Hero head yaw 45 deg, absolute, weight 1.
+Когда run Document "Sequencer: Add Bone Track Hero Head"
+Когда set Bone.Hero.Head.Rotation 0,45,0
+Когда run Document "Sequencer: Key Bone Hero Head"
+Тогда-вид 2_absolute Hero's head is turned about 45 deg to its left, body still in idle; Twin's head faces the camera (same bone name, other actor untouched); the Sequencer shows a Head row under Hero with a key at 1.0 s
+Тогда 2_absolute lua World.find('Hero'):boneLocalRotation('Head') yaw (y) = 45 +-0.5; World.find('Twin'):boneLocalRotation('Head') = idle value +-0.5; editor.log has no "names no entity"
+# [3_weight] weight 0.5 blends with the idle pose, not with zero.
+Когда set Bone.Hero.Head.Weight 0.5
+Тогда-вид 3_weight Hero's head is turned about half as far as in 2_absolute (~22 deg), not drooped or collapsed
+# [4_additive] additive 15 deg over idle: the idle breathing still moves the head.
+Когда set Bone.Hero.Head.Weight 1.0
+Когда set Bone.Hero.Head.Blend 1
+Когда set Bone.Hero.Head.Rotation 0,15,0
+Когда run Document "Sequencer: Key Bone Hero Head"
+Тогда-вид 4_additive Hero's head turned slightly (~15 deg) to its left on top of idle; arms and torso as in 1_base
+# [5_scrub] scrub away and back: same frame.
+Когда set Transport.Time 0.0
+Когда set Transport.Time 1.0
+Тогда-вид 5_scrub identical to 4_additive (pixel diff only in idle-free regions = 0)
+# [6_play] Play mode: runtime path, same pose as the scrub; step key 0 -> 45 at t=1.0 (Constant) checks lag and UpdateRate.
+Когда set Bone.Hero.Head.Blend 0
+Когда set Transport.Time 1.0
+Когда set Bone.Hero.Head.Rotation 0,45,0
+Когда run Document "Sequencer: Key Bone Hero Head"
+Когда run Action Play
+Когда advance 1.0
+Тогда 6_play Hero head yaw (lua boneLocalRotation('Head').y) = 45 +-0.5 on the first frame at t>=1.0 (no frame of lag), also with Animation.UpdateRate 2
+# [7_stop] leaving Play and closing the Sequencer removes the layer.
+Когда run Action Stop
+Когда run Document "Sequencer: Close"
+Тогда-вид 7_stop both humanoids as in 1_base: Hero's head faces the camera again
+# [8_undo] undo the bone track: no row, no turned head.
+Когда run Open "Sequences/SEQ_BoneKeys.dseq"
+Когда run Action Undo
+Тогда-вид 8_undo Sequencer has no Head row under Hero; Hero in idle
+# [9_refused] a bone the rig lacks is refused by name (no "Add Bone Track Hero tail_01" action exists: the menu lists the skeleton's bones).
+Когда set Bone.Hero.tail_01.Rotation 0,10,0
+Тогда 9_refused Output Log names "tail_01" and Hero's skeleton ("tail_01: the skeleton of Hero has no such bone"); no row added; 0 VUID in editor.log

@@ -17,6 +17,14 @@
  * frame is the cost this seam must not add. `BindBones` resolves the Bone bindings against a skeleton ONCE
  * (by locator = bone name, the rule Animator::ResolveTrack has) and `EvaluatePose` samples straight into a
  * `LocalPose` — the AnimationClip host's whole playback path, and the Animator's `SampleTrack` replacement.
+ *
+ * THE BONE LAYER (UE FK Control Rig on a level sequence). A LevelSequence's Bone bindings sit under an
+ * Entity binding; their Transform tracks are NOT values (`Evaluate` leaves them out of `Values`): they are
+ * folded over the actor's ANIMATED pose, after its graph and its Animation track. `Evaluate` lists the
+ * actors with a live bone track (`BoneLayers`), `Apply` asks the host to pose each (`PoseBones`), and the
+ * host samples the bones (`SampleBoneLayer`) and hands them to the actor's animator as one layer, which
+ * folds them with `FoldBoneLayer` — the same fold `EvaluatePose` is made of, so a clip and a level
+ * sequence blend a bone by one rule.
  */
 
 #include <Engine/Animation/BoneTransform.hpp>
@@ -126,14 +134,36 @@ namespace Desert::Animation::Timeline
     [[nodiscard]] float AudioGainAt( const Section& section, const AudioSectionContent& audio, FrameTime at,
                                      FrameRate tickRate );
 
+    /// One bone Transform section's contribution at a time, in fold order (track order, then section
+    /// order) — the sparse form of `EvaluatePose` a host hands to a pose that is not its own. UE's
+    /// FK Control Rig control value + the section's blend type and weight.
+    struct BoneLayerSample
+    {
+        uint32_t         Bone   = UINT32_MAX; ///< skeleton bone index (BoneBindingTable)
+        SectionBlendType Blend  = SectionBlendType::Absolute;
+        float            Weight = 1.0F;       ///< Section's WeightAt(at), 0..1
+        BoneTransform    Value;               ///< the section's channels at `at`, local space, centimetres
+    };
+
+    /// A level sequence's Bone bindings under ONE entity binding, ready for `SampleBoneLayer`.
+    /// EvaluatedFrame carries one per parent with a bone track covering `at`.
+    struct BoneLayerRequest
+    {
+        BindingGuid Parent; ///< the Entity binding the bones belong to
+        FrameTime   At;     ///< the step's end in THIS sequence's time (a subsequence's own, mapped)
+    };
+
     struct EvaluatedFrame
     {
+        /// NO bone Transform tracks: a clip's go through `EvaluatePose`, a level sequence's through `BoneLayers`.
         std::vector<EvaluatedTrack>    Values;
         std::vector<FiredEvent>        Events;
         std::vector<AnimationSample>   Animations;
         std::vector<SubsequenceSample> Subsequences;
         std::vector<AudioSample>       Sounds;
         std::vector<VFXSample>         Effects;
+        /// One per parent Entity binding with a bone track covering the step's end (LevelSequence only).
+        std::vector<BoneLayerRequest> BoneLayers;
         /// The Camera Cut in force, or nullopt when the sequence has none (the viewport keeps its camera).
         std::optional<BindingGuid> ActiveCamera;
     };
@@ -167,6 +197,11 @@ namespace Desert::Animation::Timeline
         virtual void PlayAnimation( const ResolvedBinding& target, const AnimationSample& sample ) = 0;
         /// A VFX track's state at the step's end (VFXSample). A host with no effects refuses it by name.
         virtual void DriveEffect( const ResolvedBinding& target, const VFXSample& sample ) = 0;
+        /// The bones of @p parent (an Entity binding, resolved) at @p at. The host binds the bones against
+        /// the entity's skeleton (BindBones with Parent), samples (SampleBoneLayer) and hands the samples to
+        /// the entity's pose as ONE layer. Called after PlayAnimation for the same frame. A host whose
+        /// sequences hold no Bone-under-Entity binding refuses it by name.
+        virtual void PoseBones( const ResolvedBinding& parent, BindingGuid parentGuid, FrameTime at ) = 0;
     };
 
     struct ApplyReport
@@ -237,7 +272,22 @@ namespace Desert::Animation::Timeline
         uint32_t              Revision = 0;
     };
 
-    [[nodiscard]] BoneBindingTable BindBones( const Sequence& sequence, const Skeleton& skeleton );
+    /// Bone binding i → skeleton bone index. @p parent null = every Bone binding (an AnimationClip, whose
+    /// bones have no parent); non-null = only the Bone bindings whose Parent is @p parent (a LevelSequence
+    /// with several characters). Matching stays by locator = bone name.
+    [[nodiscard]] BoneBindingTable BindBones( const Sequence& sequence, const Skeleton& skeleton,
+                                              const BindingGuid& parent = {} );
+
+    /// Every unmuted bone Transform section of @p table covering @p at, appended to @p out in fold order.
+    /// Refuses (by name) a table bound at another Sequence::Revision, as EvaluatePose does.
+    [[nodiscard]] Common::BoolResultStr SampleBoneLayer( const Sequence& sequence, const BoneBindingTable& table,
+                                                         FrameTime at, std::vector<BoneLayerSample>& out );
+
+    /// Folds @p samples over @p pose with the ONE Absolute/Additive rule EvaluatePose uses. @p required as
+    /// in EvaluatePose: a bone left out keeps what @p pose holds. A sample whose bone is outside the pose is
+    /// refused by name.
+    [[nodiscard]] Common::BoolResultStr FoldBoneLayer( std::span<const BoneLayerSample> samples, LocalPose& pose,
+                                                       std::span<const uint8_t> required = {} );
 
     /**
      * @brief Sample every bone Transform track into @p pose (sized to the skeleton; bones without a track

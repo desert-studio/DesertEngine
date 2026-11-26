@@ -123,6 +123,8 @@ namespace Desert::Animation
                 return "Controls";
             case PoseStage::Rig:
                 return "Rig";
+            case PoseStage::Sequencer:
+                return "Sequencer";
         }
         return "?";
     }
@@ -529,10 +531,103 @@ namespace Desert::Animation
                 case PoseStage::Rig:
                     EvaluateRig( m_EvaluatedPose );
                     break;
+                case PoseStage::Sequencer:
+                    // The pose the layer folds over is kept: a layer set later this frame refolds from it.
+                    // FoldBoneLayer cannot refuse here — SetSequencerLayer refused any bone outside the skeleton,
+                    // and the pose was sized to the skeleton above.
+                    m_PreLayerPose = m_EvaluatedPose;
+                    static_cast<void>( Timeline::FoldBoneLayer( m_Layer, m_EvaluatedPose, m_RequiredMask ) );
+                    break;
             }
         }
 
         PublishPose();
+    }
+
+    Common::BoolResultStr Animator::SetSequencerLayer( const std::string_view                           writer,
+                                                       const std::span<const Timeline::BoneLayerSample> samples )
+    {
+        if ( writer.empty() )
+        {
+            return Common::MakeError( "SetSequencerLayer: the writer is unnamed (a layer is owned by its sequence)" );
+        }
+        if ( !m_LayerWriter.empty() && m_LayerWriter != writer )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "SetSequencerLayer: '{}' keys this character's bones and '{}' holds them already; one level "
+                 "sequence poses a character's bones at a time",
+                 writer, m_LayerWriter );
+        }
+        const size_t boneCount = m_Skeleton.GetBones().size();
+        for ( const Timeline::BoneLayerSample& sample : samples )
+        {
+            if ( sample.Bone >= boneCount )
+            {
+                return Common::MakeFormattedError<bool>(
+                     "SetSequencerLayer: '{}' keys bone {} and the skeleton has {} bones", writer, sample.Bone,
+                     boneCount );
+            }
+        }
+        if ( m_EvaluatedPose.Size() != boneCount )
+        {
+            m_EvaluatedPose = m_BindPose;
+            m_Component.Reset( m_EvaluatedPose.Size() );
+        }
+        if ( m_LayerWriter.empty() )
+        {
+            // The stage was not listed: what is evaluated now is exactly the pose under the layer.
+            m_PreLayerPose = m_EvaluatedPose;
+            m_LayerWriter.assign( writer );
+            SyncStages();
+        }
+        m_Layer.assign( samples.begin(), samples.end() );
+        FoldSequencerLayer();
+        return Common::MakeSuccess( true );
+    }
+
+    void Animator::ClearSequencerLayer( const std::string_view writer )
+    {
+        if ( m_LayerWriter.empty() || m_LayerWriter != writer )
+        {
+            return;
+        }
+        m_Layer.clear();
+        FoldSequencerLayer(); // the pre-layer pose, published as it is
+        m_LayerWriter.clear();
+        SyncStages();
+    }
+
+    void Animator::FoldSequencerLayer()
+    {
+        if ( m_PreLayerPose.Size() == m_EvaluatedPose.Size() )
+        {
+            m_EvaluatedPose = m_PreLayerPose;
+        }
+        // Bones were checked against the skeleton when the layer was set (SetSequencerLayer).
+        static_cast<void>( Timeline::FoldBoneLayer( m_Layer, m_EvaluatedPose, m_RequiredMask ) );
+        if ( m_InterpolateSkipped )
+        {
+            m_Component.Invalidate();
+            PublishDisplay();
+            return;
+        }
+        PublishPose();
+    }
+
+    BoneTransform Animator::GetPublishedLocal( const uint32_t bone ) const
+    {
+        if ( bone >= m_EvaluatedPose.Size() )
+        {
+            return BoneTransform{}; // GetBoneModelMatrix's rule: identity out of range
+        }
+        if ( !m_InterpolateSkipped || m_DisplayPose.Size() != m_EvaluatedPose.Size() )
+        {
+            return m_EvaluatedPose[bone]; // what PublishPose wrote, the layer folded in
+        }
+        // PublishDisplay's write, recomputed: the display pose keeps no layer between frames.
+        LocalPose shown = m_DisplayPose;
+        static_cast<void>( Timeline::FoldBoneLayer( m_Layer, shown, m_RequiredMask ) );
+        return shown[bone];
     }
 
     void Animator::EvaluateSource( LocalPose& pose )
@@ -820,7 +915,7 @@ namespace Desert::Animation
         m_InterpolateSkipped = interpolate;
         if ( interpolate )
         {
-            m_DisplayPose = m_EvaluatedPose;
+            m_DisplayPose = GetPreLayerPose();
             m_DisplayComponent.Reset( m_DisplayPose.Size() );
         }
     }
@@ -831,20 +926,50 @@ namespace Desert::Animation
             return;
         if ( m_DisplayPose.Size() != m_EvaluatedPose.Size() )
         {
-            m_DisplayPose = m_EvaluatedPose;
+            m_DisplayPose = GetPreLayerPose();
             m_DisplayComponent.Reset( m_DisplayPose.Size() );
         }
-        const auto step = [this, alpha]( const std::size_t bone )
-        { m_DisplayPose[bone] = alpha >= 1.0F ? m_EvaluatedPose[bone] : Blend( m_DisplayPose[bone], m_EvaluatedPose[bone], alpha ); };
+        // Toward the pose UNDER the layer: the layer is folded after the interpolation (PublishDisplay), so a
+        // stepped key lands whole on the frame it starts instead of being smeared across the skipped frames.
+        const LocalPose& target = GetPreLayerPose();
+        const auto       step   = [this, alpha, &target]( const std::size_t bone )
+        { m_DisplayPose[bone] = alpha >= 1.0F ? target[bone] : Blend( m_DisplayPose[bone], target[bone], alpha ); };
         if ( m_RequiredOrder.empty() )
             for ( std::size_t bone = 0; bone < m_DisplayPose.Size(); ++bone )
                 step( bone );
         else
             for ( const uint32_t bone : m_RequiredOrder )
                 step( bone );
+        PublishDisplay();
+    }
+
+    void Animator::PublishDisplay()
+    {
+        if ( m_DisplayPose.Size() != m_EvaluatedPose.Size() )
+        {
+            m_DisplayPose = GetPreLayerPose();
+            m_DisplayComponent.Reset( m_DisplayPose.Size() );
+        }
+        // The layer goes onto the display pose for the write only: its bones are saved and put back, so the
+        // display pose stays what the interpolation produced.
+        m_LayerDisplaySaved.clear();
+        for ( const Timeline::BoneLayerSample& sample : m_Layer )
+        {
+            if ( sample.Bone < m_DisplayPose.Size() )
+            {
+                m_LayerDisplaySaved.emplace_back( sample.Bone, m_DisplayPose[sample.Bone] );
+            }
+        }
+        // Bones were checked against the skeleton when the layer was set (SetSequencerLayer).
+        static_cast<void>( Timeline::FoldBoneLayer( m_Layer, m_DisplayPose, m_RequiredMask ) );
         m_DisplayComponent.Invalidate();
         m_DisplayComponent.WriteSkinningMatrices( m_Skinning.Matrices, m_RequiredOrder );
         ++m_SkinningRevision;
+        // Put back in reverse: a bone sampled twice gets its first saved (pre-layer) value last.
+        for ( auto it = m_LayerDisplaySaved.rbegin(); it != m_LayerDisplaySaved.rend(); ++it )
+        {
+            m_DisplayPose[it->first] = it->second;
+        }
     }
 
     void Animator::SyncStages()
@@ -870,6 +995,12 @@ namespace Desert::Animation
             // membership test is the pointer and nothing else: `AttachRig` refuses a rig that drives no
             // bones, so a rig that is here is a rig that changes the pose.
             m_Stages.push_back( PoseStage::Rig );
+        }
+        if ( !m_LayerWriter.empty() )
+        {
+            // AFTER THE RIG: the sequence's keys are the last word on a bone (UE ControlRigLayerInstance wraps
+            // the whole anim instance, the AnimBP's own rig included).
+            m_Stages.push_back( PoseStage::Sequencer );
         }
     }
 

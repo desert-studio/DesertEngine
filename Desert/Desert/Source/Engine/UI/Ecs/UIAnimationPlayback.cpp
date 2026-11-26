@@ -78,6 +78,10 @@ namespace Desert::UI
             void DriveEffect( const TL::ResolvedBinding&, const TL::VFXSample& ) override
             {
             }
+            // Nor a Bone binding (HostHoldsBinding): Evaluate lists no bone layer for a UI clip.
+            void PoseBones( const TL::ResolvedBinding&, TL::BindingGuid, Animation::FrameTime ) override
+            {
+            }
 
         private:
             const std::unordered_map<std::string, entt::entity>& m_ByUuid;

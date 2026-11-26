@@ -8,6 +8,7 @@
 // file draws and routes, it does not decide.
 
 #include "SequencerPanel.hpp"
+#include "LevelBoneRows.hpp"
 #include "LevelMaterialProperties.hpp"
 #include "OutlinerColumn.hpp"
 #include "TrackFilter.hpp"
@@ -477,6 +478,9 @@ namespace Desert::Editor
                 end.Value[0]   = static_cast<float>( SecondsAt( sequence, track->Sections.front().End.Value ) );
                 out.push_back( std::move( end ) );
             }
+        // Each bone track's controls and section blend (UE: the FK Control Rig control's Details).
+        for ( EditableProperty& bone : LevelBoneEdit::Describe( sequence, m_LevelTick ) )
+            out.push_back( std::move( bone ) );
         return out;
     }
 
@@ -535,6 +539,8 @@ namespace Desert::Editor
             return Common::MakeError<bool>( "the Level Sequence this window edits is no longer loaded." );
         if ( name.starts_with( "Transport." ) || name.starts_with( "VFX." ) )
             return SetLevelTransportProperty( name, value );
+        if ( name.starts_with( LevelBoneEdit::kPrefix ) )
+            return SetLevelBoneProperty( name, value );
         // The row's field, by name: checked against the same census `properties` lists, then keyed at the
         // playhead through the one setter the field calls.
         const auto write = LevelMaterialEdit::Resolve( asset->GetSequence(), LevelMaterialSchema(), name, value );
@@ -838,6 +844,8 @@ namespace Desert::Editor
                             AddLevelAnimation( binding.Guid, clip );
                     ImGui::EndMenu();
                 }
+                // UE: "+ Track ▸ Control Rig ▸ FK" — a bone of the actor's rig as its own keyed row.
+                DrawLevelBoneMenu( sequence, binding.Guid );
                 ImGui::EndPopup();
             }
             const float rowH  = ImGui::GetFrameHeight();
@@ -990,6 +998,8 @@ namespace Desert::Editor
                 ImGui::SetCursorScreenPos( ImVec2( contentX0, matY + rowH + 4.0f ) );
                 ImGui::PopID();
             }
+            // The actor's bone rows (UE: the FK Control Rig track's controls under the binding).
+            DrawLevelBoneRows( sequence, binding.Guid, contentX0, laneX0, laneW );
             // The actor's Event track, a row under it (UE: an Event track on the binding).
             if ( ECS::HasEventTrack( sequence, binding.Guid ) && shows( ECS::kLevelSequenceEventProperty ) )
                 DrawLevelEventRow( sequence, binding.Guid, ICON_MDI_FLAG " Events", contentX0, laneX0, laneW );
@@ -1099,6 +1109,7 @@ namespace Desert::Editor
         }
 
         UpdateLevelAutoKey( sequence );
+        UpdateLevelBoneGizmo( sequence );
         PreviewLevelIfChanged( sequence );
     }
 
@@ -2236,6 +2247,7 @@ namespace Desert::Editor
                      [this, guid, clip] { AddLevelAnimation( guid, clip ); } } );
             }
         }
+        AppendLevelBoneActions( actions );
         return actions;
     }
 

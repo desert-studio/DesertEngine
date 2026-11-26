@@ -457,6 +457,7 @@ namespace Desert::Animation::Timeline
         out.Effects.clear();
         out.Subsequences.clear();
         out.Sounds.clear();
+        out.BoneLayers.clear();
         out.ActiveCamera.reset();
 
         const Sequence& sequence = *m_Sequence;
@@ -469,6 +470,30 @@ namespace Desert::Animation::Timeline
             if ( track.Muted )
             {
                 continue;
+            }
+            if ( track.Kind == TrackKind::Transform && sequence.Host != SequenceHost::UIAnimation )
+            {
+                // A clip's Transform tracks are all bones (Validate): they are its pose, EvaluatePose's. A level
+                // sequence's Transform track on a Bone binding is a layer over its actor's animated pose, never a
+                // value folded from the channel's default (UE FK Control Rig after the AnimBP).
+                if ( sequence.Host == SequenceHost::AnimationClip )
+                {
+                    continue;
+                }
+                const Binding* binding = FindBinding( sequence, track.Binding );
+                if ( binding != nullptr && binding->Kind == BindingKind::Bone )
+                {
+                    bool covered = false;
+                    ForEachCovering( track, at, [&]( const Section& ) { covered = true; } );
+                    const bool listed = std::any_of( out.BoneLayers.begin(), out.BoneLayers.end(),
+                                                     [&]( const BoneLayerRequest& request )
+                                                     { return request.Parent == binding->Parent; } );
+                    if ( covered && !listed )
+                    {
+                        out.BoneLayers.push_back( BoneLayerRequest{ binding->Parent, at } );
+                    }
+                    continue;
+                }
             }
             switch ( track.Kind )
             {
@@ -671,6 +696,14 @@ namespace Desert::Animation::Timeline
                 host.PlayAnimation( **target, sample );
             }
         }
+        // After every Animation section: the bone layer folds over the pose the Animation track just set.
+        for ( const BoneLayerRequest& request : frame.BoneLayers )
+        {
+            if ( const auto* target = resolvedOf( request.Parent ); target != nullptr && target->has_value() )
+            {
+                host.PoseBones( **target, request.Parent, request.At );
+            }
+        }
         for ( const VFXSample& sample : frame.Effects )
         {
             const Track& track = sequence.Tracks[sample.TrackIndex];
@@ -700,7 +733,7 @@ namespace Desert::Animation::Timeline
         return report;
     }
 
-    BoneBindingTable BindBones( const Sequence& sequence, const Skeleton& skeleton )
+    BoneBindingTable BindBones( const Sequence& sequence, const Skeleton& skeleton, const BindingGuid& parent )
     {
         BoneBindingTable table;
         table.Revision = sequence.Revision;
@@ -716,6 +749,10 @@ namespace Desert::Animation::Timeline
             if ( binding == nullptr || binding->Kind != BindingKind::Bone )
             {
                 continue;
+            }
+            if ( !parent.IsNull() && binding->Parent != parent )
+            {
+                continue; // another actor's bone: `head` of Twin is not `head` of Hero
             }
             // By locator = bone name, Animator::ResolveTrack's rule: the clip and the rig come from different
             // files with different bone orders, and the name is the one thing they share.
@@ -733,9 +770,23 @@ namespace Desert::Animation::Timeline
 
     namespace
     {
-        /// Every Transform section of @p track covering @p at, folded over @p acc in section order — the ONE fold
-        /// of a bone track, shared by the whole-pose and the single-bone sample.
-        void FoldBoneTrack( const Track& track, const FrameTime at, const FrameRate tickRate, BoneTransform& acc )
+        /// ONE bone sample folded over @p acc — the only place a bone section's blend rule is spelled.
+        void FoldSample( BoneTransform& acc, const BoneLayerSample& sample )
+        {
+            if ( sample.Blend == SectionBlendType::Additive )
+            {
+                Additive( acc, sample.Value, sample.Weight );
+            }
+            else
+            {
+                Absolute( acc, sample.Value, sample.Weight );
+            }
+        }
+
+        /// Every Transform section of @p track covering @p at, as samples in section order, handed to @p fn.
+        template <typename Fn>
+        void SampleBoneTrack( const Track& track, const uint32_t bone, const FrameTime at, const FrameRate tickRate,
+                              Fn&& fn )
         {
             ForEachCovering( track, at,
                              [&]( const Section& section )
@@ -747,52 +798,103 @@ namespace Desert::Animation::Timeline
                                  {
                                      return; // Validate refuses a section of another kind
                                  }
-                                 const BoneTransform v = Evaluate( *typed, at, tickRate );
-                                 const float         w = WeightAt( section, at, tickRate );
-                                 if ( section.Blend == SectionBlendType::Additive )
-                                 {
-                                     Additive( acc, v, w );
-                                 }
-                                 else
-                                 {
-                                     Absolute( acc, v, w );
-                                 }
+                                 fn( BoneLayerSample{ bone, section.Blend, WeightAt( section, at, tickRate ),
+                                                      Evaluate( *typed, at, tickRate ) } );
                              } );
         }
+
+        [[nodiscard]] Common::BoolResultStr CheckTable( const char* who, const Sequence& sequence,
+                                                        const BoneBindingTable& table )
+        {
+            if ( table.Revision != sequence.Revision || table.BoneOfTrack.size() != sequence.Tracks.size() )
+            {
+                return Common::MakeFormattedError<bool>(
+                     "{}: the bone table was bound at revision {} for {} tracks and the sequence is at "
+                     "revision {} with {} tracks; bind again (BindBones)",
+                     who, table.Revision, table.BoneOfTrack.size(), sequence.Revision, sequence.Tracks.size() );
+            }
+            return Common::MakeSuccess( true );
+        }
+
+        [[nodiscard]] bool Required( const std::span<const uint8_t> required, const uint32_t bone )
+        {
+            return required.empty() || ( bone < required.size() && required[bone] != 0u );
+        }
     } // namespace
+
+    Common::BoolResultStr SampleBoneLayer( const Sequence& sequence, const BoneBindingTable& table, const FrameTime at,
+                                           std::vector<BoneLayerSample>& out )
+    {
+        if ( auto checked = CheckTable( "SampleBoneLayer", sequence, table ); !checked.IsSuccess() )
+        {
+            return checked;
+        }
+        for ( size_t ti = 0; ti < sequence.Tracks.size(); ++ti )
+        {
+            const uint32_t bone = table.BoneOfTrack[ti];
+            if ( bone == UINT32_MAX || sequence.Tracks[ti].Muted )
+            {
+                continue;
+            }
+            SampleBoneTrack( sequence.Tracks[ti], bone, at, sequence.TickRate,
+                             [&]( const BoneLayerSample& sample ) { out.push_back( sample ); } );
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr FoldBoneLayer( const std::span<const BoneLayerSample> samples, LocalPose& pose,
+                                         const std::span<const uint8_t> required )
+    {
+        for ( const BoneLayerSample& sample : samples )
+        {
+            if ( !Required( required, sample.Bone ) )
+            {
+                continue; // a bone the drawn LOD does not need (Animator::SetRequiredBones): what is there shows
+            }
+            if ( sample.Bone >= pose.Size() )
+            {
+                return Common::MakeFormattedError<bool>(
+                     "FoldBoneLayer: a sample drives bone {} and the pose holds {} bones (sized for another rig)",
+                     sample.Bone, pose.Size() );
+            }
+            FoldSample( pose[sample.Bone], sample );
+        }
+        return Common::MakeSuccess( true );
+    }
 
     Common::BoolResultStr EvaluatePose( const Sequence& sequence, const BoneBindingTable& table,
                                         const FrameTime at, LocalPose& pose, const std::span<const uint8_t> required )
     {
-        if ( table.Revision != sequence.Revision || table.BoneOfTrack.size() != sequence.Tracks.size() )
+        if ( auto checked = CheckTable( "EvaluatePose", sequence, table ); !checked.IsSuccess() )
         {
-            return Common::MakeFormattedError<bool>(
-                 "EvaluatePose: the bone table was bound at revision {} for {} tracks and the sequence is at "
-                 "revision {} with {} tracks; bind again (BindBones)",
-                 table.Revision, table.BoneOfTrack.size(), sequence.Revision, sequence.Tracks.size() );
+            return checked;
         }
+        // SampleBoneLayer + FoldBoneLayer, sample by sample with no list in between: the clip plays hundreds of
+        // bones a frame and allocates nothing. THE FOLD STARTS FROM THE POSE, not from the channel's Default:
+        // for a bone the rest value the host states IS what the caller seeded (the bind or retarget pose —
+        // ApplySection's `reference`), so a partial Absolute section blends from it exactly as the
+        // generation-3 clip did.
         for ( size_t ti = 0; ti < sequence.Tracks.size(); ++ti )
         {
-            const uint32_t bone  = table.BoneOfTrack[ti];
-            const Track&   track = sequence.Tracks[ti];
-            if ( bone == UINT32_MAX || track.Muted )
+            const uint32_t bone = table.BoneOfTrack[ti];
+            if ( bone == UINT32_MAX || sequence.Tracks[ti].Muted )
             {
                 continue; // not a bone track, a bone this rig lacks, or muted: the pose underneath shows
             }
-            if ( !required.empty() && ( bone >= required.size() || required[bone] == 0u ) )
+            Common::BoolResultStr folded = Common::MakeSuccess( true );
+            SampleBoneTrack( sequence.Tracks[ti], bone, at, sequence.TickRate,
+                             [&]( const BoneLayerSample& sample )
+                             {
+                                 if ( folded.IsSuccess() )
+                                 {
+                                     folded = FoldBoneLayer( std::span<const BoneLayerSample>( &sample, 1 ), pose,
+                                                             required );
+                                 }
+                             } );
+            if ( !folded.IsSuccess() )
             {
-                continue; // a bone the drawn LOD does not need (Animator::SetRequiredBones): its rest shows
+                return folded;
             }
-            if ( bone >= pose.Size() )
-            {
-                return Common::MakeFormattedError<bool>(
-                     "EvaluatePose: track {} drives bone {} and the pose holds {} bones (sized for another rig)",
-                     ti, bone, pose.Size() );
-            }
-            // THE FOLD STARTS FROM THE POSE, not from the channel's Default: for a bone the rest value the host
-            // states IS what the caller seeded (the bind or retarget pose — ApplySection's `reference`), so a
-            // partial Absolute section blends from it exactly as the generation-3 clip did.
-            FoldBoneTrack( track, at, sequence.TickRate, pose[bone] );
         }
         return Common::MakeSuccess( true );
     }
@@ -800,18 +902,16 @@ namespace Desert::Animation::Timeline
     Common::BoolResultStr EvaluateBone( const Sequence& sequence, const BoneBindingTable& table,
                                         const FrameTime at, const uint32_t bone, BoneTransform& acc )
     {
-        if ( table.Revision != sequence.Revision || table.BoneOfTrack.size() != sequence.Tracks.size() )
+        if ( auto checked = CheckTable( "EvaluateBone", sequence, table ); !checked.IsSuccess() )
         {
-            return Common::MakeFormattedError<bool>(
-                 "EvaluateBone: the bone table was bound at revision {} for {} tracks and the sequence is at "
-                 "revision {} with {} tracks; bind again (BindBones)",
-                 table.Revision, table.BoneOfTrack.size(), sequence.Revision, sequence.Tracks.size() );
+            return checked;
         }
         for ( size_t ti = 0; ti < sequence.Tracks.size(); ++ti )
         {
             if ( table.BoneOfTrack[ti] == bone && !sequence.Tracks[ti].Muted )
             {
-                FoldBoneTrack( sequence.Tracks[ti], at, sequence.TickRate, acc );
+                SampleBoneTrack( sequence.Tracks[ti], bone, at, sequence.TickRate,
+                                 [&]( const BoneLayerSample& sample ) { FoldSample( acc, sample ); } );
             }
         }
         return Common::MakeSuccess( true );

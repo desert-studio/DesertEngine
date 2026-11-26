@@ -25,6 +25,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Desert::Animation
@@ -56,6 +57,8 @@ namespace Desert::Animation
         Graph,    ///< the AnimGraph's pose graph, node by node; the Source stage's pose is its base source's
         Controls, ///< skeletal controls (IK and friends): sparse component-space overrides, blended locally
         Rig,      ///< a control rig: the animator's controls, resolved and written onto the bones they drive
+        Sequencer, ///< a level sequence's bone keys, folded over everything above (UE ControlRigLayerInstance
+                   ///< over the AnimBP / sequencer instance pose); listed exactly while a layer is set
     };
 
     [[nodiscard]] const char* ToString( PoseStage stage );
@@ -523,6 +526,42 @@ namespace Desert::Animation
         [[nodiscard]] Retarget::RetargetSource*       GetRetarget();
         [[nodiscard]] const Retarget::RetargetSource* GetRetarget() const;
 
+        // --- The sequencer layer (SEQ-BONE-KEYS) --------------------------------------------------------
+        //
+        // A LEVEL SEQUENCE'S BONE KEYS, AFTER EVERYTHING (UE: UControlRigLayerInstance wraps the AnimBP and
+        // the sequencer instance; the FK Control Rig's controls fold over that pose with the section's
+        // blend and weight). One layer, one writer: two sequences keying one character's bones is an
+        // authoring error and the second is refused by name, not a race the last writer wins.
+        //
+        // NO FRAME OF LAG. LevelSequenceSystem runs after AnimationECSSystem, so the layer arrives after the
+        // pipeline ran this frame; the stage keeps the pose it was handed (m_PreLayerPose) and setting the
+        // layer refolds from it and republishes, without running the pipeline again.
+
+        /// Sets the ONE sequencer layer and republishes at once from the cached pre-layer pose. @p writer
+        /// names the owner (the sequence asset path); a second writer while one holds the layer is refused by
+        /// name, as is a sample naming a bone this skeleton lacks.
+        [[nodiscard]] Common::BoolResultStr SetSequencerLayer( std::string_view                           writer,
+                                                               std::span<const Timeline::BoneLayerSample> samples );
+        /// Removes the layer if @p writer holds it, refolds and republishes. No-op for another writer.
+        void ClearSequencerLayer( std::string_view writer );
+        [[nodiscard]] bool HasSequencerLayer() const noexcept
+        {
+            return !m_LayerWriter.empty();
+        }
+        [[nodiscard]] std::string_view SequencerLayerWriter() const noexcept
+        {
+            return m_LayerWriter;
+        }
+        /// The pose under the layer: what the stages above produced (a bone key's Additive base, UE
+        /// FKControlRig's input pose). The evaluated pose itself while no layer is set.
+        [[nodiscard]] const LocalPose& GetPreLayerPose() const
+        {
+            return m_LayerWriter.empty() ? m_EvaluatedPose : m_PreLayerPose;
+        }
+        /// Bone @p bone's local transform as it is PUBLISHED to skinning this frame: the interpolated pose
+        /// while skipped frames are interpolated, the evaluated one otherwise, the layer included either way.
+        [[nodiscard]] BoneTransform GetPublishedLocal( uint32_t bone ) const;
+
     private:
         struct ClipPlayback
         {
@@ -630,6 +669,14 @@ namespace Desert::Animation
 
         /// m_EvaluatedPose -> m_Skinning (and invalidates the component-space cache behind it).
         void PublishPose();
+
+        /// m_PreLayerPose → m_EvaluatedPose, the layer folded over it, then published — through the display
+        /// pose while skipped frames are interpolated (PublishDisplay), so the body keeps its interpolation.
+        void FoldSequencerLayer();
+        /// m_DisplayPose with the layer folded over it → m_Skinning. The layer is folded AFTER the
+        /// interpolation (UE: the rig layer runs after the pose's URO interpolation) and the display pose
+        /// itself stays layer-free, so the next interpolation step blends animation and nothing else.
+        void PublishDisplay();
 
         /// Rebuilds m_Stages so its MEMBERSHIP matches the lists that feed the optional stages, in the
         /// pipeline's fixed order. See the definition for why this is a rebuild and not an insert.
@@ -828,6 +875,13 @@ namespace Desert::Animation
         std::unique_ptr<Retarget::RetargetSource> m_Retarget;
 
         std::vector<PoseStage> m_Stages;
+
+        // The sequencer layer: its writer (empty = no layer, the stage's membership), its samples, the pose
+        // the stages above it produced, and PublishDisplay's saved display bones (reused, no allocation).
+        std::string                                                m_LayerWriter;
+        std::vector<Timeline::BoneLayerSample>                     m_Layer;
+        LocalPose                                                  m_PreLayerPose;
+        std::vector<std::pair<uint32_t, BoneTransform>>            m_LayerDisplaySaved;
 
         // The rig at rest, decomposed ONCE at construction. Every untracked bone in every clip and every
         // additive layer's reference reads it; it used to be decomposed from its matrix on every access.
