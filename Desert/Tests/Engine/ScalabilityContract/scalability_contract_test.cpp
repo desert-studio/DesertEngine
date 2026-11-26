@@ -338,14 +338,15 @@ TEST( ScalabilityContract, AnEnumValueIsWrittenByNameNotByNumber )
 
 TEST( ScalabilityContract, EveryRowIsListedAndNamesAReader )
 {
-    const std::vector<Parameter> listed = ListedParameters();
     for ( const ParameterSpec& spec : ParameterSpecs() )
-    {
-        EXPECT_NE( std::find( listed.begin(), listed.end(), spec.Id ), listed.end() ) << spec.Key;
         EXPECT_FALSE( spec.Reader.empty() ) << spec.Key << " names no reader";
-    }
     for ( std::size_t g = 0; g < kGroupCount; ++g )
-        EXPECT_TRUE( IsGroupListed( static_cast<Group>( g ) ) ) << GroupKey( static_cast<Group>( g ) );
+    {
+        const auto group = static_cast<Group>( g );
+        EXPECT_TRUE( std::any_of( ParameterSpecs().begin(), ParameterSpecs().end(),
+                                  [group]( const ParameterSpec& spec ) { return spec.Owner == group; } ) )
+             << GroupKey( group ) << " owns no row";
+    }
 }
 
 namespace

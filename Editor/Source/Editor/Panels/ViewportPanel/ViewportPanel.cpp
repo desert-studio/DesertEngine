@@ -358,6 +358,15 @@ namespace Desert::Editor
         m_LandscapePaintTool = std::make_unique<Tools::LandscapePaintTool>();
 
         s_Live.push_back( this );
+        Core::ViewportMode::SetChangeListener( &ViewportPanel::OnEditorModeChanged );
+        m_Scene->GetRegistry().ctx_or_set<::Desert::ECS::FoliageEditing>().Active = Core::ViewportMode::IsFoliage();
+    }
+
+    void ViewportPanel::OnEditorModeChanged( const Core::EditorMode mode )
+    {
+        for ( ViewportPanel* panel : s_Live )
+            panel->m_Scene->GetRegistry().ctx_or_set<::Desert::ECS::FoliageEditing>().Active =
+                 mode == Core::EditorMode::Foliage;
     }
 
     // Out-of-line so unique_ptr<AsyncMeshLoader> destroys with the complete type (joins the worker thread) —
@@ -2130,7 +2139,6 @@ namespace Desert::Editor
         }
 
         const bool foliageMode  = Core::ViewportMode::Get() == Core::EditorMode::Foliage;
-        m_Scene->GetRegistry().ctx_or_set<::Desert::ECS::FoliageEditing>().Active = foliageMode;
         const bool modelingMode = Core::ViewportMode::Get() == Core::EditorMode::Modeling;
         const bool landscapeMode = Core::ViewportMode::Get() == Core::EditorMode::Landscape;
 

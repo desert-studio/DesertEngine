@@ -637,8 +637,10 @@ namespace Common::Scalability
                CL::None,
                "MeshECSSystem instanced record (instances of density-scaled foliage types drawn, percent)", 100,
                Vis::Advanced },
-             { P::EffectsCloudLightMarchSamples, G::Effects, "Effects.CloudLightMarchSamples", 1, 64, CL::None,
-               "Graphic::CloudQualityOf -> VolumetricCloudRenderer (light-march sample ceiling)", 64,
+             { P::EffectsCloudLightMarchSamples, G::Effects, "Effects.CloudLightMarchSamples", 1,
+               kCloudLightMarchSamplesMax, CL::None,
+               "Graphic::CloudQualityOf -> VolumetricCloudRenderer (light-march sample ceiling)",
+               kCloudLightMarchSamplesMax,
                Vis::Advanced },
              { P::EffectsCloudShadowMapScalePercent, G::Effects, "Effects.CloudShadowMapScalePercent", 25, 100,
                CL::None, "Graphic::CloudQualityOf -> VolumetricCloudRenderer (cloud shadow map side)", 100,
@@ -1317,19 +1319,6 @@ namespace Common::Scalability
     const ParameterSpec& SpecOf( Parameter parameter )
     {
         return kParameterSpecs[static_cast<std::size_t>( parameter )];
-    }
-
-    bool IsGroupListed( Group group )
-    {
-        return std::any_of( kParameterSpecs.begin(), kParameterSpecs.end(), [group]( const ParameterSpec& spec ) { return spec.Owner == group; } );
-    }
-
-    std::vector<Parameter> ListedParameters()
-    {
-        std::vector<Parameter> listed;
-        for ( const ParameterSpec& spec : kParameterSpecs )
-            listed.push_back( spec.Id );
-        return listed;
     }
 
     std::vector<Parameter> ListedParameters( const ParameterVisibility visibility )

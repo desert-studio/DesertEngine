@@ -648,6 +648,8 @@ namespace Desert::Editor
             // own copy with a cheaper cloud tier, and the other two keep the schema defaults.
             sr->SetQuality( Common::Scalability::QualityState::Resolved() );
         }
+        // The same answer to the scene's systems (Scene::SetQuality -> System::SetQuality): foliage density.
+        scene.SetQuality( Common::Scalability::QualityState::Resolved() );
 
         // THE WORLD'S CLOCK, set up for this frame before the scene ticks it (Core::WorldTime).
         //

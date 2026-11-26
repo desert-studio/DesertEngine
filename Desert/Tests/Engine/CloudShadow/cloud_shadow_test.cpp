@@ -28,6 +28,7 @@
 
 #include "../../TestSupport/scratch_dir.hpp"
 #include "../../TestSupport/source_roots.hpp"
+#include "../../TestSupport/shipped_scalability.hpp"
 #include "CloudShadowReference.hpp"
 
 #include <Engine/Graphic/Clouds/CloudQuality.hpp>
@@ -468,12 +469,19 @@ namespace
         const char*                        Name;
         Desert::Graphic::CloudQualityScale Scale;
     };
-    // The Effects levels' values (Scalability.json): Low, Medium, and the identity High and above run.
-    const CloudTier kAllTiers[] = {
-         { "Low", { 16, 0.5f, 0.05f } },
-         { "Medium", { Desert::ECS::kCloudLightMarchMaxSamples, 0.5f, 0.02f } },
-         { "High", {} },
-    };
+    // The Effects levels the shipped table runs (Scalability.json, read, never copied): Low, Medium, and High,
+    // the identity every level above it runs too.
+    std::vector<CloudTier> AllTiers()
+    {
+        const auto table = Desert::TestSupport::ShippedScalabilityTable();
+        EXPECT_TRUE( table.IsSuccess() ) << table.GetError();
+        if ( !table.IsSuccess() )
+            return {};
+        using Common::Scalability::Level;
+        return { { "Low", Desert::TestSupport::ShippedCloudQuality( table.GetValue(), Level::Low ) },
+                 { "Medium", Desert::TestSupport::ShippedCloudQuality( table.GetValue(), Level::Medium ) },
+                 { "High", Desert::TestSupport::ShippedCloudQuality( table.GetValue(), Level::High ) } };
+    }
 
     // The component's default Max Steps, which no tier lowers and which
     // Desert/Tests/Engine/CloudType explains at length that no tier MAY lower: the shipped library's
@@ -492,7 +500,7 @@ TEST( CloudShadowMapTiers, EveryTierKeepsTheTexelInsideTheChordTheMarchCanFind )
     // shader's own text is the one this test wants: it is the thing being held to a relation.
     const float chordKm = Desert::Tests::CloudShadowRef::CloudFinestResolvableChordKm( kDefaultMaxStepsAllTiers );
 
-    for ( const CloudTier& tier : kAllTiers )
+    for ( const CloudTier& tier : AllTiers() )
     {
         const CloudQualityScale scale      = tier.Scale;
         const float             extentKm   = CloudShadowExtentKmForScale( scale.ShadowMapScale );
@@ -545,7 +553,7 @@ TEST( CloudShadowMapTiers, EveryTierFadesItsBorderOverAtLeastTenTexels )
 {
     using namespace Desert::Graphic;
 
-    for ( const CloudTier& tier : kAllTiers )
+    for ( const CloudTier& tier : AllTiers() )
     {
         const CloudQualityScale scale      = tier.Scale;
         const float             extentKm   = CloudShadowExtentKmForScale( scale.ShadowMapScale );
@@ -573,7 +581,7 @@ TEST( CloudShadowMapTiers, EveryTierGuaranteesCoverageAroundTheCameraAndTheLadde
     float previousCoverageKm = 0.0f;
     float previousCostShare  = 0.0f;
 
-    for ( const CloudTier& tier : kAllTiers ) // Low -> Medium -> High
+    for ( const CloudTier& tier : AllTiers() ) // Low -> Medium -> High
     {
         const CloudQualityScale scale      = tier.Scale;
         const float             extentKm   = CloudShadowExtentKmForScale( scale.ShadowMapScale );
@@ -703,7 +711,7 @@ TEST( CloudShadowMapTiers, EveryTierKeepsBothSnapsUnderAMovingCamera )
 {
     using namespace Desert::Graphic;
 
-    for ( const CloudTier& tier : kAllTiers )
+    for ( const CloudTier& tier : AllTiers() )
     {
         const CloudQualityScale scale      = tier.Scale;
         const float             extentKm   = CloudShadowExtentKmForScale( scale.ShadowMapScale );

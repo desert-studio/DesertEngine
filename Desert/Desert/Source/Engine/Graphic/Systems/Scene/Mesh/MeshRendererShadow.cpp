@@ -1172,7 +1172,8 @@ namespace Desert::Graphic::System
         for ( uint32_t k = run.Begin; k < run.End; ++k )
         {
             const std::optional<Common::Math::AABB> reach =
-                 IsmInstanceReach( lensCull, k, transforms[k], localBounds, ism.Wind, lodView.Origin );
+                 IsmInstanceReach( lensCull, ComponentInstanceIndex( ism.InstanceIds.get(), k ), transforms[k],
+                                   localBounds, ism.Wind, lodView.Origin );
             if ( !reach )
                 continue;
             const glm::vec3 point    = ShadowWindInstancePoint( transforms[k], boundsCentre );

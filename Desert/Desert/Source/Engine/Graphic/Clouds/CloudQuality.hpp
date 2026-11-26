@@ -126,6 +126,9 @@ namespace Desert::Graphic
      *   * half the shadow map is half its radius around the camera, the texel unchanged;
      *   * a stop transmittance of 0.05 saves 2.83 ms and moves no pixel by more than 10 of 255; 0.02 moves less.
      */
+    static_assert( Common::Scalability::kCloudLightMarchSamplesMax == ECS::kCloudLightMarchMaxSamples,
+                   "Effects.CloudLightMarchSamples' Max is the cloud march's sample array size" );
+
     [[nodiscard]] inline CloudQualityScale CloudQualityOf( const Common::Scalability::ResolvedQuality& quality )
     {
         using P = Common::Scalability::Parameter;

@@ -45,11 +45,11 @@
 Когда run Quality "Quality: GlobalIllumination.RadiosityUpdateFactor 32"
 Когда run Quality "Quality: GlobalIllumination.RadiosityProbeSpacing 8"
 Когда run Quality "Quality: GlobalIllumination.RadiosityHemisphereProbeResolution 2"
-Когда run Quality "Quality: ViewDistance.DrawDistanceScalePercent 90"
-Когда run Quality "Quality: ViewDistance.LandscapeGridErrorPercent 150"
-Когда run Quality "Quality: Foliage.InstanceDensityScalePercent 50"
+Когда run Quality "Quality: ViewDistance.DrawDistanceScalePercent 80"
+Когда run Quality "Quality: ViewDistance.LandscapeGridErrorPercent 200"
+Когда run Quality "Quality: Foliage.InstanceDensityScalePercent 40"
 Когда run Quality "Quality: Effects.CloudLightMarchSamples 8"
 Когда run Quality "Quality: Effects.CloudShadowMapScalePercent 50"
-Когда run Quality "Quality: Effects.CloudStopTransmittanceMilli 10"
+Когда run Quality "Quality: Effects.CloudStopTransmittanceMilli 20"
 Когда frames 60
 Тогда-вид ui_all the Quality panel lists TemporalQuality, the three Radiosity rows, MipBias and the six new rows; every override above was accepted

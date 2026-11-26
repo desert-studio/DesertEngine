@@ -69,15 +69,13 @@ namespace Desert::Editor
             return std::string( SC::LevelKey( static_cast<SC::Level>( level ) ) );
         }
 
-        // "High" when every listed group is recommended one level, else "Shadows Medium, Textures High, ...".
+        // "High" when every group is recommended one level, else "Shadows Medium, Textures High, ...".
         std::string RecommendedLabel( const std::array<SC::Level, SC::kGroupCount>& levels )
         {
             std::optional<SC::Level> uniform;
             bool                     isUniform = true;
             for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
             {
-                if ( !SC::IsGroupListed( static_cast<SC::Group>( g ) ) )
-                    continue;
                 if ( uniform && *uniform != levels[g] )
                     isUniform = false;
                 uniform = levels[g];
@@ -88,8 +86,6 @@ namespace Desert::Editor
             for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
             {
                 const auto group = static_cast<SC::Group>( g );
-                if ( !SC::IsGroupListed( group ) )
-                    continue;
                 std::format_to( std::back_inserter( text ), "{}{} {}", text.empty() ? "" : ", ",
                                 SC::GroupKey( group ), SC::LevelKey( levels[g] ) );
             }
@@ -116,13 +112,12 @@ namespace Desert::Editor
                                                       selection.Levels[static_cast<std::size_t>( spec.Owner )] );
         }
 
-        // The listed groups (IsGroupListed): the ones a level slider moves.
-        std::vector<SC::Group> ListedGroups()
+        // Every group: each owns a row (scalability_contract_test), so a level slider moves each.
+        std::vector<SC::Group> AllGroups()
         {
             std::vector<SC::Group> groups;
             for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
-                if ( SC::IsGroupListed( static_cast<SC::Group>( g ) ) )
-                    groups.push_back( static_cast<SC::Group>( g ) );
+                groups.push_back( static_cast<SC::Group>( g ) );
             return groups;
         }
 
@@ -183,7 +178,7 @@ namespace Desert::Editor
         std::optional<SC::Level> UniformLevel( const SC::GroupLevels& levels )
         {
             std::optional<SC::Level> uniform;
-            for ( const SC::Group group : ListedGroups() )
+            for ( const SC::Group group : AllGroups() )
             {
                 const SC::Level level = levels[static_cast<std::size_t>( group )];
                 if ( uniform && *uniform != level )
@@ -218,7 +213,7 @@ namespace Desert::Editor
                 SC::QualityState::SetAllGroups( *all );
             Utils::ImGuiUtilities::Tooltip( "Sets every group to one level and drops every override." );
 
-            for ( const SC::Group group : ListedGroups() )
+            for ( const SC::Group group : AllGroups() )
                 if ( const auto level =
                           LevelSlider( GroupLabel( group ), selection.Levels[static_cast<std::size_t>( group )] ) )
                     SC::QualityState::SetGroupLevel( group, *level );
@@ -457,7 +452,7 @@ namespace Desert::Editor
         if ( !ImGui::TreeNodeEx( "Internal parameters", ImGuiTreeNodeFlags_SpanAvailWidth ) )
             return;
         const std::vector<SC::Parameter> advanced = SC::ListedParameters( SC::ParameterVisibility::Advanced );
-        for ( const SC::Group group : ListedGroups() )
+        for ( const SC::Group group : AllGroups() )
         {
             const bool any = std::any_of( advanced.begin(), advanced.end(), [group]( SC::Parameter parameter )
                                           { return SC::SpecOf( parameter ).Owner == group; } );

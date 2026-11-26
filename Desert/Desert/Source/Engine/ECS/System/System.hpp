@@ -6,6 +6,11 @@
 #include <Engine/Core/WorldTime.hpp>
 #include <Engine/Graphic/Render/RenderCommandBuffer.hpp>
 
+namespace Common::Scalability
+{
+    struct ResolvedQuality;
+}
+
 namespace Desert::ECS
 {
     class System
@@ -54,6 +59,13 @@ namespace Desert::ECS
         // (AnimationECSSystem: AnimationComponent::UpdateAnimationInEditor). Whether a component previews is
         // the author's per-component choice; whether the editor world moves at all is the viewport's Realtime.
         virtual void SetEditorTick( const Common::Timestep& /*editorTs*/ )
+        {
+        }
+
+        // The machine's resolved quality, pushed by the scene's owner through Scene::SetQuality on the main
+        // thread before the systems run. Default no-op — a system that scales its output by a quality row
+        // (MeshECSSystem: Foliage.InstanceDensityScalePercent) keeps the value it reads; none reads QualityState.
+        virtual void SetQuality( const Common::Scalability::ResolvedQuality& /*quality*/ )
         {
         }
     };

@@ -364,6 +364,7 @@ namespace Desert::Graphic::GpuDriven
             instance.CullDistanceStart = desc.CullDistanceStart;
             instance.CullDistanceEnd   = desc.CullDistanceEnd;
             instance.WorldBoundsRow    = boundsRow;
+            instance.ComponentInstance = desc.ComponentInstances.empty() ? i : desc.ComponentInstances[i];
             m_DirtyInstances.push_back( row.FirstInstance + i );
         }
     }

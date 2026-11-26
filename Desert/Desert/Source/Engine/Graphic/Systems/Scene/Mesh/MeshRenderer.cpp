@@ -3395,6 +3395,9 @@ namespace Desert::Graphic::System
                 fields.push_back( { .Entity            = data.Entity,
                                     .Mesh              = data.Mesh,
                                     .Transforms        = *data.Transforms,
+                                    .ComponentInstances =
+                                         data.InstanceIds ? std::span<const uint32_t>( *data.InstanceIds )
+                                                          : std::span<const uint32_t>{},
                                     .CullDistanceStart = data.CullDistance.Min,
                                     .CullDistanceEnd   = data.CullDistance.Max,
                                     .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow, true ) |

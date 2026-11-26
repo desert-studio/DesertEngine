@@ -1896,7 +1896,7 @@ namespace Desert::Graphic::System
                                            const Core::Frustum& frustum )
     {
         DESERT_PROFILE_SCOPE( "Mesh: ISM view cull (rebuilt)" );
-        CollectIsmInstances( *ism.Transforms, entry.LocalBounds, frustum, ism.CullDistance, ism.Wind, entry.View,
+        CollectIsmInstances( *ism.Transforms, ism.InstanceIds.get(), entry.LocalBounds, frustum, ism.CullDistance, ism.Wind, entry.View,
                              entry.View, entry.LodScreenSizes, entry.Visible, entry.Levels, &entry.Indices,
                              &entry.OlderLevels );
         OrderIsmViewCullByLevel( entry );

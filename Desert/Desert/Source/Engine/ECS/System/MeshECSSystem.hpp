@@ -73,6 +73,12 @@ namespace Desert::ECS
             return true;
         }
 
+        void SetQuality( const Common::Scalability::ResolvedQuality& quality ) override
+        {
+            m_InstanceDensity = 0.01f * static_cast<float>( quality.As<int>(
+                                     Common::Scalability::Parameter::FoliageInstanceDensityScalePercent ) );
+        }
+
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
                      const Common::Timestep& ts ) override
         {
@@ -1273,15 +1279,14 @@ namespace Desert::ECS
             return build;
         }
 
-        // The share of a density-scaled type's instances drawn this update: the Foliage quality's, or all of them
-        // while the foliage mode edits the field (ECS::FoliageEditing).
-        [[nodiscard]] static float DrawnInstanceDensity( const entt::registry& registry )
+        // The share of a density-scaled type's instances drawn this update: the one the scene's owner passed
+        // (SetQuality), or all of them while the foliage mode edits the field (ECS::FoliageEditing).
+        [[nodiscard]] float DrawnInstanceDensity( const entt::registry& registry ) const
         {
             const auto* editing = registry.try_ctx<FoliageEditing>();
-            if ( ( editing != nullptr && editing->Active ) || !Common::Scalability::QualityState::Initialized() )
+            if ( editing != nullptr && editing->Active )
                 return 1.0f;
-            return 0.01f * static_cast<float>( Common::Scalability::QualityState::Resolved().As<int>(
-                                Common::Scalability::Parameter::FoliageInstanceDensityScalePercent ) );
+            return m_InstanceDensity;
         }
 
         // The record draws @p density of its instances (Graphic::KeepsInstanceAtDensity, by component index). The
@@ -1815,6 +1820,11 @@ namespace Desert::ECS
         // field. And whether any point source blows: then a field sways even in still directional air.
         glm::vec2 m_DirectionalWindXZ{ 0.0f };
         bool      m_LocalWind = false;
+        // Foliage.InstanceDensityScalePercent / 100, passed by the scene's owner (SetQuality); until the first
+        // push the row's spec Default, the table's own value for a scene no owner configures (an asset preview).
+        float m_InstanceDensity = 0.01f * static_cast<float>( Common::Scalability::SpecOf(
+                                                Common::Scalability::Parameter::FoliageInstanceDensityScalePercent )
+                                                .Default );
 
         // The retained static scene's state (RecordStaticScene).
         const entt::registry*                                              m_StaticRegistry         = nullptr;

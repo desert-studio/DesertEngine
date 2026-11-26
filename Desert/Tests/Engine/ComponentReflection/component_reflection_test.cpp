@@ -15,6 +15,7 @@
 #include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Graphic/Clouds/CloudPayload.hpp>
 #include <Engine/Graphic/Clouds/CloudQuality.hpp>
+#include "../../TestSupport/shipped_scalability.hpp"
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
@@ -1530,12 +1531,19 @@ namespace
         const char*                        Name;
         Desert::Graphic::CloudQualityScale Scale;
     };
-    // The Effects levels' values (Scalability.json): Low, Medium, and the identity High and above run.
-    const CloudTier kAllQualityTiers[] = {
-         { "Low", { 16, 0.5f, 0.05f } },
-         { "Medium", { Desert::ECS::kCloudLightMarchMaxSamples, 0.5f, 0.02f } },
-         { "High", {} },
-    };
+    // The Effects levels the shipped table runs (Scalability.json, read, never copied): Low, Medium, and High,
+    // the identity every level above it runs too.
+    std::vector<CloudTier> AllQualityTiers()
+    {
+        const auto table = Desert::TestSupport::ShippedScalabilityTable();
+        EXPECT_TRUE( table.IsSuccess() ) << table.GetError();
+        if ( !table.IsSuccess() )
+            return {};
+        using Common::Scalability::Level;
+        return { { "Low", Desert::TestSupport::ShippedCloudQuality( table.GetValue(), Level::Low ) },
+                 { "Medium", Desert::TestSupport::ShippedCloudQuality( table.GetValue(), Level::Medium ) },
+                 { "High", Desert::TestSupport::ShippedCloudQuality( table.GetValue(), Level::High ) } };
+    }
 
     // The component's default Max Steps, which no tier lowers.
     constexpr float kTierMaxSteps = 256.0f;
@@ -1568,7 +1576,7 @@ TEST( CloudQualityTier, TheTierCapsTheShadowRayAndLeavesTheMarchAlone )
     shape.DensityFactor    = 1.0f;
     shape.ExtinctionFactor = 1.0f;
 
-    for ( const CloudTier& tier : kAllQualityTiers )
+    for ( const CloudTier& tier : AllQualityTiers() )
     {
         const Desert::Graphic::CloudQualityScale scale = tier.Scale;
         const Desert::Graphic::CloudGpuPayload   payload = Desert::Graphic::PackCloudParams(
@@ -1603,7 +1611,7 @@ TEST( CloudQualityTier, TheTierCapsTheShadowRayAndLeavesTheMarchAlone )
     // side.
     data.LightMarchSamples = 8;
     data.StopTransmittance = 0.2f;
-    for ( const CloudTier& tier : kAllQualityTiers )
+    for ( const CloudTier& tier : AllQualityTiers() )
     {
         const Desert::Graphic::CloudQualityScale scale = tier.Scale;
         const Desert::Graphic::CloudGpuPayload   payload = Desert::Graphic::PackCloudParams(

@@ -57,6 +57,11 @@ namespace Desert::ECS
     class System;
 }
 
+namespace Common::Scalability
+{
+    struct ResolvedQuality;
+}
+
 namespace Desert::Core
 {
     class ISceneModuleState;
@@ -444,6 +449,12 @@ namespace Desert::Core
         {
             return m_State == SceneState::Play;
         }
+
+        // WHAT THIS MACHINE CAN AFFORD, pushed by the scene's owner (the editor's SceneWorkspace, the runtime's
+        // RuntimeLayer) on the main thread before OnUpdate, beside the renderer's own SetQuality: handed straight
+        // to every system (System::SetQuality), which keeps only the values it reads. A system never reads
+        // QualityState itself (UE: the owner passes the resolved scalability value in).
+        void SetQuality( const Common::Scalability::ResolvedQuality& quality );
 
         // The world's clock (Engine/Core/WorldTime.hpp): the ONE time source for everything that moves in
         // this scene's picture. Ticked once per frame at the top of OnUpdate.

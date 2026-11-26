@@ -613,6 +613,10 @@ namespace Common::Scalability
     // The first parameter that needs a fraction states it in its unit (percent, per-mille) instead.
     using ParameterValue = int32_t;
 
+    // Effects.CloudLightMarchSamples' Max: the volumetric cloud march's own sample array size
+    // (ECS::kCloudLightMarchMaxSamples, which Graphic/Clouds/CloudQuality.hpp static_asserts equal to this).
+    inline constexpr ParameterValue kCloudLightMarchSamplesMax = 64;
+
     // Which catalog list a parameter's values are checked against, if any.
     enum class CatalogList : int
     {
@@ -677,15 +681,11 @@ namespace Common::Scalability
     [[nodiscard]] const ParameterSpec&           SpecOf( Parameter parameter );
     [[nodiscard]] std::string_view               GroupKey( Group group ); // "Shadows", "AntiAliasing", ...
     [[nodiscard]] std::string_view               LevelKey( Level level ); // "Low" ... "Cinematic"
-    // What a selector (editor panel, palette, game menu, console listing) shows: every parameter, and the groups
-    // owning at least one.
-    [[nodiscard]] std::vector<Parameter> ListedParameters();
-    // The listed parameters shown to @p visibility (a menu: Basic; a selector's advanced section: Advanced).
+    // The parameters shown to @p visibility (a menu: Basic; a selector's advanced section: Advanced).
     [[nodiscard]] std::vector<Parameter> ListedParameters( ParameterVisibility visibility );
     // The names a by-name parameter's values are written with (Scalability.json, a selector's combo), index =
     // value; empty for a numeric parameter.
     [[nodiscard]] std::span<const std::string_view> ParameterValueNames( Parameter parameter );
-    [[nodiscard]] bool                   IsGroupListed( Group group );
 
     // A full set of values, one per parameter, indexed by Parameter. Unset slots do not exist: the table loader
     // refuses a level that does not set every parameter of its group.

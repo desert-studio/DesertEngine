@@ -1475,6 +1475,12 @@ namespace Desert::Core
         r.prepare<ECS::SocketAttachmentComponent>();
     }
 
+    void Scene::SetQuality( const Common::Scalability::ResolvedQuality& quality )
+    {
+        for ( auto& system : m_Systems )
+            system->SetQuality( quality );
+    }
+
     void Scene::ExecuteSystems( const Common::Timestep& gameplayTs )
     {
         // BEFORE ANY PARALLEL GROUP OPENS. See PrepareComponentPools for the race this closes; it is

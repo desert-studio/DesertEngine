@@ -15,6 +15,9 @@
 // THE DECLARATIONS, at the scene-read slots (Core::kLandscapeVirtual*Binding, ShaderGraphBindings.hpp), so any cell -
 // the terrain G-buffer and a mesh that blends into the ground (RVT-MESH-BLEND) - reads the one RVT through one text,
 // bound by name as scene-view inputs (FrameGraphRefs.hpp BindSceneViewInputs, SceneViewInputs::LandscapeVirtualTexture).
+// The camera block (MaterialMipBias, LandscapeVirtualLevel) is already declared by both includers: the terrain's
+// surface (Programs/Terrain/TerrainSurface.glslh, its binding 0) and a material-sampling mesh cell
+// (Mesh/Surface/SurfaceLandscapeBlend.glslh refuses any other); the include guard makes this the same declaration.
 #include <Common/CameraUB.glslh>
 #include <Generated/SceneBindings.glslh>
 layout( std430, binding = kLandscapeVirtualPageTableBinding ) readonly buffer LandscapeVirtualPageTable

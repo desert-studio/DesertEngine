@@ -157,7 +157,7 @@ namespace Desert::Graphic::GpuDriven
     // LocalToWorld x InstanceToPrimitive; previous world = PrevLocalToWorld x InstanceToPrimitive (an instance
     // that moves inside its component re-uploads with its primitive's Prev: UE keeps instance prev-transforms the
     // same way, through the primitive).
-    struct GpuSceneInstance
+    struct alignas( 16 ) GpuSceneInstance
     {
         GpuAffine3x4 InstanceToPrimitive{};     // 0
         uint32_t     Primitive = kInvalidIndex; // 48 — its row in Primitives[]
@@ -167,8 +167,14 @@ namespace Desert::Graphic::GpuDriven
         // Pose bounds when the primitive has kWorldBoundsOverride: the row in WorldBoundsOverrides[]
         // (kInvalidIndex otherwise). Today MeshDrawCommand::WorldBounds (SkinnedPoseBounds).
         uint32_t WorldBoundsRow = kInvalidIndex; // 60
+        // The component's own index of this instance (Graphic::ComponentInstanceIndex): the distance fade's hash
+        // seed, so a field the density thinned fades each instance as the CPU culls do, and a density change
+        // keeps every instance's threshold. The row's index in the primitive's range when nothing thinned it.
+        uint32_t ComponentInstance = 0; // 64
+        // std430 struct-array stride: 80 = 5 x 16 (the vec4 rows align the struct to 16).
     };
-    static_assert( sizeof( GpuSceneInstance ) == 64, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( sizeof( GpuSceneInstance ) == 80, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuSceneInstance, ComponentInstance ) == 64, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuSceneInstance, Primitive ) == 48, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuSceneInstance, WorldBoundsRow ) == 60, "Common/GpuScene.glslh" );
 
