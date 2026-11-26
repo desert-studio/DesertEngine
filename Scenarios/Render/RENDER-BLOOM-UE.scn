@@ -10,10 +10,19 @@
 Тогда-вид bloom_off куб без ореола, база для сравнения
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomIntensity 0.675
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomThreshold -1
+# Bloom cost: the sum of the [GpuProfile] lines starting with "PostFX: Bloom" (per encoder on Apple, approximate there).
+Когда run Debug "GPU profiling: On"
+Когда 60 frames render
+Когда run Debug "Log GPU pass timings"
+Когда run Debug "GPU profiling: Off"
 Тогда-вид bloom_default заметный мягкий ореол вокруг куба, небо вдали как в bloom_off
-Дано set 17921165617746467452 PostProcessVolumeData.Settings.Bloom1Tint 0,0,0
-Тогда-вид bloom_tints ближний ореол у края куба (0–24 px) слабее, чем в bloom_default; дальний (64+ px) тот же
-Дано set 17921165617746467452 PostProcessVolumeData.Settings.Bloom1Tint 0.3465,0.3465,0.3465
+# Threshold above the exposed sky (~1) so only the emissive-60 cube blooms; Bloom2 carries the 5-24 px halo at this width.
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomThreshold 1.5
+Тогда-вид bloom_tints_base только куб светится: ореол вокруг куба, небо и земля без ореола
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.Bloom2Tint 0,0,0
+Тогда-вид bloom_tints ореол в 5–24 px от края куба слабее, чем в bloom_tints_base; у самого края (0–4 px) и дальний (64+ px) тот же
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.Bloom2Tint 0.138,0.138,0.138
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomThreshold -1
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposure true
 Дано --subject viewport set Camera.Direction 0.9,0.2,0
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposureLowPercent 10
