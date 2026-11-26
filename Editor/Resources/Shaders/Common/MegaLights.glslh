@@ -50,26 +50,8 @@
 // pixel (x, y) is texel (x, y + k * sample height).
 #define MEGALIGHTS_MAX_SAMPLES 4
 
-// MegaLightsViewUniforms (MegaLights.hpp), std140.
-Uniform(0) MegaLightsViewUB
-{
-	mat4  ViewProjection;            // unjittered, this frame
-	mat4  PreviousViewProjection;        // unjittered, the view's previous frame
-	mat4  InverseJitteredViewProjection; // the one the G-buffer was rasterised with
-	mat4  JitteredWorldToClip;    // the same, forward: the contact shadow marches the G-buffer depth with it
-	vec4  CameraPosition;            // xyz = the eye (cm), w = exposure of the target function (UE PreExposure)
-	uvec4 Counts;                    // x = point lights, y = spot lights, z = samples per pixel,
-	                                   // w = the visible-light hash of the previous frame is readable (0 / 1)
-	vec4  Params;                    // x = max shading weight, y = of a light hidden last frame,
-	                                   // z = shadow-ray normal bias (cm), w = the share of its sampling weight a
-	                                   // light hidden last frame keeps
-	uvec4 MegaLightsFrame;           // x = frame index, y = render width, z = render height, w = downsample factor
-	vec4  ContactShadowView;         // SceneResources ContactShadowView: x = steps (0 = off), y = tan(fov / 2),
-	                                   // z = dither frame (Common/ContactShadow.glslh)
-	uvec4 EmissiveCounts;            // the scene-lighting emissive list, static part: x = triangles, y = power tree
-	                                   // leaves, z = its levels, w = TLAS instances of its lookup (0: none)
-	uvec4 EmissiveDynamicCounts;     // its dynamic part: x = triangles, y = leaves, z = levels
-};
+#include <Generated/Shadows/MegaLights.glslh> // Shadows/MegaLightsLayout.hpp
+Uniform(0) MegaLightsViewUB { DESERT_MegaLightsView_MEMBERS };
 
 // The scene-lighting emissive triangles (RayTracing::EmissiveLightsFrame of SceneRenderer::
 // AddFrameSceneEmissiveLights; MegaLightsShaderParameters), bindings 60..66.

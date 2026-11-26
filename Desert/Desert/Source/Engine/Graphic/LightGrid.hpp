@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/GlobalIllumination/RadianceCache.hpp>
+#include <Engine/Graphic/LightingLayout.hpp>
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 
@@ -38,12 +39,7 @@ namespace Desert::Graphic
     //     coarse far away — where the probes are), and its lists are COMPACT: the CPU bounds the total number of
     //     (light, cell) pairs exactly from the light spheres, so no cap and no list is ever dropped.
 
-    // Which cells a grid lists its lights in (LIGHT_GRID_LAYOUT_* in Mesh/LightGrid.glslh).
-    enum class LightGridLayout : uint32_t
-    {
-        Frustum       = 0,
-        WorldClipmaps = 1,
-    };
+    // LightGridLayout (which cells a grid lists its lights in) is LightingLayout.hpp's.
 
     // The three quality values the frustum grid is cut by (Scalability, Shadows group; SceneRenderer::BeginScene).
     struct LightGridQuality
@@ -52,22 +48,6 @@ namespace Desert::Graphic
         uint32_t Slices           = 32; // depth slices (UE r.Forward.LightGridSizeZ)
         uint32_t MaxLightsPerCell = 32; // list capacity of one cell (UE r.Forward.MaxCulledLightsPerCell)
     };
-
-    // std430 layout — must match `struct LightGridParams` in Mesh/LightGrid.glslh (288 bytes).
-    struct LightGridParamsPayload
-    {
-        glm::mat4 View{ 1.0f };          // world -> the space cells are boxed in (frustum: view; world: identity)
-        glm::mat4 InvProjection{ 1.0f }; // frustum: clip -> view, of the jittered projection; world: unused
-        // frustum: tiles x, tiles y, slices, list capacity per cell;
-        // world: resolution, resolution, resolution x clipmaps, pool capacity (indices)
-        glm::uvec4 Size{ 1u };
-        glm::vec4  ZParams{ 0.0f }; // frustum: near, slices / log(far / near), far, tile edge in pixels
-        glm::uvec4 Counts{ 0u };    // point lights, spot lights, layout (LightGridLayout), world: clipmaps
-        glm::vec4  Extent{ 0.0f };  // frustum: render target width, height in pixels
-        // world: clipmap i's min corner (xyz, world cm) and cell size (w, cm) — RadianceCache::MakeClipmaps
-        glm::vec4 Clipmaps[RadianceCache::kMaxClipmaps]{};
-    };
-    static_assert( sizeof( LightGridParamsPayload ) == 288 );
 
     [[nodiscard]] inline uint32_t LightGridCellCount( const LightGridParamsPayload& grid )
     {

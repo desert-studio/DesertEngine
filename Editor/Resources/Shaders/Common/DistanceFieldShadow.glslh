@@ -16,24 +16,7 @@
 // length), the lists follow cell after cell; a frame whose lists need more than the room is refused on the GPU
 // (DistanceFieldShadowCullOffsets.shader: every list empty), never cut short.
 
-// std430 - System::DistanceFieldShadowGpuParams, 336 bytes.
-struct DistanceFieldShadowParams
-{
-    vec4  lightX;          // xyz = light-space x axis (unit), w = -dot(axis, camera)
-    vec4  lightY;          // the y axis
-    vec4  lightZ;          // the z axis: toward the sun
-    vec4  tiles;           // xy = the grid's light-space minimum corner (cm), zw = 1 / tile size (1/cm)
-    vec4  receivers;       // x = the lowest receiver's light-space z (cm), y = tan(sun angle / 2),
-                           // z = the mesh fields' receivers' farthest distance from the camera (cm; past it the
-                           // trace's far field, the global field alone), w = the band (UV width)
-    uvec4 counts;          // x = objects (the meshes, then the landscape tiles), y = tiles a side,
-                           // z = tiles in all, w = the list entries' room
-    mat4  invViewProjection; // the G-buffer's inverse jittered view-projection
-    mat4  lastCascade;     // the sun's last cascade's view-projection (receiver side)
-    vec4  camera;          // xyz = the camera (cm), w = 1 when the sun has a cascade (lastCascade valid)
-    vec4  gdfLevels[4];    // the global field's clipmaps (centre.xyz cm, voxel cm); voxel 0 = no field
-    vec4  extent;          // xy = the full-resolution extent (pixels), zw = the half-resolution trace's
-};
+#include <Generated/Shadows/DistanceFieldShadow.glslh> // DistanceFieldShadowParams: Shadows/DistanceFieldShadowLayout.hpp
 
 const uint DistanceFieldShadowHeaderStride = 2u;
 

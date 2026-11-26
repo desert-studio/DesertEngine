@@ -24,7 +24,7 @@ Shader "GrassBladeRayTracingVertices"
         // The variety's shape, the same GrassBladeShapeGpu the raster's GrassBladeShape buffer holds.
         ReadBuffer(0) GrassBladeShape
         {
-            GrassBladeShapeData Blade;
+            DESERT_GrassBladeShapeRecord_MEMBERS
         };
         ReadBuffer(1) GrassBladeStripVertices
         {

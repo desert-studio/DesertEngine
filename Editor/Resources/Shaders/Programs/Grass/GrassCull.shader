@@ -101,19 +101,12 @@ Shader "GrassCull"
         #include <Mesh/Surface/GrassBlade.glslh>
         #include <Deformation/DeformationFieldTrample.glslh>
 
-        // GrassRenderer.cpp GrassVarietyTableGpu: the camera's side planes, the cascades' caster boxes and the shadow
-        // wind rule's origin, then the rows (this pass's first).
+        // GrassLayout.hpp GrassVarietyTableGpu: the camera's side planes, the cascades' caster boxes (list k's at
+        // 6k..6k+5, GRASS-CULL-UNIFY-1), the shadow wind rule's origin and the trample window, then the rows (this
+        // pass's first).
         ReadBuffer(4) Varieties
         {
-            vec4            VarietyCameraPlanes[4]; // left / right / bottom / top, xyz.n + w >= 0 inside
-            // GRASS-CULL-UNIFY-1: list k's caster box at 6k..6k+5 (the six planes of the matrix the k-th live cascade
-            // view draws with, MeshRenderer::CascadeCasterBoxSet; GrassRenderer kGrassCascadeLists = 8 lists).
-            vec4            VarietyCascadePlanes[48];
-            vec4            VarietyCasterWindOrigin; // xyz = MeshRenderer::CasterWindOrigin (the main camera)
-            // DEFORM-GRASS-3: where the deformation field holds a press (GrassRenderer::SetTrampleWindow,
-            // GRASS-RASTER-COST: DeformationFieldRenderer::TrampledBox): xy world X, Z min, zw max (cm); min > max =
-            // nothing pressed.
-            vec4            VarietyTrampleWindow;
+            DESERT_GrassVarietyTable_MEMBERS
             GrassVarietyRow VarietyRows[];
         };
 
@@ -141,17 +134,10 @@ Shader "GrassCull"
         Uniform(2) texture2D GrassHzbTexture;
 
         // FPS-GRASS-SETUP-FUSE: per row of this pass (the variety table's row r) what its camera list's setup
-        // records need - mirrors Graphic::System::GrassBladeSetupRowGpu (GrassRenderer.cpp), std430: a blade
-        // variety's shape (the GrassBladeShapeData its cells read, without the hull; a mesh variety's setup section's
-        // rows in Visibility / BucketFirst), its view wind (Graphic::PackViewInstanceWind, the raster's draw row's
-        // WindA / WindB) and Kind.x (kCullSetupNone: nothing reads this row's records this frame).
-        struct GrassCullSetupRow
-        {
-            GrassBladeShapeData Shape;
-            vec4                WindA;
-            vec4                WindB;
-            uvec4               Kind;
-        };
+        // records need (GrassCullSetupRow, GrassLayout.hpp GrassBladeSetupRowGpu): a blade variety's shape (without
+        // the hull; a mesh variety's setup section's rows in Visibility / BucketFirst), its view wind
+        // (Graphic::PackViewInstanceWind, the raster's draw row's WindA / WindB) and Kind.x (kCullSetupNone: nothing
+        // reads this row's records this frame).
         ReadBuffer(5) CullSetupRows
         {
             GrassCullSetupRow CullSetup[];

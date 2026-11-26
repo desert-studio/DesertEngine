@@ -7,29 +7,10 @@
 
 #include <Common/FoliageWind.glslh>
 
-// The most cards a blade variety draws from (Assets::Serialization::kGrassBladeMaxCards).
-#define GRASS_BLADE_MAX_CARDS 8
-
-// Mirrors Graphic::System::GrassBladeShapeGpu (GrassBladeRayTracing.hpp), std430: a variety's shape. The blade's
-// look is its material's (a scanned blade atlas: albedo, normal, ORM, opacity); the shape carries only where on
-// that atlas each of its cards is and how the strip stands, bends and sways.
-struct GrassBladeShapeData
-{
-    vec4 Size;                         // Height cm, Stiffness, Curvature, card count
-    vec4 Bend;                         // CurvatureSpread, BendSpread, TrampledLength
-    vec4 Cards[GRASS_BLADE_MAX_CARDS]; // atlas rect: u0, v tip, u1, v root (texture space, v down the image)
-    // The view's visibility buffer (GRASS-VIS, Common/VisibilityBuffer.glslh): x = the variety's first raster-stream
-    // row (instance i is row x + i), y = the strip's level-0 segments, z = its bucket (= strip level) count.
-    uvec4 Visibility;
-    uvec4 BucketFirst[2]; // the first instance of bucket b < 8, [b / 4][b % 4] (GrassRenderer's bucket table)
-    // x = the camera list's first slot in the shared ids pool (CPU-GRASS-POOL-5), y = 1: the view's blade setup
-    // records exist this frame (read through the bound GrassBladeSetupRecords block, GRASS_BLADE_SETUP_BINDING;
-    // FPS-GRASS-BLADE-SETUP-BIND), 0: none; z = w = 0
-    uvec4 Lists;
-    // FPS-GRASS-HULL: GrassBladeShapeGpu goes on with HullTexels and Hull[128] (the cards' cooked hulls). They are
-    // NOT members here - a function takes this struct by value, and the hull is read only where the raster's
-    // strip is placed: the raster's buffer blocks declare them after it (Mesh/Surface/GrassBladeHull.glslh).
-};
+// GrassBladeShapeData (a variety's shape as its cells read it), GrassBladeShapeRecord (the shape buffer: it and
+// the cards' cooked hulls, Mesh/Surface/GrassBladeHull.glslh) and GrassCullSetupRow: generated from
+// Graphic::System's GrassLayout.hpp.
+#include <Generated/Grass/Grass.glslh>
 
 // The strip level instance @p instance was drawn with (GrassGenerate's bucket = GrassRenderer::BladeStrip's
 // submesh) and its segments: level 0 has Visibility.y, each next one half the last, down to one.
@@ -200,7 +181,7 @@ BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, 
 // the frame and the power (the press is the same field cell, the wind moves only the tip): only the tip and the
 // rise differ. FPS-GRASS-SETUP-TRIM: 64 bytes (was 96) - the positions and the rises stay full floats (the motion
 // vector is their difference), the unit axes go octahedral (snorm 2x16, ~1e-4 rad), the width a half, the card
-// (< GRASS_BLADE_MAX_CARDS) and the strip level's segments (<= kGrassBladeMaxSegments, 15) a byte each. Mirrors
+// (< kGrassBladeMaxCards) and the strip level's segments (<= kGrassBladeMaxSegments, 15) a byte each. Mirrors
 // GrassRenderer kBladeSetupRecordBytes (64), std430.
 struct GrassBladeSetupData
 {

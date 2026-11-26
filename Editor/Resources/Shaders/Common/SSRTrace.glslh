@@ -174,19 +174,8 @@ layout(binding = 41) uniform texture2D RadianceCacheRadianceAtlasTexture;
 // thread (a compute receiver has no fragment).
 layout(binding = 49) uniform texture2DArray ShadowCascadesTexture; // layer DirectionalShadow[slot].w + cascade
 #define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
-layout(std430, binding = 50) readonly buffer SsrShadowUB
-{
-    mat4 LightViewProjection[8]; // Mesh/ShadowUB.glslh's members (SceneResources::ShadowUBData), same packer
-    vec4 DirectionalShadow[2];
-    vec4 CascadeTexelWorld[2];
-    vec4 CascadeDepthRange[2];
-    vec4 DebugParams;            // unread here
-    vec4 ContactShadowView;      // z: the dither frame the soft filter's disc turns by
-    vec4 SunContactShadow;       // unread here
-    vec4 ShadowFilter;           // x = PCSS blocker search taps, y = filter taps
-    mat4 FarShadowViewProj[2]; // per slot: the far shadow (Mesh/ShadowUB.glslh)
-    vec4 FarShadow[2];
-};
+#include <Generated/Materials/ShadowUB.glslh> // ShadowUBData: Materials/SceneResourcesLayout.hpp
+layout(std430, binding = 50) readonly buffer SsrShadowUB { DESERT_ShadowUBData_MEMBERS }; // the composite's values, same packer
 #define CASCADED_SHADOW_NOISE_PIXEL vec2(gl_GlobalInvocationID.xy)
 #include <Mesh/CascadedShadow.glslh>
 #define GI_HIT_DIRECTIONAL_CASCADES

@@ -15,13 +15,7 @@
 // Off (Size.w == 0: any Shadows method but Stochastic, or no local light) the volumes are System.Black3D and
 // MegaLightsVolumeOn() is false.
 
-// std430 - Graphic::System::MegaLightsVolumeReadParams (MegaLightsVolume.hpp).
-struct MegaLightsVolumeReadParams
-{
-    mat4  View;    // world -> view (the camera looks down -z; depth = -(View * p).z), this frame, unjittered
-    vec4  ZParams; // x = near (cm), y = slices / log(far / near), z = far (cm), w = froxel edge in render pixels
-    uvec4 Size;    // xyz = froxels, w = on (1) / off (0)
-};
+#include <Generated/Shadows/MegaLights.glslh> // Shadows/MegaLightsLayout.hpp
 
 layout( std430, binding = kMegaLightsVolumeParamsBinding ) readonly buffer MegaLightsVolumeUB
 {

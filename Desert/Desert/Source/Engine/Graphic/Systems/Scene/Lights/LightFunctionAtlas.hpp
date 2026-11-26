@@ -3,6 +3,7 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/LightingLayout.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -29,18 +30,6 @@ namespace Desert::Graphic::System
 {
     // A tile's side in texels: Mesh/LightFunctionAtlas.glslh LIGHT_FUNCTION_TILE_TEXELS (the reader's constant).
     inline constexpr uint32_t kLightFunctionTileTexels = 128u;
-
-    // One row of "LightFunctions.Rows" (std430, Common/LightFunction.glslh LightFunctionRow).
-    struct LightFunctionRowGpu
-    {
-        glm::vec4 Forward;   // w kind: 0 spot, 1 point / rect
-        glm::vec4 Tangent;   // w tan(outer cone) for a spot
-        glm::vec4 Bitangent; // cross( forward, tangent )
-        glm::vec4 Position;  // w range (cm)
-        glm::vec4 InvScale;  // xyz 1 / LightFunctionScale, w scene time (s)
-        glm::vec4 TileUV;    // the tile in atlas texture coordinates: x0, y0, x1, y1
-    };
-    static_assert( sizeof( LightFunctionRowGpu ) == 96, "LightFunctionRowGpu is the std430 LightFunctionRow" );
 
     // The pass's own input, the one spelling Declare binds and every light function program is validated against.
     struct LightFunctionShaderParameters

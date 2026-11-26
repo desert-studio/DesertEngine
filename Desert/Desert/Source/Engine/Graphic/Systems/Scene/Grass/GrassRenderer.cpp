@@ -76,9 +76,8 @@ namespace Desert::Graphic::System
         // UE grass.MaxCreatePerFrame: the tiles a variety builds in one frame, nearest first (the rest wait). A
         // build is two passes of one thread per cell; the view settles within N / 64 frames of N tiles.
         constexpr uint32_t kGrassTileBuildsPerFrame = 64u;
-        // GRASS-VRAM-BUDGET-1, THE POOL'S SEGMENTS (Common/GrassVarietyRows.glslh kGrassTileSegmentPages): the pool
-        // grows by segments of this many pages (3 MB), each its own buffer; a tile holds at most kGrassTileMostPages.
-        constexpr uint32_t kGrassTileSegmentPages = 1024u;
+        // GRASS-VRAM-BUDGET-1, THE POOL'S SEGMENTS (GrassLayout.hpp kGrassTileSegmentPages); a tile holds at most
+        // kGrassTileMostPages.
         constexpr uint32_t kGrassTileMostPages    = kGrassTileCells * kGrassTileCells / kGrassTilePageRecords;
         constexpr uint64_t kGrassTilePageBytes    = uint64_t{ kGrassTilePageRecords } * kGrassTileRecordBytes;
         constexpr uint64_t kGrassTileSegmentBytes = kGrassTilePageBytes * kGrassTileSegmentPages;
@@ -166,80 +165,7 @@ namespace Desert::Graphic::System
         static_assert( kGrassIdBytes == 4u && sizeof( glm::mat4 ) == 64u,
                        "GrassGenerate.shader: uint GrassCameraIdsData[] / GrassCascadeIdsData[], mat4 "
                        "GrassInstancesData[]" );
-        // GRASS-CULL-2 (UE GPUScene / InstanceCulling: one table describes every primitive's instances, and one
-        // dispatch culls them all): THE VARIETY TABLE GrassCull reads (Common/GrassVarietyRows.glslh, std430), written
-        // once per frame by WriteVarietyTable - the camera's side planes, then one row per culled variety
-        // (m_FrameCull). A row names the variety's buffers by
-        // device address (StorageBuffer::GetDeviceAddress: the copies this frame imports) and carries what the cull
-        // reads of its params, so a pass over every variety binds the table once.
-        struct GrassVarietyRowGpu
-        {
-            glm::uvec2 Instances;
-            glm::uvec2 Args;
-            glm::uvec2 CameraIds;
-            glm::uvec2 CameraArgs;
-            glm::uvec2 Candidates;
-            glm::uvec2 PostArgs;
-            glm::uvec2 Feedback;
-            glm::uvec2 CascadeArgs;
-            // x = bucket count, y = the bucket table's first word in Args, z = flags (kRowBlade), w = the cascade
-            // views with a list (VarietyGpu::CascadeMask)
-            glm::uvec4 Info;
-            glm::vec4  Bounds; // VarietyGpu::CullBounds
-            // GRASS-CULL-UNIFY-1, the cascades' lists GrassCull culls every frame: CascadeIds' address, x = one
-            // list's words (VarietyGpu::CascadeArgWords), y = its first rest count, and list k's ring at [k / 2]
-            // .xy / .zw (VarietyGpu::CascadeRings).
-            glm::uvec2 CascadeIds;
-            glm::uvec2 CascadeWords;
-            glm::vec4  CascadeRings[kGrassCascadeLists / 2u];
-            // GRASS-VIEW-LAW-1, what the view law reads and writes (Common/GrassVarietyRows.glslh, the chunk
-            // contract): the build's chunks (VarietyGpu::Chunks, its header holds the room), the variety's params,
-            // the field, the tile pool and the full list's ids. std430 rounds the GLSL row to its 16-byte
-            // alignment, which Pad spells out.
-            glm::uvec2 Chunks;
-            glm::uvec2 Params;
-            glm::uvec2 Field;
-            glm::uvec2 TilePool;
-            glm::uvec2 FullIds;
-            // GRASS-CULL-COST-3, THE LAW'S SLOTS (GrassCull.shader LawChunk): the law generation
-            // (VarietyGpu::LawGeneration, never 0: a chunk the build wrote carries 0) and the slots of Instances.
-            uint32_t   LawGeneration = 0u;
-            uint32_t   LawCapacity   = 0u;
-            // CPU-GRASS-POOL-5: the ranges' first row of Instances and first slot of each id list in their pools
-            // (GrassCull.shader adds them to the ids it writes and to the records' firstInstance).
-            uint32_t   InstancesBase  = 0u;
-            uint32_t   FullIdsBase    = 0u;
-            uint32_t   CameraIdsBase  = 0u;
-            uint32_t   CascadeIdsBase = 0u;
-            // CPU-GRASS-POOL-7: the mark FinalizeFull writes into Feedback (VarietyGpu::FeedbackMark).
-            uint32_t   FeedbackMark = 0u;
-            uint32_t   Pad[3]       = {};
-            // LOD-DITHER-GRASS-SIDE: the law's two LOD eyes (VarietyGpu::LodEyes; GrassCull.shader GrassViewLaw).
-            glm::vec4 LodEyes[2]{ glm::vec4( 0.0f ), glm::vec4( 0.0f ) };
-        };
-        static_assert(
-             sizeof( GrassVarietyRowGpu ) == 288,
-             "Common/GrassVarietyRows.glslh GrassVarietyRow: 8 uvec2, uvec4 Info at 64, vec4 Bounds at 80, "
-             "uvec2 CascadeIds at 96, uvec2 CascadeWords at 104, vec4 CascadeRings[4] at 112, uvec2 Chunks at 176, "
-             "Params at 184, Field at 192, TilePool at 200, FullIds at 208, uint LawGeneration at 216, uint "
-             "LawCapacity at 220, uint InstancesBase at 224, FullIdsBase at 228, CameraIdsBase at 232, "
-             "CascadeIdsBase at 236, FeedbackMark at 240, std430's 12 bytes of padding at 244, vec4 LodEyes[2] at "
-             "256" );
-        static_assert( offsetof( GrassVarietyRowGpu, LodEyes ) == 256u );
-        struct GrassVarietyTableGpu
-        {
-            glm::vec4 CameraPlanes[4]; // the camera's side planes (ViewVolumes::Camera): the camera cull's
-            // GRASS-CULL-UNIFY-1: the cascades' caster boxes (ViewVolumes::CascadePlanes) and the shadow wind
-            // rule's origin (MeshRenderer::CasterWindOrigin of the first list's view): GrassCull's CascadeCull.
-            glm::vec4 CascadePlanes[kGrassCascadeLists * 6u];
-            glm::vec4 CasterWindOrigin;
-            // DEFORM-GRASS-3: the deformation field's window (ViewVolumes::TrampleWindow): GrassCull's CullInstance
-            // tests a blade rooted inside it by its root sphere of laid-flat reach.
-            glm::vec4 TrampleWindow;
-        };
-        static_assert( sizeof( GrassVarietyTableGpu ) == 864,
-                       "GrassCull.shader Varieties: VarietyCameraPlanes[4], "
-                       "VarietyCascadePlanes[48], VarietyCasterWindOrigin, VarietyTrampleWindow before the rows" );
+        // GrassVarietyTableGpu / GrassVarietyRowGpu, THE VARIETY TABLE GrassCull reads: GrassLayout.hpp.
         // GrassVarietyRows.glslh kGrassRowBlade: a blade strip's records, sets of one record per bucket.
         constexpr uint32_t kRowBlade = 1u;
         // GrassVarietyRows.glslh kGrassRowCascadesHeld: the row's cascade lists hold from an earlier frame
@@ -364,46 +290,6 @@ namespace Desert::Graphic::System
             for ( glm::vec4& plane : guard )
                 plane.w += chord * glm::length( glm::vec3( plane ) );
         }
-
-        // Mirrors GrassGenerate's GrassParams (std430).
-        struct GrassParamsGpu
-        {
-            // GRASS-CULL-UNIFY-1: no view volume and no cascade in it - the tile cull keeps the field about the
-            // field eye (FieldEye: xyz), the same for every view and every turn of the camera.
-            glm::vec4  Camera;
-            glm::vec4  Cull;
-            glm::vec4  Range;
-            glm::vec4  ScaleX;
-            glm::vec4  ScaleY;
-            glm::vec4  ScaleZ;
-            glm::uvec4 Info;
-            // x = bucket count, y = the bucket table's first word in Args, z = a blade's card count, w = a blade's
-            // finest strip segment count when the LOD of the curve is on (Lod.x / y; 0: off)
-            glm::uvec4 Buckets;
-            glm::vec4  Blade;   // x = LodDistance (0: one bucket), y = ClumpSize, z = Clumping, w = ClumpPull
-            // x = Scatter (cells), y = Patchiness, z = PatchSize, w = the screen-width floor's distance (cm, 0: none)
-            glm::vec4  Spread;
-            // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm), w = the screen-width
-            // floor's width per unit of distance (MinScreenWidth / pixels per unit; 0: none)
-            glm::vec4  Lean;
-            // A mesh's per-instance level by screen size (Geometry::BoundsScreenRadiusSquared): x = the lens's
-            // screen multiple x the mesh's local half-diagonal, y = |Projection[2][3]| (0: orthographic) x the
-            // Foliage quality's MeshLodDistanceScale squared (FPS-GRASS-MESH-RASTER, UE foliage.LODDistanceScale).
-            // A blade's LOD of the curve (FPS-GRASS-RASTER-COST): x = Height x PixelsPerUnit, y = the Foliage
-            // quality's BladeSegmentPixels (0, 0: off; GrassFieldShare.glslh GrassBladeCurveLevel).
-            // The far LOD of a blade (GPU-FRAME-4) or a mesh (GPU-FRAME-6): z = the distance at which its bounding
-            // radius at scale 1 stands at the Foliage quality's LodScreenPixels (0: none; GrassFieldShare.glslh
-            // GrassBladeLodAt, GrassMeshFarLod). w, a blade: the distance its coarsest level's instances draw
-            // from as the small bucket (BladeStrip's BladeSmall; 0: none); a mesh: 0.
-            glm::vec4 Lod;
-            // The variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = the noise seed's
-            // bits (shared by a Group).
-            glm::vec4 Patches;
-            // A blade's cards' widths, cm at scale 1 (card i at [i / 4][i % 4], Buckets.z of them): the card an
-            // instance draws (Mesh/Surface/GrassBlade.glslh BladeCard) is lifted to the screen-width floor.
-            glm::vec4 CardWidths[2];
-        };
-        static_assert( sizeof( GrassParamsGpu ) == 240 );
 
         // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened on each side by
         // one jittered cell and by @p moved, the farthest a blade's scatter and clump pull carry it from its cell.
@@ -550,24 +436,6 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( Sampler, DeformationFieldSampler );
         };
 
-        // GrassCull.shader's GrassCullSetupRow (FPS-GRASS-SETUP-FUSE), std430: a culled row's blade variety's
-        // GrassBladeShapeData (GrassBladeShapeGpu without the hull) or mesh variety's setup section's rows, the raster
-        // draw row's view wind (PackViewInstanceWind) and what its camera slots' records are.
-        struct GrassBladeSetupRowGpu
-        {
-            glm::vec4                 Size{ 0.0f };
-            glm::vec4                 Bend{ 0.0f };
-            std::array<glm::vec4, 8>  Cards{};
-            glm::uvec4                Visibility{ 0u };
-            std::array<glm::uvec4, 2> BucketFirst{};
-            glm::uvec4                Lists{ 0u };
-            glm::vec4                 WindA{ 0.0f };
-            glm::vec4                 WindB{ 0.0f };
-            // x = kCullSetupNone / kCullSetupBlade / kCullSetupMesh, yzw = 0.
-            glm::uvec4 Kind{ 0u };
-        };
-        static_assert( sizeof( GrassBladeSetupRowGpu ) == 272 );
-        static_assert( offsetof( GrassBladeSetupRowGpu, Lists ) == offsetof( GrassBladeShapeGpu, Lists ) );
         inline constexpr uint64_t kBladeSetupRecordBytes = 64u; // GrassBlade.glslh GrassBladeSetupData
 
         // FPS-GRASS-BLADE-SETUP, ONE MESH SETUP A VARIETY (UE 5 Nanite: instance data is per instance, never per
@@ -1294,14 +1162,12 @@ namespace Desert::Graphic::System
         if ( variety.Blade )
         {
             const GrassBladeDraw&    b = *variety.Blade;
-            const size_t             cards = std::min( b.Cards.size(), gpu.ShapeData.Cards.size() );
-            gpu.ShapeData =
-                 GrassBladeShapeGpu{ glm::vec4( b.Height, b.Stiffness, b.Curvature, static_cast<float>( cards ) ),
-                                     glm::vec4( b.CurvatureSpread, b.BendSpread, b.TrampledLength, 0.0f ) };
-            std::copy_n( b.Cards.begin(), cards, gpu.ShapeData.Cards.begin() );
+            const size_t             cards = std::min( b.Cards.size(), gpu.ShapeData.Blade.Cards.size() );
+            gpu.ShapeData = GrassBladeShapeGpu{ .Blade = GrassBladeShapeDataGpu{
+                 .Size = glm::vec4( b.Height, b.Stiffness, b.Curvature, static_cast<float>( cards ) ),
+                 .Bend = glm::vec4( b.CurvatureSpread, b.BendSpread, b.TrampledLength, 0.0f ) } };
+            std::copy_n( b.Cards.begin(), cards, gpu.ShapeData.Blade.Cards.begin() );
             // FPS-GRASS-HULL: the cards' cooked hulls (UE SubUV cutout), when the Foliage quality draws them.
-            static_assert( std::tuple_size_v<decltype( GrassBladeShapeGpu::Hull )> ==
-                           kGrassBladeMaxCards * kGrassBladeHullClasses * kGrassBladeHullBands / 2u );
             const size_t hullVec4s = cards * kGrassBladeHullClasses * kGrassBladeHullBands / 2u;
             if ( m_Quality.BladeCardHull && b.CardHulls.size() >= hullVec4s && b.HullTexels.x > 0.0f &&
                  b.HullTexels.y > 0.0f )
@@ -1320,15 +1186,15 @@ namespace Desert::Graphic::System
             gpu.VisibilityRow = static_cast<uint32_t>( m_VisibilityRows );
             m_VisibilitySectionFirstRows.push_back( gpu.VisibilityRow );
             m_VisibilityRows += std::max( capacity, 1u );
-            gpu.ShapeData.Visibility =
+            gpu.ShapeData.Blade.Visibility =
                  glm::uvec4( gpu.VisibilityRow, b.Segments, std::min( buckets, kGrassBladeVisibilityMaxBuckets ),
                              std::max( capacity, 1u ) ); // w = the rows it owns (its resolve's bound)
             // CPU-GRASS-POOL-5: the raster's instance index is a slot of the shared ids pool; less x, the variety's.
-            gpu.ShapeData.Lists =
+            gpu.ShapeData.Blade.Lists =
                  glm::uvec4( static_cast<uint32_t>( gpu.CameraIds.Offset / kGrassIdBytes ), 0u, 0u, 0u );
             for ( uint32_t bucket = 0, first = 0; bucket < std::min( buckets, kGrassBladeVisibilityMaxBuckets );
                   first += capacities[bucket], ++bucket )
-                gpu.ShapeData.BucketFirst[bucket / 4u][bucket % 4u] = first;
+                gpu.ShapeData.Blade.BucketFirst[bucket / 4u][bucket % 4u] = first;
             // FPS-GRASS-PLAN: written into Shape by CommitVarietyObjects (render thread).
         }
 
@@ -1524,8 +1390,8 @@ namespace Desert::Graphic::System
             // through the bound GrassBladeSetupRecords block (GpuInstancedRenderData::SetupRecords, the reads
             // declared on the graph), bounded by its length - never at a device address this per-frame shape copy
             // held, which a growth of the records moved under every copy written before it.
-            gpu.ShapeData.Lists.y = m_BladeSetupAddress != 0u && m_BladeSetup != nullptr ? 1u : 0u;
-            gpu.ShapeData.Lists.z = 0u;
+            gpu.ShapeData.Blade.Lists.y = m_BladeSetupAddress != 0u && m_BladeSetup != nullptr ? 1u : 0u;
+            gpu.ShapeData.Blade.Lists.z = 0u;
             if ( const auto wrote = gpu.Shape->SetData( &gpu.ShapeData, sizeof( gpu.ShapeData ) );
                  !wrote.IsSuccess() )
             {
@@ -3264,8 +3130,8 @@ namespace Desert::Graphic::System
                     for ( MeshRenderer::GpuInstancedRenderData& section : sections )
                     {
                         section.BladeGeometry = blas.GetValue();
-                        section.BladeSize     = gpu->ShapeData.Size;
-                        section.BladeBend     = gpu->ShapeData.Bend;
+                        section.BladeSize     = gpu->ShapeData.Blade.Size;
+                        section.BladeBend     = gpu->ShapeData.Blade.Bend;
                     }
                 else
                     LOG_ERROR(
@@ -3825,20 +3691,15 @@ namespace Desert::Graphic::System
                 if ( !tabled || mesh.Visibility.y == 0u || mesh.Visibility.z == 0u || mesh.Visibility.w == 0u )
                     continue;
                 // Visibility: the setup section's first row, its rows per instance, levels, the list's slots.
-                row.Visibility =
+                row.Shape.Visibility =
                      glm::uvec4( mesh.Visibility.x, mesh.Visibility.y, mesh.Visibility.z, mesh.Slots.x );
-                row.BucketFirst = mesh.BucketFirst;
-                row.Lists       = glm::uvec4( mesh.Slots.y, 0u, 0u, 0u );
-                row.Kind        = glm::uvec4( kCullSetupMesh, 0u, 0u, 0u );
+                row.Shape.BucketFirst = mesh.BucketFirst;
+                row.Shape.Lists       = glm::uvec4( mesh.Slots.y, 0u, 0u, 0u );
+                row.Kind              = glm::uvec4( kCullSetupMesh, 0u, 0u, 0u );
                 continue;
             }
-            row.Size        = gpu.ShapeData.Size;
-            row.Bend        = gpu.ShapeData.Bend;
-            row.Cards       = gpu.ShapeData.Cards;
-            row.Visibility  = gpu.ShapeData.Visibility;
-            row.BucketFirst = gpu.ShapeData.BucketFirst;
-            row.Lists       = gpu.ShapeData.Lists;
-            row.Kind        = glm::uvec4( kCullSetupBlade, 0u, 0u, 0u );
+            row.Shape = gpu.ShapeData.Blade;
+            row.Kind  = glm::uvec4( kCullSetupBlade, 0u, 0u, 0u );
         }
         m_FrameSetupRows = graph.CreateBuffer( RDG::BufferDesc{ rows.size() * sizeof( GrassBladeSetupRowGpu ) },
                                                "GrassCullSetupRows" );

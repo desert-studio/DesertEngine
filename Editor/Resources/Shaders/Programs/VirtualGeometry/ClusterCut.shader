@@ -118,19 +118,7 @@ Shader "ClusterCut"
         {
             VgRasterArgs RasterArgs;
         };
-        Buffer(14) ClusterCutStatus
-        {
-            uint StackOverflow;    // nodes a full stack could not take
-            uint StackOverflowDag; // lowest DAG row among them (VG_INVALID_INDEX = none)
-            uint MissingSlot;      // candidates whose primitive has no lod-0 draw slot for the DAG's submesh
-            uint MissingSlotDag;
-            uint VisibleOverflow;  // clusters past Params.y
-            uint VisibleOverflowDag;
-            uint OccludedNodes;    // node children the previous-frame HZB hid (their subtree not visited)
-            uint OccludedClusters; // clusters of the cut the previous-frame HZB hid
-            uint BinnedVgInstances; // copied from the candidates' count block (WriteDispatchArgs), for the readback
-            uint OccludedOverflow;  // occluded entries past the carry's capacity (main phase; lost for one frame)
-        };
+        Buffer(14) ClusterCutStatus { DESERT_VgClusterCutStatus_MEMBERS }; // VirtualGeometryLayout.hpp ClusterCutStatus
         Buffer(15) ClusterCutDispatchArgs
         {
             uint DispatchX;

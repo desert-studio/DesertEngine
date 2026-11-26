@@ -65,15 +65,7 @@ uint VsmCutViewLayer( uint cutView, uint clipmapLevels )
 // whose own mip is not mapped falls back to it (VsmLocalOccluderDistance).
 #define VSM_LOCAL_COARSE_MIP 6u
 
-struct VsmFrame
-{
-    mat4 InvViewProjection; // the view's inverse jittered view-projection (reversed-Z device depth -> world)
-    vec4 CameraFootprint;   // xyz = camera position cm, w = world size of one render pixel per cm of distance
-    vec4 Lod;               // x = resolution LOD bias (levels), y = level count, z = first level, w = frame index
-    vec4 ToSun;             // xyz = toward the sun, w = SourceAngle radians
-    vec4 Smrt;              // x = rays per pixel, y = samples per ray, z = normal bias texels, w = ray length pages
-    vec4 SmrtLocal;         // x = samples per local light ray, y = extrapolation max slope (depth cm per lateral cm)
-};
+#include <Generated/Shadows/VirtualShadowMap.glslh> // VsmFrame, VsmLevel, VsmLocalLight, VsmPageEntry: Shadows/VirtualShadowMapLayout.hpp
 
 // A LEVEL is one virtual map of the page table: a clipmap level of the sun (VSM_LEVEL_CLIPMAP, the first
 // Frame.Lod.y levels) or one mip of one view of a point / spot light (VSM_LEVEL_LOCAL: a spot has one view, a point
@@ -83,35 +75,6 @@ struct VsmFrame
 #define VSM_LEVEL_LOCAL   1u
 #define VSM_LOCAL_MIPS    8u // VSM_MAX_MIP_LEVELS: 128 x 128 pages at mip 0 down to 1 x 1
 #define VSM_LOCAL_POINT_CONE -2.0 // VsmLocalLight.Spot.w of a point light: no cone
-
-struct VsmLevel
-{
-    mat4  ViewProjection; // world -> level clip: standard Z [0, 1]; orthographic (sun) or perspective (local)
-    ivec4 Window;         // xy = world page coordinate of the window's page 0 (local: 0), z = absolute level (local:
-                          // mip), w = 1 reset now
-    vec4  Extent;         // x = page world size cm (local: 0), y = depth range cm (local: far), z = radius cm (local:
-                          // near), w = texel world size cm (local: at unit distance from the light)
-    uvec4 Pages;          // x = first page-table entry, y = pages per side (0 = unused level), z = VSM_LEVEL_*,
-                          // w = local: the light's index in VsmLocalLights (VSM_INVALID: not shaded this frame)
-};
-
-// One point / spot light shaded from the map this frame ("VSM: Mark Local", "VSM: Project Local").
-struct VsmLocalLight
-{
-    vec4  Position; // xyz cm, w attenuation radius cm
-    vec4  Spot;     // xyz out of the cone apex, w cos outer half-angle (VSM_LOCAL_POINT_CONE = a point light)
-    uvec4 Views;    // x = level of its view 0 mip 0 (view v mip m = x + v * VSM_LOCAL_MIPS + m), y = view count,
-                    // z = its screen-mask layer, w = finest mip its pixels may ask for
-    vec4  Params;   // x = near cm, y = far cm, z = texel world size at unit distance (mip 0), w = source radius cm
-};
-
-struct VsmPageEntry
-{
-    uint Physical; // physical page index, valid with VSM_FLAG_ALLOCATED
-    uint Flags;
-    int  TagX;     // the world page coordinate the physical page holds
-    int  TagY;
-};
 
 // The entry of world page @p worldPage of level @p level (toroidal: & 127 is the Euclidean modulo for negatives too).
 uint VsmEntryIndex( uint level, ivec2 worldPage )
@@ -271,7 +234,6 @@ float VsmLocalLinearDepth( float z, float nearPlane, float farPlane )
 {
     return nearPlane * farPlane / max( farPlane - z * ( farPlane - nearPlane ), 1.0e-6 );
 }
-
 
 // THE CASTER PAGE TEST's footprint, the one statement of it (UE CullPerPageDrawCommands / Nanite's VSM page cull):
 // the "VSM: Dirty Mask" cells [lowCell, highCell] a world box covers in the level @p viewProjection projects into

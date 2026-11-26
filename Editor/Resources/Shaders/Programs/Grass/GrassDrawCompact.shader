@@ -22,20 +22,11 @@ Shader "GrassDrawCompact"
     {
         LocalSize(64, 1, 1);
 
-        // GpuInstances.hpp GpuDrawCompactEntry (std430, 32 bytes).
-        struct CompactEntry
-        {
-            uvec2 Records; // the run's first record
-            uvec2 DrawRow; // its draws' GpuInstanceDrawRow
-            uint  Count;   // records in the run
-            uint  Stride;  // bytes between them (a multiple of four)
-            uint  Bin;
-            uint  FirstSlot; // the entry's first slot of Commands / DrawRows
-        };
+        #include <Generated/GpuInstances/GpuInstances.glslh> // GpuDrawCompactEntry: GpuInstancesLayout.hpp
 
         ReadBuffer(0) CompactTable
         {
-            CompactEntry CompactEntries[];
+            GpuDrawCompactEntry CompactEntries[];
         };
 
         // GpuDrawBinRefs: kGpuDrawBinCommandBytes per slot.
@@ -88,7 +79,7 @@ Shader "GrassDrawCompact"
             const uint k = gl_GlobalInvocationID.x;
             if ( e >= Compact.x )
                 return;
-            const CompactEntry entry = CompactEntries[e];
+            const GpuDrawCompactEntry entry = CompactEntries[e];
             // FPS-DEVLOST9 (UE: every GPU-written count bounded by a CPU-known capacity at its producer): an entry
             // is gathered whole or not at all - its bin inside the counts, its slots inside the commands and the
             // draw rows, and every one of its records reached by this dispatch (Compact.y) - so a bin's drawn count

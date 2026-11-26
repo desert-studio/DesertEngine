@@ -143,10 +143,9 @@ namespace Desert::Graphic::RayTracing
     // TerrainRayHit.glslh LandscapeRayHitRowRef, slot by slot: Tile 77 (TerrainInstance 1232 B), Tint 1, Weightmap
     // 1, MaterialValues 19 (the weather's last), LayerMaps 8 - LayerMaps[7] is the last slot (105). The view (camera, grass lens) is
     // not a primitive's: the hit reads it from the frame's view block (CameraUB, ShaderProtocols/Camera.hpp).
-    static_assert(
-         sizeof( System::TerrainInstance ) == 77u * sizeof( glm::vec4 ) && kLandscapeRayHitRowSlots == 106u,
-         "LandscapeRayHitRow must match TerrainRayHit.glslh LandscapeRayHitRowRef (LayerMaps 98..105, no "
-         "view slot)" );
+    static_assert( kLandscapeRayHitRowSlots == 106u,
+                   "LandscapeRayHitRow must match TerrainRayHit.glslh LandscapeRayHitRowRef (LayerMaps 98..105, no "
+                   "view slot)" );
     [[nodiscard]] Core::Formats::MaterialParamRow
     LandscapeRayHitRow( const LandscapeRayTracingMaterial& material );
 

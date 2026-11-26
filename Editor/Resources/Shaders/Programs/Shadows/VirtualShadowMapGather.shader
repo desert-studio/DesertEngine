@@ -19,18 +19,7 @@ Shader "VirtualShadowMapGather"
         {
             uint Owners[];
         };
-        Buffer(2) VsmAllocator
-        {
-            uint  EmptyCount;
-            uint  CachedCount;
-            uint  AllocationCursor;
-            uint  DirtyCount;
-            uint  Overflow;
-            uint  StaticRedrawn;  // of DirtyCount, the pages whose static layer is redrawn
-            uint  MovableRedrawn; // of DirtyCount, the pages whose static layer is copied (the movers drawn alone)
-            uint  Padding;
-            uvec4 ClearArgs; // VkDispatchIndirectCommand of "VSM: Clear Pages"
-        };
+        Buffer(2) VsmAllocator { DESERT_VsmAllocatorRecord_MEMBERS };
         Buffer(3) VsmLists
         {
             uint Lists[]; // [0, n) empty, [n, 2n) cached, [2n, 3n) dirty entries; n = physical page count

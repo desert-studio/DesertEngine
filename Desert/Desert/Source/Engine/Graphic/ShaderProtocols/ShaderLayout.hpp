@@ -68,6 +68,8 @@ namespace Desert::Graphic::ShaderProtocols
     DESERT_GLSL_TYPE( glm::uvec3, "uvec3", 12, 16, 16 )
     DESERT_GLSL_TYPE( glm::uvec4, "uvec4", 16, 16, 16 )
     DESERT_GLSL_TYPE( glm::mat4, "mat4", 64, 16, 16 )
+    // A device address (VkDeviceAddress): GLSL reads it as uvec2 (GL_EXT_buffer_reference_uvec2).
+    DESERT_GLSL_TYPE( uint64_t, "uvec2", 8, 8, 8 )
 #undef DESERT_GLSL_TYPE
 
     // A DESERT_SHADER_STRUCT type: found through ADL on std::type_identity<T> (the macro defines ShaderStructOf).

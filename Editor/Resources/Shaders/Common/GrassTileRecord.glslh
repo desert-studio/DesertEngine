@@ -10,32 +10,7 @@
 #error "define GRASS_FIELD_WORD( i ) before including GrassTileRecord.glslh"
 #endif
 
-// Mirrors Graphic::System::GrassParamsGpu (GrassRenderer.hpp), std430.
-struct GrassParams
-{
-    vec4  Camera;    // xyz = the field eye (cm: the camera snapped to the tile grid, GrassRenderer FieldEye), w = EndCullDistance through the lens
-    vec4  Cull;      // x, y = Start/EndCullDistance through the lens (DrawDistanceScale), z = cell (cm), w = max jitter (cells)
-    vec4  Range;     // x/y = AllowedDensityRange, z = MaxScaleWeightAttenuation, w = bounds radius (local)
-    vec4  ScaleX;    // x/y = ScaleX range, z = scaling (0 uniform, 1 free, 2 lock XY), w = flags
-    vec4  ScaleY;    // x/y = ScaleY range, z = bounds centre height (local)
-    vec4  ScaleZ;    // x/y = ScaleZ range (up), w = the floor of the lens share (1 / DrawDistanceScale, at most 1; LensShare)
-    uvec4 Info;      // x = layer, y = capacity, z = submesh count, w = seed
-    uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args, z = a blade's card count,
-                     // w = a blade's finest strip segment count, the LOD of the curve on (0: off; Lod.x / y)
-    vec4  Blade;     // x = LodDistance through the lens (0: one bucket), y = ClumpSize cm, z = Clumping, w = ClumpPull
-    vec4  Spread;    // x = Scatter (cells a blade may stray past its own), y = Patchiness, z = PatchSize cm,
-                     // w = the screen-width floor's distance D (cm; 0: none), the mean blade MinScreenWidth px
-    vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm),
-                     // w = the screen-width floor's width per unit of distance (MinScreenWidth px; 0: none)
-    vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|;
-                     // a blade's LOD of the curve (FPS-GRASS-RASTER-COST): x = Height x PixelsPerUnit, y = the
-                     // Foliage quality's BladeSegmentPixels (GrassFieldShare.glslh GrassBladeCurveLevel);
-                     // the far LOD of a blade or a mesh: z = the distance at which its bounding radius at scale 1
-                     // stands at the Foliage quality's LodScreenPixels (0: no far LOD; GrassFieldShare.glslh
-                     // GrassBladeLodAt, GrassMeshFarLod)
-    vec4  Patches;   // the variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = seed bits
-    vec4  CardWidths[2]; // a blade's cards' widths, cm at scale 1: card i at [i / 4][i % 4], Buckets.z cards
-};
+#include <Generated/Grass/Grass.glslh>
 layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassParamsRef
 {
     GrassParams Data[];

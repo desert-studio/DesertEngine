@@ -27,6 +27,7 @@
 #include <span>
 #include <string_view>
 #include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/MegaLightsLayout.hpp>
 
 // THE MEGALIGHTS TRANSLUCENCY VOLUME (UE 5.5 MegaLights' volume + TranslucencyLightingVolume; Shadows Stochastic):
 // the surfaces that have no G-buffer pixel - the forward meshes and the translucent ones - take their local lights
@@ -93,33 +94,6 @@ namespace Desert::Graphic::System
         float Near = 1.0f;
         float Far  = 2.0f;
     };
-
-    // MegaLightsVolumeViewUB (Programs/Shadows/MegaLightsVolume.shader), std140.
-    struct MegaLightsVolumeUniforms
-    {
-        glm::mat4  InvViewProjection;
-        glm::mat4  View;
-        glm::mat4  PrevView;
-        glm::mat4  PrevViewProjection;
-        glm::vec4  ZParams;     // near, slices / log(far / near), far, froxel edge (px)
-        glm::vec4  PrevZParams; // the same, of the frame the history was written in
-        glm::uvec4 Size;        // froxels xyz, frame index
-        glm::uvec4 Counts;      // points, spots, samples per froxel, history readable
-        glm::vec4  Params;      // history weight, ray bias (cm), render extent (px)
-        glm::mat4  JitteredViewProjection;    // the screen trace: the matrices the HZB's depth was drawn with
-        glm::mat4  InvJitteredViewProjection;
-        glm::vec4  CameraPosition; // xyz
-    };
-    static_assert( sizeof( MegaLightsVolumeUniforms ) == 480 );
-
-    // MegaLightsVolumeUB (Common/MegaLightsVolume.glslh), std430: what a reader maps a fragment with.
-    struct MegaLightsVolumeReadParams
-    {
-        glm::mat4  View;
-        glm::vec4  ZParams;
-        glm::uvec4 Size; // froxels xyz, on (1) / off (0)
-    };
-    static_assert( sizeof( MegaLightsVolumeReadParams ) == 96 );
 
     // The volume OFF for this graph: a block whose Size.w is 0 and System.Black3D in the three slots. The forward
     // cell then loops its light grid, the glass adds no local light.

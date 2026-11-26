@@ -12,16 +12,7 @@
 //   point / rect: local = DesertLightFunctionOctEncode( (dot(d, tangent), dot(d, bitangent), dot(d, forward)) )
 // local in [-1, 1]^2, y = -1 at the tile's first texel row.
 
-// One row of "LightFunctions.Rows" (System::LightFunctionRowGpu, 96 bytes std430).
-struct LightFunctionRow
-{
-    vec4 Forward;   // the light's forward (the IES frame); w kind: 0 spot, 1 point / rect
-    vec4 Tangent;   // the light's tangent; w tan(outer cone) for a spot
-    vec4 Bitangent; // cross(forward, tangent)
-    vec4 Position;  // world position (cm); w the light's range (cm)
-    vec4 InvScale;  // xyz 1 / LightFunctionScale (1/cm), w the scene time (s)
-    vec4 TileUV;    // the tile in atlas texture coordinates: x0, y0, x1, y1
-};
+#include <Generated/Lighting/LightFunction.glslh> // LightFunctionRow: LightingLayout.hpp System::LightFunctionRowGpu
 
 const float LIGHT_FUNCTION_KIND_SPOT = 0.0;
 // The distance (cm) at which a light function's LightVector is taken: UE's default LightFunctionScale, so a light
