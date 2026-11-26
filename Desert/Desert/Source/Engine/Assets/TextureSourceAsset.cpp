@@ -28,9 +28,9 @@ namespace Desert::Assets
 
     namespace
     {
-        // 1 = without ColorSpace, 2 = without AlphaCoverageThresholds, 3 = without ColorDilationMask
-        // (UpgradeTextureSourceAsset only)
-        constexpr uint32_t kTextureImportInfoVersion = 4;
+        // 1 = without ColorSpace, 2 = without AlphaCoverageThresholds, 3 = without ColorDilationMask,
+        // 4 = without ArraySlotFormat (UpgradeTextureSourceAsset only)
+        constexpr uint32_t kTextureImportInfoVersion = 5;
 
         void PutString( std::vector<std::byte>& out, const std::string_view s )
         {
@@ -88,6 +88,7 @@ namespace Desert::Assets
             PutU64( out, info.Settings.ColorDilationMask.Texture.Lo );
             PutU32( out, info.Settings.ColorDilationMask.Channel );
             PutU32( out, std::bit_cast<uint32_t>( info.Settings.ColorDilationMask.Threshold ) );
+            PutU32( out, info.Settings.ArraySlotFormat ? 1u : 0u );
             return out;
         }
 
@@ -129,6 +130,14 @@ namespace Desert::Assets
                          "texture ImportInfo has dilation mask channel {} threshold {}; a channel is 0..3 and a "
                          "threshold is in [0, 1]",
                          mask.Channel, mask.Threshold );
+            }
+            if ( expected >= 5 )
+            {
+                const auto slot = static_cast<uint32_t>( r.Get( 4 ) );
+                if ( r.Ok && slot > 1 )
+                    return Common::MakeFormattedError<TextureImportInfo>(
+                         "texture ImportInfo has ArraySlotFormat {}; it is 0 or 1", slot );
+                info.Settings.ArraySlotFormat = slot == 1;
             }
             if ( !r.Ok || r.At != bytes.size() )
                 return Common::MakeError<TextureImportInfo>(
@@ -380,6 +389,9 @@ namespace Desert::Assets
             // that rule re-derives masked textures alone, the way EncoderVersion re-derives all of them.
             PutU32( out, kTextureMaskedGateVersion );
         }
+        // Appended only when set, like the mask: a texture outside a texture array keeps its key and DDC entry.
+        if ( settings.Import.ArraySlotFormat )
+            PutU32( out, Common::Content::FourCC( "SLOT" ) );
         if ( settings.Bc7Effort != 1.0f )
         {
             PutU32( out, Common::Content::FourCC( "ENCE" ) );
@@ -602,12 +614,19 @@ namespace Desert::Assets
             return Common::MakeSuccess( Out{} );
         if ( IsLegacyTextureIntentSidecar( file ) )
             return Common::MakeError<Out>( std::string( kLegacyTextureIntentSidecarRefusal ) );
-        // Version 3 (no ColorDilationMask) first, then 2 (no AlphaCoverageThresholds either), then 1 (no ColorSpace).
-        uint32_t                   from     = 3;
+        // Version 4 (no ArraySlotFormat) first, then 3 (no ColorDilationMask either), then 2 (no
+        // AlphaCoverageThresholds either), then 1 (no ColorSpace).
+        uint32_t                   from     = 4;
+        const CC::SubsystemVersion v4[]     = { { kTextureAssetSubsystemTag, 4 } };
         const CC::SubsystemVersion v3[]     = { { kTextureAssetSubsystemTag, 3 } };
         const CC::SubsystemVersion v2[]     = { { kTextureAssetSubsystemTag, 2 } };
         const CC::SubsystemVersion v1[]     = { { kTextureAssetSubsystemTag, 1 } };
-        auto                       envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v3 } );
+        auto                       envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v4 } );
+        if ( !envelope.IsSuccess() )
+        {
+            from     = 3;
+            envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v3 } );
+        }
         if ( !envelope.IsSuccess() )
         {
             from     = 2;
@@ -700,6 +719,20 @@ namespace Desert::Assets
         if ( asset.Import.Settings.AlphaCoverageThresholds == thresholds )
             return Common::MakeSuccess( false );
         asset.Import.Settings.AlphaCoverageThresholds = thresholds;
+        if ( const auto written = WriteTextureSourceAssetFile( path, asset ); !written.IsSuccess() )
+            return Common::MakeError<bool>( written.GetError() );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<bool> SetTextureArraySlotFormat( const std::filesystem::path& path, const bool arraySlotFormat )
+    {
+        auto read = ReadTextureSourceAssetFile( path );
+        if ( !read.IsSuccess() )
+            return Common::MakeError<bool>( read.GetError() );
+        TextureSourceAsset asset = read.ExtractValue();
+        if ( asset.Import.Settings.ArraySlotFormat == arraySlotFormat )
+            return Common::MakeSuccess( false );
+        asset.Import.Settings.ArraySlotFormat = arraySlotFormat;
         if ( const auto written = WriteTextureSourceAssetFile( path, asset ); !written.IsSuccess() )
             return Common::MakeError<bool>( written.GetError() );
         return Common::MakeSuccess( true );
