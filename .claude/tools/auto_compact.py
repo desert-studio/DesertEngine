@@ -93,8 +93,8 @@ def type_into(tty, text, enters):
     keys = "\n".join(['        delay 0.7\n        tell application "System Events" to key code 36'] * enters)
     # Empty the prompt box first: whatever is left there would be sent together with @p text.
     wipe = "\n".join(['        tell application "System Events"\n'
-                      '          keystroke "e" using control down\n'
-                      '          keystroke "u" using control down\n'
+                      '          key code 14 using control down\n'
+                      '          key code 32 using control down\n'
                       '          key code 51\n'
                       '        end tell'] * CLEAR_LINES)
     script = f'''
@@ -108,7 +108,11 @@ tell application "Terminal"
         delay 0.5
 {wipe}
         delay 0.2
-        tell application "System Events" to keystroke "{text}"
+        -- Owner 11-26: `keystroke` types through the active layout, so with Russian on "/compact" arrived as
+        -- "/ффффффф" and every garbled prompt started another lead turn. Paste by key code instead.
+        set the clipboard to "{text}"
+        delay 0.1
+        tell application "System Events" to key code 9 using command down
 {keys}
         return "typed"
       end if
