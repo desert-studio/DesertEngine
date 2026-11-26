@@ -95,4 +95,10 @@ namespace Desert::Runtime
         m_Prefabs.clear();
         m_PrefabFailed.clear();
     }
+
+    FoliageTypeService* GetFoliageTypeService()
+    {
+        static FoliageTypeService foliageTypeService;
+        return &foliageTypeService;
+    }
 } // namespace Desert::Runtime

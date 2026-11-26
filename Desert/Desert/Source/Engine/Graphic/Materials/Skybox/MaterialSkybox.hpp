@@ -52,13 +52,9 @@ namespace Desert::Graphic
 
         const Environment& GetEnvironment() const { return m_Environment; }
 
-        /// GRAPH BUILD, by every view that draws this skybox, at the head of its graph (SkyboxRenderer::
-        /// AddSkyCapturePasses): a cache miss's conversion (EnvironmentConvolution) is recorded WHOLE by the first
-        /// view's graph, ahead of every pass that samples the cubes, and the environment is set at once -- that
-        /// view and every view after it read it. A later frame's call hands the converted cubes to the cache
-        /// writer: the graph that wrote them has been submitted by then. A hit, or a finished conversion, adds
-        /// nothing.
-        void AddConvolutionPasses( RDG::Builder& graph, FrameTextures& textures );
+        /// The Renderer records a cache miss's conversion and hands the cubes to the cache writer
+        /// (Systems/Scene/Skybox/SkyboxConvolution.hpp): this material only holds the conversion's state.
+        friend void AddSkyboxConvolutionPasses( MaterialSkybox& material, RDG::Builder& graph, FrameTextures& textures );
 
         bool IsUsingBaseMaterial() const { return m_BaseMaterial.lock() != nullptr; }
 
@@ -78,7 +74,9 @@ namespace Desert::Graphic
         // A cache miss's conversion, until its cubes are handed to the cache writer; the capture that records it,
         // made for the miss only; and the frame whose graph recorded it (the writer begins in a later one).
         std::optional<EnvironmentConvolution> m_Convolution;
-        std::unique_ptr<System::SkyCapture>   m_Capture;
+        // Made by the Renderer (SkyboxConvolution.cpp) with its deleter, so this Engine-side material never
+        // names the capture's code.
+        std::shared_ptr<System::SkyCapture>   m_Capture;
         uint64_t                              m_ConvertedFrame = ~uint64_t{ 0 };
 
         TextureCubeProperty* m_CubeMapTexture = nullptr;

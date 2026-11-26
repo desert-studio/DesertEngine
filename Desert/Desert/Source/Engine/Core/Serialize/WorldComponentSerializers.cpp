@@ -1,3 +1,4 @@
+#include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Core/Serialize/ComponentSerializerKit.hpp>
 #include <Engine/ECS/ProceduralFoliageComponent.hpp>
 
@@ -45,20 +46,24 @@ namespace Desert::Core::Serialize::Builtins
             s.Key = "Foliage";
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::FoliageComponent>(); };
 
-            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
+            // The type is the Foliage module's asset: the engine names it only by its content-registry row (the
+            // GUID its handle is HandleForGuid of) and has the module announce it (ModuleHooks().AssetTypes).
+            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& /*assetManager*/ ) -> Common::Json::Value
             {
                 const auto&                 foliage = entity.GetComponent<ECS::FoliageComponent>();
                 Common::Json::ObjectBuilder out;
-                if ( const auto type = assetManager.FindByHandle<Assets::FoliageTypeAsset>( foliage.FoliageType ) )
+                if ( !foliage.FoliageType )
+                    return { out.Build() };
+                const auto handle = static_cast<uint64_t>( foliage.FoliageType );
+                if ( const auto guid = Assets::ContentRegistry::GuidForHandle( handle ); guid && !guid->IsNull() )
                 {
-                    out.Set( "FoliageTypeGuid", Common::Content::AssetGuidToText( type->Guid() ) );
-                    out.Set( "FoliageTypePath",
-                             Common::AssetHandle::StableKeyForPath( type->GetMetadata().Filepath ) );
+                    out.Set( "FoliageTypeGuid", Common::Content::AssetGuidToText( *guid ) );
+                    out.Set( "FoliageTypePath", Assets::ContentRegistry::KeyForHandle( handle ) );
                 }
-                else if ( foliage.FoliageType )
+                else
                 {
-                    LOG_ERROR( "[Foliage] Entity '{}' names foliage type handle {} that no loaded asset carries; "
-                               "its reference is saved empty",
+                    LOG_ERROR( "[Foliage] Entity '{}' names foliage type handle {} that no content-registry row "
+                               "carries; its reference is saved empty",
                                entity.GetComponent<ECS::TagComponent>().Tag,
                                static_cast<uint64_t>( foliage.FoliageType ) );
                 }
@@ -86,16 +91,26 @@ namespace Desert::Core::Serialize::Builtins
 
                 const auto guid    = Common::Content::AssetGuidFromText( guidText );
                 auto&      manager = const_cast<Assets::AssetManager&>( assetManager );
-                Assets::Asset<Assets::FoliageTypeAsset> type;
+                uint64_t   type    = 0;
                 if ( guid )
                 {
-                    type = manager.FindByHandle<Assets::FoliageTypeAsset>( Common::UUID(
-                         static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ) );
-                    if ( !type )
-                        type = Assets::CreateFromRegistryGuid<Assets::FoliageTypeAsset>(
-                             manager, guid.GetValue(), Common::Content::ContentKind::FoliageType );
+                    const auto handle = static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) );
+                    for ( const Core::AssetAnnouncer& announcer : Core::ModuleHooks().AssetTypes )
+                    {
+                        if ( std::string_view( announcer.Type ) != "FoliageTypeAsset" )
+                            continue;
+                        if ( announcer.IsRecorded( manager, handle ) )
+                            type = handle;
+                        else
+                            for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::FoliageType ) )
+                                if ( row.Guid && *row.Guid == guid.GetValue() )
+                                {
+                                    type = announcer.Announce( manager, row.Path );
+                                    break;
+                                }
+                    }
                 }
-                if ( !type )
+                if ( type == 0 )
                 {
                     // REFUSED, NOT SUBSTITUTED: a field painted with defaults would look like the scene's grass
                     // while being nobody's.
@@ -108,7 +123,7 @@ namespace Desert::Core::Serialize::Builtins
                          entity.GetComponent<ECS::TagComponent>().Tag, guidText, path );
                     return;
                 }
-                foliage.FoliageType = type->GetMetadata().Handle;
+                foliage.FoliageType = Assets::AssetHandle( type );
             };
 
             out.push_back( std::move( s ) );

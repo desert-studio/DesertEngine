@@ -44,7 +44,6 @@
 #include <Engine/Assets/SoundAsset.hpp>
 #include <Engine/Assets/IesProfileAsset.hpp>
 #include <Engine/Assets/SparseVolumeAsset.hpp>
-#include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/WorldParametersAsset.hpp>
 #include <Engine/Assets/WeatherPresetAsset.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>

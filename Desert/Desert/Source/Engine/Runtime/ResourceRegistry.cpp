@@ -6,7 +6,6 @@
 #include <Engine/Runtime/Services/CloudModelling/CloudModellingService.hpp>
 #include <Engine/Runtime/Services/CloudNoise/CloudNoiseService.hpp>
 #include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
-#include <Engine/Runtime/Services/Foliage/FoliageTypeService.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Runtime/Services/Icon/IconService.hpp>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
@@ -140,12 +139,6 @@ namespace Desert::Runtime
         return &uiThemeService;
     }
 
-    FoliageTypeService* ResourceRegistry::GetFoliageTypeService()
-    {
-        static FoliageTypeService foliageTypeService;
-        return &foliageTypeService;
-    }
-
     PhysicsAssetService* ResourceRegistry::GetPhysicsAssetService()
     {
         static PhysicsAssetService physicsAssetService;
@@ -193,7 +186,6 @@ namespace Desert::Runtime
         GetCloudTypeService()->BindAssetManager( assets );
         GetUIThemeService()->BindAssetManager( assets );
         GetSkyboxService()->BindAssetManager( assets );
-        GetFoliageTypeService()->BindAssetManager( assets );
         for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
             service.Bind( assets );
         GetPhysicsAssetService()->BindAssetManager( assets );
@@ -226,7 +218,6 @@ namespace Desert::Runtime
         GetCloudModellingService()->Clear();
         GetCloudLayoutService()->Clear();
         GetUIThemeService()->Clear();
-        GetFoliageTypeService()->Clear();
         for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
             service.Clear();
         GetPhysicsAssetService()->Clear();

@@ -449,7 +449,9 @@ TEST( ProceduralEnvironmentCube, AMissIsConvertedInTheFrameGraph )
          ReadAll( root + "Desert/Desert/Source/Engine/Graphic/Materials/Skybox/MaterialSkybox.cpp" ) );
     EXPECT_NE( material.find( "EnvironmentManager::Create( baseAsset, m_Convolution )" ), std::string::npos )
          << "MaterialSkybox does not keep the miss's conversion, so no graph ever records it";
-    const std::string passes = BodyOf( material, "void MaterialSkybox::AddConvolutionPasses(" );
+    const std::string convolution = StripComments( ReadAll(
+         root + "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyboxConvolution.cpp" ) );
+    const std::string passes = BodyOf( convolution, "void AddSkyboxConvolutionPasses(" );
     ASSERT_FALSE( passes.empty() );
     EXPECT_NE( passes.find( "->BeginPanorama(" ), std::string::npos )
          << "the miss is not converted by the sky capture's graph passes";

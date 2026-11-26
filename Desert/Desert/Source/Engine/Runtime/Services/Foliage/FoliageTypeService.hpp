@@ -54,4 +54,8 @@ namespace Desert::Runtime
         std::unordered_map<std::string, Assets::Asset<Assets::PrefabAsset>>              m_Prefabs;
         std::unordered_map<std::string, std::string>                                     m_PrefabFailed;
     };
+
+    /// The Foliage module's one FoliageTypeService (bound and cleared with the engine's services through
+    /// Core::ModuleHooks, World/Foliage/FoliageModule.cpp).
+    FoliageTypeService* GetFoliageTypeService();
 } // namespace Desert::Runtime

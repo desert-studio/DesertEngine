@@ -5,7 +5,8 @@
   "process-wide EnTT type index (ProcessTypeIndex): one per process by definition, the reason module DLLs share EnTT ids",
   "BINT-STATE: header state moved to its owner .cpp and AssetEviction/Input/EngineContext re-placed - the same entries under new keys; every rule total equal or lower (layer-matrix 264 -> 195)",
   "BINT-RC relocations, totals unchanged: the image service static moved with Runtime::GetImageService from ResourceRegistry.cpp into ImageService.cpp (RenderCore); the ordering touch in ResourceRegistry.cpp now calls that free function; MacOSDisplayLuminance's existing edge to DisplayOutput.hpp now lands on RenderCore instead of Renderer (one layer lower)",
-  "BINT-ENG-A: the one VideoService instance moved from ResourceRegistry.cpp (Engine) into the Media module that holds its code, so no Engine-owned destructor runs in an unloaded DLL; hidden_statics total unchanged"
+  "BINT-ENG-A: the one VideoService instance moved from ResourceRegistry.cpp (Engine) into the Media module that holds its code, so no Engine-owned destructor runs in an unloaded DLL; hidden_statics total unchanged",
+  "BINT-ENG-C: the one FoliageTypeService instance moved with Runtime::GetFoliageTypeService from ResourceRegistry.cpp (Engine) into FoliageTypeService.cpp (Foliage), bound and cleared through ModuleHooks().Services; hidden_statics total unchanged"
  ],
  "content-name": {
   "Desert/Common/Source/Common/Core/Constants.hpp:\"The engine directory is set once at process start (editor: Sandbox.hpp, tools: \"": 1
@@ -683,8 +684,8 @@
   "Desert/Desert/Source/Engine/Runtime/ResourceRegistry.cpp:static CloudModellingService cloudModellingService;": 1,
   "Desert/Desert/Source/Engine/Runtime/ResourceRegistry.cpp:static CloudNoiseService cloudNoiseService;": 1,
   "Desert/Desert/Source/Engine/Runtime/ResourceRegistry.cpp:static CloudTypeService cloudTypeService;": 1,
-  "Desert/Desert/Source/Engine/Runtime/ResourceRegistry.cpp:static FoliageTypeService foliageTypeService;": 1,
   "Desert/Desert/Source/Engine/Runtime/ResourceRegistry.cpp:static FontService fontService;": 1,
+  "Desert/Desert/Source/Engine/Runtime/Services/Foliage/FoliageTypeService.cpp:static FoliageTypeService foliageTypeService;": 1,
   "Desert/Desert/Source/Engine/Runtime/ResourceRegistry.cpp:static IconService iconService;": 1,
   "Desert/Desert/Source/Engine/Runtime/ResourceRegistry.cpp:static IesProfileService iesProfileService;": 1,
   "Desert/Desert/Source/Engine/Runtime/ResourceRegistry.cpp:static MaterialService materialService;": 1,
