@@ -7,7 +7,7 @@ CC0) already in Content, its blades are FieldBarn's grass_bermuda_01.
 
 Usage: python -I scripts/Content/water_shore_assets.py <download dir>   (<dir>/<asset id>/... as Poly Haven ships them)
 """
-import json, os, shutil, sys
+import json, os, shutil, struct, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from content_files import content, dump_text, envelope_guid, guid_of, load_text, write_texture
@@ -28,10 +28,28 @@ LAYERS = [
     ("ShoreGrass", None, (0.45, 0.52, 0.4), 250.0, 1.4, (0.11, 0.17, 0.045)),
 ]
 BOULDERS = {
-    "namaqualand_boulder_03": ("boulder_03", (-1.0548, -0.0147, -1.3896), (1.3523, 1.4585, 1.6758)),
-    "namaqualand_boulder_04": ("boulder_04", (-1.3403, -0.0294, -1.0310), (1.1819, 1.8711, 1.4654)),
-    "namaqualand_boulder_06": ("namaqualand_boulder_06", (-0.3207, -0.0185, -0.6608), (0.3543, 0.6332, 0.5511)),
+    "namaqualand_boulder_03": "boulder_03",
+    "namaqualand_boulder_04": "boulder_04",
+    "namaqualand_boulder_06": "namaqualand_boulder_06",
 }
+
+
+def f32(value):
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+def import_bounds(gltf_path):
+    """The box the importer computes (ImportRecord compares it with float equality): every POSITION accessor's
+    min/max as float32, times float32(100) in float32 - metres to centimetres, exactly as the engine does it."""
+    gltf = load_text(gltf_path)
+    low, high = [float("inf")] * 3, [float("-inf")] * 3
+    for mesh in gltf["meshes"]:
+        for primitive in mesh["primitives"]:
+            accessor = gltf["accessors"][primitive["attributes"]["POSITION"]]
+            for axis in range(3):
+                low[axis] = min(low[axis], f32(f32(accessor["min"][axis]) * f32(100.0)))
+                high[axis] = max(high[axis], f32(f32(accessor["max"][axis]) * f32(100.0)))
+    return {"Min": low, "Max": high}
 
 
 def read(path):
@@ -124,7 +142,7 @@ def layer_infos():
 
 
 def boulders(downloads):
-    for name, (gltf_material, low, high) in BOULDERS.items():
+    for name, gltf_material in BOULDERS.items():
         folder = SHORE + "Meshes/" + name
         os.makedirs(content(folder + "/textures"), exist_ok=True)
         for file in (name + ".gltf", name + ".bin"):
@@ -141,7 +159,7 @@ def boulders(downloads):
             "Header": {"Kind": "StaticMesh", "Guid": guid_of(folder + "/" + name + ".stmesh"), "Versions": {"DIMP": 2},
                        "Dependencies": []},
             "Source": name + ".gltf",
-            "Bounds": {"Min": [100.0 * c for c in low], "Max": [100.0 * c for c in high]},
+            "Bounds": import_bounds(content(folder + "/" + name + ".gltf")),
             "Settings": {"CombineMeshes": False, "UniformScale": 1.0, "UpAxis": "FromFile", "LodPolicy": "Generate",
                          "VirtualGeometry": True}})
         material = load_text(content("Materials/%sMeshes/boulder_01/boulder_01/boulder_01.demat" % FIELD))
