@@ -2903,6 +2903,30 @@ namespace Desert::Graphic::System
             }
             else
                 ++crowdSkeletal;
+            const bool baked             = data.VatAddress != 0;
+            const auto [path, pathFresh] = m_SkinnedPathReported.try_emplace( data.Entity, baked );
+            if ( pathFresh || path->second != baked )
+            {
+                path->second                   = baked;
+                const Common::Math::AABB local = Geometry::LocalBounds( data.Mesh->GetSubmeshes() );
+                Common::Math::AABB       world{ glm::vec3( FLT_MAX ), glm::vec3( -FLT_MAX ) };
+                for ( uint32_t corner = 0; corner < 8u; ++corner )
+                {
+                    const glm::vec3 c( corner & 1u ? local.Max.x : local.Min.x,
+                                       corner & 2u ? local.Max.y : local.Min.y,
+                                       corner & 4u ? local.Max.z : local.Min.z );
+                    const glm::vec3 w = glm::vec3( data.Transform * glm::vec4( c, 1.0f ) );
+                    world.Min         = glm::min( world.Min, w );
+                    world.Max         = glm::max( world.Max, w );
+                }
+                const glm::vec3          at    = glm::vec3( data.Transform[3] );
+                LOG_INFO( "[SkinnedPath] entity {}: drawn {} at LOD {}, at ({:.0f},{:.0f},{:.0f}), world box "
+                          "({:.0f},{:.0f},{:.0f})-({:.0f},{:.0f},{:.0f}), pose ready {}",
+                          data.Entity, baked ? "baked (vertex animation)" : "skeletal", data.Lod, at.x, at.y, at.z,
+                          world.Min.x, world.Min.y, world.Min.z, world.Max.x, world.Max.y, world.Max.z,
+                          data.LodFeedback != nullptr &&
+                               data.LodFeedback->SkeletalPoseReady.load( std::memory_order_relaxed ) );
+            }
             const auto [reported, fresh] = m_SkinnedLodReported.try_emplace( data.Entity, data.Lod );
             if ( !fresh && reported->second == data.Lod )
                 return;
