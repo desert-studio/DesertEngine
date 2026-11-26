@@ -384,8 +384,20 @@ namespace Desert::Animation::Graph
         if ( const auto plan = PlanPoseGraph( graph ); !plan.IsSuccess() )
             warnings.push_back( { WarningKind::PoseGraphRefused, std::string(), -1, plan.GetError() } );
         for ( const PoseNode& node : graph.Nodes )
+        {
             if ( node.Machine )
                 ValidateMachine( graph, *node.Machine, clips, warnings );
+            // W1 over a blend-space node (1D or 2D): each sample plays its clip, which the skeleton must have.
+            // The node's name stands where a state's would, as the thing the reader clicks on.
+            if ( node.BlendSpace && clips.Known )
+                for ( const BlendSample& sample : node.BlendSpace->Samples )
+                    if ( std::find( clips.Names.begin(), clips.Names.end(), sample.Clip ) == clips.Names.end() )
+                        warnings.push_back(
+                             { WarningKind::StateClipNotAvailable, node.Name, -1,
+                               fmt::format( "Blend space node '{}' blends clip '{}', which this skeleton has no "
+                                            "animation for.",
+                                            node.Name, sample.Clip ) } );
+        }
         return warnings;
     }
 } // namespace Desert::Animation::Graph

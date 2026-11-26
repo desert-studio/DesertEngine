@@ -1086,10 +1086,17 @@ namespace Desert::Migration
 
     // The ANGR 5 text of an ANGR 4 `.danimgraph` (PAWN-MANNEQUIN): every Blend Space 1D sample - of a node's
     // BlendSpace and of a state's BlendSpace.Space, in the graph and every layer graph - states RateScale 1.0 (UE
-    // FBlendSample::RateScale: the clip plays at its own rate, as every ANGR 4 sample did). Re-read and re-written
-    // by the engine's own reader and writer. A file that does not state ANGR 4 is an error naming what it states.
-    // PURE - no filesystem access.
+    // FBlendSample::RateScale: the clip plays at its own rate, as every ANGR 4 sample did). UNTYPED: ANGR 5 is not
+    // the engine's generation, so the text goes on to MigrateAnimGraphV5ToV6, which re-reads it. A file that does
+    // not state ANGR 4 is an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateAnimGraphV4ToV5( const std::string& text );
+
+    // ANGR 5 -> 6 (ANIM-BS2D-RUNTIME): every blend space (node payload and state) gains Axes = [{Min = lowest
+    // sample Value, Max = highest (Min + 1 when equal), Wrap false, SmoothingTime 0, Smoothing "Average",
+    // DampingRatio 1, MaxSpeed 0}], each sample Value -> X and Y = 0, WeightEaseInOut false, ScaleAxis -1; a
+    // state's Axis -> AxisParameters [Axis]. Re-read and re-written by the engine's own reader and writer. A file
+    // that does not state ANGR 5 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateAnimGraphV5ToV6( std::string_view text );
 
     // The current VFXS text of a VFXS 1 .. 5 `.dfx`: one step per generation, each on the UNTYPED body (no step
     // reads a typed struct of a later layout), then the engine's reader, validator and writer (current header,

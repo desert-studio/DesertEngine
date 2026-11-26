@@ -1708,18 +1708,25 @@ namespace Desert::Migration
             }
             if ( path.extension() == ".danimgraph" )
             {
-                // ANGR 4 -> 5 (PAWN-MANNEQUIN): every blend sample states its RateScale.
+                // ANGR 4 -> 5 (PAWN-MANNEQUIN): every blend sample states its RateScale; then 5 -> 6
+                // (ANIM-BS2D-RUNTIME): every blend space states its axes, a state's Axis its AxisParameters.
                 const auto stated = ReadStatedVersion( path, text, "ANGR" );
-                if ( stated && stated.GetValue() == 4u )
+                if ( stated && ( stated.GetValue() == 4u || stated.GetValue() == 5u ) )
                 {
-                    const auto raised = Desert::Migration::MigrateAnimGraphV4ToV5( text );
+                    const uint32_t from   = stated.GetValue();
+                    const auto     fifth  = from == 4u ? Desert::Migration::MigrateAnimGraphV4ToV5( text )
+                                                       : Common::MakeSuccess( std::string( text ) );
+                    const auto     raised = fifth ? Desert::Migration::MigrateAnimGraphV5ToV6( fifth.GetValue() )
+                                                  : fifth;
                     if ( !raised )
                     {
-                        err << "FAIL   " << path.string() << " — ANGR 4 -> 5: " << raised.GetError() << "\n";
+                        err << "FAIL   " << path.string() << " — ANGR " << from << " -> 6: " << raised.GetError()
+                            << "\n";
                         ++failed;
                         continue;
                     }
-                    out << ( check ? "would raise " : "raised " ) << path.string() << " ANGR 4 -> 5\n";
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " ANGR " << from
+                        << " -> 6\n";
                     if ( !check && !WriteText( path, raised.GetValue(), err ) )
                     {
                         ++failed;

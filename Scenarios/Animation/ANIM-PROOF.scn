@@ -3,8 +3,8 @@
 # Two mannequins are spawned in PawnNoController_Demo at z = -300: ProofA (x 0) plays one clip, ProofB (x 150) runs
 # the locomotion graph. Both evaluate in Edit mode (Animation.UpdateAnimationInEditor, UE "Update Animation in Editor").
 # Features with engine code but NO committed content that uses them (Sequence Player / Layered Blend / Apply Additive /
-# Linked Anim Layer / Two Bone IK / Look At nodes, Retarget, Sequencer skeletal track, notifies, curves) and features
-# with no runtime path (Blend Space 2D node, inertialization) are listed in the INVENTORY with file:line; their frame
+# Linked Anim Layer / Two Bone IK / Look At / Blend Space 2D nodes, Retarget, Sequencer skeletal track, notifies,
+# curves) and features with no runtime path (inertialization) are listed in the INVENTORY with file:line; their frame
 # here is the authoring surface (the graph panel's Add commands), not an evaluated pose.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/PawnNoController_Demo.desce
 Дано run View "View mode: Lit"
@@ -54,8 +54,9 @@
 Когда run Document "Mannequin_Locomotion: Add Apply Additive"
 Когда run Document "Mannequin_Locomotion: Add Sequence Player"
 Когда run Document "Mannequin_Locomotion: Add Linked Anim Layer"
+Когда run Document "Mannequin_Locomotion: Add Blend Space 2D"
 Когда 10 frames render
-Тогда anim_add_nodes six new nodes on the canvas (Two Bone IK, Look At, Layered Blend Per Bone, Apply Additive, Sequence Player, Linked Anim Layer), unwired
+Тогда anim_add_nodes seven new nodes on the canvas (Two Bone IK, Look At, Layered Blend Per Bone, Apply Additive, Sequence Player, Linked Anim Layer, Blend Space 2D), unwired
 Когда run Document "Mannequin_Locomotion: Close Discard"
 # [anim_clip_editor] the animation editor on one clip.
 Когда run Open "Characters/Mannequin/Mannequin_Walk_Loop.anim"

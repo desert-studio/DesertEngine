@@ -3129,6 +3129,105 @@ namespace Desert::Migration
         }
     } // namespace BlendSampleRateStep
 
+    namespace BlendSpaceAxesStep
+    {
+        // ANGR 6 of one ANGR 5 blend space (an object whose "Samples" are 1D samples: "Clip" + "Value"): Axes =
+        // [{Min = lowest Value, Max = highest (Min + 1 when equal), no wrap, no smoothing}] - the old sample range,
+        // so clamping into it is the old behavior and the weights stay bit-identical - each sample's Value -> X
+        // and Y 0, WeightEaseInOut false, ScaleAxis -1.
+        rfl::Generic::Object StateSetupAxes( const rfl::Generic::Object& setup, const rfl::Generic::Array& samples )
+        {
+            double lo = 0.0;
+            double hi = 0.0;
+            bool   first = true;
+            rfl::Generic::Array raisedSamples;
+            for ( const auto& item : samples )
+            {
+                const auto sample = item.to_object();
+                if ( !sample.has_value() )
+                {
+                    raisedSamples.push_back( item );
+                    continue;
+                }
+                const double value = sample.value().get( "Value" ).value_or( rfl::Generic() ).to_double().value_or(
+                     static_cast<double>(
+                          sample.value().get( "Value" ).value_or( rfl::Generic() ).to_int().value_or( 0 ) ) );
+                lo    = first ? value : std::min( lo, value );
+                hi    = first ? value : std::max( hi, value );
+                first = false;
+                rfl::Generic::Object raised;
+                for ( const auto& [key, field] : sample.value() )
+                    if ( key != "Value" )
+                        raised[key] = field;
+                raised["X"] = rfl::Generic( value );
+                raised["Y"] = rfl::Generic( 0.0 );
+                raisedSamples.push_back( rfl::Generic( std::move( raised ) ) );
+            }
+            if ( hi <= lo )
+                hi = lo + 1.0;
+            rfl::Generic::Object axis;
+            axis["Min"]           = rfl::Generic( lo );
+            axis["Max"]           = rfl::Generic( hi );
+            axis["Wrap"]          = rfl::Generic( false );
+            axis["SmoothingTime"] = rfl::Generic( 0.0 );
+            axis["Smoothing"]     = rfl::Generic( std::string( "Average" ) );
+            axis["DampingRatio"]  = rfl::Generic( 1.0 );
+            axis["MaxSpeed"]      = rfl::Generic( 0.0 );
+            rfl::Generic::Object raised;
+            for ( const auto& [key, field] : setup )
+                if ( key != "Samples" )
+                    raised[key] = field;
+            raised["Axes"]            = rfl::Generic( rfl::Generic::Array{ rfl::Generic( std::move( axis ) ) } );
+            raised["Samples"]         = rfl::Generic( std::move( raisedSamples ) );
+            raised["WeightEaseInOut"] = rfl::Generic( false );
+            raised["ScaleAxis"]       = rfl::Generic( -1 );
+            return raised;
+        }
+
+        // True when @p object is an ANGR 5 blend space: its "Samples" hold a sample stating "Clip" and "Value".
+        bool IsV5BlendSpace( const rfl::Generic::Object& object )
+        {
+            const auto samples = object.get( "Samples" ).value_or( rfl::Generic() ).to_array();
+            if ( !samples.has_value() || samples.value().empty() )
+                return false;
+            const auto sample = samples.value().front().to_object();
+            return sample.has_value() && sample.value().get( "Clip" ).has_value() &&
+                   sample.value().get( "Value" ).has_value();
+        }
+
+        // Walks the whole body: every blend space (a node's BlendSpace, a state's BlendSpace.Space, in the graph
+        // and every layer graph) gains its axis; a state's blend space "Axis" becomes "AxisParameters" [Axis].
+        rfl::Generic StateAxes( const rfl::Generic& node )
+        {
+            if ( const auto array = node.to_array(); array.has_value() )
+            {
+                rfl::Generic::Array raised;
+                for ( const auto& item : array.value() )
+                    raised.push_back( StateAxes( item ) );
+                return rfl::Generic( std::move( raised ) );
+            }
+            const auto object = node.to_object();
+            if ( !object.has_value() )
+                return node;
+            if ( IsV5BlendSpace( object.value() ) )
+                return rfl::Generic(
+                     StateSetupAxes( object.value(), object.value().get( "Samples" ).value().to_array().value() ) );
+            const bool stateSpace = object.value().get( "Axis" ).has_value() &&
+                                    object.value().get( "Space" ).has_value();
+            rfl::Generic::Object raised;
+            for ( const auto& [key, field] : object.value() )
+            {
+                if ( stateSpace && key == "Axis" )
+                {
+                    raised["AxisParameters"] = rfl::Generic( rfl::Generic::Array{ field } );
+                    continue;
+                }
+                raised[key] = key == "Header" ? field : StateAxes( field );
+            }
+            return rfl::Generic( std::move( raised ) );
+        }
+    } // namespace BlendSpaceAxesStep
+
     Common::ResultStr<std::string> MigrateAnimGraphV4ToV5( const std::string& text )
     {
         auto read = rfl::json::read<rfl::Generic::Object>( text );
@@ -3151,9 +3250,36 @@ namespace Desert::Migration
         versions.value()["ANGR"]   = rfl::Generic( 5 );
         header.value()["Versions"] = rfl::Generic( std::move( versions.value() ) );
         raised.value()["Header"]   = rfl::Generic( std::move( header.value() ) );
+        // ANGR 5 IS NOT THE CURRENT GENERATION (ANGR 6 gave blend spaces axes): the engine's reader would refuse
+        // it, so the text stays untyped and the dispatcher hands it to MigrateAnimGraphV5ToV6, which re-reads it.
+        return Common::MakeSuccess( rfl::json::write( raised.value() ) );
+    }
+
+    Common::ResultStr<std::string> MigrateAnimGraphV5ToV6( std::string_view text )
+    {
+        auto read = rfl::json::read<rfl::Generic::Object>( std::string( text ) );
+        if ( !read )
+            return Common::MakeFormattedError<std::string>( "ANGR 5 body does not read: {}", read.error().what() );
+        auto header = read.value().get( "Header" ).value_or( rfl::Generic() ).to_object();
+        if ( !header.has_value() )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+        auto      versions = header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object();
+        const int stated   = versions.has_value()
+                                  ? versions.value().get( "ANGR" ).value_or( rfl::Generic() ).to_int().value_or( -1 )
+                                  : -1;
+        if ( stated != 5 )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states ANGR {}, and this step raises ANGR 5 only",
+                 stated < 0 ? std::string( "nothing" ) : std::to_string( stated ) );
+        auto raised = BlendSpaceAxesStep::StateAxes( rfl::Generic( std::move( read.value() ) ) ).to_object();
+        if ( !raised.has_value() )
+            return Common::MakeFormattedError<std::string>( "the raised graph is not an object" );
+        versions.value()["ANGR"]   = rfl::Generic( 6 );
+        header.value()["Versions"] = rfl::Generic( std::move( versions.value() ) );
+        raised.value()["Header"]   = rfl::Generic( std::move( header.value() ) );
         const auto written         = TargetSkeletonStep::Canonical( "ANGR", rfl::json::write( raised.value() ) );
         if ( !written )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as ANGR 5: {}",
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as ANGR 6: {}",
                                                             written.GetError() );
         return written;
     }
@@ -3302,10 +3428,13 @@ namespace Desert::Migration
         target["Guid"]             = rfl::Generic( fits.front()->Guid );
         target["Path"]             = rfl::Generic( fits.front()->Path );
         document["TargetSkeleton"] = rfl::Generic( std::move( target ) );
-        // ANGR 3 is raised to the current generation in one step: ANGR 5's RateScale on every blend sample too.
+        // ANGR 3 is raised to the current generation in one step: ANGR 5's RateScale on every blend sample and
+        // ANGR 6's axes on every blend space too.
         if ( tag == "ANGR" )
         {
-            auto rated = BlendSampleRateStep::StateRateScale( rfl::Generic( std::move( document ) ) ).to_object();
+            auto rated = BlendSpaceAxesStep::StateAxes(
+                              BlendSampleRateStep::StateRateScale( rfl::Generic( std::move( document ) ) ) )
+                              .to_object();
             if ( !rated.has_value() )
                 return Common::MakeFormattedError<std::string>( "the raised graph is not an object" );
             document = std::move( rated.value() );

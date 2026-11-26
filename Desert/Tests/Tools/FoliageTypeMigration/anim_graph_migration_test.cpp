@@ -38,7 +38,7 @@ namespace
     {
         std::string text = G::Serialize( graph );
         text             = std::regex_replace( text, std::regex( R"(,\s*"TargetSkeleton"\s*:\s*\{[^}]*\})" ), "" );
-        text             = std::regex_replace( text, std::regex( R"("ANGR"\s*:\s*4)" ), "\"ANGR\": 3" );
+        text             = std::regex_replace( text, std::regex( R"("ANGR"\s*:\s*\d+)" ), "\"ANGR\": 3" );
         return text;
     }
 

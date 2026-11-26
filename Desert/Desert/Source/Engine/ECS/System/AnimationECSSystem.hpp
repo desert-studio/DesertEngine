@@ -277,8 +277,8 @@ namespace Desert::ECS
                         const auto res = anim.GraphEvaluator->Update( norm );
                         if ( res.Current && res.Current->BlendSpace )
                         {
-                            // A state that plays a Blend Space 1D: every sample resolved (null while loading),
-                            // entered by the machine's transition as a clip state is; the row already on top
+                            // A state that plays a blend space (1D or 2D): every sample resolved (null while
+                            // loading), entered by the machine's transition as a clip state is; the space on top
                             // only takes the clips (Animator::PlayBlendSpace).
                             const auto& samples = res.Current->BlendSpace->Space.Samples;
                             std::vector<const Animation::AnimationClip*>& clips = m_BlendSpaceClips;
