@@ -159,6 +159,11 @@ function(_desert_engine_module_library name)
     foreach(dep IN LISTS _link_closure)
         target_link_libraries(${target} PRIVATE ${DESERT_MODULE_${dep}_LIBRARIES})
     endforeach()
+    # The module's own project library (Desert/Common's Common for DesertCommon): the table library's files call its
+    # out-of-line definitions (Constants.cpp's path roots since BINT-STATE, build #14 of B-INT).
+    if(DESERT_MODULE_${name}_OWN_PROJECT)
+        target_link_libraries(${target} PRIVATE ${name})
+    endif()
     if(DEFINED _thirdparty_${name})
         target_link_libraries(${target} PRIVATE ${DESERT_OPTICK} ${_thirdparty_${name}})
     else()
