@@ -12,4 +12,4 @@
 # is clean: placing the committed mannequin rewrites none of its files.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Когда run Assets "Drop into the viewport: Characters/Mannequin/Mannequin.glb"
-Тогда-вид pawn_mannequin_placed the mannequin placed in the viewport, standing at full height (about 183 cm against the editor grid), orange body with purple joints, no Import Options window; editor.log 0 import errors
+Тогда-вид pawn_mannequin_placed the mannequin placed in the viewport, standing at full height (about 183 cm against the editor grid), grey body (M_Mannequin, albedo 0.42) with dark-grey joints (M_Mannequin_Joints, albedo 0.12), no Import Options window; editor.log 0 import errors
