@@ -1,0 +1,25 @@
+# HOT-RELOAD-PANEL (owner: «hot reload тогда можно сразу добавить?»): Live Coding (Live++ / UE Live Coding) patches
+# an EditorPanels source in the running editor. The edit is HistoryPanel.cpp:17's label; the scene, the selection
+# and the camera stay as they were, the History panel draws the new label from the next frame.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce
+Дано run Panel "Open Modeling"
+Дано run Panel "Open History"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 150,450,900
+Дано --subject viewport set Camera.Direction 0,-0.45,-1
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Modeling "Active tool: Accept"
+Дано --subject selection set Translation 0,50,0
+Когда state
+Тогда 0_before the History panel reads "Revision N" with the Box creation and the move listed; the Box is selected (gizmo on it) at the centre of the view
+Когда-файл apply Scenarios/Editor/HOT-RELOAD-PANEL.patch
+Когда run "Live Coding" "Patch changed sources"
+Когда wait-idle
+Когда state
+Тогда 1_after the History panel reads "Revision (live) N" with the same N and the same two entries; the Box is still selected at the same place, the view is the same camera; editor.log has one "[LiveCoding] patched" line naming HistoryPanel.cpp and no "[LiveCoding] refused", no scene open after the patch
+Когда-файл revert Scenarios/Editor/HOT-RELOAD-PANEL.patch
+Когда run "Live Coding" "Patch changed sources"
+Когда wait-idle
+Когда state
+Тогда 2_reverted the History panel reads "Revision N" again (the same function patched a second time); selection and camera unchanged

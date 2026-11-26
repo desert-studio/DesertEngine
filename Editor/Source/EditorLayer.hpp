@@ -35,6 +35,7 @@
 #include "Editor/LevelEditor/ProfilerWindow.hpp"
 #include "Editor/LevelEditor/DockLayout.hpp"
 #include "Editor/LevelEditor/EditorImGuiHost.hpp"
+#include "Editor/LiveCoding/LiveCodingSession.hpp"
 #include "Editor/Panels/FileExplorer/AssetThumbnailPool.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
 
@@ -219,6 +220,9 @@ namespace Desert::Editor
         // VS Code (any DAP client) debugging the worlds' scripts; started from the palette. See
         // Editor/LevelEditor/ScriptDebugServer.hpp.
         ScriptDebugServer m_ScriptDebug{ m_Play, m_Application };
+        // Live Coding (Live++ / UE Live Coding): the edited .cpp files patched into this running process. Before
+        // the palette, which lists its command. See Editor/LiveCoding/LiveCodingSession.hpp.
+        LiveCoding::LiveCodingSession m_LiveCoding;
         // The palette's dictionary, the Ctrl+P overlay and the level's global shortcuts (UE:
         // FLevelEditorCommands), after every module whose commands it lists. See
         // Editor/LevelEditor/LevelEditorCommands.hpp.
@@ -231,6 +235,7 @@ namespace Desert::Editor
                .Dock           = m_Dock,
                .Menu           = m_MainMenu,
                .Compiling      = m_AssetCompiling,
+               .LiveCoding     = m_LiveCoding,
                .Panels         = m_Panels,
                .AssetsSlot     = m_AssetManager,
                .FileExplorer   = m_FileExplorerPanel,

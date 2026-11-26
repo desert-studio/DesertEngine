@@ -692,6 +692,7 @@ namespace Desert::Editor
     void ControlService::SampleFrameQuiescence( const bool startupLoading, const bool reflectionCapturesFilling,
                                                 const bool                       texturesStreaming,
                                                 const Control::BackgroundReport& hlodBuild,
+                                                const Control::BackgroundReport& liveCoding,
                                                 const bool miniMapBuildRunning, const bool meshDropsLoading,
                                                 const bool editorHLODsReading,
                                                 const bool modelingPreviewOutstanding )
@@ -786,6 +787,7 @@ namespace Desert::Editor
         // also covers the editor HLODs it leaves to read (PendingWork::EditorHLODs) - and a Save or quit sent only
         // after it.
         quiescence.Set( Control::BackgroundWork::HLODBuild, hlodBuild );
+        quiescence.Set( Control::BackgroundWork::LiveCoding, liveCoding );
         m_FrameQuiescence = quiescence;
     }
 

@@ -23,8 +23,8 @@ namespace Desert::Editor::LiveCoding
         [[nodiscard]] std::optional<std::size_t>    FindSource( const std::filesystem::path& source ) const;
 
         /// The sources newer than the later of their image and their last patch (MarkPatched). Refuses when a
-        /// header under the source roots is newer than the oldest image (names the header: a header edit needs a
-        /// rebuild), or when a source's BuiltObject is newer than its image (a build compiled while the editor held
+        /// header under the source roots is newer than the newest image (names the header: a header edit needs a
+        /// rebuild; the oldest image would be a DLL the next build does not relink, refusing forever), or when a source's BuiltObject is newer than its image (a build compiled while the editor held
         /// the image: the objects no longer describe the running code).
         [[nodiscard]] Common::ResultStr<std::vector<std::size_t>> ChangedSources() const;
 

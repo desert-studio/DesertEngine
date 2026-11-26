@@ -123,14 +123,16 @@ namespace Desert::Editor::Control
     enum class BackgroundWork : std::size_t
     {
         LandscapeGenerate, ///< a New Landscape run is on the JobSystem and not yet applied to the scene
-        HLODBuild, ///< a Build HLODs is running (its worker phases or its bakes); its HLOD files are not all
-                   ///< written
+        HLODBuild,  ///< a Build HLODs is running (its worker phases or its bakes); its HLOD files are not all
+                    ///< written
+        LiveCoding, ///< Live Coding scans, compiles or links a patch, or holds one for the next frame boundary
         Count
     };
 
     inline constexpr const char* kBackgroundWorkNames[] = {
          "a new landscape is being generated",
          "Build HLODs is running",
+         "Live Coding is compiling or applying a patch",
     };
 
     /// One background run as its owner reports it each frame: whether it runs, where it is (the words after its

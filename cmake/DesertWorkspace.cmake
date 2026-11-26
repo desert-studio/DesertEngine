@@ -153,9 +153,12 @@ if(MSVC)
     # Shipping alone folds and drops (/OPT:REF,ICF) and generates code across the program (/LTCG, UE bAllowLTCG):
     # a full .pdb from /Zi objects. /GL IL lives only in Shipping objects, so no Development archive carries it
     # (the 4 GB archive limit: lib.exe hangs at 4294967295 bytes, 11-07).
+    # LIVE CODING (Editor/Source/Editor/LiveCoding): Development and DebugGame images carry hotpatch padding before
+    # every function (/FUNCTIONPADMIN, the room for the jump that redirects it) and a /MAP beside the image under
+    # its name (the symbol -> address table a patch links against). Shipping is never patched.
     foreach(kind EXE SHARED MODULE)
-        set(CMAKE_${kind}_LINKER_FLAGS_DEVELOPMENT "/DEBUG:FASTLINK /INCREMENTAL" CACHE STRING "" FORCE)
-        set(CMAKE_${kind}_LINKER_FLAGS_DEBUGGAME   "/DEBUG:FASTLINK /INCREMENTAL" CACHE STRING "" FORCE)
+        set(CMAKE_${kind}_LINKER_FLAGS_DEVELOPMENT "/DEBUG:FASTLINK /INCREMENTAL /FUNCTIONPADMIN /MAP" CACHE STRING "" FORCE)
+        set(CMAKE_${kind}_LINKER_FLAGS_DEBUGGAME   "/DEBUG:FASTLINK /INCREMENTAL /FUNCTIONPADMIN /MAP" CACHE STRING "" FORCE)
         set(CMAKE_${kind}_LINKER_FLAGS_SHIPPING    "/DEBUG:FULL /INCREMENTAL:NO /OPT:REF /OPT:ICF /LTCG" CACHE STRING "" FORCE)
     endforeach()
     set(CMAKE_STATIC_LINKER_FLAGS_DEVELOPMENT "" CACHE STRING "" FORCE)
@@ -890,6 +893,34 @@ function(desert_finalize_targets)
     list(SORT _foreign)
     list(JOIN _foreign "\n" _foreign_text)
     file(WRITE "${CMAKE_BINARY_DIR}/PlatformForeignSources.txt" "${_foreign_text}\n")
+
+    # LIVE CODING'S MANIFEST, beside Editor.exe: the one statement of target -> image -> map, plus where the build
+    # and its compilation database are (Editor/Source/Editor/LiveCoding/LiveCodingBuildIndex.hpp reads it). Only a
+    # build of module DLLs linked with /MAP has images to patch, so a monolithic or non-MSVC build writes none and
+    # the editor refuses the command, naming the missing file.
+    if(TARGET Editor AND MSVC AND NOT DESERT_MONOLITHIC)
+        get_property(_live_targets GLOBAL PROPERTY DESERT_LIVE_CODING_TARGETS)
+        list(APPEND _live_targets Editor)
+        set(_live_images "")
+        foreach(_live IN LISTS _live_targets)
+            if(_live_images)
+                string(APPEND _live_images ",\n")
+            endif()
+            string(APPEND _live_images
+                "    {\"Target\": \"${_live}\", \"Image\": \"$<TARGET_FILE:${_live}>\", "
+                "\"Map\": \"$<TARGET_FILE_DIR:${_live}>/$<TARGET_FILE_BASE_NAME:${_live}>.map\"}")
+        endforeach()
+        file(GENERATE OUTPUT "$<TARGET_FILE_DIR:Editor>/LiveCoding.json" CONTENT
+"{
+  \"BuildDir\": \"${CMAKE_BINARY_DIR}\",
+  \"CompileCommands\": \"${CMAKE_BINARY_DIR}/compile_commands.json\",
+  \"SourceRoots\": [\"${CMAKE_SOURCE_DIR}/Desert\", \"${CMAKE_SOURCE_DIR}/Editor/Source\"],
+  \"Images\": [
+${_live_images}
+  ]
+}
+")
+    endif()
 endfunction()
 
 # Records sources that belong to a platform other than this host's and are therefore in no target here.

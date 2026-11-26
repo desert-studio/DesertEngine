@@ -6,6 +6,7 @@
 #include <Editor/LiveCoding/LiveCodingBuildIndex.hpp>
 
 #include <atomic>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -43,9 +44,10 @@ namespace Desert::Editor::LiveCoding
         std::atomic<PatchStage>                                m_Stage{ PatchStage::Idle };
         std::atomic<bool>                                      m_Cancel{ false };
         std::atomic<bool>                                      m_JobDone{ true };
-        mutable std::mutex                                     m_Mutex;   // guards the three below
+        mutable std::mutex                                     m_Mutex;   // guards the four below
         std::unique_ptr<IPreparedPatch>                        m_Prepared;
         std::vector<std::size_t>                               m_PreparedSources;
+        std::vector<std::filesystem::file_time_type>           m_PreparedAt; // their mtimes when compiled
         std::string                                            m_Outcome;
     };
 } // namespace Desert::Editor::LiveCoding

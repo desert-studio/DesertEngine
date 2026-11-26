@@ -8,7 +8,7 @@ include_guard(GLOBAL)
 
 set(DESERT_EDITOR_SOURCE_ROOT "${DESERT_ROOT}/Editor/Source")
 set(DESERT_EDITOR_LAYERS EditorCore EditorImport EditorWidgets EditorPanels EditorLevel)
-set(DESERT_EDITOR_LAYER_EditorCore_DIRS    Core Platform RenderSystems)
+set(DESERT_EDITOR_LAYER_EditorCore_DIRS    Core Platform RenderSystems LiveCoding)
 set(DESERT_EDITOR_LAYER_EditorImport_DIRS  Import Packaging)
 set(DESERT_EDITOR_LAYER_EditorWidgets_DIRS Widgets Splash ImGuiIntegration)
 set(DESERT_EDITOR_LAYER_EditorPanels_DIRS  Panels)
