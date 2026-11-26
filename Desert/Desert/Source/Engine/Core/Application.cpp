@@ -4,6 +4,7 @@
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
+#include <Engine/Graphic/Rhi/Rhi.hpp>
 
 #include <functional>
 #include <mutex>
@@ -65,6 +66,35 @@ namespace Desert::Engine
         }
         m_FramePacer.SetLimit( appInfo.Display.FrameRateLimit );
 
+        // 0. The machine's store, then the backend: the RhiSelection reads machine.json (Rhi, Adapter) and the
+        // device is created from what it withholds (HideRayTracing); the backend comes before the window,
+        // whose Init builds the swapchain through it.
+        if ( !appInfo.MachineSettingsFile.empty() )
+            ::Common::Settings::MachineSettings::Load( appInfo.MachineSettingsFile );
+        {
+            Graphic::RhiSelectionInputs rhiInputs = appInfo.Rhi;
+            rhiInputs.MachineRhi     = ::Common::Settings::MachineSettings::Get().Rhi;
+            rhiInputs.MachineAdapter = ::Common::Settings::MachineSettings::Get().Adapter;
+            auto selection           = Graphic::ResolveRhiSelection( rhiInputs );
+            if ( !selection )
+            {
+                m_StartupRefusal = selection.GetError();
+                LOG_ERROR( "[Rhi] cannot start: {}", m_StartupRefusal );
+                Close( EXIT_FAILURE );
+                return;
+            }
+            auto rhi = Graphic::CreateRhi( selection.GetValue() );
+            if ( !rhi )
+            {
+                m_StartupRefusal = rhi.GetError();
+                LOG_ERROR( "[Rhi] cannot start: {}", m_StartupRefusal );
+                Close( EXIT_FAILURE );
+                return;
+            }
+            LOG_INFO( "[Rhi] {}", Graphic::Describe( selection.GetValue() ) );
+            Graphic::Renderer::CreateInstance().AttachRhi( rhi.ExtractValue() );
+        }
+
         m_Window = Window::Create( windowSpec );
         m_WindowEventNode = m_Events.Attach<Window>( m_ApplicationEventNode, *m_Window );
         m_Window->SetEventTree( m_Events );
@@ -76,12 +106,7 @@ namespace Desert::Engine
         // 2. Partially initialize EngineContext
         EngineContext::CreateInstance().Initialize( m_Window, nullptr, m_RendererContext );
 
-        // 3. The machine's store, then the device: the device is created from what machine.json withholds
-        // (HideRayTracing), so the store cannot wait for QualityBoot, which runs after the device exists.
-        if ( !appInfo.MachineSettingsFile.empty() )
-            ::Common::Settings::MachineSettings::Load( appInfo.MachineSettingsFile );
-
-        // 3b. Create Device
+        // 3. Create Device (the machine's store was loaded at step 0)
         // A REFUSED DEVICE IS AN ERROR WITH A LIST, NOT A CRASH. DeviceCaps names every required capability
         // the GPU lacks; construction stops here, EntryPoint sees StartupRefusal() and skips OnCreate/Run,
         // and the process ends with that message and a failing exit code. Not std::exit: worker threads
@@ -112,7 +137,7 @@ namespace Desert::Engine
         // matter — no rendering API was selected, and the BRDF LUT could not be created — after either of
         // which every frame below is drawn against half a renderer. Same instrument as the swapchain line
         // above it, and for the same reason: there is no partially-working renderer to continue with.
-        const auto rendererReady = Graphic::Renderer::CreateInstance().Init();
+        const auto rendererReady = Graphic::Renderer::GetInstance().Init();
         DESERT_VERIFY( rendererReady.IsSuccess(), "Failed to initialize the renderer: {}",
                        rendererReady.GetError() );
 

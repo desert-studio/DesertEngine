@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Settings/CapabilityCatalog.hpp>
 #include <Engine/Graphic/API/NeuralComputeCaps.hpp>
+#include <Engine/Graphic/Rhi/DeviceProfile.hpp>
 
 #include <vulkan/vulkan_core.h>
 
@@ -211,27 +212,8 @@ namespace Desert::Graphic::API::Vulkan
     // The sampler count it needs is Core::kBindlessSamplerStateCount (Core/ShaderCompiler/BindlessSetIndex.hpp),
     // the one size the table's layout and the shaders' DESERT_BINDLESS_SAMPLER_COUNT also use.
 
-    // A lower device the engine plays on this one (UE DeviceProfiles + Preview Rendering Level): the probe
-    // withholds what the named device lacks before DeviceCaps and the catalog are built, so every reader sees
-    // that device's facts. It does not imitate its speed. Source: the --device-profile CLI flag (Editor and
-    // Runtime), never machine.json. Name empty = no profile. The table of names is DeviceCapsProbe.cpp's
-    // (FindDeviceProfile); the applied one travels as DeviceCaps::Profile below.
-    struct DeviceProfile
-    {
-        std::string Name;                   ///< "gtx1060", "gtx1650", "gtx1660", "rtx2060"; "" = none
-        bool        HideRayTracing = false; ///< no AS / RQ / pipeline rows (GTX without the RT driver)
-        bool        HideRayQuery   = false; ///< AS + pipeline kept, VK_KHR_ray_query withheld
-        Common::Scalability::RayTracingAcceleration RayTracingAccel =
-             Common::Scalability::RayTracingAcceleration::Hardware; ///< Emulated on GTX 10/16
-        bool     HideVendorUpscalers   = false; ///< no DLSS / DLSS-RR / frame generation (no tensor cores)
-        Common::Scalability::GpuArchitecture Architecture =
-             Common::Scalability::GpuArchitecture::Other; ///< the played card's (CapabilityCatalog::Architecture)
-        bool     HideCooperativeMatrix = false;
-        bool     HideShaderFloat16     = false;
-        bool     HideInt64Atomics      = false;
-        uint64_t VideoMemoryMiB        = 0;    ///< device-local heap cap (VMA pHeapSizeLimit); 0 = the device's
-        float    PerfIndexCap          = 0.0f; ///< recommender's GPU index ceiling; 0 = measured
-    };
+    // The lower device this one plays (--device-profile) is the neutral Graphic::DeviceProfile
+    // (Engine/Graphic/Rhi/DeviceProfile.hpp); the applied one travels as DeviceCaps::Profile below.
 
     struct DeviceCaps
     {

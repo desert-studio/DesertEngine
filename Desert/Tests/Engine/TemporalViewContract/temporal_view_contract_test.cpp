@@ -464,6 +464,10 @@ namespace
         {
             return m_Spec.Mips;
         }
+        // A fake has no sampler to re-point.
+        void RecreateSampler() override
+        {
+        }
         Formats::Image2DSpecification& GetImageSpecification() override
         {
             return m_Spec;

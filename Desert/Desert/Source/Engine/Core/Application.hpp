@@ -10,6 +10,7 @@
 
 #include <Common/Core/Singleton.hpp>
 #include <Common/Core/LayerStack.hpp>
+#include <Engine/Graphic/Rhi/RhiSelection.hpp>
 
 #include <concepts>
 #include <type_traits>
@@ -55,6 +56,9 @@ namespace Desert::Engine
         // editor.json (ProjectContext::ConfigDirectory), the game's in the player's per-product directory
         // (Settings::GameUserDirectory). Empty = an application with no machine store (the struct defaults).
         std::filesystem::path MachineSettingsFile;
+        // The host's command-line preferences (--rhi, --adapter, --device-profile); the Application adds
+        // machine.json's and resolves them once, before the window (Engine/Graphic/Rhi/RhiSelection.hpp).
+        Graphic::RhiSelectionInputs Rhi;
     };
 
     class Application;

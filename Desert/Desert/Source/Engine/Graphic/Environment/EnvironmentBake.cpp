@@ -10,7 +10,6 @@
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Core/Formats/BlockCompression.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 
@@ -254,14 +253,11 @@ namespace Desert::Graphic
 
     Common::BoolResultStr EnvironmentCacheWriter::Begin( ImageCube& cube, EnvironmentCacheEntry entry )
     {
-        auto* vulkanCube = dynamic_cast<API::Vulkan::VulkanImageCube*>( &cube );
-        if ( vulkanCube == nullptr )
-            return Common::MakeError<bool>( "the environment bake can only read back a Vulkan cube" );
         if ( auto writable = Common::DDC::CheckWritable( entry.Path ); !writable.IsSuccess() )
             return writable;
         entry.FaceSize = cube.GetWidth();
         entry.Mips     = cube.GetMipmapLevels();
-        auto begun     = vulkanCube->RT_BeginReadAllLevels();
+        auto begun     = cube.RT_BeginReadAllLevels();
         if ( !begun.IsSuccess() )
             return Common::MakeError<bool>( begun.GetError() );
         m_InFlight.push_back( { std::move( entry ), begun.ExtractValue(), {}, std::chrono::steady_clock::now() } );

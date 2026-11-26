@@ -6,7 +6,7 @@
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/GpuDriven/GpuScene.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanRayTracingGeometry.hpp>
+#include <Engine/Graphic/Rhi/Rhi.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -35,10 +35,7 @@ namespace Desert::Graphic::RayTracing
         {
             RayTracingMeshInput input = DescribeStaticMeshBlas( mesh, masks );
             input.Micromaps.assign( micromaps.begin(), micromaps.end() );
-            auto built = API::Vulkan::VulkanRayTracingGeometry::BuildStatic( input );
-            if ( !built )
-                return Common::MakeError<std::shared_ptr<RayTracingGeometryResource>>( built.GetError() );
-            return Common::MakeSuccess( std::shared_ptr<RayTracingGeometryResource>( built.GetValue() ) );
+            return Renderer::GetInstance().Rhi().BuildStaticRayTracingGeometry( input );
         };
     }
 

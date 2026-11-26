@@ -138,6 +138,14 @@ namespace Common::Settings
         // GPU runs all three paths (DesertCtl nn-check).
         std::optional<NeuralKernelPath> ForcedNeuralKernelPath;
 
+        // THE RENDERING BACKEND AND ADAPTER THIS MACHINE STARTS ON (DX12-RHI; UE keeps them as
+        // [/Script/WindowsTargetPlatform.WindowsTargetSettings] DefaultGraphicsRHI and r.GraphicsAdapter). Absent =
+        // Vulkan / the backend's own adapter rank. Text forms are RhiSelection's ("vulkan" | "d3d12"; "auto", "<n>",
+        // "nvidia", "vendor:0x<hex>", "name:<text>"); the command line's --rhi / --adapter win over both. Read once,
+        // at start (Engine/Graphic/Rhi/RhiSelection.hpp); a change takes effect on the next start.
+        std::optional<std::string> Rhi;
+        std::optional<std::string> Adapter;
+
         // --- EVERY OTHER KEY THE FILE HAPPENS TO CONTAIN -------------------------------------------
         // NOT A SETTING AND NOT A KEY OF ITS OWN. Json::CarriedKeys is spread flat at this struct's own
         // level on write and captures every top-level key the fields above did not claim on read, so the
