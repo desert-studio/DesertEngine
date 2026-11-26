@@ -25,8 +25,11 @@
 # the target's minimum carries that set itself and runs behind a runtime CPU check (Crc32c.cpp Crc32cHardware,
 # target("sse4.2") on clang/gcc). Checked before CI: every DesertServer TU compiled for -arch x86_64 -c.
 #   gh workflow run ci.yml --ref task/NET-MESH-0; the run's desert-server-image is loaded and run as pass 5.
+# Pass 9: the image carries no Resources/ and the run mounts none (no -v .../Editor/Resources): DesertServer links no
+# RHI, so its engine directory is positional (StartupLayout EngineResourceNeed::None) and no shader file is opened;
+# --engine-dir <dir> is accepted. Same docker run as pass 5 (only /project and /world mounted).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано state
 # Тогда [mesh0_core_split] (вне редактора): mesh0_core_split.otool.txt без Vulkan/MoltenVK/Metal/AppKit; mesh0_core_split.log: no device created, cook hash ee311acb3b50b349, 600 steps
 Тогда mesh0_editor_wp_protocol WP_Protocol как в dev: ландшафт, город, кусты, небо; без падения и диалога ошибки
-# Тогда [mesh0_linux_server] (вне редактора, Docker linux/amd64): mesh0_linux_server.log: no device created, cook hash ee311acb3b50b349 (или пересобранный, названный), 600 steps at 60 Hz со средним шагом; file: ELF 64-bit x86-64; Editor и DesertServer на Mac собираются
+# Тогда [mesh0_linux_server] (вне редактора, Docker linux/amd64, без монтирования Editor/Resources): mesh0_linux_server.log: no device created, cook hash 6e6d5c001e998d76 (или пересобранный, названный), 600 steps at 60 Hz со средним шагом; file: ELF 64-bit x86-64; Editor и DesertServer на Mac собираются

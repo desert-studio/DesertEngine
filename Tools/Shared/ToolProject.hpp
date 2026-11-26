@@ -29,9 +29,11 @@ namespace Desert::Tools
     };
 
     // Opens `descriptor` (a .deproj path as the caller typed it, resolved against the caller's working
-    // directory) for an unattended tool. `engineDirOverride` is the tool's `--engine-dir`, empty when none.
-    inline OpenedToolProject OpenToolProject( const std::string&           descriptor,
-                                              const std::filesystem::path& engineDirOverride )
+    // directory) for an unattended tool. `engineDirOverride` is the tool's `--engine-dir`, empty when none;
+    // `need` is what the process reads from the engine directory (ToolEngineDir.hpp).
+    inline OpenedToolProject
+    OpenToolProject( const std::string& descriptor, const std::filesystem::path& engineDirOverride,
+                     Desert::Project::EngineResourceNeed need = Desert::Project::EngineResourceNeed::Shaders )
     {
         OpenedToolProject opened;
         std::error_code   ec;
@@ -42,7 +44,7 @@ namespace Desert::Tools
             return opened;
         }
         // The engine directory from the executable (or --engine-dir), never from the working directory.
-        if ( std::string refused = SetEngineDirFromExecutable( engineDirOverride ); !refused.empty() )
+        if ( std::string refused = SetEngineDirFromExecutable( engineDirOverride, need ); !refused.empty() )
         {
             opened.Refused = std::move( refused );
             return opened;
