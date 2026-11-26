@@ -153,6 +153,7 @@ namespace Desert::Server
         struct Options
         {
             std::string                  project;
+            std::string                  engineDir; // --engine-dir <dir>, else derived from the binary
             Role                         role = Role::All;
             std::string                  world;
             glm::vec3                    source{ 0.0f };
@@ -184,8 +185,8 @@ namespace Desert::Server
 
         std::string Usage()
         {
-            return "usage: DesertServer --project <file.deproj> --role all --world <scene.desce> --source <x,y,z> "
-                   "[--steps <n>] "
+            return "usage: DesertServer --project <file.deproj> [--engine-dir <dir>] --role all "
+                   "--world <scene.desce> --source <x,y,z> [--steps <n>] "
                    "[--port <p> --audience <world id> --issuer-key <public key file> [--issuer-key ...] "
                    "[--refuse-account <id> ...] --pawn <assets:...deprefab> --spawn <x,y,z> "
                    "[--spawn ...] [--lag-ms <ms> --jitter-ms <ms> --loss <pct>]]\n"
@@ -266,6 +267,8 @@ namespace Desert::Server
                 const std::string& value = args[++i];
                 if ( flag == "--project" )
                     options.project = value;
+                else if ( flag == "--engine-dir" )
+                    options.engineDir = value;
                 else if ( flag == "--coordinator" )
                     options.coordinator = value;
                 else if ( flag == "--mesh-ca" )
@@ -1079,9 +1082,14 @@ namespace Desert::Server
                 return 0;
             }
 
-            // The project first (engine directory from the executable, the log in <project>/Saved/Logs): the same
-            // unattended open every tool makes (Tools/Shared/ToolProject.hpp).
-            const Tools::OpenedToolProject opened = Tools::OpenToolProject( options.project, {} );
+            // The project first (engine directory from the executable or --engine-dir, the log in
+            // <project>/Saved/Logs): the same unattended open every tool makes (Tools/Shared/ToolProject.hpp).
+            // THE SERVER READS NO ENGINE RESOURCE: it links no RHI, so nothing on its path opens
+            // Resources/Shaders, fonts or icons, and its image ships no Resources/ (UE: a dedicated server runs
+            // NullRHI and its staged build carries no shaders) - the engine directory is positional
+            // (EngineResourceNeed::None).
+            const Tools::OpenedToolProject opened =
+                 Tools::OpenToolProject( options.project, options.engineDir, Project::EngineResourceNeed::None );
             if ( !opened.Refused.empty() )
             {
                 std::cerr << "DesertServer: " << opened.Refused << "\n";

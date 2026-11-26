@@ -39,7 +39,9 @@ RUN --mount=type=cache,target=/ccache \
 
 FROM --platform=linux/amd64 ubuntu:24.04 AS runtime
 # The binary needs libstdc++/libc only (OpenSSL's libcrypto is linked statically); `file` stays for the image's
-# own self-description (the scenario's ELF check).
+# own self-description (the scenario's ELF check). No Resources/: the server links no RHI and reads no shader, font
+# or icon (UE: a dedicated server runs NullRHI and its staged build carries none) - its engine directory is
+# positional, /opt/desert (Projects/StartupLayout.hpp EngineResourceNeed::None; --engine-dir overrides it).
 RUN apt-get update \
  && apt-get install -y --no-install-recommends file \
  && rm -rf /var/lib/apt/lists/* \

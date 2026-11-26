@@ -23,12 +23,15 @@
 namespace Desert::Tools
 {
     // Resolves and installs the engine directory. Returns the refusal (naming every place looked at) when
-    // there is none — the caller stops with it — or an empty string once EngineDir() is set.
-    inline std::string SetEngineDirFromExecutable( const std::filesystem::path& engineDirOverride )
+    // there is none — the caller stops with it — or an empty string once EngineDir() is set. `need` is what
+    // the process reads from it: a process that links no RHI (DesertServer) passes EngineResourceNeed::None.
+    inline std::string SetEngineDirFromExecutable(
+         const std::filesystem::path&        engineDirOverride,
+         Desert::Project::EngineResourceNeed need = Desert::Project::EngineResourceNeed::Shaders )
     {
         const std::filesystem::path executableIn = Common::Utils::FileSystem::ExecutablePath().parent_path();
         const Desert::Project::EngineDirLookup engine =
-             Desert::Project::ResolveEngineDir( executableIn, engineDirOverride );
+             Desert::Project::ResolveEngineDir( executableIn, engineDirOverride, need );
         if ( !engine.Explanation.empty() )
             return engine.Explanation;
         Common::Constants::Path::SetEngineDir( engine.Dir );

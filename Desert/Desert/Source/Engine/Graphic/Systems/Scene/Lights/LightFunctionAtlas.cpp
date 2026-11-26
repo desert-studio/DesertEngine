@@ -33,7 +33,6 @@ namespace Desert::Graphic::System
         // Both stages share the engine push block (Common/MaterialTransport.glslh, 128 bytes): the material's
         // values as its executor pushed them, the draw's first row in PrimitiveIndex (offset 72).
         constexpr std::size_t kLightFunctionPushBytes       = 128u;
-        constexpr std::size_t kLightFunctionMaxPushBytes    = 128u;
         constexpr std::size_t kLightFunctionFirstRowAt = 72u;
         constexpr std::size_t kInitialTiles           = 64u;
         constexpr std::size_t kLightFunctionInitialPrograms = 8u;
@@ -359,12 +358,12 @@ namespace Desert::Graphic::System
             const RDG::PassBindings       bindings( context, context.GetBindingBlock( program.Block ) );
             const MaterialExecutor*       executor = program.Material->GetMaterialExecutor();
             const Common::Memory::Buffer& pushed   = executor->GetPushConstantBuffer();
-            if ( pushed.Size > kLightFunctionMaxPushBytes )
+            if ( pushed.Size > kLightFunctionPushBytes )
                 return Common::MakeFormattedError( "{}: light function shader '{}' has a {}-byte push block (at "
                                                    "most {})",
                                                    context.GetPassName(), program.Material->GetShaderName(),
-                                                   pushed.Size, kLightFunctionMaxPushBytes );
-            std::array<std::byte, kLightFunctionMaxPushBytes> push{};
+                                                   pushed.Size, kLightFunctionPushBytes );
+            std::array<std::byte, kLightFunctionPushBytes> push{};
             if ( pushed.Data != nullptr && pushed.Size != 0u )
                 std::memcpy( push.data(), pushed.Data, pushed.Size );
             std::memcpy( push.data() + kLightFunctionFirstRowAt, &draw.FirstRow, sizeof( draw.FirstRow ) );

@@ -4,8 +4,11 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <iterator>
+#include <ranges>
 #include <utility>
 
 #include "Engine/Geometry/MeshCore/DynamicVector.hpp"
@@ -373,14 +376,12 @@ namespace Desert::Geometry
         public:
             BaseValueIterator() = default;
 
+            // Equal at the same position of the same list. UE's FSmallListSet compares only the list in ==
+            // and the position in !=, so a == b and a != b could both hold; != is the negation here.
             bool operator==( const BaseValueIterator& Other ) const
             {
-                return m_ListSet == Other.m_ListSet && m_ListIndex == Other.m_ListIndex;
-            }
-            bool operator!=( const BaseValueIterator& Other ) const
-            {
-                return m_ListSet != Other.m_ListSet || m_ListIndex != Other.m_ListIndex ||
-                       m_iCur != Other.m_iCur || m_cur_ptr != Other.m_cur_ptr;
+                return m_ListSet == Other.m_ListSet && m_ListIndex == Other.m_ListIndex &&
+                       m_iCur == Other.m_iCur && m_cur_ptr == Other.m_cur_ptr;
             }
 
         protected:
@@ -464,6 +465,14 @@ namespace Desert::Geometry
         class ValueIterator : public BaseValueIterator
         {
         public:
+            // A standard input iterator (the value is read by value): the std algorithms dispatch on
+            // iterator_category, which libstdc++ requires (Linux server) and libc++ does not.
+            using iterator_category = std::input_iterator_tag;
+            using value_type        = int32_t;
+            using difference_type   = std::ptrdiff_t;
+            using pointer           = void;
+            using reference         = int32_t;
+
             ValueIterator() : BaseValueIterator()
             {
             }
@@ -473,10 +482,16 @@ namespace Desert::Geometry
                 return m_cur_value;
             }
 
-            const ValueIterator& operator++() // prefix
+            ValueIterator& operator++() // prefix
             {
                 this->GotoNext();
                 return *this;
+            }
+            ValueIterator operator++( int ) // postfix
+            {
+                ValueIterator Prev = *this;
+                this->GotoNext();
+                return Prev;
             }
 
         protected:
@@ -550,6 +565,14 @@ namespace Desert::Geometry
         class MappedValueIterator : public BaseValueIterator
         {
         public:
+            // A standard input iterator (the value is read by value): the std algorithms dispatch on
+            // iterator_category, which libstdc++ requires (Linux server) and libc++ does not.
+            using iterator_category = std::input_iterator_tag;
+            using value_type        = int32_t;
+            using difference_type   = std::ptrdiff_t;
+            using pointer           = void;
+            using reference         = int32_t;
+
             MappedValueIterator() : BaseValueIterator()
             {
                 m_MapFunc = []( int32_t value ) { return value; };
@@ -560,10 +583,16 @@ namespace Desert::Geometry
                 return m_MapFunc( m_cur_value );
             }
 
-            const MappedValueIterator& operator++() // prefix
+            MappedValueIterator& operator++() // prefix
             {
                 this->GotoNext();
                 return *this;
+            }
+            MappedValueIterator operator++( int ) // postfix
+            {
+                MappedValueIterator Prev = *this;
+                this->GotoNext();
+                return Prev;
             }
 
         protected:
@@ -650,5 +679,9 @@ namespace Desert::Geometry
                    m_LinkedListElements.GetByteCount();
         }
     };
+
+    static_assert( std::input_iterator<SmallListSet::ValueIterator> );
+    static_assert( std::input_iterator<SmallListSet::MappedValueIterator> );
+    static_assert( std::ranges::input_range<SmallListSet::ValueEnumerable> );
 
 } // namespace Desert::Geometry

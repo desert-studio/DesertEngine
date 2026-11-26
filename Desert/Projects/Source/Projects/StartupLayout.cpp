@@ -144,7 +144,8 @@ namespace Desert::Project
              directory.string(), descriptors.size(), names );
     }
 
-    EngineDirLookup ResolveEngineDir( const fs::path& executableDirectory, const fs::path& overrideDir )
+    EngineDirLookup ResolveEngineDir( const fs::path& executableDirectory, const fs::path& overrideDir,
+                                      EngineResourceNeed need )
     {
         EngineDirLookup lookup;
         std::error_code ec;
@@ -158,6 +159,31 @@ namespace Desert::Project
             lookup.FromCheckout      = fromCheckout;
             return lookup;
         };
+
+        // A PROCESS THAT CAN NEVER RENDER reads no Resources/ (no shaders, fonts or icons): its engine directory
+        // is positional, and the only refusal left is an explicit --engine-dir that names no directory.
+        if ( need == EngineResourceNeed::None )
+        {
+            if ( !overrideDir.empty() )
+            {
+                if ( fs::is_directory( overrideDir, ec ) )
+                    return Accept( overrideDir, false );
+                lookup.Explanation = fmt::format( "--engine-dir '{}' is not a directory", overrideDir.string() );
+                return lookup;
+            }
+            if ( executableDirectory.empty() )
+            {
+                lookup.Explanation = "the executable's own directory is unknown, so there is no engine directory "
+                                     "to derive (pass --engine-dir <folder>)";
+                return lookup;
+            }
+            const fs::path binDirectory   = executableDirectory.parent_path();
+            const fs::path buildDirectory = binDirectory.parent_path();
+            if ( binDirectory.filename() == "Bin" && buildDirectory.filename() == "build" &&
+                 fs::is_directory( buildDirectory.parent_path() / "Editor", ec ) )
+                return Accept( buildDirectory.parent_path() / "Editor", true );
+            return Accept( executableDirectory, false );
+        }
 
         if ( !overrideDir.empty() )
         {

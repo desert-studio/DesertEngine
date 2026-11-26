@@ -15,8 +15,8 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        constexpr const char* kRainStreakShaderName = "RainStreaks";
-        constexpr uint32_t    kVerticesPerDrop      = 6; // two triangles (RainStreaks.shader corners)
+        constexpr const char* kRainStreaksShaderName = "RainStreaks";
+        constexpr uint32_t    kVerticesPerDrop       = 6; // two triangles (RainStreaks.shader corners)
     } // namespace
 
     Common::BoolResultStr RainStreakRenderer::Initialize()
@@ -24,7 +24,7 @@ namespace Desert::Graphic::System
         const auto shaderService = Runtime::ResourceRegistry::GetShaderService();
         if ( !shaderService )
             return Common::MakeError( "RainStreakRenderer: no shader service" );
-        const auto shader = shaderService->GetByName( kRainStreakShaderName );
+        const auto shader = shaderService->GetByName( kRainStreaksShaderName );
         if ( !shader )
             return Common::MakeError( "RainStreakRenderer: shader 'RainStreaks' is not registered "
                                       "(Editor/Resources/Shaders/Programs/Weather/RainStreaks.shader)" );
@@ -32,7 +32,7 @@ namespace Desert::Graphic::System
             return Common::MakeError( "RainStreakRenderer: no scene target" );
 
         GraphicsPipelineSpecification spec;
-        spec.DebugName    = kRainStreakShaderName;
+        spec.DebugName    = kRainStreaksShaderName;
         spec.Shader       = shader;
         spec.TargetLayout = SceneTargetLayout();
         // Tested against the opaque scene, never written: a translucent sheet (SystemRasterPass::DepthReadOnly).

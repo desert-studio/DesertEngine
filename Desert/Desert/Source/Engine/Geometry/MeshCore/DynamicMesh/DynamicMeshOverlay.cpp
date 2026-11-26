@@ -901,17 +901,15 @@ template <typename RealType, int ElementSize>
 bool DynamicMeshOverlay<RealType, ElementSize>::IsSeamVertex( int vid, bool bBoundaryIsSeam ) const
 {
     // @todo can we do this more efficiently? At minimum we are looking up each triangle twice...
-    // VtxEdgesItr does not satisfy std::ranges::input_range, so the iterator-pair form.
-    auto Edges = m_ParentMesh->VtxEdgesItr( vid );
-    return std::any_of( Edges.begin(), Edges.end(),
-                        [this, bBoundaryIsSeam]( const int edgeid )
-                        {
-                            if ( !bBoundaryIsSeam && m_ParentMesh->IsBoundaryEdge( edgeid ) )
-                            {
-                                return false;
-                            }
-                            return IsSeamEdge( edgeid );
-                        } );
+    return std::ranges::any_of( m_ParentMesh->VtxEdgesItr( vid ),
+                                [this, bBoundaryIsSeam]( const int edgeid )
+                                {
+                                    if ( !bBoundaryIsSeam && m_ParentMesh->IsBoundaryEdge( edgeid ) )
+                                    {
+                                        return false;
+                                    }
+                                    return IsSeamEdge( edgeid );
+                                } );
 }
 
 template <typename RealType, int ElementSize>
