@@ -219,7 +219,7 @@ namespace Desert::Gameplay
             if ( rootMotionVelocity != nullptr )
                 velocity = { rootMotionVelocity->X, rootMotionVelocity->Z };
             if ( !state.Grounded )
-                state.Velocity.Y -= settings.Gravity * dtSeconds;
+                state.Velocity.Y -= ( world.Gravity() * settings.GravityScale ) * dtSeconds;
             // A grounded walk keeps pressing the floor (UE: the walking move follows the floor; Jolt sticks the
             // capsule to it), so a step off a ledge is a fall from the next move on, not a hover. A grounded pawn
             // with no planar velocity does not press: UE PhysWalking moves nothing along a walkable floor and only
@@ -228,14 +228,20 @@ namespace Desert::Gameplay
             // went away still ends the stand: the move's contacts find no floor and the pawn falls next step.
             const bool idleOnFloor =
                  state.Grounded && state.Velocity.Y == 0.f && velocity.X == 0.f && velocity.Z == 0.f;
-            const float pressY = idleOnFloor ? 0.f : -settings.Gravity * dtSeconds;
+            const float pressY = idleOnFloor ? 0.f : -( world.Gravity() * settings.GravityScale ) * dtSeconds;
             moveVelocity       = { velocity.X, state.Grounded ? pressY : state.Velocity.Y, velocity.Z };
         }
         state.Velocity.X = velocity.X;
         state.Velocity.Z = velocity.Z;
 
+        const PawnCapsule             capsule = CapsuleOf( settings, crouched );
         const IPawnMoveWorld::Outcome moved =
-             world.Move( state, moveVelocity, CapsuleOf( settings, crouched ), settings.Gravity, dtSeconds );
+             world.Move( state, moveVelocity, capsule, world.Gravity() * settings.GravityScale,
+                         swimming ? 0.f : settings.MaxStepHeight, dtSeconds );
+        // The crouch IS the capsule the pawn has (UE bIsCrouched): a shape the world could not change keeps the
+        // mode it had - a refused stand-up stays crouched and retries the next step, a refused crouch stands.
+        if ( moved.Capsule != capsule )
+            crouched = !crouched;
         const bool rising = !state.Grounded && state.Velocity.Y > 0.f;
         state.Position    = moved.Position;
         state.Velocity.X  = moved.Velocity.X;

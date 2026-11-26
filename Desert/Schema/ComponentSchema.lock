@@ -37,6 +37,7 @@ BrakingFrictionFactor: float
 JumpZVelocity: float
 AirControl: float
 GravityScale: float
+MaxStepHeight: float
 MaxWalkSpeedCrouched: float
 CrouchedHeight: float
 MaxSwimSpeed: float

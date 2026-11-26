@@ -87,6 +87,11 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Gravity Scale" ), Category( "Jumping / Falling" ), Range( 0.0f, 10.0f ) )
         float GravityScale = 1.0f;
 
+        // UE MaxStepHeight, its floor half: a walking capsule follows a walkable floor down to this far below its
+        // feet (a downhill walk, a step down) instead of hopping off it (Gameplay::StepPawnMove, every side).
+        PROPERTY( DisplayName( "Max Step Height" ), Category( "Walking" ), Range( 0.0f, 500.0f ), Length )
+        float MaxStepHeight = 45.0f;
+
         // UE MaxWalkSpeedCrouched.
         PROPERTY( DisplayName( "Max Walk Speed Crouched" ), Category( "Crouching" ), Range( 0.0f, 5000.0f ),
                   Units( "cm/s" ) )

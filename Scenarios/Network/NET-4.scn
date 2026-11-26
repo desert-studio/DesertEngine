@@ -10,13 +10,17 @@
 # Fence 300001 in WP_Protocol: static box 20 x 180 x 600 cm at x=2500 (z 350-950), ~120 cm above the slope. A's
 # frames come from a FIXED side camera at (2100,120,50) that sees A's capsule approach the fence and cross it.
 # Net coordinates are Y-up (X, Y, Z); the net pawn position is the FEET.
+# NET-GAMEMODE p4: server and clients run Pawn_Player (CharacterController: Sprint Action IA_Sprint; IMC_Default maps
+# Left Shift -> IA_Sprint). A's sprint is Left Shift held in its local player's Enhanced Input (the walk mode presses
+# the key, UE UPlayerInput::InputKey), so IA_Sprint fires and the one Input::LocalPawnInputStep builds the step.
 Мир Content/Scenes/WP_Protocol.desce
-Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Test.deprefab --spawn 0,-300,650 --spawn 500,-300,-200 --steps 864000
+Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-300,650 --spawn 500,-300,-200 --steps 864000
 Ждать server 60 \[Server\] listening on port
 Роль A editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --camera 2100,120,50 --look 0.595,-0.198,0.779 --quality PostProcess.MotionBlurQuality=0 --net-walk-cm 30000 --net-walk-dir 1,0,0 --net-walk-mode sprint --net-jump-every 1.5
 Ждать A 1800 \[Net\] in session
 Роль B bot account=2 lag=75 loss=2 --seconds 1500
 Ждать A 120 \[Net\] predicting own pawn
+Ждать A 120 \[Net\] scripted walk: Left Shift held in the player's Enhanced Input
 # Дано: server + A + B on WP_Protocol, link 150 ms / 2 % loss. Когда: A sprints along +X and jumps every 1.5 s.
 Ждать A 900 drawn own \((2[4-9]\d\d|[3-9]\d\d\d|\d{5,}),
 Тогда A clientA_fence_before the fence (thin green box) beside the slope from the side camera, A's capsule at x >= 2400 next to it or crossing it; sharp (no motion blur)

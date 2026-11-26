@@ -56,8 +56,12 @@ namespace Desert::Input
         if ( logClock < 1.0f )
             return;
         logClock = 0.0f;
-        LOG_INFO( "[Gameplay] local pawn (Gameplay::StepPawnMove): speed {:.0f} cm/s, actions {}{}{}{}",
+        // Where the step left the capsule (its centre, world cm), so a run's frames can be matched to the pawn's
+        // travel: walk, sprint and crouch walk advance it, standing up in place does not.
+        const glm::vec3 at = world.GetCharacterPosition( cc.RuntimeCharacter );
+        LOG_INFO( "[Gameplay] local pawn (Gameplay::StepPawnMove): speed {:.0f} cm/s, actions {}{}{}{}, "
+                  "capsule centre ({:.0f}, {:.0f}, {:.0f})",
                   cc.CurrentSpeed, actions.Describe( input ), cc.OnGround ? ", grounded" : ", in the air",
-                  cc.IsCrouched ? ", crouched" : "", cc.Swimming ? ", swimming" : "" );
+                  cc.IsCrouched ? ", crouched" : "", cc.Swimming ? ", swimming" : "", at.x, at.y, at.z );
     }
 } // namespace Desert::Input
