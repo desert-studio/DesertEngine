@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Math/AABB.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Graphic/GpuInstances.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
@@ -434,15 +435,12 @@ namespace Desert::Graphic::System
             uint64_t                                        m_End     = 0; // the bytes the ranges span
             uint64_t                                        m_Epoch   = 0;
             std::vector<PoolRange>                          m_Free; // by offset, never adjacent, never at the end
-            // SCAL-COVER: a released range with the frame that released it. The frames in flight before it may
-            // still read its bytes, so it joins m_Free only once FrameManager's margin has passed (a free while
-            // bound would let this frame's uploads overwrite what the GPU is reading).
-            struct RetiredRange
-            {
-                PoolRange Range;
-                uint64_t  Frame = 0u;
-            };
-            std::vector<RetiredRange> m_Retired;
+            // SCAL-COVER: a released range, parked with the frame that released it. The frames in flight before
+            // it may still read its bytes, so it joins m_Free only once the engine's one retire rule says no
+            // frame in flight reads it (Assets::FrameRetireQueue; a free while bound would let this frame's
+            // uploads overwrite what the GPU is reading).
+            ::Desert::Assets::FrameRetireQueue<PoolRange> m_Retired;
+            std::vector<PoolRange>                        m_Due; // ReclaimRetired's scratch
             // Moves the retired ranges no frame in flight reads any more into m_Free.
             void ReclaimRetired();
             // Gives @p range's bytes to m_Free now (merged with free neighbours; a run at the end shortens the
@@ -807,8 +805,9 @@ namespace Desert::Graphic::System
         std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
         // CPU-GRASS-POOL-2, THE TILE POOLS' SEGMENTS (UE: one pooled allocator hands every HISM its pages): every
-        // variety's segments (VarietyGpu::TileSegments, indices here). A pool made anew gives its segments back
-        // to m_FreeTileSegments, which the pools growing in the same frame take first; what is still free once
+        // variety's segments (VarietyGpu::TileSegments, indices here). A pool made anew parks its segments
+        // (m_RetiredTileSegments) until no frame in flight reads them, then they join m_FreeTileSegments, which
+        // growing pools take first; what is still free once
         // the frame's tiles are updated is released (TrimTileSegments), so a free segment holds no video memory
         // past its frame. The held ones are imported and registered once a frame (Ref).
         struct TileSegment
@@ -821,9 +820,18 @@ namespace Desert::Graphic::System
         };
         std::vector<TileSegment> m_TileSegments;
         std::vector<uint32_t>    m_FreeTileSegments;
+        // SCAL-COVER: a released segment's index, parked with the frame that released it (the engine's one
+        // retire rule, Assets::FrameRetireQueue): the frames in flight before it still read its buffer through
+        // their segment tables, so it joins m_FreeTileSegments - where a pool may take it and TrimTileSegments
+        // may drop its buffer - only once none of them can (ReclaimTileSegments).
+        ::Desert::Assets::FrameRetireQueue<uint32_t> m_RetiredTileSegments;
+        std::vector<uint32_t>                        m_DueTileSegments; // ReclaimTileSegments' scratch
         // Takes a segment for a pool (a free one first, else a new one); false (logged) when none could be made.
         [[nodiscard]] bool TakeTileSegment( uint32_t& index );
+        // Parks @p gpu's segments in m_RetiredTileSegments; @p gpu holds none at once.
         void               ReleaseTileSegments( VarietyGpu& gpu );
+        // Moves the parked segments no frame in flight reads any more into m_FreeTileSegments.
+        void               ReclaimTileSegments();
         void               TrimTileSegments();
         // The held segments into @p graph, once a frame (TileSegment::Ref); false (logged): no tile pass may run.
         [[nodiscard]] bool ImportTileSegments( RDG::Builder& graph );
