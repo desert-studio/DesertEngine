@@ -417,7 +417,7 @@ namespace Desert::Editor
         out.WaitMs    = std::chrono::duration<double, std::milli>( readbackStart - collectStart ).count();
         out.CollectMs = std::chrono::duration<double, std::milli>( out.Started - readbackStart ).count();
         out.Encode    = Common::JobSystem::Get().Async(
-             [path, width, height, source = out.Source, ticket = out.Ticket]() noexcept -> std::string
+             [path, width, height, source = out.Source.get(), ticket = out.Ticket]() noexcept -> std::string
              {
                  const auto rgba = source->ResolveCapturedFrame( ticket );
                  if ( !rgba )

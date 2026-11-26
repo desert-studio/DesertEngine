@@ -69,7 +69,8 @@ namespace Desert::Editor
             double                                WaitMs    = 0.0; // on the frame: the device idle wait
             double                                CollectMs = 0.0; // on the frame: staging detach (read, pack: worker)
             // The capture's ticket and the swap chain holding it: resolved by the worker, released by
-            // FinishWindowPng. The pointer keeps the readback alive while the worker reads it.
+            // FinishWindowPng. This is the only owner: the worker holds a raw pointer, because the
+            // job keeps its lambda past Encode.get() and a copy there could make the worker destroy the surface after the window.
             std::shared_ptr<Graphic::SwapChain> Source;
             Graphic::CapturedFrameTicket        Ticket;
             std::chrono::steady_clock::time_point Started;
