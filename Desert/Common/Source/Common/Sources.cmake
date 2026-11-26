@@ -37,6 +37,7 @@ set(DESERT_SOURCES
     "Content/TextAssetHeader.cpp"
     "Content/TextAssetHeader.hpp"
     "Core/Algorithms/ScopeExit.hpp"
+    "Core/Align.hpp"
     "Core/AssetHandle.hpp"
     "Core/AssetPathIndex.cpp"
     "Core/AssetPathIndex.hpp"
