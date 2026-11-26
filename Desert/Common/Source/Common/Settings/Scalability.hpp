@@ -32,21 +32,12 @@
 // call the same QualityState API; the renderer READS ResolvedQuality and never sees a group or a level. No
 // renderer reads a Level — if one does, the table has a missing parameter.
 //
-// THE FORMER MachineSettings FIELDS (SCAL1-S2) — each is now a Parameter of the table:
-//     AAMethod -> AntiAliasingMethod, MSAASamples -> AntiAliasingSamples (AntiAliasing); TextureFilterMode ->
-//     TextureFilter, Anisotropy -> Anisotropy (Filtering); MeshLOD -> MeshLOD (ViewDistance); CloudQualityTier ->
-//     CloudQuality (Effects; UE puts volumetric clouds under sg.EffectsQuality).
-//   The six fields were DELETED from MachineSettings and its JSON; MachineSettings gained
-//   `std::optional<QualitySelection> Quality`. Nothing migrates the old keys at load: a machine.json that still
-//   carries one keeps it as an unknown key (named in a WARN). The former per-setting AA resolvers and
-//   RenderConfig's device maxima were replaced by
-//   ResolvedQuality and QualityState::Apply (RenderConfig keeps only the atomic TextureFilter / AnisotropyLevel
-//   push the sampler path reads, written by QualityBoot's listener). The old AntiAliasingMethod enum in
-//   MachineSettings.hpp was deleted in favour of Common::Scalability::AntiAliasingMethod (same leading values).
+// MachineSettings holds no quality field: `std::optional<QualitySelection> Quality` is the machine's whole choice.
 namespace Common::Scalability
 {
     // The groups — UE's sg.* set plus AntiAliasing and ResolutionScale, which UE keeps as sg.AntiAliasingQuality
-    // and sg.ResolutionQuality. Order is the UI order and the JSON order.
+    // and sg.ResolutionQuality. The enum order is the index of a
+    // QualitySelection and of the table; the UI orders the groups its own way (ScalabilityPanel).
     enum class Group : int
     {
         Textures = 0, // sg.TextureQuality — streaming pool, mip bias, cooked-size cap
@@ -83,15 +74,8 @@ namespace Common::Scalability
     inline constexpr std::size_t kLevelCount = static_cast<std::size_t>( Level::Count );
 
     // EVERY QUALITY VALUE A RENDERER READS. A row exists only when a reader exists (contract §1.3): the comment
-    // names it. A group whose rows are all placeholders (Textures today) is HIDDEN: IsGroupListed() is false, so
-    // no UI or game API shows a slider for it, and a group with no row at all is refused by the loader when the
-    // data file gives it levels - a group slider that moves nothing is a dead setting.
-    //
-    // PLACEHOLDERS (owner, 2026-10-06). A row whose spec says `Reader = std::nullopt` reserves a parameter for a
-    // feature the engine does not have yet (TAA quality, texture streaming). The loader validates it like any row,
-    // Resolve passes it through (range + catalog), but nothing applies it: ListedParameters() and IsGroupListed() leave it out of every UI and of the game API, and
-    // QualityState::SetOverride refuses it. The day its feature lands the row gains its reader and appears. A
-    // contract test pins both directions: every placeholder is hidden, every listed row names its reader.
+    // names it, and so does its spec (ParameterSpec::Reader). A group with no row at all is refused by the loader
+    // when the data file gives it levels - a group slider that moves nothing is a dead setting.
     enum class Parameter : int
     {
         AntiAliasingMethod = 0, // SceneRenderer framebuffer setup + post AA pass. Values: AntiAliasingMethod
@@ -101,7 +85,6 @@ namespace Common::Scalability
         TextureFilter,          // sampler cache (RenderConfig push). Values: MachineSettings TextureFilter 0..3
         Anisotropy,             // sampler cache. Values: CapabilityCatalog::AnisotropyLevels
         MeshLOD,                // mesh LOD selection. Values: 0/1
-        CloudQuality,           // Graphic::CloudQualityScale. Values: CloudQuality 0..2
         // The three shadow-map rows: a level's viewport re-allocates its cascade maps when they change.
         ShadowCascades,     // scene view's ShadowQuality::CascadeCount (MeshRenderer). 1..kMaxShadowCascades
         ShadowMapSize,      // ShadowQuality::ShadowMapSize, texels per cascade side. 512..4096
@@ -258,18 +241,16 @@ namespace Common::Scalability
         TsrRejectionAntiAliasing,      // r.TSR.RejectionAntiAliasingQuality: spatial AA of rejected pixels. 0..2
         TsrReprojectionField,          // r.TSR.ReprojectionField: depth-anti-aliased reprojection + jacobian. 0/1
         TsrResurrection,               // r.TSR.Resurrection: resurrect disoccluded history from a kept frame. 0/1
-        // ---- placeholders (Reader = nullopt) ----
-        TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
-        TextureStreamingPoolMiB, // Textures: mip streaming pool budget (r.Streaming.PoolSize) -- NOT a placeholder
-                                 // since TEX-STREAMING: TextureService::UpdateStreaming reads it
-        TemporalAAQuality,       // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
-                                 // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
+        TextureMipBias,          // Textures: material texture LOD bias, 1/100 mip (UE r.Streaming.MipBias): added
+                                 // to the view's MaterialMipBias and taken out of the streamed mip. 0..400
+        TextureStreamingPoolMiB, // Textures: mip streaming pool budget (r.Streaming.PoolSize),
+                                 // TextureService::UpdateStreaming
+        TemporalAAQuality,       // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High), ViewInputs::
+                                 // Quality. Not AntiAliasing.Samples, which is MSAA-only.
         UpscalerSharpness,       // ResolutionScale: percent
         // GlobalIllumination: the budgets of the surface cache and the world radiance cache (GI-CACHE-IFACE,
-        // Graphic/GlobalIllumination). Each gains its reader with the pass that spends it (GI-SURFACE-CACHE,
-        // GI-RADIANCE-CACHE, GI-HWRT); the per-level values are UE's BaseScalability.ini
-        // GlobalIlluminationQuality. Read today: the atlas/card/direct-lighting rows (SurfaceCacheScene), the
-        // two radiance-cache rows and HitLighting; the three radiosity rows are still placeholders.
+        // Graphic/GlobalIllumination); the per-level values are UE's BaseScalability.ini
+        // GlobalIlluminationQuality.
         SurfaceCacheAtlasSize,                  // texels per side of the surface cache atlases (UE
                                                 // r.LumenScene.SurfaceCache.AtlasSize)
         SurfaceCacheCardTexelDensity,           // card texels per world unit, percent (UE
@@ -605,6 +586,23 @@ namespace Common::Scalability
         // ring replaces the oldest record. Read by ECS::DecalECSSystem::Update -> World::DecalImpactPool::
         // SetCapacity. 0 = no impact decals. 0..4096
         EffectsDecalImpactPoolSize,
+        // Every authored draw / cull distance times this percent (UE r.ViewDistanceScale); the LOD is not touched
+        // (that is ViewDistanceLODDistanceScalePercent). Read by SceneRenderer::BeginScene ->
+        // MeshRenderer::SetDrawDistanceScale (Geometry::LODView::DrawDistance). 25..1000; 100 = as authored.
+        ViewDistanceDrawDistanceScalePercent,
+        // The landscape grid's allowed screen error, percent of one pixel. Read by
+        // SceneRenderer::BeginScene -> TerrainRenderer::SetGridErrorPixels. 25..800; 100 = as authored.
+        ViewDistanceLandscapeGridErrorPercent,
+        // The share of a foliage type's instances drawn, percent, for types with FoliageType::EnableDensityScaling
+        // (UE foliage.DensityScale + bEnableDensityScaling). Collision keeps every instance. Read by
+        // ECS::MeshECSSystem (the instanced record). 0..100
+        FoliageInstanceDensityScalePercent,
+        // The volumetric clouds' cost (Graphic::CloudQualityOf): the ceiling on the component's light-march
+        // samples (1..64), the cloud shadow map's side (percent of the component's, 25..100), and the
+        // transmittance a view ray may stop at (1/1000, 0..500; 0 = march the whole layer).
+        EffectsCloudLightMarchSamples,
+        EffectsCloudShadowMapScalePercent,
+        EffectsCloudStopTransmittanceMilli,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
@@ -615,10 +613,14 @@ namespace Common::Scalability
     // The first parameter that needs a fraction states it in its unit (percent, per-mille) instead.
     using ParameterValue = int32_t;
 
+    // Effects.CloudLightMarchSamples' Max: the volumetric cloud march's own sample array size
+    // (ECS::kCloudLightMarchMaxSamples, which Graphic/Clouds/CloudQuality.hpp static_asserts equal to this).
+    inline constexpr ParameterValue kCloudLightMarchSamplesMax = 64;
+
     // Which catalog list a parameter's values are checked against, if any.
     enum class CatalogList : int
     {
-        None = 0, // a closed range in the spec is the whole truth (MeshLOD, TextureFilter, CloudQuality)
+        None = 0, // a closed range in the spec is the whole truth (MeshLOD, TextureFilter)
         AntiAliasingMethods,
         MSAACounts,
         RenderScale,
@@ -651,9 +653,8 @@ namespace Common::Scalability
         ParameterValue   Min;
         ParameterValue   Max;
         CatalogList      NarrowedBy;
-        // WHO READS THE RESOLVED VALUE (file / system), or std::nullopt for a placeholder: a reserved parameter
-        // with no reader, hidden from every selector (see PLACEHOLDERS above).
-        std::optional<std::string_view> Reader;
+        // WHO READS THE RESOLVED VALUE (file / system); never empty (static_assert in Scalability.cpp).
+        std::string_view Reader;
         // THE VALUE AT A LEVEL THAT DOES NOT NAME THIS PARAMETER. Scalability.json lists, per level, only the
         // values that differ from it (a line restating it is refused), so a knob that is the same at every level
         // lives here once. Inside [Min, Max] (static_assert in Scalability.cpp). Set to the Epic value (SCAL-UX).
@@ -672,10 +673,6 @@ namespace Common::Scalability
             return false;
         return !spec.PowersOfTwo || ( value > 0 && ( value & ( value - 1 ) ) == 0 );
     }
-    [[nodiscard]] constexpr bool IsPlaceholder( const ParameterSpec& spec )
-    {
-        return !spec.Reader.has_value();
-    }
     [[nodiscard]] constexpr bool IsBasic( const ParameterSpec& spec )
     {
         return spec.Visibility == ParameterVisibility::Basic;
@@ -684,15 +681,11 @@ namespace Common::Scalability
     [[nodiscard]] const ParameterSpec&           SpecOf( Parameter parameter );
     [[nodiscard]] std::string_view               GroupKey( Group group ); // "Shadows", "AntiAliasing", ...
     [[nodiscard]] std::string_view               LevelKey( Level level ); // "Low" ... "Cinematic"
-    // What a selector (editor panel, palette, game menu, console listing) may show: the parameters that have a
-    // reader, and the groups owning at least one of them.
-    [[nodiscard]] std::vector<Parameter> ListedParameters();
-    // The listed parameters shown to @p visibility (a menu: Basic; a selector's advanced section: Advanced).
+    // The parameters shown to @p visibility (a menu: Basic; a selector's advanced section: Advanced).
     [[nodiscard]] std::vector<Parameter> ListedParameters( ParameterVisibility visibility );
     // The names a by-name parameter's values are written with (Scalability.json, a selector's combo), index =
     // value; empty for a numeric parameter.
     [[nodiscard]] std::span<const std::string_view> ParameterValueNames( Parameter parameter );
-    [[nodiscard]] bool                   IsGroupListed( Group group );
 
     // A full set of values, one per parameter, indexed by Parameter. Unset slots do not exist: the table loader
     // refuses a level that does not set every parameter of its group.
@@ -704,7 +697,7 @@ namespace Common::Scalability
     // `Editor/Resources/Config/Scalability.json`, shipped by the packager in its Config tree, read with the
     // engine's own Common/Json (no third-party parser). Shape:
     //
-    //   { "Version": 2,
+    //   { "Version": 4,
     //     "Groups": {
     //       "AntiAliasing": {
     //         "Low":       { "AntiAliasing.Method": "FXAA", ... },   // only what differs from the spec Default

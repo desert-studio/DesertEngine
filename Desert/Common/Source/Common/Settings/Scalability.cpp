@@ -50,8 +50,6 @@ namespace Common::Scalability
                "sampler cache (RenderConfig push)", 16, Vis::Basic },
              { P::MeshLOD, G::ViewDistance, "ViewDistance.MeshLOD", 0, 1, CL::None, "mesh LOD selection", 1,
                Vis::Advanced },
-             { P::CloudQuality, G::Effects, "Effects.CloudQuality", 0, 2, CL::None, "Graphic::CloudQualityScale",
-               2, Vis::Basic },
              { P::ShadowCascades, G::Shadows, "Shadows.Cascades", 1, 4, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)", 4, Vis::Advanced },
              { P::ShadowMapSize, G::Shadows, "Shadows.MapSize", 512, 4096, CL::None,
@@ -287,13 +285,15 @@ namespace Common::Scalability
              { P::TsrResurrection, G::AntiAliasing, "AntiAliasing.TSR.Resurrection", 0, 1, CL::None,
                "TemporalSuperResolution::HistoryDescs (persistent frames) + TSR.RejectShading resurrection", 1,
                Vis::Advanced },
-             { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt, 0,
-               Vis::Advanced },
+             { P::TextureMipBias, G::Textures, "Textures.MipBias", 0, 400, CL::None,
+               "SceneViewState::BeginFrame -> ViewFrame::MaterialMipBias (sampling) + "
+               "TextureStreamingDemand::BiasedPixels (streamed mip)",
+               0, Vis::Advanced },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
                "Runtime::TextureService::UpdateStreaming (mip streaming pool budget, r.Streaming.PoolSize)", 4096,
                Vis::Advanced },
-             { P::TemporalAAQuality, G::AntiAliasing, "AntiAliasing.TemporalQuality", 0, 2, CL::None, std::nullopt,
-               2, Vis::Basic },
+             { P::TemporalAAQuality, G::AntiAliasing, "AntiAliasing.TemporalQuality", 0, 2, CL::None,
+               "SceneRenderer::BeginScene -> ViewInputs::Quality (TAA / TAAU resolve variant)", 2, Vis::Basic },
              { P::UpscalerSharpness, G::ResolutionScale, "Resolution.Sharpness", 0, 100, CL::None,
                "post sharpen pass (Graphic::Sharpen)", 0, Vis::Basic },
              { P::SurfaceCacheAtlasSize, G::GlobalIllumination, "GlobalIllumination.SurfaceCacheAtlasSize", 1024,
@@ -312,12 +312,14 @@ namespace Common::Scalability
                "GlobalIllumination.DirectLightingUpdateFactor", 1, 1024, CL::None,
                "surface cache direct lighting (Graphic::SurfaceCache::SurfaceCacheScene)", 32, Vis::Advanced },
              { P::SurfaceCacheRadiosityUpdateFactor, G::GlobalIllumination,
-               "GlobalIllumination.RadiosityUpdateFactor", 1, 1024, CL::None, std::nullopt, 64, Vis::Advanced },
+               "GlobalIllumination.RadiosityUpdateFactor", 1, 1024, CL::None,
+               "surface cache radiosity (Graphic::SurfaceCache)", 64, Vis::Advanced },
              { P::SurfaceCacheRadiosityProbeSpacing, G::GlobalIllumination,
-               "GlobalIllumination.RadiosityProbeSpacing", 1, 16, CL::None, std::nullopt, 4, Vis::Advanced },
+               "GlobalIllumination.RadiosityProbeSpacing", 1, 16, CL::None,
+               "surface cache radiosity (Graphic::SurfaceCache)", 4, Vis::Advanced },
              { P::SurfaceCacheRadiosityProbeResolution, G::GlobalIllumination,
-               "GlobalIllumination.RadiosityHemisphereProbeResolution", 2, 8, CL::None, std::nullopt, 4,
-               Vis::Advanced },
+               "GlobalIllumination.RadiosityHemisphereProbeResolution", 2, 8, CL::None,
+               "surface cache radiosity (Graphic::SurfaceCache)", 4, Vis::Advanced },
              { P::RadianceCacheProbeResolution, G::GlobalIllumination,
                "GlobalIllumination.RadianceCacheProbeResolution", 8, 64, CL::None,
                "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (probe texels per side)", 32,
@@ -622,17 +624,41 @@ namespace Common::Scalability
                "DecalECSSystem::Update -> DecalImpactPool::SetCapacity (the impact decals World.spawnDecal keeps; "
                "a spawn into a full ring replaces the oldest; 0 = none)",
                1024, Vis::Advanced },
+             { P::ViewDistanceDrawDistanceScalePercent, G::ViewDistance, "ViewDistance.DrawDistanceScalePercent",
+               25, 1000, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetDrawDistanceScale (authored draw / cull distances, "
+               "percent)",
+               100, Vis::Advanced },
+             { P::ViewDistanceLandscapeGridErrorPercent, G::ViewDistance, "ViewDistance.LandscapeGridErrorPercent",
+               25, 800, CL::None,
+               "SceneRenderer::BeginScene -> TerrainRenderer::SetGridErrorPixels (landscape section LOD error)",
+               100, Vis::Advanced },
+             { P::FoliageInstanceDensityScalePercent, G::Foliage, "Foliage.InstanceDensityScalePercent", 0, 100,
+               CL::None,
+               "MeshECSSystem instanced record (instances of density-scaled foliage types drawn, percent)", 100,
+               Vis::Advanced },
+             { P::EffectsCloudLightMarchSamples, G::Effects, "Effects.CloudLightMarchSamples", 1,
+               kCloudLightMarchSamplesMax, CL::None,
+               "Graphic::CloudQualityOf -> VolumetricCloudRenderer (light-march sample ceiling)",
+               kCloudLightMarchSamplesMax,
+               Vis::Advanced },
+             { P::EffectsCloudShadowMapScalePercent, G::Effects, "Effects.CloudShadowMapScalePercent", 25, 100,
+               CL::None, "Graphic::CloudQualityOf -> VolumetricCloudRenderer (cloud shadow map side)", 100,
+               Vis::Advanced },
+             { P::EffectsCloudStopTransmittanceMilli, G::Effects, "Effects.CloudStopTransmittanceMilli", 0, 500,
+               CL::None, "Graphic::CloudQualityOf -> VolumetricCloudRenderer (view ray stop transmittance)", 0,
+               Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).
         constexpr bool DefaultsInRange()
         {
             for ( const ParameterSpec& spec : kParameterSpecs )
-                if ( spec.Default < spec.Min || spec.Default > spec.Max )
+                if ( spec.Default < spec.Min || spec.Default > spec.Max || spec.Reader.empty() )
                     return false;
             return true;
         }
-        static_assert( DefaultsInRange(), "a ParameterSpec Default lies outside its [Min, Max]" );
+        static_assert( DefaultsInRange(), "a ParameterSpec Default lies outside its [Min, Max], or no reader is named" );
 
         // A PowersOfTwo row's Min, Max and Default are themselves legal (Resolve lowers to a power of two >= Min).
         constexpr bool PowersOfTwoSpecsLegal()
@@ -1295,26 +1321,11 @@ namespace Common::Scalability
         return kParameterSpecs[static_cast<std::size_t>( parameter )];
     }
 
-    bool IsGroupListed( Group group )
-    {
-        return std::any_of( kParameterSpecs.begin(), kParameterSpecs.end(), [group]( const ParameterSpec& spec )
-                            { return spec.Owner == group && !IsPlaceholder( spec ); } );
-    }
-
-    std::vector<Parameter> ListedParameters()
-    {
-        std::vector<Parameter> listed;
-        for ( const ParameterSpec& spec : kParameterSpecs )
-            if ( !IsPlaceholder( spec ) )
-                listed.push_back( spec.Id );
-        return listed;
-    }
-
     std::vector<Parameter> ListedParameters( const ParameterVisibility visibility )
     {
         std::vector<Parameter> listed;
         for ( const ParameterSpec& spec : kParameterSpecs )
-            if ( !IsPlaceholder( spec ) && spec.Visibility == visibility )
+            if ( spec.Visibility == visibility )
                 listed.push_back( spec.Id );
         return listed;
     }
@@ -1784,14 +1795,6 @@ namespace Common::Scalability
     QualityState::ApplyReport QualityState::SetOverride( Parameter parameter, ParameterValue value )
     {
         const ParameterSpec& spec = SpecOf( parameter );
-        if ( IsPlaceholder( spec ) )
-        {
-            // A placeholder has no reader: setting it would be a knob that moves nothing.
-            LOG_ERROR( "[Scalability] {} is reserved for a feature this build does not have; not set", spec.Key );
-            ApplyReport refused;
-            refused.Refused = "the parameter has no reader in this build";
-            return refused;
-        }
         QualitySelection selection = S().Selection;
         EraseOverride( selection, spec.Key );
         selection.Overrides.push_back( { std::string( spec.Key ), value } );

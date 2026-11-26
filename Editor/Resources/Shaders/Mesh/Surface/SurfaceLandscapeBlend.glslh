@@ -13,6 +13,14 @@
 // The material states the blend like any other parameter (kSurfaceLandscapeBlendHeightParam,
 // kSurfaceLandscapeBlendSharpnessParam in DShaderParser.hpp; an instance overrides them): LandscapeBlendHeight cm
 // above the ground (0 = off: the hard seam), LandscapeBlendSharpness the fall-off's shape over it.
+//
+// Only a cell that evaluates the surface blends (DShaderParser emits DESERT_SURFACE_LANDSCAPE_BLEND beside
+// DESERT_SURFACE_SAMPLES_MATERIAL alone), so the camera block LandscapeVirtualTexture.glslh reads the view's
+// MaterialMipBias from is the one SurfaceTypes.glslh declared for the material fetch; a depth or shadow cell, which
+// binds no camera block, never reaches here.
+#ifndef DESERT_SURFACE_SAMPLES_MATERIAL
+#error "SurfaceLandscapeBlend.glslh: a landscape blend outside a cell that samples material textures"
+#endif
 #include <Common/LandscapeVirtualTexture.glslh>
 
 // The share of the ground at @p above cm over it, for a band @p height cm tall: 1 at and below the ground, 0 at the

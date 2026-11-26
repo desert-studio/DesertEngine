@@ -1963,7 +1963,7 @@ namespace Desert::Migration
                     ++failed;
                     continue;
                 }
-                if ( stated.GetValue() >= 1u && stated.GetValue() <= 10u )
+                if ( stated.GetValue() >= 1u && stated.GetValue() <= 11u )
                 {
                     // The chain: each generation below the engine's takes every step from its own on.
                     using Step             = Common::ResultStr<std::string> ( * )( const std::string& );
@@ -1976,10 +1976,11 @@ namespace Desert::Migration
                                                &Desert::Migration::MigrateFoliageTypeV7ToV8,
                                                &Desert::Migration::MigrateFoliageTypeV8ToV9,
                                                &Desert::Migration::MigrateFoliageTypeV9ToV10,
-                                               &Desert::Migration::MigrateFoliageTypeV10ToV11 };
+                                               &Desert::Migration::MigrateFoliageTypeV10ToV11,
+                                               &Desert::Migration::MigrateFoliageTypeV11ToV12 };
                     std::string raisedText = text;
                     bool        stepFailed = false;
-                    for ( uint32_t from = stated.GetValue(); from <= 10u; ++from )
+                    for ( uint32_t from = stated.GetValue(); from <= 11u; ++from )
                     {
                         const auto raised = steps[from - 1u]( raisedText );
                         if ( !raised )
@@ -2009,7 +2010,8 @@ namespace Desert::Migration
                 if ( stated.GetValue() != Desert::Assets::kFoliageTypeSchemaVersion )
                 {
                     err << "FAIL   " << path.string() << " — states FOLT v" << stated.GetValue()
-                        << ", and this tool reads v1 to v3 (raised) and v"
+                        << ", and this tool reads v1 to v"
+                        << ( Desert::Assets::kFoliageTypeSchemaVersion - 1u ) << " (raised) and v"
                         << Desert::Assets::kFoliageTypeSchemaVersion << " only\n";
                     ++failed;
                     continue;

@@ -703,8 +703,9 @@ namespace Desert::Graphic::System
             // The same slot for displaced geometry (MaterialService displaced sibling: base cells, no parallax
             // march); null when the mesh is not displaced. ApplyDisplacement draws the twins' groups with it.
             MaterialInstancePtr DisplacedMaterial;
-            // The component's instance index of each transform when ApplyDisplacement split the record by twin
-            // (null = the transforms ARE the component's, in order): the GPU-scene row stays {Entity, index + 1}.
+            // The component's instance index of each transform when the density thinned the field
+            // (InstancedSceneRow::InstanceIds) or ApplyDisplacement split the record by twin (null =
+            // the transforms ARE the component's, in order): the GPU-scene row stays {Entity, index + 1}.
             std::shared_ptr<const std::vector<uint32_t>> InstanceIds;
             uint64_t                                      HiddenSubmeshes = 0; // the other slots' sections
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
@@ -2260,6 +2261,12 @@ namespace Desert::Graphic::System
         {
             return m_LODDistanceScale;
         }
+        // UE r.ViewDistanceScale: every authored draw / cull distance of the view times @p scale (Geometry::LODView::
+        // DrawDistance). Scalability ViewDistance.DrawDistanceScalePercent / 100 (SceneRenderer::BeginScene).
+        void  SetDrawDistanceScale( float scale );
+        // The main view's LOD eye: origin, projection, temporal samples, level scale, draw-distance scale. The
+        // only builder of it: every pass that selects a level or culls by distance for the main view asks here.
+        [[nodiscard]] Geometry::LODView MainLODView( const Core::Camera& camera ) const;
 
         // Which LOD level to draw for a mesh: a forced level (>= 0) wins; otherwise auto by screen
         // coverage (world bounding radius / camera distance), so big objects keep detail farther than
@@ -3116,6 +3123,7 @@ namespace Desert::Graphic::System
 #endif
         bool                              m_LODEnabled = true;
         float                             m_LODDistanceScale = 1.0f; // SetLODDistanceScale
+        float                             m_DrawDistanceScale = 1.0f; // SetDrawDistanceScale
 
         // Deferred G-buffer geometry pipeline (static): writes Albedo+Metallic / Normal+Roughness into the
         // scene renderer's MRT G-buffer instead of shading. Same vertex layout + material bindings as the

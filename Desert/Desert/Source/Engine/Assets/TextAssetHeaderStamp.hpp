@@ -70,7 +70,7 @@ namespace Desert::Assets
     inline constexpr uint32_t kRetargetSchemaVersion = 4;
     // A .defoliage: the foliage type file layout, stated in the header from its first version (FO-1).
     inline constexpr uint32_t kFoliageTypeSchemaTag     = Common::Content::FourCC( "FOLT" );
-    inline constexpr uint32_t kFoliageTypeSchemaVersion = 11;
+    inline constexpr uint32_t kFoliageTypeSchemaVersion = 12;
     // A .dwaves: the water wave set file layout (UE UWaterWavesAsset), stated in the header from its first
     // version (WATER-W1).
     // v2 (WATER-UNDERWATER): Generator.WindAngleDeg is gone; the waves run with the scene's wind (ECS::WindAt).

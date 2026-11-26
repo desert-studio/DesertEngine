@@ -636,7 +636,9 @@ namespace Desert::Graphic
         // Only a TEMPORAL method reconstructs output-pixel detail from the jittered samples; the spatial
         // upscale has one sample per render pixel, and a negative bias there only aliases. The rule is the
         // method's (ITemporalUpscaler::MaterialMipBias): UE's screen-percentage bias, or the vendor SDK's own.
-        f.MaterialMipBias = upscaler != nullptr ? upscaler->MaterialMipBias( f.Split ) : 0.0f;
+        // The quality's own bias (UE r.Streaming.MipBias) adds to it under every method.
+        f.MaterialMipBias = ( upscaler != nullptr ? upscaler->MaterialMipBias( f.Split ) : 0.0f ) +
+                            inputs.TextureMipBias;
         // A method without one keeps no vendor state (UE drops the third-party history with the method).
         if ( upscaler == nullptr )
             m_UpscalerHistory.reset();

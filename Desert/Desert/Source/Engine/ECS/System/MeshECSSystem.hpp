@@ -9,6 +9,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
+#include <Engine/ECS/FoliageEditing.hpp>
 #include <Engine/ECS/MaterialSlotAdoption.hpp>
 #include <Engine/ECS/RenderStateDelta.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
@@ -17,6 +18,8 @@
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 
+#include <Common/Settings/Scalability.hpp>
+#include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Engine/Graphic/Render/Commands/DrawMeshCommand.hpp>
 #include <Engine/Graphic/Render/Commands/DrawSkinnedMeshCommand.hpp>
 #include <Engine/Graphic/Render/Commands/DrawGenericMeshCommand.hpp>
@@ -68,6 +71,12 @@ namespace Desert::ECS
         bool CanRunParallel() const override
         {
             return true;
+        }
+
+        void SetQuality( const Common::Scalability::ResolvedQuality& quality ) override
+        {
+            m_InstanceDensity = 0.01f * static_cast<float>( quality.As<int>(
+                                     Common::Scalability::Parameter::FoliageInstanceDensityScalePercent ) );
         }
 
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
@@ -964,6 +973,7 @@ namespace Desert::ECS
                                 const Graphic::MaterialInstancePtr& material,
                                 const Graphic::MaterialInstancePtr& displaced, const uint64_t hiddenSubmeshes,
                                 const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
+                                const std::shared_ptr<const std::vector<uint32_t>>&  instanceIds,
                                 const bool castShadows, const bool castContactShadow )
         {
             if ( index == m_IsmRows.size() )
@@ -971,8 +981,8 @@ namespace Desert::ECS
             Graphic::Render::InstancedSceneRow& row = m_IsmRows[index];
             if ( row.Entity == entity && row.Mesh == mesh && row.Material == material &&
                  row.DisplacedMaterial == displaced && row.HiddenSubmeshes == hiddenSubmeshes &&
-                 row.Transforms == transforms && row.CastShadows == castShadows &&
-                 row.CastContactShadow == castContactShadow )
+                 row.Transforms == transforms && row.InstanceIds == instanceIds &&
+                 row.CastShadows == castShadows && row.CastContactShadow == castContactShadow )
                 return false;
             row.Entity            = entity;
             row.Mesh              = mesh;
@@ -980,6 +990,7 @@ namespace Desert::ECS
             row.DisplacedMaterial = displaced;
             row.HiddenSubmeshes   = hiddenSubmeshes;
             row.Transforms        = transforms;
+            row.InstanceIds       = instanceIds;
             row.CastShadows       = castShadows;
             row.CastContactShadow = castContactShadow;
             return true;
@@ -1056,7 +1067,9 @@ namespace Desert::ECS
             bool                CastContactShadow = true;
             float               MaxDrawDistance   = 0.0f;
             Assets::AssetHandle FoliageType; // null: no type fade, no wind
-            std::shared_ptr<const std::vector<glm::mat4>> Transforms;
+            std::shared_ptr<const std::vector<glm::mat4>> Transforms;  // the instances drawn at Density
+            std::shared_ptr<const std::vector<uint32_t>>  InstanceIds; // their component indices; null = all
+            float                                         Density = 1.0f; // ThinIsmRecord
             std::vector<IsmSection>                       Sections;
         };
         struct IsmBuild
@@ -1071,6 +1084,7 @@ namespace Desert::ECS
             record.Entity     = entt::null;
             record.Mesh       = nullptr;
             record.Transforms.reset();
+            record.InstanceIds.reset();
             record.Sections.clear();
             SetSlotMembership( m_IsmPolls, slot, false );
             SetSlotMembership( m_IsmAdoptWait, slot, false );
@@ -1129,6 +1143,8 @@ namespace Desert::ECS
         {
             record.Mesh = nullptr;
             record.Transforms.reset();
+            record.InstanceIds.reset();
+            record.Density = 1.0f;
             record.Sections.clear();
             record.FoliageType = Assets::AssetHandle();
             IsmBuild build;
@@ -1263,6 +1279,47 @@ namespace Desert::ECS
             return build;
         }
 
+        // The share of a density-scaled type's instances drawn this update: the one the scene's owner passed
+        // (SetQuality), or all of them while the foliage mode edits the field (ECS::FoliageEditing).
+        [[nodiscard]] float DrawnInstanceDensity( const entt::registry& registry ) const
+        {
+            const auto* editing = registry.try_ctx<FoliageEditing>();
+            if ( editing != nullptr && editing->Active )
+                return 1.0f;
+            return m_InstanceDensity;
+        }
+
+        // The record draws @p density of its instances (Graphic::KeepsInstanceAtDensity, by component index). The
+        // thinned list is held by the component beside its snapshot (RuntimeThinnedInstances), so a rebuilt record
+        // takes the same handles back and its rows do not change; it is made again only for another snapshot or
+        // density. Collision, picking and the brush read the component's transforms and are not thinned.
+        static void ThinIsmRecord( InstancedStaticMeshComponent& ism, IsmRecord& record, const float density )
+        {
+            record.Density       = density;
+            const auto& snapshot = ism.RuntimeInstanceSnapshot();
+            if ( density >= 1.0f )
+            {
+                record.Transforms = snapshot;
+                record.InstanceIds.reset();
+                return;
+            }
+            ThinnedInstances& thinned = ism.RuntimeThinnedInstances();
+            if ( thinned.Snapshot != snapshot || thinned.Density != density )
+            {
+                auto transforms = std::make_shared<std::vector<glm::mat4>>();
+                auto ids        = std::make_shared<std::vector<uint32_t>>();
+                for ( uint32_t i = 0; i < static_cast<uint32_t>( snapshot->size() ); ++i )
+                    if ( Graphic::KeepsInstanceAtDensity( i, density ) )
+                    {
+                        transforms->push_back( ( *snapshot )[i] );
+                        ids->push_back( i );
+                    }
+                thinned = { snapshot, std::move( transforms ), std::move( ids ), density };
+            }
+            record.Transforms  = thinned.Transforms;
+            record.InstanceIds = thinned.InstanceIds;
+        }
+
         // THE ISM PATH, per update: the Ism channel's delta applied to the records, then one row per section group
         // staged from the records with this update's fade and wind (StageInstancedRow: a steady row copies
         // nothing), and the list published once (PublishInstancedScene).
@@ -1342,7 +1399,8 @@ namespace Desert::ECS
             size_t                                rows    = 0;
             bool                                  changed = false;
             auto*                                 types   = Runtime::ResourceRegistry::GetFoliageTypeService();
-            for ( const IsmRecord& record : m_IsmRecords )
+            const float                           density = DrawnInstanceDensity( registry );
+            for ( IsmRecord& record : m_IsmRecords )
             {
                 if ( record.Mesh == nullptr || record.Sections.empty() )
                     continue;
@@ -1354,21 +1412,29 @@ namespace Desert::ECS
                 // (Common/LocalWind.glslh).
                 Graphic::InstanceCullDistance cullDistance;
                 Graphic::InstanceWind         wind;
+                float                         drawn = 1.0f; // the share of the instances drawn
                 if ( record.FoliageType )
                     if ( const auto* type = types->Get( record.FoliageType ) )
                     {
                         cullDistance = { type->CullDistance.Min, type->CullDistance.Max };
+                        if ( type->EnableDensityScaling )
+                            drawn = density;
                         wind = Graphic::MakeInstanceWind( type->Wind.Strength, type->Wind.Speed, type->Wind.Height,
                                                           m_DirectionalWindXZ, m_WindSeconds, m_PrevWindSeconds,
                                                           m_LocalWind );
                     }
+                if ( record.Density != drawn )
+                    ThinIsmRecord( registry.get<InstancedStaticMeshComponent>( record.Entity ), record, drawn );
+                if ( record.Transforms->empty() )
+                    continue;
                 const auto fade = Graphic::ClipToMaxDrawDistance( cullDistance, record.MaxDrawDistance );
                 for ( const IsmSection& section : record.Sections )
                 {
                     changed =
                          StageInstancedRow( rows, static_cast<uint32_t>( record.Entity ), record.Mesh,
                                             section.Material, section.Displaced, section.HiddenMask,
-                                            record.Transforms, section.CastShadows, record.CastContactShadow ) ||
+                                            record.Transforms, record.InstanceIds, section.CastShadows,
+                                            record.CastContactShadow ) ||
                          changed;
                     ++rows;
                     frame.Rows.push_back( Graphic::Render::InstancedSceneRowFrame{ fade, wind } );
@@ -1754,6 +1820,11 @@ namespace Desert::ECS
         // field. And whether any point source blows: then a field sways even in still directional air.
         glm::vec2 m_DirectionalWindXZ{ 0.0f };
         bool      m_LocalWind = false;
+        // Foliage.InstanceDensityScalePercent / 100, passed by the scene's owner (SetQuality); until the first
+        // push the row's spec Default, the table's own value for a scene no owner configures (an asset preview).
+        float m_InstanceDensity = 0.01f * static_cast<float>( Common::Scalability::SpecOf(
+                                                Common::Scalability::Parameter::FoliageInstanceDensityScalePercent )
+                                                .Default );
 
         // The retained static scene's state (RecordStaticScene).
         const entt::registry*                                              m_StaticRegistry         = nullptr;

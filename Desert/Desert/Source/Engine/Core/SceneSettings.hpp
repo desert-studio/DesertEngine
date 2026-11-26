@@ -9,7 +9,7 @@
 namespace Desert::Core
 {
     // THREE ENUMS LEFT THIS HEADER WITH THE FIELDS THAT USED THEM (К3): AntiAliasingMode, TextureFilter
-    // and CloudQuality now live in Common/Settings/MachineSettings.hpp, because what they name is what a
+    // and the cloud quality are Common::Scalability rows now, because what they name is what a
     // MACHINE can afford and the packaged game has to be able to say it too. The texture-filter enum
     // additionally existed TWICE — here and in RenderConfig — under a "Must match" comment with nothing
     // asserting the match; both spellings are gone and Common::Settings::TextureFilter is the only one.

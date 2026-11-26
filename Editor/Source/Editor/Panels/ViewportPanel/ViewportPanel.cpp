@@ -51,6 +51,7 @@
 #include <Engine/Runtime/SelectionContext.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityLock.hpp>
+#include <Engine/ECS/FoliageEditing.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
@@ -357,6 +358,15 @@ namespace Desert::Editor
         m_LandscapePaintTool = std::make_unique<Tools::LandscapePaintTool>();
 
         s_Live.push_back( this );
+        Core::ViewportMode::SetChangeListener( &ViewportPanel::OnEditorModeChanged );
+        m_Scene->GetRegistry().ctx_or_set<::Desert::ECS::FoliageEditing>().Active = Core::ViewportMode::IsFoliage();
+    }
+
+    void ViewportPanel::OnEditorModeChanged( const Core::EditorMode mode )
+    {
+        for ( ViewportPanel* panel : s_Live )
+            panel->m_Scene->GetRegistry().ctx_or_set<::Desert::ECS::FoliageEditing>().Active =
+                 mode == Core::EditorMode::Foliage;
     }
 
     // Out-of-line so unique_ptr<AsyncMeshLoader> destroys with the complete type (joins the worker thread) —

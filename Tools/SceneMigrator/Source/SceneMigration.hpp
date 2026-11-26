@@ -1215,6 +1215,10 @@ namespace Desert::Migration
     // UseFalloffCurve false (a v10 volume grew the type at full density to its edge), the header's GUID kept. A
     // file that does not state FOLT 10 is an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV10ToV11( const std::string& text );
+    // The v12 text of a v11 `.defoliage`: every v11 value kept, EnableDensityScaling joins, true for a Mesh type
+    // without collision and with a cull distance, the header's GUID kept. A file that does not state FOLT 11 is an
+    // error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV11ToV12( const std::string& text );
     // The v6 text of a v5 `.decloudtype`: every v5 value kept, `Shape.Profile.Density` written as
     // Graphic::CloudProfileDensityBaseRamp (CLTY 5 had no altitude density, so every v5 type was dense from
     // its base up — the box H-BASE takes away), the header's GUID kept. A file that does not state CLTY 5 is

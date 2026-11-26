@@ -18,8 +18,20 @@ namespace Desert::Editor::Core
     class ViewportMode final
     {
     public:
+        // The one listener told of a CHANGE of mode (ViewportPanel::OnEditorModeChanged installs it: each live
+        // viewport writes its scene's ECS::FoliageEditing then, never per frame). Null until a viewport exists.
+        using ChangeListener = void ( * )( EditorMode mode );
+
         static EditorMode Get() { return s_Mode; }
-        static void       Set( EditorMode mode ) { s_Mode = mode; }
+        static void       Set( EditorMode mode )
+        {
+            if ( s_Mode == mode )
+                return;
+            s_Mode = mode;
+            if ( s_OnChange != nullptr )
+                s_OnChange( mode );
+        }
+        static void SetChangeListener( ChangeListener listener ) { s_OnChange = listener; }
         static bool       IsFoliage() { return s_Mode == EditorMode::Foliage; }
         static bool       IsModeling()
         {
@@ -27,6 +39,7 @@ namespace Desert::Editor::Core
         }
 
     private:
-        static inline EditorMode s_Mode = EditorMode::Select;
+        static inline EditorMode     s_Mode     = EditorMode::Select;
+        static inline ChangeListener s_OnChange = nullptr;
     };
 } // namespace Desert::Editor::Core

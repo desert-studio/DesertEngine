@@ -68,6 +68,9 @@ namespace Desert::Graphic::GpuDriven
         glm::mat4   LocalToWorld{ 1.0f };
         // ISM: the instances' transforms relative to the component; empty = one identity instance.
         std::span<const glm::mat4> InstanceToPrimitive{};
+        // The component's index of each InstanceToPrimitive entry (InstancedMeshRenderData::InstanceIds) when the
+        // density thinned the field or a displacement split it; empty = the entries are the component's, in order.
+        std::span<const uint32_t> ComponentInstances{};
         // Geometry::LocalBounds of the mesh (cm) and the wind's reach past it (today MeshDrawCommand::BoundsPad).
         glm::vec3 LocalBoundsMin{ 0.0f };
         glm::vec3 LocalBoundsMax{ 0.0f };

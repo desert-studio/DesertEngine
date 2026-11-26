@@ -92,16 +92,17 @@
         #define LayerHeightTexture sampler2DArray(LayerHeightTexture, LayerHeightTextureSampler)
 
         // The raster's layer map fetch (LandscapeSurface.glslh): slice @p slice of map kind @p kind's bound array, at
-        // the fragment's implicit level (its screen derivatives are the footprint, so @p uvPerCm is not needed).
+        // the fragment's implicit level (its screen derivatives are the footprint, so @p uvPerCm is not needed) plus the view's
+        // MaterialMipBias, as every material texture (SurfaceTypes.glslh SurfaceSampleMaterial).
         vec4 LandscapeLayerMapSample( int k, int kind, float slice, vec2 uv, float uvPerCm )
         {
             if ( kind == 0 )
-                return texture( LayerAlbedoTexture, vec3( uv, slice ) );
+                return texture( LayerAlbedoTexture, vec3( uv, slice ), cameraUB.MaterialMipBias );
             if ( kind == 1 )
-                return texture( LayerNormalTexture, vec3( uv, slice ) );
+                return texture( LayerNormalTexture, vec3( uv, slice ), cameraUB.MaterialMipBias );
             if ( kind == 2 )
-                return texture( LayerArmTexture, vec3( uv, slice ) );
-            return texture( LayerHeightTexture, vec3( uv, slice ) );
+                return texture( LayerArmTexture, vec3( uv, slice ), cameraUB.MaterialMipBias );
+            return texture( LayerHeightTexture, vec3( uv, slice ), cameraUB.MaterialMipBias );
         }
 
         // The landscape material's values the ground reads, from this draw's material row (the hit group's row

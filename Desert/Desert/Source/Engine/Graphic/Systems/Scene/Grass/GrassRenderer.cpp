@@ -604,7 +604,7 @@ namespace Desert::Graphic::System
         // tail it was loaded with (mip 4 of a 2K atlas) at the camera's feet: a near patch of thin grey stalks.
         void NoteVarietyTextureDemand( const GrassVarietyDraw& variety, const Desert::Mesh& mesh,
                                        const GrassFieldData& field, const ViewFrame& frame,
-                                       const float endCullDistance )
+                                       const float endCullDistance, const float mipBias )
         {
             const std::vector<uint32_t>& w          = field.Words;
             const uint32_t               viewHeight = frame.Split.Output.Height;
@@ -641,8 +641,10 @@ namespace Desert::Graphic::System
                 const Common::Math::AABB bounds = Geometry::LocalBounds( mesh.GetSubmeshes() );
                 radius                          = 0.5f * glm::length( bounds.Max - bounds.Min );
             }
-            const float pixels = TextureStreamingDemand::ScreenPixels( ground + glm::vec3( 0.0f, radius, 0.0f ),
-                                                                       radius * maxScale, view, viewHeight );
+            const float pixels = TextureStreamingDemand::BiasedPixels(
+                 TextureStreamingDemand::ScreenPixels( ground + glm::vec3( 0.0f, radius, 0.0f ), radius * maxScale,
+                                                       view, viewHeight ),
+                 mipBias );
             for ( const GrassSectionDraw& section : variety.Sections )
                 if ( section.Material )
                     TextureStreamingDemand::Get().Note( section.Material->GetParentMaterial(), pixels );
@@ -2855,7 +2857,8 @@ namespace Desert::Graphic::System
         m_FrameCull.push_back( gpu );
         DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Texture demand" );
         NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
-                                  ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
+                                  ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance,
+                                  m_Quality.TextureMipBias );
 
         // CPU-GRASS-POOL-8: the sections name the list pools' buffers and refs, so they are built
         // after CommitListPools (below the field loop).

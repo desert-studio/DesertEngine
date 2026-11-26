@@ -154,12 +154,12 @@ namespace Desert::Assets::Serialization
                                                      "'{}' and draws no mesh of its own",
                                                      data.Mesh.Path, data.Prefab.Path );
         if ( data.CullDistance != FoliageFloatInterval{ 0.0f, 0.0f } || data.Wind.Strength != 0.0f ||
-             data.IncludeInHLOD || data.Collision.Enabled )
+             data.IncludeInHLOD || data.EnableDensityScaling || data.Collision.Enabled )
             return Common::MakeFormattedError<bool>(
-                 "a Prefab type sets CullDistance [{}, {}], Wind.Strength {}, IncludeInHLOD {} or "
-                 "Collision.Enabled {}: {}",
+                 "a Prefab type sets CullDistance [{}, {}], Wind.Strength {}, IncludeInHLOD {}, "
+                 "EnableDensityScaling {} or Collision.Enabled {}: {}",
                  data.CullDistance.Min, data.CullDistance.Max, data.Wind.Strength, data.IncludeInHLOD,
-                 data.Collision.Enabled, kFoliagePrefabMeshOnlyReason );
+                 data.EnableDensityScaling, data.Collision.Enabled, kFoliagePrefabMeshOnlyReason );
         return BOOLSUCCESS;
     }
 

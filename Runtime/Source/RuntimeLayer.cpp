@@ -944,6 +944,8 @@ namespace Desert::Player
         // are in the machine store now, loaded at startup from this player's own directory
         // (Runtime/Source/Main.cpp), and this is the line that makes the dial reach the renderer.
         m_SceneRenderer->SetQuality( Common::Scalability::QualityState::Resolved() );
+        // The same answer to the scene's systems (Scene::SetQuality -> System::SetQuality): foliage density.
+        m_Scene->SetQuality( Common::Scalability::QualityState::Resolved() );
 
 #if DESERT_DEV_INSTRUMENTS
         // HDR-OUTPUT p4 (the editor's EditorLayer does the same from its control channel): on an HDR output the
