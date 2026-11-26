@@ -223,6 +223,17 @@ namespace
         return ss.str();
     }
 
+    // CRLF -> LF: text written by this tool is LF; a CRLF checkout of it is the same text.
+    std::string NormaliseLineEnds( const std::string& text )
+    {
+        std::string out;
+        out.reserve( text.size() );
+        for ( std::size_t i = 0; i < text.size(); ++i )
+            if ( !( text[i] == '\r' && i + 1 < text.size() && text[i + 1] == '\n' ) )
+                out.push_back( text[i] );
+        return out;
+    }
+
     // Every regular file under `root` whose extension is one of `extensions`, generated files (".gen.") left out,
     // in the byte order of their root-relative generic paths. recursive_directory_iterator walks in the
     // filesystem's own order (NTFS by name, APFS by hash, ext4 by creation), and the generated text follows the
@@ -1623,7 +1634,8 @@ namespace
         const std::string written = Desert::HeaderTool::WriteSchemaLock( current );
         if ( fs::exists( lockFile ) )
         {
-            const std::string        text = ReadFile( lockFile );
+            // The lock is compared as text: a checkout that turned its LF into CRLF holds the same lock.
+            const std::string        text = NormaliseLineEnds( ReadFile( lockFile ) );
             std::vector<std::string> readErrors;
             const auto               locked = Desert::HeaderTool::ReadSchemaLock( text, readErrors );
             for ( const std::string& e : readErrors )

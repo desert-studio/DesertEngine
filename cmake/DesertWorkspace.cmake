@@ -214,6 +214,11 @@ set(DESERT_OPTICK "$<$<NOT:$<CONFIG:Shipping>>:Optick>")
 # compiles the export side, EVERY other target the import side, so no target's definitions depend on what it links
 # (the members of a shared PCH group must agree, C2855). Optick has no import side (OPTICK_EXPORTS, Optick.cmake).
 # EnTT is header-only; its type index is made process-wide by Common/Core/Entt.hpp.
+# Luau is one PROCESS_STATE library too (cmake/ThirdParty/Luau.cmake: the VM state two modules run). The other
+# vendored libraries several modules link stay STATIC, a copy per DLL, because they keep no process state the
+# engine relies on: MeshOptimizer's only global is the allocator pair meshopt_setAllocator sets, which nothing calls;
+# Voro, Compressonator, OpenSubdiv, Embree (state per RTCDevice handle), Dav1d and Opus (per decoder/encoder
+# context) hand their state to the caller as an object.
 if(NOT DESERT_MONOLITHIC)
     set(_desert_self "$<TARGET_PROPERTY:NAME>")
     add_compile_definitions(
@@ -380,6 +385,26 @@ function(desert_sources out dir)
             list(APPEND _files "${_dir}/${rel}")
         endif()
     endforeach()
+    set(${out} ${_files} PARENT_SCOPE)
+endfunction()
+
+# _desert_thirdparty_glob(<out> [RECURSE] <pattern>...): the one glob of the build, for VENDORED code under
+# ThirdParty/ or Editor/ThirdParty/ only (first-party sources come from the committed Sources.cmake lists, desert_sources). No
+# CONFIGURE_DEPENDS: a vendored tree changes only with a submodule bump, which re-runs configure anyway, so a no-op
+# build re-checks nothing. RECURSE descends into subdirectories; without it only the named directory is listed.
+function(_desert_thirdparty_glob out)
+    cmake_parse_arguments(_g "RECURSE" "" "" ${ARGN})
+    foreach(pattern IN LISTS _g_UNPARSED_ARGUMENTS)
+        if(NOT pattern MATCHES "^${DESERT_ROOT}/([^/]+/)?ThirdParty/")
+            message(FATAL_ERROR "_desert_thirdparty_glob: ${pattern} is not under ThirdParty/ (list first-party sources in Sources.cmake)")
+        endif()
+    endforeach()
+    if(_g_RECURSE)
+        file(GLOB_RECURSE _files LIST_DIRECTORIES false ${_g_UNPARSED_ARGUMENTS})
+    else()
+        file(GLOB _files LIST_DIRECTORIES false ${_g_UNPARSED_ARGUMENTS})
+    endif()
+    list(SORT _files)
     set(${out} ${_files} PARENT_SCOPE)
 endfunction()
 

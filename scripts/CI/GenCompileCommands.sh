@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 # Emit compile_commands.json for ONE configuration of the workspace, from the database CMake writes.
 #
-# WHY THIS STEP EXISTS AT ALL: the configure presets use the Ninja Multi-Config generator
-# (CMakePresets.json `base`), and its build/cmake/<preset>/compile_commands.json holds every translation
-# unit once PER CONFIGURATION (Debug, Release and Shipping). clang-tidy and the census scripts want one
-# command per source, compiled the way one configuration compiles it; a database holding three would
-# analyse each file three times and, worse, let a Shipping-only define answer for Debug. The entries are
-# selected by their `output`, which Ninja Multi-Config places under `<target>.dir/<Config>/`.
+# WHY THIS STEP EXISTS AT ALL: each configure preset is one configuration in its own tree (CMakePresets.json:
+# single-config Ninja, <host>-dev / <host>-debug / <host>-ship), so build/cmake/<preset>/compile_commands.json
+# already holds one command per source. What a tool reading it cannot take is the rest: ThirdParty, the
+# configure-written sources and the PCH binary a --gen-only tree does not have. This script drops those.
 #
 # The flags are CMake's own, by construction: nothing here re-derives a compile line.
 #
@@ -14,25 +12,26 @@
 # `ThirdParty/` component is dropped. A new submodule lands under ThirdParty/ and is excluded the day
 # it arrives, with nothing to remember to edit.
 #
-# Usage: scripts/CI/GenCompileCommands.sh [Debug|Release|Shipping] [-o <output>]
-#   The configure preset is the host's: macos-clang-ninja on macOS, windows-msvc-ninja on Windows.
+# Usage: scripts/CI/GenCompileCommands.sh [Development|DebugGame|Shipping] [-o <output>]
+#   The tree is the host's preset of that configuration: mac-<dev|debug|ship> on macOS, win-<...> on Windows.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ROOT="$PWD"
 
-CONFIG="Debug"
+CONFIG="DebugGame"
 OUT="$ROOT/compile_commands.json"
 while [ $# -gt 0 ]; do
     case "$1" in
-        Debug|Release|Shipping) CONFIG="$1"; shift ;;
+        Development|DebugGame|Shipping) CONFIG="$1"; shift ;;
         -o) OUT="$2"; shift 2 ;;
         *) echo "GenCompileCommands: unknown argument '$1'" >&2; exit 2 ;;
     esac
 done
 
+case "$CONFIG" in Development) SUFFIX=dev ;; DebugGame) SUFFIX=debug ;; Shipping) SUFFIX=ship ;; esac
 case "$(uname -s)" in
-    Darwin) PRESET="macos-clang-ninja" ;;
-    MINGW*|MSYS*|CYGWIN*) PRESET="windows-msvc-ninja" ;;
+    Darwin) PRESET="mac-$SUFFIX" ;;
+    MINGW*|MSYS*|CYGWIN*) PRESET="win-$SUFFIX" ;;
     *) echo "GenCompileCommands: no configure preset for host '$(uname -s)' in CMakePresets.json" >&2; exit 2 ;;
 esac
 SRC_DB="$ROOT/build/cmake/$PRESET/compile_commands.json"
@@ -50,8 +49,7 @@ import json, os, sys, tempfile
 
 src, out, config = os.environ["SRC_DB"], os.environ["OUT_DB"], os.environ["CONFIG"]
 entries = json.load(open(src, encoding="utf-8"))
-marker = "/" + config + "/"
-kept, total, configs_seen = [], 0, set()
+kept, total = [], 0
 
 # THE PCH IS USED AS ITS HEADER, NOT AS ITS BINARY. A clang line from CMake carries
 # `-Xclang -include-pch -Xclang <...>/cmake_pch.hxx.pch` AND `-Xclang -include -Xclang <...>/cmake_pch.hxx`: the
@@ -72,12 +70,6 @@ def strip_pch(command):
         i += 1
     return shlex.join(out)
 for e in entries:
-    output = e.get("output", "").replace("\\", "/")
-    for name in ("Debug", "Release", "Shipping"):
-        if "/" + name + "/" in output:
-            configs_seen.add(name)
-    if marker not in output:
-        continue
     total += 1
     path = os.path.normpath(os.path.join(e["directory"], e["file"])).replace("\\", "/")
     # build/generated holds third-party sources the configure step writes (dav1d's bit-depth
@@ -89,8 +81,8 @@ for e in entries:
         continue
     kept.append({"directory": e["directory"], "file": path, "command": strip_pch(e["command"])})
 
-if config not in configs_seen:
-    sys.exit(f"GenCompileCommands: {src} holds no {config} entries (configurations seen: {sorted(configs_seen)})")
+if total == 0:
+    sys.exit(f"GenCompileCommands: {src} holds no entries (configuration {config})")
 if not kept:
     sys.exit(f"GenCompileCommands: {total} {config} entries, all under ThirdParty/ — an EMPTY first-party database")
 

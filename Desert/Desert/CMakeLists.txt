@@ -22,7 +22,7 @@ endforeach()
 # the closure of Core) builds and links: the modules of that closure name exactly the libraries their code calls
 # (measured with nm -u on each archive), and the server build compiles no physics, ray tracing, Voronoi fracture,
 # texture compression or media decoding. Modules not named here link the full set.
-set(_luau LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon)
+set(_luau Luau)
 set(_thirdparty_default Jolt ${_luau} MeshOptimizer Voro Compressonator OpenSubdiv Embree Dav1d Opus)
 set(_thirdparty_CoreReflection "")
 set(_thirdparty_Projects "")
@@ -47,7 +47,7 @@ set(_postprocessing "${_source}/Engine/Graphic/Systems/Scene/PostProcessing")
 
 # Sources that never share a unity batch (cmake/DesertWorkspace.cmake desert_unity_exclude), each with the name it
 # would clash on.
-file(GLOB _d3d12 "${_source}/Engine/Graphic/API/D3D12/*.cpp")
+desert_sources(_d3d12 "${_source}" MATCHING "^Engine/Graphic/API/D3D12/[^/]+\\.cpp$")
 desert_unity_exclude(REASON "windows.h / d3d12.h macros (min, max, near, far, CreateWindow) leak into the batch"
     ${_d3d12} "${_source}/Engine/Core/Device.cpp")
 desert_unity_exclude(REASON "anonymous-namespace Finite() also in Animation/Rig/ControlHierarchy.cpp"

@@ -21,6 +21,20 @@ function(_desert_tests_common_settings target)
     set_target_properties(${target} PROPERTIES FOLDER Tests
         RUNTIME_OUTPUT_DIRECTORY "${DESERT_ROOT}/build/Bin/Tests/$<CONFIG>")
     desert_remove_configuration(${target} Shipping)
+    # The module and third-party shared libraries live in build/Bin/<Config> (cmake/DesertWorkspace.cmake), one
+    # directory above the runners' own: macOS/Linux reach them through a second rpath entry; Windows has no rpath,
+    # so the DLLs the runner loads are copied beside it after each link (copy_if_different: only changed ones).
+    if(DESERT_IS_WINDOWS)
+        # A runner with no shared library (none in its link closure) runs no command: copy needs a file.
+        set(_dlls "$<TARGET_RUNTIME_DLLS:${target}>")
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND "$<$<BOOL:${_dlls}>:${CMAKE_COMMAND};-E;copy_if_different;${_dlls};$<TARGET_FILE_DIR:${target}>>"
+            COMMAND_EXPAND_LISTS VERBATIM)
+    elseif(APPLE)
+        set_property(TARGET ${target} APPEND PROPERTY BUILD_RPATH "@executable_path/../../$<CONFIG>")
+    else()
+        set_property(TARGET ${target} APPEND PROPERTY BUILD_RPATH "$ORIGIN/../../$<CONFIG>")
+    endif()
     target_include_directories(${target} PRIVATE "${DESERT_ROOT}/Desert/Tests")
     # C++ stand-ins for the shader includer's generated .glslh, for suites that compile shader text AS C++.
     target_include_directories(${target} PRIVATE "${DESERT_ROOT}/Desert/Tests/GlslAsCpp")
@@ -49,7 +63,7 @@ function(_desert_runner_settings target)
         GLFW ${DESERT_OPTICK} MeshOptimizer OpenSubdiv Embree ImGui Assimp OpenEXRCore Dav1d Opus Voro Compressonator)
     if(DESERT_IS_MACOS)
         target_link_libraries(${target} PRIVATE
-            Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp
+            Common Jolt Luau ReflectCpp
             "-framework Cocoa" "-framework IOKit" "-framework CoreFoundation" "-framework CoreVideo"
             "-framework CoreMedia" "-framework AVFoundation" "-framework QuartzCore" "-framework Foundation")
     endif()
@@ -77,10 +91,9 @@ function(_desert_runner_Common target)
     target_link_libraries(${target} PRIVATE Common ReflectCpp ${DESERT_OPTICK})
     set(_subsystems "${DESERT_ROOT}/Desert/Tests/Common/Subsystems")
     set(_out "${DESERT_GENERATED_DIR}/Tests/Subsystems")
-    file(GLOB _files CONFIGURE_DEPENDS "${_subsystems}/Owner/*.hpp")
-    list(SORT _files)
+    desert_sources(_files "${_tests_dir}" MATCHING "^Common/Subsystems/Owner/[^/]+\\.hpp$")
     target_sources(${target} PRIVATE ${_files})
-    file(GLOB _events CONFIGURE_DEPENDS "${DESERT_ROOT}/Desert/Common/Source/Common/Core/Events/*.hpp")
+    desert_sources(_events "${DESERT_ROOT}/Desert/Common/Source/Common" MATCHING "^Core/Events/[^/]+\\.hpp$")
     _desert_tests_header_tool(${target} Subsystems
         READS ${_files} ${_events}
         OUTPUTS "${_out}/SampleSubsystems.gen.cpp" "${_out}/SampleWorldSubsystems.gen.cpp"
@@ -127,8 +140,8 @@ function(_desert_runner_Tools target)
         "${_reflected_functions}"
         "${_luau_runtime}")
     set(_out "${DESERT_GENERATED_DIR}/Tests")
-    file(GLOB _function_fixture CONFIGURE_DEPENDS "${_reflected_functions}/Fixture/*.hpp")
-    file(GLOB _luau_fixture CONFIGURE_DEPENDS "${_luau_runtime}/Fixture/*.hpp")
+    desert_sources(_function_fixture "${_tests_dir}" MATCHING "^Tools/ReflectedFunctions/Fixture/[^/]+\\.hpp$")
+    desert_sources(_luau_fixture "${_tests_dir}" MATCHING "^Tools/LuauRuntime/Fixture/[^/]+\\.hpp$")
     target_sources(${target} PRIVATE ${_function_fixture} ${_luau_fixture})
     _desert_tests_header_tool(${target} ReflectedFunctions
         READS ${_function_fixture}
@@ -188,8 +201,8 @@ set(_adopted_ProjectFormat "${DESERT_ROOT}/ThirdParty/desert-shared/Tests/projec
 
 # A suite's sources: its directory's *.cpp (not below it) and what it adopts.
 function(_desert_suite_sources dir out)
-    file(GLOB _files LIST_DIRECTORIES false CONFIGURE_DEPENDS "${dir}/*.cpp")
-    list(SORT _files)
+    file(RELATIVE_PATH _rel "${_tests_dir}" "${dir}")
+    desert_sources(_files "${_tests_dir}" MATCHING "^${_rel}/[^/]+\\.cpp$")
     get_filename_component(_suite "${dir}" NAME)
     if(_suite IN_LIST _adopted_suites)
         list(APPEND _files ${_adopted_${_suite}})

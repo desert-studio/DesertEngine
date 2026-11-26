@@ -12,7 +12,7 @@ if(_at EQUAL -1)
     message(FATAL_ERROR "ThirdParty/meshoptimizer is not v1.3. Re-run scripts/MacOS/Setup.sh (macOS) or "
                         "scripts/Windows/Setup.bat (Windows); they re-fetch a mismatched version.")
 endif()
-desert_glob(_src "${_root}/src/*.cpp" "${_root}/src/*.h")
+_desert_thirdparty_glob(_src RECURSE "${_root}/src/*.cpp" "${_root}/src/*.h")
 desert_add_library(MeshOptimizer FOLDER ThirdParty SOURCES ${_src})
 desert_own_isa_dispatch(MeshOptimizer)
 set_target_properties(MeshOptimizer PROPERTIES CXX_STANDARD 17)

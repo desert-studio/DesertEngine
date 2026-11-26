@@ -45,10 +45,12 @@ namespace Desert::Editor
     // have made them disagree — the panel would have kept offering two.
     //
     // SHIPPING IS FIRST BECAUSE IT IS THE DEFAULT, and the default matters more here than anywhere else
-    // in the editor: this is the one button whose product a stranger runs. Debug and Release are still
-    // offered, because packaging a development build to reproduce something on another machine is a real
-    // need — but they are now a CHOICE to make rather than the only thing on the menu.
-    inline constexpr const char* kPackageConfigs[] = { "Shipping", "Release", "Debug" };
+    // in the editor: this is the one button whose product a stranger runs. Development and DebugGame are
+    // still offered, because packaging a development build to reproduce something on another machine is a
+    // real need — but they are now a CHOICE to make rather than the only thing on the menu. The names are
+    // the build configurations' own (CMakePresets.json, build/Bin/<Config>/), the directory a Runtime is
+    // taken from.
+    inline constexpr const char* kPackageConfigs[] = { "Shipping", "Development", "DebugGame" };
 
     struct PackageOptions
     {

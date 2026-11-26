@@ -296,6 +296,7 @@ set(DESERT_SOURCES
     "Engine/Assets/StringTableSource.hpp"
     "Engine/Assets/SubsurfaceProfileAsset.cpp"
     "Engine/Assets/SubsurfaceProfileAsset.hpp"
+    "Engine/Assets/SyncLoadLedger.cpp"
     "Engine/Assets/SyncLoadLedger.hpp"
     "Engine/Assets/TextAssetHeaderCheck.hpp"
     "Engine/Assets/TextAssetHeaderIdentity.hpp"

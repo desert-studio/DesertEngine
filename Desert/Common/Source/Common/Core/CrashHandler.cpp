@@ -1554,7 +1554,14 @@ namespace Common::Crash
             }
             else
             {
-                return std::format( "{}-{}-{}", std::string( Common::Version::Hash() ).substr( 0, 7 ), inStamp, inPid );
+                // A build without a git hash (GenVersion wrote "unknown") files the dump as a player build would.
+                const std::string_view hash  = Common::Version::Hash();
+                const bool             isSha = hash.size() >= 7 &&
+                                   std::all_of( hash.begin(), hash.begin() + 7, []( char c )
+                                                { return ( c >= '0' && c <= '9' ) || ( c >= 'a' && c <= 'f' ); } );
+                if ( !isSha )
+                    return std::format( "{}-{}", inStamp, inPid );
+                return std::format( "{}-{}-{}", hash.substr( 0, 7 ), inStamp, inPid );
             }
         }
 

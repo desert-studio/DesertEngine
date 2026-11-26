@@ -51,5 +51,5 @@ endforeach()
 # DesertNet: the transport, handshake and the mesh-of-one roles (gateway, sim, store; NET-ARCH §2M.2). Device-free.
 # PhysicsCore (Jolt, render-free): the pawns' collision world (Net/PhysicsPawnMoveWorld.hpp).
 target_link_libraries(DesertServer PRIVATE DesertNet ${DESERT_MODULE_PhysicsCore_LIBRARIES} ${_server_libs}
-    LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
+    Luau ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
 desert_link_mimalloc(DesertServer)

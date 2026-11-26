@@ -42,7 +42,7 @@ run_one() {
 
 # manifest_unit <Suite>: the unit of a suite named in build/TestManifest.txt, or nothing.
 manifest_unit() {
-    awk -v s="$1" -v b="build/Bin/Tests/Debug" '$2 == s { print b "/" $1 ":" $2 }' build/TestManifest.txt 2>/dev/null
+    awk -v s="$1" -v b="build/Bin/Tests/$DEV_CONFIG" '$2 == s { print b "/" $1 ":" $2 }' build/TestManifest.txt 2>/dev/null
 }
 
 # trace_leaks <logdir> <unit…>: compares <logdir>/tree.before with the tree now. Each new entry is traced to the

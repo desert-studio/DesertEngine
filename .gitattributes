@@ -101,3 +101,7 @@
 # engine's tree and every project's (its .deproj, ContentChunks.json and Content/ - the project half of a pak).
 Editor/Resources/** -text
 Projects/** -text
+
+# The schema lock is compared as text by DesertHeaderTool (Tools/DesertHeaderTool/main.cpp NormaliseLineEnds)
+# and rewritten LF by it: checked out LF everywhere, so a CRLF checkout never shows it modified after a build.
+Desert/Schema/ComponentSchema.lock text eol=lf

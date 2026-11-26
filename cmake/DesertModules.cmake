@@ -519,7 +519,7 @@ function(desert_link_engine_tool target)
     desert_link_engine(${target})
     if(DESERT_IS_MACOS)
         target_link_libraries(${target} PRIVATE
-            Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp
+            Common Jolt Luau ReflectCpp
             "-framework Cocoa" "-framework IOKit" "-framework CoreFoundation" "-framework CoreVideo"
             "-framework CoreMedia" "-framework AVFoundation" "-framework QuartzCore" "-framework Foundation")
     endif()
@@ -592,6 +592,9 @@ function(desert_engine_header_tool_command out inputs)
         "${DESERT_ENGINE_GENERATED_DIR}/ShaderPushConstants.gen.hpp")
     desert_engine_source_files(_sources)
     desert_sources(_shaders "${DESERT_ROOT}/Editor/Resources/Shaders")
+    # Shaders/Generated/*.glslh is written by the editor (surface layers) and holds no PushConstant block: not an
+    # input, or every editor session would re-run the step.
+    list(FILTER _shaders EXCLUDE REGEX "/Editor/Resources/Shaders/Generated/")
     desert_header_tool_inputs(_tool)
     set(${out} ${_cmd} PARENT_SCOPE)
     set(${inputs} ${_tool} "${DESERT_MODULE_TABLE_JSON}" ${_sources} ${_shaders} "${DESERT_ROOT}/Desert/Schema/ComponentSchema.lock"

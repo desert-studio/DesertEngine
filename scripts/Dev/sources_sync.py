@@ -10,7 +10,8 @@ The directories: every module FOLDER of cmake/DesertModuleTable.cmake that exist
 Desert/Desert/Source, SOURCE_DIRS below (the own projects that are not module folders) and INPUT_DIRS (the
 non-C++ inputs of a build step: the shaders DesertHeaderTool reads for push structs, its templates), each with its
 own extensions. A directory nested in another listed one is cut out of the outer list. The files are the tracked
-and the not-ignored untracked ones (`git ls-files -co --exclude-standard`) with the directory's extensions.
+ones only (`git ls-files -c`) with the directory's extensions: a local untracked file never reaches a committed list
+that other checkouts configure from (a new file is `git add`ed before the script runs).
 
 Exit 0: lists written (or, with --check, every list equals the tree). 1: --check found a stale list (printed);
 land_dev.sh refuses to land then.
@@ -27,6 +28,7 @@ EXTENSIONS = (".cpp", ".hpp", ".h", ".inl", ".mm", ".c")
 # The own projects whose directory is not a module FOLDER (their CMakeLists.txt calls desert_sources on it).
 SOURCE_DIRS = [
     "Desert/Net/Source",
+    "Desert/Tests",
     "Editor/Source",
     "Runtime/Source",
     "Server/Source",
@@ -92,7 +94,7 @@ def list_dirs() -> list[str]:
 
 
 def tree_files() -> list[str]:
-    out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-co", "--exclude-standard"],
+    out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-c"],
                          capture_output=True, text=True, check=True).stdout
     return [f for f in out.splitlines() if (ROOT / f).is_file()]
 

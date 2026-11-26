@@ -33,5 +33,5 @@ foreach(name IN LISTS _table)
     endif()
 endforeach()
 target_link_libraries(DesertNetProbe PRIVATE DesertNet ${_probe_libs}
-    LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
+    Luau ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
 desert_link_mimalloc(DesertNetProbe)

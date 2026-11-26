@@ -22,7 +22,7 @@ REM CMakeLists.txt looks for sccache/ccache on PATH on the first configure.
 REM --project ^<Target^> builds that CMake target instead of everything; repeatable ^(BuildMacOS.sh's --project=^).
 REM The MSVC environment comes from vcvars64.bat of the Visual Studio instance vswhere reports when
 REM cl.exe is not already on PATH, so a plain cmd works as well as a Developer Command Prompt.
-REM   scripts\Windows\BuildWindows.bat Debug --no-analyze   skip clang-tidy, and SAY so
+REM   scripts\Windows\BuildWindows.bat DebugGame --no-analyze   skip clang-tidy, and SAY so
 REM
 REM THE NAME USED TO BE A LIE, AND FOUR SCRIPTS SHARED THE CONFUSION. BuildWindows.bat once only
 REM generated a solution and built nothing — while CompileWindows.bat was the one

@@ -136,7 +136,7 @@ desert_copy_streamline_runtime(Editor)
 desert_copy_oidn_runtime(Editor)
 if(DESERT_IS_MACOS)
     target_link_libraries(Editor PRIVATE
-        Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp
+        Common Jolt Luau ReflectCpp
         "-framework Cocoa" "-framework IOKit" "-framework CoreFoundation" "-framework CoreVideo"
         "-framework CoreMedia" "-framework AVFoundation" "-framework QuartzCore"
         ${DESERT_DESERTSPECIFIC_LIBRARIES})

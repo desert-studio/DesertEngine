@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# suite.sh <Suite…> — build (Debug) and run the named test suites, from the tree root, in one call.
+# suite.sh <Suite…> — build (the host's DEV_CONFIG) and run the named test suites, from the tree root, in one call.
 # A suite's executable comes from build/TestManifest.txt (`<Executable> <Suite>`): its layer's runner
 # (CommonTests, ToolsTests, ...), run as `<runner> --desert-suite=<Suite>`, or a not-yet-converted suite's own binary.
 # Configures the host preset if needed (_common.sh dev_configure), then builds the runners with cmake --build (Debug,
@@ -42,7 +42,7 @@ dev_build "$LOG/build.log" "${targets[@]}" ||
 [ -n "$build_only" ] && { echo "suite.sh: built ${#targets[@]} executable(s) for $# suite(s)"; exit 0; }
 fail=0
 for s in "$@"; do
-    dev_capped "${SUITE_TIMEOUT:-300}" "build/Bin/Tests/Debug/$(exe_of "$s")" --desert-suite="$s" </dev/null >"$LOG/$s.log" 2>&1
+    dev_capped "${SUITE_TIMEOUT:-300}" "build/Bin/Tests/$DEV_CONFIG/$(exe_of "$s")" --desert-suite="$s" </dev/null >"$LOG/$s.log" 2>&1
     rc=$?
     p=$(grep -a -c '^\[       OK \]' "$LOG/$s.log")
     f=$(grep -a '^\[  FAILED  \] [A-Za-z_].*(' "$LOG/$s.log" | sort -u | wc -l | tr -d ' ')

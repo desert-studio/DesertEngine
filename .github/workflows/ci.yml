@@ -242,7 +242,7 @@ jobs:
       - name: clang-tidy the changed lines
         run: ./scripts/CI/CheckTidy.sh --shard "${{ matrix.shard }}/${{ needs.tidy-plan.outputs.shards }}" "${{ github.event.pull_request.base.sha || github.event.before }}"
 
-  # THE SAME SHARDS ON WINDOWS (STUDIO-AUDIT B-GATES): the MSVC compile lines of build/cmake/windows-msvc-ninja,
+  # THE SAME SHARDS ON WINDOWS (STUDIO-AUDIT B-GATES): the MSVC compile lines of build/cmake/win-debug,
   # read by clang-tidy in clang-cl driver mode, see what macOS never compiles (#ifdef _WIN32, DX12, WinSock).
   # CheckTidy.sh picks the Windows tree by uname; LLVM 18 is pinned as on macOS (the verdict is release-bound).
   tidy-windows:
@@ -610,8 +610,10 @@ jobs:
       - name: Bundle the test binaries
         run: |
           # AssimpLibraryPin compares the linked assimp with build/generated/assimp/VERSION.txt (cmake/ThirdParty/Assimp.cmake).
-          tar -czf "$RUNNER_TEMP/test-bundle.tgz" build/Bin/Tests/DebugGame build/TestManifest.txt build/TestPlan \
-            build/generated/assimp/VERSION.txt
+          # The module and third-party dylibs the runners load through @executable_path/../../DebugGame
+          # (Desert/Tests/CMakeLists.txt) travel at the same relative place.
+          tar -czf "$RUNNER_TEMP/test-bundle.tgz" build/Bin/Tests/DebugGame build/Bin/DebugGame/*.dylib \
+            build/TestManifest.txt build/TestPlan build/generated/assimp/VERSION.txt
           du -sh build/Bin/Tests/DebugGame "$RUNNER_TEMP/test-bundle.tgz"
 
       - name: Upload the test bundle
@@ -897,7 +899,10 @@ jobs:
       # (header-fanout against scripts/Dev/header_fanout_budget.txt, tu-time, duplicate-compile) over the tree this
       # job just built. Exit 2 = a rise; the place and the rule's reason are printed.
       - name: Architecture census
-        run: python3 scripts/Dev/arch_census.py --build build/cmake/macos-clang-ninja --config ${{ matrix.config }}
+        # The build directory is the preset's (CMakePresets.json: mac-dev / mac-debug / mac-ship).
+        run: |
+          case "${{ matrix.config }}" in Development) p=dev ;; DebugGame) p=debug ;; Shipping) p=ship ;; esac
+          python3 scripts/Dev/arch_census.py --build "build/cmake/mac-$p" --config ${{ matrix.config }}
 
       # After the build and before the tests, `always()`, `continue-on-error` — see the sanitizers job.
       - name: Save ccache
@@ -1018,7 +1023,7 @@ jobs:
       - name: Smoke-run the packaged game (Vulkan runner only)
         if: matrix.config == 'Development' && matrix.leg == 'package' && vars.DESERT_MACOS_VULKAN_RUNNER == 'true'
         run: |
-          ./build/Bin/Development/GamePackager Projects/Desert/Desert.deproj --config Release --out "$GITHUB_WORKSPACE/dist/Game-Development"
+          ./build/Bin/Development/GamePackager Projects/Desert/Desert.deproj --config Development --out "$GITHUB_WORKSPACE/dist/Game-Development"
           app="$(find "$GITHUB_WORKSPACE/dist/Game-Development" -maxdepth 1 -name '*.app' | head -n 1)"
           exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
           shot="$RUNNER_TEMP/packaged-smoke.png"
@@ -1223,9 +1228,9 @@ jobs:
       # checks the toolchain. Running it here means the documented setup path is itself under test — a
       # broken Setup.bat fails CI instead of the next new machine.
       #
-      # --unity on the build line below (task CI10): preset windows-msvc-ninja-unity, Common, Desert and
-      # Editor as CMake unity batches (cmake/DesertWorkspace.cmake; the test suites stay one source per
-      # compile so their shared sources keep hitting ccache). ONLY HERE -- a developer build leaves it off.
+      # Unity batches (task CI10) are now every preset's (CMakePresets.json win-dev/win-debug/win-ship), a
+      # developer's build included; the test suites stay one source per compile so their shared sources keep
+      # hitting ccache (cmake/DesertWorkspace.cmake).
       # BEFORE, the numbers to compare the first unity run against (ccache + MultiToolTask, run
       # 35863890019): Build step Release 74.7 min, Debug 36.0, Shipping 26.2; whole job Release 80.2,
       # Debug 57, Shipping 29. The owner's working figure for the Windows job today: 1.5-2 h.
@@ -1359,7 +1364,10 @@ jobs:
       # job just built. Exit 2 = a rise; the place and the rule's reason are printed.
       - name: Architecture census
         shell: bash
-        run: python scripts/Dev/arch_census.py --build build/cmake/windows-msvc-ninja-unity --config ${{ matrix.config }}
+        # The build directory is the preset's (CMakePresets.json: win-dev / win-debug / win-ship).
+        run: |
+          case "${{ matrix.config }}" in Development) p=dev ;; DebugGame) p=debug ;; Shipping) p=ship ;; esac
+          python scripts/Dev/arch_census.py --build "build/cmake/win-$p" --config ${{ matrix.config }}
 
       # Right after the build, `always()`: a build cancelled at the ceiling still leaves every object
       # it finished, and that is what lets the next run get past the point this one stopped at. The
