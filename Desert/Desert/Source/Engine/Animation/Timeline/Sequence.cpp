@@ -359,6 +359,17 @@ namespace Desert::Animation::Timeline
                     {
                         return fail( i, "a bone in a level sequence sits under the Entity binding it belongs to" );
                     }
+                    // One binding per (actor, bone): two would fold in file order with no rule between them.
+                    for ( size_t j = 0; j < i; ++j )
+                    {
+                        const Binding& other = sequence.Bindings[j];
+                        if ( other.Kind == BindingKind::Bone && other.Parent == binding.Parent &&
+                             other.Locator == binding.Locator )
+                        {
+                            return fail( i, std::format( "bone '{}' of actor '{}' is bound twice (binding {} too)",
+                                                         binding.Locator, parent->Label, j ) );
+                        }
+                    }
                 }
                 const Binding* link = &binding;
                 for ( size_t depth = 0; !link->Parent.IsNull(); ++depth )

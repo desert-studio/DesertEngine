@@ -52,6 +52,9 @@ namespace
         void DriveEffect( const TL::ResolvedBinding&, const TL::VFXSample& ) override
         {
         }
+        void PoseBones( const TL::ResolvedBinding&, TL::BindingGuid, AN::FrameTime ) override
+        {
+        }
     };
 
     RecordingHost EvaluateAt( const TL::Sequence& sequence, const double seconds )

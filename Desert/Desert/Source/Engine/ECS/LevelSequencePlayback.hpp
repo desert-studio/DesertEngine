@@ -20,11 +20,13 @@
 namespace Desert::Animation
 {
     class AnimationClip;
+    class Skeleton;
 }
 
 namespace Desert::ECS
 {
     struct LevelSequenceComponent;
+    struct LevelSequencePlayback;
 
     /**
      * @brief Where the host finds the clip an Animation section names (UE: the section's UAnimSequence
@@ -110,9 +112,10 @@ namespace Desert::ECS
      * The ECS system (System/LevelSequenceSystem.hpp) owns the Scene half: Play state and the view target.
      *
      * RESOLVE: an Entity binding's locator is the entity UUID as decimal text; a binding override of the
-     * component, when present, wins over the locator. Anything else (a Bone or Widget binding, a locator
-     * that is not a number, a UUID no entity of this registry carries) is not present: the Evaluator
-     * reports its Label in `ApplyReport::Unresolved`.
+     * component, when present, wins over the locator. A Bone binding resolves to its PARENT's entity (the
+     * actor whose skeleton has the bone) while a sequence is being applied (`Begin`). Anything else (a Widget
+     * binding, a locator that is not a number, a UUID no entity of this registry carries) is not present: the
+     * Evaluator reports its Label in `ApplyReport::Unresolved`.
      *
      * APPLY, by the track's Property (the names Sequencer's Transform track uses):
      *   "Transform"   BoneTransform → TransformComponent Translation / Rotation (Euler) / Scale
@@ -131,6 +134,18 @@ namespace Desert::ECS
      * (the sequence owns the playhead), `Play(clip, loop)` when another clip is current, `SetTick(time)`,
      * which wraps a looping clip and clamps a finished one. An entity with no Animator, a clip the source
      * does not have, or a section blended below full weight / additively is REFUSED by name.
+     *
+     * BONES (UE: FK Control Rig on a skeletal mesh binding): the Bone bindings under one actor binding are
+     * bound to the actor's skeleton ONCE per (Sequence::Revision, skeleton) — `LevelSequenceBoneCache` in the
+     * playback — then sampled (`SampleBoneLayer`) and handed to the actor's Animator as ONE layer under the
+     * playback's `Writer` (`Animator::SetSequencerLayer`), folded over its animated pose. ONE LAYER PER ACTOR
+     * PER STEP (UE: FMovieSceneBlendingAccumulator blends every section writing one mesh into one pose): the
+     * samples of every Bone binding reaching an actor — the master's and its subsequences', two entity
+     * bindings of one actor — are gathered over the whole step and set once (`CommitBoneLayers`), in the
+     * order they were sampled, so a later sample folds over an earlier one by its weight instead of replacing
+     * the layer. An actor without an Animator, a bone its skeleton lacks (once per bone table), or an Animator
+     * another writer layers is REFUSED by name. A layer the previous step set and this one did not is cleared
+     * (`StepLevelSequence`).
      *
      * EVENTS (UE: the Event track's endpoints): every crossed key's name is recorded (`FiredEvents`); a key's
      * Action then runs once, on an Instant key or where a ranged key begins:
@@ -159,6 +174,22 @@ namespace Desert::ECS
         /// A VFX track's state: the bound entity's VFXComponent::SequencerDrive (activate / age / deactivate).
         void DriveEffect( const Animation::Timeline::ResolvedBinding& target,
                           const Animation::Timeline::VFXSample&       sample ) override;
+        /// The bones under @p parentGuid at @p at, gathered into the parent entity's layer of this step (class
+        /// comment); `CommitBoneLayers` sets it.
+        void PoseBones( const Animation::Timeline::ResolvedBinding& parent,
+                        Animation::Timeline::BindingGuid parentGuid, Animation::FrameTime at ) override;
+
+        /// The playback whose sequence is applied next: Bone bindings resolve against its bindings and bind
+        /// through its bone cache. The layer is written under @p writer (the root playback's).
+        void Begin( LevelSequencePlayback& playback, std::string_view writer );
+        /// Sets each actor's gathered layer once on its Animator, under the writer of the first playback that
+        /// reached it. Called once, after the master and every subsequence were applied.
+        void CommitBoneLayers();
+        /// Every entity whose Animator this host layered, once each.
+        [[nodiscard]] const std::vector<entt::entity>& Layered() const
+        {
+            return m_Layered;
+        }
 
         /// The camera entity the Camera Cut in force names; nullopt = no cut in force this step.
         [[nodiscard]] const std::optional<entt::entity>& CameraCut() const
@@ -193,6 +224,31 @@ namespace Desert::ECS
         std::vector<std::string>      m_Refusals;
         std::vector<std::string>      m_Fired;
         std::vector<std::string>      m_Sounds;
+        LevelSequencePlayback*        m_Playback = nullptr;
+        std::string                   m_Writer;
+        std::vector<entt::entity>     m_Layered;
+        /// One actor's layer of this step, gathered over every PoseBones that reached it.
+        struct PendingLayer
+        {
+            entt::entity                                      Entity = entt::null;
+            std::string                                       Actor;
+            std::string                                       Writer;
+            std::vector<Animation::Timeline::BoneLayerSample> Samples;
+        };
+        std::vector<PendingLayer> m_Pending;
+    };
+
+    /// The bone table of ONE actor binding of a level sequence against ONE skeleton (Evaluator.hpp
+    /// `BindBones` with the actor as parent). Rebuilt when the table's Sequence::Revision or the skeleton
+    /// (its identity or bone count — an Animator re-made for another mesh) changes.
+    struct LevelSequenceBoneCache
+    {
+        Animation::Timeline::BindingGuid      Parent;
+        const Animation::Skeleton*            Skeleton  = nullptr;
+        size_t                                BoneCount = 0;
+        Animation::Timeline::BoneBindingTable Table;
+        /// The table's missing bones were refused already: once per table, not on every step of Play.
+        bool MissingReported = false;
     };
 
     /// One actor's playback state: the transport and the evaluator over the asset's sequence.
@@ -208,7 +264,28 @@ namespace Desert::ECS
         /// One child per Subsequence section, by (track, section) index: its own evaluator and resolved
         /// bindings, re-made when the source hands a different sequence.
         std::map<std::pair<uint32_t, uint32_t>, std::unique_ptr<LevelSequencePlayback>> Children;
+        /// The name the bone layers of this playback carry on an Animator (`Animator::SetSequencerLayer`): the
+        /// Level Sequence actor's name and entity in Play (LevelSequenceSystem), `kLevelSequencePreviewWriter`
+        /// in the editor preview. Empty = this playback poses no bone (its bone tracks are refused by name).
+        std::string Writer;
+        /// One table per actor binding with bone tracks, a handful per sequence: searched linearly.
+        std::vector<LevelSequenceBoneCache> BoneTables;
+        /// The entities whose Animator the last step layered — the step clears the ones it no longer
+        /// reaches; Stop / an actor retired clears them all (LevelSequenceSystem).
+        std::vector<entt::entity> Layered;
+
+        [[nodiscard]] const std::vector<entt::entity>& LayeredEntities() const
+        {
+            return Layered;
+        }
     };
+
+    /// The bone-layer writer of the editor's preview (LevelSequencePreview), one for every scrubbed document.
+    inline constexpr std::string_view kLevelSequencePreviewWriter = "<preview>";
+
+    /// Clears @p writer's bone layer from every Animator in @p entities (those still alive) and empties it.
+    void ClearLevelSequenceBoneLayers( entt::registry& registry, std::vector<entt::entity>& entities,
+                                       std::string_view writer );
 
     struct LevelSequenceStep
     {

@@ -35,6 +35,7 @@
 #include <format>
 #include <Engine/ECS/PlayerStartComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
+#include <Engine/ECS/LevelSequenceAuthoring.hpp>
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -162,6 +163,9 @@ namespace Desert::Editor
         Desert::Core::SceneLoadPhases       phases( "Play start" );
         // The editor's HLODs leave first (WP-EDITOR-HLOD): Play streams the world's own, which share their ids.
         Editor::EditorHLODs::ReleaseAll( *scene );
+        // The Sequencer preview's bone layers leave too, before the first Play step: Play's Level Sequence
+        // actors write their own (an Animator holds one writer); the preview re-scrubs after Stop.
+        ECS::ReleaseLevelSequencePreviewLayers( scene->GetRegistry() );
         const Desert::Core::SceneSerializer serializer( scene.get(), m_Assets.get() );
         m_PlayWorld.Begin( serializer.SerializeToJson() );
         PlayKeptChanges::Clear(); // a new session keeps nothing an earlier one left unapplied

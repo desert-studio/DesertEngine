@@ -11,6 +11,7 @@
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/CameraComponent.hpp>
 #include <Engine/ECS/LevelSequenceComponent.hpp>
+#include <Engine/ECS/TagComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/ECS/VisibilityComponent.hpp>
@@ -66,6 +67,17 @@ namespace Desert::ECS
 
     std::optional<T::ResolvedBinding> LevelSequenceEntityHost::Resolve( const T::Binding& binding )
     {
+        if ( binding.Kind == T::BindingKind::Bone )
+        {
+            // A bone is posed through its actor: it resolves to the parent Entity binding's entity, so a
+            // bone of a present actor is never "unresolved" (a bone the skeleton lacks is PoseBones' refusal).
+            if ( m_Playback == nullptr )
+                return std::nullopt;
+            const T::Binding* parent = T::FindBinding( m_Playback->Evaluator.GetSequence(), binding.Parent );
+            if ( parent == nullptr || parent->Kind != T::BindingKind::Entity )
+                return std::nullopt;
+            return Resolve( *parent );
+        }
         if ( binding.Kind != T::BindingKind::Entity )
             return std::nullopt;
 
@@ -311,6 +323,110 @@ namespace Desert::ECS
         *drive = VFXSequencerDrive{ sample.Active, sample.Active ? sample.AgeSeconds : 0.0 };
     }
 
+    void LevelSequenceEntityHost::Begin( LevelSequencePlayback& playback, const std::string_view writer )
+    {
+        m_Playback = &playback;
+        m_Writer   = writer;
+    }
+
+    void LevelSequenceEntityHost::PoseBones( const T::ResolvedBinding& parent, const T::BindingGuid parentGuid,
+                                             const Animation::FrameTime at )
+    {
+        const entt::entity entity = EntityOf( parent );
+        const std::string  actor  = m_Registry.valid( entity ) && m_Registry.has<TagComponent>( entity )
+                                         ? m_Registry.get<TagComponent>( entity ).Tag
+                                         : std::string( "the bound entity" );
+        if ( m_Playback == nullptr || m_Writer.empty() )
+        {
+            m_Refusals.push_back( std::format( "bone tracks of {}: this player poses no bone", actor ) );
+            return;
+        }
+        if ( !m_Registry.valid( entity ) || !m_Registry.has<AnimationComponent>( entity ) ||
+             !m_Registry.get<AnimationComponent>( entity ).Animator )
+        {
+            m_Refusals.push_back( std::format( "bone tracks of {}: it has no Animator (a Skinned Mesh with an "
+                                               "Animation component)",
+                                               actor ) );
+            return;
+        }
+        Animation::Animator&       animator = *m_Registry.get<AnimationComponent>( entity ).Animator;
+        const Animation::Skeleton& skeleton = animator.GetSkeleton();
+        const T::Sequence&         sequence = m_Playback->Evaluator.GetSequence();
+
+        auto cache = std::find_if( m_Playback->BoneTables.begin(), m_Playback->BoneTables.end(),
+                                   [&]( const LevelSequenceBoneCache& c ) { return c.Parent == parentGuid; } );
+        if ( cache == m_Playback->BoneTables.end() )
+        {
+            m_Playback->BoneTables.push_back( LevelSequenceBoneCache{ parentGuid } );
+            cache = std::prev( m_Playback->BoneTables.end() );
+            cache->Table.Revision = sequence.Revision + 1; // never valid: bound below
+        }
+        if ( cache->Table.Revision != sequence.Revision || cache->Skeleton != &skeleton ||
+             cache->BoneCount != skeleton.GetBones().size() )
+        {
+            cache->Skeleton        = &skeleton;
+            cache->BoneCount       = skeleton.GetBones().size();
+            cache->Table           = T::BindBones( sequence, skeleton, parentGuid );
+            cache->MissingReported = false;
+        }
+        if ( cache->Table.Missing > 0 && !cache->MissingReported )
+        {
+            cache->MissingReported = true;
+            for ( size_t i = 0; i < sequence.Tracks.size(); ++i )
+            {
+                const T::Binding* bone = T::FindBinding( sequence, sequence.Tracks[i].Binding );
+                if ( bone != nullptr && bone->Kind == T::BindingKind::Bone && bone->Parent == parentGuid &&
+                     sequence.Tracks[i].Kind == T::TrackKind::Transform &&
+                     cache->Table.BoneOfTrack[i] == UINT32_MAX )
+                    m_Refusals.push_back(
+                         std::format( "{}: the skeleton of {} has no such bone", bone->Locator, actor ) );
+            }
+        }
+
+        auto pending = std::find_if( m_Pending.begin(), m_Pending.end(),
+                                     [entity]( const PendingLayer& p ) { return p.Entity == entity; } );
+        if ( pending == m_Pending.end() )
+        {
+            m_Pending.push_back( PendingLayer{ entity, actor, m_Writer, {} } );
+            pending = std::prev( m_Pending.end() );
+        }
+        // SampleBoneLayer appends, and refuses before appending anything: a refused table leaves the samples
+        // gathered so far for this actor as they were.
+        if ( const auto sampled = T::SampleBoneLayer( sequence, cache->Table, at, pending->Samples ); !sampled )
+            m_Refusals.push_back( std::format( "bone tracks of {}: {}", actor, sampled.GetError() ) );
+    }
+
+    void LevelSequenceEntityHost::CommitBoneLayers()
+    {
+        for ( const PendingLayer& pending : m_Pending )
+        {
+            if ( !m_Registry.valid( pending.Entity ) )
+                continue;
+            auto* animation = m_Registry.try_get<AnimationComponent>( pending.Entity );
+            if ( animation == nullptr || !animation->Animator )
+                continue; // PoseBones refused it by name before gathering anything
+            if ( const auto set = animation->Animator->SetSequencerLayer( pending.Writer, pending.Samples ); !set )
+            {
+                m_Refusals.push_back( std::format( "bone tracks of {}: {}", pending.Actor, set.GetError() ) );
+                continue;
+            }
+            if ( std::find( m_Layered.begin(), m_Layered.end(), pending.Entity ) == m_Layered.end() )
+                m_Layered.push_back( pending.Entity );
+        }
+        m_Pending.clear();
+    }
+
+    void ClearLevelSequenceBoneLayers( entt::registry& registry, std::vector<entt::entity>& entities,
+                                       const std::string_view writer )
+    {
+        for ( const entt::entity entity : entities )
+            if ( registry.valid( entity ) )
+                if ( auto* animation = registry.try_get<AnimationComponent>( entity );
+                     animation != nullptr && animation->Animator )
+                    animation->Animator->ClearSequencerLayer( writer );
+        entities.clear();
+    }
+
     namespace
     {
         [[nodiscard]] std::string SequenceName( const LevelSequenceSubsequenceSource& source,
@@ -370,6 +486,8 @@ namespace Desert::ECS
                 childStep.Direction = sample.Direction;
                 child->Evaluator.Evaluate( childStep, child->Frame );
 
+                child->Writer = playback.Writer;
+                host.Begin( *child, child->Writer );
                 const bool values = valuesAllowed && sample.ValuesAt;
                 const auto report = child->Evaluator.Apply(
                      child->Frame, host, values ? T::ApplyScope::Nested : T::ApplyScope::EventsOnly );
@@ -434,11 +552,23 @@ namespace Desert::ECS
         playback.Evaluator.Evaluate( step, playback.Frame );
         LevelSequenceEntityHost host( registry, component, clips, materials );
         LevelSequenceStep       out;
+        host.Begin( playback, playback.Writer );
         out.Report = playback.Evaluator.Apply( playback.Frame, host );
         std::vector<Common::Content::AssetGuid> path;
         if ( !playback.Asset.IsNull() )
             path.push_back( playback.Asset );
         StepSubsequences( host, playback, true, subsequences, path, out );
+        // Every bone binding of the master and its subsequences was gathered: one layer per actor, set once.
+        host.CommitBoneLayers();
+
+        // A layer the previous step set and this one did not reach (its section ended, its track was muted or
+        // removed) comes off: the actor shows its animation again, not the last keyed bone.
+        std::vector<entt::entity> dropped;
+        for ( const entt::entity entity : playback.Layered )
+            if ( std::find( host.Layered().begin(), host.Layered().end(), entity ) == host.Layered().end() )
+                dropped.push_back( entity );
+        ClearLevelSequenceBoneLayers( registry, dropped, playback.Writer );
+        playback.Layered = host.Layered();
         out.CameraCut   = host.CameraCut();
         out.Refusals    = host.Refusals();
         out.FiredEvents = host.FiredEvents();

@@ -1,5 +1,6 @@
 #include <Engine/UI/Ecs/UIAnimationPlayback.hpp>
 
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
@@ -77,6 +78,15 @@ namespace Desert::UI
             // A UI clip holds no VFX track (HostHoldsTrack): Validate refused one before this host saw it.
             void DriveEffect( const TL::ResolvedBinding&, const TL::VFXSample& ) override
             {
+            }
+            // Nor a Bone binding (HostHoldsBinding): Evaluate lists no bone layer for a UI clip. Should one
+            // arrive, it is refused by name, once, not dropped.
+            void PoseBones( const TL::ResolvedBinding&, const TL::BindingGuid parent, Animation::FrameTime ) override
+            {
+                if ( m_Frame.Warned.insert( "bones:" + Common::Content::AssetGuidToText( parent.Value ) ).second )
+                    LOG_WARN( "[UI] a UI animation keys bones under binding {}; a UI element has no skeleton, the "
+                              "bone tracks are refused",
+                              Common::Content::AssetGuidToText( parent.Value ) );
             }
 
         private:
