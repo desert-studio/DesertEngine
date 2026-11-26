@@ -52,9 +52,14 @@ namespace Desert::Graphic
         return BOOLSUCCESS;
     }
 
-    void Renderer::AttachClient( std::unique_ptr<IRendererClient> client )
+    Common::BoolResultStr Renderer::AttachClient( std::unique_ptr<IRendererClient> client )
     {
+        if ( !client )
+            return Common::MakeError( "Renderer::AttachClient: the client is null" );
+        if ( m_Client )
+            return Common::MakeError( "Renderer::AttachClient: a client is already attached (attached once, before Init)" );
         m_Client = std::move( client );
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr Renderer::Init()

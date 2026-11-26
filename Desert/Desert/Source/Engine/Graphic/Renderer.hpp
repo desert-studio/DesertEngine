@@ -305,7 +305,7 @@ namespace Desert::Graphic
 
         // THE ENGINE'S HOOKS (IRendererClient): attached once by the Application before Init (Init refuses to
         // start without one); called in WaitFrameSlot after the frame slot and twice in Shutdown. Owned here.
-        void AttachClient( std::unique_ptr<IRendererClient> client );
+        [[nodiscard]] Common::BoolResultStr AttachClient( std::unique_ptr<IRendererClient> client );
 
         const std::shared_ptr<Graphic::Texture2D>& GetBRDFTexture() const;
 

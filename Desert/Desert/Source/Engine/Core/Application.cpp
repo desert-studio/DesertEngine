@@ -147,7 +147,9 @@ namespace Desert::Engine
         Reflection::ForceLinkGeneratedReflection();
         LOG_INFO( "[Reflection] {} reflected type(s) registered",
                   Reflection::ReflectionRegistry::Get().All().size() );
-        Graphic::Renderer::GetInstance().AttachClient( std::make_unique<EngineRendererClient>() );
+        const auto clientAttached =
+            Graphic::Renderer::GetInstance().AttachClient( std::make_unique<EngineRendererClient>() );
+        DESERT_VERIFY( clientAttached.IsSuccess(), "Failed to attach the renderer client: {}", clientAttached.GetError() );
         const auto rendererReady = Graphic::Renderer::GetInstance().Init();
         DESERT_VERIFY( rendererReady.IsSuccess(), "Failed to initialize the renderer: {}",
                        rendererReady.GetError() );

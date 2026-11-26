@@ -125,7 +125,13 @@ Shader "EngineHostFill"
             h.Device = device.ExtractValue();
             EngineContext::GetInstance().SetDevice( h.Device );
             h.Context->Init();
-            Renderer::CreateInstance().AttachClient( std::make_unique<Engine::EngineRendererClient>() );
+            const auto attached =
+                Renderer::CreateInstance().AttachClient( std::make_unique<Engine::EngineRendererClient>() );
+            if ( !attached )
+            {
+                h.Error = attached.GetError();
+                return h;
+            }
             const auto ready = Renderer::GetInstance().Init();
             if ( !ready )
                 h.Error = ready.GetError();
