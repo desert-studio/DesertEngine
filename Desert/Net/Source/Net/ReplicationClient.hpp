@@ -17,6 +17,7 @@
 #include <Net/Replication.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <deque>
 #include <cstdint>
 #include <map>
@@ -59,12 +60,38 @@ namespace Desert::Net
         // Pumps the transport and advances the remote pawns' render clock (call every frame).
         void Poll();
         // One client fixed step of input (call at kNetStepHz while InSession): @p input as the game filled it (move
-        // intent and the pawn's declared action set, InputStep), numbered here - the step as recorded is the input
-        // the client's prediction runs - or nullopt outside the session. It goes out at FlushInputs.
+        // intent and the pawn's declared action set, InputStep), numbered here and snapped to the wire's lattice
+        // (InputWire.hpp OnWireLattice) - the step as returned is the input the client's prediction runs and the
+        // one the server decodes, the same floats - or nullopt outside the session. It goes out at FlushInputs.
         std::optional<InputStep> RecordInput( InputStep input );
         // Sends every unacked step (all of them, never only the newest) in one Input message; nothing when none is
-        // unacked.
+        // unacked. A run the codec refuses (InputWire.hpp AppendInputRun) is logged and not sent.
         void FlushInputs();
+        // THE INPUT UPLINK (UE `stat net` Out bytes, this lane's share): the Input messages' bytes and count over
+        // the last whole second of NetClock (0 before one has passed), and the largest message this session with
+        // the number of steps it carried, and the message with the most steps (ties: the more bytes) - a starved
+        // client's burst; {0, 0} before the first.
+        struct InputMessageSize
+        {
+            std::size_t Bytes = 0;
+            std::size_t Steps = 0;
+        };
+        [[nodiscard]] std::size_t InputBytesPerSecond() const
+        {
+            return m_InputBytesPerSecond;
+        }
+        [[nodiscard]] std::size_t InputMessagesPerSecond() const
+        {
+            return m_InputMessagesPerSecond;
+        }
+        [[nodiscard]] InputMessageSize LargestInputMessage() const
+        {
+            return m_LargestInput;
+        }
+        [[nodiscard]] InputMessageSize LongestInputRun() const
+        {
+            return m_LongestInput;
+        }
         // RecordInput + FlushInputs: a frame of one step.
         std::optional<InputStep> SendInput( InputStep input );
         // THE OWN PAWN'S AUTHORITY (§5.1): the newest ack with the server's state after that step, once per new
@@ -171,6 +198,8 @@ namespace Desert::Net
         [[nodiscard]] double LocalSeconds() const;
         void                 MeasureArrival( double serverSeconds, NetClock::time_point received );
         void                 AdvanceRenderClock();
+        // Closes the input window when a second has passed since it opened (called from Poll and FlushInputs).
+        void                 RollInputWindow( double local );
         // The snapshot cadence as received: the median interval between the server times of the snapshots in the
         // jitter window (the server's first band's period; nothing in code says it). Nullopt below two snapshots.
         // Computed once per arrival (MeasureArrival) into m_SnapshotInterval.
@@ -214,6 +243,13 @@ namespace Desert::Net
         std::optional<double>                    m_RenderSeconds;
         double                                   m_LastAdvance = 0.0, m_NextDelayLog = 0.0;
         int                                      m_ClockSnaps = 0; // past the first set, logged
+        // The input uplink window (local seconds): what the open window has sent, and the last closed window's totals.
+        double           m_InputWindowStart = 0.0;
+        std::size_t      m_InputWindowBytes = 0, m_InputWindowMessages = 0;
+        std::size_t      m_InputBytesPerSecond = 0, m_InputMessagesPerSecond = 0;
+        InputMessageSize m_LargestInput, m_LongestInput;
+        // The first step of the last refused run: a refusal is logged once per run start, not every frame.
+        std::optional<std::uint32_t> m_RefusedFrom;
         // The last view shape sent (ReportView) and when, in local seconds.
         std::optional<ViewReport>                m_SentView;
         double                                   m_ViewSentAt = 0.0;

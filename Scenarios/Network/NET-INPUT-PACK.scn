@@ -1,0 +1,49 @@
+# NET-INPUT-PACK: the client's Input message packed like UE's ServerMove (FCharacterNetworkMoveDataContainer).
+# Every unacked step still rides in every Input message, but as one run (Net/InputWire.hpp): FirstStep + Count, a
+# full baseline step, then a delta mask per step (an unchanged step is one byte); Move and axes on an int8 lattice,
+# Yaw on int16. The client snaps a step to the lattice where it numbers it (ReplicationClient::RecordInput), so the
+# prediction and the server step the same floats: zero corrections, as in NET-4.
+# Reference numbers (NET-4 A.log 1125-071236): 381 B per message, 22.9 KB/s up, a 1256 B burst while loading.
+# After: <= 104 B per message (<= 34 walking straight), <= 5.7 KB/s (expected ~2.0), the burst <= 999 B (one MTU).
+# The instrument: the client's `[Net] t=` line carries `input {} B/s, {} msgs; largest message {} B ({} steps); longest run
+# {} steps ({} B)`.
+# Roles as NET-4 (scripts/Dev/net_scenario.py): DesertServer --role all + Editor client A (headless --play, side
+# camera at (2100,120,50), motion blur off) + DesertNetProbe bot B, both on a 75 ms each way / 2 % loss link.
+# The walk is 2700 cm from the spawn (x 0, or 500 for the second spawn): A stops past the fence (x 2500) at x ~2700-3200,
+# inside the side camera, so the standing frame shows it (NET-4's clientA_fence_after view).
+# A's loading phase is the starved client (17..30 unacked steps per message in NET-4); `largest message` keeps the
+# session's maximum (`longest run` by steps), so the burst is proven whenever the line is printed.
+Мир Content/Scenes/WP_Protocol.desce
+Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-300,650 --spawn 500,-300,-200 --steps 864000
+Ждать server 60 \[Server\] listening on port
+Роль A editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --camera 2100,120,50 --look 0.595,-0.198,0.779 --quality PostProcess.MotionBlurQuality=0 --net-walk-cm 2700 --net-walk-dir 1,0,0 --net-walk-mode sprint --net-jump-every 1.5
+Ждать A 1800 \[Net\] in session
+Роль B bot account=2 lag=75 loss=2 --seconds 1500
+Ждать A 120 \[Net\] predicting own pawn
+Ждать A 120 \[Net\] scripted walk: Left Shift held in the player's Enhanced Input
+# Дано: server + A + B on WP_Protocol, link 150 ms / 2 % loss. Когда: A sprints along +X and jumps every 1.5 s.
+# Тогда [net_bytes]: the uplink while sprinting straight is at most a quarter of today's 22 900 B/s (expected <= 2 300).
+Ждать A 900 drawn own \((1[0-9]\d\d|2[0-4]\d\d),
+Ждать A 60 \[Net\] t=.*; input ([0-9]{1,3}|[1-4]\d{3}|5[0-6]\d\d) B/s
+Нет A ; input (5[7-9]\d\d|[6-9]\d{3}|\d{5,}) B/s
+Тогда A net_bytes the side camera: A's mannequin (grey body, dark joints, head, arms, legs) sprinting along +X on the slope before the fence, sharp (no motion blur), one mannequin of A
+# Тогда [net_burst]: the session's longest run (the message with the most steps) carried >= 17 steps (the loading burst) and
+# still fit < 1000 B, one MTU; no Input message of the session reached 1000 B.
+Ждать A 900 \[Net\] walked \d+ cm \(server position\): stopping
+Ждать A 60 longest run (1[7-9]|[2-9]\d|1[01]\d|12[0-8]) steps \(\d{1,3} B\)
+Нет A largest message \d{4,} B
+Тогда A net_burst the side camera, the same run: A's mannequin past the fence (the walk has stopped), whole, sharp; one mannequin of A
+# Тогда [net_zero_corrections]: past the fence, the walk stops; no correction over the whole sprint, every Input decoded, no step lost.
+Ждать A 900 drawn own \((2[5-9]\d\d|[3-9]\d\d\d|\d{5,}),
+Нет A \[Net\] correction \d+ at
+Нет server malformed Input
+Нет server never arrived
+Нет A input run refused
+Тогда A net_zero_corrections A past the fence (x >= 2500), the fence (thin green box) intact behind it; no mannequin stuck at x ~2470
+# Тогда [net_zero_corrections_late]: 10 s after stopping - corrections still 0, and a standing pawn's uplink is <= 2299 B/s
+# (design: expected <= 2 300): every step equals the one before it, 10 + 10 + 14 B per message, one message per frame
+# (the cadence carries the acks; stationary throttling is NET-SEND-THROTTLE).
+Ждать A 60 10x \[Net\] t=
+Ждать A 30 \[Net\] t=.*corrections 0;.*; input ([0-9]{1,3}|1\d{3}|2[0-2]\d\d) B/s
+Нет A \[Net\] correction \d+ at
+Тогда A net_zero_corrections_late A stands past the fence (x >= 2500), still; the fence intact; one mannequin of A
