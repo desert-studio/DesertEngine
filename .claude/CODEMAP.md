@@ -29,7 +29,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Assets/Shader` — 2 files, 325 lines: ShaderAsset
 - `Assets/Skybox` — 2 files, 123 lines: SkyboxAsset
 - `Assets/StaticLighting` — 3 files, 263 lines: AtlasPlacement, BakedLightRecord, BakedPrimitiveRecord, LightingBuildDataAsset, MeshLightmapUVSettings, StaticLightingInput, StaticLightingInputs, VolumetricLightmapData
-- `Core` — 82 files, 18,960 lines: Application, ApplicationInfo, ApproximateShell, AssetAnnouncer, AssetParamLabel, AssetReferenceVisitor, AxisRow, BootTimeline, Camera, CameraEntityView, CameraSourceTicket, CellHLOD, … (+104)
+- `Core` — 82 files, 18,968 lines: Application, ApplicationInfo, ApproximateShell, AssetAnnouncer, AssetParamLabel, AssetReferenceVisitor, AxisRow, BootTimeline, Camera, CameraEntityView, CameraSourceTicket, CellHLOD, … (+104)
 - `Core/Formats` — 11 files, 3,568 lines: BC6HCeilingCensus, BlockEncodeSettings, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MaterialLayout, MaterialLayoutBindings, MaterialLayoutParam, MaterialLayoutPushField, MaterialLayoutTexture, MipLevelSpan, … (+9)
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
 - `Core/Serialize` — 79 files, 24,194 lines: ActivationCostModel, ActivationDone, ActivationFrame, ActivationJob, ActivationKindComponent, AxisSpan, BuiltHLODCell, BuiltHLODIndex, CellBounds, CellCoord, CellHLODPart, CellPayload, … (+170)
@@ -39,7 +39,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Core/ShaderCompiler/ShaderPreprocess` — 2 files, 140 lines: PreprocessedPass, ShaderPreprocess
 - `Core/ShaderCompiler/ShadingModels` — 6 files, 1,188 lines: LoadedShadingModels, PayloadSlot, ShadingModelEntry, ShadingModelManifest, ShadingModelRegistry, ShadingWordField
 - `Core/Traits` — 1 files, 17 lines
-- `ECS` — 82 files, 11,535 lines: AnimationComponent, AppliedLayerLink, AtmosphereSunPick, Attached, AudioSourceComponent, AudioSourceData, BoneSectionBlend, Bound, CameraComponent, CameraData, Channel, Cloth, … (+130)
+- `ECS` — 82 files, 11,568 lines: AnimationComponent, AppliedLayerLink, AtmosphereSunPick, Attached, AudioSourceComponent, AudioSourceData, BoneSectionBlend, Bound, CameraComponent, CameraData, Channel, Cloth, … (+130)
 - `ECS/System` — 42 files, 9,583 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, BonePalette, ColliderMesh, ComponentEventCursor, ComponentEventSystem, DecalECSSystem, … (+39)
 - `Gameplay` — 5 files, 833 lines: CharacterControllerRecord, CharacterPawnMover, DrawnPawn, Frame, IPawnMoveWorld, Outcome, PawnActions, PawnCapsule, PawnMoveSettings, PawnMovement, PhysicsPawnMoveWorld, PrefabRecords, … (+2)
 - `GameplayDebugger` — 13 files, 1,805 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerCategoryPhysics, GameplayDebuggerCategoryRendering, GameplayDebuggerCategoryScript, GameplayDebuggerCategoryWorldPartition, GameplayDebuggerShape, IGameplayDebuggerCategory, SeenContact, View
@@ -99,7 +99,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Graphic/Systems` — 1 files, 38 lines: RenderSystem
 - `Graphic/Systems/RayTracing` — 31 files, 7,611 lines: EmissiveLevelRuns, EmissiveLightsBuildShaderParameters, EmissiveLightsFrame, EmissiveLightsMoveShaderParameters, EmissiveLightsPart, EmissiveLightsReduceShaderParameters, EmissiveLightsRenderer, EmissiveMaterialEstimate, EmissiveMaterialTable, EmissiveMoveGpu, EmissiveNodeRunGpu, EmissiveSegmentGpu, … (+78)
 - `Graphic/Systems/Scene` — 3 files, 476 lines: CausticsFrame, CausticsInputs, ISceneFXSystem, IShadowCaster, ISingleLayerWaterPass, LocalShadowCasterLight, ParticleViewEmitterCull, ShadowCasterEntry, ShadowSignatureHash, VirtualShadowCasterDraw
-- `Graphic/Systems/Scene/Clouds` — 2 files, 3,916 lines: CloudMarchCounters, FrameResult, MediumPipelineSet, PendingUpload, VolumetricCloudCompositeShaderParameters, VolumetricCloudRenderer
+- `Graphic/Systems/Scene/Clouds` — 2 files, 3,964 lines: CloudMarchCounters, FrameResult, MediumPipelineSet, PendingUpload, VolumetricCloudCompositeShaderParameters, VolumetricCloudRenderer
 - `Graphic/Systems/Scene/Debug` — 2 files, 508 lines: DebugDrawRenderer
 - `Graphic/Systems/Scene/Decals` — 2 files, 655 lines: DecalProxy, DecalRenderer, DecalRowGpu, DecalShaderParameters, Draw, FrameDecal, Program, RetiredProgram
 - `Graphic/Systems/Scene/Deferred` — 17 files, 5,215 lines: CompositeProgram, CopyBindingShaderParameters, CopyRenderer, DeclaredModel, DeferredCompositeInputs, DeferredCompositeLights, DeferredLightBufferStore, DeferredLightingCompositeShaderParameters, DeferredLightingRenderer, DeferredLightingWorldViewShaderParameters, DeferredTileLists, DeferredTileShaderParameters, … (+58)
@@ -235,7 +235,7 @@ Per directory: files, lines, the classes its headers declare.
 ## Editor — `Editor/Source/Editor`
 - `Baking` — 4 files, 1,148 lines: FlattenedMaterial, MaterialBake, MaterialBakeRequest
 - `Builders` — 3 files, 648 lines: BuilderCell, BuilderContext, IWorldPartitionBuilder, WorldPartitionBuilderRow, WorldPartitionBuilderRun
-- `Core` — 111 files, 26,190 lines: AssetEditorToolbar, AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, BakedImages, BakedMaterial, Barrier, BuilderRunOptions, ByteCommand, Capture, Choice, ClosedDocument, … (+103)
+- `Core` — 111 files, 26,193 lines: AssetEditorToolbar, AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, BakedImages, BakedMaterial, Barrier, BuilderRunOptions, ByteCommand, Capture, Choice, ClosedDocument, … (+103)
 - `Core/Commands` — 23 files, 7,586 lines: AnimGraphEditCommand, AnimGraphEditTransaction, AnimGraphOwner, AssetFolderMoveCommand, AssetMoveCommand, AssetTrashCommand, BindPoseGesture, BoneDelta, BoneGizmoGesture, CommandRegistry, ControlAutoKey, ControlEdit, … (+30)
 - `Core/Control` — 9 files, 3,692 lines: AuthoringSnapshot, BackgroundReport, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DeviceSnapshot, DocumentSnapshot, DrawBinViewSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, … (+27)
 - `Core/GraphCanvas` — 4 files, 908 lines: CanvasPlan, CanvasRect, DeferredFrameAll, ElementIdMap, ElementLedger, FindPopup, PlannedLink, PlannedNode, Resolved
@@ -279,7 +279,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Panels/SceneHierarchy` — 5 files, 2,114 lines: EntityTypeInfo, OutlinerColumnWidths, SceneHierarchyPanel
 - `Panels/SceneProperties` — 9 files, 5,450 lines: ComponentEditor, ScenePropertiesPanel, WorldPartitionDetails
 - `Panels/SceneProperties/ComponentWidgets` — 16 files, 3,183 lines: AnimationComponentWidget, IComponentWidget, MaterialComponentWidget, MaterialHost, PrefabComponentWidget, SkinnedMeshComponentWidget, SkyboxComponentWidget, SlotRow, SlotSwatch, StaticMeshComponentWidget, TransformComponentWidget
-- `Panels/Sequencer` — 15 files, 8,217 lines: Address, CurvePlot, CurveViewport, FittedLabel, LevelEventRef, LevelMaterialParameterChoice, LevelMaterialSlotChoice, OutlinerColumn, Schema, SectionTarget, SequencerPanel, TrackFilters, … (+1)
+- `Panels/Sequencer` — 15 files, 8,286 lines: Address, CurvePlot, CurveViewport, FittedLabel, LevelEventRef, LevelMaterialParameterChoice, LevelMaterialSlotChoice, OutlinerColumn, Schema, SectionTarget, SequencerPanel, TrackFilters, … (+1)
 - `Panels/SizeMap` — 2 files, 364 lines: SizeMapPanel
 - `Panels/SkyboxViewer` — 4 files, 614 lines: Level, SkyboxViewerBase, SkyboxViewerDocument, ViewAction, ViewState
 - `Panels/StaticMeshViewer` — 4 files, 583 lines: StaticMeshStats, StaticMeshViewerBase, StaticMeshViewerDocument
@@ -290,7 +290,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Panels/VFXModule` — 2 files, 676 lines: Drafts, VFXModuleDocument
 - `Panels/VFXSystem` — 4 files, 2,284 lines: Gesture, ModuleChoice, VFXSystemDocument
 - `Panels/Validation` — 2 files, 243 lines: Issue, SceneValidationPanel
-- `Panels/ViewportPanel` — 19 files, 7,349 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportCommandKey, ViewportData, ViewportPanel
+- `Panels/ViewportPanel` — 19 files, 7,459 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportCommandKey, ViewportData, ViewportPanel
 - `Panels/ViewportPanel/Tools` — 46 files, 14,077 lines: ActiveToolLabel, CameraFrustumGizmo, CancelOnDrop, CreateShapeTool, CubeGridTool, EditMaterialsTool, ElementSelectTool, FeatureEdge, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFieldPlace, … (+36)
 - `Panels/WorldParameters` — 2 files, 327 lines: WorldParametersPanel
 - `Panels/WorldPartition` — 14 files, 5,716 lines: DataLayerOutlinerPanel, EditorHLODView, EditorHLODs, FootprintOnScreen, LegendRow, MadeHLOD, MiniMapBuilder, PendingDebugColor, PendingUnload, RegionRequest, Tile, View, … (+1)
