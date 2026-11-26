@@ -3,8 +3,8 @@
 // WHAT A LANDSCAPE TILE'S AND A SPLINE'S HLOD BUILDER READS (UE ULandscapeHLODBuilder::ComputeHLODHash), on the
 // engine side beside the builders that read it (HLODMeshBuilder.cpp): the saved-HLOD checksum folds exactly what
 // BuildLandscapeHLODMesh and the spline builder read, because both come from one read of the record. The terrain
-// module registers them as its components' Rules::HLODBuilderComponent::Inputs at StartupModule; its public
-// headers name no engine type.
+// module (LandscapeCore) registers its components' rows and names no engine symbol; the engine states these as the
+// rows' Inputs (RegisterLandscapeHLODInputs, from StartupEngineModules after LandscapeCore::StartupModule).
 
 #include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 
@@ -29,4 +29,8 @@ namespace Desert::Core
     [[nodiscard]] Common::ResultStr<Rules::HLODModuleInputs>
     LandscapeSplineHLODInputs( std::span<const Assets::EntityData> records, std::span<const glm::mat4> world,
                                std::size_t index );
+
+    // States both as the Inputs of LandscapeCore's tile and spline rows (Rules::RegisterHLODBuilderInputs); the
+    // rows must be registered first. A second call does nothing.
+    void RegisterLandscapeHLODInputs();
 } // namespace Desert::Core

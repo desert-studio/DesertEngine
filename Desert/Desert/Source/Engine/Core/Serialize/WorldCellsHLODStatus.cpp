@@ -266,6 +266,13 @@ namespace Desert::Core::WorldCells
                     }
                     if ( member.OwnBuilder != nullptr )
                     {
+                        // The module that owns the builder states its inputs (RegisterHLODBuilderInputs); a
+                        // process that did not start it cannot say whether this HLOD is fresh.
+                        if ( member.OwnBuilder->Inputs == nullptr )
+                            return Common::MakeError<Result>( std::format(
+                                 "'{}', {}: record {} ({}): no module states what its HLOD builder reads",
+                                 scene.SceneName, name, static_cast<std::uint64_t>( *records[index].id ),
+                                 member.OwnBuilder->Component ) );
                         auto inputs = member.OwnBuilder->Inputs( records, spec.World, index );
                         if ( !inputs )
                             return Common::MakeError<Result>(

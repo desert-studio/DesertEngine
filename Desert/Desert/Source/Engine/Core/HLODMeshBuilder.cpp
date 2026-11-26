@@ -799,6 +799,18 @@ namespace Desert::Core
         return Common::MakeSuccess( std::move( inputs ) );
     }
 
+    void RegisterLandscapeHLODInputs()
+    {
+        static const bool registered = []
+        {
+            Rules::RegisterHLODBuilderInputs( LandscapeCore::kLandscapeTileComponent, &LandscapeTileHLODInputs );
+            Rules::RegisterHLODBuilderInputs( LandscapeCore::kLandscapeSplineComponent,
+                                              &LandscapeSplineHLODInputs );
+            return true;
+        }();
+        (void)registered;
+    }
+
     Common::ResultStr<LandscapeHLODTileArea> LandscapeHLODTileAreaOf( const Rules::LandscapeHLODRequest& request )
     {
         auto input = ReadLandscapeHLODTile( request );

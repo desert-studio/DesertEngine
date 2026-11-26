@@ -141,16 +141,19 @@ namespace Desert::Core::Rules
         std::vector<std::string> Content; // asset keys
     };
 
+    using HLODModuleInputsFn = Common::ResultStr<HLODModuleInputs> ( * )(
+         std::span<const Assets::EntityData> records, std::span<const glm::mat4> world, std::size_t index );
+
     struct HLODBuilderComponent
     {
         std::string_view Component;
         HLODExclusion    Reason = HLODExclusion::Unreadable;
         // UE UHLODBuilder::ComputeHLODHash override: what this record's builder reads, from @p records[index] and
-        // the records it names (@p world indexed like @p records). Required: a row without it is refused at
-        // registration.
-        Common::ResultStr<HLODModuleInputs> ( *Inputs )( std::span<const Assets::EntityData> records,
-                                                         std::span<const glm::mat4>          world,
-                                                         std::size_t                         index ) = nullptr;
+        // the records it names (@p world indexed like @p records). Stated by the module that owns the builder
+        // (RegisterHLODBuilderInputs), which may sit above the module registering the row: the landscape's
+        // builders are the engine's, its rows LandscapeCore's. A row whose inputs nobody stated is an error where
+        // the saved-HLOD checksum reads it (WorldCellsHLODStatus), never a record left out of it.
+        HLODModuleInputsFn Inputs = nullptr;
     };
 
     namespace Detail
@@ -164,16 +167,29 @@ namespace Desert::Core::Rules
 
     inline void RegisterHLODBuilderComponent( const HLODBuilderComponent& row )
     {
-        // A row whose builder's inputs nobody states would leave its records out of every saved-HLOD checksum: a
-        // defect of the registering module's code, stopped by name at its StartupModule.
-        DESERT_VERIFY( row.Inputs != nullptr,
-                       "HLOD builder component '{}' registers no Inputs: its records' HLODs could never go stale",
-                       row.Component );
         for ( const HLODBuilderComponent& known : Detail::HLODBuilderComponentList() )
             if ( known.Component == row.Component )
                 return;
         if ( !row.Component.empty() )
             Detail::HLODBuilderComponentList().push_back( row );
+    }
+
+    // The module that owns a row's builder states what it reads (UE: the builder class its module registers brings
+    // its own ComputeHLODHash), into the row the component's module registered. A missing row or a second,
+    // different function is a defect of the registering code, stopped by name at its startup.
+    inline void RegisterHLODBuilderInputs( std::string_view component, HLODModuleInputsFn inputs )
+    {
+        DESERT_VERIFY( inputs != nullptr, "HLOD builder component '{}' is given no Inputs", component );
+        for ( HLODBuilderComponent& row : Detail::HLODBuilderComponentList() )
+            if ( row.Component == component )
+            {
+                DESERT_VERIFY( row.Inputs == nullptr || row.Inputs == inputs,
+                               "HLOD builder component '{}' is given a second Inputs", component );
+                row.Inputs = inputs;
+                return;
+            }
+        DESERT_VERIFY( false, "HLOD builder inputs for '{}' name no registered row: its module has not started",
+                       component );
     }
 
     // The registered rows, in registration order (the order a record carrying two of them is read in).

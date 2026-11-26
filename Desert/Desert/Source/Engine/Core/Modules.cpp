@@ -1,3 +1,4 @@
+#include <Engine/Core/LandscapeHLODInputs.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
 
 // THE FEATURE MODULES ENGINE STARTS (UE: the module manager loading the enabled plugins and calling their
@@ -40,6 +41,7 @@ namespace Desert::Core
             // Before Water: the landscape's collector precedes the water zones' (SceneRenderCollectors.cpp).
             Desert::LandscapeCore::StartupModule(); // the landscape world-partition descriptor hooks
                                                     // (BUILD-MOD-6L)
+            RegisterLandscapeHLODInputs(); // what the engine's landscape HLOD builders read, into its rows
             Landscape::StartupModule();
             VFX::StartupModule();
             Water::StartupModule();
