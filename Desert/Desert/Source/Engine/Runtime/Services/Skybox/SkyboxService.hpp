@@ -3,14 +3,28 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 
-#include <Engine/Graphic/Environment/EnvironmentBake.hpp>       // EnvironmentCacheWriter, owned here
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp> // the type this service caches by handle
+
+#include <memory>
+#include <unordered_map>
+
+namespace Desert::Graphic
+{
+    class EnvironmentCacheWriter;
+} // namespace Desert::Graphic
 
 namespace Desert::Runtime
 {
     class SkyboxService
     {
     public:
+        SkyboxService();
+        ~SkyboxService();
+        SkyboxService( const SkyboxService& )            = delete;
+        SkyboxService& operator=( const SkyboxService& ) = delete;
+        SkyboxService( SkyboxService&& )                 = delete;
+        SkyboxService& operator=( SkyboxService&& )      = delete;
+
         /// The manager a skybox named only by its handle is created in (`Require`).
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
 
@@ -36,11 +50,11 @@ namespace Desert::Runtime
         /// the frame slot and drained first at shutdown by the engine's renderer client (Core/EngineRendererClient).
         [[nodiscard]] Graphic::EnvironmentCacheWriter& EnvironmentCache()
         {
-            return m_EnvironmentCache;
+            return *m_EnvironmentCache;
         }
 
     private:
-        Graphic::EnvironmentCacheWriter                                                   m_EnvironmentCache;
+        std::unique_ptr<Graphic::EnvironmentCacheWriter>                                  m_EnvironmentCache;
         std::weak_ptr<Assets::AssetManager>                                               m_Assets;
         std::unordered_map<Assets::AssetHandle, std::shared_ptr<Graphic::MaterialSkybox>> m_Skyboxes;
         std::unordered_map<Assets::AssetHandle, Assets::LoadRequest>                      m_Pending;

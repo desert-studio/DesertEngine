@@ -1,6 +1,7 @@
 #include <Engine/Core/EngineRendererClient.hpp>
 
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
+#include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Skybox/SkyboxService.hpp>
 
