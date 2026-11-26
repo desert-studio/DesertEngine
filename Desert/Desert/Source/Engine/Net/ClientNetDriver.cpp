@@ -10,6 +10,7 @@
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/CookHash.hpp>
+#include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/ReflectedComponents.hpp>
@@ -294,6 +295,7 @@ namespace Desert::Core
         ApplyStableDestroyed( scene );
         ApplyStableState( scene );
         ReportResidency( scene );
+        ReportView( scene );
 
         // The input on the server's fixed step: one numbered step per 1/60 s of this client's clock, dilated by the
         // clock sync; each step is simulated here as it is sent (the prediction) - none before the own pawn is.
@@ -359,6 +361,33 @@ namespace Desert::Core
                       "queue {:.1f}, clock x{:.2f}{}",
                       m_Clock, line.empty() ? std::string( " none" ) : line, scene.GetPlayers().size(),
                       m_Client->PendingInputs(), predictor.Corrections(), m_ServerQueue, 1.0 / m_Dilation, shown );
+            LogPawnRates();
+        }
+    }
+
+    void ClientNetDriver::LogPawnRates() const
+    {
+        const auto& pawns = m_Client->Pawns();
+        const auto  own   = pawns.find( m_Client->OwnPawn() );
+        if ( own == pawns.end() || own->second.History.Empty() )
+            return; // no own pawn yet: no distance to state
+        const Net::NetVec3 from = own->second.History.Newest().Position;
+        // The nearest kLoggedPawns only: a crowd would flood the log every second.
+        constexpr std::size_t kLoggedPawns = 4;
+        std::vector<std::pair<float, Net::NetId>> nearest;
+        for ( const auto& [id, pawn] : pawns )
+            if ( !pawn.Owned && !pawn.History.Empty() )
+                nearest.emplace_back( Net::GroundDistanceCm( from, pawn.History.Newest().Position ), id );
+        const auto end = nearest.begin() + static_cast<std::ptrdiff_t>( std::min( kLoggedPawns, nearest.size() ) );
+        std::partial_sort( nearest.begin(), end, nearest.end() );
+        for ( auto it = nearest.begin(); it != end; ++it )
+        {
+            const auto& [distance, id] = *it;
+            const auto&         pawn   = pawns.at( id );
+            const std::uint32_t period = pawn.PeriodSteps;
+            LOG_INFO( "[Net] pawn {} (player {}): {:.0f} m, period {} ({:.3g} Hz), delay {:.2f} s", id, pawn.Player,
+                      distance / 100.0f, period, Net::kNetStepHz / static_cast<double>( period ),
+                      m_Client->PawnDelay( id ).value_or( 0.0 ) );
         }
     }
 
@@ -633,6 +662,31 @@ namespace Desert::Core
     namespace
     {
         bool ApplyStableChange( Scene& scene, const Net::ReplicationClient::StableChange& change );
+    }
+
+    void ClientNetDriver::ReportView( Scene& scene )
+    {
+        const auto* of = scene.GetRegistry().try_ctx<WorldStreamerOfScene>();
+        if ( of == nullptr || of->Streamer == nullptr || of->Streamer->LastSources().empty() )
+            return; // the played world is not streamed: the server's circle alone
+        const Rules::StreamingSource& source = of->Streamer->LastSources().front();
+        // The source's view as the streaming query itself sees it (Rules::SourceSectors: RangeScale, AngleScale,
+        // the grid's loading range, the targeted grids): the sector reaching farthest over the source's grids.
+        std::optional<Rules::SourceSector> farthest;
+        for ( const Core::RuntimePartitionSerialized& grid : of->Streamer->Partition().RuntimePartitions )
+            for ( const Rules::SourceSector& sector : Rules::SourceSectors( source, grid ) )
+                if ( !farthest || sector.Radius > farthest->Radius )
+                    farthest = sector;
+        if ( !farthest )
+            return; // the source reaches no grid: the server's circle alone
+        // Yaw about +Y, 0 facing -Z, counter-clockwise seen from above (Rules::Detail::TurnAboutUp): the axis
+        // (-sin, -cos).
+        Net::ViewReport view;
+        view.FacingYawDeg   = static_cast<float>(
+             std::remainder( glm::degrees( std::atan2( -farthest->Axis.x, -farthest->Axis.y ) ), 360.0 ) );
+        view.SectorAngleDeg = farthest->IsCircle() ? 360.0f : static_cast<float>( farthest->Angle );
+        view.RangeCm        = static_cast<float>( farthest->Radius );
+        m_Client->ReportView( view );
     }
 
     void ClientNetDriver::ReportResidency( Scene& scene )

@@ -126,6 +126,14 @@ namespace Desert::Core
         // (it replicates only what stands in them); and the server's destroyed stable records (§3.3), handed to
         // the streamer, which destroys them and never makes them again.
         void      ReportResidency( Scene& scene );
+        // WP-FAR-15: the shape this client looks through - the first streaming source the scene's streamer streamed
+        // around last (its facing, its first shape's sector, its own range) - reported to the server, which sends
+        // pawns inside it (UE APlayerController::ServerUpdateCamera). A world not streamed reports nothing: the
+        // server's circle alone.
+        void      ReportView( Scene& scene );
+        // WP-FAR-15: one log line per remote pawn - its ground distance from the own pawn, the period the server
+        // sends it at and the delay it is drawn behind at.
+        void      LogPawnRates() const;
         void      ApplyStableDestroyed( Scene& scene );
         // This step's input: the move intent and the pawn's declared action set (Gameplay::PawnActions) - from the
         // scripted source when the options give one, else from the local player's pawn.
