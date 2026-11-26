@@ -20,7 +20,7 @@
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomThreshold 1.5
 Тогда-вид bloom_tints_base только куб светится: ореол вокруг куба, небо и земля без ореола
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.Bloom2Tint 0,0,0
-Тогда-вид bloom_tints ореол в 5–24 px от края куба слабее, чем в bloom_tints_base; у самого края (0–4 px) и дальний (64+ px) тот же
+Тогда-вид bloom_tints ореол в 0–24 px от края куба слабее, чем в bloom_tints_base (гауссиана Bloom2 сильнее всего у самого края); дальний (64+ px) тот же в пределах шума частиц
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.Bloom2Tint 0.138,0.138,0.138
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomThreshold -1
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposure true
