@@ -6,9 +6,11 @@
 
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <shared_mutex>
 #include <unordered_set>
+#include <vector>
 
 namespace Desert::Runtime
 {
@@ -26,9 +28,21 @@ namespace Desert::Runtime
     class ShaderService
     {
     public:
+        // ONE FILE PER PROGRAM NAME, ENGINE FIRST (UE: /Engine is fixed). Programs are found by stem (GetByName,
+        // a material's CompileName), so the rule of who holds a stem is ClaimNameLocked's, whatever the order of
+        // registration: a file under SHADERDIR_PATH takes its name from a project file (which is evicted and
+        // logged), and any other second file of a held stem is refused with an error naming both files. The
+        // name is claimed again inside the exclusive hold that writes it.
         Common::BoolResultStr            Register( const std::shared_ptr<Assets::ShaderAsset>& shaderAsset );
         std::shared_ptr<Graphic::Shader> Get( const Assets::AssetHandle& handle ) const;
         std::shared_ptr<Graphic::Shader> GetByName( const std::string& name ) const;
+        // The program @p name ("<Stem>" or "<Stem>/<Pass>") only when its stem is held by @p owner, the template
+        // a material names; otherwise an error naming the file that holds it. Every path from a material's
+        // template to a program asks this (MaterialService's cells validate the template by it before their
+        // GetByName), so a material of a refused or evicted file refuses instead of drawing another file's
+        // program.
+        Common::ResultStr<std::shared_ptr<Graphic::Shader>>
+        GetByNameOwnedBy( const std::string& name, const Assets::AssetHandle& owner ) const;
         void                             Clear();
 
         /**
@@ -234,6 +248,17 @@ namespace Desert::Runtime
         // The lock-held halves of the public calls of the same name (the caller holds m_Lock as stated).
         std::shared_ptr<Graphic::Shader> GetLocked( const Assets::AssetHandle& handle ) const; // shared or more
         void ForgetRefusalsOfLocked( const Assets::AssetHandle& handle );                     // exclusive
+        // The file a registered program name belongs to, for the stem-collision answers (shared or more).
+        std::string DescribeOwnerLocked( const Assets::AssetHandle& owner ) const;
+        // Register's one rule for a stem (shared or more): null when @p handle may take it (free, or its own),
+        // the holder's handle when @p file is an engine file taking it from a project file, an error otherwise.
+        Common::ResultStr<Assets::AssetHandle> ClaimNameLocked( const std::string&           stem,
+                                                                const Assets::AssetHandle&   handle,
+                                                                const std::filesystem::path& file ) const;
+        // Removes every entry of the project file @p owner that held @p stem; its programs go to @p released
+        // (freed after the hold). Returns that file's description for the log line. Exclusive.
+        std::string EvictLocked( const Assets::AssetHandle& owner, const std::string& stem,
+                                 std::vector<std::shared_ptr<Graphic::Shader>>& released );
         // The steady frame's answer under the SHARED lock: a live variant or a standing compile refusal, or
         // nullopt when only BeginVariantLocked (exclusive) can answer.
         std::optional<Common::ResultStr<VariantLookup>>
@@ -246,6 +271,9 @@ namespace Desert::Runtime
 
         std::unordered_map<Assets::AssetHandle, std::shared_ptr<Graphic::Shader>> m_Shaders;
         std::unordered_map<std::string, Assets::AssetHandle>                      m_NameToHandleMap;
+        // The file of every handle holding a name (ClaimNameLocked's engine-root test, DescribeOwnerLocked). The
+        // path, not the asset: a medium keeps no asset, and the eviction sweep may unload a program's.
+        std::unordered_map<Assets::AssetHandle, std::filesystem::path> m_ProgramFiles;
         // Named passes of multi-pass shaders, keyed "<Shader>/<Pass>". Kept separate from
         // m_Shaders because several programs share one asset handle.
         std::unordered_map<std::string, std::shared_ptr<Graphic::Shader>> m_PassShaders;

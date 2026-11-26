@@ -10,6 +10,10 @@
 #include <Projects/ProjectContext.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
+#include <Common/Content/ContentScan.hpp>
+#include <Common/Core/Constants.hpp>
+
+#include <algorithm>
 #include <chrono>
 #include <format>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
@@ -17,17 +21,17 @@
 
 namespace Desert::Assets
 {
-    std::size_t EngineShaderCount()
+    std::size_t ShaderCount()
     {
         return ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader ).size();
     }
 
-    Common::BoolResultStr CompileEngineShaders( const std::shared_ptr<AssetManager>& manager,
-                                                const ItemProgress& progress, const StopRequested& stop )
+    Common::BoolResultStr CompileShaders( const std::shared_ptr<AssetManager>& manager,
+                                          const ItemProgress& progress, const StopRequested& stop )
     {
         if ( !manager )
             return Common::MakeError(
-                 std::string( "[BootContent] no asset manager to create the engine shaders in; none compiled" ) );
+                 std::string( "[BootContent] no asset manager to create the shaders in; none compiled" ) );
         bool stopped = false;
 
         // Timed as a phase: Register() builds every stage of every pass, so this is the whole "shader startup
@@ -35,16 +39,23 @@ namespace Desert::Assets
         const auto start   = std::chrono::steady_clock::now();
         double     assetMs = 0.0;
 
-        // 1. THE ASSETS, on this thread and in registry order: AssetManager is not for workers.
-        const auto rows = ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader );
+        // 1. THE ASSETS, on this thread: AssetManager is not for workers. The engine root's rows first, then the
+        // project's, each in registry order. Who holds a program name is ShaderService::Register's rule whatever
+        // the order (an engine file takes its name from a project file); registering the engine first only means
+        // a colliding project file is refused outright here, never registered and then evicted.
+        auto rows = ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader );
+        std::stable_partition( rows.begin(), rows.end(),
+                               []( const std::filesystem::path& row ) {
+                                   return Common::Content::IsUnder( row, Common::Constants::Path::SHADERDIR_PATH );
+                               } );
         std::vector<std::shared_ptr<ShaderAsset>> shaders;
         shaders.reserve( rows.size() );
         for ( const auto& path : rows )
         {
             if ( stop && stop() )
             {
-                LOG_INFO( "[BootContent] engine shader load stopped on request after {} of {} program(s)",
-                          shaders.size(), rows.size() );
+                LOG_INFO( "[BootContent] shader load stopped on request after {} of {} program(s)", shaders.size(),
+                          rows.size() );
                 stopped = true;
                 break;
             }
@@ -58,7 +69,7 @@ namespace Desert::Assets
             // malformed `.shader` must not take the whole start down with it.
             if ( !shader )
             {
-                LOG_ERROR( "[BootContent] engine shader '{}' is a row of the content registry and could not be "
+                LOG_ERROR( "[BootContent] shader '{}' is a row of the content registry and could not be "
                            "loaded (the parse error is logged above); every material that names it has no shader",
                            path.generic_string() );
                 continue;
@@ -88,7 +99,7 @@ namespace Desert::Assets
         const auto                          programMaps = Core::BuildShaderMaps( programs );
         for ( size_t i = 0; i < programs.size(); ++i )
             if ( !programMaps[i].Error.empty() )
-                LOG_ERROR( "[BootContent] engine shader '{}' ({}) did not build: {}", programs[i].Name,
+                LOG_ERROR( "[BootContent] shader '{}' ({}) did not build: {}", programs[i].Name,
                            programs[i].Path.generic_string(), programMaps[i].Error );
         std::vector<Core::ShaderMapRequest> passes;
         for ( size_t i = 0; i < programs.size(); ++i )
@@ -116,8 +127,15 @@ namespace Desert::Assets
         std::size_t                  count         = 0;
         for ( const auto& shader : shaders )
         {
-            Runtime::ResourceRegistry::GetShaderService()->Register( shader );
-            ++count;
+            // A refusal (a program name another file already owns) is said here, naming the file, and the
+            // program is not counted: the ready line below counts what was registered, nothing else.
+            if ( auto registered = Runtime::ResourceRegistry::GetShaderService()->Register( shader ); !registered )
+            {
+                LOG_ERROR( "[BootContent] shader {} not registered: {}",
+                           shader->GetMetadata().Filepath.generic_string(), registered.GetError() );
+            }
+            else
+                ++count;
         }
         const double registerMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - registerStart ).count();
@@ -125,7 +143,7 @@ namespace Desert::Assets
         const auto ms =
              std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::steady_clock::now() - start )
                   .count();
-        LOG_INFO( "[BootContent] {} engine shader program(s) ready in {} ms", count, ms );
+        LOG_INFO( "[BootContent] {} shader program(s) ready in {} ms", count, ms );
         // The split of the registration. "other" is Register()'s own bookkeeping outside every timed phase; the
         // phases are summed over the programs registered HERE, so asset load + job system + register add up to
         // the total above.
@@ -165,7 +183,7 @@ namespace Desert::Assets
              !program || !program->IsCompiled() )
             return Common::MakeError(
                  std::format( "the engine's 'Default Surface' template '{}' did not build (the "
-                              "reason is logged above as '[BootContent] engine shader ...')",
+                              "reason is logged above as '[BootContent] shader ...')",
                               program ? program->GetName() : std::string( "<unregistered>" ) ) );
         // And it stays: in the root set for the engine's life, or the first eviction sweep releases it (no scene
         // names it) and every later slotless mesh is dropped (MaterialService::PinDefaultSurfaceTemplate).

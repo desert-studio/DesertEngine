@@ -10,6 +10,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 #include <Engine/Core/Scene.hpp>
@@ -68,12 +69,22 @@ namespace Desert::Runtime
         }
     }
 
-    Common::ResultStr<std::string> MaterialTemplateNameOf( const Assets::AssetHandle& material )
+    Common::ResultStr<std::shared_ptr<Graphic::Shader>>
+    MaterialTemplateProgramOf( const Assets::AssetHandle& material )
     {
+        using Program = std::shared_ptr<Graphic::Shader>;
         auto* service = Materials();
         if ( service == nullptr )
-            return Common::MakeError<std::string>( "there is no material service to walk the parent chain" );
-        return Common::MakeSuccess( service->ShaderHandleOf( material ).CompileName );
+            return Common::MakeError<Program>( "there is no material service to walk the parent chain" );
+        auto* shaders = ResourceRegistry::GetShaderService();
+        if ( shaders == nullptr )
+            return Common::MakeError<Program>( "there is no shader service to ask the template's program" );
+        const auto templ = service->ShaderHandleOf( material );
+        if ( templ.Shader.IsNull() || templ.CompileName.empty() )
+            return Common::MakeError<Program>(
+                 "its parent chain reaches no template (a parent missing, unreadable "
+                 "or naming no loaded shader)" );
+        return shaders->GetByNameOwnedBy( templ.CompileName, templ.Shader );
     }
 
     Common::ResultStr<Graphic::MaterialOverrides> MaterialOverridesOf( const Assets::AssetHandle& material )

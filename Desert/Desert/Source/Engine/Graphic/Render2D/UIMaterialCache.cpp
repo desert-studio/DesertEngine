@@ -61,23 +61,56 @@ namespace Desert::Graphic::Render2D
         }
     } // namespace
 
-    UIMaterialCache::Entry UIMaterialCache::Build( const std::string& shaderName, std::string& refusal ) const
+    UIMaterialCache::Entry UIMaterialCache::BuildErrorFill( std::string& refusal ) const
     {
-        Entry entry;
-
         auto* shaderService = Runtime::ResourceRegistry::GetShaderService();
         if ( !shaderService )
         {
             refusal = "no shader service";
-            return entry;
+            return Entry{};
         }
-
-        const auto shader = shaderService->GetByName( shaderName );
+        const auto shader = shaderService->GetByName( kErrorShaderName );
         if ( !shader )
         {
-            refusal = "no shader named '" + shaderName + "' is registered";
-            return entry;
+            refusal = std::format( "no shader named '{}' is registered", kErrorShaderName );
+            return Entry{};
         }
+        return Build( shader, refusal );
+    }
+
+    UIMaterialCache::Entry UIMaterialCache::BuildOfTemplate( const Assets::AssetHandle& handle,
+                                                             std::string&               refusal ) const
+    {
+        auto* shaderService   = Runtime::ResourceRegistry::GetShaderService();
+        auto* materialService = Runtime::ResourceRegistry::GetMaterialService();
+        if ( !shaderService || !materialService )
+        {
+            refusal = "no shader or material service";
+            return Entry{};
+        }
+        const auto materialTemplate = materialService->ShaderHandleOf( handle );
+        if ( materialTemplate.Shader.IsNull() || materialTemplate.CompileName.empty() )
+        {
+            refusal = "the handle names no material asset with a loaded template (it was deleted, never "
+                      "registered, or names no template)";
+            return Entry{};
+        }
+        // The program of the material's OWN template file: a stem held by another file is a refusal.
+        const auto owned =
+             shaderService->GetByNameOwnedBy( materialTemplate.CompileName, materialTemplate.Shader );
+        if ( !owned )
+        {
+            refusal = owned.GetError();
+            return Entry{};
+        }
+        return Build( owned.GetValue(), refusal );
+    }
+
+    UIMaterialCache::Entry UIMaterialCache::Build( const std::shared_ptr<Shader>& shader,
+                                                   std::string&                   refusal ) const
+    {
+        Entry             entry;
+        const std::string shaderName = shader->GetName();
 
         const auto& meta = shader->GetProgramMeta();
         if ( !Core::Formats::DrawnByUIPath( meta.Domain ) )
@@ -118,7 +151,7 @@ namespace Desert::Graphic::Render2D
         }
 
         entry.Pipeline         = pipeline.GetValue();
-        entry.Material         = std::make_unique<DataDrivenMaterial>( shaderName );
+        entry.Material         = std::make_unique<DataDrivenMaterial>( shader );
         entry.ShaderGeneration = shader->GetCodeGeneration();
         return entry;
     }
@@ -164,13 +197,12 @@ namespace Desert::Graphic::Render2D
     {
         if ( m_Error )
         {
-            FollowShaderReload( *m_Error,
-                                [this]( std::string& refusal ) { return Build( kErrorShaderName, refusal ); } );
+            FollowShaderReload( *m_Error, [this]( std::string& refusal ) { return BuildErrorFill( refusal ); } );
             return m_Error.get();
         }
 
         std::string refusal;
-        Entry       built = Build( kErrorShaderName, refusal );
+        Entry       built = BuildErrorFill( refusal );
         if ( !built.Pipeline )
         {
             // The error fill itself failed to build. Say so once and return nothing: the element then
@@ -198,7 +230,7 @@ namespace Desert::Graphic::Render2D
             if ( !entry.Material )
                 continue;
             std::string refusal;
-            Entry       rebuilt = Build( entry.Material->GetShaderName(), refusal );
+            Entry       rebuilt = BuildOfTemplate( handle, refusal );
             if ( rebuilt.Pipeline )
             {
                 entry.Pipeline = std::move( rebuilt.Pipeline );
@@ -213,7 +245,7 @@ namespace Desert::Graphic::Render2D
         if ( m_Error )
         {
             std::string refusal;
-            Entry       rebuilt = Build( kErrorShaderName, refusal );
+            Entry       rebuilt = BuildErrorFill( refusal );
             m_Error->Pipeline   = rebuilt.Pipeline; // null here is reported by ErrorEntry's caller path
             if ( !rebuilt.Pipeline )
                 LOG_ERROR( "[UIMaterial] the error fill lost its pipeline on a target change — {}", refusal );
@@ -270,14 +302,7 @@ namespace Desert::Graphic::Render2D
         }
 
         const auto materialTemplate = materialService->ShaderHandleOf( handle );
-        Entry      built;
-        if ( materialTemplate.Shader.IsNull() )
-        {
-            refusal = "the handle names no material asset with a loaded template (it was deleted, never "
-                      "registered, or names no template)";
-            return built;
-        }
-        built = Build( materialTemplate.CompileName, refusal );
+        Entry      built            = BuildOfTemplate( handle, refusal );
         if ( !built.Pipeline )
             return built;
 

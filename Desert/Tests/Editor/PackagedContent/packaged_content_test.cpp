@@ -2369,7 +2369,7 @@ TEST( PackagedContent, NoWindowInitMovesTheWorkingDirectoryIntoTheBundleResource
 }
 
 // THE PACKAGED GAME READS ITS SHADING MODELS FROM THE PAK AND WRITES NOTHING. The runtime reaches the set through
-// CompileEngineShaders -> BuildShaderMap -> ShaderRootShadingModels(); a scan that only looked at loose
+// CompileShaders -> BuildShaderMap -> ShaderRootShadingModels(); a scan that only looked at loose
 // directories found nothing in a package and failed every surface template. The fixture is the cook's own order:
 // the set is loaded once over a loose copy of the real models (kGeneratedInclude is virtual: nothing is written),
 // that tree is packed, and the pak is mounted in an EMPTY package directory — a fresh root, so the per-root cache

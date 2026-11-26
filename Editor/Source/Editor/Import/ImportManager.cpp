@@ -606,6 +606,17 @@ namespace Desert::Editor
                                                       sourcePath, settings );
                 if ( !written )
                     record( Common::MakeError<bool>( written.GetError() ) );
+                else if ( written.GetValue().empty() )
+                {
+                    // COMBINED: the one mesh every placed entity names (CookPaths::MeshAsset, the path its
+                    // registry row keys), refreshed by the caller like a node mesh (UE FReimportManager ->
+                    // PostReimport). Left out, a reimport rebuilt nothing that draws it (GAME-SHADER-DIR).
+                    // Its row is re-described from the record the write just stated (box, options) under the
+                    // record's GUID, as a node mesh's is below: the asset has no file, the record stands for it.
+                    const std::filesystem::path combined = CookPaths::MeshAsset( sourcePath );
+                    Assets::ContentRegistry::NoteFile( combined );
+                    writtenMeshes.push_back( combined );
+                }
                 else
                 {
                     for ( const auto& [node, path] : written.GetValue() )
@@ -741,7 +752,7 @@ namespace Desert::Editor
     {
         // THE IMPORT TEMPLATES ARE THE ASSET REGISTRY'S SHADERS (MAT1b), not a second scan of the shader
         // directory: whatever the editor loaded as a ShaderAsset, and only that, can take an imported material.
-        // Published once the shaders are loaded (EditorLayer, after CompileEngineShaders) and read by every
+        // Published once the shaders are loaded (EditorLayer, after CompileShaders) and read by every
         // importer — the on-demand cook's per-thread ones included — so the snapshot is swapped under a lock.
         std::mutex                                         s_TemplatesMutex;
         std::shared_ptr<const std::vector<ImportTemplate>> s_Templates;

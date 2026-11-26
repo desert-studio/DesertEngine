@@ -13,7 +13,9 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Desert::Graphic
@@ -122,6 +124,12 @@ namespace Desert::Graphic::System
             std::shared_ptr<Shader>             BuiltShader;
             uint64_t                            Generation = 0u;    // the shader's code generation it was built at
             bool                                Refused    = false; // logged once per generation; draws nothing
+            // The material chain's texture slots (slot name -> texture handle), as the last build resolved them.
+            std::vector<std::pair<std::string, uint64_t>> Textures;
+            // A slot's texture was Pending at the last bind: the texture service settles this material when it
+            // lands, and the program is not drawn until BindTextures binds them all (UE: the material's uniform
+            // expressions re-cache when its texture finishes streaming).
+            bool                                AwaitsTextures = false;
             mutable uint32_t                    Block      = 0u;    // this frame's binding block (Declare order)
         };
         struct FrameDecal
@@ -153,6 +161,12 @@ namespace Desert::Graphic::System
                                             PipelineCache& pipelines );
         Common::BoolResultStr Build( Program& program, const Assets::AssetHandle& material,
                                      PipelineCache& pipelines ) const;
+        // Program::Textures onto the program's material; a Pending texture registers @p material with the
+        // texture service and raises Program::AwaitsTextures.
+        void BindTextures( Program& program, const Assets::AssetHandle& material ) const;
+        // @p program when it may be drawn; nullptr while a texture it binds has not settled. Rebinds once the
+        // texture service settled them (TextureService::AwaitedBy turned false).
+        const Program* Drawable( Program& program, const Assets::AssetHandle& material ) const;
 
         std::vector<DecalProxy>               m_Decals;   // this frame's, from the ECS
         std::vector<FrameDecal>               m_Frame;    // this view's, faded and sorted

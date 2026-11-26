@@ -284,11 +284,13 @@ namespace Desert::Graphic::System
         if ( materialTemplate.Shader.IsNull() || materialTemplate.CompileName.empty() )
             return Common::MakeError( "the handle names no material asset with a loaded template" );
         const std::string shaderName = materialTemplate.CompileName;
-        const auto        shader     = shaders->GetByName( shaderName );
-        if ( !shader )
-            return Common::MakeFormattedError( "no shader named '{}' is registered (the engine's is "
+        // The program of the material's OWN template file: a stem held by another file is a refusal.
+        const auto owned = shaders->GetByNameOwnedBy( shaderName, materialTemplate.Shader );
+        if ( !owned )
+            return Common::MakeFormattedError( "{} (the engine's light function is "
                                                "Editor/Resources/Shaders/Programs/LightFunctions/{}.shader)",
-                                               shaderName, kDefaultLightFunctionShaderName );
+                                               owned.GetError(), kDefaultLightFunctionShaderName );
+        const auto& shader  = owned.GetValue();
         program.BuiltShader = shader;
         program.Generation  = shader->GetCodeGeneration();
         const auto& meta    = shader->GetProgramMeta();

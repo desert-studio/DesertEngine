@@ -87,6 +87,11 @@ namespace Common::Content
     // disagree about a `.dcnv` sitting in `Clouds/Types`.
     [[nodiscard]] std::optional<ContentKind> KindOfContentFile( const std::filesystem::path& file );
 
+    // Whether @p file lies strictly inside @p root, both made absolute and lexically normal (no disk read, no
+    // symlink resolution). The one containment test of a path in a content root: the kinds above and the
+    // shader service's engine-root rule (ShaderService::Register) ask it.
+    [[nodiscard]] bool IsUnder( const std::filesystem::path& file, const std::filesystem::path& root );
+
     [[nodiscard]] std::map<std::string, ContentFile> ScanContentRoots();
 
     // ── THE REGISTRY BUILDS ITSELF (UE: FAssetDataGatherer + CachedAssetRegistry.bin) ──────────────────
