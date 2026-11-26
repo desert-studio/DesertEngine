@@ -83,6 +83,12 @@ namespace Desert::Graphic
             m_Accounting.RecordBytes( bytes );
         }
 
+        /// The row's name (the image's Tag), so a row a closing view still carries names which image it is.
+        void NameLedgerRow( std::string name )
+        {
+            m_Accounting.Name( std::move( name ) );
+        }
+
         [[nodiscard]] ResourceOwner GetResourceOwner() const
         {
             return m_Accounting.GetOwner();
