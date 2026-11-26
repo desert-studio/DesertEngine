@@ -270,7 +270,6 @@
                 "Shadows.VirtualSMRTSamplesPerRay": 8,
                 "Shadows.VirtualSMRTSamplesPerRayLocal": 12,
                 "Shadows.WindAnimationDistance": 50000,
-                "Shadows.MegaLightsSamplesPerPixel": 4,
                 "Shadows.MegaLightsVolumeMaxHistory": 30,
                 "Shadows.MegaLightsDenoiserRadius": 3,
                 "Shadows.MegaLightsVolumeSlices": 96,
