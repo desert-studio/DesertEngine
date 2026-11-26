@@ -5,7 +5,7 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 78,
+            "SCNE": 76,
             "UNIT": 1,
             "WPAR": 14
         },
@@ -25,6 +25,22 @@
                 "TileSize": 2400.0,
                 "TessellationFactor": 6,
                 "LODScale": 1.0
+            }
+        },
+        {
+            "id": 7302958142618440311,
+            "siblingIndex": 1,
+            "Tag": "Wind Source",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "WindSource": {
+                "Direction": [1.0, 0.0, 0.0],
+                "Speed": 1200.0,
+                "PointWind": false,
+                "Radius": 1000.0,
+                "Gustiness": 0.5,
+                "GustSize": 2000.0
             }
         },
         {
@@ -134,164 +150,6 @@
             }
         },
         {
-            "id": 4300000000000000020,
-            "siblingIndex": 6,
-            "Tag": "Water_1000",
-            "Translation": [-1000.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "WaterBody": {
-                "WaterWaves": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "OceanExtents": [2000.0, 2000.0],
-                "TargetWaveMaskDepth": 2048.0,
-                "WaterMaterial": {
-                    "Guid": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
-                    "Path": "assets:Water/Materials/M_Water_Ocean.demat"
-                },
-                "Type": 0,
-                "RiverSpline": [],
-                "RiverWidth": 800.0,
-                "RiverFlowSpeed": 150.0,
-                "RiverFlowPeriod": 1.0,
-                "FallFoam": "",
-                "FallSpray": "",
-                "FallMist": "",
-                "Density": 1000.0,
-                "Drag": 1.5
-            }
-        },
-        {
-            "id": 4300000000000000021,
-            "siblingIndex": 7,
-            "Tag": "Oil_900",
-            "Translation": [1000.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "WaterBody": {
-                "WaterWaves": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "OceanExtents": [2000.0, 2000.0],
-                "TargetWaveMaskDepth": 2048.0,
-                "WaterMaterial": {
-                    "Guid": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
-                    "Path": "assets:Water/Materials/M_Water_Ocean.demat"
-                },
-                "Type": 0,
-                "RiverSpline": [],
-                "RiverWidth": 800.0,
-                "RiverFlowSpeed": 150.0,
-                "RiverFlowPeriod": 1.0,
-                "FallFoam": "",
-                "FallSpray": "",
-                "FallMist": "",
-                "Density": 900.0,
-                "Drag": 1.5
-            }
-        },
-        {
-            "id": 4300000000000000022,
-            "siblingIndex": 8,
-            "Tag": "Crate_850_InWater",
-            "Translation": [-250.0, 150.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "Buoyancy": {
-                "PontoonSource": 0,
-                "ColliderCellsPerAxis": 3,
-                "Pontoons": []
-            },
-            "Collider": {
-                "Shape": 0,
-                "HalfExtents": [50.0, 50.0, 50.0],
-                "Radius": 50.0,
-                "HalfHeight": 50.0,
-                "Axis": 1,
-                "Center": [0.0, 0.0, 0.0]
-            },
-            "RigidBody": {
-                "Type": 1,
-                "Mass": 850.0,
-                "Friction": 0.5,
-                "Restitution": 0.10000000149011612,
-                "CollisionProfile": "PhysicsActor"
-            },
-            "StaticMesh": {
-                "Primitive": "Cube",
-                "MeshHandle": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "MaterialSlots": [
-                    {
-                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
-                        "Path": "assets:Materials/CB_Orange.demat"
-                    }
-                ]
-            }
-        },
-        {
-            "id": 4300000000000000023,
-            "siblingIndex": 9,
-            "Tag": "Crate_850_InOil",
-            "Translation": [250.0, 150.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "Buoyancy": {
-                "PontoonSource": 0,
-                "ColliderCellsPerAxis": 3,
-                "Pontoons": []
-            },
-            "Collider": {
-                "Shape": 0,
-                "HalfExtents": [50.0, 50.0, 50.0],
-                "Radius": 50.0,
-                "HalfHeight": 50.0,
-                "Axis": 1,
-                "Center": [0.0, 0.0, 0.0]
-            },
-            "RigidBody": {
-                "Type": 1,
-                "Mass": 850.0,
-                "Friction": 0.5,
-                "Restitution": 0.10000000149011612,
-                "CollisionProfile": "PhysicsActor"
-            },
-            "StaticMesh": {
-                "Primitive": "Cube",
-                "MeshHandle": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "MaterialSlots": [
-                    {
-                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
-                        "Path": "assets:Materials/CB_Orange.demat"
-                    }
-                ]
-            }
-        },
-        {
-            "id": 7302958142618440311,
-            "siblingIndex": 1,
-            "Tag": "Wind Source",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "WindSource": {
-                "Direction": [1.0, 0.0, 0.0],
-                "Speed": 1200.0,
-                "PointWind": false,
-                "Radius": 1000.0,
-                "Gustiness": 0.5,
-                "GustSize": 2000.0
-            }
-        },
-        {
             "id": 7480392879292652412,
             "siblingIndex": 4,
             "Tag": "PostProcessVolume",
@@ -352,10 +210,7 @@
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,
-                    "AutoExposureLowPercent": 0.0,
-                    "AutoExposureHighPercent": 95.0,
-                    "AutoExposureSpeedUp": 1.5,
-                    "AutoExposureSpeedDown": 1.5,
+                    "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
                     "AutoExposureBias": 0.0,
@@ -373,30 +228,10 @@
                     "LocalExposureShadowThreshold": 0.0,
                     "LocalExposureHighlightThresholdStrength": 1.0,
                     "LocalExposureShadowThresholdStrength": 1.0,
-                    "BloomMethod": 0,
-                    "BloomIntensity": 0.0,
+                    "EnableBloom": false,
                     "BloomThreshold": 2.0,
-                    "BloomGaussianIntensity": 1.0,
-                    "BloomSizeScale": 4.0,
-                    "Bloom1Tint": [0.3465000092983246, 0.3465000092983246, 0.3465000092983246],
-                    "Bloom1Size": 0.30000001192092896,
-                    "Bloom2Tint": [0.1379999965429306, 0.1379999965429306, 0.1379999965429306],
-                    "Bloom2Size": 1.0,
-                    "Bloom3Tint": [0.11760000139474869, 0.11760000139474869, 0.11760000139474869],
-                    "Bloom3Size": 2.0,
-                    "Bloom4Tint": [0.06599999964237213, 0.06599999964237213, 0.06599999964237213],
-                    "Bloom4Size": 10.0,
-                    "Bloom5Tint": [0.06599999964237213, 0.06599999964237213, 0.06599999964237213],
-                    "Bloom5Size": 30.0,
-                    "Bloom6Tint": [0.061000000685453415, 0.061000000685453415, 0.061000000685453415],
-                    "Bloom6Size": 64.0,
-                    "BloomDirtMask": 0,
-                    "BloomDirtMaskIntensity": 0.0,
-                    "BloomDirtMaskTint": [0.5, 0.5, 0.5],
-                    "BloomConvolutionIntensity": 1.0,
+                    "BloomIntensity": 0.800000011920929,
                     "LensDispersion": 0.0,
-                    "BloomConvolutionKernel": 0,
-                    "BloomConvolutionScale": 1.0,
                     "DepthOfFieldFocalDistance": 0.0,
                     "DepthOfFieldFstop": 4.0,
                     "DepthOfFieldSensorWidth": 24.576000213623047,
@@ -444,6 +279,134 @@
                 "FOV": 45.0,
                 "Near": 10.0,
                 "Far": 5000000.0
+            }
+        },
+        {
+            "id": 4300000000000000020,
+            "siblingIndex": 6,
+            "Tag": "Water_1000",
+            "Translation": [-1000.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "WaterBody": {
+                "WaterWaves": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "OceanExtents": [2000.0, 2000.0],
+                "TargetWaveMaskDepth": 2048.0,
+                "WaterMaterial": {
+                    "Guid": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
+                    "Path": "assets:Water/Materials/M_Water_Ocean.demat"
+                },
+                "Type": 0,
+                "Density": 1000.0,
+                "Drag": 1.5
+            }
+        },
+        {
+            "id": 4300000000000000021,
+            "siblingIndex": 7,
+            "Tag": "Oil_900",
+            "Translation": [1000.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "WaterBody": {
+                "WaterWaves": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "OceanExtents": [2000.0, 2000.0],
+                "TargetWaveMaskDepth": 2048.0,
+                "WaterMaterial": {
+                    "Guid": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
+                    "Path": "assets:Water/Materials/M_Water_Ocean.demat"
+                },
+                "Type": 0,
+                "Density": 900.0,
+                "Drag": 1.5
+            }
+        },
+        {
+            "id": 4300000000000000022,
+            "siblingIndex": 8,
+            "Tag": "Crate_850_InWater",
+            "Translation": [-250.0, 150.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Collider": {
+                "Shape": 0,
+                "HalfExtents": [50.0, 50.0, 50.0],
+                "Radius": 50.0,
+                "HalfHeight": 50.0,
+                "Axis": 1,
+                "Center": [0.0, 0.0, 0.0]
+            },
+            "RigidBody": {
+                "Type": 1,
+                "Mass": 850.0,
+                "Friction": 0.5,
+                "Restitution": 0.10000000149011612,
+                "CollisionProfile": "PhysicsActor"
+            },
+            "Buoyancy": {
+                "PontoonSource": 0,
+                "ColliderCellsPerAxis": 3,
+                "Pontoons": []
+            },
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                        "Path": "assets:Materials/CB_Orange.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 4300000000000000023,
+            "siblingIndex": 9,
+            "Tag": "Crate_850_InOil",
+            "Translation": [250.0, 150.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Collider": {
+                "Shape": 0,
+                "HalfExtents": [50.0, 50.0, 50.0],
+                "Radius": 50.0,
+                "HalfHeight": 50.0,
+                "Axis": 1,
+                "Center": [0.0, 0.0, 0.0]
+            },
+            "RigidBody": {
+                "Type": 1,
+                "Mass": 850.0,
+                "Friction": 0.5,
+                "Restitution": 0.10000000149011612,
+                "CollisionProfile": "PhysicsActor"
+            },
+            "Buoyancy": {
+                "PontoonSource": 0,
+                "ColliderCellsPerAxis": 3,
+                "Pontoons": []
+            },
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                        "Path": "assets:Materials/CB_Orange.demat"
+                    }
+                ]
             }
         }
     ],
