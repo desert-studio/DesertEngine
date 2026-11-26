@@ -892,7 +892,7 @@
   "Desert/Desert/Source/Engine/Core/Serialize/WorldCells.hpp:Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionFormat.hpp (Core -> Engine)": 1,
   "Desert/Desert/Source/Engine/Core/Serialize/WorldCells.hpp:Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionHLODBuilders.hpp (Core -> Engine)": 1,
   "Desert/Desert/Source/Engine/Core/Serialize/WorldCells.hpp:Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionHLODHierarchy.hpp (Core -> Engine)": 1,
-  "Desert/Desert/Source/Engine/Core/Serialize/WorldCells.hpp:Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionHLODRules.hpp (Core -> Engine)": 1,
+  "Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionHLODRules.hpp:Desert/Desert/Source/Engine/Assets/Prefab/PrefabData.hpp (Core -> Engine)": 1,
   "Desert/Desert/Source/Engine/Core/Serialize/WorldComponentSerializers.cpp:Desert/Desert/Source/Engine/ECS/ProceduralFoliageComponent.hpp (Engine -> Foliage)": 1,
   "Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp:Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionActivationCost.hpp (Core -> Engine)": 1,
   "Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp:Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionResidencyRules.hpp (Core -> Engine)": 1,
