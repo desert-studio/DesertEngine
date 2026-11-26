@@ -113,6 +113,8 @@ namespace Desert::Graphic::System
              .Texture( TonemapShaderParameters::ExposureFusionTexture, inputs.ExposureFusion,
                        RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Texture( TonemapShaderParameters::ColorGradingLUT, inputs.ColorGradingLUT,
+                       RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Texture( TonemapShaderParameters::BloomDirtMaskTexture, inputs.BloomDirtMask,
                        RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
     }
 
@@ -121,14 +123,15 @@ namespace Desert::Graphic::System
         if ( !m_MaterialTonemap )
             return;
         // An effect whose nodes did not run this frame reads System.Black and adds nothing.
-        const float bloomIntensity      = inputs.BloomProduced ? m_BloomIntensity : 0.0f;
+        const float dirtMaskIntensity =
+             inputs.BloomProduced && inputs.BloomDirtMaskProduced ? m_BloomDirtMaskIntensity : 0.0f;
         const float lightShaftIntensity = inputs.LightShaftsProduced ? m_LightShaftIntensity : 0.0f;
         const float lensFlareIntensity  = inputs.LensFlareProduced ? m_LensFlareIntensity : 0.0f;
 
         MaterialTonemap::Params params{
-             m_TonemapOperator,     m_Exposure,         bloomIntensity, m_ExposureKey,
-             m_AutoExposureEnabled, m_ChromaticBloom, lightShaftIntensity,
-             m_LightShaftTint,      lensFlareIntensity, m_LensFlareTint,    m_PreExposure };
+             m_TonemapOperator,  m_Exposure,          m_ExposureKey,      m_AutoExposureEnabled,
+             m_ChromaticBloom,   lightShaftIntensity, m_LightShaftTint,   lensFlareIntensity,
+             m_LensFlareTint,    m_PreExposure,       m_BloomDirtMaskTint, dirtMaskIntensity };
         // Local exposure: identity values + enabled 0 when its nodes did not run (the inputs are then black).
         const LocalExposureFrame& le = m_LocalExposure;
         const LocalExposureParams  p  = le.Produced ? le.Params : LocalExposureParams{};
@@ -154,7 +157,7 @@ namespace Desert::Graphic::System
         if ( m_VisualizeBuffer )
         {
             params.VisualizeBuffer      = true;
-            params.BloomIntensity       = 0.0f;
+            params.BloomDirtMaskIntensity = 0.0f;
             params.LightShaftIntensity  = 0.0f;
             params.LensFlareIntensity   = 0.0f;
             params.LocalExposureSlice.w = 0.0f;

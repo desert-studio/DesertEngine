@@ -71,11 +71,10 @@ namespace Common::Scalability
                Vis::Advanced },
              { P::AmbientOcclusionSamples, G::PostProcess, "PostProcess.AmbientOcclusionSamples", 4, 32, CL::None,
                "SSAORenderer GTAO horizon taps per direction (SSAO.shader kMaxTaps = 32)", 24, Vis::Advanced },
-             { P::BloomMips, G::PostProcess, "PostProcess.BloomMips", 2, 6, CL::None,
-               "BloomRenderer::SetMaxMips (SceneRenderer::BeginScene)", 6, Vis::Advanced },
-             { P::BloomMethod, G::PostProcess, "PostProcess.BloomMethod", 0, LastOf( kBloomMethodNames.size() ),
-               CL::None, "BloomRenderer::SetMethod (SceneRenderer::BeginScene -> SceneRenderer::AddFrameBloom)",
-               Of( BloomMethod::Convolution ), Vis::Advanced },
+             { P::BloomQuality, G::PostProcess, "PostProcess.BloomQuality", 2, 6, CL::None,
+               "BloomFrameParams::StageCount (SceneRenderer::BeginScene -> BloomRenderer::AddGaussianPasses): the "
+               "Gaussian stages kept, the coarsest first - a lower quality drops the finest stages (UE r.BloomQuality)",
+               6, Vis::Advanced },
              { P::MotionBlurQuality, G::PostProcess, "PostProcess.MotionBlurQuality", 0, 2, CL::None,
                "Graphic::MotionBlurSamplesForQuality (SceneRenderer::BeginScene -> MotionBlur gather taps)", 2,
                Vis::Advanced },
@@ -665,8 +664,6 @@ namespace Common::Scalability
                 return kScreenProbeGatherMethodNames;
             if ( parameter == Parameter::EarlyZPass )
                 return kEarlyZPassNames;
-            if ( parameter == Parameter::BloomMethod )
-                return kBloomMethodNames;
             if ( parameter >= Parameter::DlssPresetNative && parameter <= Parameter::DlssPresetUltraPerformance )
                 return kDlssPresetNames;
             if ( parameter >= Parameter::DlssRRPresetNative &&

@@ -24,9 +24,9 @@ namespace Desert::Graphic::System
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct BackdropBlurDownsampleShaderParameters
     {
-        DESERT_SHADER_PARAMETER( Texture, SourceMipTexture );
+        DESERT_SHADER_PARAMETER( Texture, SourceTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
-        DESERT_SHADER_PARAMETER( StorageTexture, DestinationMipTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationTexture );
     };
 
     // A blurred snapshot of the scene colour, for UI "glass" (backdrop blur).
@@ -35,10 +35,10 @@ namespace Desert::Graphic::System
     // shader may not sample the attachment it is writing (feedback loop) — the same reason the glass
     // MESH path snapshots the scene before drawing refractive surfaces.
     //
-    // WHY a mip chain instead of a blur kernel: the bloom downsample compute already implements a good
-    // 13-tap progressive filter; run with the bright-pass OFF it is exactly a blur pyramid of the whole
-    // image. Mip 0 is a mild blur and every further level roughly doubles it, so a UI element picks a
-    // LOD instead of each element paying for its own kernel. No new shader, no new blur to maintain.
+    // WHY a mip chain instead of a blur kernel: the bloom downsample compute is a plain progressive filter (four
+    // bilinear taps, a 4x4 box per level, no threshold - the bloom's threshold lives in BloomSetup); run level by
+    // level it is exactly a blur pyramid of the whole image. Mip 0 is a mild blur and every further level roughly
+    // doubles it, so a UI element picks a LOD instead of each element paying for its own kernel. No new shader, no new blur to maintain.
     //
     // RDG-A2 P5: the pyramid is a TRANSIENT of the frame graph (SceneRenderer::AddFrameBackdropBlur creates it
     // from GetPyramidDesc, sized from THIS frame's view, so there is no image to resize and nothing that outlives
@@ -89,19 +89,19 @@ namespace Desert::Graphic::System
                                         Renderer::GetPipelineRouteFill( *m_DownsamplePipeline ) );
             if ( mip == 0 )
             {
-                block.Texture( BackdropBlurDownsampleShaderParameters::SourceMipTexture, sceneColor,
+                block.Texture( BackdropBlurDownsampleShaderParameters::SourceTexture, sceneColor,
                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                      .Sampler( BackdropBlurDownsampleShaderParameters::LinearClampSampler,
                                RDG::SamplerDesc::LinearClamp() );
             }
             else
             {
-                block.Texture( BackdropBlurDownsampleShaderParameters::SourceMipTexture, pyramid,
+                block.Texture( BackdropBlurDownsampleShaderParameters::SourceTexture, pyramid,
                                RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) )
                      .Sampler( BackdropBlurDownsampleShaderParameters::LinearClampSampler,
                                RDG::SamplerDesc::LinearClamp() );
             }
-            block.Storage( BackdropBlurDownsampleShaderParameters::DestinationMipTexture, pyramid,
+            block.Storage( BackdropBlurDownsampleShaderParameters::DestinationTexture, pyramid,
                            RDG::Access::StorageWrite, mip )
                  .PushConstants<ShaderPush::BloomDownsample>();
         }
@@ -131,7 +131,7 @@ namespace Desert::Graphic::System
             }
 
             const ShaderPush::BloomDownsample push{
-                 glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ), 0, 0.0f };
+                 .SourceTexelSize = glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ) };
 
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( push );

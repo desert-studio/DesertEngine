@@ -55,7 +55,7 @@ namespace Desert::Graphic
         // (SSRRenderer::Prepare). SceneRenderer::BeginScene keeps it at the machine's Reflections level; 2 = the
         // High column (half resolution).
         uint32_t ReflectionDownsampleFactor = 2;
-        // The view's bloom is the convolution (PostProcess.BloomMethod Convolution AND the view's post-process
+        // The view's bloom is the convolution (the volume's BloomMethod Convolution AND the view's post-process
         // names a kernel, BloomRenderer::PrepareConvolution): its two spectra are then held.
         // SceneRenderer::BeginScene keeps it; false (Gaussian, the chain alone) until then and in every constant
         // profile.
@@ -375,12 +375,14 @@ namespace Desert::Graphic
         {
             const uint32_t bw = Div( width, 2 );
             const uint32_t bh = Div( height, 2 );
-            // The convolution keeps the chain's mip 0 only: its input and its result
-            // (SceneRenderer::AddFrameBloom).
-            const uint32_t chainMips =
-                 profile.BloomConvolution ? 1u
-                                          : std::min( 6u /* BloomRenderer::kMaxBloomMips */, MipCount( bw, bh ) );
-            add( { "Bloom.Chain", "BloomRenderer.cpp", F::kBloom, bw, bh, chainMips } );
+            // The setup (half the view) is the convolution's input and result; the Gaussian (UE BM_SOG) adds its
+            // five downsampled stages and a horizontal and a vertical blur target per stage, one texture each
+            // (SceneRenderer::AddFrameBloom) - sized as a six-level chain, the most PostProcess.BloomQuality keeps.
+            const uint32_t stages = std::min( 6u /* BloomGaussian::kStageCount */, MipCount( bw, bh ) );
+            add( { "Bloom.Setup+Stages", "SceneRendererFramePostFX.cpp", F::kBloom, bw, bh,
+                   profile.BloomConvolution ? 1u : stages } );
+            if ( !profile.BloomConvolution )
+                add( { "Bloom.Blur.H+V", "SceneRendererFramePostFX.cpp", F::kBloom, bw, bh, stages, 2 } );
             if ( profile.BloomConvolution )
             {
                 // BloomRenderer: the frame's spectrum (a graph transient, pooled while the view is open) and the

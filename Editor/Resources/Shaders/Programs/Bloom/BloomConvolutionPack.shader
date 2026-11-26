@@ -3,8 +3,8 @@ Shader "BloomConvolutionPack"
 {
     Compute
     {
-        // Convolution bloom: the bloom input (the chain's mip 0 — the half-resolution scene, thresholded, Karis
-        // averaged and locally exposed by BloomDownsample's first pass, so both methods start from the same image)
+        // Convolution bloom: the bloom input (BloomSetup's output — the half-resolution scene, thresholded and
+        // locally exposed, so both methods start from the same image)
         // into the spectrum image's layout (Common/BloomFFT.glslh), resampled onto the Content rectangle at the
         // origin and ZERO everywhere else: the zero border is what keeps a bright edge's kernel from wrapping round
         // to the opposite side (UE BloomConvolutionBufferScale).

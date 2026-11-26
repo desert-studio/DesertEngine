@@ -33,12 +33,15 @@ Shader "SceneComposite"
         // HDR headroom), indexed by UE's log encoding of the exposed colour.
         Uniform(11) texture3D ColorGradingLUT;
         #define ColorGradingLUT sampler3D(ColorGradingLUT, LinearClampSampler)
+        // THE BLOOM DIRT MASK (UE BloomDirtMask): the view's texture, stretched over the screen; System.Black with
+        // BloomDirtMaskTintIntensity.a 0 when the view names none or it is not loaded.
+        Uniform(12) texture2D BloomDirtMaskTexture;
+        #define BloomDirtMaskTexture sampler2D(BloomDirtMaskTexture, LinearClampSampler)
         Out(0) vec4 oColor;
 
         Uniform(0) TonemapUB
         {
             float Exposure;
-            float BloomIntensity;
             float ExposureKey;          // middle-grey target for auto-exposure
             float AutoExposureEnabled;  // > 0.5 -> use measured luminance instead of manual exposure
             float ChromaticBloom;       // lens dispersion strength on the bloom halo (0 = off)
@@ -46,6 +49,7 @@ Shader "SceneComposite"
             float InversePreExposure;       // 1 / ViewFrame::PreExposure (the std140 slot before the vec4s)
             vec4  LightShaftTintIntensity; // rgb = the sun light's Bloom Tint, a = Bloom Scale x screen fade
             vec4  LensFlareTintIntensity;  // rgb = the lens's Tint, a = Intensity x screen fade
+            vec4  BloomDirtMaskTintIntensity; // rgb = BloomDirtMaskTint, a = BloomDirtMaskIntensity (0: no mask)
             vec4  LocalExposureContrast;   // highlight contrast, shadow contrast, detail strength, blurred blend
             vec4  LocalExposureThreshold;  // highlight / shadow threshold (EV), highlight / shadow strength
             vec4  LocalExposureUV;         // grid UV scale xy, blurred UV scale xy
@@ -166,7 +170,14 @@ Shader "SceneComposite"
             {
                 bloom = texture(BloomTexture, uv).rgb;
             }
-            bloom *= BloomIntensity;
+            // The bloom arrives at its strength: the Gaussian stages carry BloomIntensity in their tints, the
+            // convolution in its unpack (UE: no intensity in the composite). The dirt mask brightens it where the
+            // lens is dirty (UE PostProcessTonemap.usf:394-396).
+            if (BloomDirtMaskTintIntensity.a > 0.0)
+            {
+                vec3 dirt = texture(BloomDirtMaskTexture, uv).rgb;
+                bloom *= vec3(1.0) + dirt * (BloomDirtMaskTintIntensity.rgb * BloomDirtMaskTintIntensity.a);
+            }
 
             // Light shafts: additive HDR streaks toward the sun, BEFORE the tonemap so a strong shaft
             // rolls off through the same operator everything else does instead of clipping. The

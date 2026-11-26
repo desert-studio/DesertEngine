@@ -88,7 +88,15 @@ namespace Desert::Core
     //       (MigrateTubeSourceLengthV76ToV77). A prefab override is a delta and is left alone.
     inline constexpr int kSceneVersionTubeSourceLength = 77;
 
-    static_assert( kSceneVersionTubeSourceLength == kSceneVersion,
+    //  78 - BLOOM AND AUTO EXPOSURE AS UE (RENDER-BLOOM-UE). A PostProcessVolume's Settings lose EnableBloom (false
+    //       -> BloomIntensity 0, true keeps the intensity) and AutoExposureSpeed (-> AutoExposureSpeedUp =
+    //       AutoExposureSpeedDown); BloomThreshold <= 0 -> -1. A record also states what the v77 defaults gave it
+    //       (bloom off, threshold 2, speed 1.5, auto exposure off) and the 0 / 95 histogram window it was graded
+    //       under; an override is a delta and re-states only its own keys. A Settings that is not an object, or a
+    //       key of the wrong type, is refused (MigrateBloomUEV77ToV78).
+    inline constexpr int kSceneVersionBloomUE = 78;
+
+    static_assert( kSceneVersionBloomUE == kSceneVersion,
                    "the last upgrade step and the engine's scene version must be the same generation - a bump of "
                    "Core::kSceneVersion needs its step here (SceneUpgrade.hpp, UpgradeSceneRecords)" );
 
@@ -199,6 +207,14 @@ namespace Desert::Core
         std::vector<std::string> Refused;      // a Settings block that is not an object, or a non-bool value
     };
 
+    // What MigrateBloomUEV77ToV78 did to one file.
+    struct BloomUEReport
+    {
+        std::size_t              Restated = 0; // Settings blocks re-stated
+        std::size_t              BloomOff = 0; // EnableBloom false re-stated as BloomIntensity 0
+        std::vector<std::string> Refused;      // a Settings block that is not an object, or a mistyped key
+    };
+
     // The steps. Each is PURE (no filesystem, no globals) and edits the records in place.
     TracedRequestReport   MigrateTracedRequestV71ToV72( std::vector<Assets::EntityData>& entities );
     ComposedGIReport      MigrateComposedGIV72ToV73( std::vector<Assets::EntityData>& entities );
@@ -209,6 +225,7 @@ namespace Desert::Core
     MigrateLandscapeSplineEntitiesV75ToV76( std::vector<Assets::EntityData>& entities, bool createEntities );
     // Returns how many PointLight / SpotLight records it stated SourceLength 0 in.
     std::size_t MigrateTubeSourceLengthV76ToV77( std::vector<Assets::EntityData>& entities );
+    BloomUEReport MigrateBloomUEV77ToV78( std::vector<Assets::EntityData>& entities );
     // PURE given @p materialGuid, which is asked once per distinct key.
     ReflectedAssetRefsReport MigrateReflectedAssetRefsV0ToV1( std::vector<Assets::EntityData>& entities,
                                                               const MaterialGuidLookup&        materialGuid );
@@ -255,6 +272,8 @@ namespace Desert::Core
         LandscapeSplineEntitiesReport LandscapeSplineEntities;
         bool                          TubeSourceLengthRaised  = false;
         std::size_t                   TubeSourceLengthsStated = 0;
+        bool                          BloomUERaised           = false;
+        BloomUEReport                 BloomUE;
         bool                          EntityHLODLayerRaised   = false;
         bool                          ImpostorLayersRaised    = false;
         bool                          ReflectedAssetRefsRaised = false;
@@ -267,7 +286,7 @@ namespace Desert::Core
         [[nodiscard]] bool AnyRaised() const
         {
             return VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised || FilmicDefaultRaised ||
-                   GrassRasterPathRaised || LandscapeSplineEntitiesRaised || TubeSourceLengthRaised ||
+                   GrassRasterPathRaised || LandscapeSplineEntitiesRaised || TubeSourceLengthRaised || BloomUERaised ||
                    EntityHLODLayerRaised || ImpostorLayersRaised || ReflectedAssetRefsRaised || SunRotationRaised;
         }
     };

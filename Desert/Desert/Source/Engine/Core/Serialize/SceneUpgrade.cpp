@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <format>
 #include <map>
+#include <optional>
 #include <unordered_map>
 #include <span>
 #include <utility>
@@ -74,6 +75,23 @@ namespace Desert::Core
         constexpr int kTonemapFilmic               = 2; // Core::TonemapOperator::Filmic at v74
         constexpr int kGrassRasterScalability      = 0; // Core::GrassRasterPath::Scalability at v75
         constexpr int kGrassRasterVisibilityBuffer = 2; // Core::GrassRasterPath::VisibilityBuffer at v75
+        // The v77 PostProcessSettings defaults a record that did not state a key rendered with (v78 states them).
+        constexpr double kV77BloomIntensity    = 0.8;
+        constexpr double kV77BloomThreshold    = 2.0;
+        constexpr double kV77AutoExposureSpeed = 1.5;
+        // The histogram window every scene before v78 was graded under (AutoExposureRenderer's constants then).
+        constexpr double kV77LowPercent  = 0.0;
+        constexpr double kV77HighPercent = 95.0;
+
+        // A JSON number, whichever of int or double it was read as.
+        std::optional<double> NumberOf( const rfl::Generic& value )
+        {
+            if ( const auto d = value.to_double(); d.has_value() )
+                return d.value();
+            if ( const auto i = value.to_int64(); i.has_value() )
+                return static_cast<double>( i.value() );
+            return std::nullopt;
+        }
     } // namespace
 
 
@@ -335,6 +353,135 @@ namespace Desert::Core
             if ( entity.PrefabOverrides )
                 for ( auto& override_ : *entity.PrefabOverrides )
                     restate( override_.Components, who );
+        }
+        return report;
+    }
+
+    BloomUEReport MigrateBloomUEV77ToV78( std::vector<Assets::EntityData>& entities )
+    {
+        BloomUEReport report;
+
+        // @p record: the entity's own block (absent keys meant the v77 defaults, which this states); an override
+        // is a delta, so only the keys it states are re-stated.
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who, bool record )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           const auto number = [&]( const char* key, std::optional<double> fallback )
+                                -> std::optional<double>
+                           {
+                               const auto value = settings.get( key );
+                               if ( !value.has_value() )
+                                   return fallback;
+                               const auto parsed = NumberOf( value.value() );
+                               if ( !parsed.has_value() )
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings.{} {} is not a number", who, key,
+                                                     rfl::json::write( value.value() ) ) );
+                               return parsed;
+                           };
+                           const auto put = [&]( const char* key, rfl::Generic value )
+                           {
+                               DropKey( settings, key );
+                               settings[key] = std::move( value );
+                           };
+                           const std::size_t refusedBefore = report.Refused.size();
+                           bool              changed       = false;
+
+                           // EnableBloom false -> Intensity 0 (UE has no switch); true keeps the intensity.
+                           const auto enable = settings.get( "EnableBloom" );
+                           std::optional<bool> enabled;
+                           if ( enable.has_value() )
+                           {
+                               const auto flag = enable.value().to_bool();
+                               if ( !flag.has_value() )
+                               {
+                                   report.Refused.push_back( std::format(
+                                        "{}: PostProcessVolume.Settings.EnableBloom {} is not a bool", who,
+                                        rfl::json::write( enable.value() ) ) );
+                                   return false;
+                               }
+                               enabled = flag.value();
+                           }
+                           else if ( record )
+                               enabled = false; // the v77 default
+                           if ( enabled.has_value() )
+                           {
+                               if ( !enabled.value() )
+                               {
+                                   put( "BloomIntensity", rfl::Generic( 0.0 ) );
+                                   ++report.BloomOff;
+                               }
+                               else if ( record )
+                               {
+                                   const auto intensity = number( "BloomIntensity", kV77BloomIntensity );
+                                   if ( intensity.has_value() )
+                                       put( "BloomIntensity", rfl::Generic( intensity.value() ) );
+                               }
+                               DropKey( settings, "EnableBloom" );
+                               changed = true;
+                           }
+                           // Threshold <= 0 bloomed every pixel: UE's -1. Above 0 the number is kept.
+                           const auto threshold =
+                                number( "BloomThreshold", record ? std::optional<double>( kV77BloomThreshold )
+                                                                 : std::nullopt );
+                           if ( threshold.has_value() )
+                           {
+                               put( "BloomThreshold", rfl::Generic( threshold.value() <= 0.0 ? -1.0
+                                                                                             : threshold.value() ) );
+                               changed = true;
+                           }
+                           // One speed -> both directions at it.
+                           const auto speed =
+                                number( "AutoExposureSpeed", record ? std::optional<double>( kV77AutoExposureSpeed )
+                                                                    : std::nullopt );
+                           if ( speed.has_value() )
+                           {
+                               DropKey( settings, "AutoExposureSpeed" );
+                               put( "AutoExposureSpeedUp", rfl::Generic( speed.value() ) );
+                               put( "AutoExposureSpeedDown", rfl::Generic( speed.value() ) );
+                               changed = true;
+                           }
+                           if ( record )
+                           {
+                               // The former defaults where the record did not state them: auto exposure off and
+                               // the 0 / 95 histogram window the scene was graded under.
+                               if ( !settings.get( "AutoExposure" ).has_value() )
+                                   put( "AutoExposure", rfl::Generic( false ) );
+                               put( "AutoExposureLowPercent", rfl::Generic( kV77LowPercent ) );
+                               put( "AutoExposureHighPercent", rfl::Generic( kV77HighPercent ) );
+                               changed = true;
+                           }
+                           if ( report.Refused.size() != refusedBefore || !changed )
+                               return false;
+                           ++report.Restated;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who, true );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who, false );
         }
         return report;
     }
@@ -808,6 +955,16 @@ namespace Desert::Core
         {
             report.TubeSourceLengthRaised  = true;
             report.TubeSourceLengthsStated = MigrateTubeSourceLengthV76ToV77( entities );
+        }
+        if ( from.Scene < kSceneVersionBloomUE )
+        {
+            report.BloomUERaised = true;
+            report.BloomUE       = MigrateBloomUEV77ToV78( entities );
+            if ( !report.BloomUE.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( name, report.BloomUE.Refused );
+                return report;
+            }
         }
 
         // World Partition's own chain above its floor: additive only.

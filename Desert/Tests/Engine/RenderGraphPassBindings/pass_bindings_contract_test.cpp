@@ -16,6 +16,18 @@
 #include <string>
 #include <type_traits>
 
+// A bloom-like push block of the test's own (the engine's bloom passes moved to RENDER-BLOOM-UE's Gaussian stages):
+// a vec2 and a float, the shape these binding checks were written against.
+namespace Desert::Graphic::ShaderPush
+{
+    struct TestBloomLikePush
+    {
+        glm::vec2 SourceTexelSize{};
+        float     FilterRadius{};
+    };
+    template <> inline constexpr bool IsBlock<TestBloomLikePush> = true;
+} // namespace Desert::Graphic::ShaderPush
+
 namespace
 {
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -231,7 +243,7 @@ namespace
                        SamplerDesc::LinearClamp() )
              .Storage( PassBindingsContractTestBloomShaderParameters::DestinationMipTexture, chain,
                        Access::StorageWrite, 0 )
-             .PushConstants<Desert::Graphic::ShaderPush::BloomUpsample>();
+             .PushConstants<Desert::Graphic::ShaderPush::TestBloomLikePush>();
         return block;
     }
 
@@ -291,7 +303,7 @@ TEST( RenderGraphPassBindings, DeclaredEntriesResolveWithTheirRangeAndAccess )
          []( PassBuilder& pass, TextureRef chain ) { DeclareBloomBlock( pass, chain ); },
          []( PassContext& context, TextureRef chain ) -> Common::BoolResultStr
          {
-             const Desert::Graphic::ShaderPush::BloomUpsample push{
+             const Desert::Graphic::ShaderPush::TestBloomLikePush push{
                   .SourceTexelSize = glm::vec2( 1.0f / 32.0f, 1.0f / 32.0f ), .FilterRadius = 1.0f };
              PassBindings bindings( context, context.GetBindingBlock( 0 ) );
              bindings.PushConstants( push );
@@ -355,7 +367,7 @@ TEST( RenderGraphPassBindings, ASlotOrKindTheShaderDoesNotDeclareFaultsThePassBe
                             SamplerDesc::LinearClamp() )
                   .Storage( PassBindingsContractTestBloomShaderParameters::DestinationMipTexture, chain,
                             Access::StorageWrite, 0 )
-                  .PushConstants<Desert::Graphic::ShaderPush::BloomUpsample>();
+                  .PushConstants<Desert::Graphic::ShaderPush::TestBloomLikePush>();
          },
          failIfRun );
     EXPECT_FALSE( unknown.ExecRan );
@@ -376,7 +388,7 @@ TEST( RenderGraphPassBindings, ASlotOrKindTheShaderDoesNotDeclareFaultsThePassBe
                             SamplerDesc::LinearClamp() )
                   .Storage( PassBindingsContractTestBloomWriteShaderParameters::SourceMipTexture, chain,
                             Access::StorageWrite, 0 )
-                  .PushConstants<Desert::Graphic::ShaderPush::BloomUpsample>();
+                  .PushConstants<Desert::Graphic::ShaderPush::TestBloomLikePush>();
          },
          failIfRun );
     EXPECT_FALSE( wrongKind.ExecRan );
@@ -428,7 +440,7 @@ TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
                             SamplerDesc::PointClamp() )
                   .Storage( PassBindingsContractTestBloomShaderParameters::DestinationMipTexture, chain,
                             Access::StorageWrite, 0 )
-                  .PushConstants<Desert::Graphic::ShaderPush::BloomUpsample>();
+                  .PushConstants<Desert::Graphic::ShaderPush::TestBloomLikePush>();
          },
          []( PassContext& context, TextureRef ) -> Common::BoolResultStr
          {

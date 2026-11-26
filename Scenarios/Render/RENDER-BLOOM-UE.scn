@@ -1,0 +1,29 @@
+# RENDER-BLOOM-UE: UE six-stage Gaussian bloom (BM_SOG) + UE eye adaptation (log2, linear>1.5 stops, percentiles) + render.exposure.
+# Scene Starter (Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce); PPV 17921165617746467452, EmissiveCube (250,50,50; emissive 6).
+# Run only through play_scenario.py.
+Дано --subject viewport set Camera.Position -150,80,50
+Дано --subject viewport set Camera.Direction 1,-0.05,0
+Дано run View "View mode: Lit"
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposure false
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomIntensity 0
+Тогда-вид bloom_off куб без ореола, база для сравнения
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomIntensity 0.675
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomThreshold -1
+Тогда-вид bloom_default мягкий ореол только вокруг куба; остальной кадр как bloom_off, без пелены
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.Bloom1Tint 0,0,0
+Тогда-вид bloom_tints ореол заметно уже, чем в bloom_default; дальний ореол тот же
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.Bloom1Tint 0.3465,0.3465,0.3465
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposure true
+Дано --subject viewport set Camera.Direction 0.3,0.6,0
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposureLowPercent 10
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposureHighPercent 90
+Когда state render
+Тогда-вид ae_10_90 небо и земля в кадре; render.exposure.auto = true
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposureLowPercent 80
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposureHighPercent 98.3
+Когда state render
+Тогда-вид ae_percent кадр темнее ae_10_90: EV100 выше, его определяет яркое небо
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposureLowPercent 0
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposureHighPercent 95
+Когда state render
+Тогда-вид ae_0_95 старые зашитые 0/95 (Low зажат до 1): EV100 ниже, чем в ae_percent

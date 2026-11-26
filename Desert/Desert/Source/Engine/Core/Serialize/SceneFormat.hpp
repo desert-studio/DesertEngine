@@ -146,7 +146,9 @@ namespace Desert::Core
     // (Core/Serialize/SceneUpgrade.hpp, MigrateLandscapeSplineEntitiesV75ToV76).
     // v77 (NG-AREA-LIGHTS): UE SourceLength - PointLight / SpotLight state SourceLength (cm; 0 = a sphere), the
     // capsule ("tube") emitter along the light's forward (Core/Serialize/SceneUpgrade.hpp, MigrateTubeSourceLengthV76ToV77).
-    inline constexpr int kSceneVersion = 77;
+    // v78 (RENDER-BLOOM-UE): UE's Gaussian bloom and histogram auto exposure as PostProcessSettings fields -
+    // EnableBloom and AutoExposureSpeed are gone (Core/Serialize/SceneUpgrade.hpp, MigrateBloomUEV77ToV78).
+    inline constexpr int kSceneVersion = 78;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Core/Serialize/SceneUpgrade.hpp, MigrateReflectedAssetRefsV0ToV1). v1 (STATICMESH-FORMAT): static meshes and materials are

@@ -6,6 +6,18 @@
 #include <string>
 #include <vector>
 
+// A bloom-like push block of the test's own (the engine's bloom passes moved to RENDER-BLOOM-UE's Gaussian stages):
+// a vec2 and a float, the shape these binding checks were written against.
+namespace Desert::Graphic::ShaderPush
+{
+    struct TestBloomLikePush
+    {
+        glm::vec2 SourceTexelSize{};
+        float     FilterRadius{};
+    };
+    template <> inline constexpr bool IsBlock<TestBloomLikePush> = true;
+} // namespace Desert::Graphic::ShaderPush
+
 namespace
 {
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -245,7 +257,7 @@ namespace
 
     using Verdict = Common::ResultStr<std::vector<RdgResolvedEntry>>;
 
-    const ShaderPush::BloomUpsample kPush{ .SourceTexelSize = glm::vec2( 1.0f / 32.0f, 1.0f / 32.0f ),
+    const ShaderPush::TestBloomLikePush kPush{ .SourceTexelSize = glm::vec2( 1.0f / 32.0f, 1.0f / 32.0f ),
                                            .FilterRadius    = 1.0f };
 
     // What the setup BELIEVES the shader declares (a ShaderBindingLayout, as a stale ShaderBindingLayoutCache
@@ -285,7 +297,7 @@ namespace
                  BindingBlockBuilder declared = pass.Bindings( believed, NoOtherRouteFill() );
                  fill( declared, chain );
                  if ( believed.PushConstantBytes != 0 )
-                     declared.PushConstants<ShaderPush::BloomUpsample>();
+                     declared.PushConstants<ShaderPush::TestBloomLikePush>();
              },
              [&]( PassContext& context ) -> Common::BoolResultStr
              {

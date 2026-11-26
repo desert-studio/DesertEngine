@@ -676,6 +676,11 @@ namespace
         if ( report.Upgrade.TubeSourceLengthRaised && report.Upgrade.TubeSourceLengthsStated > 0 )
             out << std::format( " scene ->v{} ({} PointLight / SpotLight block(s) given SourceLength 0)",
                                 Desert::Migration::kSceneVersionTubeSourceLength, report.Upgrade.TubeSourceLengthsStated );
+        if ( report.Upgrade.BloomUERaised && report.Upgrade.BloomUE.Restated > 0 )
+            out << std::format( " scene ->v{} ({} PostProcessVolume setting(s) re-stated as UE bloom / auto exposure, "
+                                "{} EnableBloom false as BloomIntensity 0)",
+                                Desert::Migration::kSceneVersionBloomUE, report.Upgrade.BloomUE.Restated,
+                                report.Upgrade.BloomUE.BloomOff );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

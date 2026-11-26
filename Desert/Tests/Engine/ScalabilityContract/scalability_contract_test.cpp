@@ -113,11 +113,11 @@ namespace
       "Cinematic": { "Reflections.MaxSteps": 96, "Reflections.CaptureSize": 256, "Reflections.RaysPerPixel": 8, "Reflections.Method": "PathTraced", "Reflections.DenoiserRadius": 3, "Reflections.DownsampleFactor": 1, "Reflections.HitLighting": 1, "Reflections.TranslucentFrontLayer": 1 }
     },
     "PostProcess": {
-      "Low":       { "PostProcess.AmbientOcclusionSamples": 4,  "PostProcess.BloomMips": 3, "PostProcess.MotionBlurQuality": 0, "PostProcess.DepthOfFieldQuality": 0 },
-      "Medium":    { "PostProcess.AmbientOcclusionSamples": 8,  "PostProcess.BloomMips": 4, "PostProcess.MotionBlurQuality": 1, "PostProcess.DepthOfFieldQuality": 1 },
-      "High":      { "PostProcess.AmbientOcclusionSamples": 16, "PostProcess.BloomMips": 6, "PostProcess.MotionBlurQuality": 2, "PostProcess.DepthOfFieldQuality": 2 },
-      "Epic":      { "PostProcess.AmbientOcclusionSamples": 24, "PostProcess.BloomMips": 6, "PostProcess.MotionBlurQuality": 2, "PostProcess.DepthOfFieldQuality": 2 },
-      "Cinematic": { "PostProcess.AmbientOcclusionSamples": 32, "PostProcess.BloomMips": 6, "PostProcess.MotionBlurQuality": 2, "PostProcess.DepthOfFieldQuality": 2 }
+      "Low":       { "PostProcess.AmbientOcclusionSamples": 4,  "PostProcess.BloomQuality": 3, "PostProcess.MotionBlurQuality": 0, "PostProcess.DepthOfFieldQuality": 0 },
+      "Medium":    { "PostProcess.AmbientOcclusionSamples": 8,  "PostProcess.BloomQuality": 4, "PostProcess.MotionBlurQuality": 1, "PostProcess.DepthOfFieldQuality": 1 },
+      "High":      { "PostProcess.AmbientOcclusionSamples": 16, "PostProcess.BloomQuality": 6, "PostProcess.MotionBlurQuality": 2, "PostProcess.DepthOfFieldQuality": 2 },
+      "Epic":      { "PostProcess.AmbientOcclusionSamples": 24, "PostProcess.BloomQuality": 6, "PostProcess.MotionBlurQuality": 2, "PostProcess.DepthOfFieldQuality": 2 },
+      "Cinematic": { "PostProcess.AmbientOcclusionSamples": 32, "PostProcess.BloomQuality": 6, "PostProcess.MotionBlurQuality": 2, "PostProcess.DepthOfFieldQuality": 2 }
     }
   },
   "Recommend": {
@@ -723,10 +723,10 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     constexpr ParameterValue kOldShadowMapSize  = 2048;
     constexpr ParameterValue kOldShadowDistance = 15000; // cm
     // SceneRendererFrameDeferred.cpp before S2: RecordTrace( ..., /*maxSteps*/ 32, ...), SSAO Record( ...,
-    // /*samples*/ 16 ); BloomRenderer::kMaxBloomMips = 6.
+    // /*samples*/ 16 ); six bloom stages (PostProcess.BloomQuality).
     constexpr ParameterValue kOldSSRSteps  = 48; // HZB traversal iterations since SSR2 (was 32 linear march steps)
     constexpr ParameterValue kOldSSAOTaps  = 16;
-    constexpr ParameterValue kOldBloomMips = 6;
+    constexpr ParameterValue kOldBloomStages = 6;
     constexpr ParameterValue kOldScale     = 100;
 
     const std::string root = RepoRoot();
@@ -755,7 +755,7 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     EXPECT_EQ( high( Parameter::ShadowDistance ), kOldShadowDistance );
     EXPECT_EQ( high( Parameter::ReflectionMaxSteps ), kOldSSRSteps );
     EXPECT_EQ( high( Parameter::AmbientOcclusionSamples ), kOldSSAOTaps );
-    EXPECT_EQ( high( Parameter::BloomMips ), kOldBloomMips );
+    EXPECT_EQ( high( Parameter::BloomQuality ), kOldBloomStages );
 }
 
 // ---- Presets ---------------------------------------------------------------------------------------------
