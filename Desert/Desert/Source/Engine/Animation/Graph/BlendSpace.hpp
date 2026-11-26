@@ -146,3 +146,20 @@ namespace Desert::Animation::Graph
                                             std::span<const float> durations, std::span<const BlendSample> samples,
                                             float rate, bool loop, float dt );
 } // namespace Desert::Animation::Graph
+
+namespace rfl::config
+{
+    template <typename T>
+    struct enum_range;
+
+    /// BlendAxisSmoothing is persisted BY NAME (the asset is a text format). Its underlying type is uint8_t,
+    /// and reflect-cpp's default scan range is `int` — which does not compile against a uint8_t enum — so its
+    /// range is given in its own type.
+    template <>
+    struct enum_range<Desert::Animation::Graph::BlendAxisSmoothing>
+    {
+        static constexpr uint8_t min = 0;
+        static constexpr uint8_t max =
+             static_cast<uint8_t>( Desert::Animation::Graph::BlendAxisSmoothing::SpringDamper );
+    };
+} // namespace rfl::config
