@@ -13,6 +13,11 @@
 #include <utility>
 
 
+namespace Desert::Graphic
+{
+    class Image2D;
+}
+
 namespace Desert::Graphic::Render
 {
     // The next GenericMeshDrawParams::Revision: process-unique, never 0, never reused (a params object built at a
