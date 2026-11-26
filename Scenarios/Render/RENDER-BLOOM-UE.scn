@@ -1,17 +1,18 @@
 # RENDER-BLOOM-UE: UE six-stage Gaussian bloom (BM_SOG) + UE eye adaptation (log2, linear>1.5 stops, percentiles) + render.exposure.
-# Scene Starter (Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce); PPV 17921165617746467452, EmissiveCube (250,50,50; emissive 6).
+# Scene Starter (Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce); PPV 17921165617746467452, EmissiveCube (250,50,50; emissive 60).
 # Run only through play_scenario.py.
 Дано --subject viewport set Camera.Position -150,80,50
 Дано --subject viewport set Camera.Direction 1,-0.05,0
 Дано run View "View mode: Lit"
+Дано set 7437228965709132698 PrimitiveComponent.SetScalarParameterValue EmissiveIntensity 60
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposure false
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomIntensity 0
 Тогда-вид bloom_off куб без ореола, база для сравнения
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomIntensity 0.675
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomThreshold -1
-Тогда-вид bloom_default мягкий ореол только вокруг куба; остальной кадр как bloom_off, без пелены
+Тогда-вид bloom_default заметный мягкий ореол вокруг куба, небо вдали как в bloom_off
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.Bloom1Tint 0,0,0
-Тогда-вид bloom_tints ореол заметно уже, чем в bloom_default; дальний ореол тот же
+Тогда-вид bloom_tints ближний ореол у края куба (0–24 px) слабее, чем в bloom_default; дальний (64+ px) тот же
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.Bloom1Tint 0.3465,0.3465,0.3465
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposure true
 Дано --subject viewport set Camera.Direction 0.9,0.2,0
