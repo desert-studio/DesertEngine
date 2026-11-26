@@ -11,16 +11,11 @@ namespace Desert::Editor
     public:
         static bool Initialize( const std::string& fontAwesomePath );
 
-        static ImFont* GetIconFont()
-        {
-            return s_IconFont;
-        }
+        // Out of line: the fonts are this library's data, which another DLL cannot import without dllimport.
+        static ImFont* GetIconFont();
 
         // Large standalone MDI icon font for asset-thumbnail grid cells.
-        static ImFont* GetBigIconFont()
-        {
-            return s_BigIconFont ? s_BigIconFont : s_IconFont;
-        }
+        static ImFont* GetBigIconFont();
 
         static bool IsInitialized()
         {

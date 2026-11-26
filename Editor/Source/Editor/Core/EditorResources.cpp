@@ -30,6 +30,16 @@ namespace Desert::Editor
     ImFont* EditorResources::s_BoldFont    = nullptr;
     ImFont* EditorResources::s_BigIconFont = nullptr;
 
+    ImFont* EditorResources::GetIconFont()
+    {
+        return s_IconFont;
+    }
+
+    ImFont* EditorResources::GetBigIconFont()
+    {
+        return s_BigIconFont ? s_BigIconFont : s_IconFont;
+    }
+
     bool EditorResources::Initialize( const std::string& fontAwesomePath )
     {
         if ( s_Initialized )

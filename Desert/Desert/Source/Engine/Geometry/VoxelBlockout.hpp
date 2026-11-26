@@ -70,12 +70,50 @@ namespace Desert::Geometry::VoxelBlockout
         glm::vec3 P, N, T, B;
         glm::vec2 UV;
     };
-    extern const FaceVert kFace[6][4];
+    inline const FaceVert kFace[6][4] = {
+         // Front (+Z)
+         { { { -0.5f, -0.5f, 0.5f }, { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0 } },
+           { { 0.5f, -0.5f, 0.5f }, { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 }, { 1, 0 } },
+           { { 0.5f, 0.5f, 0.5f }, { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 }, { 1, 1 } },
+           { { -0.5f, 0.5f, 0.5f }, { 0, 0, 1 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 1 } } },
+         // Back (-Z)
+         { { { -0.5f, -0.5f, -0.5f }, { 0, 0, -1 }, { -1, 0, 0 }, { 0, 1, 0 }, { 1, 0 } },
+           { { -0.5f, 0.5f, -0.5f }, { 0, 0, -1 }, { -1, 0, 0 }, { 0, 1, 0 }, { 1, 1 } },
+           { { 0.5f, 0.5f, -0.5f }, { 0, 0, -1 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, 1 } },
+           { { 0.5f, -0.5f, -0.5f }, { 0, 0, -1 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, 0 } } },
+         // Top (+Y)
+         { { { -0.5f, 0.5f, -0.5f }, { 0, 1, 0 }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 1 } },
+           { { -0.5f, 0.5f, 0.5f }, { 0, 1, 0 }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 0 } },
+           { { 0.5f, 0.5f, 0.5f }, { 0, 1, 0 }, { 1, 0, 0 }, { 0, 0, -1 }, { 1, 0 } },
+           { { 0.5f, 0.5f, -0.5f }, { 0, 1, 0 }, { 1, 0, 0 }, { 0, 0, -1 }, { 1, 1 } } },
+         // Bottom (-Y)
+         { { { -0.5f, -0.5f, -0.5f }, { 0, -1, 0 }, { 1, 0, 0 }, { 0, 0, 1 }, { 1, 1 } },
+           { { 0.5f, -0.5f, -0.5f }, { 0, -1, 0 }, { 1, 0, 0 }, { 0, 0, 1 }, { 0, 1 } },
+           { { 0.5f, -0.5f, 0.5f }, { 0, -1, 0 }, { 1, 0, 0 }, { 0, 0, 1 }, { 0, 0 } },
+           { { -0.5f, -0.5f, 0.5f }, { 0, -1, 0 }, { 1, 0, 0 }, { 0, 0, 1 }, { 0, 0 } } },
+         // Left (-X)
+         { { { -0.5f, -0.5f, -0.5f }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 1, 0 }, { 0, 0 } },
+           { { -0.5f, -0.5f, 0.5f }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 1, 0 }, { 1, 0 } },
+           { { -0.5f, 0.5f, 0.5f }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 1, 0 }, { 1, 1 } },
+           { { -0.5f, 0.5f, -0.5f }, { -1, 0, 0 }, { 0, 0, 1 }, { 0, 1, 0 }, { 0, 1 } } },
+         // Right (+X)
+         { { { 0.5f, -0.5f, -0.5f }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 1, 0 }, { 1, 0 } },
+           { { 0.5f, 0.5f, -0.5f }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 1, 0 }, { 1, 1 } },
+           { { 0.5f, 0.5f, 0.5f }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 1, 0 }, { 0, 1 } },
+           { { 0.5f, -0.5f, 0.5f }, { 1, 0, 0 }, { 0, 0, -1 }, { 0, 1, 0 }, { 0, 0 } } },
+    };
     // Outward neighbour offset per face; a face is generated only on a Solid/Empty border.
     extern const glm::ivec3 kNeighbor[6];
     // The same faces as CORNER indices in kFace's winding. Corner Mode moves corners, so every deformed quad is
     // built from these instead of from a fixed box.
-    extern const int kFaceCorner[6][4];
+    inline const int kFaceCorner[6][4] = {
+         { 4, 5, 7, 6 }, // Front  (+Z)
+         { 0, 2, 3, 1 }, // Back   (-Z)
+         { 2, 6, 7, 3 }, // Top    (+Y)
+         { 0, 1, 5, 4 }, // Bottom (-Y)
+         { 0, 4, 6, 2 }, // Left   (-X)
+         { 1, 3, 7, 5 }, // Right  (+X)
+    };
     // The corner-index bit that flips when you step to that face's neighbour.
     extern const int kFaceAxisBit[6];
 
@@ -162,7 +200,7 @@ namespace Desert::Geometry::VoxelBlockout
     {
         bool AtUMax, AtVMax;
     };
-    extern const RectPost kPosts[4];
+    inline const RectPost kPosts[4] = { { false, false }, { true, false }, { false, true }, { true, true } };
     // The corner index, in the cell just inside `plane` at that post, that post `k` is: the corner on the
     // plane's side of the cell, at the post's u and v ends.
     int PostCorner( const WorkPlane& plane, int k );
