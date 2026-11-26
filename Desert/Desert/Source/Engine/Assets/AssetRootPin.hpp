@@ -57,21 +57,11 @@ namespace Desert::Assets
             Pins().emplace( id, std::make_pair( handle, std::move( why ) ) );
             return id;
         }
-        static std::mutex& Mutex()
-        {
-            static std::mutex mutex;
-            return mutex;
-        }
-        static uint64_t& NextId()
-        {
-            static uint64_t next = 0;
-            return next;
-        }
-        static std::unordered_map<uint64_t, std::pair<Common::AssetHandle, std::string>>& Pins()
-        {
-            static std::unordered_map<uint64_t, std::pair<Common::AssetHandle, std::string>> pins;
-            return pins;
-        }
+        // The pin table lives in AssetRootPin.cpp: pins are taken from every module DLL and a table defined in
+        // this header would be one per DLL (BINT-STATE).
+        static std::mutex&                                                         Mutex();
+        static uint64_t&                                                           NextId();
+        static std::unordered_map<uint64_t, std::pair<Common::AssetHandle, std::string>>& Pins();
 
         Common::AssetHandle m_Handle;
         uint64_t            m_Id;

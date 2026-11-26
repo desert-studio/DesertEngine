@@ -26,6 +26,7 @@ namespace Desert::Graphic::RDG
     namespace Detail
     {
         // The arena of the ScratchScope open on this thread; null outside every scope.
+        // header-state: RenderCore only - both includers are RenderCore TUs, so the DLL holds one slot.
         inline thread_local Common::Memory::FrameArena* t_RdgScratchArena = nullptr;
     } // namespace Detail
 

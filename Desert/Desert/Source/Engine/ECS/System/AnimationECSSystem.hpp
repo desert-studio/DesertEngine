@@ -513,8 +513,7 @@ namespace Desert::ECS
             if ( ++m_CostFrames < kCostWindow )
                 return;
             const double frames = static_cast<double>( m_CostFrames );
-            Animation::g_AnimationCpuMsPerFrame.store( static_cast<float>( 1000.0 * m_CostSeconds / frames ),
-                                                       std::memory_order_relaxed );
+            Animation::SetAnimationCpuMsPerFrame( static_cast<float>( 1000.0 * m_CostSeconds / frames ) );
             LOG_INFO( "[SkinnedLOD] anim CPU {:.4f} ms/frame over {} frames: {:.1f} animated instances, {:.2f} "
                       "evaluations and {:.1f} bones evaluated per frame",
                       1000.0 * m_CostSeconds / frames, m_CostFrames, static_cast<double>( m_CostInstances ) / frames,

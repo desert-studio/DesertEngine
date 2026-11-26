@@ -52,11 +52,7 @@ namespace Desert::Graphic
     class MaterialPipelineRequests
     {
     public:
-        static MaterialPipelineRequests& Get()
-        {
-            static MaterialPipelineRequests requests;
-            return requests;
-        }
+        static MaterialPipelineRequests& Get();
 
         // Loads may land on a worker, hence the lock. A name asked for twice is listed once.
         void Request( const std::string& shaderName )

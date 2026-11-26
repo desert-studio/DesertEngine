@@ -67,14 +67,8 @@ namespace Desert::Graphic::RDG
     class RecordingSeal
     {
     public:
-        RecordingSeal() noexcept
-        {
-            ++s_Depth;
-        }
-        ~RecordingSeal() noexcept
-        {
-            --s_Depth;
-        }
+        RecordingSeal() noexcept;
+        ~RecordingSeal() noexcept;
 
         RecordingSeal( const RecordingSeal& )            = delete;
         RecordingSeal& operator=( const RecordingSeal& ) = delete;
@@ -83,12 +77,9 @@ namespace Desert::Graphic::RDG
 
         // True while this thread records a sealed exec: a per-view resource that does not exist yet is an
         // undeclared prerequisite and is refused, never created.
-        [[nodiscard]] static bool IsSealed() noexcept
-        {
-            return s_Depth != 0;
-        }
+        [[nodiscard]] static bool IsSealed() noexcept;
 
     private:
-        static inline thread_local uint32_t s_Depth = 0;
+        static thread_local uint32_t s_Depth;
     };
 } // namespace Desert::Graphic::RDG

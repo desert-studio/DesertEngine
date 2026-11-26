@@ -60,11 +60,7 @@ namespace Desert
         }
 
     private:
-        static uint64_t Next()
-        {
-            static std::atomic<uint64_t> next{ 1 };
-            return next.fetch_add( 1, std::memory_order_relaxed );
-        }
+        static uint64_t Next();
         uint64_t m_Value;
     };
 
@@ -237,10 +233,7 @@ namespace Desert
         // HOW MANY TIMES ANY MESH WAS MARKED STALE (process-wide, monotonic; UE: a render-state dirty list, not
         // a sweep). A reader that walked its meshes at epoch E finds no new pending edit while the epoch is still
         // E (DrawStaticSceneCommand::Prepare, MeshECSSystem's in-place edit scan): the walk is skipped, O(1).
-        [[nodiscard]] static uint64_t GetStaleEpoch() noexcept
-        {
-            return s_StaleEpoch.load( std::memory_order_acquire );
-        }
+        [[nodiscard]] static uint64_t GetStaleEpoch() noexcept;
         // What a renderer cache keys this mesh's content by (MeshRenderRevision): never the address.
         [[nodiscard]] uint64_t GetRenderRevision() const
         {
@@ -253,12 +246,8 @@ namespace Desert
         // mesh (an editor tool in the interface step, a system's tick past the previous frame's views); the
         // revision bump and the upload are the fence's (EnsureGpuResources). The flag itself
         // is game-thread state: no job reads it (ReadyForDraw asks the geometry's residency).
-        void MarkGpuStale() noexcept
-        {
-            m_GpuStale = true;
-            s_StaleEpoch.fetch_add( 1, std::memory_order_acq_rel );
-        }
-        static inline std::atomic<uint64_t> s_StaleEpoch{ 0 }; // GetStaleEpoch
+        void MarkGpuStale() noexcept;
+        static std::atomic<uint64_t> s_StaleEpoch; // GetStaleEpoch
         bool               m_GpuStale = false; // written and read on the game thread only
         MeshRenderRevision m_RenderRevision;
 

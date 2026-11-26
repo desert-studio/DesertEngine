@@ -336,10 +336,6 @@ namespace Desert::Editor::Control
         }
 
     private:
-        static std::deque<InputFrame>& Queue()
-        {
-            static std::deque<InputFrame> queue;
-            return queue;
-        }
+        static std::deque<InputFrame>& Queue();
     };
 } // namespace Desert::Editor::Control

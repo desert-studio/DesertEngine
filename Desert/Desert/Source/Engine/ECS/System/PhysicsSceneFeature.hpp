@@ -50,11 +50,7 @@ namespace Desert::ECS
     using PhysicsSceneFeatureFactory = std::unique_ptr<IPhysicsSceneFeature> ( * )( Physics::PhysicsWorld& world );
 
     /// The registered features, in registration order (module startup, Engine/Core/Modules.cpp).
-    inline std::vector<PhysicsSceneFeatureFactory>& PhysicsSceneFeatures()
-    {
-        static std::vector<PhysicsSceneFeatureFactory> factories;
-        return factories;
-    }
+    std::vector<PhysicsSceneFeatureFactory>& PhysicsSceneFeatures();
 
     inline void RegisterPhysicsSceneFeature( PhysicsSceneFeatureFactory factory )
     {

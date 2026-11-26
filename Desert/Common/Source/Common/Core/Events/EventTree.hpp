@@ -115,7 +115,7 @@ namespace Common
             if ( !IsLive( id ) )
                 return nullptr;
             Require( id.Index != 0, "the root of an EventTree cannot be taken" );
-            Require( m_Slots[id.Index].Table->Type == &EventDetail::TypeTag<T>,
+            Require( m_Slots[id.Index].Table->Type == EventDetail::TypeKey<T>(),
                      "Take<T> of a node that was not inserted as T" );
             for ( const uint32_t child : std::vector<uint32_t>( m_Slots[id.Index].Children ) )
                 Remove( { child, m_Slots[child].Generation } );
@@ -136,7 +136,7 @@ namespace Common
         template <typename T>
         T* Get( EventNodeId id ) const
         {
-            if ( !IsLive( id ) || m_Slots[id.Index].Table->Type != &EventDetail::TypeTag<T> )
+            if ( !IsLive( id ) || m_Slots[id.Index].Table->Type != EventDetail::TypeKey<T>() )
                 return nullptr;
             return static_cast<T*>( m_Slots[id.Index].Object );
         }

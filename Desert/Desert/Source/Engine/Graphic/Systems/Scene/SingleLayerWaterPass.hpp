@@ -141,11 +141,7 @@ namespace Desert::Graphic::System
          SceneRenderer* sceneRenderer, const std::shared_ptr<Framebuffer>& targetFramebuffer );
 
     /// The registered pass factory (module startup, Engine/Core/Modules.cpp); null without the Water module.
-    inline SingleLayerWaterPassFactory& SingleLayerWaterPassFactorySlot()
-    {
-        static SingleLayerWaterPassFactory factory = nullptr;
-        return factory;
-    }
+    SingleLayerWaterPassFactory& SingleLayerWaterPassFactorySlot();
 
     inline void RegisterSingleLayerWaterPass( SingleLayerWaterPassFactory factory )
     {

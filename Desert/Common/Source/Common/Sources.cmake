@@ -41,6 +41,7 @@ set(DESERT_SOURCES
     "Core/AssetPathIndex.cpp"
     "Core/AssetPathIndex.hpp"
     "Core/ByteText.hpp"
+    "Core/Constants.cpp"
     "Core/Constants.hpp"
     "Core/Core.cpp"
     "Core/Core.hpp"

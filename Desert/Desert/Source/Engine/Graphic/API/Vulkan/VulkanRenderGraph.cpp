@@ -18,7 +18,6 @@
 #include <string_view>
 #include <vector>
 
-
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -3909,4 +3908,20 @@ namespace Desert::Graphic::API::Vulkan
             m_Transients->EndGraph( m_GraphName );
         m_GraphName.clear();
     }
-} // namespace Desert::Graphic::API::Vulkan
+
+    auto VulkanRdgBackend::BoundChunk() const noexcept -> Chunk*
+    {
+        return t_Chunk != nullptr && t_Chunk->Owner == this ? t_Chunk : nullptr;
+    }
+
+    auto VulkanRdgPassDescriptors::BindArena( uint32_t arena ) noexcept -> uint32_t
+    {
+        const uint32_t previous = t_Arena;
+        t_Arena                 = arena;
+        return previous;
+    }
+
+    thread_local uint32_t VulkanRdgPassDescriptors::t_Arena = 0;
+
+    thread_local VulkanRdgBackend::Chunk* VulkanRdgBackend::t_Chunk = nullptr;
+}

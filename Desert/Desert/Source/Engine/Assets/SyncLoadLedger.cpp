@@ -12,6 +12,66 @@
 
 namespace Desert::Assets
 {
+    std::atomic<bool>& SyncLoadDetail::BootFinished()
+    {
+        static std::atomic<bool> finished{ false };
+        return finished;
+    }
+
+    std::atomic<uint64_t>& SyncLoadDetail::LoadCount()
+    {
+        static std::atomic<uint64_t> loads{ 0 };
+        return loads;
+    }
+
+    std::atomic<uint64_t>& SyncLoadDetail::InFrameCount()
+    {
+        static std::atomic<uint64_t> loads{ 0 };
+        return loads;
+    }
+
+    std::atomic<uint64_t>& SyncLoadDetail::AsyncCount()
+    {
+        static std::atomic<uint64_t> loads{ 0 };
+        return loads;
+    }
+
+    int& SyncLoadDetail::AsyncDepth()
+    {
+        static thread_local int depth = 0;
+        return depth;
+    }
+
+    int& SyncLoadDetail::Depth()
+    {
+        static thread_local int depth = 0;
+        return depth;
+    }
+
+    LoadTimingScope*& SyncLoadDetail::OpenScope()
+    {
+        static thread_local LoadTimingScope* open = nullptr;
+        return open;
+    }
+
+    std::mutex& SyncLoadDetail::TotalsLock()
+    {
+        static std::mutex lock;
+        return lock;
+    }
+
+    SyncLoadDetail::Totals& SyncLoadDetail::Sums()
+    {
+        static Totals totals;
+        return totals;
+    }
+
+    std::atomic<uint64_t>& SyncLoadDetail::InFrameLogged()
+    {
+        static std::atomic<uint64_t> logged{ 0 };
+        return logged;
+    }
+
     namespace SyncLoadDetail
     {
         // The report. BOTH HALVES ARE NAMED SEPARATELY, and zero in-frame loads is a RESULT worth printing

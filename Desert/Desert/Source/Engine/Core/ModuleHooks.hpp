@@ -152,11 +152,7 @@ namespace Desert::Core
         std::vector<RegistryPrepare> BeforeParallelGroup;
     };
 
-    inline ModuleHookLists& ModuleHooks()
-    {
-        static ModuleHookLists hooks;
-        return hooks;
-    }
+    ModuleHookLists& ModuleHooks();
 
     /// Starts the feature modules the executable links (idempotent; Engine/Core/Modules.cpp). Scene calls it,
     /// which links that file in.

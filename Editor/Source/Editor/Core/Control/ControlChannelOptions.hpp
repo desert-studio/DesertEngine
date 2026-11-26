@@ -19,11 +19,7 @@ namespace Desert::Editor::Control
      */
     struct ControlChannelOptions
     {
-        static ControlChannelOptions& Get()
-        {
-            static ControlChannelOptions s;
-            return s;
-        }
+        static ControlChannelOptions& Get();
 
         /// `--control-socket <path>`. Empty = this editor listens for nothing at all.
         std::string SocketPath;

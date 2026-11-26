@@ -978,4 +978,10 @@ namespace Desert::Core
         m_Transport.reset();
         LOG_INFO( "[Net] Play as client ended" );
     }
-} // namespace Desert::Core
+
+    auto ClientNetOptions::Launch() -> ClientNetOptions&
+    {
+        static ClientNetOptions options;
+        return options;
+    }
+}

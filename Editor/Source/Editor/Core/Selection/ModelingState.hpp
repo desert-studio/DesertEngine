@@ -218,11 +218,7 @@ namespace Desert::Editor::Core
             bool operator==( const ShapeSettings& ) const = default;
         };
 
-        static ModelingState& Get()
-        {
-            static ModelingState s;
-            return s;
-        }
+        static ModelingState& Get();
 
         // Smallest CubeGrid block, in world units (= 1 cm). Both the panel and the tool clamp to it.
         static constexpr float MinCellSize = 1.0f;

@@ -33,4 +33,23 @@ namespace Desert
         m_PoolAllocation = std::make_shared<Graphic::GeometryPoolAllocation>( std::move( allocation ) );
         m_Geometry       = Graphic::GeometryPool::Get().Describe( *m_PoolAllocation, authoredStreams );
     }
-} // namespace Desert
+
+    auto MeshRenderRevision::Next() -> uint64_t
+    {
+        static std::atomic<uint64_t> next{ 1 };
+        return next.fetch_add( 1, std::memory_order_relaxed );
+    }
+
+    auto Mesh::MarkGpuStale() noexcept -> void
+    {
+        m_GpuStale = true;
+        s_StaleEpoch.fetch_add( 1, std::memory_order_acq_rel );
+    }
+
+    auto Mesh::GetStaleEpoch() noexcept -> uint64_t
+    {
+        return s_StaleEpoch.load( std::memory_order_acquire );
+    }
+
+    std::atomic<uint64_t> Mesh::s_StaleEpoch{ 0 };
+}

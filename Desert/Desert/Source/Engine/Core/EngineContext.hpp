@@ -1,11 +1,33 @@
 #pragma once
 
-#include <Engine/Core/Application.hpp>
+#include <concepts>
+#include <cstdint>
+#include <filesystem>
+#include <memory>
+#include <optional>
+#include <string>
+#include <type_traits>
+#include <unordered_set>
+
+#include <Common/Core/Core.hpp>
+#include <Common/Core/Events/EventTree.hpp>
+#include <Common/Core/Events/WindowEvents.hpp>
+#include <Common/Core/LayerStack.hpp>
+#include <Common/Core/Singleton.hpp>
+#include <Common/Core/Subsystems/SubsystemCollection.hpp>
+#include <Engine/Core/WindowCloseGate.hpp>
 #include <Engine/Core/Window.hpp>
 #include <Engine/Core/Device.hpp>
 #include <Engine/Core/FrameManager.hpp>
 
 #include <Engine/Graphic/RendererContext.hpp>
+
+// EngineContext is RenderCore's (BINT-STATE): it names the Application only as its friend, so Engine's header
+// stays out of RenderCore.
+namespace Desert::Engine
+{
+    class Application;
+} // namespace Desert::Engine
 
 namespace Desert
 {
@@ -120,3 +142,7 @@ namespace Desert
     };
 
 } // namespace Desert
+
+// The one instance lives in this class's .cpp (Common::Singleton, design BINT-STATE).
+template <>
+std::unique_ptr<Desert::EngineContext>& Common::Singleton<Desert::EngineContext>::Instance();

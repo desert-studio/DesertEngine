@@ -282,3 +282,7 @@ namespace Desert::Graphic::API::Vulkan
         const VulkanLogicalDevice* m_Device = nullptr;
     };
 } // namespace Desert::Graphic::API::Vulkan
+
+// The one instance lives in this class's .cpp (Common::Singleton, design BINT-STATE).
+template <>
+std::unique_ptr<Desert::Graphic::API::Vulkan::CommandBufferAllocator>& Common::Singleton<Desert::Graphic::API::Vulkan::CommandBufferAllocator>::Instance();

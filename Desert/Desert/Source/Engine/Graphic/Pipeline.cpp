@@ -154,4 +154,18 @@ namespace Desert::Graphic
         return Common::MakeError<std::shared_ptr<ComputePipeline>>( "Unknown RenderingAPI" );
     }
 
-} // namespace Desert::Graphic
+    std::atomic<uint64_t>& PipelineReadinessCounter()
+    {
+        static std::atomic<uint64_t> counter{ 0 };
+        return counter;
+    }
+}
+
+namespace Desert::Graphic::detail
+{
+    LivePipelineSet& LivePipelines()
+    {
+        static LivePipelineSet s_Live;
+        return s_Live;
+    }
+}

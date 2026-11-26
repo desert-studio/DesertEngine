@@ -338,6 +338,10 @@ namespace Desert::ECS
         }
 
     private:
+        // Said once per process: every scene's MeshECSSystem shares the flag, which lives in MeshECSSystem.cpp
+        // (BINT-STATE) and is atomic because the tick runs on a worker (CanRunParallel).
+        static void WarnCustomShaderIsmOnce();
+
         // One skinned entity's pose buffers (the bone matrices its draws co-own).
         struct BonePalette
         {
@@ -1230,15 +1234,7 @@ namespace Desert::ECS
                  { return CustomSlotMaterial( ism.RuntimeMaterialInstances()[slot].get() ); } );
             if ( !ismSplit.SlotDraws.empty() )
             {
-                // An atomic: this tick runs on a worker (CanRunParallel), and every scene's MeshECSSystem shares
-                // the function's static.
-                static std::atomic<bool> s_WarnedCustomISM{ false };
-                if ( !s_WarnedCustomISM.exchange( true ) )
-                {
-                    LOG_WARN( "Instanced Static Mesh doesn't support custom-shader materials "
-                              "(instancing is a lit-path optimization) — the sections using one "
-                              "are not drawn. Assign a lit material." );
-                }
+                WarnCustomShaderIsmOnce();
             }
             if ( ismSplit.SectionDraws.empty() )
                 return build;

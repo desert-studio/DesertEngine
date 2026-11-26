@@ -324,3 +324,7 @@ namespace Desert::Graphic
         std::unique_ptr<EnvironmentCacheWriter> m_EnvironmentCache;
     };
 } // namespace Desert::Graphic
+
+// The one instance lives in this class's .cpp (Common::Singleton, design BINT-STATE).
+template <>
+std::unique_ptr<Desert::Graphic::Renderer>& Common::Singleton<Desert::Graphic::Renderer>::Instance();

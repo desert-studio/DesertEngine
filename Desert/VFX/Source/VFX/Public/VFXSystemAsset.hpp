@@ -102,10 +102,7 @@ namespace Desert::Assets
 
         /// Moves whenever any VFX system asset's data is replaced (an Edit, a read from the file): the one
         /// counter VFXSystemService compares before looking for a new snapshot.
-        [[nodiscard]] static uint64_t EditSerial()
-        {
-            return s_EditSerial.load( std::memory_order_acquire );
-        }
+        [[nodiscard]] static uint64_t EditSerial();
 
         static AssetTypeID GetTypeID()
         {
@@ -127,6 +124,6 @@ namespace Desert::Assets
         // Set by the `.dfx` window (SetUnsubmittedEdits); never written to the file.
         bool m_UnsubmittedEdits = false;
 
-        static inline std::atomic<uint64_t> s_EditSerial{ 1 };
+        static std::atomic<uint64_t> s_EditSerial;
     };
 } // namespace Desert::Assets

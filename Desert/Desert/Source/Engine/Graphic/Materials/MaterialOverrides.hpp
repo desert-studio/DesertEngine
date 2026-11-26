@@ -102,30 +102,7 @@ namespace Desert::Graphic
         return true;
     }
 
-    [[nodiscard]] inline bool MaterialValueIsReadable( std::string_view name, const glm::vec4& value,
-                                                       MaterialValueLanes lanes )
-    {
-        for ( int lane = 0; lane < static_cast<int>( lanes ); ++lane )
-        {
-            if ( std::isfinite( value[lane] ) )
-                continue;
-
-            static std::mutex            said;
-            static std::set<std::string> alreadySaid;
-            {
-                const std::lock_guard<std::mutex> lock( said );
-                if ( !alreadySaid.insert( std::string( name ) ).second )
-                    return false;
-            }
-
-            LOG_ERROR( "[Material] parameter '{}' carries {} in component {}, which is not a number the "
-                       "renderer can use — a clamp does not repair it, every comparison against it is "
-                       "false. The parameter keeps its shader default for the rest of this session.",
-                       name, value[lane], lane );
-            return false;
-        }
-        return true;
-    }
+    [[nodiscard]] bool MaterialValueIsReadable( std::string_view name, const glm::vec4& value, MaterialValueLanes lanes );
 
     /**
      * @brief The same decision for a parameter the reader turns into an int.
@@ -135,28 +112,7 @@ namespace Desert::Graphic
      * NaN is only the loudest member of that set — `1e30` is finite, readable and just as undefined. So
      * the range is part of the question here and is not part of it for a float.
      */
-    [[nodiscard]] inline bool MaterialValueIsReadableAsInt( std::string_view name, float value )
-    {
-        constexpr float kLowest  = -2147483648.0f; // exactly representable
-        constexpr float kLargest = 2147483520.0f;  // the largest float below 2^31
-
-        if ( std::isfinite( value ) && value >= kLowest && value <= kLargest )
-            return true;
-
-        static std::mutex            said;
-        static std::set<std::string> alreadySaid;
-        {
-            const std::lock_guard<std::mutex> lock( said );
-            if ( !alreadySaid.insert( std::string( name ) ).second )
-                return false;
-        }
-
-        LOG_ERROR( "[Material] parameter '{}' carries {}, which no 32-bit integer can hold — the cast "
-                   "alone would be undefined before any range check could see it. The parameter keeps "
-                   "its shader default for the rest of this session.",
-                   name, value );
-        return false;
-    }
+    [[nodiscard]] bool MaterialValueIsReadableAsInt( std::string_view name, float value );
     /**
      * @brief Names, once per (shader, sampler), a texture override the material refused.
      *
@@ -165,21 +121,5 @@ namespace Desert::Graphic
      * file that says one texture and a surface that draws the shader default with nothing in between to
      * notice; said every frame it is a flood. Called by every renderer that applies MaterialOverrides.
      */
-    inline void LogRefusedTextureOverride( std::string_view shaderName, std::string_view sampler )
-    {
-        static std::mutex            said;
-        static std::set<std::string> alreadySaid;
-        {
-            const std::lock_guard<std::mutex> lock( said );
-            std::string                       key( shaderName );
-            key.append( 1, '/' ).append( sampler );
-            if ( !alreadySaid.insert( std::move( key ) ).second )
-                return;
-        }
-
-        LOG_ERROR( "[Material] '{}' has no Properties texture '{}' — the override is ignored and the "
-                   "surface draws the shader's own default. Only textures declared in the shader's "
-                   "Properties are material parameters; every other sampler is bound by its pass.",
-                   shaderName, sampler );
-    }
+    void LogRefusedTextureOverride( std::string_view shaderName, std::string_view sampler );
 } // namespace Desert::Graphic

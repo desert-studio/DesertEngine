@@ -21,11 +21,7 @@ namespace Desert::Editor
     class ToastManager
     {
     public:
-        static ToastManager& Get()
-        {
-            static ToastManager s_Instance;
-            return s_Instance;
-        }
+        static ToastManager& Get();
 
         static void Push( std::string message, ToastLevel level = ToastLevel::Info, float seconds = 4.0f )
         {

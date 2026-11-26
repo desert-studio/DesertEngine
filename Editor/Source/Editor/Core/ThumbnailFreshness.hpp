@@ -118,11 +118,7 @@ namespace Desert::Editor::ThumbnailFreshness
             std::unordered_map<std::string, Memo> Entries;
         };
 
-        inline MemoTable& Memos()
-        {
-            static MemoTable table;
-            return table;
-        }
+        MemoTable& Memos();
 
         /// Memoised under @p key (several values read from ONE file: one per mesh an import record states an
         /// orbit for), invalidated by @p file's (size, modtime).

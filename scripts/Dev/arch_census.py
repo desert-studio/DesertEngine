@@ -3,7 +3,7 @@
 
     python scripts/Dev/arch_census.py [--rule R] [--list R] [--update] [--accept-rise "why"] [--build <dir>] [--config C]
 
-rules (code):  singleton static-accessor service-locator namespace-state hidden_statics content-name todo
+rules (code):  singleton static-accessor service-locator namespace-state hidden_statics header-state content-name todo
                raw-thread getenv platform-ifdef exception-in-task discarded-result file-too-big
 rules (deps):  include-cycle layer-matrix engine-includes-editor     (#include graph; layers = cmake/DesertModuleTable.cmake)
 rules (build): header-fanout tu-time duplicate-compile generated-in-source
@@ -34,14 +34,22 @@ CODE = re.compile(r"^(Desert|Editor|Runtime|Server)/(?!Tests/|Projects/|.*Genera
                   r".*\.(hpp|cpp|h)$")
 # The sources whose worlds share a process.
 STATICS = re.compile(r"^(Desert/(Desert/Source/Engine|Common/Source/Common/Core|UI|Audio|Landscape|Water|VFX)|Editor/Source|Runtime)/.*\.(hpp|cpp|h)$")
+# Headers whose state a module DLL could copy: each DLL that ODR-uses a header-defined variable holds its own copy.
+HEADERS = re.compile(r"^(Desert|Editor)/(?!Tests/|Projects/|.*Generated/|.*ThirdParty/).*\.(hpp|h|inl)$")
+# The one-line finding that every referencing TU sits in the header's owner module (design BINT-STATE, choice (v)).
+HEADER_STATE_FINDING = "header-state:"
+INLINE_VAR = re.compile(r"\b(?:inline\s+(?:static\s+|thread_local\s+)?|(?:static|thread_local)\s+inline\s+)(?!namespace\b)")
+TEMPLATE_STATIC = re.compile(r"^\s*(?:template\s*<.*>\s*)?[\w:<>,\s*&]+?\s[\w:]*\w\s*<[^()]*>\s*::\s*\w+\s*(?:=(?!=)|\{|;)")
 # The platform layer: the one place an #if on the operating system belongs.
 PLATFORM = re.compile(r"(^|/)(Platform|Platforms|Windows|Win32|MacOS|Apple|Linux|Posix)(/|$)|/Platform\w*\.(hpp|cpp|h|mm)$")
 MAX_LINES = 2500
 TU_SECONDS = 30
 
 # rule -> (files, pattern, why). A hit is a line; its anchor is the line's text, so the place is the code itself.
+# Common::Singleton<T>'s storage accessor (std::unique_ptr<T>& Instance()) is not a second singleton: the template
+# is counted at its GetInstance and at every class that derives from it.
 RULES = {
-    "singleton": (ENGINE, re.compile(r"\bstatic\s+[A-Za-z_][\w:<>]*\s*&\s*(Instance|GetInstance)\s*\(\s*\)|"
+    "singleton": (ENGINE, re.compile(r"\bstatic\s+(?!std::unique_ptr<T>\s*&\s*Instance\b)[A-Za-z_][\w:<>]*\s*&\s*(Instance|GetInstance)\s*\(\s*\)|"
                                      r":\s*public\s+[\w:]*Singleton\s*<"),
                   "a process-wide object breaks two worlds in one process; pass the owner"),
     "static-accessor": (CODE, re.compile(r"\bstatic\s+[A-Za-z_][\w:<>]*\s*&\s*Get\w*\s*\(\s*\)"),
@@ -81,8 +89,11 @@ WHY = {
     "tu-time": f"a first-party translation unit compiles longer than {TU_SECONDS} s",
     "duplicate-compile": "a first-party source compiled by more than one target; a tool links the library instead",
     "generated-in-source": "generated code is tracked in the source tree; it belongs in the build tree",
+    "header-state": "mutable state defined in a header has one copy per module DLL; define it in the owner's .cpp "
+                    "behind a non-inline accessor, or write the one-line 'header-state:' finding that every user "
+                    "sits in the owner module",
 }
-ORDER = ["singleton", "static-accessor", "service-locator", "namespace-state", "hidden_statics", "content-name", "todo",
+ORDER = ["singleton", "static-accessor", "service-locator", "namespace-state", "hidden_statics", "header-state", "content-name", "todo",
          "raw-thread", "getenv", "platform-ifdef", "exception-in-task", "discarded-result", "file-too-big",
          "include-cycle", "layer-matrix", "engine-includes-editor",
          "header-fanout", "tu-time", "duplicate-compile", "generated-in-source"]
@@ -140,12 +151,38 @@ def hidden_statics(text):
                 scopes.append("namespace")
             elif re.search(r"\b(class|struct|union|enum)\b", head) and not re.search(r"\)\s*(const|noexcept|override)?\s*$", head):
                 scopes.append("class")
+            elif re.search(r"\bSingleton\s*::\s*Instance\s*\(\s*\)\s*$", head):
+                # The owner's definition of Common::Singleton<X>::Instance(): the singleton's one storage, which
+                # the singleton rule already counts at the class.
+                scopes.append("singleton-storage")
             else:
                 scopes.append("function")
         elif token == "}" and scopes:
             scopes.pop()
         start = m.end()
     return found
+
+
+def header_state(text):
+    """The lines of mutable variables a header defines: inline variables and members, template static members and
+    function-local statics of the header's (inline) functions. Each module DLL that ODR-uses one gets its own copy."""
+    stripped = NOT_CODE.sub(lambda m: '""' + "\n" * m.group().count("\n"), text)
+    found = set(hidden_statics(text))
+    for m in INLINE_VAR.finditer(stripped):
+        head = re.split(r"[=({;]", stripped[m.end():m.end() + 400], maxsplit=1)[0]
+        stop = stripped[m.end() + len(head):][:1]
+        if (stop != "(" and head.strip() and not re.search(r"\boperator\s*$", head) and not re.search(r"\b(constexpr|constinit|using|class|struct|enum)\b", head)
+                and not re.search(r"\bconst\b", head.rsplit("*", 1)[-1])):
+            found.add(stripped.count("\n", 0, m.start()) + 1)
+    code = stripped.split("\n")
+    for i, line in enumerate(code):
+        previous = code[i - 1] if i else ""
+        if (TEMPLATE_STATIC.match(line) and ("template" in line or re.match(r"^\s*template\b", previous))
+                and not re.search(r"\b(const|constexpr|constinit|using|typedef|return|friend)\b", line)):
+            found.add(i + 1)
+    raw = text.split("\n")
+    return sorted(n for n in found
+                  if not any(HEADER_STATE_FINDING in raw[k] for k in (n - 1, n - 2) if 0 <= k < len(raw)))
 
 
 def add(hits, rule, path, line, key):
@@ -183,6 +220,9 @@ def scan_code(files, texts, hits):
         if STATICS.match(f) and "static" in text:
             for n in hidden_statics(text):
                 add(hits, "hidden_statics", f, n, anchor(lines[n - 1]))
+        if HEADERS.match(f) and re.search(r"\b(static|inline|template)\b", text):
+            for n in header_state(text):
+                add(hits, "header-state", f, n, anchor(lines[n - 1]))
         if len(lines) > MAX_LINES:
             # Counted in steps of 100 lines, so a big file may not keep growing but a line or two is no event.
             for _ in range((len(lines) - MAX_LINES) // 100 + 1):

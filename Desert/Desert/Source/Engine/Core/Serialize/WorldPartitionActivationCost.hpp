@@ -96,11 +96,7 @@ namespace Desert::Core::Rules
 
     namespace Detail
     {
-        inline std::vector<ActivationKindComponent>& ActivationKindComponentList()
-        {
-            static std::vector<ActivationKindComponent> rows;
-            return rows;
-        }
+        std::vector<ActivationKindComponent>& ActivationKindComponentList();
     } // namespace Detail
 
     inline void RegisterActivationKind( const ActivationKindComponent& row )
