@@ -1949,17 +1949,29 @@ namespace Desert::Editor
                 ImVec2               origin( 0.0f, 0.0f );
                 if ( !request.Panel.empty() )
                 {
+                    // The refusal names the panels that WERE drawn, by the name this lookup accepts: the level
+                    // viewport is the panel "Scene" (ViewportPanel's "Scene###scene"), and a script that guessed
+                    // another word hears the right one instead of only that its guess was wrong.
                     const ImGuiWindow* window = nullptr;
+                    std::string        drawn;
                     for ( const auto& panel : m_Panels )
                     {
-                        if ( panel->GetVisibility() && ( panel->GetName() == request.Panel ||
-                                                         PanelShownName( panel->GetName() ) == request.Panel ) )
-                            window = ::ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
+                        if ( !panel->GetVisibility() )
+                            continue;
+                        const ImGuiWindow* candidate =
+                             ::ImGui::FindWindowByName( PanelDisplayTitle( panel->GetName() ).c_str() );
+                        if ( candidate == nullptr || !candidate->WasActive )
+                            continue;
+                        const std::string shown = PanelShownName( panel->GetName() );
+                        drawn += std::format( "{}'{}'", drawn.empty() ? "" : ", ", shown );
+                        if ( panel->GetName() == request.Panel || shown == request.Panel )
+                            window = candidate;
                     }
-                    if ( window == nullptr || !window->WasActive )
+                    if ( window == nullptr )
                         return Control::Response::Failure(
-                             request.Id, std::format( "no open panel named '{}' was drawn in the last frame.",
-                                                      request.Panel ) );
+                             request.Id,
+                             std::format( "no open panel named '{}' was drawn in the last frame; drawn: {}.",
+                                          request.Panel, drawn.empty() ? "none" : drawn ) );
                     if ( !Control::IsKeyInputKind( request.InputKind ) &&
                          ( request.Value[0] < 0.0f || request.Value[1] < 0.0f ||
                            request.Value[0] >= window->Size.x || request.Value[1] >= window->Size.y ) )

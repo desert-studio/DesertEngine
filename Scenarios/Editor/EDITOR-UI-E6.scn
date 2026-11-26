@@ -10,12 +10,12 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Desert_Sandbox.desce
 Дано run UI "UI: Toggle the widget gallery"
 Тогда-вид 0_gallery галерея по центру, справа панель «Lua» с пустым полем кода
-Когда input click Viewport 1130,150
-Когда input type Viewport - "local a = 1"
+Когда input click Scene 1130,150
+Когда input type Scene - "local a = 1"
 Тогда [log] state ui: keyboardOwner = gallery (клавиатура у галереи после клика в поле кода)
-Когда input click Viewport 150,400
-Когда input type Viewport - "zz"
-Когда input key Viewport - T
+Когда input click Scene 150,400
+Когда input type Scene - "zz"
+Когда input key Scene - T
 Тогда [log] state ui: keyboardOwner = viewport (клик в пустое место вида отдал клавиатуру виду)
 Тогда-вид 1_view_focus поле кода: одна строка «local a = 1» без «zz»; у поля нет синей рамки фокуса и нет каретки; остальная галерея без изменений
 Тогда [log] нет assert, VUID и ошибок UI в editor.log

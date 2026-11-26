@@ -8,12 +8,12 @@
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/MainMenu.desce
 Дано run UI "UI: Toggle the widget gallery"
 Тогда-вид 0_gallery справа от столбца галереи панель «Lua» с пустым полем кода: тёмный фон, полоса номеров слева с номером 1
-Когда input click Viewport 1130,150
-Когда input type Viewport - "local s = 'hi' -- greet"
-Когда input key Viewport - enter
-Когда input type Viewport - "return 42"
+Когда input click Scene 1130,150
+Когда input type Scene - "local s = 'hi' -- greet"
+Когда input key Scene - enter
+Когда input type Scene - "return 42"
 Тогда [log] state: поле Gallery.Code держит фокус галереи; ни одно поле MainMenu не получило символы
 Тогда-вид 1_code две строки с номерами 1 и 2; `local` и `return` - синие (ключевое слово), `'hi'` - оранжевая (строка), `-- greet` - зелёная (комментарий), `42` - светло-зелёная (число), `s =` - светло-серый текст; каретка после 42, синяя рамка фокуса вокруг поля
-Когда input key Viewport - ctrl+z
+Когда input key Scene - ctrl+z
 Тогда-вид 2_undo строка 2 пуста (ввод «return 42» отменён), номера 1-2 остались, каретка в начале строки 2; строка 1 без изменений и в тех же цветах
 Тогда [log] нет assert, VUID и ошибок UI в editor.log
