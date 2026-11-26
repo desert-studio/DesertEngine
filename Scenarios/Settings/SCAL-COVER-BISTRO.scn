@@ -23,12 +23,12 @@
 Когда run Quality "Quality: Textures.MipBias 400"
 Когда frames 300
 Когда profile-dump
-Тогда-вид tx_mip400 terrain, decals and meshes softened alike
+Тогда-вид tx_mip400 terrain, decals and meshes softened alike; the cypresses, hedges and hanging planters keep their leaf coverage of tx_epic (masked textures keep alpha coverage in every mip)
 Когда run Quality "Quality: Textures.MipBias Level"
 Когда run Quality "Quality: Effects Low"
 Когда frames 300
 Когда profile-dump
-Тогда-вид fx_low smoke and glass lit, no blocks of the 32-cubed translucency volume
+Тогда-вид fx_low glass lit, no blocks of the 32-cubed translucency volume (GI_Bistro_Day holds no VFX system, so no smoke is in this shot at any Effects level)
 Когда run Quality "Quality: Effects Epic"
 Когда run Quality "Quality: ViewDistance High"
 Когда run Quality "Quality: VirtualGeometry.SoftwareRaster 0"
