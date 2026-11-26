@@ -17,6 +17,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -113,13 +114,29 @@ namespace Desert::Graphic::System
     // The mean blade's width (cm) at the ScaleX range's middle @p scaleX: the mean of its first
     // kGrassBladeMaxCards cards' widths (Height x du / dv) - the width the screen-width floor's distance is
     // measured by.
-    [[nodiscard]] float GrassBladeMeanWidth( const GrassBladeDraw& blade, glm::vec2 scaleX );
+    [[nodiscard]] inline float GrassBladeMeanWidth( const GrassBladeDraw& blade, const glm::vec2 scaleX )
+    {
+        const size_t cards = std::min( blade.Cards.size(), kGrassBladeMaxCards );
+        if ( cards == 0u )
+            return 0.0f;
+        float sum = 0.0f;
+        for ( size_t i = 0; i < cards; ++i )
+        {
+            const glm::vec4& card = blade.Cards[i];
+            sum += blade.Height * ( card.z - card.x ) / std::max( card.w - card.y, 1.0e-4f );
+        }
+        return sum * 0.5f * ( scaleX.x + scaleX.y ) / static_cast<float>( cards );
+    }
 
     // A grass mesh's bounding radius about its root (cm at scale 1, from its local bounds): its bounds' half
     // diagonal plus the centre's horizontal offset - what the far LOD measures an instance's screen size by
     // (GrassRenderer::PrepareVariety) and the ground's far cover the meshes' far LOD distance by
     // (LandscapeECSSystem: TerrainInstance::GrassCoverFarLodRadius).
-    [[nodiscard]] float GrassFarLodRadius( const Common::Math::AABB& bounds );
+    [[nodiscard]] inline float GrassFarLodRadius( const Common::Math::AABB& bounds )
+    {
+        const glm::vec3 centre = ( bounds.Min + bounds.Max ) * 0.5f;
+        return glm::length( bounds.Max - bounds.Min ) * 0.5f + glm::length( glm::vec2( centre.x, centre.z ) );
+    }
 
     struct GrassSectionDraw
     {

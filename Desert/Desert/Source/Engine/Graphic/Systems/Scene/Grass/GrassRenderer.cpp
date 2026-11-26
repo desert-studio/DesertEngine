@@ -667,26 +667,6 @@ namespace Desert::Graphic::System
         return lens;
     }
 
-    float GrassFarLodRadius( const Common::Math::AABB& bounds )
-    {
-        const glm::vec3 centre = ( bounds.Min + bounds.Max ) * 0.5f;
-        return glm::length( bounds.Max - bounds.Min ) * 0.5f + glm::length( glm::vec2( centre.x, centre.z ) );
-    }
-
-    float GrassBladeMeanWidth( const GrassBladeDraw& blade, const glm::vec2 scaleX )
-    {
-        const size_t cards = std::min( blade.Cards.size(), kGrassBladeMaxCards );
-        if ( cards == 0u )
-            return 0.0f;
-        float sum = 0.0f;
-        for ( size_t i = 0; i < cards; ++i )
-        {
-            const glm::vec4& card = blade.Cards[i];
-            sum += blade.Height * ( card.z - card.x ) / std::max( card.w - card.y, 1.0e-4f );
-        }
-        return sum * 0.5f * ( scaleX.x + scaleX.y ) / static_cast<float>( cards );
-    }
-
     Common::BoolResultStr GrassRenderer::Initialize()
     {
         // GRASS-CULL-2: GrassCull reads and writes the varieties' buffers by device address (the
