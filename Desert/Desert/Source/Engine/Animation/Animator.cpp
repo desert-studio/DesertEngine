@@ -638,7 +638,7 @@ namespace Desert::Animation
         sources.SampleLinked = [&]( size_t slot, size_t node, Graph::GraphPose& out )
         { sampleClock( m_LinkedSources[slot][node], out ); };
         sources.Linked    = &m_LinkedLayers;
-        sources.Parameter = [&]( const std::string& name ) { return GraphParameter( state, name ); };
+        sources.Parameter = [this]( const std::string& name ) { return GraphParameter( name ); };
         // THE REST POSE THE ADDITIVE WAS AUTHORED AGAINST, ON THIS RIG: under a retarget the additive clip is
         // on the source rig, so its difference is taken from the source rest retargeted the same way.
         sources.AdditiveReference = m_Retarget ? &m_Retarget->GetRetargetedRest() : &m_BindPose;
@@ -653,20 +653,23 @@ namespace Desert::Animation
         }
     }
 
-    float Animator::GraphParameter( const PoseGraphState& state, const std::string& name )
+    float Animator::GraphParameter( const std::string_view name ) const
     {
-        const Graph::AnimGraph& graph = state.Instance.Graph();
-        for ( size_t p = 0; p < graph.Parameters.size(); ++p )
-            if ( graph.Parameters[p].Name == name )
-                return state.Parameters[p];
+        for ( const GraphParameterValue& live : m_GraphParameters )
+            if ( live.Name == name )
+                return live.Value;
+        if ( m_PoseGraph )
+            for ( const Graph::Parameter& declared : m_PoseGraph->Instance.Graph().Parameters )
+                if ( declared.Name == name )
+                    return declared.Default;
         return 0.0F; // PlanPoseGraph refused a pin bound to an undeclared parameter
     }
 
-    void Animator::UpdateBlendSpaces( PoseGraphState& state, const float deltaTime )
+    void Animator::UpdateBlendSpaces( PoseGraphState& state, const float deltaTime ) const
     {
         const Graph::AnimGraph&                          graph     = state.Instance.Graph();
-        const std::function<float( const std::string& )> parameter = [&]( const std::string& name )
-        { return GraphParameter( state, name ); };
+        const std::function<float( const std::string& )> parameter = [this]( const std::string& name )
+        { return GraphParameter( name ); };
         for ( size_t n = 0; n < state.BlendSpaces.size(); ++n )
         {
             const Graph::PoseNode& node = graph.Nodes[n];
@@ -876,7 +879,7 @@ namespace Desert::Animation
 
     void Animator::UpdateBlendPlayback( ClipPlayback& playback, const float deltaTime )
     {
-        const float axis          = m_PoseGraph ? GraphParameter( *m_PoseGraph, playback.BlendSpace.Axis ) : 0.0F;
+        const float axis          = GraphParameter( playback.BlendSpace.Axis );
         const float previousPhase = playback.Blend.Phase;
         AdvanceBlendRun( playback.BlendSpace.Space, axis, playback.Blend, deltaTime );
 
@@ -1414,13 +1417,11 @@ namespace Desert::Animation
         const Graph::AnimGraph& bound = state.Instance.Graph();
         state.Sources.resize( bound.Nodes.size() );
         state.BlendSpaces.resize( bound.Nodes.size() );
-        state.Parameters.resize( bound.Parameters.size() );
-        for ( size_t p = 0; p < bound.Parameters.size(); ++p )
-            state.Parameters[p] = bound.Parameters[p].Default;
         if ( const Graph::PoseNode* base = Graph::BaseSourceNode( bound ) )
             state.BaseSource = static_cast<int>( base - bound.Nodes.data() );
-        // A graph re-set with the same nodes keeps each source's clock and the parameters: the graph is
-        // re-sent after every edit, and a source that restarted on each edit would stutter while authored.
+        // A graph re-set with the same nodes keeps each source's clock: the graph is re-sent after every edit, and
+        // a source that restarted on each edit would stutter while authored. (The parameters are the Animator's,
+        // m_GraphParameters, and outlive any pose graph.)
         if ( m_PoseGraph && m_PoseGraph->Sources.size() == state.Sources.size() )
         {
             state.Sources      = std::move( m_PoseGraph->Sources );
@@ -1430,8 +1431,6 @@ namespace Desert::Animation
         else if ( m_PoseGraph )
             for ( size_t node = 0; node < m_PoseGraph->ActiveStates.size(); ++node )
                 RetireStates( m_PoseGraph->ActiveStates[node], static_cast<int>( node ), -1 );
-        if ( m_PoseGraph && m_PoseGraph->Parameters.size() == state.Parameters.size() )
-            state.Parameters = std::move( m_PoseGraph->Parameters );
         // A run is parallel to its node's samples: a node that is no blend space has none, and a row edited
         // to another length restarts its weights (a kept phase is still the cycle's position).
         for ( size_t node = 0; node < bound.Nodes.size(); ++node )
@@ -1485,14 +1484,15 @@ namespace Desert::Animation
             run.Clips[sample] = &clip;
     }
 
-    void Animator::SetPoseGraphParameter( std::string_view name, float value )
+    void Animator::SetGraphParameter( std::string_view name, float value )
     {
-        if ( !m_PoseGraph )
-            return;
-        const auto& parameters = m_PoseGraph->Instance.Graph().Parameters;
-        for ( size_t p = 0; p < parameters.size(); ++p )
-            if ( parameters[p].Name == name )
-                m_PoseGraph->Parameters[p] = value;
+        for ( GraphParameterValue& live : m_GraphParameters )
+            if ( live.Name == name )
+            {
+                live.Value = value;
+                return;
+            }
+        m_GraphParameters.push_back( { .Name = std::string( name ), .Value = value } );
     }
 
     Common::BoolResultStr Animator::LinkLayers( uint64_t implementationId, const Graph::AnimGraph& implementation )

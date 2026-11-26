@@ -117,7 +117,7 @@ namespace Desert::Animation
         /**
          * A state machine state that plays a Blend Space 1D (Graph::StateBlendSpace), as Play / CrossFade play a
          * clip: `clips` holds each sample's clip, parallel to the row (null while it is still loading). Its
-         * weights follow the axis parameter (SetPoseGraphParameter's value; 0 with no pose graph) at the row's
+         * weights follow the axis parameter (SetGraphParameter's value, with or without a pose graph) at the row's
          * WeightSpeed and its samples play at one shared phase (Graph::AdvanceSyncedPhase), which is what
          * GetCurrentTime / GetDuration then report: the HEAVIEST resolved sample at that phase, so an exit time
          * reads the phase and that sample's notifies are the ones heard (UE: the highest-weight sample's).
@@ -385,9 +385,12 @@ namespace Desert::Animation
         void SetPoseGraphSource( size_t node, const AnimationClip& clip, bool loop = true );
         /// Deleted for `Play`'s reason: the source keeps the clip's address.
         void SetPoseGraphSource( size_t node, AnimationClip&& clip, bool loop = true ) = delete;
-        /// The live value of a declared graph parameter (a pin bound to it reads it). Ignored for an undeclared
-        /// name: Graph::Evaluator's setters have refused it by name already.
-        void SetPoseGraphParameter( std::string_view name, float value );
+        /// The live value of a declared graph parameter (UE: the AnimInstance property a node's pin is bound
+        /// to), read by every binding to it: a pose graph pin and a blend-space state's axis
+        /// (Graph::StateBlendSpace::Axis). Held by the Animator, not by the pose graph, so a graph whose Output
+        /// Pose is its state machine (no pose graph) still drives its blend-space states. The caller writes only
+        /// declared names: Graph::Evaluator's setters have refused an undeclared one by name already.
+        void SetGraphParameter( std::string_view name, float value );
         /// Blend Space 1D node `node`'s sample `sample` plays `clip` (resolved by name, as a source's clip is).
         /// The shared phase is not restarted: the samples are synced, not clocked one by one. Ignored for a
         /// node that is no blend space, a sample past its row and with no graph set.
@@ -554,14 +557,13 @@ namespace Desert::Animation
         };
 
         /// The pose graph, its source clocks (one per node; the base source's and the blend nodes' unused), the
-        /// blend spaces' runs (one per node; empty for every node that is no Blend Space 1D), the parameter
-        /// values (parallel to the graph's Parameters) and the per-frame scratch.
+        /// blend spaces' runs (one per node; empty for every node that is no Blend Space 1D) and the per-frame
+        /// scratch. Its pins read the Animator's parameters (m_GraphParameters).
         struct PoseGraphState
         {
             Graph::PoseGraphInstance   Instance;
             std::vector<ClipPlayback>  Sources;
             std::vector<BlendSpaceRun> BlendSpaces;
-            std::vector<float>         Parameters;
             /// The second and later weighted samples of a blend space are sampled here, then blended into the
             /// node's output.
             Graph::GraphPose          BlendScratch;
@@ -606,15 +608,15 @@ namespace Desert::Animation
         /// UE FAnimNode_BlendSpacePlayer::UpdateAssetPlayer for every Blend Space 1D node: the axis from its X
         /// pin, the weights toward that axis's target at WeightSpeed, the shared phase advanced over the
         /// weighted samples' lengths.
-        static void UpdateBlendSpaces( PoseGraphState& state, float deltaTime );
+        void UpdateBlendSpaces( PoseGraphState& state, float deltaTime ) const;
         /// A Blend Space 1D node's pose: each weighted sample with a clip at the shared phase, blended by its
         /// share of the running weight; curves the weighted sum (a curve a sample lacks counts 0 there).
         void SampleBlendSpace( PoseGraphState& state, const BlendSpaceRun& run,
                                const std::function<void( const ClipPlayback&, Graph::GraphPose& )>& sampleClock,
                                Graph::GraphPose&                                                    out );
-        /// The value of declared graph parameter `name` (0 for an undeclared one: the planner refused a pin
-        /// bound to it).
-        [[nodiscard]] static float GraphParameter( const PoseGraphState& state, const std::string& name );
+        /// The value of graph parameter `name`: SetGraphParameter's, else the pose graph's declared Default, else
+        /// 0 (an undeclared name: the planner refused a pin or an axis bound to it).
+        [[nodiscard]] float GraphParameter( std::string_view name ) const;
         /// Sizes m_LinkedSources to m_LinkedLayers after a link or unlink.
         void RebuildLinkedClocks();
 
@@ -795,6 +797,15 @@ namespace Desert::Animation
 
         // The pose graph, run by PoseStage::Graph; absent = the stage is not in the list.
         std::optional<PoseGraphState> m_PoseGraph;
+        /// One live value of a graph parameter, by its declared name.
+        struct GraphParameterValue
+        {
+            std::string Name;
+            float       Value = 0.0F;
+        };
+        /// The graph's parameter values (SetGraphParameter): the one store every binding reads — a pose graph
+        /// pin and a blend-space state's axis alike — kept across a pose graph's re-set and its absence.
+        std::vector<GraphParameterValue> m_GraphParameters;
         Graph::LinkedLayerTable       m_LinkedLayers;
         /// Per slot of m_LinkedLayers, one clock per node of its layer graph.
         std::vector<std::vector<ClipPlayback>> m_LinkedSources;

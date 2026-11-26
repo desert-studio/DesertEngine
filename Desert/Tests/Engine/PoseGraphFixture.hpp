@@ -90,7 +90,7 @@ namespace PoseGraphFixture
         if ( !set )
             return set;
         animator.SetPoseGraphSource( kLayerNode, clip, loop );
-        animator.SetPoseGraphParameter( graph.Parameters.front().Name, weight );
+        animator.SetGraphParameter( graph.Parameters.front().Name, weight );
         return set;
     }
 

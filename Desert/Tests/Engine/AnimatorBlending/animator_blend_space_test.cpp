@@ -119,7 +119,7 @@ TEST( AnimatorBlendSpace, BetweenTwoSamplesThePoseIsTheirWeightedMixAndNeitherCl
     Played     played( 0.0F );
     const auto heightAt = [&]( float speed )
     {
-        played.Anim.SetPoseGraphParameter( "Speed", speed );
+        played.Anim.SetGraphParameter( "Speed", speed );
         played.Anim.Update( Timestep( 0.0F ) );
         return SpineHeight( played.Anim );
     };
@@ -134,7 +134,7 @@ TEST( AnimatorBlendSpace, BetweenTwoSamplesThePoseIsTheirWeightedMixAndNeitherCl
 TEST( AnimatorBlendSpace, TheSamplesPlayAtOneSharedNormalizedPhase )
 {
     Played played( 0.0F );
-    played.Anim.SetPoseGraphParameter( "Speed", 150.0F );
+    played.Anim.SetGraphParameter( "Speed", 150.0F );
     played.Anim.Update( Timestep( 0.75F ) );
 
     const Animator::BlendSpaceRun* run = played.Anim.GetPoseGraphBlendSpace( kBlendNode );
@@ -150,11 +150,11 @@ TEST( AnimatorBlendSpace, TheSamplesPlayAtOneSharedNormalizedPhase )
 TEST( AnimatorBlendSpace, WeightSpeedMovesTheMixTowardTheAxisOverTime )
 {
     Played played( 2.0F );
-    played.Anim.SetPoseGraphParameter( "Speed", 0.0F );
+    played.Anim.SetGraphParameter( "Speed", 0.0F );
     played.Anim.Update( Timestep( 0.0F ) ); // the first update takes the target: all Walk
     EXPECT_NEAR( SpineHeight( played.Anim ), 0.0F, 1e-3F );
 
-    played.Anim.SetPoseGraphParameter( "Speed", 300.0F );
+    played.Anim.SetGraphParameter( "Speed", 300.0F );
     played.Anim.Update( Timestep( 0.25F ) ); // 2 per second x 0.25 s: half the way
     const Animator::BlendSpaceRun* run = played.Anim.GetPoseGraphBlendSpace( kBlendNode );
     ASSERT_NE( run, nullptr );
