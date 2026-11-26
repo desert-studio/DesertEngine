@@ -1490,6 +1490,8 @@ set(DESERT_SOURCES
     "Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp"
     "Engine/Graphic/Systems/Scene/Skybox/SkyCapture.cpp"
     "Engine/Graphic/Systems/Scene/Skybox/SkyCapture.hpp"
+    "Engine/Graphic/Systems/Scene/Skybox/SkyboxConvolution.cpp"
+    "Engine/Graphic/Systems/Scene/Skybox/SkyboxConvolution.hpp"
     "Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.cpp"
     "Engine/Graphic/Systems/Scene/Skybox/SkyboxRenderer.hpp"
     "Engine/Graphic/Systems/Scene/Terrain/LandscapeRayTracing.cpp"

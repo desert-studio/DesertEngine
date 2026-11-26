@@ -29,7 +29,6 @@ namespace Desert::Runtime
     class CloudModellingService;
     class CloudLayoutService;
     class UIThemeService;
-    class FoliageTypeService;
     class WorldParametersService;
     class WeatherPresetService;
     class SubsurfaceProfileService;
@@ -75,12 +74,6 @@ namespace Desert::Runtime
         // per viewport. Owns nothing on the GPU: the one device object a theme reaches (a font atlas)
         // belongs to FontService, which is where this one binds its font paths.
         static UIThemeService* GetUIThemeService();
-
-        // The `.defoliage` types foliage fields name (FO-5): read on demand, held as the assets themselves, so
-        // the renderer's cull distance follows a paint-panel edit. Owns nothing on the GPU.
-        static FoliageTypeService* GetFoliageTypeService();
-
-        // The `.dfrac` fractures destructible entities name (DST-03b): read on demand, held as the assets.
 
         // The `.dworldparams` collections scenes name (WTH-PARAMS): read on first ask, held as the assets.
         static WorldParametersService* GetWorldParametersService();

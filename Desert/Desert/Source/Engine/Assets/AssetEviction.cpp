@@ -2,7 +2,6 @@
 
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/CloudTypeAsset.hpp>
-#include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -161,14 +160,6 @@ namespace Desert::Assets
             references.Visit( manager, static_cast<uint64_t>( handle ),
                               [&visitGuid]( const std::string& text, const char* why )
                               { visitGuid( text, why ); } );
-        if ( const auto foliageType = manager.ProbeByHandle<FoliageTypeAsset>( handle ) )
-        {
-            if ( foliageType->IsReadyForUse() )
-            {
-                visitGuid( foliageType->GetData().Mesh.Guid, "a reachable foliage type draws it" );
-                visitGuid( foliageType->GetData().Prefab.Guid, "a reachable foliage type spawns it" );
-            }
-        }
     }
 
     EvictionOutcome AssetEviction::Run( AssetManager& manager, const AssetRootSet& roots, IEvictionSink& sink )

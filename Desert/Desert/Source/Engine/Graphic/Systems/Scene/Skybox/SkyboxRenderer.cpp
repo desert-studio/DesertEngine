@@ -10,6 +10,7 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/SkyGroundTransmittance.hpp>
 #include <Engine/Graphic/SkyPayload.hpp>
+#include <Engine/Graphic/Systems/Scene/Skybox/SkyboxConvolution.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -910,7 +911,7 @@ namespace Desert::Graphic::System
         {
             if ( const std::shared_ptr<MaterialSkybox> material = m_MaterialSkybox.lock() )
             {
-                material->AddConvolutionPasses( graph, textures );
+                AddSkyboxConvolutionPasses( *material, graph, textures );
                 // Converted (now, ahead of every reader, or earlier): the replaced skybox lights no more.
                 if ( material->GetEnvironment() )
                     m_PreviousMaterialSkybox.reset();

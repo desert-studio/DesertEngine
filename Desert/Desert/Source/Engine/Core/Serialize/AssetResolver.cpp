@@ -129,11 +129,6 @@ namespace Desert::Core::Serialize
                 if ( const auto a = mgr.FindByHandle<Assets::PrefabAsset>( id ) )
                     loaded = a->Guid();
             }
-            else if ( type == "FoliageTypeAsset" )
-            {
-                if ( const auto a = mgr.FindByHandle<Assets::FoliageTypeAsset>( id ) )
-                    loaded = a->Guid();
-            }
             else if ( type == "MaterialAsset" )
             {
                 if ( const auto a = mgr.FindByHandle<Assets::SurfaceMaterialAsset>( id ) )
@@ -312,19 +307,7 @@ namespace Desert::Core::Serialize
                 }
                 return static_cast<uint64_t>( a->GetMetadata().Handle );
             }
-            if ( type == "FoliageTypeAsset" )
-            {
-                // The locator half of a procedural volume's type list {Guid, Path}: ResolveGuidRef reaches it
-                // only when the GUID's registry row did not, and checks the file found here IS that type.
-                const std::filesystem::path full = FileForStoredReference( path, type );
-                if ( full.empty() )
-                    return 0;
-                auto a = mgr.FindByPath<Assets::FoliageTypeAsset>( full );
-                if ( !a )
-                    a = m.CreateAsset<Assets::FoliageTypeAsset>( full, /*loadAfterCreate=*/false );
-                return a ? static_cast<uint64_t>( a->GetMetadata().Handle ) : 0;
-            }
-            // A feature module's asset type (Destruction's `.dfrac`), ANNOUNCED, NOT READ: the module creates the
+            // A feature module's asset type (Destruction's `.dfrac`, Foliage's `.defoliage`), ANNOUNCED, NOT READ: the module creates the
             // asset at the stored file and its service reads it when Play asks (ModuleHooks.hpp, AssetAnnouncer).
             for ( const Core::AssetAnnouncer& announcer : Core::ModuleHooks().AssetTypes )
                 if ( type == announcer.Type )
@@ -626,17 +609,6 @@ namespace Desert::Core::Serialize
                 // mutable view of the manager: the row's key IS the stored spelling, handed over as is.
                 return fromPath( key, type ) == guid ? guid : 0;
             }
-            if ( type == "FoliageTypeAsset" )
-            {
-                // BY GUID through the content registry, the Foliage block's way: a type's handle IS
-                // HandleForGuid of its header GUID, so the row under that handle is the type wherever it moved.
-                if ( mgr.FindByHandle<Assets::FoliageTypeAsset>( handle ) )
-                    return guid;
-                const std::string key = Assets::ContentRegistry::KeyForHandle( guid );
-                if ( key.empty() )
-                    return 0;
-                return fromPath( key, type ) == guid ? guid : 0;
-            }
             if ( type == "SoundAsset" )
             {
                 // A sound's handle IS HandleForGuid of its header GUID, so the registry row under it is the
@@ -655,7 +627,7 @@ namespace Desert::Core::Serialize
                 // shell, and RequireSkybox's error names the handle when the registry has no skybox under it.
                 return Runtime::RequireSkybox( handle ) ? guid : 0;
             }
-            // A feature module's type stored BY GUID (Water's `.dwaves`): on record under its handle, or found
+            // A feature module's type stored BY GUID (Water's `.dwaves`, Foliage's `.defoliage`): on record under its handle, or found
             // through the content registry and announced from that row's file (the locator half above).
             for ( const Core::AssetAnnouncer& announcer : Core::ModuleHooks().AssetTypes )
                 if ( type == announcer.Type && announcer.IsRecorded != nullptr )

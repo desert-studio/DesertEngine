@@ -71,7 +71,7 @@ namespace Desert::Graphic
         return 0;
     }
     /// A SPECIFIED CUBEMAP THE CACHE DID NOT HOLD: its panorama, converted and filtered in the frame graph of the
-    /// first view that draws it (System::SkyCapture::BeginPanorama, MaterialSkybox::AddConvolutionPasses), and
+    /// first view that draws it (System::SkyCapture::BeginPanorama, AddSkyboxConvolutionPasses), and
     /// the three cache files that conversion is then written to (radiance, irradiance, prefilter; Live is set
     /// by EnvironmentManager::WriteCache from the converted environment).
     struct EnvironmentConvolution
