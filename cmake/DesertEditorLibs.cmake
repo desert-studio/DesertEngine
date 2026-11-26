@@ -12,7 +12,7 @@ set(DESERT_EDITOR_LAYER_EditorCore_DIRS    Core Platform RenderSystems)
 set(DESERT_EDITOR_LAYER_EditorImport_DIRS  Import Packaging)
 set(DESERT_EDITOR_LAYER_EditorWidgets_DIRS Widgets Splash ImGuiIntegration)
 set(DESERT_EDITOR_LAYER_EditorPanels_DIRS  Panels)
-set(DESERT_EDITOR_LAYER_EditorLevel_DIRS   LevelEditor Builders Baking Generated Panels/SceneProperties Panels/SceneHierarchy Panels/Modeling)
+set(DESERT_EDITOR_LAYER_EditorLevel_DIRS   LevelEditor Builders Baking Panels/SceneProperties Panels/SceneHierarchy Panels/Modeling)
 set(DESERT_EDITOR_LAYER_EditorLevel_ROOT_FILES EditorLayer.cpp EditorLayer.hpp)
 set(DESERT_EDITOR_OBJC_LIB EditorObjC)
 set(DESERT_EDITOR_ENTRY_POINT Sandbox.cpp Sandbox.hpp)
@@ -22,10 +22,23 @@ foreach(layer IN LISTS DESERT_EDITOR_LAYERS)
     set(DESERT_EDITOR_LAYER_${layer}_FILES "")
 endforeach()
 
-file(GLOB_RECURSE _editor_files LIST_DIRECTORIES false CONFIGURE_DEPENDS RELATIVE "${DESERT_EDITOR_SOURCE_ROOT}/Editor"
-     "${DESERT_EDITOR_SOURCE_ROOT}/Editor/*.cpp" "${DESERT_EDITOR_SOURCE_ROOT}/Editor/*.hpp"
-     "${DESERT_EDITOR_SOURCE_ROOT}/Editor/*.h" "${DESERT_EDITOR_SOURCE_ROOT}/Editor/*.inl")
-list(SORT _editor_files)
+# The editor's files are the committed list Editor/Source/Sources.cmake (scripts/Dev/sources_sync.py), never a
+# glob: Editor/... C++ files go to the layers, Editor/... Objective-C++ to EditorObjC, the root files to the claim check.
+desert_sources(_editor_all "${DESERT_EDITOR_SOURCE_ROOT}" RELATIVE)
+set(_editor_files "")
+set(_editor_root_files "")
+set(DESERT_EDITOR_OBJC_FILES "")
+foreach(rel IN LISTS _editor_all)
+    if(rel MATCHES "^Editor/(.+\\.(cpp|hpp|h|inl))$")
+        list(APPEND _editor_files "${CMAKE_MATCH_1}")
+    elseif(rel MATCHES "^Editor/.+\\.mm$")
+        list(APPEND DESERT_EDITOR_OBJC_FILES "${DESERT_EDITOR_SOURCE_ROOT}/${rel}")
+    elseif(NOT rel MATCHES "/")
+        list(APPEND _editor_root_files "${rel}")
+    else()
+        message(FATAL_ERROR "cmake/DesertEditorLibs.cmake: Editor/Source/${rel} is in no editor library")
+    endif()
+endforeach()
 foreach(rel IN LISTS _editor_files)
     set(_best "")
     set(_best_len -1)
@@ -53,7 +66,6 @@ foreach(layer IN LISTS DESERT_EDITOR_LAYERS)
 endforeach()
 
 # Every file directly under Editor/Source/ must be claimed.
-file(GLOB _editor_root_files LIST_DIRECTORIES false RELATIVE "${DESERT_EDITOR_SOURCE_ROOT}" "${DESERT_EDITOR_SOURCE_ROOT}/*")
 foreach(file IN LISTS _editor_root_files)
     set(_claimed OFF)
     if(file IN_LIST DESERT_EDITOR_ENTRY_POINT OR file STREQUAL "EditorPCH.hpp" OR file STREQUAL "EditorPCH.cpp")
@@ -69,9 +81,6 @@ foreach(file IN LISTS _editor_root_files)
     endif()
 endforeach()
 
-file(GLOB_RECURSE DESERT_EDITOR_OBJC_FILES LIST_DIRECTORIES false CONFIGURE_DEPENDS "${DESERT_EDITOR_SOURCE_ROOT}/Editor/*.mm")
-list(SORT DESERT_EDITOR_OBJC_FILES)
-
 # DesertEditorLibs.Link(wholeArchive): the five layers top first (EditorObjC ahead of them on macOS); with
 # WHOLE_ARCHIVE every object reaches the binary (component editors register themselves from static initialisers).
 function(desert_link_editor_libs target)
@@ -86,4 +95,16 @@ function(desert_link_editor_libs target)
     else()
         target_link_libraries(${target} PRIVATE ${_names})
     endif()
+endfunction()
+
+# A tool that runs editor code (GamePackager, TextureCook, AssetClosure): the editor libraries (not whole: nothing in a
+# tool needs their self-registering editors), the third-party libraries they are built against and the engine
+# (desert_link_engine_tool) - linked, never compiled a second time into the tool (B-TOOLS).
+function(desert_link_editor_tool target)
+    desert_link_editor_libs(${target})
+    target_link_libraries(${target} PRIVATE Assimp ImGui ImGuiNodeEditor)
+    if(IS_DIRECTORY "${DESERT_ROOT}/ThirdParty/dlib")
+        target_link_libraries(${target} PRIVATE Dlib)
+    endif()
+    desert_link_engine_tool(${target})
 endfunction()

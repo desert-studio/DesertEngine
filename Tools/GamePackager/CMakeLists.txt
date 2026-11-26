@@ -1,7 +1,6 @@
-# GamePackager: cooks and packages a project. Links the editor libraries (not whole: nothing
-# here needs their self-registering editors), the third-party libraries they use and the engine. The
+# GamePackager: cooks and packages a project over the editor libraries and the engine (desert_link_editor_tool). The
 # MikkTSpace is not linked: mikktspace.cpp is compiled into GeometryCore.
-desert_glob(_sources "Source/*.cpp")
+desert_sources(_sources "Source" MATCHING "\\.cpp$")
 desert_add_executable(GamePackager FOLDER Tools SOURCES ${_sources})
 target_include_directories(GamePackager PRIVATE "${DESERT_ROOT}/Tools/Shared")
 desert_engine_includes(GamePackager)
@@ -14,16 +13,4 @@ desert_external_includes(GamePackager
     ${DESERT_COMMON_INCLUDE_DIRS}
     ${DESERT_DESERTSPECIFIC_INCLUDE_DIRS})
 desert_config_platform_defines(GamePackager)
-desert_link_editor_libs(GamePackager)
-target_link_libraries(GamePackager PRIVATE
-    Assimp ImGui ImGuiNodeEditor GLFW ${DESERT_OPTICK} MeshOptimizer Voro Compressonator OpenSubdiv Embree OpenEXRCore Dav1d Opus)
-desert_link_engine(GamePackager)
-if(IS_DIRECTORY "${DESERT_ROOT}/ThirdParty/dlib")
-    target_link_libraries(GamePackager PRIVATE Dlib)
-endif()
-if(DESERT_IS_MACOS)
-    target_link_libraries(GamePackager PRIVATE
-        Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp
-        "-framework Cocoa" "-framework IOKit" "-framework CoreFoundation" "-framework CoreVideo"
-        "-framework CoreMedia" "-framework AVFoundation" "-framework QuartzCore" "-framework Foundation")
-endif()
+desert_link_editor_tool(GamePackager)

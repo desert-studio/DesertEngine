@@ -13,7 +13,7 @@
 # and the link proves the closure, because no render library is on this line to resolve a symbol from. Nothing here
 # names an Apple framework: the Linux build adds a platform, not a target.
 
-desert_glob(_sources "Source/*.cpp" "Source/*.hpp")
+desert_sources(_sources "Source" MATCHING "\\.(cpp|hpp)$")
 desert_add_executable(DesertServer FOLDER Server SOURCES ${_sources})
 target_compile_definitions(DesertServer PRIVATE DESERT_SERVER=1)
 target_precompile_headers(DesertServer PRIVATE "${DESERT_ROOT}/Desert/Desert/Source/pch.hpp")

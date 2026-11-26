@@ -1,5 +1,5 @@
 # UI: the DesertUI static library (module "DesertUI", own project).
-desert_glob(_sources "Source/UI/*.cpp" "Source/UI/*.hpp")
+desert_sources(_sources "Source/UI" MATCHING "\\.(cpp|hpp)$")
 desert_add_library(DesertUI SOURCES "Source/pch.cpp" "Source/pch.hpp" ${_sources})
 desert_enable_unity(DesertUI)
 target_precompile_headers(DesertUI PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/pch.hpp")

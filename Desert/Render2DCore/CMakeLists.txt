@@ -1,5 +1,5 @@
 # Render2DCore: the Render2DCore static library (module "Render2DCore", own project).
-desert_glob(_sources "Source/Render2DCore/*.cpp" "Source/Render2DCore/*.hpp")
+desert_sources(_sources "Source/Render2DCore" MATCHING "\\.(cpp|hpp)$")
 desert_add_library(Render2DCore SOURCES "Source/pch.cpp" "Source/pch.hpp" ${_sources})
 desert_enable_unity(Render2DCore)
 target_precompile_headers(Render2DCore PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/pch.hpp")

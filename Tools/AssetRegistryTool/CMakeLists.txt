@@ -1,6 +1,6 @@
 # AssetRegistryTool: the asset registry CLI; StartupLayout.cpp for ResolveEngineDir, links
 # Common. No DESERT_PLATFORM_LINUX: only Windows and macOS are built.
-desert_glob(_sources "Source/*.cpp")
+desert_sources(_sources "Source" MATCHING "\\.cpp$")
 desert_add_executable(AssetRegistryTool FOLDER Tools SOURCES ${_sources}
     "${DESERT_ROOT}/Desert/Projects/Source/Projects/StartupLayout.cpp")
 target_include_directories(AssetRegistryTool PRIVATE "${DESERT_ROOT}/Tools/Shared")

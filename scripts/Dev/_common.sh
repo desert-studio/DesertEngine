@@ -44,8 +44,8 @@ dev_help() {
 }
 
 # dev_configure <log dir> [A,B,...] — configure the host preset once; again only when the DevTests suite list changes.
-# A merge that adds or removes sources needs nothing here: every source glob is CONFIGURE_DEPENDS, so the next build
-# re-globs and re-configures by itself. The suite list (suite.sh --dev-suites) is the one input a build cannot see,
+# A merge that adds or removes sources needs nothing here: it changes a committed Sources.cmake (sources_sync.py), and
+# the next build re-configures by itself because that list changed. The suite list (suite.sh --dev-suites) is the one input a build cannot see,
 # so it is compared with the cache: a plain call after a --dev-suites one configures DevTests out again.
 dev_configure() {
     local logdir="$1" suites="${2:-}" current
@@ -63,13 +63,13 @@ dev_has_target() {
 # dev_up_to_date <name> — Ninja, asked in dry run, has nothing left to do for the target: it is newer than every object,
 # library and generated file it depends on. The build's own dependency graph answers, not a timestamp guess.
 dev_up_to_date() {
-    # CONFIGURE_DEPENDS globs (desert_glob) make the glob check an always-dirty phony edge, so a dry run lists it and
-    # the CMake re-run behind it after every build ("[0/2] Re-checking globbed directories...", "[1/2] Re-running
-    # CMake..."). Any OTHER step is real work left for the target.
+    # The engine reads committed source lists and its generators run only on changed inputs (B-TREE), so a dry run of
+    # an up-to-date engine target says "no work to do". The DevTests suites still glob (CONFIGURE_DEPENDS): with them
+    # configured, the glob re-check and the CMake re-run behind it are listed after every build and are not work.
     local out
     out=$(ninja -C "$DEV_BUILD" -f "build-$DEV_CONFIG.ninja" -n "$1" 2>/dev/null) || return 1
     grep -q '^ninja: no work to do' <<<"$out" && return 0
-    ! grep -E '^\[[0-9]+/[0-9]+\] ' <<<"$out" | grep -vqE '\] ((Re-checking globbed directories|Re-running CMake)\.\.\.|GenVersion: .*|DesertHeaderTool: .*)$'
+    ! grep -E '^\[[0-9]+/[0-9]+\] ' <<<"$out" | grep -vqE '\] (Re-checking globbed directories|Re-running CMake)\.\.\.$'
 }
 
 # dev_drop_foreign_pch — deletes every DEV_CONFIG precompiled header of this tree that another tree compiled, so the

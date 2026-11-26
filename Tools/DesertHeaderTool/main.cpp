@@ -24,7 +24,10 @@
 //                    ForceLinkGeneratedReflection; a second generated set in one image names its own).
 //     --reflect-components <output-file>  after --reflect: the COMPONENT(...) block list.
 //     --schema-lock <file>  after --reflect: Desert/Schema/ComponentSchema.lock, the stored shape of every
-//                    COMPONENT block, checked and rewritten (Source/SchemaLock.hpp).
+//                    COMPONENT block, checked (Source/SchemaLock.hpp). The build only compares: a lock that
+//                    differs from the code (an accepted change, or no lock yet) fails it, naming the command.
+//     --write-schema-lock  after --schema-lock: rewrite the lock to the code's shape when the change is accepted
+//                    (scripts/Dev/schema_lock.sh, the one explicit command that changes the tracked file).
 //     --reflect-root <source-root> <scan-subdir>  after --reflect: one more tree scanned into the SAME set
 //                    (a library the engine links whose headers carry reflected types, e.g. DesertUI).
 //     --reflect-enums <scan-dir>  after --reflect: a tree read for ENUM definitions only (no reflected types),
@@ -1597,9 +1600,11 @@ namespace
     }
 
     // The code's COMPONENT blocks against the committed lock (Source/SchemaLock.hpp): a refused change is a build
-    // error saying what to write; an accepted one rewrites the lock, a missing lock is written fresh.
-    bool CheckAndWriteSchemaLock( const fs::path& lockFile, const std::vector<ComponentBlock>& components,
-                                  const std::vector<ReflectedType>& types )
+    // error saying what to write. An accepted change (or a missing lock) is written only when `write`
+    // (--write-schema-lock, scripts/Dev/schema_lock.sh); the build never touches the tracked file and fails
+    // instead, so the lock changes in the commit that changes the component, by one explicit command.
+    bool CheckSchemaLockFile( const fs::path& lockFile, const std::vector<ComponentBlock>& components,
+                              const std::vector<ReflectedType>& types, bool write )
     {
         std::vector<Desert::HeaderTool::SchemaBlock> current;
         for ( const ComponentBlock& c : components )
@@ -1641,8 +1646,16 @@ namespace
                 std::cout << "[DesertHeaderTool] schema: " << change << "\n";
         }
         else
-            std::cout << std::format( "[DesertHeaderTool] schema: {} written fresh ({} blocks)\n",
+            std::cout << std::format( "[DesertHeaderTool] schema: {} is missing ({} blocks in the code)\n",
                                       lockFile.generic_string(), current.size() );
+        if ( !write )
+        {
+            std::cerr << std::format(
+                 "[DesertHeaderTool] schema: {} differs from the code's COMPONENT blocks - run "
+                 "scripts/Dev/schema_lock.sh and commit the lock with this change\n",
+                 lockFile.generic_string() );
+            return false;
+        }
         fs::create_directories( lockFile.parent_path() );
         const Common::BoolResultStr saved = Common::Utils::FileSystem::WriteContentToFileAtomic( lockFile, written );
         if ( !saved.IsSuccess() )
@@ -1677,6 +1690,8 @@ namespace
         fs::path Components;
         // Desert/Schema/ComponentSchema.lock (--schema-lock, Source/SchemaLock.hpp); empty: not checked.
         fs::path SchemaLock;
+        // --write-schema-lock: an accepted change rewrites the lock instead of failing the run.
+        bool WriteSchemaLock = false;
     };
 
     constexpr std::string_view kModuleFilePrefix = "Reflection_";
@@ -1767,7 +1782,8 @@ namespace
             std::cerr << error << "\n";
         if ( !errors.empty() )
             return 1;
-        if ( !request.SchemaLock.empty() && !CheckAndWriteSchemaLock( request.SchemaLock, components, types ) )
+        if ( !request.SchemaLock.empty() &&
+             !CheckSchemaLockFile( request.SchemaLock, components, types, request.WriteSchemaLock ) )
             return 1;
 
         // Each type to its module, by the header's place in the repository (plan C11). Without a module table
@@ -1840,7 +1856,8 @@ namespace
 
         // The COMPONENT rows, per module (BUILD-MOD-5): Components_<Module>.gen.cpp registers that module's rows
         // and includes only its headers; Components.gen.cpp calls every module's in the table's order. Every
-        // module gets its file, as above, so the configure-time glob is fixed by the table.
+        // module gets its file, as above, so the build's list of them (DESERT_MODULE_<Name>_GENERATED,
+        // cmake/DesertModules.cmake) is fixed by the table.
         if ( !request.Components.empty() )
         {
             for ( const std::string& module : moduleNames )
@@ -1865,7 +1882,7 @@ namespace
                 return 1;
         }
 
-        // A module that left the table leaves no file behind for the source glob to compile.
+        // A module that left the table leaves no stale file behind in the generated directory.
         for ( const auto& entry : fs::directory_iterator( outputDir ) )
         {
             const std::string name = entry.path().filename().string();
@@ -1935,6 +1952,8 @@ static int RunTool( int argc, char** argv )
             reflect->Components = argv[++i];
         else if ( arg == "--schema-lock" && left >= 1 && reflect )
             reflect->SchemaLock = argv[++i];
+        else if ( arg == "--write-schema-lock" && reflect )
+            reflect->WriteSchemaLock = true;
         else if ( arg == "--shader-push" && left >= 2 )
         {
             shaderPush.emplace( argv[i + 1], argv[i + 2] );
