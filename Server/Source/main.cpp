@@ -38,6 +38,7 @@
 #include <ToolMain.hpp>
 #include <ToolProject.hpp>
 
+#include <Projects/NetSettings.hpp>
 #include <Projects/WorldPartitionSettings.hpp>
 
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
@@ -542,6 +543,61 @@ namespace Desert::Server
                            : std::string( "sent to the store, which assigns its version" );
         }
 
+        // THE PROJECT'S REPLICATION BY DISTANCE (WP-FAR-15): the session's form of Project::NetSettings, derived
+        // once at start; the exit margin is the World Partition UnloadMargin - the hysteresis residency already
+        // has, one number for both. The caller validates the project's settings first (Project::ValidateNetSettings,
+        // the one statement of the rule) and refuses to start.
+        Net::RelevancySettings RelevancySettingsOf( const Project::NetSettings&            net,
+                                                    const Project::WorldPartitionSettings& partition )
+        {
+            Net::RelevancySettings out;
+            out.Bands.clear();
+            for ( const Project::NetRateBand& band : net.Bands )
+                out.Bands.push_back( { band.ToCm, band.EverySteps } );
+            out.DormantEverySteps    = net.DormantEverySteps;
+            out.PawnCullRangeCm      = net.PawnCullRangeCm;
+            out.MaxViewRangeCm       = net.MaxViewRangeCm;
+            out.ExitMargin           = partition.UnloadMargin;
+            out.BudgetBytesPerSecond = net.BudgetBytesPerSecond;
+            return out;
+        }
+
+        // The project's Net settings for this session, or the refusal logged (the server exits 7).
+        std::optional<Net::RelevancySettings> ProjectRelevancy()
+        {
+            const Project::NetSettings& net = Project::CurrentNetSettings();
+            if ( const std::optional<std::string> refusal = Project::ValidateNetSettings( net ) )
+            {
+                LOG_ERROR( "[Server] ValidateNetSettings: {} (the \"Net\" section of Config/Engine.json and its "
+                           "platform layer) - not starting",
+                           *refusal );
+                return std::nullopt;
+            }
+            return RelevancySettingsOf( net, Project::CurrentWorldPartitionSettings() );
+        }
+
+        // What each connection gets now (UE `stat net` per connection): remote pawn bytes per second, the relevant
+        // remote pawns by send band, the dormant ones and the due entries the budget deferred last snapshot.
+        void LogNetRates( const Net::Gateway& gateway, std::string_view who )
+        {
+            const Net::Gateway::Stats     stats = gateway.ReplicationStats();
+            const Net::RelevancySettings& net   = gateway.Relevancy();
+            std::string                   players;
+            for ( const Net::Gateway::Stats::Connection& c : stats.Connections )
+            {
+                std::string bands;
+                for ( std::size_t i = 0; i < net.Bands.size(); ++i )
+                    bands += std::format( "{}{:g} Hz {}", i ? ", " : "", Net::kNetStepHz / net.Bands[i].EverySteps,
+                                          i < c.ByBand.size() ? c.ByBand[i] : 0u );
+                players += std::format( "; player {}: {} B/s, pawns by band [{}], dormant {}, deferred {}",
+                                        c.Player, c.PawnBytesPerSecond, bands, c.Dormant, c.Deferred );
+            }
+            LOG_INFO(
+                 "[Server] net rates{}: players {}{}; {} entry(ies) deferred by the budget in all, {} pawn entry "
+                 "byte(s) sent",
+                 who, stats.Connections.size(), players, stats.Deferred, stats.SnapshotBytes );
+        }
+
         // One console line; the answer (or the refusal) is logged.
         void RunConsoleLine( const std::string& line, const std::unordered_set<std::uint64_t>& records,
                              Net::IReplicationStore& store, const Net::Gateway* gateway, Net::PawnSimulation& sim )
@@ -561,7 +617,7 @@ namespace Desert::Server
             }
             if ( command == "stat" )
             {
-                const Net::Gateway::Stats& s = gateway->ReplicationStats();
+                const Net::Gateway::Stats s = gateway->ReplicationStats();
                 LOG_INFO(
                      "[Server] net stat: {} spawn(s) sent (dynamic pawns); {} stable object(s) replicated as "
                      "state, 0 as spawns: {} ObjectState packet(s), {} field update(s), {} acked, {} lost and "
@@ -569,6 +625,7 @@ namespace Desert::Server
                      "removed from a client's relevancy",
                      s.Spawns, store.StableObjects().size(), s.StablePackets, s.StableFields, s.Acked, s.Resent,
                      store.DestroyedStable().size(), s.DeltaReplays, s.Irrelevant );
+                LogNetRates( *gateway, "" );
                 return;
             }
             if ( command == "teleport" )
@@ -693,23 +750,12 @@ namespace Desert::Server
                     grid.UnitOfRecord[id] = static_cast<std::uint32_t>( unit );
                 grid.Cells.emplace( static_cast<std::uint32_t>( unit ), std::move( cell ) );
             }
-            // Pawns by the finest cell of the main grid (the first partition: what a record naming none streams
-            // on), measured the way residency measures a cell square against a source's loading range.
+            // The main grid's loading range (the first partition: what a record naming none streams on) - the
+            // floor of the circle a connection sees pawns within (Net ResolveViewShape). Pawns are relevant by
+            // point, not by cell (WP-FAR-15): the cells above are the stable objects'.
             const auto& partitions = world.Index->WorldPartition.RuntimePartitions;
             if ( !partitions.empty() && partitions.front().LHGrid )
-            {
-                const Core::RuntimePartitionLHGridSerialized main = *partitions.front().LHGrid;
-                grid.PawnCellInRange                              = [main]( const Net::NetVec3& viewer,
-                                               const Net::NetVec3& at ) -> std::optional<std::string>
-                {
-                    const double                  size   = Core::Rules::LevelCellSize( main.CellSize, 0 );
-                    const Core::Rules::CellCoord  coord  = Core::Rules::CellOf( at.X, at.Z, size );
-                    const Core::Rules::CellBounds square = Core::Rules::GridSquareOf( coord, size );
-                    if ( Core::Rules::DistanceToCellSquare( viewer.X, viewer.Z, square ) > main.LoadingRange )
-                        return std::nullopt;
-                    return std::format( "G0L0({},{})", coord.X, coord.Z );
-                };
-            }
+                grid.MainGridLoadingRangeCm = partitions.front().LHGrid->LoadingRange;
             return grid;
         }
 
@@ -851,9 +897,13 @@ namespace Desert::Server
                 std::optional<Net::GatewayAdmission> admission = AdmissionOf( options, world.CookHash, game );
                 if ( !admission )
                     return 7;
+                std::optional<Net::RelevancySettings> relevancy = ProjectRelevancy();
+                if ( !relevancy )
+                    return 7;
                 const Common::AssetHandle pawnPrefab = Common::AssetHandle::FromKey( options.pawn );
                 Net::Gateway              gateway( *transport, replica, std::move( *admission ),
-                                                   static_cast<std::uint64_t>( pawnPrefab ), RelevancyGridOf( world ), netLog );
+                                                   static_cast<std::uint64_t>( pawnPrefab ), RelevancyGridOf( world ),
+                                                   std::move( *relevancy ), netLog );
                 Net::RemoteSimLink        simLink( endpoint, netLog );
                 gateway.Bind( simLink );
                 endpoint.SetClients( &gateway );
@@ -909,16 +959,18 @@ namespace Desert::Server
                     }
                     for ( const std::uint32_t step : std::exchange( ticks, {} ) )
                     {
-                        if ( listening && step % Net::kSnapshotEverySteps == 0 )
+                        // Every step: the gateway decides which pawns are due (their periods, the cadence).
+                        if ( listening )
                             gateway.SendSnapshots( step );
                         if ( listening && gateway.Players() > 0 && step % 300 == 0 )
                         {
-                            const Net::Gateway::Stats& st = gateway.ReplicationStats();
+                            const Net::Gateway::Stats st = gateway.ReplicationStats();
                             LOG_INFO( "[Server] net stat (gateway {}): {} player(s); {} spawn(s) sent; {} stable "
                                       "object(s) replicated as state, 0 as spawns: {} ObjectState packet(s), {} field "
                                       "update(s), {} acked; {} delta replay(s)",
                                       options.index, gateway.Players(), st.Spawns, replica.StableObjects().size(),
                                       st.StablePackets, st.StableFields, st.Acked, st.DeltaReplays );
+                            LogNetRates( gateway, std::format( " (gateway {})", options.index ) );
                         }
                     }
                     std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
@@ -1185,10 +1237,13 @@ namespace Desert::Server
                      AdmissionOf( options, server->World().CookHash, *game );
                 if ( !admission )
                     return 7;
+                std::optional<Net::RelevancySettings> relevancy = ProjectRelevancy();
+                if ( !relevancy )
+                    return 7;
                 store   = std::make_unique<Net::InProcessReplicationStore>();
-                gateway = std::make_unique<Net::Gateway>( *transport, *store, std::move( *admission ),
-                                                          static_cast<std::uint64_t>( pawnPrefab ),
-                                                          RelevancyGridOf( server->World() ), netLog );
+                gateway = std::make_unique<Net::Gateway>(
+                     *transport, *store, std::move( *admission ), static_cast<std::uint64_t>( pawnPrefab ),
+                     RelevancyGridOf( server->World() ), std::move( *relevancy ), netLog );
                 Net::PawnSimulation::Settings simSettings;
                 for ( const glm::vec3& spawn : options.spawns )
                     simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
@@ -1271,8 +1326,8 @@ namespace Desert::Server
                         RunConsoleLine( line, records, *store, gateway.get(), *sim );
                     transport->Poll( *gateway );
                     sim->Step();
-                    if ( step % Net::kSnapshotEverySteps == 0 )
-                        gateway->SendSnapshots( static_cast<std::uint32_t>( step ) );
+                    // Every step: the gateway decides which pawns are due (their periods, the cadence).
+                    gateway->SendSnapshots( static_cast<std::uint32_t>( step ) );
                 }
                 const std::size_t playersBefore = sources.size() - 1;
                 gatherSources();

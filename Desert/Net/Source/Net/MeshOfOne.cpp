@@ -256,11 +256,55 @@ namespace Desert::Net
 
     // ---- gateway -----------------------------------------------------------------------------------------------
 
-    Gateway::Gateway( INetTransport& transport, IReplicationStore& store, GatewayAdmission admission,
-                      std::uint64_t pawnPrefab, NetRelevancyGrid grid, NetLogSink log )
-         : m_Transport( transport ), m_Store( store ), m_Admission( std::move( admission ) ),
-           m_PawnPrefab( pawnPrefab ), m_Grid( std::move( grid ) ), m_Log( std::move( log ) )
+    namespace
     {
+        // The state the connection last received equals the store's: nothing to tell but a keep-alive (dormant).
+        bool SameState( const PawnState& a, const PawnState& b )
+        {
+            const auto same = []( const NetVec3& x, const NetVec3& y )
+            { return x.X == y.X && x.Y == y.Y && x.Z == y.Z; };
+            return a.Id == b.Id && same( a.Position, b.Position ) && a.Yaw == b.Yaw &&
+                   same( a.Velocity, b.Velocity ) && a.Movement == b.Movement &&
+                   a.TeleportCount == b.TeleportCount;
+        }
+
+        // One snapshot entry's size on the wire, measured from the encoder itself (one source of truth: the
+        // codec).
+        std::size_t MeasureEntryBytes()
+        {
+            SnapshotMessage one;
+            one.Pawns.emplace_back();
+            return EncodeSnapshot( one ).size() - EncodeSnapshot( SnapshotMessage{} ).size();
+        }
+
+        double HzOf( std::uint32_t periodSteps )
+        {
+            return kNetStepHz / static_cast<double>( periodSteps );
+        }
+    } // namespace
+
+    Gateway::Gateway( INetTransport& transport, IReplicationStore& store, GatewayAdmission admission,
+                      std::uint64_t pawnPrefab, NetRelevancyGrid grid, RelevancySettings relevancy,
+                      NetLogSink log )
+         : m_Transport( transport ), m_Store( store ), m_Admission( std::move( admission ) ),
+           m_PawnPrefab( pawnPrefab ), m_Grid( std::move( grid ) ), m_Relevancy( std::move( relevancy ) ),
+           m_EntryBytes( MeasureEntryBytes() ), m_Log( std::move( log ) )
+    {
+        std::string bands;
+        for ( std::size_t i = 0; i < m_Relevancy.Bands.size(); ++i )
+        {
+            const RateBand& band = m_Relevancy.Bands[i];
+            bands += i + 1 < m_Relevancy.Bands.size()
+                          ? std::format( "{:.0f} m at {:g} Hz, ", band.ToCm / 100.f, HzOf( band.EverySteps ) )
+                          : std::format( "beyond at {:g} Hz", HzOf( band.EverySteps ) );
+        }
+        m_Log( std::format( "replication by distance: {}; dormant at {:g} Hz; pawns seen within {:.0f} m (a "
+                            "reported view up to {:.0f} m), left past +{:.0f}%; {} B/s of pawn entries per "
+                            "connection ({} B per entry)",
+                            bands, HzOf( m_Relevancy.DormantEverySteps ),
+                            std::max( m_Relevancy.PawnCullRangeCm, m_Grid.MainGridLoadingRangeCm ) / 100.f,
+                            m_Relevancy.MaxViewRangeCm / 100.f, m_Relevancy.ExitMargin * 100.f,
+                            m_Relevancy.BudgetBytesPerSecond, m_EntryBytes ) );
     }
 
     void Gateway::OnConnected( ConnectionId connection, std::string_view address )
@@ -323,6 +367,7 @@ namespace Desert::Net
         }
         peer.Admitted              = true;
         peer.Player                = m_NextPlayer++;
+        peer.WindowStep            = m_ServerStep; // the byte-rate window opens at admission
         m_Connections[peer.Player] = connection;
         m_Transport.Send( connection, EncodeWelcome( m_Admission.CookHash, m_PawnPrefab ), ENetLane::Control );
         m_Log( std::format( "connection {}: admitted as player {} (account {}, issuer {}), pawn prefab {:016x}",
@@ -365,6 +410,28 @@ namespace Desert::Net
                 m_Log( std::format( "connection {}: malformed StateAck dropped", connection ) );
             return;
         }
+        if ( type == EReplicationMessage::ViewReport )
+        {
+            // The client's view shape (APlayerController::ServerUpdateCamera): the newest wins (State lane,
+            // unordered and lossy - the client resends it once a second).
+            if ( const std::optional<ViewReport> view = DecodeViewReport( data ) )
+            {
+                // The shape the gateway will use, logged whenever it changes (the clamps included).
+                const ViewShape before = ResolveViewShape( m_Relevancy, m_Grid.MainGridLoadingRangeCm, peer.View );
+                const ViewShape after  = ResolveViewShape( m_Relevancy, m_Grid.MainGridLoadingRangeCm, *view );
+                if ( !peer.View || after.CircleRangeCm != before.CircleRangeCm ||
+                     after.SectorRangeCm != before.SectorRangeCm || after.SectorAngleDeg != before.SectorAngleDeg ||
+                     after.FacingYawDeg != before.FacingYawDeg )
+                    m_Log( std::format( "player {}: view shape - circle {:.0f} m, sector {:.0f} deg facing {:.0f} deg "
+                                        "to {:.0f} m (reported {:.0f} m)",
+                                        peer.Player, after.CircleRangeCm / 100.f, after.SectorAngleDeg,
+                                        after.FacingYawDeg, after.SectorRangeCm / 100.f, view->RangeCm / 100.f ) );
+                peer.View = *view;
+            }
+            else
+                m_Log( std::format( "connection {}: malformed ViewReport dropped", connection ) );
+            return;
+        }
         if ( type != EReplicationMessage::Input )
             return;
         const std::optional<InputMessage> input = DecodeInput( data );
@@ -394,8 +461,11 @@ namespace Desert::Net
     {
         m_PawnInfo.erase( id );
         for ( auto& [connection, peer] : m_Peers )
+        {
+            peer.Sent.erase( id );
             if ( peer.Relevant.erase( id ) > 0 )
                 m_Transport.Send( connection, EncodeDestroy( { id, EDestroyReason::Destroyed } ), ENetLane::Rpc );
+        }
     }
 
     bool Gateway::StableRelevant( const Peer& peer, StableNetId id ) const
@@ -435,34 +505,59 @@ namespace Desert::Net
                 m_Log( std::format( "player {}: cell {} resident on the client", peer.Player, nameOf( unit ) ) );
     }
 
-    void Gateway::UpdateRelevancy( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns )
+    std::optional<NetVec3> Gateway::UpdateRelevancy( ConnectionId connection, Peer& peer,
+                                                     const std::vector<PawnState>& pawns, std::uint32_t serverStep )
     {
-        // The viewer is the client's own pawn (its streaming source): without one only its own pawn is.
+        // The viewer is the client's own pawn (its streaming source): without one only its own pawn is relevant.
         std::optional<NetVec3> viewer;
         for ( const PawnState& pawn : pawns )
             if ( const auto info = m_PawnInfo.find( pawn.Id );
                  info != m_PawnInfo.end() && info->second.Owner == peer.Player )
                 viewer = pawn.Position;
+        const ViewShape shape = ResolveViewShape( m_Relevancy, m_Grid.MainGridLoadingRangeCm, peer.View );
         std::set<NetId> now;
         for ( const PawnState& pawn : pawns )
         {
             const auto info = m_PawnInfo.find( pawn.Id );
             if ( info == m_PawnInfo.end() )
                 continue; // a state with no spawn yet
-            const bool                 own = info->second.Owner == peer.Player;
-            std::optional<std::string> cell;
-            if ( !own && viewer && m_Grid.PawnCellInRange )
-                cell = m_Grid.PawnCellInRange( *viewer, pawn.Position );
-            if ( !own && !cell )
-                continue;
+            const bool own = info->second.Owner == peer.Player;
+            const bool had = peer.Relevant.contains( pawn.Id );
+            if ( !own )
+            {
+                if ( !viewer )
+                    continue;
+                // Enter inside the shape, leave only past it widened by the exit margin: between the two a pawn
+                // keeps what it had, so one walking along the edge is neither spawned nor destroyed (§3.5).
+                const float ratio = RangeRatio( shape, *viewer, pawn.Position );
+                if ( had ? ratio > 1.f + m_Relevancy.ExitMargin : ratio > 1.f )
+                    continue;
+            }
             now.insert( pawn.Id );
-            if ( peer.Relevant.contains( pawn.Id ) )
+            if ( had )
                 continue;
             m_Transport.Send( connection, EncodeSpawn( { pawn, own, info->second.Player } ), ENetLane::Rpc );
             ++m_Stats.Spawns;
-            m_Log( std::format( "player {}: pawn {} (player {}) relevant - its finest cell {} is in the client's "
-                                "loading range",
-                                peer.Player, pawn.Id, info->second.Player, cell ? *cell : std::string( "own" ) ) );
+            if ( own )
+                m_Log( std::format( "player {}: pawn {} relevant (player {}): own", peer.Player, pawn.Id,
+                                    info->second.Player ) );
+            else
+            {
+                // The reach at the pawn's bearing: the sector's when it stands in it, the circle's otherwise.
+                const float distance = GroundDistanceCm( *viewer, pawn.Position );
+                const float ratio    = RangeRatio( shape, *viewer, pawn.Position );
+                const float reach    = ratio > 0.f ? distance / ratio : shape.CircleRangeCm;
+                // Its wait starts now, one band period old: due on this snapshot, and its priority grows with
+                // every snapshot the budget defers it (Iris) - a pawn never sent cannot starve.
+                peer.Sent.insert_or_assign(
+                     pawn.Id, SentPawn{ serverStep - SendPeriodSteps( m_Relevancy, distance ), std::nullopt, false } );
+                m_Log( std::format( "player {}: pawn {} relevant (player {}): {:.0f} m inside {} {:.0f} m",
+                                    peer.Player, pawn.Id, info->second.Player, distance / 100.f,
+                                    reach > shape.CircleRangeCm
+                                         ? std::format( "sector {:.0f} deg", shape.SectorAngleDeg )
+                                         : std::string( "circle" ),
+                                    reach / 100.f ) );
+            }
         }
         for ( const NetId id : peer.Relevant )
         {
@@ -470,12 +565,26 @@ namespace Desert::Net
                 continue;
             m_Transport.Send( connection, EncodeDestroy( { id, EDestroyReason::NotRelevant } ), ENetLane::Rpc );
             ++m_Stats.Irrelevant;
-            const auto info = m_PawnInfo.find( id );
-            m_Log( std::format( "player {}: pawn {} (player {}) removed from relevancy - its finest cell is out "
-                                "of the client's loading range",
-                                peer.Player, id, info != m_PawnInfo.end() ? info->second.Player : 0 ) );
+            peer.Sent.erase( id );
+            const auto info  = m_PawnInfo.find( id );
+            const auto state = std::ranges::find( pawns, id, &PawnState::Id );
+            if ( viewer && state != pawns.end() )
+            {
+                const float distance = GroundDistanceCm( *viewer, state->Position );
+                const float ratio    = RangeRatio( shape, *viewer, state->Position );
+                m_Log( std::format(
+                     "player {}: pawn {} left: {:.0f} m past {:.0f} m (player {}) - Destroy NotRelevant",
+                     peer.Player, id, distance / 100.f,
+                     distance / ratio * ( 1.f + m_Relevancy.ExitMargin ) / 100.f,
+                     info != m_PawnInfo.end() ? info->second.Player : 0 ) );
+            }
+            else
+                m_Log(
+                     std::format( "player {}: pawn {} left: {} - Destroy NotRelevant", peer.Player, id,
+                                  viewer ? "no state in the store" : "the connection has no pawn to view from" ) );
         }
         peer.Relevant = std::move( now );
+        return viewer;
     }
 
     // THE WORLD DELTA REPLAY (§3.3): the destroyed stable ids of every cell the client has resident, once per
@@ -515,28 +624,12 @@ namespace Desert::Net
 
     void Gateway::SendSnapshots( std::uint32_t serverStep )
     {
+        // The gateway decides every step; a snapshot (and the stable state with it) goes on the cadence's steps.
+        if ( serverStep % m_Relevancy.Bands.front().EverySteps != 0 )
+            return;
         const std::vector<PawnState> pawns = m_Store.All();
         for ( const auto& [player, connection] : m_Connections )
-        {
-            Peer& peer = m_Peers[connection];
-            UpdateRelevancy( connection, peer, pawns );
-            SnapshotMessage snapshot;
-            snapshot.ServerStep = serverStep;
-            for ( const PawnState& pawn : pawns )
-                if ( peer.Relevant.contains( pawn.Id ) )
-                    snapshot.Pawns.push_back( pawn );
-            const std::optional<ISimLink::AckedMove> ack =
-                 m_Sim != nullptr ? m_Sim->LastProcessedInput( player ) : std::nullopt;
-            snapshot.HasAck = ack.has_value();
-            if ( ack )
-            {
-                snapshot.AckInputStep  = ack->Step;
-                snapshot.OwnState      = ack->State;
-                snapshot.InputBuffered = ack->Buffered;
-            }
-            // State lane: unreliable; a full send queue drops this snapshot, the next one supersedes it.
-            m_Transport.Send( connection, EncodeSnapshot( snapshot ), ENetLane::State );
-        }
+            SendSnapshot( connection, m_Peers[connection], pawns, serverStep );
         m_ServerStep = serverStep;
         for ( auto& [connection, peer] : m_Peers )
             if ( peer.Admitted )
@@ -545,6 +638,130 @@ namespace Desert::Net
                 ReplayWorldDelta( connection, peer );
                 SendStableState( connection, peer, serverStep );
             }
+    }
+
+    void Gateway::SendSnapshot( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns,
+                                std::uint32_t serverStep )
+    {
+        const std::optional<NetVec3> viewer  = UpdateRelevancy( connection, peer, pawns, serverStep );
+        const std::uint32_t          cadence = m_Relevancy.Bands.front().EverySteps;
+        SnapshotMessage              snapshot;
+        snapshot.ServerStep = serverStep;
+        // The due remote pawns: period by distance (the band); a pawn whose store state is what the connection
+        // last received is dormant - sent only every DormantEverySteps as a keep-alive, but its entry still
+        // carries the band period, so the client's interpolation delay does not grow while it stands (UE
+        // ReplicationPeriodFrame / NetDormancy keeps the net update rate). Dormancy shows in stats and log only.
+        struct Due
+        {
+            const PawnState* Pawn     = nullptr;
+            std::uint32_t    Period   = 0;
+            float            Priority = 0.f;
+        };
+        std::vector<Due> due;
+        peer.ByBand.assign( m_Relevancy.Bands.size(), 0 );
+        peer.Dormant = 0;
+        for ( const PawnState& pawn : pawns )
+        {
+            if ( !peer.Relevant.contains( pawn.Id ) )
+                continue;
+            const auto info = m_PawnInfo.find( pawn.Id );
+            if ( info != m_PawnInfo.end() && info->second.Owner == peer.Player )
+            {
+                // The own pawn: every snapshot (its ack cadence), outside the budget.
+                snapshot.Pawns.push_back( { pawn, static_cast<std::uint8_t>( cadence ) } );
+                continue;
+            }
+            if ( !viewer )
+                continue; // UpdateRelevancy keeps no remote pawn without a viewer
+            const float         distance = GroundDistanceCm( *viewer, pawn.Position );
+            const auto sent = peer.Sent.find( pawn.Id );
+            if ( sent == peer.Sent.end() )
+                continue; // UpdateRelevancy made the entry of every relevant remote pawn
+            const bool          dormant = sent->second.LastSent && SameState( *sent->second.LastSent, pawn );
+            const std::uint32_t period  = SendPeriodSteps( m_Relevancy, distance ); // the band: carried
+            const std::uint32_t every   = dormant ? m_Relevancy.DormantEverySteps : period; // the send cadence
+            if ( dormant )
+                ++peer.Dormant;
+            else
+                for ( std::size_t i = 0; i < m_Relevancy.Bands.size(); ++i )
+                    if ( m_Relevancy.Bands[i].EverySteps == period )
+                    {
+                        ++peer.ByBand[i]; // the first band of that period (bands of equal period print as one)
+                        break;
+                    }
+            if ( dormant != sent->second.Dormant )
+            {
+                sent->second.Dormant = dormant;
+                m_Log( dormant
+                            ? std::format( "player {}: pawn {} dormant - unchanged, sent every {} steps ({:g} Hz), "
+                                           "period {}",
+                                           peer.Player, pawn.Id, every, HzOf( every ), period )
+                            : std::format( "player {}: pawn {} awake - period {} ({:g} Hz) at {:.0f} m",
+                                           peer.Player, pawn.Id, period, HzOf( period ), distance / 100.f ) );
+            }
+            const std::uint32_t since = serverStep - sent->second.LastSentStep;
+            if ( since < every )
+                continue;
+            due.push_back( { &pawn, period, SendPriority( since, every, distance ) } );
+        }
+        // THE BUDGET CUT (§3.6, Iris): most overdue and nearest first, until this snapshot's bytes are spent; the
+        // rest wait for the next snapshot, their priority grown by the wait.
+        std::ranges::sort( due, std::ranges::greater{}, &Due::Priority );
+        const std::size_t budget = SnapshotEntryBudgetBytes( m_Relevancy, m_EntryBytes );
+        std::size_t       spent  = 0;
+        peer.Deferred            = 0;
+        for ( const Due& entry : due )
+        {
+            if ( spent + m_EntryBytes > budget )
+            {
+                ++peer.Deferred;
+                continue;
+            }
+            spent += m_EntryBytes;
+            snapshot.Pawns.push_back( { *entry.Pawn, static_cast<std::uint8_t>( entry.Period ) } );
+            SentPawn& sent    = peer.Sent[entry.Pawn->Id];
+            sent.LastSentStep = serverStep;
+            sent.LastSent     = *entry.Pawn;
+        }
+        m_Stats.Deferred += peer.Deferred;
+        m_Stats.SnapshotBytes += spent;
+        peer.BytesSent += spent;
+        if ( serverStep - peer.WindowStep >= static_cast<std::uint32_t>( kNetStepHz ) )
+        {
+            const double seconds = static_cast<double>( serverStep - peer.WindowStep ) / kNetStepHz;
+            peer.BytesPerSecond  = static_cast<std::uint64_t>(
+                 static_cast<double>( peer.BytesSent - peer.BytesAtWindow ) / seconds );
+            peer.BytesAtWindow = peer.BytesSent;
+            peer.WindowStep    = serverStep;
+        }
+
+        const std::optional<ISimLink::AckedMove> ack =
+             m_Sim != nullptr ? m_Sim->LastProcessedInput( peer.Player ) : std::nullopt;
+        snapshot.HasAck = ack.has_value();
+        if ( ack )
+        {
+            snapshot.AckInputStep  = ack->Step;
+            snapshot.OwnState      = ack->State;
+            snapshot.InputBuffered = ack->Buffered;
+        }
+        // State lane: unreliable; a full send queue drops this snapshot, the next one supersedes it. A lost entry
+        // is resent only at its next period (Sent records the send, not the receipt - as UE's unreliable property
+        // replication between full resends).
+        m_Transport.Send( connection, EncodeSnapshot( snapshot ), ENetLane::State );
+    }
+
+    Gateway::Stats Gateway::ReplicationStats() const
+    {
+        Stats stats = m_Stats;
+        for ( const auto& [player, connection] : m_Connections )
+        {
+            const auto peer = m_Peers.find( connection );
+            if ( peer == m_Peers.end() )
+                continue;
+            stats.Connections.push_back( { player, peer->second.BytesPerSecond, peer->second.ByBand,
+                                           peer->second.Dormant, peer->second.Deferred } );
+        }
+        return stats;
     }
 
     namespace
