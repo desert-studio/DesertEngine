@@ -34,14 +34,16 @@
 Нет A \[Net\] correction \d+ at
 # No input step given up: every Input message resends each unacked step until the ack (kMaxUnackedInputSteps).
 Нет server never arrived
-# Когда: the server console relocates A to (2300, 300, 520) cm - in front of the fence, in the side camera's view, a few metres
-# above the slope; it falls onto it, no input.
+# Когда: the server console relocates A to (2300, 100, 520) cm - in front of the fence, 2 m above the slope (feet -99 there);
+# it falls onto it, no input. NET-PAWN-TELEPORT-FRAME: the side camera (vertical half-FOV ~32 deg, f ~690 px at 1435x857) puts
+# feet at y 300 on row ~7 and the whole body above the frame, so a relocation to y 300 cannot be judged in the first frame;
+# at y 100 the whole body projects to rows ~47-318 (feet ~65 cm after the first frame's 15 predicted steps: rows ~95-370), x ~890-930.
 Ждать server 30 player 1 account 1 \(
 Запомнить p server player 1 account 1 \((-?\d+), (-?\d+), (-?\d+)\)
-Консоль server teleport 1 2300 300 520
+Консоль server teleport 1 2300 100 520
 Ждать server 30 \[Net\] player 1: pawn \d+ teleported to
 Ждать A 60 \[Net\] correction 1 at .*drawn at once
-Тогда A clientA_teleport the side camera's view right after the relocation: the fence scene with A's own mannequin in front of the fence (x ~2300), falling or just landed, drawn whole; the client keeps drawing
+Тогда A clientA_teleport the FIRST frame drawn after the «drawn at once» correction (the frame whose net tick logged it): A's own mannequin body - grey-brown capsule, ~40-50 px wide, ~230 px tall - stands out against the sky and the slope at x ~880-940, between rows ~40 and ~400, in front of the fence's right end, whole (top and bottom caps inside the frame); a frame with only sky/grass at those pixels FAILS, whatever the log says; no second mannequin; the client keeps drawing
 # Тогда [net4_teleport_ground]: landed, server = client drawn; 10 s later both unchanged (< 1 cm); one correction.
 Ждать A 60 8x \[Net\] t=
 Ждать server 30 2x player 1 account 1 \(
