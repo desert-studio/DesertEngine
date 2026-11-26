@@ -427,7 +427,6 @@ namespace Desert::Graphic
         const auto& frames = Engine::FrameManager::GetInstance();
         m_RetiringFaces.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
         m_RetiringFields.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
-        m_RetiringSurfaceCaches.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
 
         const uint32_t faceSize = ReflectionCaptureFaceSize();
         if ( !std::has_single_bit( faceSize ) )
@@ -570,8 +569,6 @@ namespace Desert::Graphic
                               frames.GetAbsoluteFrameCount(), m_Writes, released );
                 if ( m_FaceField )
                     m_RetiringFields.Park( std::move( m_FaceField ), frames.GetAbsoluteFrameCount() );
-                if ( m_FaceSurfaceCache )
-                    m_RetiringSurfaceCaches.Park( std::move( m_FaceSurfaceCache ), frames.GetAbsoluteFrameCount() );
                 return;
             }
             m_Pending      = static_cast<uint32_t>( next );
@@ -609,8 +606,6 @@ namespace Desert::Graphic
         const SceneRenderer::UpdateInfo info{ timestep, realTimestep, m_PendingSuns };
         if ( !m_FaceField )
             m_FaceField = std::make_unique<DistanceField::GlobalDistanceField>( m_Scene ); // the scene's rows
-        if ( !m_FaceSurfaceCache )
-            m_FaceSurfaceCache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>( m_Scene ); // the scene's rows
         if ( !m_Faces[face] )
         {
             m_Faces[face] = std::make_unique<FaceView>();
@@ -627,14 +622,8 @@ namespace Desert::Graphic
         view.Renderer->BorrowEnvironment( environment );
         // The capture point's one field (m_FaceField), shared by the six faces.
         view.Renderer->ShareGlobalDistanceField( m_FaceField.get() );
-        // ... and its one surface cache (m_FaceSurfaceCache), whose one view this frame stands at the capture
-        // point. The scene's unbound volumes, read here on the game thread (the capture driver runs with nothing
-        // in flight: Scene::OnUpdate defers it behind the views, RenderTask::AfterJoin).
-        const Core::PostProcessSettings facePost = ResolveViewSettings( scene.GetRegistry(), std::nullopt ).Post;
-        m_FaceSurfaceCache->BeginFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
-                                        { capture.CapturePosition }, facePost,
-                                        scene.GetSettings().RenderingPath == Core::RenderPath::Deferred );
-        view.Renderer->ShareSurfaceCache( m_FaceSurfaceCache.get() );
+        // A face view runs no surface cache (ViewProfile::SceneCapture, SceneRendererImpl::SurfaceCacheRuns): the
+        // scene's one cache is the viewports' to bring up.
         if ( const auto begun = view.Renderer->BeginScene( scene, &view.View ); !begun )
         {
             LOG_ERROR( "[ReflectionCaptures] capture {} face {}: the face view did not open: {}", m_Pending, face,

@@ -707,11 +707,6 @@ namespace Desert::Graphic
         // capture renderer's (DistanceField::GlobalDistanceField: updated once per frame): @p field is lent before
         // each frame and outlives the frames in flight that read it; null returns the view to its own field.
         virtual void ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field ) = 0;
-        // ... and ONE surface cache (the Lumen scene of their cards): @p cache is their capture renderer's, lent
-        // before each frame (one face renders per engine frame, so the cache sees one Update per frame) and
-        // outliving the frames in flight that recorded its passes; null returns the view to its scene's cache
-        // (Scene::GetSurfaceCache).
-        virtual void ShareSurfaceCache( SurfaceCache::SurfaceCacheRenderer* cache ) = 0;
 
         // Procedural sky configuration (from the SkyAtmosphereComponent + the atmosphere sun, via the ECS).
         // sunDir is the direction TOWARD the sun, already normalized; bakeNow is the one-shot request from

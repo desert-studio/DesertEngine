@@ -94,7 +94,7 @@ namespace Common::Scalability
         // COST knobs of passes whose LOOK is authored per scene (PostProcessSettings): they scale what the pass
         // spends (steps, taps, mips), never its intensity - UE sg.* semantics.
         ReflectionMaxSteps,      // SSR HZB traversal iterations per ray (SSRRenderer push constant). 8..128
-        DistanceFieldPoolMiB,    // mesh distance-field brick atlas (DistanceFieldSceneData). 32..512 MiB
+        DistanceFieldPoolMiB,    // per-scene ceiling of the grown brick atlas (DistanceFieldSceneData). 32..512 MiB
         AmbientOcclusionSamples, // GTAO horizon taps per direction (SSAORenderer). 4..32, SSAO.shader kMaxTaps
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
         // The bloom method (UE r.Bloom.Method): Values: BloomMethod (CapabilityCatalog.hpp) - Gaussian below Epic,

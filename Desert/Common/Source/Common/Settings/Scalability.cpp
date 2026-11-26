@@ -65,7 +65,9 @@ namespace Common::Scalability
                Vis::Advanced },
              { P::DistanceFieldPoolMiB, G::GlobalIllumination, "GlobalIllumination.DistanceFieldPoolMiB", 32, 512,
                CL::None,
-               "DistanceFieldSceneData::SetPoolMiB - the brick atlas the finer mesh-field mips stream within", 384,
+               "DistanceFieldSceneData::SetPoolCapMiB - ceiling of the distance-field brick atlas per scene; the atlas "
+               "grows to the scene's need",
+               384,
                Vis::Advanced },
              { P::AmbientOcclusionSamples, G::PostProcess, "PostProcess.AmbientOcclusionSamples", 4, 32, CL::None,
                "SSAORenderer GTAO horizon taps per direction (SSAO.shader kMaxTaps = 32)", 24, Vis::Advanced },

@@ -2386,8 +2386,12 @@ namespace Desert::Editor
                     continue;
                 }
                 Graphic::SceneRenderState& renderState = Graphic::RenderStateOf( *scene );
-                if ( renderState.GetDistanceFields().GetBrickAtlas() != nullptr )
+                const Graphic::DistanceField::DistanceFieldSceneData& fields = renderState.GetDistanceFields();
+                if ( fields.GetBrickAtlas() != nullptr )
                     ++snapshot.DistanceFieldPools;
+                // One R8 voxel is one byte: the atlas's bricks times a brick's voxels are its bytes.
+                snapshot.DistanceFieldAtlasBytes += static_cast<uint64_t>( fields.GetStats().CapacityBricks ) *
+                                                    ::Desert::Assets::kDistanceFieldBrickVoxels;
                 if ( renderState.GetSurfaceCache().IsConfigured() )
                     ++snapshot.SurfaceCaches;
             }

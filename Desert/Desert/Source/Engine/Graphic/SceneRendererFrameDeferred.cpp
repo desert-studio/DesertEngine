@@ -1548,7 +1548,7 @@ namespace Desert::Graphic
              .Extent            = glm::uvec2( frame.Split.Render.Width, frame.Split.Render.Height ) };
         const auto field = m_GlobalDistanceFieldView->AddFramePasses(
              graph, *globalField, import, objects, *m_FrameDistanceFields,
-             Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(), m_DistanceFieldPoolMiB, nearView );
+             Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(), nearView );
         if ( !field )
         {
             LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", field.GetError() );

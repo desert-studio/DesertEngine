@@ -553,7 +553,7 @@ namespace Desert::Graphic::DistanceField
     GlobalDistanceField::AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
                                           const GlobalDistanceFieldObjectSet& objects,
                                           DistanceFieldSceneData& scene, const uint64_t engineFrame,
-                                          const uint32_t poolMiB, const MeshFieldImports& imports )
+                                          const MeshFieldImports& imports )
     {
         // The owner's rows: the per-frame buffers grow on upload (GdfUpload) inside the asking view's scope.
         const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
@@ -593,7 +593,7 @@ namespace Desert::Graphic::DistanceField
         // The scene's frame: the first view of it decides the scene's resident fields, every later view finds them
         // as that one left them (DistanceFieldSceneData::BeginViewFrame) - from the set's distinct fields (the
         // list is the scene's, not culled), sealed with the set.
-        if ( const auto begun = scene.BeginViewFrame( engineFrame, poolMiB, objects.Fields ); !begun )
+        if ( const auto begun = scene.BeginViewFrame( engineFrame, objects.Fields ); !begun )
             return Common::MakeError<FrameField>( begun.GetError() );
         // Each field's slot in the resident set: resolved again only for another set or resident epoch.
         if ( m_SlotsIdentity != objects.Identity || m_SlotsEpoch != scene.GetResidentEpoch() )
@@ -1040,14 +1040,14 @@ namespace Desert::Graphic::DistanceField
                                              const GlobalDistanceField::ImportImage&       import,
                                              const GlobalDistanceFieldObjectSet&           objects,
                                              DistanceFieldSceneData& scene, const uint64_t engineFrame,
-                                             const uint32_t poolMiB, const NearFieldView& view )
+                                             const NearFieldView& view )
     {
         // This graph's view of the buffers a trace reads - the scene's records and table, the field's objects -
         // registered by the field's update in this graph through this view's imports (RegisterMeshFields).
         const GlobalDistanceField::MeshFieldImports imports{
              .Assets = &m_AssetImport, .Indirection = &m_IndirectionImport, .Objects = &m_ObjectImport };
-        auto updated = field.AddUpdatePasses( graph, import, view.CameraPosition, objects, scene, engineFrame,
-                                              poolMiB, imports );
+        auto updated =
+             field.AddUpdatePasses( graph, import, view.CameraPosition, objects, scene, engineFrame, imports );
         if ( !updated )
             return Common::MakeError<GlobalDistanceField::FrameField>( updated.GetError() );
         GlobalDistanceField::FrameField frame = updated.GetValue();

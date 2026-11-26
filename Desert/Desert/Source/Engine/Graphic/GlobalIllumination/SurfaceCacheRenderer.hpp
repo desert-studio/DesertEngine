@@ -52,9 +52,8 @@ namespace Desert::ShaderResources
 namespace Desert::Graphic::SurfaceCache
 {
     // ONE PER SCENE (UE: FScene's FLumenSceneData - the Lumen scene is the scene's, a view owns no cards):
-    // Core::Scene::GetSurfaceCache, read by every view of that scene (the editor viewports, PIE, which plays in
-    // the edited Scene). A reflection capture's face views stand at one capture point and keep one of their own
-    // (ReflectionCaptureRenderer::m_FaceSurfaceCache, SceneRenderer::ShareSurfaceCache).
+    // owned by Graphic::SceneRenderState (GetSurfaceCache), read by every view of that scene (the editor viewports,
+    // PIE, which plays in the edited Scene). A reflection capture's face views run none (ViewProfile::SceneCapture).
     class SurfaceCacheRenderer
     {
     public:

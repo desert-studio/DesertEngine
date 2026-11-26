@@ -390,11 +390,15 @@ namespace Desert::Editor::Control
         // The scene-owned GI pools (UE: FScene's FDistanceFieldSceneData and FLumenSceneData), over every live
         // Core::Scene: Scenes, the live scenes; DistanceFieldPools, those whose mesh distance-field brick atlas is
         // resident (DistanceFieldSceneData::GetBrickAtlas); SurfaceCaches, those whose surface cache atlases are
-        // (Scene::GetSurfaceCache, IsConfigured). One world seen by several viewports or played in PIE is one
-        // scene: one of each, however many views read it.
+        // (Graphic::SceneRenderState::GetSurfaceCache, IsConfigured). One world seen by several viewports or played
+        // in PIE is one scene: one of each, however many views read it.
         uint32_t Scenes             = 0;
         uint32_t DistanceFieldPools = 0;
         uint32_t SurfaceCaches      = 0;
+        // The bytes of every live scene's brick atlas as grown (DistanceFieldStreamingStats::CapacityBricks x the
+        // R8 brick's voxels): the scene's need under its Scalability ceiling, never a per-view size - a second
+        // viewport of one world adds nothing.
+        uint64_t DistanceFieldAtlasBytes = 0;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -641,6 +645,7 @@ namespace Desert::Editor::Control
             views["scenes"]                = Num( snapshot.Scenes );
             views["distanceFieldPools"]    = Num( snapshot.DistanceFieldPools );
             views["surfaceCaches"]         = Num( snapshot.SurfaceCaches );
+            views["distanceFieldAtlasBytes"] = Num( static_cast<double>( snapshot.DistanceFieldAtlasBytes ) );
             root["views"]         = Common::Json::Value( views );
         }
 

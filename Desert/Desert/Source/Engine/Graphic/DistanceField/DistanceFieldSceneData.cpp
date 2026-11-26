@@ -7,9 +7,11 @@
 #include <atomic>
 #include <bit>
 #include <limits>
+#include <unordered_set>
 #include <Engine/Graphic/DistanceField/DistanceFieldShared.hpp>
 #include <format>
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Settings/Scalability.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
 namespace Desert::Graphic::DistanceField
@@ -27,6 +29,15 @@ namespace Desert::Graphic::DistanceField
         constexpr uint32_t kDfBricksPerSlice     = kDfAtlasBricksX * kDfAtlasBricksY;
         constexpr uint32_t kDfMaxAtlasDepthTexel = 2048; // the smallest maxImageDimension3D the engine targets
         constexpr uint32_t kDfBytesPerSlice      = kDfBricksPerSlice * Assets::kDistanceFieldBrickVoxels;
+        // The atlas grows in steps of this many slices (8 MiB of R8 bricks): an empty scene holds one step.
+        constexpr uint32_t kDfAtlasGrowSlices = 4u;
+        static_assert( kDfBytesPerSlice == 2u * 1024u * 1024u,
+                       "a slice of 64x64 bricks of 8^3 R8 voxels is 2 MiB" );
+
+        uint64_t DfSlicesMiB( const uint32_t slices )
+        {
+            return static_cast<uint64_t>( slices ) * kDfBytesPerSlice / ( 1024u * 1024u );
+        }
         // The finer mips uploaded per frame at most (4 MiB of bricks): what bounds the staging memory and the
         // frame's upload time while a camera move streams a district in. A mip is never split, so a frame always
         // takes at least one. The coarse mips of newly drawn fields are not counted: without them the object
@@ -118,6 +129,12 @@ namespace Desert::Graphic::DistanceField
         m_Free.clear();
     }
 
+    void BrickAllocator::Grow( const uint32_t capacity )
+    {
+        // Every slot below m_Next stays where it is (handed out or on m_Free); the new ones start at m_Next.
+        m_Capacity = std::max( m_Capacity, capacity );
+    }
+
     std::optional<std::vector<uint32_t>> BrickAllocator::Allocate( const uint32_t count )
     {
         if ( count > Available() )
@@ -173,16 +190,21 @@ namespace Desert::Graphic::DistanceField
 
     void DistanceFieldSceneData::AdoptPool( DistanceFieldSceneData& previous )
     {
-        if ( previous.m_PoolMiB == 0 )
-            return; // the old world never sized a pool: the first frame sizes this one
-        static_cast<void>( SetPoolMiB( previous.m_PoolMiB ) );
-        m_Atlas          = std::move( previous.m_Atlas );
+        if ( previous.m_PoolCapMiB == 0 )
+            return; // the old world never read a ceiling: the first frame sizes this one
+        // This scene holds nothing yet: the ceiling and the atlas move over as they are.
+        m_PoolCapMiB  = previous.m_PoolCapMiB;
+        m_CapBricks   = previous.m_CapBricks;
+        m_Atlas       = std::move( previous.m_Atlas );
+        m_AtlasSlices = previous.m_AtlasSlices;
+        m_BrickSlots.Reset( m_AtlasSlices * kDfBricksPerSlice );
+        m_NeedBricks     = 0;
         m_PoolGeneration = previous.m_PoolGeneration + 1;
     }
 
-    bool DistanceFieldSceneData::SetPoolMiB( const uint32_t poolMiB )
+    bool DistanceFieldSceneData::SetPoolCapMiB( const uint32_t capMiB )
     {
-        if ( poolMiB == m_PoolMiB )
+        if ( capMiB == m_PoolCapMiB )
             return false;
         // Everything resident lived in the old atlas: drop it all, the next frame acquires again.
         m_Resident.clear();
@@ -194,16 +216,71 @@ namespace Desert::Graphic::DistanceField
         ++m_Revision;
         m_Pending.clear();
         m_Atlas.reset();
-        m_PoolMiB = poolMiB;
-        const uint64_t slices =
-             std::clamp<uint64_t>( static_cast<uint64_t>( poolMiB ) * 1024u * 1024u / kDfBytesPerSlice, 1u,
+        m_AtlasSlices = 0;
+        m_BrickSlots.Reset( 0 );
+        m_NeedBricks = 0;
+        m_PoolCapMiB = capMiB;
+        const uint64_t capSlices =
+             std::clamp<uint64_t>( static_cast<uint64_t>( capMiB ) * 1024u * 1024u / kDfBytesPerSlice, 1u,
                                    kDfMaxAtlasDepthTexel / kDfBrick );
-        m_CapacityBricks = static_cast<uint32_t>( slices ) * kDfBricksPerSlice;
-        m_BrickSlots.Reset( m_CapacityBricks );
+        m_CapBricks = static_cast<uint32_t>( capSlices ) * kDfBricksPerSlice;
         return true;
     }
 
-    void DistanceFieldSceneData::BeginFrame()
+    uint32_t DistanceFieldSceneData::FullBricksOf( const Assets::MeshDistanceFieldVolume& field )
+    {
+        uint32_t bricks = 0;
+        for ( const Assets::SparseDistanceFieldMip& mip : field.Mips )
+            bricks += mip.BrickCount();
+        return bricks;
+    }
+
+    void DistanceFieldSceneData::GrowAtlasFor( const uint32_t needBricks )
+    {
+        // UE FDistanceFieldSceneData::ResizeBrickAtlasIfNeeded: the atlas follows the scene's need at full
+        // residency, the Scalability pool is only its ceiling. Past the ceiling the streaming chooses, as before.
+        const uint32_t need = std::min( needBricks, m_CapBricks );
+        if ( m_AtlasSlices > 0 && need <= m_BrickSlots.Capacity() )
+            return;
+        const uint32_t capSlices  = m_CapBricks / kDfBricksPerSlice;
+        const uint32_t needSlices = ( need + kDfBricksPerSlice - 1 ) / kDfBricksPerSlice;
+        const uint32_t stepped =
+             std::max( 1u, ( needSlices + kDfAtlasGrowSlices - 1 ) / kDfAtlasGrowSlices ) * kDfAtlasGrowSlices;
+        // At least x1.5 the current depth: a scene loading in field by field does not re-create the atlas each
+        // frame.
+        const uint32_t atLeast = ( m_AtlasSlices * 3u + 1u ) / 2u;
+        const uint32_t slices  = std::min( std::max( stepped, atLeast ), capSlices );
+        if ( slices <= m_AtlasSlices )
+            return;
+        const uint32_t before = m_AtlasSlices;
+        m_BrickSlots.Grow( slices * kDfBricksPerSlice );
+        m_AtlasSlices = slices;
+        if ( !m_Atlas )
+            return; // nothing written yet: EnsureAtlas creates it at the new depth
+        // A slot's texel does not depend on the depth (FlushUploads), so the table and the records stay as they
+        // are; only the bricks are written again into the deeper atlas - from the bytes every field keeps on the
+        // CPU. The frames in flight keep the old atlas through their graphs' imports.
+        m_Atlas.reset();
+        m_Pending.clear();
+        for ( const auto& [key, resident] : m_Resident )
+        {
+            const std::shared_ptr<const Assets::MeshDistanceFieldVolume> held = resident.Field.lock();
+            if ( !held )
+                continue; // dead since ReleaseUnused: nothing reads its slots
+            for ( uint32_t r = 0; r < resident.NumMips; ++r )
+            {
+                const uint32_t     source = Assets::kDistanceFieldNumMips - 1 - r;
+                const ResidentMip& mip    = resident.Mips[r];
+                for ( uint32_t brick = 0; brick < mip.Bricks.size(); ++brick )
+                    m_Pending.push_back( { mip.Bricks[brick], held, source, brick } );
+                m_RegrownThisFrame += static_cast<uint32_t>( mip.Bricks.size() );
+            }
+        }
+        LOG_INFO( "[DistanceField] brick atlas grew {} -> {} MiB (need {} bricks, cap {} MiB)",
+                  DfSlicesMiB( before ), DfSlicesMiB( slices ), needBricks, m_PoolCapMiB );
+    }
+
+    void DistanceFieldSceneData::ResetFrameUse()
     {
         for ( auto& [key, resident] : m_Resident )
         {
@@ -241,6 +318,7 @@ namespace Desert::Graphic::DistanceField
         resident.Used       = true;
         resident.Distance   = distance;
         resident.AssetIndex = m_AssetSlots.Allocate( 1 );
+        resident.FullBricks = FullBricksOf( *field );
         if ( m_AssetData.size() < static_cast<size_t>( m_AssetSlots.End() ) * kDfAssetStride )
             m_AssetData.resize( static_cast<size_t>( m_AssetSlots.End() ) * kDfAssetStride, glm::vec4( 0.0f ) );
         // THE COARSE MIP IS ALWAYS RESIDENT: room is made for it by evicting finer mips of any other field.
@@ -252,12 +330,13 @@ namespace Desert::Graphic::DistanceField
         {
             m_AssetSlots.Free( resident.AssetIndex, 1 );
             return Common::MakeFormattedError<Result>(
-                 "the {} MiB distance-field pool (Scalability GlobalIllumination.DistanceFieldPoolMiB) cannot "
-                 "hold "
-                 "the coarse mips of {} field(s): {} of {} brick(s) in use, {} more needed",
-                 m_PoolMiB, m_Resident.size() + 1, m_BrickSlots.Used(), m_CapacityBricks, coarseBricks );
+                 "the {} MiB distance-field ceiling (Scalability GlobalIllumination.DistanceFieldPoolMiB) could "
+                 "not "
+                 "hold the coarse mips of {} field(s): {} of {} brick(s) in use, {} more needed",
+                 m_PoolCapMiB, m_Resident.size() + 1, m_BrickSlots.Used(), m_BrickSlots.Capacity(), coarseBricks );
         }
         const uint32_t index = resident.AssetIndex;
+        m_NeedBricks += resident.FullBricks;
         m_Resident.emplace( field.get(), std::move( resident ) );
         MoveResidentEpoch();
         return Common::MakeSuccess<Result>( index );
@@ -329,6 +408,7 @@ namespace Desert::Graphic::DistanceField
         while ( resident.NumMips > 0 )
             DropMip( resident );
         m_AssetSlots.Free( resident.AssetIndex, 1 );
+        m_NeedBricks -= std::min( m_NeedBricks, resident.FullBricks );
     }
 
     bool DistanceFieldSceneData::MakeRoom( const float distance, const uint32_t bricks, const Resident* except )
@@ -394,12 +474,11 @@ namespace Desert::Graphic::DistanceField
                 ++unmet;
         }
 
-        m_Stats                = {};
-        m_Stats.Fields         = static_cast<uint32_t>( m_Resident.size() );
-        m_Stats.CapacityBricks = m_CapacityBricks;
-        m_Stats.UsedBricks     = m_BrickSlots.Used();
-        m_Stats.UnmetRequests  = unmet;
-        m_Stats.UploadedBricks = m_UploadedThisFrame;
+        // The atlas's size, its ceiling, the need and the frame's uploads: DecideFrame, after the growth.
+        m_Stats               = {};
+        m_Stats.Fields        = static_cast<uint32_t>( m_Resident.size() );
+        m_Stats.UsedBricks    = m_BrickSlots.Used();
+        m_Stats.UnmetRequests = unmet;
         for ( const auto& [key, resident] : m_Resident )
         {
             m_Stats.CoarseBricks += static_cast<uint32_t>( resident.Mips[0].Bricks.size() );
@@ -433,13 +512,13 @@ namespace Desert::Graphic::DistanceField
     {
         if ( m_Atlas )
             return BOOLSUCCESS;
-        if ( m_CapacityBricks == 0 )
-            return Common::MakeError<bool>( "the distance-field pool was never sized (SetPoolMiB)" );
+        if ( m_AtlasSlices == 0 )
+            return Common::MakeError<bool>( "the distance-field brick atlas was never sized (GrowAtlasFor)" );
         const Core::Formats::Image3DSpecification spec{
              .Tag        = "DistanceFieldBrickAtlas",
              .Width      = kDfAtlasBricksX * kDfBrick,
              .Height     = kDfAtlasBricksY * kDfBrick,
-             .Depth      = ( m_CapacityBricks / kDfBricksPerSlice ) * kDfBrick,
+             .Depth      = m_AtlasSlices * kDfBrick,
              .Format     = Core::Formats::ImageFormat::R8_UNORM,
              .Data       = Core::Formats::EmptyPixelData{},
              .Properties = Core::Formats::Sample,
@@ -447,14 +526,14 @@ namespace Desert::Graphic::DistanceField
         auto atlas = Image3D::Create( spec );
         if ( !atlas )
             return Common::MakeFormattedError<bool>(
-                 "the {}x{}x{} R8 distance-field brick atlas ({} MiB pool) could not be created", spec.Width,
-                 spec.Height, spec.Depth, m_PoolMiB );
+                 "the {}x{}x{} R8 distance-field brick atlas ({} MiB, ceiling {} MiB) could not be created",
+                 spec.Width, spec.Height, spec.Depth, DfSlicesMiB( m_AtlasSlices ), m_PoolCapMiB );
         m_Atlas = std::move( atlas );
-        LOG_INFO( "[DistanceField] brick atlas {}x{}x{} R8: {} brick(s), {} MiB (GlobalIllumination."
-                  "DistanceFieldPoolMiB)",
-                  spec.Width, spec.Height, spec.Depth, m_CapacityBricks,
-                  static_cast<uint64_t>( m_CapacityBricks ) * Assets::kDistanceFieldBrickVoxels /
-                       ( 1024u * 1024u ) );
+        LOG_INFO(
+             "[DistanceField] brick atlas {}x{}x{} R8: {} brick(s), {} MiB (ceiling {} MiB, GlobalIllumination."
+             "DistanceFieldPoolMiB)",
+             spec.Width, spec.Height, spec.Depth, m_BrickSlots.Capacity(), DfSlicesMiB( m_AtlasSlices ),
+             m_PoolCapMiB );
         return BOOLSUCCESS;
     }
 
@@ -487,50 +566,79 @@ namespace Desert::Graphic::DistanceField
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr DistanceFieldSceneData::BeginViewFrame( const uint64_t frame, const uint32_t poolMiB,
-                                                                  const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>& fields )
+    Common::BoolResultStr DistanceFieldSceneData::BeginViewFrame(
+         const uint64_t frame, const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>& fields )
     {
         if ( !m_HasFrame || frame != m_Frame )
         {
-            // The scene's frame starts. The pool every view of the frame that ended asked for at most (a view's
-            // request lands the frame after: views never resize the pool under one another within a frame).
-            const bool     hadFrame = m_HasFrame;
-            const uint32_t pool     = hadFrame ? std::max( m_RequestedPoolMiB, poolMiB ) : poolMiB;
-            m_Frame                 = frame;
-            m_HasFrame              = true;
-            m_RequestedPoolMiB      = poolMiB;
+            // The scene's frame starts: the scene reads its own ceiling, no view asks for a size.
+            const bool hadFrame = m_HasFrame;
+            m_Frame             = frame;
+            m_HasFrame          = true;
             m_FrameError.reset();
-            if ( const auto decided = DecideFrame( hadFrame, pool, fields ); !decided )
+            if ( const auto decided = DecideFrame( hadFrame, fields ); !decided )
                 m_FrameError = decided.GetError();
         }
-        else
-            m_RequestedPoolMiB = std::max( m_RequestedPoolMiB, poolMiB );
         if ( m_FrameError )
             return Common::MakeError<bool>( *m_FrameError );
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr DistanceFieldSceneData::DecideFrame( const bool hadFrame, const uint32_t pool,
-                                                               const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>& fields )
+    Common::BoolResultStr DistanceFieldSceneData::DecideFrame(
+         const bool hadFrame, const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>& fields )
     {
         // The atlas and the buffers are the scene's rows, whichever view's scope is open.
         const ResourceAttributionScope scope( ResourceOwner::SceneRenderer, m_LedgerInstance );
         ReleaseUnused();
-        if ( SetPoolMiB( pool ) )
+        m_RegrownThisFrame = 0;
+        // THE CEILING IS THE SCENE'S (UE r.DistanceFields.BrickAtlasMaxSizeZ): read here on the render thread, as
+        // SurfaceCacheRenderer::BeginFrame reads its budget; a new one takes effect this frame.
+        const int capMiB = Common::Scalability::QualityState::Resolved().As<int>(
+             Common::Scalability::Parameter::DistanceFieldPoolMiB );
+        const bool capChanged = SetPoolCapMiB( static_cast<uint32_t>( std::max( capMiB, 0 ) ) );
+        if ( capChanged )
             ++m_PoolGeneration;
-        else if ( hadFrame )
+
+        // The frame's set: the fields that waited first (their coarse mip is guaranteed now), then every field of
+        // the scene's primitives. Their distances are the views' lookups of this frame.
+        const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>> waiting = std::move( m_Waiting );
+        m_Waiting.clear();
+
+        // THE ATLAS FOLLOWS THE NEED: the resident fields and the ones this frame adds, every mip of each (what
+        // full residency takes), before anything is streamed or acquired into it.
+        uint32_t                                                   need = m_NeedBricks;
+        std::unordered_set<const Assets::MeshDistanceFieldVolume*> counted;
+        for ( const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>* list :
+              { &waiting, &fields } )
+            for ( const auto& field : *list )
+            {
+                if ( !field )
+                    continue;
+                // The same control block, not only the address: a new field may sit where a dead one was.
+                if ( const auto it = m_Resident.find( field.get() ); it != m_Resident.end() &&
+                                                                     !it->second.Field.owner_before( field ) &&
+                                                                     !field.owner_before( it->second.Field ) )
+                    continue;
+                if ( counted.insert( field.get() ).second )
+                    need += FullBricksOf( *field );
+            }
+        GrowAtlasFor( need );
+
+        const bool streams = hadFrame && !capChanged;
+        if ( streams )
         {
             // The streaming, once for the scene: toward the nearest distance any view looked a field up at last
             // frame (a field no view looked up gives its finer mips back).
             m_UploadedThisFrame = 0;
             Stream();
-            LogStreaming();
         }
-        BeginFrame();
-        // The frame's set: the fields that waited first (their coarse mip is guaranteed now), then every field of
-        // the scene's primitives. Their distances are the views' lookups of this frame.
-        const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>> waiting = std::move( m_Waiting );
-        m_Waiting.clear();
+        m_Stats.CapacityBricks = m_BrickSlots.Capacity();
+        m_Stats.CapBricks      = m_CapBricks;
+        m_Stats.NeedBricks     = m_NeedBricks;
+        m_Stats.UploadedBricks = ( streams ? m_UploadedThisFrame : 0u ) + m_RegrownThisFrame;
+        if ( streams )
+            LogStreaming();
+        ResetFrameUse();
         for ( const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>* list : { &waiting, &fields } )
             for ( const auto& field : *list )
                 if ( const auto acquired = Acquire( field, std::numeric_limits<float>::max() ); !acquired )
@@ -627,10 +735,10 @@ namespace Desert::Graphic::DistanceField
         { return static_cast<double>( bricks * Assets::kDistanceFieldBrickVoxels ) / ( 1024.0 * 1024.0 ); };
         LOG_INFO(
              "[DistanceField] streaming settled: {} field(s) resident ({} coarse only, {} with 2 mips, {} with "
-             "all 3); {:.1f} of {:.1f} MiB of bricks in use, {:.1f} MiB of them coarse; {} field(s) want a finer "
-             "mip the pool has no room for",
+             "all 3); {:.1f} of {:.1f} MiB of bricks in use, {:.1f} MiB of them coarse; atlas {:.1f}/{:.1f} MiB "
+             "(full residency needs {:.1f} MiB); {} field(s) want a finer mip the atlas has no room for",
              stats.Fields, stats.ResidentByMips[0], stats.ResidentByMips[1], stats.ResidentByMips[2],
              mib( stats.UsedBricks ), mib( stats.CapacityBricks ), mib( stats.CoarseBricks ),
-             stats.UnmetRequests );
+             mib( stats.CapacityBricks ), mib( stats.CapBricks ), mib( stats.NeedBricks ), stats.UnmetRequests );
     }
 } // namespace Desert::Graphic::DistanceField
