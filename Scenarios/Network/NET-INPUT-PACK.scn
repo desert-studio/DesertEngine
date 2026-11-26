@@ -9,12 +9,14 @@
 # {} steps ({} B)`.
 # Roles as NET-4 (scripts/Dev/net_scenario.py): DesertServer --role all + Editor client A (headless --play, side
 # camera at (2100,120,50), motion blur off) + DesertNetProbe bot B, both on a 75 ms each way / 2 % loss link.
+# The walk is 2700 cm from the spawn (x 0, or 500 for the second spawn): A stops past the fence (x 2500) at x ~2700-3200,
+# inside the side camera, so the standing frame shows it (NET-4's clientA_fence_after view).
 # A's loading phase is the starved client (17..30 unacked steps per message in NET-4); `largest message` keeps the
 # session's maximum (`longest run` by steps), so the burst is proven whenever the line is printed.
 Мир Content/Scenes/WP_Protocol.desce
 Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-300,650 --spawn 500,-300,-200 --steps 864000
 Ждать server 60 \[Server\] listening on port
-Роль A editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --camera 2100,120,50 --look 0.595,-0.198,0.779 --quality PostProcess.MotionBlurQuality=0 --net-walk-cm 30000 --net-walk-dir 1,0,0 --net-walk-mode sprint --net-jump-every 1.5
+Роль A editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --camera 2100,120,50 --look 0.595,-0.198,0.779 --quality PostProcess.MotionBlurQuality=0 --net-walk-cm 2700 --net-walk-dir 1,0,0 --net-walk-mode sprint --net-jump-every 1.5
 Ждать A 1800 \[Net\] in session
 Роль B bot account=2 lag=75 loss=2 --seconds 1500
 Ждать A 120 \[Net\] predicting own pawn
