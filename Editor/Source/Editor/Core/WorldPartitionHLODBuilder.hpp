@@ -8,10 +8,11 @@
 // WHAT A BUILD READS: the world SAVED at the scene's file (scene + entity files, as WorldCook reads it), never the
 // scene in memory - the cook and Play check the HLODs against the same files.
 //
-// INCREMENTAL. Each saved HLOD row carries the checksum of what it was built from (WorldCells::HLODBuildChecksum:
-// the HLOD sources of the cell's records, the saved content of every mesh, material and texture they name, the
-// HLOD layer settings and the builder version). A build rebuilds only the rows whose checksum changed and keeps
-// every other row and its file, as UE skips an HLOD actor whose hash is unchanged; ForceAll rebuilds every row.
+// INCREMENTAL. Each saved HLOD row carries the checksum of what it was built from (WorldCells::SavedHLODStatus:
+// what the builders read of the node's HLOD-relevant members, the content of every asset they name, each part's
+// layer and builder settings and the builder version). A build rebuilds only the nodes that are not Current and
+// keeps every other row and its file, as UE skips an HLOD actor whose hash is unchanged; a cell with no relevant
+// member gets no row and an orphaned row is dropped; ForceAll rebuilds every row.
 //
 // THREE STAGES, none on the editor's thread for longer than a frame (WP-HLOD-HANG: a 598-cell world held it 6 min
 // in the first phase and 10 min in the last). Plan, on a JobSystem worker: the world is read and the builders run
@@ -28,6 +29,7 @@
 #include "LandscapeHLODBake.hpp"
 
 #include <Engine/Assets/Prefab/PrefabData.hpp>
+#include <Engine/Core/Serialize/WorldCells.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -65,9 +67,10 @@ namespace Desert::Editor
     // The world's saved HLODs against its saved files.
     struct HLODStatus
     {
-        bool                     Built = false; // the world has a saved HLOD index
-        std::vector<std::string> Stale;         // the rows missing or stale, by unit name (every row when !Built)
-        std::vector<std::string> BuiltUnits;    // the index's rows that name a saved file, by unit name
+        bool Built = false; // the world has a saved HLOD index
+        // The saved index World's rows point into (HLODNodeStatus::Row), shared so a copy keeps them valid.
+        std::shared_ptr<const ::Desert::Core::WorldCells::BuiltHLODIndex> Index;
+        ::Desert::Core::WorldCells::HLODWorldStatus                       World; // the one answer (SavedHLODStatus)
     };
 
     class WorldPartitionHLODBuilder
@@ -165,7 +168,7 @@ namespace Desert::Editor
         std::string                       m_Summary;
     };
 
-    /// Which of the HLOD rows of the world saved at @p scenePath are missing or stale (UE's World Partition
+    /// Which of the HLOD nodes of the world saved at @p scenePath are missing, stale or orphaned (UE's World Partition
     /// editor "HLODs need to be rebuilt"). Refused, by name, for a world the build would refuse. THE one reader of a
     /// world's HLOD state (UE: one HLOD state per cell): the panel's HLODs section and its map overlay both ask it.
     [[nodiscard]] Common::ResultStr<HLODStatus> HLODStatusOf( const std::filesystem::path& scenePath );

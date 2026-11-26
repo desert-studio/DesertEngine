@@ -639,44 +639,15 @@ namespace Desert::Core
         {
             using Result        = LandscapeHLODTileInput;
             namespace Landscape = World::Landscape;
-            if ( request.Tile >= request.Records.size() || request.World.size() != request.Records.size() )
-                return Common::MakeError<Result>( "the landscape tile request names no record of its records" );
-            const Assets::EntityData& tile = request.Records[request.Tile];
-            Common::Json::Issues      issues;
-            const auto tileBlock = Rules::Detail::BlockOf( tile, LandscapeCore::kLandscapeTileComponent, issues );
-            if ( !tileBlock.has_value() )
-                return Common::MakeError<Result>( "the record has no readable LandscapeTile block" );
-            Common::UUID rootId;
-            if ( !Rules::Detail::ReadReference( *tileBlock, "Landscape", rootId, issues ) || rootId.IsNull() )
-                return Common::MakeError<Result>( "the tile names no landscape root" );
-            const auto root =
-                 std::find_if( request.Records.begin(), request.Records.end(),
-                               [&]( const Assets::EntityData& record ) { return record.id == rootId; } );
-            if ( root == request.Records.end() )
-                return Common::MakeFormattedError<Result>( "the tile's landscape root {} is not in the world",
-                                                           static_cast<std::uint64_t>( rootId ) );
-            const std::size_t rootIndex = static_cast<std::size_t>( root - request.Records.begin() );
-            const auto rootBlock = Rules::Detail::BlockOf( *root, LandscapeCore::kLandscapeRootComponent, issues );
-            if ( !rootBlock.has_value() )
-                return Common::MakeError<Result>( "the tile's root has no readable Landscape block" );
-
-            Landscape::LandscapeRoot frameRoot;
-            frameRoot.Origin = glm::vec3( request.World[rootIndex][3] );
-            rootBlock->ReadInto( "QuadsPerTile", frameRoot.QuadsPerTile, issues );
-            rootBlock->ReadInto( "SpacingCm", frameRoot.SpacingCm, issues );
-            rootBlock->ReadInto( "ZScale", frameRoot.ZScale, issues );
-            if ( auto valid = Landscape::ValidateLandscapeRoot( frameRoot ); !valid )
-                return Common::MakeError<Result>( "the tile's root: " + valid.GetError() );
-            std::int32_t tileX = 0;
-            std::int32_t tileZ = 0;
-            std::string  heightFile;
-            tileBlock->ReadInto( "TileX", tileX, issues );
-            tileBlock->ReadInto( "TileZ", tileZ, issues );
-            tileBlock->ReadInto( "HeightFile", heightFile, issues );
-            if ( !issues.empty() )
-                return Common::MakeFormattedError<Result>(
-                     "the tile or its root does not read: {} wants {}, holds {}", issues.front().Path,
-                     issues.front().Expected, issues.front().Found );
+            // The one read of a tile (LandscapeCore::ReadLandscapeTileFrame), which the tile's saved-HLOD inputs
+            // read too.
+            auto read = LandscapeCore::ReadLandscapeTileFrame( request.Records, request.World, request.Tile );
+            if ( !read )
+                return Common::MakeError<Result>( read.GetError() );
+            const Landscape::LandscapeRoot frameRoot  = read.GetValue().Root;
+            const std::int32_t             tileX      = read.GetValue().TileX;
+            const std::int32_t             tileZ      = read.GetValue().TileZ;
+            const std::string&             heightFile = read.GetValue().HeightFile;
 
             // The loader's own read (ComponentRegistry's LandscapeTile load): the record's content key, resolved
             // the same way, so the stand-in and the near tile read the same file.
@@ -914,6 +885,14 @@ namespace Desert::Core
                 return Common::MakeSuccess( true );
             }
 
+            [[nodiscard]] Common::ResultStr<std::string>
+            SettingsKey( const Common::Json::Value* settings ) const override
+            {
+                if ( settings == nullptr )
+                    return Common::MakeSuccess( std::string{} );
+                return Rules::HLODBuilderSettingsKey<HLODMeshMergeSettings>( settings );
+            }
+
             [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD>
             Build( const Rules::HLODBuildContext& context, Rules::InstancingHLOD gathered ) const override
             {
@@ -953,6 +932,12 @@ namespace Desert::Core
                 return Common::MakeSuccess( true );
             }
 
+            [[nodiscard]] Common::ResultStr<std::string>
+            SettingsKey( const Common::Json::Value* settings ) const override
+            {
+                return Rules::HLODBuilderSettingsKey<HLODMeshSimplifySettings>( settings );
+            }
+
             [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD>
             Build( const Rules::HLODBuildContext& context, Rules::InstancingHLOD gathered ) const override
             {
@@ -984,6 +969,12 @@ namespace Desert::Core
                 return Rules::ValidateHLODApproximation( read.GetValue() );
             }
 
+            [[nodiscard]] Common::ResultStr<std::string>
+            SettingsKey( const Common::Json::Value* settings ) const override
+            {
+                return Rules::HLODBuilderSettingsKey<HLODApproximationSettings>( settings );
+            }
+
             [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD>
             Build( const Rules::HLODBuildContext& context, Rules::InstancingHLOD gathered ) const override
             {
@@ -1013,6 +1004,11 @@ namespace Desert::Core
         if ( !read )
             return Common::MakeError<bool>( read.GetError() );
         return ValidateHLODImpostor( read.GetValue() );
+    }
+
+    Common::ResultStr<std::string> HLODBuilderImpostor::SettingsKey( const Common::Json::Value* settings ) const
+    {
+        return Rules::HLODBuilderSettingsKey<HLODImpostorSettings>( settings );
     }
 
     Common::ResultStr<Rules::InstancingHLOD> HLODBuilderImpostor::Build( const Rules::HLODBuildContext& context,

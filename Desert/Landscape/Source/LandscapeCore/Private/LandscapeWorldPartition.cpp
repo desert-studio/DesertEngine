@@ -6,6 +6,14 @@
 #include <LandscapeCore/Public/LandscapeLayout.hpp>
 #include <LandscapeCore/Public/LandscapeSplinesJson.hpp>
 
+#include <Engine/Assets/AssetGuidRef.hpp>
+
+#include <Common/Json/Json.hpp>
+
+#include <algorithm>
+#include <format>
+#include <utility>
+
 namespace Desert::LandscapeCore
 {
     namespace
@@ -93,7 +101,112 @@ namespace Desert::LandscapeCore
                              { "ZScale", static_cast<double>( zScale ) } };
             return true;
         }
+        // The key the saved-HLOD checksum hashes for one {Guid, Path} reference: the GUID text, else the path.
+        [[nodiscard]] std::string ContentKeyOf( const Assets::AssetGuidRef& reference )
+        {
+            return !reference.Guid.empty() ? reference.Guid : reference.Path;
+        }
+
+        // A tile's HLOD inputs (Rules::HLODBuilderComponent::Inputs): what ReadLandscapeTileFrame reads, the root's
+        // place left to its TRS chain (Placed) so no composed matrix enters the text.
+        Common::ResultStr<Rules::HLODModuleInputs> TileInputs( std::span<const Assets::EntityData> records,
+                                                               std::span<const glm::mat4> world, std::size_t index )
+        {
+            auto read = ReadLandscapeTileFrame( records, world, index );
+            if ( !read )
+                return Common::MakeError<Rules::HLODModuleInputs>( read.GetError() );
+            const LandscapeTileRead& tile = read.GetValue();
+            Rules::HLODModuleInputs  inputs;
+            inputs.Text = std::format( "tile quads {} spacing {:a} z {:a} at {} {} height {} material {} layers",
+                                       tile.Root.QuadsPerTile, tile.Root.SpacingCm, tile.Root.ZScale, tile.TileX,
+                                       tile.TileZ, tile.HeightFile, tile.MaterialKey );
+            for ( const std::string& layer : tile.LayerKeys )
+                inputs.Text += " " + layer;
+            inputs.Placed = { tile.RootIndex };
+            inputs.Content.push_back( tile.HeightFile );
+            if ( !tile.MaterialKey.empty() )
+                inputs.Content.push_back( tile.MaterialKey );
+            for ( const std::string& layer : tile.LayerKeys )
+                if ( !layer.empty() )
+                    inputs.Content.push_back( layer );
+            return Common::MakeSuccess( std::move( inputs ) );
+        }
+
+        // A spline's HLOD inputs: its splines as the spline builder reads them (ReadLandscapeSplinesJson), written
+        // back canonical, and the static meshes they lay (by asset handle).
+        Common::ResultStr<Rules::HLODModuleInputs> SplineInputs( std::span<const Assets::EntityData> records,
+                                                                 std::span<const glm::mat4>, std::size_t index )
+        {
+            Common::Json::Issues issues;
+            const auto block = Rules::Detail::BlockOf( records[index], kLandscapeSplineComponent, issues );
+            if ( !block.has_value() )
+                return Common::MakeError<Rules::HLODModuleInputs>( "the record has no readable LandscapeSpline block" );
+            Landscape::LandscapeSplines splines;
+            Landscape::ReadLandscapeSplinesJson( *block, splines, issues );
+            if ( !issues.empty() )
+                return Common::MakeFormattedError<Rules::HLODModuleInputs>(
+                     "its LandscapeSpline block does not read: {} wants {}, holds {}", issues.front().Path,
+                     issues.front().Expected, issues.front().Found );
+            Rules::HLODModuleInputs inputs;
+            inputs.Text = "spline " + Common::Json::Write( Common::Json::Value( Landscape::WriteLandscapeSplinesJson( splines ) ) );
+            for ( const Landscape::LandscapeSplineSegment& segment : splines.Segments )
+                for ( const Landscape::LandscapeSplineMeshEntry& entry : segment.SplineMeshes )
+                    if ( !entry.Mesh.IsNull() )
+                        inputs.Content.push_back(
+                             std::format( "handle:{}", static_cast<std::uint64_t>( entry.Mesh ) ) );
+            return Common::MakeSuccess( std::move( inputs ) );
+        }
     } // namespace
+
+    Common::ResultStr<LandscapeTileRead> ReadLandscapeTileFrame( std::span<const Assets::EntityData> records,
+                                                                 std::span<const glm::mat4> world, std::size_t index )
+    {
+        using Result = LandscapeTileRead;
+        if ( index >= records.size() || world.size() != records.size() )
+            return Common::MakeError<Result>( "the landscape tile names no record of its records" );
+        const Assets::EntityData& tile = records[index];
+        Common::Json::Issues      issues;
+        const auto                tileBlock = Rules::Detail::BlockOf( tile, kLandscapeTileComponent, issues );
+        if ( !tileBlock.has_value() )
+            return Common::MakeError<Result>( "the record has no readable LandscapeTile block" );
+        Common::UUID rootId;
+        if ( !Rules::Detail::ReadReference( *tileBlock, "Landscape", rootId, issues ) || rootId.IsNull() )
+            return Common::MakeError<Result>( "the tile names no landscape root" );
+        const auto root = std::find_if( records.begin(), records.end(),
+                                        [&]( const Assets::EntityData& record ) { return record.id == rootId; } );
+        if ( root == records.end() )
+            return Common::MakeFormattedError<Result>( "the tile's landscape root {} is not in the world",
+                                                       static_cast<std::uint64_t>( rootId ) );
+        Result read;
+        read.RootIndex       = static_cast<std::size_t>( root - records.begin() );
+        const auto rootBlock = Rules::Detail::BlockOf( *root, kLandscapeRootComponent, issues );
+        if ( !rootBlock.has_value() )
+            return Common::MakeError<Result>( "the tile's root has no readable Landscape block" );
+        read.Root.Origin = glm::vec3( world[read.RootIndex][3] );
+        rootBlock->ReadInto( "QuadsPerTile", read.Root.QuadsPerTile, issues );
+        rootBlock->ReadInto( "SpacingCm", read.Root.SpacingCm, issues );
+        rootBlock->ReadInto( "ZScale", read.Root.ZScale, issues );
+        if ( auto valid = Landscape::ValidateLandscapeRoot( read.Root ); !valid )
+            return Common::MakeError<Result>( "the tile's root: " + valid.GetError() );
+        std::vector<Assets::AssetGuidRef> layers;
+        rootBlock->ReadInto( "Layers", layers, issues );
+        for ( const Assets::AssetGuidRef& layer : layers )
+            read.LayerKeys.push_back( ContentKeyOf( layer ) );
+        if ( const auto look = Rules::Detail::BlockOf( *root, kLandscapeMaterialComponent, issues ); look.has_value() )
+        {
+            Assets::AssetGuidRef material;
+            look->ReadInto( "Material", material, issues );
+            read.MaterialKey = ContentKeyOf( material );
+        }
+        tileBlock->ReadInto( "TileX", read.TileX, issues );
+        tileBlock->ReadInto( "TileZ", read.TileZ, issues );
+        tileBlock->ReadInto( "HeightFile", read.HeightFile, issues );
+        if ( !issues.empty() )
+            return Common::MakeFormattedError<Result>( "the tile or its root does not read: {} wants {}, holds {}",
+                                                       issues.front().Path, issues.front().Expected,
+                                                       issues.front().Found );
+        return Common::MakeSuccess( std::move( read ) );
+    }
 
     void StartupModule()
     {
@@ -130,10 +243,11 @@ namespace Desert::LandscapeCore
 
             // HLOD: a tile draws terrain from its height file and a spline meshes bent along it - neither a mesh
             // block; BuildCellHLOD hands them to the landscape and spline builders (WP-FAR-6).
+            // Each states what its builder reads (TileInputs, SplineInputs), which the saved-HLOD checksum folds.
             Rules::RegisterHLODBuilderComponent(
-                 { kLandscapeTileComponent, Rules::HLODExclusion::LandscapeTile } );
+                 { kLandscapeTileComponent, Rules::HLODExclusion::LandscapeTile, &TileInputs } );
             Rules::RegisterHLODBuilderComponent(
-                 { kLandscapeSplineComponent, Rules::HLODExclusion::LandscapeSpline } );
+                 { kLandscapeSplineComponent, Rules::HLODExclusion::LandscapeSpline, &SplineInputs } );
 
             // Activation: a tile builds a heightfield (and its collision) - more than a primitive.
             Rules::RegisterActivationKind(

@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cstddef>
 #include <filesystem>
+#include <optional>
 #include <ostream>
 #include <set>
 
@@ -211,11 +212,20 @@ namespace Desert::WorldCook
         out << "WorldCook: descriptors " << descriptors.GetValue().Described << " described, "
             << descriptors.GetValue().Reused << " reused, " << descriptors.GetValue().Dropped << " dropped\n";
         const auto planned = Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
+        // THE WORLD THIS COOK CUTS, expanded once (WP21): the check, its log and the cook all read it.
+        const auto prefabs  = Core::WorldCells::PrefabFileReader();
+        auto       cut = Core::WorldCells::ExpandWorldForCook( scene.GetValue().Scene, planned, prefabs );
+        if ( !cut )
+        {
+            err << "WorldCook: " << cut.GetError() << "\n";
+            return 4;
+        }
+        const Core::WorldCells::ExpandedWorld& world = cut.GetValue();
         // MAP CHECK (WP-MAP-CHECK; UE's check for errors without the editor): the one list of findings
         // (WorldCells::CheckWorldPartition) printed, and the StreamingGeneration log of the plan this cook cuts.
-        if ( scene.GetValue().Scene.WorldPartition.has_value() )
+        if ( world.World.Scene.WorldPartition.has_value() )
         {
-            auto check = Core::WorldCells::CheckWorldPartition( scene.GetValue().Scene, planned, registries, options.Source );
+            auto check = Core::WorldCells::CheckWorldPartition( world, registries, Core::HLODBuilders(), options.Source );
             if ( !check )
             {
                 err << "WorldCook: check: " << check.GetError() << "\n";
@@ -247,14 +257,16 @@ namespace Desert::WorldCook
             err << "WorldCook: check: '" << options.Source.string() << "' states no WorldPartition block\n";
             return 4;
         }
-        const auto prefabs = Core::WorldCells::PrefabFileReader();
         // The HLODs are the ones Build HLODs saved beside the scene (WP-FAR-6B D1): packed here, never built.
         auto hlods = Core::WorldCells::ReadBuiltHLODs( options.Source );
         if ( hlods )
             out << "WorldCook: built HLODs " << Core::WorldCells::BuiltHLODDirectory( options.Source ).string()
                 << ": " << hlods.GetValue().Index.Cells.size() << " cell row(s)\n";
-        auto cooked = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries, prefabs,
-                                                   hlods ? &hlods.GetValue() : nullptr );
+        std::optional<Core::WorldCells::HLODsToPack> toPack;
+        if ( hlods )
+            toPack.emplace( Core::WorldCells::HLODsToPack{ hlods.GetValue(), Core::HLODBuilders() } );
+        auto cooked = Core::WorldCells::CookWorld( world.World.Scene, world.Descriptors, registries, prefabs,
+                                                   toPack.has_value() ? &*toPack : nullptr );
         if ( !cooked )
         {
             err << "WorldCook: " << cooked.GetError() << ( hlods ? "" : " (" + hlods.GetError() + ")" ) << "\n";

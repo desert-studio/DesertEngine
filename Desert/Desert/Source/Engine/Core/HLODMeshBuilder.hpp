@@ -79,6 +79,7 @@ namespace Desert::Core
         }
 
         [[nodiscard]] Common::BoolResultStr ValidateSettings( const Common::Json::Value* settings ) const override;
+        [[nodiscard]] Common::ResultStr<std::string> SettingsKey( const Common::Json::Value* settings ) const override;
 
         [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD> Build( const Rules::HLODBuildContext& context,
                                                                       Rules::InstancingHLOD gathered ) const override;

@@ -4,7 +4,7 @@
 // Engine/Source/Editor/WorldPartitionEditor/Private/WorldPartition/HLOD/Utilities/WorldPartitionHLODUtilities.cpp
 // (ComputeHLODHash: the input actors, the assets they use, the HLOD layer's settings and the builder's base key),
 // adapted: the HLOD actors are rows of BuiltHLODIndex saved beside the world (WorldCells.hpp), the hash is
-// WorldCells::HLODBuildChecksum, and the landscape BaseColor bake runs over editor frames (LandscapeHLODBake).
+// WorldCells::SavedHLODStatus, and the landscape BaseColor bake runs over editor frames (LandscapeHLODBake).
 
 #include <Engine/Core/Serialize/PrefabExpansion.hpp>
 #include "WorldPartitionHLODBuilder.hpp"
@@ -574,9 +574,7 @@ namespace Desert::Editor
         const auto                                 registries = Registries();
         ::Desert::Core::Rules::HLODBuilderRegistry builders   = ::Desert::Core::HLODBuilders();
         const std::filesystem::path                dir        = WC::BuiltHLODDirectory( m_ScenePath );
-        // Each landscape HLOD bound to the material its tile's bake wrote (UE ULandscapeHLODBuilder). The slot
-        // does not enter HLODBuildChecksum (it hashes the members' HLOD sources), so binding changes no staleness.
-        // The mesh is the one Plan built and stored (m_LandscapeShells), built here only for a tile Plan did not
+        // Each landscape HLOD bound to the material its tile's bake wrote (UE ULandscapeHLODBuilder). The mesh is the one Plan built and stored (m_LandscapeShells), built here only for a tile Plan did not
         // see.
         ::Desert::Core::Rules::LandscapeHLODBuilder landscape =
              [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
@@ -777,12 +775,13 @@ namespace Desert::Editor
         auto cut = WC::ExpandWorldForCook( world.Loadable.Scene, world.Descriptors, WC::PrefabFileReader() );
         if ( !cut )
             return Common::MakeError( "Build HLODs: read back: " + cut.GetError() );
-        auto stale = WC::StaleHLODCells( stored.GetValue().Index, cut.GetValue().World.Scene,
-                                         cut.GetValue().Descriptors, registries );
-        if ( !stale )
-            return Common::MakeError( "Build HLODs: read back: " + stale.GetError() );
-        for ( const std::string& unit : stale.GetValue() )
-            LOG_ERROR( "[Build HLODs] {0}: the HLOD read back is stale", unit );
+        auto readBack = WC::SavedHLODStatus( cut.GetValue().World.Scene, cut.GetValue().Descriptors,
+                                             &stored.GetValue().Index, registries, builders );
+        if ( !readBack )
+            return Common::MakeError( "Build HLODs: read back: " + readBack.GetError() );
+        const std::vector<std::string> outdated = readBack.GetValue().OutdatedNames();
+        for ( const std::string& line : outdated )
+            LOG_ERROR( "[Build HLODs] the HLOD read back is outdated: {0}", line );
         for ( const std::string& unit : result.Built )
             LOG_INFO( "[Build HLODs] built {0}", unit );
         LOG_INFO( "[Build HLODs] '{0}': {1} HLOD mesh asset(s) named by the cells, {2} unused one(s) removed",
@@ -792,10 +791,9 @@ namespace Desert::Editor
              "record(s) in {7}; read back: {8} stale cell(s)",
              m_ScenePath.stem().string(), result.Built.size(), result.Index.Cells.size(),
              m_Options.ForceAll ? "force all" : "others up to date", files, bytes, records, dir.string(),
-             stale.GetValue().size() );
-        if ( !stale.GetValue().empty() )
-            return Common::MakeError(
-                 std::format( "Build HLODs: {} cell(s) read back stale", stale.GetValue().size() ) );
+             outdated.size() );
+        if ( !outdated.empty() )
+            return Common::MakeError( std::format( "Build HLODs: {} cell(s) read back stale", outdated.size() ) );
         m_Summary = std::format( "Build HLODs '{}': built {} of {} HLOD cells ({}); {} file(s), {} bytes written; "
                                  "read back: 0 stale cells",
                                  m_ScenePath.stem().string(), result.Built.size(), result.Index.Cells.size(),
@@ -810,27 +808,26 @@ namespace Desert::Editor
             return Common::MakeError<HLODStatus>( saved.GetError() );
         const SavedWorld&  world = saved.GetValue();
         HLODStatus         status;
-        WC::BuiltHLODIndex index; // no saved index: every row is missing
+        auto index = std::make_shared<WC::BuiltHLODIndex>(); // no saved index: every wanted node is missing
         if ( HasSavedIndex( scenePath ) )
         {
             auto stored = WC::ReadBuiltHLODs( scenePath );
             if ( !stored )
                 return Common::MakeError<HLODStatus>( stored.GetError() );
-            index        = std::move( stored.GetValue().Index );
+            *index       = std::move( stored.GetValue().Index );
             status.Built = true;
-            for ( const WC::BuiltHLODCell& row : index.Cells )
-                if ( row.File )
-                    status.BuiltUnits.push_back( row.Unit );
         }
         // The world the build cuts and the cook checks: prefab instances expanded (WP21).
         auto cut = WC::ExpandWorldForCook( world.Loadable.Scene, world.Descriptors, WC::PrefabFileReader() );
         if ( !cut )
             return Common::MakeError<HLODStatus>( cut.GetError() );
-        auto stale =
-             WC::StaleHLODCells( index, cut.GetValue().World.Scene, cut.GetValue().Descriptors, Registries() );
-        if ( !stale )
-            return Common::MakeError<HLODStatus>( stale.GetError() );
-        status.Stale = stale.ExtractValue();
+        auto judged = WC::SavedHLODStatus( cut.GetValue().World.Scene, cut.GetValue().Descriptors,
+                                           status.Built ? index.get() : nullptr, Registries(),
+                                           ::Desert::Core::HLODBuilders() );
+        if ( !judged )
+            return Common::MakeError<HLODStatus>( judged.GetError() );
+        status.World = judged.ExtractValue();
+        status.Index = std::move( index );
         return Common::MakeSuccess( std::move( status ) );
     }
 
