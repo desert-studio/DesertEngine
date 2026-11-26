@@ -3,6 +3,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/System/CharacterMovement.hpp>
 #include <Engine/Core/WorldContext.hpp>
+#include <Engine/ECS/System/System.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Gameplay/CharacterMoveStep.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>

@@ -13,6 +13,8 @@
 #include <Engine/Core/Serialize/EntityPackages.hpp>
 #include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/ECS/System/System.hpp>
+#include <Engine/ECS/PostProcessVolumeComponent.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>

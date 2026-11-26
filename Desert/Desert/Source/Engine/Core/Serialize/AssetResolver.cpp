@@ -1,4 +1,5 @@
 #include <Engine/Core/ModuleHooks.hpp>
+#include <Engine/Runtime/Services/IVideoService.hpp>
 #include <Engine/Core/Serialize/ComponentSerializerKit.hpp>
 #include <Engine/Assets/DataAsset.hpp>
 
