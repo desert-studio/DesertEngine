@@ -89,9 +89,11 @@ def type_into(tty, text, enters):
         return
     keys = "\n".join(['        delay 0.7\n        tell application "System Events" to key code 36'] * enters)
     # Empty the prompt box first: whatever is left there would be sent together with @p text.
+    # Key codes and a paste, never `keystroke`: with a Cyrillic layout active, keystroke types every Latin letter as
+    # key code 0, so "/compact" arrived as "/ффффффф" (owner's Mac, 11-26).
     wipe = "\n".join(['        tell application "System Events"\n'
-                      '          keystroke "e" using control down\n'
-                      '          keystroke "u" using control down\n'
+                      '          key code 14 using control down\n'
+                      '          key code 32 using control down\n'
                       '          key code 51\n'
                       '        end tell'] * CLEAR_LINES)
     script = f'''
@@ -105,7 +107,16 @@ tell application "Terminal"
         delay 0.5
 {wipe}
         delay 0.2
-        tell application "System Events" to keystroke "{text}"
+        set oldClip to ""
+        try
+          set oldClip to the clipboard
+        end try
+        set the clipboard to "{text}"
+        tell application "System Events" to key code 9 using command down
+        delay 0.3
+        try
+          set the clipboard to oldClip
+        end try
 {keys}
         return "typed"
       end if
