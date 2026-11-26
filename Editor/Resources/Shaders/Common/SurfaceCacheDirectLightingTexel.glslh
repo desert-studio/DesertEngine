@@ -321,12 +321,12 @@ void AddDirectionalLight(int light, vec3 travel, vec3 radiance, bool cloudShadow
 // A point/spot light's shadow at the texel: its local shadow view when it has one, the distance field when
 // it casts but the view budget gave it none - a ray that ends on the light's emitter sphere of @p sourceRadius
 // (the shadow view's near plane does the same, Graphic::LocalShadowNear).
-float LocalLightShadowOrTrace(int shadowView, int shadowCaster, float viewShadow, vec3 lightPos,
+float LocalLightShadowOrTrace(int shadowView, int shadowFlags, float viewShadow, vec3 lightPos,
                               float sourceRadius, vec3 worldPos, vec3 N)
 {
     if (shadowView >= 0)
         return viewShadow;
-    if (shadowCaster == 0)
+    if (!DesertLightShadowsInView(shadowFlags))
         return 1.0;
     const vec3  toLight = lightPos - worldPos;
     const float dist    = length(toLight);
@@ -452,14 +452,14 @@ void DirectLightingTexel(ivec2 atlasTexel, uint cardIndex, vec4 cardUVRect, vec4
             DesertLight      light  = DesertPointLightAt(source, worldPos);
             if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) > 0.0)
                 light.Shadow = LocalLightShadowOrTrace(
-                    source.shadowView, source.shadowCaster,
+                    source.shadowView, source.shadowFlags,
                     source.shadowView >= 0 ? PointLightShadow(source, worldPos, N) : 1.0, source.position,
                     source.sourceRadius, worldPos, N);
             irradiance += light.Radiance * light.Shadow * max(dot(N, light.L), 0.0);
             if (through && dot(N, light.L) < 0.0)
                 back += light.Radiance * -dot(N, light.L) *
                         LocalLightShadowOrTrace(
-                             source.shadowView, source.shadowCaster,
+                             source.shadowView, source.shadowFlags,
                              source.shadowView >= 0 ? PointLightShadow(source, worldPos, -N) : 1.0,
                              source.position, source.sourceRadius, worldPos, -N);
         }
@@ -469,14 +469,14 @@ void DirectLightingTexel(ivec2 atlasTexel, uint cardIndex, vec4 cardUVRect, vec4
             DesertLight     light  = DesertSpotLightAt(source, worldPos);
             if (max(light.Radiance.r, max(light.Radiance.g, light.Radiance.b)) > 0.0)
                 light.Shadow = LocalLightShadowOrTrace(
-                    source.shadowView, source.shadowCaster,
+                    source.shadowView, source.shadowFlags,
                     source.shadowView >= 0 ? SpotLightShadow(source, worldPos, N) : 1.0, source.position,
                     source.sourceRadius, worldPos, N);
             irradiance += light.Radiance * light.Shadow * max(dot(N, light.L), 0.0);
             if (through && dot(N, light.L) < 0.0)
                 back += light.Radiance * -dot(N, light.L) *
                         LocalLightShadowOrTrace(
-                             source.shadowView, source.shadowCaster,
+                             source.shadowView, source.shadowFlags,
                              source.shadowView >= 0 ? SpotLightShadow(source, worldPos, -N) : 1.0,
                              source.position, source.sourceRadius, worldPos, -N);
         }

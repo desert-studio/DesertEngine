@@ -4,7 +4,7 @@
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/glm.hpp>
 
 #include <optional>

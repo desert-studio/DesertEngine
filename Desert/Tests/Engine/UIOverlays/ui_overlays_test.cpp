@@ -30,6 +30,7 @@
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 
 #include <TestSupport/ui_canvas_resources_mock.hpp>
+#include <TestSupport/ui_registry.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -93,7 +94,7 @@ namespace
     // question three of these tests are really asking.
     struct World
     {
-        entt::registry Registry;
+        entt::registry Registry = ::TestSupport::UIRegistry();
         entt::entity   Hud       = entt::null;
         entt::entity   HudButton = entt::null;
 
@@ -401,11 +402,11 @@ TEST( OverlayTooltip, ItOpensOnlyAfterTheAuthoredDelayAndClosesWhenThePointerLea
     EXPECT_EQ( view.OverlayTooltip, Desert::UI::ToNode( tip ) );
 
     // The trigger's Text reached the overlay through the cell's locals — never through the scene, and
-    // never through the process-wide store where a second view would see it.
+    // never through the world's store where a second view would see it.
     EXPECT_EQ( view.CanvasState( Desert::UI::ToNode( tip ) ).Locals.Text( DUI::kOverlayTextKey ).value_or( "" ),
                "Explains the button" );
-    EXPECT_FALSE( DUI::UIDataStore::Get().Has( DUI::kOverlayTextKey ) )
-         << "the tooltip's text was written into the process-wide data store, where the editor's preview "
+    EXPECT_FALSE( w.Registry.ctx<DUI::UIWorld>().Data.Has( DUI::kOverlayTextKey ) )
+         << "the tooltip's text was written into the world's data store, where the editor's preview "
             "and the viewport would overwrite each other";
 
     Idle( w, view, At( 900.0f, 900.0f ), 1 );
@@ -569,8 +570,7 @@ TEST( OverlayToast, ANotificationLeavesOnItsOwnClock )
     o.ToastSlots              = 3;
 
     UIViewContext view{ s_Resources };
-    DUI::UIOverlayRequests::Get().Clear();
-    DUI::UIOverlayRequests::Get().Raise( "Toasts", "Saved" );
+    w.Registry.ctx<DUI::UIWorld>().Overlays.Raise( "Toasts", "Saved" );
 
     w.Frame( view, At( 900.0f, 900.0f ) );
     ASSERT_EQ( view.CanvasState( Desert::UI::ToNode( toasts ) ).OverlayToastVisible.size(), 1u )
@@ -602,9 +602,8 @@ TEST( OverlayToast, TheVisibleStackIsBoundedByTheAuthoredSlotsAndTheQueueBehindI
     o.ToastSlots              = 2;
 
     UIViewContext view{ s_Resources };
-    DUI::UIOverlayRequests::Get().Clear();
     for ( int i = 0; i < 40; ++i )
-        DUI::UIOverlayRequests::Get().Raise( "Toasts", "line " + std::to_string( i ) );
+        w.Registry.ctx<DUI::UIWorld>().Overlays.Raise( "Toasts", "line " + std::to_string( i ) );
 
     w.Frame( view, At( 900.0f, 900.0f ) );
 
@@ -628,8 +627,7 @@ TEST( OverlayToast, AToastNeverTakesThePointerFromWhatIsUnderIt )
     w.Registry.get<ECS::UIOverlayComponent>( toasts ).Data.ToastLifetime = 10.0f;
 
     UIViewContext view{ s_Resources };
-    DUI::UIOverlayRequests::Get().Clear();
-    DUI::UIOverlayRequests::Get().Raise( "Toasts", "Saved" );
+    w.Registry.ctx<DUI::UIWorld>().Overlays.Raise( "Toasts", "Saved" );
 
     w.Frame( view, At( 50.0f, 50.0f ) ); // the notification arrives and the canvas opens this frame
     const std::vector<std::string> fired = Click( w, view, 50.0f, 50.0f );

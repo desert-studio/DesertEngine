@@ -723,9 +723,7 @@ namespace Desert::Graphic::System
         // from them each frame, and a cached layer keyed by a coarser cell would keep an instance that crossed
         // its cull distance, level or wind ring inside the cell (CPU-ISM-SHADOW REMAINDER says what replaces it).
         const auto*             camera = m_SceneRenderer->GetMainCamera();
-        const Geometry::LODView lodView =
-             camera != nullptr ? Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() }
-                               : Geometry::LODView{};
+        const Geometry::LODView lodView = camera != nullptr ? MainLODView( *camera ) : Geometry::LODView{};
         SignatureHash hash;
         hash.Add( camera != nullptr );
         if ( camera != nullptr )
@@ -734,6 +732,7 @@ namespace Desert::Graphic::System
             hash.Add( camera->GetProjectionMatrix() );
         }
         hash.Add( TemporalLodKey() );
+        hash.Add( lodView.DistanceScale );
         hash.Add( DrawDistanceScale( lodView ) );
         hash.Add( m_ShadowWindDistance );
         hash.Add( m_InstancedQueue.size() );
@@ -1051,9 +1050,7 @@ namespace Desert::Graphic::System
         const auto*       camera = m_SceneRenderer->GetMainCamera();
         Geometry::LODView lodView{};
         if ( camera != nullptr )
-            lodView = Geometry::LODView{ .Origin     = camera->GetPosition(),
-                                         .Projection = camera->GetProjectionMatrix(),
-                                         .Temporal   = m_ViewTemporalLOD };
+            lodView = MainLODView( *camera );
         // The runs of every field a caster view asks (each one's filter: a mesh, CastShadows, instances), in field
         // order and, within a field, in index order.
         std::size_t runs = 0;
@@ -1175,7 +1172,8 @@ namespace Desert::Graphic::System
         for ( uint32_t k = run.Begin; k < run.End; ++k )
         {
             const std::optional<Common::Math::AABB> reach =
-                 IsmInstanceReach( lensCull, k, transforms[k], localBounds, ism.Wind, lodView.Origin );
+                 IsmInstanceReach( lensCull, ComponentInstanceIndex( ism.InstanceIds.get(), k ), transforms[k],
+                                   localBounds, ism.Wind, lodView.Origin );
             if ( !reach )
                 continue;
             const glm::vec3 point    = ShadowWindInstancePoint( transforms[k], boundsCentre );
@@ -2322,13 +2320,15 @@ namespace Desert::Graphic::System
     {
         const MeshPass pass =
              IsVirtualShadowView( cascade ) ? MeshPass::VirtualShadowDepth : MeshPass::ShadowDepth;
-        auto* caster =
-             Runtime::ResourceRegistry::GetMaterialService()->GetViewVariant( material, path, pass, cascade );
+        const auto answer =
+             Runtime::ResourceRegistry::GetMaterialService()->ResolveViewVariant( material, path, pass, cascade );
+        auto* caster = answer.Material;
         if ( caster == nullptr )
         {
             // Not drawn through the shared program instead: that is the square shadow this route exists to end.
-            // A read in flight is not a refusal: the next frames ask again.
-            if ( Runtime::ResourceRegistry::GetMaterialService()->IsPending( material ) )
+            // A read in flight is not a refusal: the next frames ask again. Pending comes from the same locked
+            // lookup - a separate IsPending raced the read's completion and named a loading material refused.
+            if ( answer.Pending )
                 return nullptr;
             static std::unordered_set<const DataDrivenMaterial*> s_Refused;
             if ( s_Refused.insert( material ).second )

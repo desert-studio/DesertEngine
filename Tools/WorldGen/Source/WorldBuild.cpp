@@ -18,7 +18,7 @@
 #include <map>
 #include <fstream>
 #include <optional>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::WorldGen
 {

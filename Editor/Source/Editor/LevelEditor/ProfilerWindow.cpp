@@ -7,6 +7,7 @@
 
 #include <Common/Core/Profiler.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Core/Application.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Common/Core/Logger.hpp>

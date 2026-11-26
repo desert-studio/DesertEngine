@@ -164,7 +164,7 @@ def brief_size_denial(prompt, feature=False):
     # feature was seen working, and that brief names the proof in a «Фича принята:» line.
     # Target names (EditorTests), clauses handing suites to the lead («Сюиты/CI — тимлид») and «Тесты не писать» are not asks.
     asks_tests = re.search(r"(?i)мутац\w*|\bтест\w*|\bсюит\w*|\bsuites?\b|\btests?\b",
-                           re.sub(r"[^.;\n]*тимлид[^.;\n]*|[^.;\n]*suite\.sh[^.;\n]*|\w*Tests\b|[Тт]ест\w*\s+не\s+\w+|\bне\s+\w+\s+тест\w*", "", body))
+                           re.sub(r"[^.;\n]*тимлид[^.;\n]*|[^.;\n]*suite\.sh[^.;\n]*|\w*Tests\b|[Тт]ест\w*\s+не\s+\w+|(?i:existing test projects[^.;\n]*compile\w*)|(?i:\bno (?:new )?tests?\b)|\bне\s+\w+\s+тест\w*", "", body))
     if asks_tests and "Фича принята:" not in text:
         return (f"[agent_guard] Тимлид: бриф {found.group(0)} просит тесты/мутации вместе с кодом («{asks_tests.group(0)}»). "
                 "Владелец 10-10 вечер: новые тесты ОТЛОЖЕНЫ до конца фич (потом отдельный период тестов). Бриф — код + "
@@ -192,7 +192,7 @@ ALWAYS_ALLOWED_AFTER_LIMIT =re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
 # Owner 2026-09-29: every refused call re-sends the whole context (~2.9k refusals = ~7 % of spend). The four
 # commonest refusals (tree search 81, cat 53, push without handoff 46, code before map 36 in 24 h) are answered
 # BEFORE the agent tries them: the allowed form of each is put into its context with the map, after call 1.
-CHEAT_SHEET = """[agent_guard] ДВА ПАРАМЕТРА ВСЕГДА — АРХИТЕКТУРА И NEXTGEN (владелец 10-29: лучшее качество картинки, ориентир UE 5.5+/поздние AAA, не заплатка; вид — из АССЕТОВ, кодом — только размещение/LOD). А Р Х И Т Е К Т У Р А ПЕРВОЙ (владелец 09-29): делай как ПРАВИЛЬНО устроено (UE или лучше; UE — ориентир, не эталон: где UE архитектурно хуже — НЕ копируй молча, в REMAINDER «в UE так, лучше так» для владельца; где берём архитектуру UE — портируй код и шейдеры UE с адаптацией), без бюджетов, урезанных охватов, угадываний и мостов; не влезает — REMAINDER, не компромисс.\n[agent_guard] РАЗРЕШЁННЫЕ ФОРМЫ (каждый отказ хука стоит полного вызова — не пробуй запрещённое):
+CHEAT_SHEET = """[agent_guard] ДВА ПАРАМЕТРА ВСЕГДА — АРХИТЕКТУРА И NEXTGEN (владелец 10-29: лучшее качество картинки, ориентир UE 5.5+/поздние AAA, не заплатка; вид — из АССЕТОВ, кодом — только размещение/LOD). А Р Х И Т Е К Т У Р А ПЕРВОЙ (владелец 09-29): делай как ПРАВИЛЬНО устроено (владелец 11-26: эталон архитектуры КОДА — общепринятые паттерны C++ (C++ Core Guidelines, RAII, SOLID, GoF, value semantics, data-oriented там, где горячо); UE как архитектура — не эталон; отход от паттерна — только когда он мешает производительности, с замером; техники РЕНДЕРА и вид — ориентир UE 5.5+/AAA, их код и шейдеры портируй с адаптацией), без бюджетов, урезанных охватов, угадываний и мостов; не влезает — REMAINDER, не компромисс.\n[agent_guard] РАЗРЕШЁННЫЕ ФОРМЫ (каждый отказ хука стоит полного вызова — не пробуй запрещённое):
 - где определено имя: scripts/Dev/sym.sh <Имя>; где используется: scripts/Dev/sym.sh --refs <Имя>. НЕ grep -r / rg / git grep / find без -maxdepth.
 - чтение кода: grep -n <шаблон> <известный файл> → sed -n 'A,Bp' <файл> (≤150 строк) или Read(offset, limit≤150). НЕ cat / Read целиком.
 - новые тесты НЕ пишешь (владелец 10-10: тесты после фич); затронутые существующие сюиты гоняешь сам: scripts/Dev/suite.sh в фоне; tidy/склейки/handoff — тимлид. Сдача: последний коммит с темой «wip: …» → git push (полный handoff_check гоняет тимлид; не-wip без .cache/handoff/<HEAD>.ok хук откажет).
@@ -459,6 +459,18 @@ def self_check():
             cases[name] = None
             if '"deny"' not in out.stdout:
                 failed.append(name)
+        # Owner 11-25: the lead's own waste, and the calls that must stay open.
+        for name, cmd, refused in (("lead cuts a merge with timeout", "timeout 100 git merge --no-ff x", True),
+                                   ("lead reads a whole diff", "cd x && git diff -U2 a..b -- '*.cpp'", True),
+                                   ("lead prints 48k chars", "cat f | head -c 48000", True),
+                                   ("lead reads a diff stat", "git diff --shortstat a..b", False),
+                                   ("lead runs a merge", "git merge --no-ff x", False),
+                                   ("lead pushes with a timeout", "timeout 90 git push origin x", False),
+                                   ("lead runs merge-tree with a timeout", "timeout 60 git merge-tree --write-tree a b", False)):
+            if refused:
+                cases[name] = None
+            if bool(lead_waste_refusal(cmd)) != refused:
+                failed.append(name)
         # Owner 11-23: continuing an agent past CONTINUE_MAX calls is refused.
         send = os.path.join(STATE_DIR, "selfcheck-SEND.json")
         with open(send, "w") as f:
@@ -523,7 +535,7 @@ def self_check():
         except OSError:
             pass
     rules = ", ".join(cases)
-    msg = (f"[agent_guard] ДВА ПАРАМЕТРА ВСЕГДА: АРХИТЕКТУРА И NEXTGEN; вид — из ассетов, не кодом (владелец 10-29). А Р Х И Т Е К Т У Р А ПЕРВОЙ: решение = как правильно устроено (UE или лучше; где UE архитектурно хуже — сказать владельцу ДО кода, владелец 10-12), не замер/бюджет/урезанный охват "
+    msg = (f"[agent_guard] ДВА ПАРАМЕТРА ВСЕГДА: АРХИТЕКТУРА И NEXTGEN; вид — из ассетов, не кодом (владелец 10-29). А Р Х И Т Е К Т У Р А ПЕРВОЙ: решение = как правильно устроено (эталон кода — паттерны C++, не UE; отход — только ради производительности с замером, владелец 11-26), не замер/бюджет/урезанный охват "
            f"(LEAD_PROTOCOL, DEV_CONTRACT §00). ПАУЗЫ НЕТ (владелец 10-05: «кончились токены»): незаконченные задачи обязательны, игра — параллельно; граф рендера не трогать. Фича = ОДИН заход engineer по дизайну architect (DEV_CONTRACT 00e); починка = ≤ 2 пункта / 900 знаков. Доска — только агент board (DEV_CONTRACT §00c); запуск (process_event.py launch на запуск); приём — одним ~/.claude/tools/accept.sh. self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
            f"[agent_guard] SELF-CHECK FAILED — these rules no longer bite: {', '.join(failed)}. "
            f"Restore .claude/tools/agent_guard.py from git history BEFORE launching any agent.")
@@ -605,6 +617,28 @@ def weather_gate_pending():
     return pending
 
 
+LEAD_OUTPUT_CAP = 6000
+GIT_TREE_WRITE = re.compile(r"\btimeout\s+(?:-\S+\s+)*\d+\w?\s+git\s+(?:-C\s+\S+\s+)?"
+                            r"(?:merge(?!-tree|-base)|rebase|checkout|switch|reset|stash|cherry-pick|am)\b")
+GIT_TEXT = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?(?:diff|show|log\s+-p)\b")
+CAPPED = re.compile(r"--(?:short)?stat|--name-only|--name-status|--numstat|--raw|--quiet|\|\s*(?:wc|grep|head|tail)\b|"
+                    r">\s*[\w/$\"']|\s-s\b")
+
+
+def lead_waste_refusal(cmd):
+    """Owner 11-25: a merge cut by `timeout` left a half-written tree, and whole diffs were read into the lead."""
+    if GIT_TREE_WRITE.search(cmd):
+        return ("`timeout` вокруг git, который пишет дерево, обрывает его на середине (11-25: ng6build восстанавливали по "
+                "blob). Запусти без timeout, с run_in_background.")
+    big = [int(n) for n in re.findall(r"\bhead\s+-c\s*(\d+)", cmd) if int(n) > LEAD_OUTPUT_CAP]
+    if big:
+        return (f"вывод {big[0]} знаков в контекст лида (> {LEAD_OUTPUT_CAP}) перечитывается каждым следующим запросом. "
+                "Выжимка скриптом или ревьюер.")
+    if any(GIT_TEXT.search(part) and not CAPPED.search(part) for part in re.split(r"&&|;|\n", cmd)):
+        return "дифф целиком в контекст лида не читается: --stat, выжимка (| head -60) или агент reviewer."
+    return None
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -617,6 +651,10 @@ def main():
     # Verified 2026-09-24 on live calls: a sub-agent's input carries agent_id and agent_type.
     agent = data.get("agent_id")
     agent_type = (data.get("agent_type") or "").lower()
+    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") in ("Bash", "PowerShell"):
+        waste = lead_waste_refusal(str((data.get("tool_input") or {}).get("command") or ""))
+        if waste:
+            deny("[agent_guard] Тимлид: " + waste, data, "lead")
     # The lead's own spawns: sonnet is refused for any agent (owner 09-29 «соннет дорогой», measured above).
     if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
             "sonnet" in str((data.get("tool_input") or {}).get("model") or "").lower():

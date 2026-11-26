@@ -15,7 +15,7 @@
 
 #include <format>
 #include <memory>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Graphic::QualityBoot
 {
@@ -39,8 +39,8 @@ namespace Desert::Graphic::QualityBoot
         {
             const int  filter        = resolved.As<int>( Parameter::TextureFilter );
             const int  anisotropy    = resolved.As<int>( Parameter::Anisotropy );
-            const bool filterChanged = RenderConfig::TextureFilter.exchange( filter ) != filter;
-            const bool anisoChanged  = RenderConfig::AnisotropyLevel.exchange( anisotropy ) != anisotropy;
+            const bool filterChanged = RenderConfig::SetTextureFilter( filter );
+            const bool anisoChanged  = RenderConfig::SetAnisotropyLevel( anisotropy );
             if ( filterChanged || anisoChanged )
                 Renderer::GetInstance().RecreateImageSamplers();
         }

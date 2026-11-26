@@ -4,6 +4,14 @@
 
 namespace Desert::Graphic::API::Vulkan
 {
+    namespace
+    {
+        // Making these function-local or per-header statics left a null copy in another image (BINT-STATE).
+        PFN_vkSetDebugUtilsObjectNameEXT fpSetDebugUtilsObjectNameEXT = nullptr;
+        PFN_vkCmdBeginDebugUtilsLabelEXT fpCmdBeginDebugUtilsLabelEXT = nullptr;
+        PFN_vkCmdEndDebugUtilsLabelEXT   fpCmdEndDebugUtilsLabelEXT   = nullptr;
+    } // namespace
+
 
     const std::string VkResultToString( VkResult result )
     {
@@ -250,5 +258,44 @@ namespace Desert::Graphic::API::Vulkan
         if ( fpCmdEndDebugUtilsLabelEXT == nullptr )
             fpCmdEndDebugUtilsLabelEXT = []( VkCommandBuffer ) {};
     }
+
+    namespace VKUtils
+    {
+        void SetDebugUtilsObjectName( const VkDevice device, const VkObjectType objectType, const std::string& name,
+                                      const void* handle )
+        {
+            VkDebugUtilsObjectNameInfoEXT nameInfo;
+            nameInfo.sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+            nameInfo.objectType   = objectType;
+            nameInfo.pObjectName  = name.c_str();
+            nameInfo.objectHandle = (uint64_t)handle;
+            nameInfo.pNext        = VK_NULL_HANDLE;
+
+            VK_CHECK_RESULT( fpSetDebugUtilsObjectNameEXT( device, &nameInfo ) );
+        }
+
+        void BeginDebugLabel( VkCommandBuffer cmdBuffer, const char* name )
+        {
+            VkDebugUtilsLabelEXT label{};
+            label.sType      = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+            label.pLabelName = name;
+            fpCmdBeginDebugUtilsLabelEXT( cmdBuffer, &label );
+        }
+
+        void EndDebugLabel( VkCommandBuffer cmdBuffer )
+        {
+            fpCmdEndDebugUtilsLabelEXT( cmdBuffer );
+        }
+
+        PFN_vkCmdBeginDebugUtilsLabelEXT CmdBeginDebugLabelEntry()
+        {
+            return fpCmdBeginDebugUtilsLabelEXT;
+        }
+
+        PFN_vkCmdEndDebugUtilsLabelEXT CmdEndDebugLabelEntry()
+        {
+            return fpCmdEndDebugUtilsLabelEXT;
+        }
+    } // namespace VKUtils
 
 } // namespace Desert::Graphic::API::Vulkan

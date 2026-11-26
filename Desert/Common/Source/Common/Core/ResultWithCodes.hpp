@@ -170,7 +170,7 @@ namespace Common
         {
             if ( m_IsSuccess )
             {
-                static std::vector<ErrorCodeType> empty_codes;
+                static const std::vector<ErrorCodeType> empty_codes;
                 return empty_codes;
             }
             return std::get<Error>( m_Outcome ).GetErrorCodes();
@@ -217,7 +217,7 @@ namespace Common
         {
         }
 
-        static inline std::string s_NoError = "Cannot get error message, result is a success";
+        static inline const std::string s_NoError = "Cannot get error message, result is a success";
         std::variant<T, Error>    m_Outcome;
         bool                      m_IsSuccess = false;
 

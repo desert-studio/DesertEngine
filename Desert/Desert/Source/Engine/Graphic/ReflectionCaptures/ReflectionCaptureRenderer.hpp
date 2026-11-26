@@ -13,7 +13,7 @@
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Common/Core/Timestep.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/glm.hpp>
 
 #include <array>

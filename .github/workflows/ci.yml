@@ -237,16 +237,69 @@ jobs:
       # compile_commands.json (CMAKE_EXPORT_COMPILE_COMMANDS); GenCompileCommands.sh keeps one
       # configuration of it. Nothing here is a second opinion about the build's flags that could drift.
       - name: Generate project files
-        run: ./scripts/MacOS/BuildMacOS.sh Debug --gen-only
+        run: ./scripts/MacOS/BuildMacOS.sh DebugGame --gen-only
 
       - name: clang-tidy the changed lines
+        run: ./scripts/CI/CheckTidy.sh --shard "${{ matrix.shard }}/${{ needs.tidy-plan.outputs.shards }}" "${{ github.event.pull_request.base.sha || github.event.before }}"
+
+  # THE SAME SHARDS ON WINDOWS (STUDIO-AUDIT B-GATES): the MSVC compile lines of build/cmake/win-debug,
+  # read by clang-tidy in clang-cl driver mode, see what macOS never compiles (#ifdef _WIN32, DX12, WinSock).
+  # CheckTidy.sh picks the Windows tree by uname; LLVM 18 is pinned as on macOS (the verdict is release-bound).
+  tidy-windows:
+    name: clang-tidy Windows ${{ matrix.shard }}/${{ needs.tidy-plan.outputs.shards }}
+    # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it -- reports only.
+    continue-on-error: true
+    needs: [ tidy-plan ]
+    if: needs.tidy-plan.outputs.shards != '0'
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.tidy-plan.outputs.matrix) }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0 # merge-base needs history
+          filter: blob:none
+
+      - name: Restore Vulkan SDK
+        id: vulkan-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: C:\VulkanSDK
+          key: vulkan-sdk-${{ env.VULKAN_SDK_VERSION }}-debuglibs-loader
+
+      - name: Ensure Vulkan SDK
+        shell: pwsh
+        run: ./scripts/CI/EnsureVulkanSdk.ps1 -Version ${{ env.VULKAN_SDK_VERSION }}
+
+      - name: MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup dependencies
+        shell: cmd
+        run: scripts\Windows\Setup.bat
+
+      - name: Install clang-tidy 18
+        shell: pwsh
+        run: choco install llvm --version=18.1.8 -y --no-progress
+
+      - name: clang-tidy the changed lines
+        shell: bash
+        env:
+          DESERT_CLANG_TIDY: C:/Program Files/LLVM/bin/clang-tidy.exe
         run: ./scripts/CI/CheckTidy.sh --shard "${{ matrix.shard }}/${{ needs.tidy-plan.outputs.shards }}" "${{ github.event.pull_request.base.sha || github.event.before }}"
 
   tidy-verdict:
     name: clang-tidy (changed lines)
     # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it -- reports only.
     continue-on-error: true
-    needs: [ tidy-plan, tidy ]
+    needs: [ tidy-plan, tidy, tidy-windows ]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -258,15 +311,18 @@ jobs:
           PLAN: ${{ needs.tidy-plan.result }}
           SHARDS: ${{ needs.tidy-plan.outputs.shards }}
           TIDY: ${{ needs.tidy.result }}
+          TIDY_WINDOWS: ${{ needs.tidy-windows.result }}
         run: |
-          echo "plan: $PLAN (shards: ${SHARDS:-?}), shards: $TIDY"
+          echo "plan: $PLAN (shards: ${SHARDS:-?}), shards: macOS $TIDY, Windows $TIDY_WINDOWS"
           [ "$PLAN" = success ] || { echo "::error::the clang-tidy plan ended '$PLAN'"; exit 1; }
           if [ "$SHARDS" = 0 ]; then
             [ "$TIDY" = skipped ] || { echo "::error::no C++ changed, yet the shards ended '$TIDY'"; exit 1; }
+            [ "$TIDY_WINDOWS" = skipped ] || { echo "::error::no C++ changed, yet the Windows shards ended '$TIDY_WINDOWS'"; exit 1; }
             echo "no C++ files changed — nothing to analyse"
             exit 0
           fi
           [ "$TIDY" = success ] || { echo "::error::a clang-tidy shard ended '$TIDY'"; exit 1; }
+          [ "$TIDY_WINDOWS" = success ] || { echo "::error::a Windows clang-tidy shard ended '$TIDY_WINDOWS'"; exit 1; }
 
   # Dynamic checks: the whole workspace builds with ASan+UBSan (CMake takes env CXXFLAGS/OBJCXXFLAGS/
   # LDFLAGS as the initial flags of a FRESH build tree -- this job's checkout has none) and the full
@@ -492,7 +548,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/ccache-debug"
           { echo "CCACHE_DEBUG=1"; echo "CCACHE_DEBUGLEVEL=2"; echo "CCACHE_DEBUGDIR=$RUNNER_TEMP/ccache-debug"; } >> "$GITHUB_ENV"
 
-      - name: Build Debug with sanitizers
+      - name: Build DebugGame with sanitizers
         timeout-minutes: 78
         env:
           # Read by CMake on the FIRST configure of a build tree only; the checkout is fresh, so this is it.
@@ -506,7 +562,7 @@ jobs:
           # ~6 GB of ASan objects uncompressed; ccache stores them zstd-compressed.
           CCACHE_MAXSIZE: "2G" # dev's set must fit 8.5 of the repository's 10 GB — see the note on Restore ccache
           CCACHE_DIR: ${{ runner.temp }}/ccache
-        run: ./scripts/MacOS/BuildMacOS.sh Debug
+        run: ./scripts/MacOS/BuildMacOS.sh DebugGame
 
       # AFTER the build and BEFORE the tests: the tests are the half of this job most likely to fail,
       # and a build's worth of cache is worth keeping even when a suite goes red. `always()` for the
@@ -554,9 +610,11 @@ jobs:
       - name: Bundle the test binaries
         run: |
           # AssimpLibraryPin compares the linked assimp with build/generated/assimp/VERSION.txt (cmake/ThirdParty/Assimp.cmake).
-          tar -czf "$RUNNER_TEMP/test-bundle.tgz" build/Bin/Tests/Debug build/TestManifest.txt build/TestPlan \
-            build/generated/assimp/VERSION.txt
-          du -sh build/Bin/Tests/Debug "$RUNNER_TEMP/test-bundle.tgz"
+          # The module and third-party dylibs the runners load through @executable_path/../../DebugGame
+          # (Desert/Tests/CMakeLists.txt) travel at the same relative place.
+          tar -czf "$RUNNER_TEMP/test-bundle.tgz" build/Bin/Tests/DebugGame build/Bin/DebugGame/*.dylib \
+            build/TestManifest.txt build/TestPlan build/generated/assimp/VERSION.txt
+          du -sh build/Bin/Tests/DebugGame "$RUNNER_TEMP/test-bundle.tgz"
 
       - name: Upload the test bundle
         uses: actions/upload-artifact@v4
@@ -642,7 +700,7 @@ jobs:
           ASAN_OPTIONS: "detect_leaks=0:abort_on_error=1:detect_container_overflow=0"
           UBSAN_OPTIONS: "print_stacktrace=1:halt_on_error=1"
           TEST_LIST: build/TestPlan/shard-${{ matrix.shard }}.txt
-        run: ./scripts/MacOS/RunTests.sh "$PWD" Debug
+        run: ./scripts/MacOS/RunTests.sh "$PWD" DebugGame
 
       - name: Upload test reports
         if: always()
@@ -747,7 +805,7 @@ jobs:
         #
         # This leg also puts the documented developer command — `scripts/MacOS/BuildMacOS.sh Shipping`,
         # which is what the packager's own error message tells people to run — under test.
-        config: [Release, Shipping]
+        config: [Development, Shipping]
         # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it -- was `leg: [tests, package]` with Shipping x tests excluded.
         leg: [package]
         # EACH LEG BUILDS WHAT ITS OWN STEPS READ, AND NOTHING ELSE (BuildMacOS.sh --project; the
@@ -771,7 +829,7 @@ jobs:
           # - config: Release
           #   leg: tests
           #   projects: --project=EngineTests --project=EditorTests --project=ToolsTests --project=CommonTests --project=RuntimeTests --project=DShaderTool
-          - config: Release
+          - config: Development
             leg: package
             projects: --project=Editor --project=Runtime --project=PakTool --project=DShaderTool --project=AssetClosure --project=GamePackager
           - config: Shipping
@@ -833,9 +891,18 @@ jobs:
       - name: Build ${{ matrix.config }}
         timeout-minutes: 50
         env:
-          CCACHE_MAXSIZE: ${{ matrix.config == 'Release' && '0.5G' || '0.4G' }}
+          CCACHE_MAXSIZE: ${{ matrix.config == 'Development' && '0.5G' || '0.4G' }}
           CCACHE_DIR: ${{ runner.temp }}/ccache
         run: ./scripts/MacOS/BuildMacOS.sh ${{ matrix.config }} ${{ matrix.projects }}
+
+      # THE ARCHITECTURE RATCHET (STUDIO-AUDIT C4): code and #include rules, and with --build the build-cost rules
+      # (header-fanout against scripts/Dev/header_fanout_budget.txt, tu-time, duplicate-compile) over the tree this
+      # job just built. Exit 2 = a rise; the place and the rule's reason are printed.
+      - name: Architecture census
+        # The build directory is the preset's (CMakePresets.json: mac-dev / mac-debug / mac-ship).
+        run: |
+          case "${{ matrix.config }}" in Development) p=dev ;; DebugGame) p=debug ;; Shipping) p=ship ;; esac
+          python3 scripts/Dev/arch_census.py --build "build/cmake/mac-$p" --config ${{ matrix.config }}
 
       # After the build and before the tests, `always()`, `continue-on-error` — see the sanitizers job.
       - name: Save ccache
@@ -954,10 +1021,10 @@ jobs:
       # that has one (self-hosted Apple Silicon); a crash, a non-zero exit, a missing PNG or ten minutes
       # without exiting fails the job.
       - name: Smoke-run the packaged game (Vulkan runner only)
-        if: matrix.config == 'Release' && matrix.leg == 'package' && vars.DESERT_MACOS_VULKAN_RUNNER == 'true'
+        if: matrix.config == 'Development' && matrix.leg == 'package' && vars.DESERT_MACOS_VULKAN_RUNNER == 'true'
         run: |
-          ./build/Bin/Release/GamePackager Projects/Desert/Desert.deproj --config Release --out "$GITHUB_WORKSPACE/dist/Game-Release"
-          app="$(find "$GITHUB_WORKSPACE/dist/Game-Release" -maxdepth 1 -name '*.app' | head -n 1)"
+          ./build/Bin/Development/GamePackager Projects/Desert/Desert.deproj --config Development --out "$GITHUB_WORKSPACE/dist/Game-Development"
+          app="$(find "$GITHUB_WORKSPACE/dist/Game-Development" -maxdepth 1 -name '*.app' | head -n 1)"
           exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
           shot="$RUNNER_TEMP/packaged-smoke.png"
           ( "$app/Contents/MacOS/$exe" --shot "$shot" --shot-frames 30 ) & pid=$!
@@ -966,8 +1033,8 @@ jobs:
           [ -s "$shot" ] || { echo "the packaged game exited 0 but wrote no PNG at $shot"; exit 1; }
 
       - name: Smoke run skipped — no Vulkan on this runner
-        if: matrix.config == 'Release' && matrix.leg == 'package' && vars.DESERT_MACOS_VULKAN_RUNNER != 'true'
-        run: echo "::notice title=Packaged game NOT started::macos-14 is a VM with no proven Metal device for MoltenVK (the Release tests leg's step Probe the Vulkan device says why); set DESERT_MACOS_VULKAN_RUNNER=true on a Vulkan-capable Mac runner to smoke-run the packaged .app"
+        if: matrix.config == 'Development' && matrix.leg == 'package' && vars.DESERT_MACOS_VULKAN_RUNNER != 'true'
+        run: echo "::notice title=Packaged game NOT started::macos-14 is a VM with no proven Metal device for MoltenVK (the Development tests leg's step Probe the Vulkan device says why); set DESERT_MACOS_VULKAN_RUNNER=true on a Vulkan-capable Mac runner to smoke-run the packaged .app"
 
       # Surface the test reports even when a step above failed.
       - name: Upload test reports
@@ -999,15 +1066,15 @@ jobs:
       # tree shipped twice. Three places asserted the same wrong thing (both scripts and this line);
       # if a fourth appears, it is the same defect, not a new one.
       - name: Package build
-        if: matrix.config == 'Release' && matrix.leg == 'package'
-        run: ./scripts/MacOS/Package.sh Release
+        if: matrix.config == 'Development' && matrix.leg == 'package'
+        run: ./scripts/MacOS/Package.sh Development
 
       - name: Upload packaged build
-        if: matrix.config == 'Release' && matrix.leg == 'package'
+        if: matrix.config == 'Development' && matrix.leg == 'package'
         uses: actions/upload-artifact@v4
         with:
-          name: DesertEngine-macOS-Release
-          path: dist/DesertEngine-Release/
+          name: DesertEngine-macOS-Development
+          path: dist/DesertEngine-Development/
           retention-days: 14
 
       - name: Job budget
@@ -1083,7 +1150,7 @@ jobs:
         # that no compiler on the shipping platform has ever seen is the same bet, taken larger.
         #
         # shards: how many test shards the plan is cut into (0 = no tests in this configuration).
-        config: [Debug]
+        config: [DebugGame]
         ccache_max: [2.5G]
         column: [windows-debug]
         shards: [0] # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it -- was [3]
@@ -1161,9 +1228,9 @@ jobs:
       # checks the toolchain. Running it here means the documented setup path is itself under test — a
       # broken Setup.bat fails CI instead of the next new machine.
       #
-      # --unity on the build line below (task CI10): preset windows-msvc-ninja-unity, Common, Desert and
-      # Editor as CMake unity batches (cmake/DesertWorkspace.cmake; the test suites stay one source per
-      # compile so their shared sources keep hitting ccache). ONLY HERE -- a developer build leaves it off.
+      # Unity batches (task CI10) are now every preset's (CMakePresets.json win-dev/win-debug/win-ship), a
+      # developer's build included; the test suites stay one source per compile so their shared sources keep
+      # hitting ccache (cmake/DesertWorkspace.cmake).
       # BEFORE, the numbers to compare the first unity run against (ccache + MultiToolTask, run
       # 35863890019): Build step Release 74.7 min, Debug 36.0, Shipping 26.2; whole job Release 80.2,
       # Debug 57, Shipping 29. The owner's working figure for the Windows job today: 1.5-2 h.
@@ -1290,7 +1357,17 @@ jobs:
         # --no-tests configures without the suites (DESERT_WITH_TESTS=OFF). Restore = drop the flag.
         run: |
           "%CCACHE_EXE%" --zero-stats || exit /b 1
-          scripts\Windows\BuildWindows.bat ${{ matrix.config }} --unity --no-tests --launcher "%CCACHE_EXE%"
+          scripts\Windows\BuildWindows.bat ${{ matrix.config }} --no-tests --launcher "%CCACHE_EXE%"
+
+      # THE ARCHITECTURE RATCHET (STUDIO-AUDIT C4): code and #include rules, and with --build the build-cost rules
+      # (header-fanout against scripts/Dev/header_fanout_budget.txt, tu-time, duplicate-compile) over the tree this
+      # job just built. Exit 2 = a rise; the place and the rule's reason are printed.
+      - name: Architecture census
+        shell: bash
+        # The build directory is the preset's (CMakePresets.json: win-dev / win-debug / win-ship).
+        run: |
+          case "${{ matrix.config }}" in Development) p=dev ;; DebugGame) p=debug ;; Shipping) p=ship ;; esac
+          python scripts/Dev/arch_census.py --build "build/cmake/win-$p" --config ${{ matrix.config }}
 
       # Right after the build, `always()`: a build cancelled at the ceiling still leaves every object
       # it finished, and that is what lets the next run get past the point this one stopped at. The
@@ -1450,7 +1527,7 @@ jobs:
       #   not touched by a save, only by eviction). Saved only when the cook wrote a new entry.
       - name: Texture DDC key
         id: ddc-key
-        if: matrix.config != 'Debug'
+        if: matrix.config != 'DebugGame'
         shell: bash
         run: |
           inputs=$(git ls-files -s -- Projects/Desert Desert/Desert/Source/Engine/Assets/TextureSourceAsset.hpp \
@@ -1459,7 +1536,7 @@ jobs:
           echo "content=$inputs" >> "$GITHUB_OUTPUT"
 
       - name: Restore the texture DDC
-        if: matrix.config != 'Debug'
+        if: matrix.config != 'DebugGame'
         uses: actions/cache/restore@v4
         with:
           path: Projects/Desert/DerivedDataCache/Buckets/Texture
@@ -1476,7 +1553,7 @@ jobs:
       # working file renamed into place), so a stopped cook leaves no half entry; its working files are
       # removed before the save.
       - name: Package the sandbox game
-        if: matrix.config != 'Debug'
+        if: matrix.config != 'DebugGame'
         shell: bash
         run: |
           bucket=Projects/Desert/DerivedDataCache/Buckets/Texture
@@ -1499,7 +1576,7 @@ jobs:
 
       - name: Did the cook add texture DDC entries
         if: >-
-          always() && matrix.config != 'Debug' &&
+          always() && matrix.config != 'DebugGame' &&
           ( ( github.event_name == 'push' && github.ref == 'refs/heads/dev' ) || github.event_name == 'workflow_dispatch' )
         continue-on-error: true
         id: ddc-changed
@@ -1526,7 +1603,7 @@ jobs:
       # binaries' own import tables, refuses any DLL outside scripts/CI/windows_allowed_dlls.txt, and
       # refuses an `app-local` DLL that is imported but not present in the package.
       - name: Packaged game imports only allowed DLLs
-        if: matrix.config != 'Debug'
+        if: matrix.config != 'DebugGame'
         shell: bash
         run: |
           exe="$(find "$GITHUB_WORKSPACE/dist/Game-${{ matrix.config }}" -maxdepth 2 -name Runtime.exe | head -n 1)"
@@ -1541,31 +1618,31 @@ jobs:
       # renders a fixed number of frames, writes a PNG and exits; a crash, a non-zero exit, a missing
       # PNG or ten minutes without exiting fails the job.
       - name: Smoke-run the packaged game (Vulkan runner only)
-        if: matrix.config == 'Release' && vars.DESERT_WINDOWS_VULKAN_RUNNER == 'true'
+        if: matrix.config == 'Development' && vars.DESERT_WINDOWS_VULKAN_RUNNER == 'true'
         shell: bash
         run: |
-          gameDir="$(dirname "$(find "$GITHUB_WORKSPACE/dist/Game-Release" -maxdepth 2 -name Runtime.exe | head -n 1)")"
+          gameDir="$(dirname "$(find "$GITHUB_WORKSPACE/dist/Game-Development" -maxdepth 2 -name Runtime.exe | head -n 1)")"
           shot="$RUNNER_TEMP/packaged-smoke.png"
           cd "$gameDir"
           timeout 600 ./Runtime.exe --shot "$shot" --shot-frames 30
           [ -s "$shot" ] || { echo "Runtime.exe exited 0 but wrote no PNG at $shot"; exit 1; }
 
       - name: Smoke run skipped — no Vulkan on this runner
-        if: matrix.config == 'Release' && vars.DESERT_WINDOWS_VULKAN_RUNNER != 'true'
+        if: matrix.config == 'Development' && vars.DESERT_WINDOWS_VULKAN_RUNNER != 'true'
         shell: bash
-        run: echo "::notice title=Packaged game NOT started::windows-2022 has no Vulkan device; set DESERT_WINDOWS_VULKAN_RUNNER=true on a Vulkan-capable runner to smoke-run dist/Game-Release/**/Runtime.exe"
+        run: echo "::notice title=Packaged game NOT started::windows-2022 has no Vulkan device; set DESERT_WINDOWS_VULKAN_RUNNER=true on a Vulkan-capable runner to smoke-run dist/Game-Development/**/Runtime.exe"
 
       - name: Package build
-        if: matrix.config == 'Release'
+        if: matrix.config == 'Development'
         shell: cmd
-        run: scripts\Windows\Package.bat Release
+        run: scripts\Windows\Package.bat Development
 
       - name: Upload packaged build
-        if: matrix.config == 'Release'
+        if: matrix.config == 'Development'
         uses: actions/upload-artifact@v4
         with:
-          name: DesertEngine-Windows-Release
-          path: dist/DesertEngine-Release/
+          name: DesertEngine-Windows-Development
+          path: dist/DesertEngine-Development/
           retention-days: 14
 
       # bash again, and the same script the macOS jobs run: the budget question is about the workflow
@@ -1590,7 +1667,7 @@ jobs:
     timeout-minutes: 150
     strategy:
       matrix:
-        config: [Release]
+        config: [Development]
         ccache_max: [2G]
         column: [windows-release]
         shards: [0] # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it -- was [1]
@@ -1674,9 +1751,9 @@ jobs:
         shell: cmd
         run: scripts\Windows\Setup.bat
 
-      - name: Build the Debug editor
+      - name: Build the DebugGame editor
         shell: cmd
-        run: scripts\Windows\BuildWindows.bat Debug --no-tests --project Editor
+        run: scripts\Windows\BuildWindows.bat DebugGame --no-tests --project Editor
 
       - name: Photograph the scene headless
         shell: bash
@@ -1686,7 +1763,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/gpu-frame"
           cd Editor
           # --shot exits with code 3 by design; the verdict below is the image and the log, not the code.
-          timeout 900 ../build/Bin/Debug/Editor.exe --project "$GITHUB_WORKSPACE/Projects/Desert/Desert.deproj" \
+          timeout 900 ../build/Bin/DebugGame/Editor.exe --project "$GITHUB_WORKSPACE/Projects/Desert/Desert.deproj" \
             --scene "$SCENE" --shot "$RUNNER_TEMP/gpu-frame/frame.png" --shot-frames 30 \
             > "$RUNNER_TEMP/gpu-frame/editor.log" 2>&1 || echo "Editor exit code $?"
           # The engine's log is a FILE, not stdout: Common::Logger relocates it to <project>/Saved/Logs/engine_log.txt
@@ -1707,7 +1784,7 @@ jobs:
           retention-days: 14
 
   windows-debug-tests:
-    name: Windows Debug tests ${{ matrix.shard }}/3
+    name: Windows DebugGame tests ${{ matrix.shard }}/3
     needs: [ windows-debug ]
     # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it
     if: false
@@ -1717,7 +1794,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        config: [Debug]
+        config: [DebugGame]
         shard: [1, 2, 3]
     steps: &windows-test-steps
       - name: Record job start
@@ -1791,7 +1868,7 @@ jobs:
         run: ./scripts/CI/JobBudget.sh "${{ github.job }}" "$JOB_START"
 
   windows-release-tests:
-    name: Windows Release tests ${{ matrix.shard }}/1
+    name: Windows Development tests ${{ matrix.shard }}/1
     needs: [ windows-release ]
     # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it
     if: false
@@ -1801,12 +1878,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        config: [Release]
+        config: [Development]
         shard: [1]
     steps: *windows-test-steps
 
   windows-debug-verdict:
-    name: Windows Debug
+    name: Windows DebugGame
     needs: [ windows-debug, windows-debug-tests ]
     if: always()
     runs-on: ubuntu-latest
@@ -1814,12 +1891,12 @@ jobs:
     # env, not a one-entry matrix: a matrix job whose name has no matrix expression gets its values
     # appended, and this name must stay exactly the check name the unsharded job had.
     env:
-      ARTIFACT: windows-Debug
+      ARTIFACT: windows-DebugGame
       TESTS: "off" # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it
     steps: *test-verdict-steps
 
   windows-release-verdict:
-    name: Windows Release
+    name: Windows Development
     needs: [ windows-release, windows-release-tests ]
     if: always()
     runs-on: ubuntu-latest
@@ -1827,7 +1904,7 @@ jobs:
     # env, not a one-entry matrix: a matrix job whose name has no matrix expression gets its values
     # appended, and this name must stay exactly the check name the unsharded job had.
     env:
-      ARTIFACT: windows-Release
+      ARTIFACT: windows-Development
       TESTS: "off" # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it
     steps: *test-verdict-steps
 
@@ -1845,6 +1922,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive # the server configure reads cmake/ThirdParty/*.cmake, which fail on an empty submodule
+
+      # Code and #include rules only: the Linux objects are compiled inside the image, whose tree is not kept.
+      - name: Architecture census
+        run: python3 scripts/Dev/arch_census.py
 
       - name: Build the image
         run: docker build --platform linux/amd64 -f Server/Dockerfile -t desert-server .

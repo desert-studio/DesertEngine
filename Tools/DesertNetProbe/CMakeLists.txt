@@ -3,7 +3,7 @@
 # here, never in DesertServer), --server or --client, under the GNS lag/loss simulator -- and
 # plays a headless player (--bot) that streams the cooked world's cells around its own pawn and reports them to
 # the server as a client does (NET-3).
-desert_glob(_sources "Source/*.cpp")
+desert_sources(_sources "Source" MATCHING "\\.cpp$")
 desert_add_executable(DesertNetProbe FOLDER Tools SOURCES ${_sources})
 desert_depend_on_codegen(DesertNetProbe)
 desert_engine_includes(DesertNetProbe)
@@ -33,5 +33,5 @@ foreach(name IN LISTS _table)
     endif()
 endforeach()
 target_link_libraries(DesertNetProbe PRIVATE DesertNet ${_probe_libs}
-    LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
+    Luau ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
 desert_link_mimalloc(DesertNetProbe)

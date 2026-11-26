@@ -2,7 +2,6 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/FrameManager.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
@@ -85,7 +84,7 @@ namespace Desert::Graphic
         // The previous environment's cubes are released by the replacement (the image service owns them until
         // unregistered; their destruction is deferred past the frames in flight). From here on every view of the
         // scene reads the new cubes -- this view's ImportSceneViewTextures, which comes after this, included.
-        m_Environment.Replace( *Runtime::ResourceRegistry::GetImageService(), std::move( *captured ) );
+        m_Environment.Replace( *Runtime::GetImageService(), std::move( *captured ) );
         m_Captured = m_Pending;
 
         const double spanMs =

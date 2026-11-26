@@ -8,20 +8,16 @@
 #include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Graphic/GpuMemoryBudget.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
+#include <Engine/Graphic/RendererClient.hpp>
 
 #include <Engine/Graphic/RendererAPI.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
-#include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
+#include <Engine/Graphic/Rhi/Rhi.hpp>
 
-#include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/Reflection/ReflectionRegistry.hpp>
-#include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Engine/Graphic/RendererContext.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <glm/glm.hpp>
 #include <Common/Core/Memory/Buffer.hpp>
@@ -31,42 +27,42 @@
 
 namespace Desert::Graphic
 {
-    static RendererAPI* s_RendererAPI = nullptr;
+    namespace
+    {
+        // The frame recorder the backend made at Init (IRhi::CreateRendererAPI); every static of the renderer
+        // forwards to it.
+        RendererAPI& Api()
+        {
+            return *Renderer::GetInstance().GetRendererAPI();
+        }
+    } // namespace
+
+    Renderer::Renderer() = default;
+
+    Renderer::~Renderer() = default;
 
     [[nodiscard]] Common::BoolResultStr Renderer::InitGraphicAPI()
     {
-        switch ( RendererAPI::GetAPIType() )
-        {
-            case RendererAPIType::Vulkan:
-            {
-                s_RendererAPI = new Graphic::API::Vulkan::VulkanRendererAPI(
-                     EngineContext::GetInstance().GetWindow() );
-
-                break;
-            }
-
-            // The ONLY other value of the enum, and it used to fall straight through to the
-            // dereference below with s_RendererAPI still null. It is unreachable today —
-            // RendererAPI::s_RenderingAPI is a static inline fixed at Vulkan with no setter anywhere in
-            // the tree — so this is a latent null dereference, not a live one. It is also exactly the
-            // kind of latency that ends the day someone adds the setter that the enum's existence
-            // promises. This function already returns BoolResultStr; refusing by name costs nothing.
-            case RendererAPIType::None:
-                return Common::MakeError( "Renderer::InitGraphicAPI: no rendering API selected "
-                                          "(RendererAPIType::None)" );
-        }
-        s_RendererAPI->Init();
+        if ( !m_Rhi )
+            return Common::MakeError( "Renderer::Init: no rendering backend is attached (Renderer::AttachRhi "
+                                      "runs before the window, from the RhiSelection)" );
+        m_RendererAPI = m_Rhi->CreateRendererAPI( EngineContext::GetInstance().GetWindow() );
+        m_RendererAPI->Init();
 
         return BOOLSUCCESS;
     }
 
+    void Renderer::AttachClient( std::unique_ptr<IRendererClient> client )
+    {
+        m_Client = std::move( client );
+    }
+
     Common::BoolResultStr Renderer::Init()
     {
-        // Pull in the generated reflection TU (static lib would otherwise strip it) so all
-        // REFLECT()-annotated types are registered before any editor / shader-upload use.
-        Reflection::ForceLinkGeneratedReflection();
-        LOG_INFO( "[Reflection] {} reflected type(s) registered",
-                  Reflection::ReflectionRegistry::Get().All().size() );
+        // The generated reflection is linked by the Application right before this call (Application::Application).
+        if ( !m_Client )
+            return Common::MakeError( "Renderer::Init: no renderer client is attached (Renderer::AttachClient runs "
+                                      "before Init, from the Application: Core/EngineRendererClient)" );
 
         const auto& init = InitGraphicAPI();
         if ( !init )
@@ -106,7 +102,7 @@ namespace Desert::Graphic
 
     [[nodiscard]] Common::BoolResultStr Renderer::EndFrame()
     {
-        return s_RendererAPI->EndFrame();
+        return Api().EndFrame();
     }
 
     [[nodiscard]] Common::BoolResultStr Renderer::BeginFrame()
@@ -118,7 +114,7 @@ namespace Desert::Graphic
 
     [[nodiscard]] Common::BoolResultStr Renderer::BeginFrameRecording()
     {
-        return s_RendererAPI->BeginFrameRecording();
+        return Api().BeginFrameRecording();
     }
 
     [[nodiscard]] Common::BoolResultStr Renderer::WaitFrameSlot()
@@ -183,7 +179,12 @@ namespace Desert::Graphic
             GpuMemoryBudget::Get().Update( device->QueryMemory() );
 #endif
 
-        return s_RendererAPI->WaitFrameSlot();
+        if ( const Common::BoolResultStr waited = Api().WaitFrameSlot(); !waited )
+            return waited;
+        // Every host begins its frames here, so no host has to remember the environment cache's readbacks
+        // (the engine's client pumps them: EngineRendererClient::OnFrameSlot).
+        m_Client->OnFrameSlot();
+        return BOOLSUCCESS;
     }
 
     uint32_t Renderer::GetCurrentFrameIndex()
@@ -209,7 +210,7 @@ namespace Desert::Graphic
         // it is and FrameManager::NextFrame moves the slot index, so no job of this frame may still record.
         ::Desert::Engine::RenderTask::Get().FrameEndSync();
         auto&                       frames    = ::Desert::Engine::FrameManager::GetInstance();
-        const Common::BoolResultStr presented = s_RendererAPI->PresentFinalImage();
+        const Common::BoolResultStr presented = Api().PresentFinalImage();
         // The frame is on the queue: a job of it that starts later is torn (RenderTask::ThreadMain).
         ::Desert::Engine::RenderTask::Get().NoteFrameSubmitted( frames.GetAbsoluteFrameCount() );
         // Presented inline (the game thread's serial frame, a loading frame, a tool): the game thread moves to the
@@ -223,31 +224,31 @@ namespace Desert::Graphic
     void Renderer::SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                  const MaterialExecutor* materialExecutor )
     {
-        s_RendererAPI->SubmitPulled( pipeline, vertexCount, lineWidth, materialExecutor );
+        Api().SubmitPulled( pipeline, vertexCount, lineWidth, materialExecutor );
     }
 
     RDG::ShaderBindingLayout Renderer::GetBindingLayout( const Shader& shader )
     {
-        return s_RendererAPI->GetBindingLayout( shader );
+        return Api().GetBindingLayout( shader );
     }
 
     std::shared_ptr<const RDG::OtherRouteFill> Renderer::GetPipelineRouteFill( const ComputePipeline& pipeline )
     {
-        return s_RendererAPI->GetPipelineRouteFill( pipeline );
+        return Api().GetPipelineRouteFill( pipeline );
     }
 
     Common::BoolResultStr Renderer::DispatchCompute( const RDG::PassBindings& bindings,
                                                      const ComputePipeline& pipeline, uint32_t groupCountX,
                                                      uint32_t groupCountY, uint32_t groupCountZ )
     {
-        return s_RendererAPI->DispatchCompute( bindings, pipeline, groupCountX, groupCountY, groupCountZ );
+        return Api().DispatchCompute( bindings, pipeline, groupCountX, groupCountY, groupCountZ );
     }
 
     Common::BoolResultStr Renderer::DispatchComputeIndirect( const RDG::PassBindings& bindings,
                                                              const ComputePipeline&   pipeline,
                                                              const RDG::BufferRef args, const uint64_t offset )
     {
-        return s_RendererAPI->DispatchComputeIndirect( bindings, pipeline, args, offset );
+        return Api().DispatchComputeIndirect( bindings, pipeline, args, offset );
     }
 
     Common::BoolResultStr Renderer::TraceRays( const RDG::PassBindings&                   bindings,
@@ -255,7 +256,7 @@ namespace Desert::Graphic
                                                const RayTracing::RayTracingHitGroupTable& hits, uint32_t width,
                                                uint32_t height )
     {
-        return s_RendererAPI->TraceRays( bindings, pipeline, hits, width, height );
+        return Api().TraceRays( bindings, pipeline, hits, width, height );
     }
 
     Common::BoolResultStr Renderer::DrawFullscreen( const RDG::PassBindings& bindings,
@@ -270,7 +271,7 @@ namespace Desert::Graphic
                                                     const MaterialExecutor* material, uint32_t vertexCount,
                                                     uint32_t instanceCount, const std::span<const std::byte> push )
     {
-        return s_RendererAPI->DrawProcedural( bindings, pipeline, material, push, vertexCount, instanceCount );
+        return Api().DrawProcedural( bindings, pipeline, material, push, vertexCount, instanceCount );
     }
 
     Common::BoolResultStr Renderer::DrawProceduralIndirect( const RDG::PassBindings& bindings,
@@ -279,7 +280,7 @@ namespace Desert::Graphic
                                                             const RDG::BufferRef args, const uint64_t offset,
                                                             const std::span<const std::byte> push )
     {
-        return s_RendererAPI->DrawProceduralIndirect( bindings, pipeline, material, push, args, offset );
+        return Api().DrawProceduralIndirect( bindings, pipeline, material, push, args, offset );
     }
 
     Common::BoolResultStr Renderer::DrawProceduralIndexed( const RDG::PassBindings& bindings,
@@ -289,7 +290,7 @@ namespace Desert::Graphic
                                                            const std::span<const ProceduralIndexedRange> ranges,
                                                            const std::span<const std::byte>              push )
     {
-        return s_RendererAPI->DrawProceduralIndexed( bindings, pipeline, material, push, indexBuffer, ranges );
+        return Api().DrawProceduralIndexed( bindings, pipeline, material, push, indexBuffer, ranges );
     }
 
     Common::BoolResultStr Renderer::DrawIndexed( const RDG::PassBindings& bindings,
@@ -298,7 +299,7 @@ namespace Desert::Graphic
                                                  IndexBuffer& indexBuffer, uint32_t indexCount,
                                                  uint32_t firstIndex )
     {
-        return s_RendererAPI->DrawIndexed( bindings, pipeline, material, vertexBuffer, indexBuffer, indexCount,
+        return Api().DrawIndexed( bindings, pipeline, material, vertexBuffer, indexBuffer, indexCount,
                                            firstIndex );
     }
 
@@ -309,7 +310,7 @@ namespace Desert::Graphic
                                                 uint32_t firstInstance, SubmeshMask hiddenSubmeshMask,
                                                 uint32_t lodLevel )
     {
-        return s_RendererAPI->RenderMesh( bindings, pipeline, mesh, transform, material, push, instanceCount,
+        return Api().RenderMesh( bindings, pipeline, mesh, transform, material, push, instanceCount,
                                           firstInstance, hiddenSubmeshMask, lodLevel );
     }
 
@@ -320,7 +321,7 @@ namespace Desert::Graphic
                                   const uint64_t offset, const SubmeshMask hiddenSubmeshMask,
                                   const MeshDrawArgumentsOrder order, const uint32_t groups )
     {
-        return s_RendererAPI->RenderMeshIndirect( bindings, pipeline, mesh, transform, material, push, args,
+        return Api().RenderMeshIndirect( bindings, pipeline, mesh, transform, material, push, args,
                                                   offset, hiddenSubmeshMask, order, groups );
     }
 
@@ -333,39 +334,39 @@ namespace Desert::Graphic
                                        const uint32_t maxDraws,
                                        const SubmeshMask hiddenSubmeshMask )
     {
-        return s_RendererAPI->RenderMeshIndirectCount( bindings, pipeline, mesh, transform, material, push, args,
+        return Api().RenderMeshIndirectCount( bindings, pipeline, mesh, transform, material, push, args,
                                                        offset, count, countOffset, maxDraws, hiddenSubmeshMask );
     }
 
     Common::BoolResultStr Renderer::RenderMeshIndirectCountBins( const RDG::PassBindings&       bindings,
                                                                  const std::span<const BinDraw> bins )
     {
-        return s_RendererAPI->RenderMeshIndirectCountBins( bindings, bins );
+        return Api().RenderMeshIndirectCountBins( bindings, bins );
     }
 
     void Renderer::ComputeImageBeginWrite( Image* image )
     {
-        s_RendererAPI->ComputeImageBeginWrite( image );
+        Api().ComputeImageBeginWrite( image );
     }
 
     void Renderer::ComputeImageEndWrite( Image* image )
     {
-        s_RendererAPI->ComputeImageEndWrite( image );
+        Api().ComputeImageEndWrite( image );
     }
 
     void Renderer::ComputeImageBeginRead( Image* image )
     {
-        s_RendererAPI->ComputeImageBeginRead( image );
+        Api().ComputeImageBeginRead( image );
     }
 
     void Renderer::ComputeImageEndRead( Image* image )
     {
-        s_RendererAPI->ComputeImageEndRead( image );
+        Api().ComputeImageEndRead( image );
     }
 
     Common::BoolResultStr Renderer::CopyDepthImage( Image2D* src, Image2D* dst )
     {
-        return s_RendererAPI->CopyDepthImage( src, dst );
+        return Api().CopyDepthImage( src, dst );
     }
 
     Common::BoolResultStr Renderer::CopyGraphDepthToLayer( const RDG::PassContext&           context,
@@ -374,7 +375,7 @@ namespace Desert::Graphic
                                                            const uint32_t                    targetLayer,
                                                            const std::span<const glm::uvec4> regions )
     {
-        return s_RendererAPI->CopyGraphDepthToLayer( context, source, target, targetLayer, regions );
+        return Api().CopyGraphDepthToLayer( context, source, target, targetLayer, regions );
     }
 
     Common::BoolResultStr Renderer::ScrollGraphDepthIntoLayer( const RDG::PassContext& context,
@@ -385,7 +386,7 @@ namespace Desert::Graphic
                                                                const int32_t           shiftY,
                                                                const float             clearDepth )
     {
-        return s_RendererAPI->ScrollGraphDepthIntoLayer( context, source, target, targetLayer, shiftX, shiftY,
+        return Api().ScrollGraphDepthIntoLayer( context, source, target, targetLayer, shiftX, shiftY,
                                                          clearDepth );
     }
 
@@ -394,100 +395,100 @@ namespace Desert::Graphic
                                                            const uint32_t          sourceLayer,
                                                            const RDG::TextureRef   target )
     {
-        return s_RendererAPI->CopyGraphLayerToDepth( context, source, sourceLayer, target );
+        return Api().CopyGraphLayerToDepth( context, source, sourceLayer, target );
     }
 
     Common::BoolResultStr Renderer::CopyGraphBufferToTexture( const RDG::PassContext& context,
                                                               const RDG::BufferRef    source,
                                                               const RDG::TextureRef   target )
     {
-        return s_RendererAPI->CopyGraphBufferToTexture( context, source, target );
+        return Api().CopyGraphBufferToTexture( context, source, target );
     }
 
     void Renderer::SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height )
     {
-        s_RendererAPI->SetScissor( x, y, width, height );
+        Api().SetScissor( x, y, width, height );
     }
 
     void Renderer::SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height )
     {
-        s_RendererAPI->SetViewportRegion( x, y, width, height );
+        Api().SetViewportRegion( x, y, width, height );
     }
 
     void Renderer::ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width,
                                 uint32_t height, const glm::vec4& color, float depth )
     {
-        s_RendererAPI->ClearRegion( framebuffer, x, y, width, height, color, depth );
+        Api().ClearRegion( framebuffer, x, y, width, height, color, depth );
     }
 
     Common::BoolResultStr Renderer::BeginRenderPass( const RenderPass* renderPass, bool clearFrame )
     {
-        return s_RendererAPI->BeginRenderPass( renderPass, clearFrame );
+        return Api().BeginRenderPass( renderPass, clearFrame );
     }
 
     void Renderer::EndRenderPass()
     {
-        s_RendererAPI->EndRenderPass();
+        Api().EndRenderPass();
     }
 
     Common::BoolResultStr Renderer::ExecuteGraph( RDG::Builder& graph )
     {
         // A graph the game thread records while the views record (a panel's preview) lands after them (RenderTask).
         ::Desert::Engine::RenderTask::RecordGuard( graph.GetName() );
-        return s_RendererAPI->ExecuteGraph( graph );
+        return Api().ExecuteGraph( graph );
     }
 
     Common::BoolResultStr Renderer::ImportImage( const std::shared_ptr<Image>& image, RDG::ExternalTexture& into )
     {
-        return s_RendererAPI->ImportImage( image, into );
+        return Api().ImportImage( image, into );
     }
 
     Common::BoolResultStr Renderer::ImportBackBuffer( RDG::ExternalTexture& into )
     {
-        return s_RendererAPI->ImportBackBuffer( into );
+        return Api().ImportBackBuffer( into );
     }
 
     Common::BoolResultStr Renderer::ImportBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer,
                                                   RDG::ExternalBuffer&                                   into )
     {
-        return s_RendererAPI->ImportBuffer( buffer, into );
+        return Api().ImportBuffer( buffer, into );
     }
 
     Common::ResultStr<std::shared_ptr<SharedGpuBuffer>> Renderer::CreateSharedBuffer( const std::string_view name,
                                                                                       const uint64_t bytes )
     {
-        return s_RendererAPI->CreateSharedBuffer( name, bytes );
+        return Api().CreateSharedBuffer( name, bytes );
     }
 
     Common::ResultStr<std::shared_ptr<SharedGpuTimeline>>
     Renderer::CreateSharedTimeline( const std::string_view name )
     {
-        return s_RendererAPI->CreateSharedTimeline( name );
+        return Api().CreateSharedTimeline( name );
     }
 
     Common::BoolResultStr Renderer::ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                         RDG::ExternalBuffer&                 into )
     {
-        return s_RendererAPI->ImportVertexBuffer( buffer, into );
+        return Api().ImportVertexBuffer( buffer, into );
     }
 
     Common::BoolResultStr Renderer::ImportVertexBufferRange( const std::shared_ptr<VertexBuffer>& buffer,
                                                              const uint64_t offset, const uint64_t bytes,
                                                              RDG::ExternalBuffer& into )
     {
-        return s_RendererAPI->ImportVertexBufferRange( buffer, offset, bytes, into );
+        return Api().ImportVertexBufferRange( buffer, offset, bytes, into );
     }
 
     void Renderer::InvalidateGeometryBinding()
     {
-        s_RendererAPI->InvalidateGeometryBinding();
+        Api().InvalidateGeometryBinding();
     }
 
     Common::BoolResultStr Renderer::ImportMeshVertices( const MeshGeometry& geometry, RDG::ExternalBuffer& into )
     {
         if ( !geometry.IsResident() )
             return Common::MakeError( "ImportMeshVertices: the mesh has no resident vertices" );
-        return s_RendererAPI->ImportVertexBufferRange(
+        return Api().ImportVertexBufferRange(
              geometry.Vertices, geometry.VertexByteOffset,
              uint64_t{ geometry.VertexCount } * uint64_t{ geometry.VertexStride }, into );
     }
@@ -496,29 +497,29 @@ namespace Desert::Graphic
     {
         if ( !geometry.IsResident() || !geometry.Streams )
             return Common::MakeError( "ImportMeshStreams: the mesh has no resident stream buffer" );
-        return s_RendererAPI->ImportVertexBufferRange(
+        return Api().ImportVertexBufferRange(
              geometry.Streams, geometry.StreamByteOffset,
              uint64_t{ geometry.VertexCount } * uint64_t{ kGeometryStreamStride }, into );
     }
 
     void Renderer::BeginDebugLabel( const char* name )
     {
-        s_RendererAPI->BeginDebugLabel( name );
+        Api().BeginDebugLabel( name );
     }
 
     void Renderer::EndDebugLabel()
     {
-        s_RendererAPI->EndDebugLabel();
+        Api().EndDebugLabel();
     }
 
     void Renderer::ResizeWindowEvent( uint32_t width, uint32_t height )
     {
-        s_RendererAPI->ResizeWindowEvent( width, height );
+        Api().ResizeWindowEvent( width, height );
     }
 
     void Renderer::WaitDeviceIdle()
     {
-        s_RendererAPI->WaitDeviceIdle();
+        Api().WaitDeviceIdle();
     }
 
     void Renderer::RecreateImageSamplers()
@@ -526,19 +527,18 @@ namespace Desert::Graphic
         // Each image re-points at the sampler the new setting names (the device's VulkanSamplerCache); the old
         // sampler is never destroyed here. Idle first anyway: the image descriptors are rewritten next frame.
         WaitDeviceIdle();
-        auto* imageService = Runtime::ResourceRegistry::GetImageService();
+        auto* imageService = Runtime::GetImageService();
         imageService->ForEachImage(
              []( Image& image )
              {
-                 if ( auto* vulkanImage = dynamic_cast<API::Vulkan::IVulkanImage*>( &image ) )
-                     vulkanImage->RecreateSampler();
+                 image.RecreateSampler();
              } );
         // Next frame, MaterialExecutor::Apply rebinds the new samplers into descriptor sets.
     }
 
     std::shared_ptr<Framebuffer> Renderer::GetCompositeFramebuffer()
     {
-        return s_RendererAPI->GetCompositeFramebuffer();
+        return Api().GetCompositeFramebuffer();
     }
 
     const std::shared_ptr<Desert::Graphic::Texture2D>& Renderer::GetBRDFTexture() const
@@ -551,9 +551,22 @@ namespace Desert::Graphic
         // Mirror image of Init(), and called from ~Application so it runs inside main. Everything below
         // is owned by a static that outlives the Application object; a static destructor cannot be
         // ordered against the device, so the release has to be said out loud here instead.
+        // THE ORDER (unchanged by BINT-RC, which moved the engine's steps behind IRendererClient):
+        //   1. the engine drains its GPU work in flight (the environment cache's readbacks own staging buffers
+        //      and command buffers: finished while the device is alive) - OnShutdownDrain;
+        //   2. the BRDF LUT;
+        //   3. the engine empties its resources: ResourceRegistry::ClearAll, then the shared primitive meshes -
+        //      OnShutdownRelease;
+        //   4. fallback textures, default textures, the geometry pool, the virtual mesh table, the backend.
+        if ( !m_Client )
+        {
+            LOG_ERROR( "[Renderer] Shutdown without Init: no renderer client is attached, nothing to release" );
+            return;
+        }
+        m_Client->OnShutdownDrain();
+
         m_BRDFTexture.reset();
-        Runtime::ResourceRegistry::ClearAll();
-        Geometry::PrimitiveMeshFactory::ReleaseShared();
+        m_Client->OnShutdownRelease();
 
         if ( const auto released = FallbackTextures::Get().Release(); !released )
         {
@@ -572,13 +585,30 @@ namespace Desert::Graphic
         GeometryPool::Get().RT_Shutdown();
         VirtualGeometry::VirtualMeshTable::Get().RT_Shutdown();
 
-        s_RendererAPI->Shutdown();
-        delete s_RendererAPI;
-        s_RendererAPI = nullptr;
+        m_RendererAPI->Shutdown();
+        m_RendererAPI.reset();
     }
 
     Desert::Graphic::RendererAPI* Renderer::GetRendererAPI() const
     {
-        return s_RendererAPI;
+        return m_RendererAPI.get();
+    }
+
+    void Renderer::AttachRhi( std::unique_ptr<IRhi> rhi )
+    {
+        DESERT_VERIFY( rhi && !m_Rhi, "Renderer::AttachRhi: one backend per process, attached once" );
+        m_Rhi = std::move( rhi );
+    }
+
+    IRhi& Renderer::Rhi()
+    {
+        return *m_Rhi;
     }
 } // namespace Desert::Graphic
+
+template <>
+std::unique_ptr<Desert::Graphic::Renderer>& Common::Singleton<Desert::Graphic::Renderer>::Instance()
+{
+    static std::unique_ptr<Desert::Graphic::Renderer> instance;
+    return instance;
+}

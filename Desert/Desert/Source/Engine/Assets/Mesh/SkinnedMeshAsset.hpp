@@ -9,7 +9,8 @@
 #include <Engine/Assets/MeshDisplacementSettings.hpp>
 #include <Engine/Assets/MeshDisplacementTopology.hpp>
 
-#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetGuid.hpp>
+#include <Common/Core/ResultStr.hpp>
 
 #include <memory>
 #include <optional>

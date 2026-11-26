@@ -23,11 +23,7 @@ namespace Desert::Core
 
     // Never returns the same value twice in a process (the 32-bit counter would need 2^32 camera constructions to
     // wrap); never 0; always has kIssuedCameraSourceBit.
-    [[nodiscard]] inline CameraSourceId IssueCameraSourceId()
-    {
-        static std::atomic<uint32_t> counter{ 0 };
-        return kIssuedCameraSourceBit | ( counter.fetch_add( 1, std::memory_order_relaxed ) + 1u );
-    }
+    [[nodiscard]] CameraSourceId IssueCameraSourceId();
 
     // The issued id a camera object carries. A copy is another camera, so it is issued its own id; assigning one
     // camera's state to another keeps the destination's id (the object, not its matrices, is the identity).

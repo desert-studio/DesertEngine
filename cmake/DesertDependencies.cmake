@@ -73,12 +73,12 @@ if(DESERT_VULKAN_INCLUDE)
     message(STATUS "[Vulkan] SDK include: ${DESERT_VULKAN_INCLUDE}")
 endif()
 
-# DESERT_DESERTSPECIFIC_LIBRARIES: the vendored SPIRV-Cross, then the Vulkan loader and shaderc. Debug links the
-# SDK's `d` archives on Windows; Release AND Shipping link the plain ones.
+# DESERT_DESERTSPECIFIC_LIBRARIES: the vendored SPIRV-Cross, then the Vulkan loader and shaderc. DebugGame (debug CRT)
+# links the SDK's `d` archives on Windows; Development and Shipping link the plain ones.
 if(DESERT_IS_WINDOWS)
     set(DESERT_VULKAN_LIBRARIES "${DESERT_VULKAN_LIB}/vulkan-1.lib")
     foreach(lib shaderc shaderc_combined shaderc_util)
-        list(APPEND DESERT_VULKAN_LIBRARIES "${DESERT_VULKAN_LIB}/${lib}$<$<CONFIG:Debug>:d>.lib")
+        list(APPEND DESERT_VULKAN_LIBRARIES "${DESERT_VULKAN_LIB}/${lib}$<$<CONFIG:DebugGame>:d>.lib")
     endforeach()
 else()
     set(DESERT_VULKAN_LIBRARIES vulkan shaderc_combined) # shaderc + glslang + SPIRV-Tools in one archive

@@ -1,0 +1,17 @@
+#ifndef FOLIAGE_ENERGY_GLSLH
+#define FOLIAGE_ENERGY_GLSLH
+
+// A thin leaf scatters its albedo ONCE, to the two sides of its sheet: of every unit it scatters, 1 / (1 + tint) goes
+// back (reflected, BaseColor) and tint / (1 + tint) through (transmitted, the TwoSidedFoliage SubsurfaceColor).
+// Per channel, reflected + transmitted == albedo, so a leaf lit on both sides or re-bounced by the surface cache
+// returns no more than it took. @p tint 0: an opaque leaf; 1: half and half; it is clamped to [0, 1].
+// @p albedo is the leaf's whole albedo on entry, its reflected part on return.
+void FoliageSplitAlbedo( inout vec3 albedo, vec3 tint, out vec3 transmitted )
+{
+    const vec3 through = clamp( tint, 0.0, 1.0 );
+    const vec3 whole   = albedo;
+    albedo             = whole / ( 1.0 + through );
+    transmitted        = whole - albedo;
+}
+
+#endif // FOLIAGE_ENERGY_GLSLH

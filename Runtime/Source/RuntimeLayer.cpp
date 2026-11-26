@@ -32,7 +32,6 @@
 #include <Engine/Graphic/DisplayOutput.hpp>
 
 #include <Common/Settings/MachineSettings.hpp>
-#include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/BootContent.hpp>
@@ -40,27 +39,10 @@
 #include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
-#include <Engine/Core/SceneRenderCollectors.hpp>
-#include <Engine/ECS/System/MeshECSSystem.hpp>
-#include <Engine/ECS/System/TextECSSystem.hpp>
-#include <Engine/ECS/System/SkyboxECSSystem.hpp>
-#include <Engine/ECS/System/HeightFogECSSystem.hpp>
-#include <Engine/ECS/System/VolumetricCloudECSSystem.hpp>
-#include <Engine/ECS/System/TimeOfDayECSSystem.hpp>
-#include <Engine/ECS/System/PointLightSystem.hpp>
-#include <Engine/ECS/System/SpotLightSystem.hpp>
-#include <Engine/ECS/System/AnimationECSSystem.hpp>
-#include <Engine/ECS/System/AttachmentSystem.hpp>
+#include <Engine/Core/WorldSystems.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
-#include <Engine/ECS/System/GameModeSystem.hpp>
-#include <UI/UIDataStore.hpp>
-#include <UI/UIOverlay.hpp>
+#include <UI/UIWorld.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
-#include <Engine/ECS/System/PhysicsECSSystem.hpp>
-#include <Engine/ECS/System/ComponentEventSystem.hpp>
-#include <Engine/ECS/System/LevelSequenceSystem.hpp>
-#include <Engine/ECS/System/LocomotionSystem.hpp>
-#include <Engine/ECS/System/AudioECSSystem.hpp>
 
 // STB_IMAGE_WRITE_IMPLEMENTATION is already compiled into Desert.lib (stb_image.obj); declare only.
 // Only the development tools write a PNG from this host (--shot, --render-movie), so a shipping build
@@ -133,7 +115,7 @@ namespace
         auto* tex = textures->Get( handle );
         if ( tex == nullptr )
             return nullptr;
-        auto* images = Desert::Runtime::ResourceRegistry::GetImageService();
+        auto* images = Desert::Runtime::GetImageService();
         if ( images == nullptr )
             return nullptr;
         auto* img = dynamic_cast<Desert::Graphic::Image2D*>( images->Resolve( tex->GetImageHandle() ) );
@@ -237,7 +219,7 @@ namespace Desert::Player
         const auto window         = EngineContext::GetInstance().GetWindow();
         const auto [viewW, viewH] = GameViewExtent( window->GetWidth(), window->GetHeight(), true );
         m_SceneRenderer           = Graphic::SceneRenderer::Create( Graphic::ViewExtent{ viewW, viewH } );
-        m_Scene = std::make_shared<Core::Scene>( "Game", m_SceneRenderer.get() );
+        m_Scene = std::make_shared<Core::Scene>( "Game", m_SceneRenderer.get(), Core::WorldKind::Game );
     }
 
     RuntimeLayer::~RuntimeLayer() = default;
@@ -297,10 +279,11 @@ namespace Desert::Player
         // everything else, so the player sees the language the build boots in with no extra plumbing.
         m_Boot.Run( "Requesting string tables", [this] { Assets::RequestStringTables( m_AssetManager ); } );
 
-        // Same system set + order as the editor's Play mode — and it is the SAME LIST, not a copy of it
-        // (Engine/Core/SceneRenderCollectors.hpp). "Same as the editor" was a comment above a hand-copied
-        // block, which is the arrangement that let a sixth caller omit the whole thing silently (Ю16).
-        m_Boot.Run( "Building the render collectors and gameplay systems", [this] { BuildGameplaySystems(); } );
+        const Core::WorldServices services{ m_AssetManager.get(), m_AnimationLibrary.get() };
+        if ( const auto made = m_Boot.Run( "Making the world's systems",
+                                           [&] { return Core::CreateWorldSystems( *m_Scene, services ); } );
+             !made )
+            return made;
 
         if ( const auto init = m_Boot.Run( "Initialising the systems", [this] { return m_Scene->Init(); } );
              !init )
@@ -349,6 +332,7 @@ namespace Desert::Player
                                   [&] { return serializer.DeserializeFromJson( sceneJson, scenePath ); } );
                  !loaded )
                 return Common::MakeError( loaded.GetError() );
+            m_Scene->SetFilePath( scenePath );
             // The first level's dependency closure is read by the loader's workers while the boot waits,
             // exactly as a scene switch does, so the game's first frame is whole (AL1-8b).
             (void)Runtime::AwaitSceneClosure( *m_Scene );
@@ -602,25 +586,6 @@ namespace Desert::Player
     }
 #endif // DESERT_DEV_INSTRUMENTS
 
-    void RuntimeLayer::BuildGameplaySystems()
-    {
-        // A METHOD RATHER THAN THE LAMBDA BODY IT WAS. A parameter-less multi-line lambda is the one
-        // construct on which clang-format 18.1.3 (what CI runs) and 18.1.8 (what this machine has)
-        // disagree — `[this] {` against `[this]\n{` — so the changed-lines gate goes red for code that
-        // is locally clean, and the repair anybody reaches for is to reformat by hand until CI stops
-        // complaining. A named method keeps the lambda on one line and says what the stage is.
-        Desert::Core::AddSceneRenderCollectors( *m_Scene );
-        m_Scene->AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() );
-        m_Scene->AddSystem<ECS::AttachmentSystem>( m_Scene.get() );
-        m_Scene->AddSystem<ECS::ScriptSystem>( m_Scene.get(), m_AssetManager.get() );
-        m_Scene->AddSystem<ECS::GameModeSystem>( m_Scene.get(), m_AssetManager.get() );
-        m_Scene->AddSystem<ECS::PhysicsECSSystem>( m_Scene.get() );
-        m_Scene->AddSystem<ECS::ComponentEventSystem>(); // the physics/destruction facts -> component events
-        m_Scene->AddSystem<ECS::LocomotionSystem>( m_Scene.get() );
-        m_Scene->AddSystem<ECS::AudioECSSystem>( m_Scene.get() );
-        m_Scene->AddSystem<ECS::LevelSequenceSystem>( m_Scene.get(), m_AssetManager.get() );
-    }
-
     Common::BoolResultStr RuntimeLayer::OnDetach()
     {
         m_StartupMovies.reset(); // before the sound: the player holds its pointer
@@ -636,8 +601,6 @@ namespace Desert::Player
         m_UIComposite.reset();
         m_PendingUICompositeResize.reset();
         m_PresentReady = false;
-        // Its readbacks own staging buffers and command buffers: finished while the device is alive.
-        Graphic::EnvironmentCacheWriter::Get().Drain();
         return BOOLSUCCESS;
     }
 
@@ -679,13 +642,7 @@ namespace Desert::Player
         m_WorldStreamer.reset();                              // streams the world about to be cleared
         m_Scene->Clear();                                     // keeps the gameplay systems, drops the entities
 
-        // A notification raised by the level being left names an overlay canvas of THAT level. Carrying it
-        // across would either pop up in a world it says nothing about or, more likely, name an overlay the
-        // new level does not have and log a refusal for something nobody did. The view's own overlay state
-        // needs no help here — BeginUIFrame rebinds and resets it when the registry changes.
-        UI::UIOverlayRequests::Get().Clear();
-
-        // AND EVERY RENDER-TEXTURE CAPTURE, for the reason the line above does not cover: a capture is
+        // EVERY RENDER-TEXTURE CAPTURE goes with the world Clear emptied: a capture is
         // keyed by the ELEMENT ENTITY, and an entity id is unique only inside its registry. Carrying one
         // across a scene switch would hand the new level's entity 7 the world the old level's entity 7 was
         // showing — the same false identity UICanvasContext::Registry warns about, with a whole scene
@@ -700,6 +657,7 @@ namespace Desert::Player
         {
             return Common::MakeFormattedError<bool>( "Scene switch failed after teardown: {}", loaded.GetError() );
         }
+        m_Scene->SetFilePath( path );
         // The level's dependency closure is read by the loader's workers while the switch waits (AL1-8b).
         (void)Runtime::AwaitSceneClosure( *m_Scene );
         if ( const auto init = m_Scene->Init(); !init )
@@ -904,8 +862,6 @@ namespace Desert::Player
         // editor's copy is at the head of its own OnUpdate for the same reason and is asserted beside
         // it by `AsyncAssetPump`.
         Assets::AsyncAssetLoader::Get().Pump();
-        // The environment cache's readbacks land here and go to a worker for the encode (AL1-3).
-        Graphic::EnvironmentCacheWriter::Get().Pump();
 
         // THE LOADING STATE, TICKED HERE AND NOWHERE ELSE. The rule it applies -- nothing outstanding AND
         // the frame just rendered asked for nothing new, and never before the second frame -- is one
@@ -944,11 +900,11 @@ namespace Desert::Player
         if ( m_SplashTimer > 0.0f )
             m_SplashTimer -= ts.GetMilliseconds() * 0.001f;
 
-        // THE FRAME BOUNDARY OF Core::OpenLevel (UEngine::TickWorldTravel): a travel queued last frame -- by a
+        // THE FRAME BOUNDARY OF A LEVEL TRAVEL (UEngine::TickWorldTravel): a travel queued last frame -- by a
         // UI button, a Lua `level.open`, C++ gameplay -- is applied here, before any recording starts
         // (Clear() destroys GPU resources -- same rule as the resize below).
-        if ( const auto travelled = Core::LevelTravel::Get().TickTravel( [this]( const std::string& path )
-                                                                         { return LoadSceneInternal( path ); } );
+        if ( const auto travelled = m_Scene->Travel().TickTravel( [this]( const std::string& path )
+                                                                  { return LoadSceneInternal( path ); } );
              !travelled )
             LOG_ERROR( "[Runtime] Level travel failed: {}", travelled.GetError() );
 
@@ -988,6 +944,8 @@ namespace Desert::Player
         // are in the machine store now, loaded at startup from this player's own directory
         // (Runtime/Source/Main.cpp), and this is the line that makes the dial reach the renderer.
         m_SceneRenderer->SetQuality( Common::Scalability::QualityState::Resolved() );
+        // The same answer to the scene's systems (Scene::SetQuality -> System::SetQuality): foliage density.
+        m_Scene->SetQuality( Common::Scalability::QualityState::Resolved() );
 
 #if DESERT_DEV_INSTRUMENTS
         // HDR-OUTPUT p4 (the editor's EditorLayer does the same from its control channel): on an HDR output the
@@ -1277,7 +1235,7 @@ namespace Desert::Player
 
                     // Queue them for gameplay: ScriptSystem drains this and calls OnUIMessage on every script.
                     for ( const std::string& msg : uiMessages )
-                        UI::UIMessageQueue::Get().Push( msg );
+                        m_Scene->GetUIWorld().Messages.Push( msg );
 
                     if ( m_SplashTimer > 0.0f )
                     {
@@ -1531,9 +1489,10 @@ namespace Desert::Player
             constexpr std::string_view kUrl   = "url:";
             if ( clicked.rfind( kScene, 0 ) == 0 )
             {
-                // The button's action is Core::OpenLevel -- the same call a script or C++ makes; a target
+                // The button's action is the world's travel -- the same call a script or C++ makes; a target
                 // that does not resolve is refused there, with the path, and the level keeps running.
-                (void)Core::OpenLevel( clicked.substr( kScene.size() ) );
+                if ( const auto queued = m_Scene->Travel().Open( clicked.substr( kScene.size() ) ); !queued )
+                    LOG_ERROR( "[Runtime] UI button: {}", queued.GetError() );
             }
             else if ( clicked == "quit" )
             {
@@ -1565,7 +1524,7 @@ namespace Desert::Player
                 // message, ScriptEngine::BroadcastUIMessage was ready to deliver it, and the host in
                 // between dropped it on the floor. An author who typed a name into "Action Target" got a
                 // line in the log and no handler, with nothing to distinguish that from a typo.
-                UI::UIMessageQueue::Get().Push( clicked );
+                m_Scene->GetUIWorld().Messages.Push( clicked );
                 LOG_INFO( "[Runtime] UI message: '{}' (delivered to every script defining OnUIMessage)", clicked );
             }
         }

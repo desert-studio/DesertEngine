@@ -130,6 +130,11 @@ namespace
             return m_Layout;
         }
 
+        [[nodiscard]] uint32_t GetPushBlockSize() const override
+        {
+            return 0u;
+        }
+
         bool IsCompiled() const override
         {
             return m_Compiled;
@@ -546,7 +551,7 @@ TEST( GraphicsPipelineRefusal, TheCacheStoresOutcomesNotPipelines )
 TEST( GraphicsPipelineRefusal, EveryBareSharedPtrFactoryIsOnTheRegister )
 {
     // THE SAME SHAPE EXISTS TWENTY-THREE MORE TIMES AND THIS TASK DID NOT FIX THEM. A `static
-    // std::shared_ptr<X> Create(...)` whose body is a `switch ( RendererAPI::GetAPIType() )` over
+    // std::shared_ptr<X> Create(...)` whose body is a one-arm backend dispatch over
     // make_shared cannot return null on the Vulkan arm, so `if ( !x )` at its call sites is decoration —
     // which is precisely what Г21 measured on the compute side (16 of 16 call sites unusable) and Г22 on
     // the graphics side (35 of 35).

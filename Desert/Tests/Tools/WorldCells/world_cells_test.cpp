@@ -58,6 +58,7 @@
 #include "../../TestSupport/project_scope.hpp"
 #include "../../TestSupport/runner.hpp"
 #include <Common/Json/ReadWrite.hpp>
+#include <Common/Content/ContentPaths.hpp>
 
 namespace
 {

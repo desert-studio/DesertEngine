@@ -254,4 +254,10 @@ namespace Desert::Editor::Core
         else
             m_Selection = std::move( selection );
     }
-} // namespace Desert::Editor::Core
+
+    auto MeshElementSelection::Get() -> MeshElementSelection&
+    {
+        static MeshElementSelection s;
+        return s;
+    }
+}

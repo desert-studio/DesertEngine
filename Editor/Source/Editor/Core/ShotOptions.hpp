@@ -118,11 +118,7 @@ namespace Desert::Editor
 
     struct ShotOptions
     {
-        static ShotOptions& Get()
-        {
-            static ShotOptions s;
-            return s;
-        }
+        static ShotOptions& Get();
 
         std::string Scene;  // --scene <path.desce>, overrides the project's default scene
         std::string Output; // --shot <out.png>; empty = no single final frame

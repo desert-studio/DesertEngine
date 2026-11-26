@@ -130,7 +130,7 @@ namespace Desert::Graphic::API::Vulkan
             // SceneRenderer): Nearest | Bilinear (linear, nearest mip) | Trilinear | Anisotropic.
             using FM               = Common::Settings::TextureFilter;
             const bool forceLinear = policy == SamplerFilterPolicy::AlwaysLinear;
-            const int  mode        = Graphic::RenderConfig::TextureFilter.load();
+            const int  mode        = Graphic::RenderConfig::TextureFilter();
             // Filter and mip mode from the one derivation a graph entry reading this image also names; a material
             // slot that asks for Nearest (Core::Formats::SamplerState) samples nearest whatever the global filter.
             const RDG::SamplerDesc    desc    = forceLinear ? VolumeSampler() : GlobalTextureFilterSampler();
@@ -145,7 +145,7 @@ namespace Desert::Graphic::API::Vulkan
             // CapabilityCatalog::AnisotropyLevels, which is {1} on a device without samplerAnisotropy, so a
             // level above 1 means the device runs it. Never for a volume: anisotropic filtering of a 3D noise
             // field buys nothing and is not guaranteed for VK_IMAGE_TYPE_3D.
-            const int  anisoLevel = Graphic::RenderConfig::AnisotropyLevel.load();
+            const int  anisoLevel = Graphic::RenderConfig::AnisotropyLevel();
             const bool useAniso =
                  !forceLinear && !nearest && mode == static_cast<int>( FM::Anisotropic ) && anisoLevel > 1;
             const float maxAniso = useAniso ? static_cast<float>( anisoLevel ) : 1.0f;
@@ -613,6 +613,7 @@ namespace Desert::Graphic::API::Vulkan
         // is the allocator's, not a width x height x bytes-per-pixel product computed elsewhere — which
         // additionally is the number that stops existing the day a format is block-compressed.
         RecordDeviceBytes( VulkanAllocator::AllocationSize( m_Resource.Allocation ) );
+        NameLedgerRow( m_Specification.Tag );
 
         // The Tag already named the VMA allocation, which only shows up in a VMA dump. Name the VkImage
         // itself as well so a graphics debugger lists "GBuffer_attachment0" instead of "Image 1234" —

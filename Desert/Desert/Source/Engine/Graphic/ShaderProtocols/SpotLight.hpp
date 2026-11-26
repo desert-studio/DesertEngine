@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
+#include <Engine/Graphic/ShaderProtocols/PointLight.hpp> // kLightShadowInView, kLightShadowCasts
 #include <Engine/Graphic/ShaderProtocols/Std140Block.hpp>
 
 #include <glm/glm.hpp>
@@ -38,8 +39,8 @@
     /* casts contact shadows / on one that does not (the hit texel's NO_CONTACT_SHADOW bit). */                   \
     FIELD( float, ContactShadowCastingIntensity, contactShadowCastingIntensity, { 1.0f } )       /* 68 */         \
     FIELD( float, ContactShadowNonCastingIntensity, contactShadowNonCastingIntensity, { 0.0f } ) /* 72 */         \
-    /* 1 when the light casts shadows in this view (PointLight.hpp says what a -1 ShadowView then means). */      \
-    FIELD( int32_t, ShadowCaster, shadowCaster, { 0 } ) /* 76 */                                                  \
+    /* The light's shadow bits kLightShadowInView / kLightShadowCasts (PointLight.hpp states them). */         \
+    FIELD( int32_t, ShadowFlags, shadowFlags, { 0 } ) /* 76 */                                                    \
     /* UE SourceRadius (cm): the emitter sphere traced shadows aim at (MegaLights); 0 = a point. */               \
     FIELD( float, SourceRadius, sourceRadius, { 0.0f } ) /* 80 */                                                 \
     /* Full intensity within this distance (cm), the falloff measured from it (BISTRO-LIGHTS). */                 \

@@ -11,7 +11,7 @@
 // Writes through a row end in NotifyChanged, which is EnTT's `patch` on the component: the ECS-native "this
 // component was edited" signal (registry.on_update<T>()), the same one a system subscribes to for any other edit.
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <span>
 #include <string_view>

@@ -32,7 +32,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 using Desert::Assets::EntityData;
 using Desert::Core::WorldPartitionGridSerialized;

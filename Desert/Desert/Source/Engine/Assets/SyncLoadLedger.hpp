@@ -2,7 +2,6 @@
 
 #include <Common/Core/DevInstruments.hpp>
 
-#include <Engine/Core/TextTemplate.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
@@ -202,6 +201,8 @@ namespace Desert::Assets
     // namespace in a header gives every translation unit its own copy of these statics — so the ledger
     // would count per-TU and every number it reports would be a fraction of the truth, silently.
     // `inline` in a named namespace is what gives the whole program one map."
+    // But `inline` gives one map per IMAGE, and every engine module is its own DLL in Development: the
+    // accessors that own state are therefore defined once, in SyncLoadLedger.cpp (BINT-STATE).
     //
     // AND WHY THIS IS A HEADER AT ALL, WHICH IS A MEASUREMENT. It was a .cpp, and the full sweep turned
     // FIVE suites red at the link step (`AssetEviction`, `AssetPathIdentity`, `AssetHandleStability`,
@@ -212,65 +213,33 @@ namespace Desert::Assets
     // place to forget" the design of this detector exists to avoid.
     namespace SyncLoadDetail
     {
-        inline std::atomic<bool>& BootFinished()
-        {
-            static std::atomic<bool> finished{ false };
-            return finished;
-        }
+        std::atomic<bool>& BootFinished();
 
-        inline std::atomic<uint64_t>& LoadCount()
-        {
-            static std::atomic<uint64_t> loads{ 0 };
-            return loads;
-        }
+        std::atomic<uint64_t>& LoadCount();
 
-        inline std::atomic<uint64_t>& InFrameCount()
-        {
-            static std::atomic<uint64_t> loads{ 0 };
-            return loads;
-        }
+        std::atomic<uint64_t>& InFrameCount();
 
-        inline std::atomic<uint64_t>& AsyncCount()
-        {
-            static std::atomic<uint64_t> loads{ 0 };
-            return loads;
-        }
+        std::atomic<uint64_t>& AsyncCount();
 
         /// How many `AsyncLoadMarker`s are open on THIS thread. A counter rather than a flag because a
         /// completion delegate is allowed to request the next asset, and nesting must not clear the
         /// outer mark on the way out of the inner one.
-        inline int& AsyncDepth()
-        {
-            static thread_local int depth = 0;
-            return depth;
-        }
+        int& AsyncDepth();
 
         // THE DEPTH IS THREAD-LOCAL, the totals are not, and the split is load-bearing. The preloader
         // runs staged work and hot reload runs off the watcher, so two threads can be inside a load at
         // once; a shared depth counter would let thread B's nested load be attributed as thread A's
         // outermost one, and the "outermost only" rule that keeps TotalMs under wall clock would break in
         // a way that shows up as a boot spending 250 % of its own duration.
-        inline int& Depth()
-        {
-            static thread_local int depth = 0;
-            return depth;
-        }
+        int& Depth();
 
         /// The innermost open scope on THIS thread, so a closing scope can hand its duration to its
         /// parent. Thread-local for the same reason the depth is: the preloader runs staged work and hot
         /// reload runs off the watcher, and a shared pointer here would let one thread's load be
         /// subtracted from another thread's.
-        inline LoadTimingScope*& OpenScope()
-        {
-            static thread_local LoadTimingScope* open = nullptr;
-            return open;
-        }
+        LoadTimingScope*& OpenScope();
 
-        inline std::mutex& TotalsLock()
-        {
-            static std::mutex lock;
-            return lock;
-        }
+        std::mutex& TotalsLock();
 
         /// The four figures the lock protects, in one struct so there is one static rather than four.
         struct Totals
@@ -284,11 +253,7 @@ namespace Desert::Assets
             std::vector<std::pair<double, std::string>> SlowestInFrame;
         };
 
-        inline Totals& Sums()
-        {
-            static Totals totals;
-            return totals;
-        }
+        Totals& Sums();
 
         /// How many in-frame loads may log themselves per frame before the rest are counted silently.
         ///
@@ -307,11 +272,7 @@ namespace Desert::Assets
         /// bounded insert under a lock the load already takes, so it runs for every in-frame load.
         constexpr std::size_t kInFrameRankCap = 16;
 
-        inline std::atomic<uint64_t>& InFrameLogged()
-        {
-            static std::atomic<uint64_t> logged{ 0 };
-            return logged;
-        }
+        std::atomic<uint64_t>& InFrameLogged();
 
         inline double NowMs( const int64_t ns )
         {
@@ -463,61 +424,6 @@ namespace Desert::Assets
                       "SyncLoadLedger::Report() names the {} slowest of all of them by their own time.",
                       SyncLoadDetail::kInFrameLogCap, SyncLoadDetail::kInFrameRankCap );
         }
-    }
-
-    namespace SyncLoadDetail
-    {
-        // The report. BOTH HALVES ARE NAMED SEPARATELY, and zero in-frame loads is a RESULT worth printing
-        // rather than a silence: a report that went quiet when it was true would make the good case
-        // indistinguishable from a detector that was not running. The unnamed in-frame remainder is BOUNDED
-        // rather than merely counted: every one of them took no longer than the last named load, which is what
-        // decides whether they are worth chasing. The async line is NAMED WHETHER OR NOT IT IS ZERO, for the
-        // reason the in-frame line is.
-        constexpr std::string_view kReportText =
-             "loads={{ loads }} in {{ totalMs }} (outermost scopes only; nested loads are counted, not re-timed)"
-             "\n  in-frame: {{ inFrame }} load(s) in {{ inFrameMs }}"
-             "{% if inFrame == 0 %}{% if loads == 0 %} — nothing loaded at all yet"
-             "{% else %} — every load so far happened at boot{% endif %}{% endif %}"
-             "{% if rankedCount > 0 %}\n  slowest in-frame load(s) by their OWN time ({{ rankedCount }} of "
-             "{{ inFrame }}):{% for r in ranked %}\n    {{ r.ms }} — '{{ r.path }}'{% endfor %}"
-             "{% if others > 0 %}\n    the other {{ others }} took at most {{ lastMs }} each{% endif %}{% endif %}"
-             "\n  async (on a JobSystem worker, blocking no frame): {{ asyncLoads }} load(s) in {{ asyncMs }}"
-             "{% if loads > 0 %}\n  slowest single load by its OWN time: {{ slowestMs }} — "
-             "'{{ slowestPath }}'{% endif %}";
-    } // namespace SyncLoadDetail
-
-    inline std::string SyncLoadLedger::Report()
-    {
-        const std::lock_guard<std::mutex> guard( SyncLoadDetail::TotalsLock() );
-
-        const uint64_t loads   = SyncLoadDetail::LoadCount().load( std::memory_order_relaxed );
-        const uint64_t inFrame = SyncLoadDetail::InFrameCount().load( std::memory_order_relaxed );
-        const uint64_t async   = SyncLoadDetail::AsyncCount().load( std::memory_order_relaxed );
-
-        static const Desert::Core::TextTemplate kReport( "SyncLoadReport", SyncLoadDetail::kReportText );
-        const auto&                             sums   = SyncLoadDetail::Sums();
-        const auto&                             ranked = sums.SlowestInFrame;
-        Common::Json::Value::Array              rankedRows;
-        for ( const auto& [ms, rankedPath] : ranked )
-        {
-            Common::Json::ObjectBuilder row;
-            row.Set( "ms", SyncLoadDetail::Ms( ms ) ).Set( "path", rankedPath );
-            rankedRows.emplace_back( row.Build() );
-        }
-        Common::Json::ObjectBuilder model;
-        model.Set( "loads", loads )
-             .Set( "totalMs", SyncLoadDetail::Ms( sums.TotalMs ) )
-             .Set( "inFrame", inFrame )
-             .Set( "inFrameMs", SyncLoadDetail::Ms( sums.InFrameMs ) )
-             .Set( "rankedCount", ranked.size() )
-             .Set( "ranked", Common::Json::Value( std::move( rankedRows ) ) )
-             .Set( "others", inFrame > ranked.size() ? inFrame - ranked.size() : 0 )
-             .Set( "lastMs", ranked.empty() ? std::string() : SyncLoadDetail::Ms( ranked.back().first ) )
-             .Set( "asyncLoads", async )
-             .Set( "asyncMs", SyncLoadDetail::Ms( sums.AsyncMs ) )
-             .Set( "slowestMs", SyncLoadDetail::Ms( sums.SlowestMs ) )
-             .Set( "slowestPath", sums.SlowestPath );
-        return kReport.RenderOrLog( Common::Json::Value( model.Build() ) );
     }
 
     inline void SyncLoadLedger::ResetForTest()

@@ -15,12 +15,6 @@
 
 namespace Desert::UI
 {
-    UIDataStore& UIDataStore::Get()
-    {
-        static UIDataStore store;
-        return store;
-    }
-
     UIDataStore::UIDataStore()                                          = default;
     UIDataStore::UIDataStore( UIDataStore&& other ) noexcept            = default;
     UIDataStore& UIDataStore::operator=( UIDataStore&& other ) noexcept = default;
@@ -239,12 +233,6 @@ namespace Desert::UI
 
 namespace Desert::UI
 {
-    UIMessageQueue& UIMessageQueue::Get()
-    {
-        static UIMessageQueue queue;
-        return queue;
-    }
-
     void UIMessageQueue::Push( std::string message )
     {
         if ( message.empty() )

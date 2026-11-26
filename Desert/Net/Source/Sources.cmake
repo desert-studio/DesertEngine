@@ -1,0 +1,24 @@
+# Written by scripts/Dev/sources_sync.py from git; never edited by hand. A file added or removed in this
+# directory: run `python scripts/Dev/sources_sync.py` and commit this list with the change (land_dev.sh
+# refuses a list that differs from the tree). Read by desert_sources() (cmake/DesertWorkspace.cmake).
+set(DESERT_SOURCES
+    "Net/ConnectToken.cpp"
+    "Net/ConnectToken.hpp"
+    "Net/GnsTransport.cpp"
+    "Net/MeshCertificates.cpp"
+    "Net/MeshCertificates.hpp"
+    "Net/MeshLink.cpp"
+    "Net/MeshLink.hpp"
+    "Net/MeshOfOne.cpp"
+    "Net/MeshOfOne.hpp"
+    "Net/MovePrediction.cpp"
+    "Net/MovePrediction.hpp"
+    "Net/NetHandshake.cpp"
+    "Net/NetHandshake.hpp"
+    "Net/NetTransport.hpp"
+    "Net/PreLogin.hpp"
+    "Net/Replication.cpp"
+    "Net/Replication.hpp"
+    "Net/ReplicationClient.cpp"
+    "Net/ReplicationClient.hpp"
+)

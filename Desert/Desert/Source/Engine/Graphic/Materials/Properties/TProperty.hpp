@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 
 namespace Desert::Graphic
 {
@@ -56,12 +57,26 @@ namespace Desert::Graphic
 
     // Base interface for objects that own typed properties (i.e. Material and its subclasses).
     // Kept separate from IProperty so TProperty.hpp has no dependency on Material headers.
+    // It is also how the executor (RenderCore) reaches its owner's registered properties without knowing Material
+    // (Engine): MaterialExecutor::SetOwner takes this interface (BINT-RC).
     class IPropertyOwner
     {
     public:
         virtual void RegisterProperty( IProperty* prop ) = 0;
 
     protected:
+        // MaterialExecutor::PrepareForRecording uploads the pending properties before the graph records;
+        // CheckRecordable refuses a bind while any is still pending.
+        friend class MaterialExecutor;
+
+        // Uploads every dirty registered property to its slot (Material::UploadRegisteredProperties).
+        virtual void UploadRegisteredProperties() = 0;
+        // True while a registered property was written and not uploaded yet.
+        [[nodiscard]] virtual bool HasPendingRegisteredProperties() const = 0;
+        // How many writes the registered properties counted (TProperty::AttachWriteSink), or nullopt when one of
+        // them counts none - then only HasPendingRegisteredProperties answers.
+        [[nodiscard]] virtual std::optional<uint64_t> RegisteredWrites() const noexcept = 0;
+
         ~IPropertyOwner() = default;
     };
 

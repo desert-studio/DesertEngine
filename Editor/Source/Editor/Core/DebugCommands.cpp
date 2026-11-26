@@ -7,7 +7,8 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
+#include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/Rhi/Rhi.hpp>
 
 #include <memory>
 #include <VFX/Public/VFXWorld.hpp>
@@ -40,16 +41,15 @@ namespace Desert::Editor
         commands.push_back(
              { "Debug", "Log GPU allocations by tag", []() -> Common::BoolResultStr
                {
-                   const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
-                        EngineContext::GetInstance().GetRendererContext() );
-                   if ( !context || !context->GetVulkanAllocator() )
-                       return Common::MakeError<bool>(
-                            "the renderer is not Vulkan; there is no allocator to read." );
-                   const auto& ledger = context->GetVulkanAllocator()->Ledger();
-                   LOG_INFO( "[AllocLedger] {} live allocation(s), {:.2f} MiB", ledger.LiveCount(),
-                             static_cast<double>( ledger.LiveBytes() ) / ( 1024.0 * 1024.0 ) );
-                   for ( const auto& row : ledger.ByTag() )
-                       LOG_INFO( "[AllocLedger] tag '{}': {} x, {} B", row.Tag, row.Count, row.Bytes );
+                   std::string ledger;
+                   Graphic::Renderer::GetInstance().Rhi().WriteAllocationLedger( ledger );
+                   std::string_view rest = ledger;
+                   while ( !rest.empty() )
+                   {
+                       const auto end = rest.find( '\n' );
+                       LOG_INFO( "{}", rest.substr( 0, end ) );
+                       rest = end == std::string_view::npos ? std::string_view{} : rest.substr( end + 1 );
+                   }
                    return PaletteCommandDone();
                } } );
     }

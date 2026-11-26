@@ -95,7 +95,7 @@ namespace Desert::Runtime
         while ( frame + 1 < anim.CumEndMs.size() && t >= anim.CumEndMs[frame] )
             ++frame;
 
-        auto* imgService = ResourceRegistry::GetImageService();
+        auto* imgService = GetImageService();
         if ( !imgService )
             return nullptr;
         return static_cast<Graphic::Image2D*>( imgService->Resolve( anim.Frames[frame]->GetImageHandle() ) );

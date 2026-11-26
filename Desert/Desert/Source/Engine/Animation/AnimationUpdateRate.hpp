@@ -47,7 +47,10 @@ namespace Desert::Animation
 
     // The animation system's last `anim CPU` window, ms per played frame (AnimationECSSystem::ReportAnimationCost),
     // for the crowd readout (`[Crowd] ... anim CPU X ms`, VertexAnimationCrowd). Negative before the first window.
-    inline std::atomic<float> g_AnimationCpuMsPerFrame{ -1.0f };
+    // One value for the process, in AnimationUpdateRate.cpp: the writer (Engine) and the reader (Renderer) are
+    // different module DLLs, and a header-defined atomic would be one per DLL (BINT-STATE).
+    void                SetAnimationCpuMsPerFrame( float ms ) noexcept;
+    [[nodiscard]] float AnimationCpuMsPerFrame() noexcept;
 
     // UE FAnimUpdateRateParameters defaults, by screen size instead of UE's two thresholds alone: the rate (tick
     // every N frames) for an instance at least this large on screen. UE BaseVisibleDistanceFactorThesholds

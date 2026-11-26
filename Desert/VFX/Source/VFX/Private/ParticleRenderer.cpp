@@ -1478,7 +1478,7 @@ namespace Desert::Graphic::System
                 SceneViewSlots others = slots;
                 others.Clear( SceneViewSlot::SceneDepth );
                 others.Clear( SceneViewSlot::ParticleRibbonOrder );
-                others.Bits &= ~sprite.RouteSlots.Get( fill ).Bits;
+                others.Clear( sprite.RouteSlots.Get( fill ) );
                 BindSceneViewInputs( block, inputs, others );
             }
             if ( drawn )

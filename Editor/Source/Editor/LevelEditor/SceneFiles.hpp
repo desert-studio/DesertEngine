@@ -21,6 +21,7 @@
 
 namespace Desert::Editor
 {
+    class PlaySession;
     class SceneWorkspace;
     class ViewportCapture;
 
@@ -28,7 +29,7 @@ namespace Desert::Editor
     {
     public:
         SceneFiles( SceneWorkspace& workspace, const std::shared_ptr<Assets::AssetManager>& assets,
-                    ViewportCapture& capture );
+                    ViewportCapture& capture, PlaySession& play );
 
         // Replaces the world WITHOUT asking about unsaved edits — only for callers that are not a user
         // choosing a scene, or that come after the ask (Desert/Tests/Editor/AssetOpenRoute holds the list).
@@ -85,11 +86,6 @@ namespace Desert::Editor
         {
             return m_OpenScenePath;
         }
-        // A scene built and written by the editor itself is an open file like any other from then on.
-        void AdoptOpenPath( const Common::Filepath& path )
-        {
-            m_OpenScenePath = path;
-        }
 
         // THE BASIC LEVEL TEMPLATE (UE: TemplateMapInfos' Basic): a sun and a sky, engine content, which New
         // Scene and an editor started with nothing to open both open as an untitled scene.
@@ -116,6 +112,8 @@ namespace Desert::Editor
         };
         void LoadSceneInternal( const Common::Filepath& requested, OpenAs openAs = OpenAs::File );
         void NewSceneInternal();
+        // The open scene is this file from now on (empty: no file); the world is told, for its crash line.
+        void SetOpenPath( const Common::Filepath& path );
         // Drops the scene's text header when `destination` is not the file it was opened as (a copy is a new
         // asset with a new GUID); returns the header it had, for a failed save to put back.
         std::optional<Common::Content::TextAssetHeaderSerialized>
@@ -134,6 +132,7 @@ namespace Desert::Editor
         SceneWorkspace&                              m_Workspace;
         const std::shared_ptr<Assets::AssetManager>& m_Assets;
         ViewportCapture&                             m_Capture;
+        PlaySession&                                 m_Play; // ended before its level is replaced
 
         // The CommandHistory revision at the last save/load.
         uint64_t                        m_SavedRevision = 0;

@@ -1,5 +1,8 @@
 #include <Common/Content/AssetRedirector.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ContentKinds.hpp>
+
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Core.hpp>
 

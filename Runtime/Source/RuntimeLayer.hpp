@@ -20,7 +20,7 @@
 #include <UI/UICanvasContext.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <memory>
 #include <optional>
@@ -94,7 +94,7 @@ namespace Desert::Player
 
     private:
         // Tear down the current scene and deserialize `path` in its place (systems survive Clear()). The load
-        // half of Core::LevelTravel -- run only from its TickTravel at the head of OnUpdate, between frames.
+        // half of the world's travel -- run only from its TickTravel at the head of OnUpdate, between frames.
         // A refusal before teardown leaves the running level untouched.
         Common::BoolResultStr LoadSceneInternal( const std::string& path );
         // A key or mouse button of the game's window, into the local player's key state.
@@ -169,10 +169,6 @@ namespace Desert::Player
         // (Re)allocates m_UIComposite at @p width x @p height and rebuilds what is built against its render
         // pass (the scene blit, the Render2D pipelines). At the safe point only (OnUpdate, before recording).
         Common::BoolResultStr ResizeUIComposite( uint32_t width, uint32_t height );
-
-        /// The render collectors and gameplay systems, in the order Play mode uses. Its own function so
-        /// the boot stage that times it stays a one-line lambda — see the note on the definition.
-        void BuildGameplaySystems();
 
         // Scene::Resize destroys GPU resources — deferred to the top of OnUpdate (same rule as the
         // editor's viewport panel).

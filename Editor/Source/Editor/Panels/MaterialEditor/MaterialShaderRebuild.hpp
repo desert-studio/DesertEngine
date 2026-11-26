@@ -41,10 +41,6 @@ namespace Desert::Editor
         }
 
     private:
-        static std::unordered_map<std::string, uint64_t>& Counts()
-        {
-            static std::unordered_map<std::string, uint64_t> s_Counts;
-            return s_Counts;
-        }
+        static std::unordered_map<std::string, uint64_t>& Counts();
     };
 } // namespace Desert::Editor

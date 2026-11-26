@@ -1,7 +1,8 @@
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 
 #include <Engine/Geometry/ClusterDag.hpp>
-#include <Engine/Geometry/Mesh.hpp>
+#include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/Graphic/MeshGeometry.hpp>
 #include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -262,12 +263,10 @@ namespace Desert::Graphic::VirtualGeometry
     }
 
     Common::ResultStr<VirtualMeshRegistration>
-    VirtualMeshTable::RT_Register( const Mesh& mesh, const std::span<const Geometry::ClusterDag> dags,
-                                   const std::string_view name )
+    VirtualMeshTable::RT_Register( const MeshGeometry& geometry, const std::span<const Submesh> submeshes,
+                                   const std::span<const Geometry::ClusterDag> dags, const std::string_view name )
     {
-        using Result                  = VirtualMeshRegistration;
-        const MeshGeometry& geometry  = mesh.GetGeometry();
-        const auto&         submeshes = mesh.GetSubmeshes();
+        using Result = VirtualMeshRegistration;
         if ( !geometry.Pooled || !geometry.IsResident() || !geometry.Indices )
             return Common::MakeFormattedError<Result>(
                  "[VirtualMeshTable] '{}': the mesh is not resident in the GeometryPool", name );

@@ -164,22 +164,6 @@ float RayQueryVisibilityHit( vec3 origin, vec3 dir, float tMax, uint cullMask, i
     return 0.0;
 }
 
-// The distance to the CLOSEST blocking hit along the ray, @p tMax when nothing blocks it.
-float RayQueryClosestBlocker( vec3 origin, vec3 dir, float tMax, uint cullMask )
-{
-    rayQueryEXT query;
-    rayQueryInitializeEXT( query, SceneTlas, gl_RayFlagsNoneEXT, cullMask & 0xFFu, origin, 0.0, dir, tMax );
-    while ( rayQueryProceedEXT( query ) )
-    {
-        if ( rayQueryGetIntersectionTypeEXT( query, false ) == gl_RayQueryCandidateIntersectionTriangleEXT &&
-             RayQueryCandidateBlocks( query ) )
-            rayQueryConfirmIntersectionEXT( query );
-    }
-    if ( rayQueryGetIntersectionTypeEXT( query, true ) == gl_RayQueryCommittedIntersectionNoneEXT )
-        return tMax;
-    return rayQueryGetIntersectionTEXT( query, true );
-}
-
 float RayQueryVisibility( vec3 origin, vec3 dir, float tMax, uint cullMask )
 {
     float hitT = tMax;

@@ -3,6 +3,9 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/DebugDraw.hpp>
 #include <Engine/Core/GameMode.hpp>
+#include <Engine/Core/LevelTravel.hpp>
+#include <UI/UIWorld.hpp>
+#include <Common/Core/CrashWorlds.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/WeatherState.hpp>
 #include <Engine/Core/WorldParameterInstance.hpp>
@@ -483,6 +486,8 @@ namespace Desert::Core
         std::optional<Common::Content::TextAssetHeaderSerialized> AssetHeader;
         std::optional<Common::Json::TextDocument>                 LoadedDocument;
         std::optional<WorldPartitionSerialized>                   WorldPartition;
+        std::string                                               Path; // see GetFilePath
+        Common::Crash::CrashWorld                                 Crash;
     };
 
     struct Scene::FrameRendererInfos
@@ -495,41 +500,8 @@ namespace Desert::Core
         return LiveSceneList();
     }
 
-    Scene::Scene()
-         : m_ExtensionPasses( std::make_unique<Graphic::ExtensionPassRegistry>() ),
-           m_DebugDraw( std::make_unique<DebugDrawWorld>() ),
-#if DESERT_DEV_INSTRUMENTS
-           m_GameplayDebugger( std::make_unique<Debug::GameplayDebugger>() ),
-#endif
-           m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
-           m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
-           m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
-           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
-           m_Atmosphere( std::make_shared<Graphic::SceneAtmosphere>() ),
-           m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields(
-                std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
-           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) ),
-           m_WorldTime( std::make_unique<WorldTime>() ),
-           m_WorldParameters( std::make_unique<WorldParameterInstance>() ),
-           m_Deformation( std::make_unique<World::DeformationWorld>() ),
-           m_DecalImpacts( std::make_unique<World::DecalImpactPool>() ),
-           m_Weather( std::make_unique<WeatherState>() ), m_GameMode( std::make_unique<GameMode>() ),
-           m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
-           m_Settings( std::make_unique<SceneSettings>() ), m_Packages( std::make_shared<EntityPackages>() ),
-           m_File( std::make_unique<FileState>() )
-    {
-        // Engine's component serializers (Core's registry): this reference links the provider in.
-        Serialize::LinkEngineComponentProvider();
-        StartupEngineModules();
-        for ( const SceneModuleStateMaker make : ModuleHooks().SceneStates )
-            m_ModuleStates.push_back( make() );
-        LiveSceneList().push_back( this );
-        m_Subsystems.Begin();
-    }
-
-    Scene::Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer )
-         : m_ExtensionPasses( std::make_unique<Graphic::ExtensionPassRegistry>() ),
+    Scene::Scene( std::string sceneName, Graphic::SceneRenderer* sceneRenderer, WorldKind kind )
+         : m_Kind( kind ), m_ExtensionPasses( std::make_unique<Graphic::ExtensionPassRegistry>() ),
            m_DebugDraw( std::make_unique<DebugDrawWorld>() ),
 #if DESERT_DEV_INSTRUMENTS
            m_GameplayDebugger( std::make_unique<Debug::GameplayDebugger>() ),
@@ -550,13 +522,20 @@ namespace Desert::Core
            m_Weather( std::make_unique<WeatherState>() ), m_GameMode( std::make_unique<GameMode>() ),
            m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
            m_Settings( std::make_unique<SceneSettings>() ), m_SceneName( std::move( sceneName ) ),
-           m_Packages( std::make_shared<EntityPackages>() ), m_File( std::make_unique<FileState>() )
+           m_Packages( std::make_shared<EntityPackages>() ), m_File( std::make_unique<FileState>() ),
+           m_Travel( std::make_unique<LevelTravel>() )
     {
+        m_Registry.set<UI::UIWorld>();
+        // The worlds a crash report names: the played ones. A preview or a bake is the tool's, not the user's.
+        if ( m_Kind == WorldKind::Game || m_Kind == WorldKind::Document )
+            m_File->Crash = Common::Crash::CrashWorld( m_Kind == WorldKind::Game ? "game" : "document" );
+        ReportToCrashHandler();
+
         // Engine's component serializers (Core's registry): this reference links the provider in.
         Serialize::LinkEngineComponentProvider();
         StartupEngineModules();
         for ( const SceneModuleStateMaker make : ModuleHooks().SceneStates )
-            m_ModuleStates.push_back( make() );
+            m_ModuleStates.push_back( make( m_Registry ) );
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
 
@@ -591,6 +570,35 @@ namespace Desert::Core
         {
             m_SingleFramePending = false; // a step belongs to the pause it was asked in
         }
+        ReportToCrashHandler();
+    }
+
+    void Scene::ReportToCrashHandler() noexcept
+    {
+        m_File->Crash.Update( m_File->Path, m_State == SceneState::Play     ? "play"
+                                            : m_State == SceneState::Paused ? "paused"
+                                                                            : "edit" );
+    }
+
+    const std::string& Scene::GetFilePath() const
+    {
+        return m_File->Path;
+    }
+
+    void Scene::SetFilePath( std::string path )
+    {
+        m_File->Path = std::move( path );
+        ReportToCrashHandler();
+    }
+
+    LevelTravel& Scene::Travel()
+    {
+        return *m_Travel;
+    }
+
+    UI::UIWorld& Scene::GetUIWorld()
+    {
+        return m_Registry.ctx<UI::UIWorld>();
     }
 
     const std::optional<Common::Content::TextAssetHeaderSerialized>& Scene::GetAssetHeader() const
@@ -648,6 +656,11 @@ namespace Desert::Core
 
     NO_DISCARD Common::BoolResultStr Scene::Init( InitPurpose purpose )
     {
+        // A world nobody made systems for would draw an empty frame with no error anywhere.
+        if ( m_Systems.empty() )
+            return Common::MakeError<bool>(
+                 std::format( "world '{}' has no systems: CreateWorldSystems was not called", m_SceneName ) );
+
         for ( auto& view : m_Views.All() )
             view.Renderer->Init();
 
@@ -1462,6 +1475,12 @@ namespace Desert::Core
         r.prepare<ECS::SocketAttachmentComponent>();
     }
 
+    void Scene::SetQuality( const Common::Scalability::ResolvedQuality& quality )
+    {
+        for ( auto& system : m_Systems )
+            system->SetQuality( quality );
+    }
+
     void Scene::ExecuteSystems( const Common::Timestep& gameplayTs )
     {
         // BEFORE ANY PARALLEL GROUP OPENS. See PrepareComponentPools for the race this closes; it is
@@ -1731,7 +1750,10 @@ namespace Desert::Core
     void Scene::Clear()
     {
         m_Subsystems.End();
-        m_Registry.clear();
+        m_Registry.clear(); // the context stays: the world's UI state is emptied below, not remade
+        GetUIWorld().Reset();
+        m_File->Path.clear();
+        ReportToCrashHandler();
         // A reload empties this object and refills it: a new world at the same address. Entity ids restart, so
         // a view's history keyed by (generation, entity) must not survive it (SceneRenderer::BeginScene).
         m_Generation   = NextSceneGeneration();
@@ -1853,6 +1875,8 @@ namespace Desert::Core
         // A reload is a new hierarchy: every cache derived from the old one is dropped.
         m_HierarchyRevision.Bump();
         m_Registry.ctx_or_set<ECS::HierarchyRevisionLink>().Revision = &m_HierarchyRevision;
+        // The scene's settings (gravity, ...) for the readers that have only the registry (Core::SceneSettingsLink).
+        m_Registry.ctx_or_set<Core::SceneSettingsLink>().Settings = m_Settings.get();
     }
 
     void Scene::OnTransformWorldPending( entt::registry& registry, entt::entity entity )

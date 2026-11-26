@@ -31,7 +31,7 @@
  * must not: resolution is the host's (Evaluator.hpp, `ITimelineHost::Resolve`).
  */
 
-#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetGuid.hpp>
 
 #include <cstdint>
 #include <string>

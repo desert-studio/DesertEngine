@@ -1116,10 +1116,9 @@ namespace Desert::Graphic
         // (UE single layer water's SSR leg); invalid -> the graph's black, the water's captures and sky alone.
         void AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
                             const FrameFrontLayer& frontLayer );
-        // THE FFT OCEAN'S WAVES of this frame (WATER-RIVERS-FFT; WaterRenderer::AddWavePasses): recorded into
-        // @p graph by their first reader (the water's front layer or its surface node), the same ref after; the
-        // graph's black when the frame's water draws Gerstner.
-        RDG::TextureRef FrameWaterWaves( RDG::Builder& graph, FrameTextures& textures );
+        // THE FRAME'S WATER (ISingleLayerWaterPass::AddFramePasses): waves, foam, shore and river, recorded into
+        // @p graph by their first reader, the same refs after; invalid when no water of the frame can draw.
+        System::WaterFrameRefs FrameWater( RDG::Builder& graph, FrameTextures& textures );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
         // The vg_clusters view (DebugViewState::VirtualGeometry = Clusters): "Debug: Virtual Geometry Clusters"
@@ -1396,6 +1395,9 @@ namespace Desert::Graphic
         // forward path's single-sample prepass depth) or, invalid, of the G-buffer depth. Invalid when it was not
         // built.
         RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef depth = {} );
+        // Whether a casting point or spot light of this frame has no shadow map (no atlas room, or no virtual
+        // map): its shadow is the screen trace over the HZB (Mesh/LocalLightShadow.glslh).
+        [[nodiscard]] bool LocalLightsNeedScreenTrace() const;
         // SSR's trace + denoiser over @p screenTrace, before the lighting. Resolved: the reflection the lighting
         // composes (SsrTexture); invalid when SSR did not run.
         // Reflections.TranslucentFrontLayer of the resolved quality.
@@ -1686,9 +1688,9 @@ namespace Desert::Graphic
         std::shared_ptr<Framebuffer> m_GBuffer;                    // deferred G-buffer (MRT)
         Core::RenderPath m_RenderPath = Core::RenderPath::Forward; // refreshed from SceneSettings each BeginScene
         // The volumetric cloud layer's cost ceiling, taken from m_Quality each BeginScene and handed to
-        // the cloud renderer with the layer itself. HIGH is the calibrated reference, so a renderer
-        // nobody pushes to renders correctly rather than cheaply.
-        Common::Settings::CloudQuality m_CloudQuality = Common::Settings::CloudQuality::High;
+        // the cloud renderer with the layer itself. The default scale is the calibrated reference, so a
+        // renderer nobody pushes to renders correctly rather than cheaply.
+        CloudQualityScale m_CloudQuality;
         // Scalability Effects.CloudFootprintSteps, refreshed with m_CloudQuality and handed with it.
         bool m_CloudFootprintSteps = true;
         // Scalability Effects.CloudLightLocalSamples, refreshed with m_CloudQuality and handed with it: the
@@ -1969,7 +1971,7 @@ namespace Desert::Graphic
         System::DistanceFieldShadowRenderer m_DistanceFieldShadow;
         bool                                m_DistanceFieldShadowReady  = false;
         bool                                m_DistanceFieldShadowFailed = false;
-        // MegaLights (per view: its reservoir and denoiser histories are this view's), created on the first frame
+        // MegaLights (per view: its visible-light hash and denoiser histories are this view's), created on the first frame
         // that resolves Shadows to Stochastic; its quality (Shadows.MegaLights*) taken each BeginScene.
         System::MegaLightsRenderer m_MegaLights;
         System::MegaLightsQuality  m_MegaLightsQuality;
@@ -1982,8 +1984,7 @@ namespace Desert::Graphic
         bool                           m_SSGIReady  = false;
         bool                           m_SSGIFailed = false;
         // The MegaLights translucency volume (per view: its history is this view's), created on the first frame
-        // that needs it; its quality (Shadows.MegaLightsVolume*, Shadows.MegaLightsMaxHistory) taken each
-        // BeginScene.
+        // that needs it; its quality (Shadows.MegaLightsVolume*) taken each BeginScene.
         System::MegaLightsVolumeRenderer m_MegaLightsVolume;
         System::MegaLightsVolumeQuality  m_MegaLightsVolumeQuality;
         // "Shadows: Virtual Shadow Map" (per view: the page cache is this view's), created on the first frame that

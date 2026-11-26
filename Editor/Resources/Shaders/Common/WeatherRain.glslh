@@ -185,6 +185,19 @@ vec3 DesertRainStreakNormalWS( const vec3 p, const vec3 geomN, const float time,
     return normalize( across * ( n.x * weight ) + up * ( n.y * weight ) + geomN * n.z );
 }
 
+// THE SAND THE SWASH WETTED at @p p: the B of the view's foam map (Water/WaterFoamField.glslh, written by the water's
+// own step), which dries. Read in the plane: a point above the run-up's reach was never wetted.
+#extension GL_EXT_samplerless_texture_functions : require
+#define WATER_FOAM_FETCH( t ) texelFetch( BindlessTextures[nonuniformEXT( uint( ShoreFoamShape.z ) )], t, 0 )
+#define WATER_FOAM_ORIGIN( l ) ShoreFoamOrigin[l].xyz
+#define WATER_FOAM_SIDE ShoreFoamShape.x
+#include <Water/WaterFoamField.glslh>
+
+float DesertShoreWetness( const vec3 p )
+{
+    return ShoreFoamShape.y > 0.5 ? WaterFoamSample( p.xz, 0.0 ).b : 0.0;
+}
+
 // THE ONE CALL. @p geomN the GEOMETRIC world normal (the water lies on the face, not on its normal map's relief),
 // @p exposure the share of the sky that reaches the point (DesertRainExposure), @p response the material's weather
 // weight (1 = fully), @p porosity how much water it soaks up. @p sampledLayers: whether the ripple and streak maps
@@ -195,7 +208,8 @@ DesertWetSurface DesertApplyRain( DesertWetSurface s, const vec3 p, const vec3 g
 {
     s.Puddle         = 0.0;
     const float open = clamp( exposure, 0.0, 1.0 ) * clamp( response, 0.0, 1.0 );
-    if ( open <= 0.0 )
+    const float swash = DesertShoreWetness( p ) * clamp( response, 0.0, 1.0 ) * clamp( geomN.y, 0.0, 1.0 );
+    if ( open <= 0.0 && swash <= 0.0 )
         return s;
     const float time  = cameraUB.Time;
     const float upness  = smoothstep( kDesertPuddleUpRamp.x, kDesertPuddleUpRamp.y, geomN.y );
@@ -225,7 +239,7 @@ DesertWetSurface DesertApplyRain( DesertWetSurface s, const vec3 p, const vec3 g
     //   BaseColor *= lerp( 1, factor, wet )
     //   Roughness *= lerp( 1, factor, 0.5 * wet )        (gloss rises half as fast as the albedo falls)
     // A metal has no pores: it wets only by standing water.
-    const float wet        = max( clamp( DesertWorldParameter( kDesertWetnessKey ).x, 0.0, 1.0 ) * open, puddle );
+    const float wet        = max( clamp( DesertWorldParameter( kDesertWetnessKey ).x, 0.0, 1.0 ) * open, max( puddle, swash ) );
     const float dielectric = 1.0 - clamp( s.Metallic, 0.0, 1.0 );
     const float factor     = mix( 1.0, 0.2, dielectric * clamp( porosity, 0.0, 1.0 ) );
     s.BaseColor *= mix( 1.0, factor, wet );

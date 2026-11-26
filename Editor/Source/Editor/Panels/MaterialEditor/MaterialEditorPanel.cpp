@@ -582,7 +582,7 @@ namespace Desert::Editor
         // same registry and the same lifetime — but because a third call spelled differently beside two
         // guarded ones reads as a deliberate exception, and the next person has to work out which of the
         // three is wrong.
-        auto* imageService = Runtime::ResourceRegistry::GetImageService();
+        auto* imageService = Runtime::GetImageService();
         if ( !imageService )
             return {};
 

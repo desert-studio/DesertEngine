@@ -1,11 +1,33 @@
 #pragma once
 
-#include <Engine/Core/Application.hpp>
+#include <concepts>
+#include <cstdint>
+#include <filesystem>
+#include <memory>
+#include <optional>
+#include <string>
+#include <type_traits>
+#include <unordered_set>
+
+#include <Common/Core/Core.hpp>
+#include <Common/Core/Events/EventTree.hpp>
+#include <Common/Core/Events/WindowEvents.hpp>
+#include <Common/Core/LayerStack.hpp>
+#include <Common/Core/Singleton.hpp>
+#include <Common/Core/Subsystems/SubsystemCollection.hpp>
+#include <Engine/Core/WindowCloseGate.hpp>
 #include <Engine/Core/Window.hpp>
 #include <Engine/Core/Device.hpp>
 #include <Engine/Core/FrameManager.hpp>
 
 #include <Engine/Graphic/RendererContext.hpp>
+
+// EngineContext is RenderCore's (BINT-STATE): it names the Application only as its friend, so Engine's header
+// stays out of RenderCore.
+namespace Desert::Engine
+{
+    class Application;
+} // namespace Desert::Engine
 
 namespace Desert
 {
@@ -68,7 +90,7 @@ namespace Desert
          */
         /// A plain read of the value copied when the device was set (UE: GRHI* globals): no weak_ptr lock per
         /// draw, and no reference into a device that teardown may already have destroyed.
-        [[nodiscard]] const Engine::DeviceCapabilities& GetCapabilities() const
+        [[nodiscard]] const Engine::GpuCapabilities& GetCapabilities() const
         {
             DESERT_VERIFY( m_HasCapabilities );
             return m_Capabilities;
@@ -79,7 +101,7 @@ namespace Desert
         /// when a vendor runtime changes what it offers; it calls this right after, on the main thread before the
         /// views begin, so the copy above stays one value with one source. @p source is the device's own
         /// capabilities; a device that is not this context's (a second device, a test host) changes nothing.
-        void RefreshCapabilities( const Engine::DeviceCapabilities& source ) noexcept
+        void RefreshCapabilities( const Engine::GpuCapabilities& source ) noexcept
         {
             const std::shared_ptr<Engine::Device> device = m_Device.lock();
             if ( device == nullptr || &device->GetCapabilities() != &source )
@@ -104,7 +126,7 @@ namespace Desert
         std::weak_ptr<Graphic::RendererContext> m_RendererContext;
         // The device's capabilities: copied when the device is set (Initialize / SetDevice) and again whenever
         // the device rebuilds its catalog (RefreshCapabilities) - never a stale copy of a catalog it replaced.
-        Engine::DeviceCapabilities m_Capabilities;
+        Engine::GpuCapabilities m_Capabilities;
         bool                       m_HasCapabilities = false;
 
         void CaptureCapabilities( const std::shared_ptr<Engine::Device>& device )
@@ -120,3 +142,7 @@ namespace Desert
     };
 
 } // namespace Desert
+
+// The one instance lives in this class's .cpp (Common::Singleton, design BINT-STATE).
+template <>
+std::unique_ptr<Desert::EngineContext>& Common::Singleton<Desert::EngineContext>::Instance();

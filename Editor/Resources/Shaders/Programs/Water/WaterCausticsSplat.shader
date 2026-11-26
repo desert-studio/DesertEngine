@@ -5,7 +5,7 @@ Shader "WaterCausticsSplat"
     {
         // THE CAUSTICS' FIRST HALF (WATER-CAUSTICS, Common/WaterCaustics.glslh; Wallace / GPU Gems 1 ch. 2): one
         // thread per map texel shoots a 2x2 grid of sun rays at the water surface the water mesh draws (the
-        // body's Gerstner waves of this frame, damped over the WaterInfo ground as the vertex path damps them),
+        // body's waves of this frame, transformed by the depth as the vertex path's are),
         // refracts each into the water and follows it to the floor below; the light it carries - the flux the
         // displaced surface patch intercepts - is splatted bilinearly where it lands, by integer atomics into
         // WaterCausticsEnergy (cleared by the graph before this pass). Where the waves focus the beams, many
@@ -13,7 +13,7 @@ Shader "WaterCausticsSplat"
         LocalSize(8, 8, 1);
 
         // Binding 24 WaterTiles (only its waves block: the frame's WaterRenderer upload head) and binding 25
-        // WaterInfoTexture: the wave evaluation the water mesh itself draws with.
+        // WaterShoreTexture, binding 23 WaterWavesTexture: the one surface the water mesh itself draws.
         #include <Mesh/Surface/WaterMeshTiles.glslh>
 
         // The frame row (Common/WaterCaustics.glslh): its body table gives each texel's still level.
@@ -33,27 +33,9 @@ Shader "WaterCausticsSplat"
 
         PushConstant PushConstants
         {
-            vec4 Window; // xy = world (X, Z) of the map's lower corner (cm), z = the texel's side (cm),
-                         // w = the floor's depth where no WaterInfo ground is baked (cm)
+            vec4 Window; // xy = world (X, Z) of the map's lower corner (cm), z = the texel's side (cm), w unused
             vec4 Sun;    // xyz = the direction the sunlight travels (normalised, y < 0), w = time (s, cameraUB.Time)
-            vec4 Camera; // xyz = the view's world position (cm, cameraUB.CameraPos): the FFT cascades' distance fade
         };
-
-        // THE ONE SURFACE QUERY: the water surface's point and normal above the still-plane point @p worldXZ, and
-        // the horizontal Jacobian of its displacement (the share of the plane cell's area the displaced patch
-        // keeps: < 1 where the crests bunch the water together). The very calls Vertex_WaterMesh draws with: the
-        // body's wave set @p waveSet (Gerstner or the FFT ocean, WaterWaveSetOf; -1 = flat), damped by the same
-        // WaterWaveAttenuation, the cascades faded by the same still-particle distance to the eye.
-        void WaterCausticsSurface( int waveSet, vec2 worldXZ, float stillY, float attenuation, float viewDist,
-                                   float time, out vec3 position, out vec3 normal, out float jacobian )
-        {
-            const vec2 plane = WaterWavePlane( waveSet, worldXZ );
-            position = vec3( worldXZ.x, stillY, worldXZ.y ) +
-                       WaterWavesDisplacement( waveSet, plane, time, viewDist ) * attenuation;
-            normal   = normalize(
-                 mix( vec3( 0.0, 1.0, 0.0 ), WaterWavesNormal( waveSet, plane, time, viewDist ), attenuation ) );
-            jacobian = mix( 1.0, WaterWavesJacobian( waveSet, plane, time, viewDist ), attenuation );
-        }
 
         void SplatEnergy( vec2 land, float energy )
         {
@@ -90,18 +72,17 @@ Shader "WaterCausticsSplat"
                 const vec2  sub         = ( vec2( s & 1, s >> 1 ) + 0.5 ) * 0.5;
                 const vec2  target      = Window.xy + ( vec2( cell ) + sub ) * Window.z;
                 // The body over the target (the frame row's table): of the footprints that hold it, the one whose
-                // baked ground lies the least deep under its level (the water the floor there is under, where two
-                // footprints overlap), else the first that holds it (no ground baked). A texel under no body's
-                // footprint lights none.
+                // floor lies the least deep under its level (the water that is over it, where two overlap). A texel
+                // under no body's water lights none.
                 int   body        = -1;
                 float targetDepth = 0.0;
                 for ( int i = 0; i < int( WaterCausticsShape.x ); ++i )
                 {
-                    const vec4 footprint = WaterCausticsBodies[2 * i];
+                    const vec4 footprint = WaterCausticsBodies[3 * i];
                     if ( any( lessThan( target, footprint.xy ) ) || any( greaterThan( target, footprint.zw ) ) )
                         continue;
-                    const float d = WaterGroundDepth( target, WaterCausticsBodyLevel( i ) );
-                    if ( body < 0 || ( d > 0.0 && ( targetDepth <= 0.0 || d < targetDepth ) ) )
+                    const float d = WaterCausticsBodyLevel( i ) - WaterShoreAt( target ).GroundCm;
+                    if ( d > 0.0 && ( body < 0 || d < targetDepth ) )
                     {
                         body        = i;
                         targetDepth = d;
@@ -112,25 +93,19 @@ Shader "WaterCausticsSplat"
                 const float stillY      = WaterCausticsBodyLevel( body );
                 // -1 for a flat body: the still surface lands every ray in its own texel, the map reads 1 there.
                 const int   waveSet     = WaterWaveSetOf( WaterCausticsBodyWaveLane( body ) );
-                const vec2  source      = target - stillShift * ( targetDepth > 0.0 ? targetDepth : Window.w );
-                // The floor under the ray's entry: the WaterInfo ground (the waves damp over it as the drawn
-                // surface's do, WaterWaveAttenuation), or the push's depth where none is baked.
-                const float ground      = WaterGroundDepth( source, stillY );
-                const float depth       = ground > 0.0 ? ground : Window.w;
-                const float attenuation = WaterWaveAttenuation( source, stillY, WaterCausticsBodyWaveMaskDepth( body ) );
-                const float viewDist    = WaterViewDistance( source, stillY, Camera.xyz );
-                vec3  position;
-                vec3  normal;
-                float jacobian;
-                WaterCausticsSurface( waveSet, source, stillY, attenuation, viewDist, time, position, normal,
-                                      jacobian );
+                const vec2  source      = target - stillShift * targetDepth;
+                // A map texel's half is the finest light the map can hold.
+                const WaterSurface water = WaterSurfaceAt( waveSet, source, stillY, time, time, 0.5 * Window.z,
+                                                           WaterShoreShape.y * WaterCausticsBodyBeachSlope( body ) );
+                const vec3  position = vec3( source.x, stillY, source.y ) + water.Displacement;
+                const vec3  normal   = WaterSurfaceNormal( water.Slope );
                 const vec3 ray = refract( sun, normal, eta );
                 if ( ray.y >= -1e-4 )
                     continue; // grazing: it never reaches the floor
-                const float drop = position.y - ( stillY - depth );
+                const float drop = max( position.y - ( stillY - max( water.Depth, 0.0 ) ), 0.0 );
                 const vec2  land = position.xz + ray.xz * ( drop / -ray.y );
                 // A quarter texel of still-water irradiance per ray, times the share of it the patch intercepts.
-                SplatEnergy( land, 0.25 * max( jacobian, 0.0 ) );
+                SplatEnergy( land, 0.25 * max( water.Jacobian, 0.0 ) );
             }
         }
     }

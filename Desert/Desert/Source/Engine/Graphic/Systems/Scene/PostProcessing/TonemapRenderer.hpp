@@ -152,10 +152,6 @@ namespace Desert::Graphic::System
         {
             return m_AutoExposureEnabled;
         }
-        [[nodiscard]] float GetExposureKey() const
-        {
-            return m_ExposureKey;
-        }
         [[nodiscard]] Core::TonemapOperator GetTonemapOperator() const
         {
             return m_TonemapOperator;
@@ -191,10 +187,9 @@ namespace Desert::Graphic::System
         {
             m_AutoExposureImage = image;
         }
-        void SetAutoExposure( bool enabled, float key )
+        void SetAutoExposure( bool enabled )
         {
             m_AutoExposureEnabled = enabled;
-            m_ExposureKey         = key;
         }
         // This frame's view shows a display-referred buffer (Graphic::IsDisplayReferredView of the view's
         // DebugViewState): the composite draws the scene colour as is, unexposed and untonemapped.
@@ -267,7 +262,6 @@ namespace Desert::Graphic::System
 
         std::weak_ptr<Image2D> m_AutoExposureImage;
         bool                   m_AutoExposureEnabled = false;
-        float                      m_ExposureKey         = 0.18f;
         bool                       m_VisualizeBuffer     = false; // SetVisualizeBuffer
 
         float                  m_LightShaftIntensity = 0.0f;

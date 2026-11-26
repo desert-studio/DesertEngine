@@ -18,15 +18,18 @@ namespace Desert::Editor::Core
     class ViewportMode final
     {
     public:
-        static EditorMode Get() { return s_Mode; }
-        static void       Set( EditorMode mode ) { s_Mode = mode; }
-        static bool       IsFoliage() { return s_Mode == EditorMode::Foliage; }
-        static bool       IsModeling()
-        {
-            return s_Mode == EditorMode::Modeling;
-        }
+        // The one listener told of a CHANGE of mode (ViewportPanel::OnEditorModeChanged installs it: each live
+        // viewport writes its scene's ECS::FoliageEditing then, never per frame). Null until a viewport exists.
+        using ChangeListener = void ( * )( EditorMode mode );
+
+        static EditorMode Get();
+        static void Set( EditorMode mode );
+        static void SetChangeListener( ChangeListener listener );
+        static bool IsFoliage();
+        static bool IsModeling();
 
     private:
-        static inline EditorMode s_Mode = EditorMode::Select;
+        static EditorMode s_Mode;
+        static ChangeListener s_OnChange;
     };
 } // namespace Desert::Editor::Core

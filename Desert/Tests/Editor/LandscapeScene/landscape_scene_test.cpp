@@ -22,6 +22,7 @@
 #include <Engine/Core/Serialize/AuthoredComponentIO.hpp>
 #include <Landscape/Public/LandscapeComponentIO.hpp>
 #include <Common/Json/Document.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <LandscapeCore/Public/LandscapeEditLayers.hpp>
 #include <LandscapeCore/Public/LandscapeLayout.hpp>

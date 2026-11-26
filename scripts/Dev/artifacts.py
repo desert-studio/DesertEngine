@@ -6,8 +6,8 @@ One release per platform build: tag `<platform>-<sha12>`, platform = win | mac.
 Each release carries `<tag>-bin.zip` (executables + shared libraries) and, unless
 --no-symbols, `<tag>-symbols.zip` (.pdb / .dSYM).
 
-  publish <tree> [--bin DIR] [--config Release] [--no-symbols]
-  fetch   <tag | latest> <dir> [--platform win|mac] [--symbols]
+  publish <tree> [--bin DIR] [--config Development] [--no-symbols]
+  fetch   <tag | win-<SHA7> | latest> <dir> [--platform win|mac] [--symbols]
   list    [--platform win|mac]
   prune   --keep N [--platform win|mac]
 
@@ -125,14 +125,25 @@ def releases(platform=None):
     return [r for r in rows if platform is None or r["tagName"].startswith(platform + "-")]
 
 
-def cmd_fetch(a):
-    platform = a.platform or host_platform()
-    tag = a.tag
+def resolve_tag(tag, platform):
+    """`latest`, a full tag, or a short one: `win-<SHA7>` (the name a crash directory carries,
+    CrashHandler RunDirectoryName) names the one release whose tag starts with it."""
+    rows = [r["tagName"] for r in releases(platform)]
     if tag == "latest":
-        rows = releases(platform)
         if not rows:
             sys.exit(f"no {platform} releases")
-        tag = rows[0]["tagName"]
+        return rows[0]
+    if tag in rows:
+        return tag
+    matches = [t for t in rows if t.startswith(tag)]
+    if len(matches) != 1:
+        sys.exit(f"{tag}: {len(matches)} matching releases ({', '.join(matches[:5])})")
+    return matches[0]
+
+
+def cmd_fetch(a):
+    platform = a.platform or host_platform()
+    tag = resolve_tag(a.tag, platform)
     dest = Path(a.dir)
     dest.mkdir(parents=True, exist_ok=True)
     patterns = ["*-bin.zip"] + (["*-symbols.zip"] if a.symbols else [])
@@ -169,7 +180,7 @@ def main():
     p = sub.add_parser("publish")
     p.add_argument("tree")
     p.add_argument("--bin")
-    p.add_argument("--config", default="Release")
+    p.add_argument("--config", default="Development")
     p.add_argument("--no-symbols", action="store_true")
     p.set_defaults(fn=cmd_publish)
     p = sub.add_parser("fetch")

@@ -33,8 +33,11 @@ namespace Desert::Engine
      *
      * Deliberately kept to facts a renderer actually branches on. This struct is not a mirror of
      * VkPhysicalDeviceLimits: a field belongs here only once something reads it.
+     *
+     * Not `DeviceCapabilities`: wingdi.h defines that name as a macro (DeviceCapabilitiesW), so the type
+     * changed its name in every TU that saw <windows.h> after this header and not before it.
      */
-    struct DeviceCapabilities
+    struct GpuCapabilities
     {
         // --- Identity -------------------------------------------------------------------------------
         std::string Name;                              ///< Adapter name, e.g. "NVIDIA GeForce RTX 3070 Ti".
@@ -170,7 +173,7 @@ namespace Desert::Engine
     /**
      * @brief ONE MEMORY HEAP AS THE DRIVER SEES IT RIGHT NOW. A reading, not a capability.
      *
-     * WHY IT IS NOT A FIELD OF `DeviceCapabilities`. That struct's own header says it is "a snapshot of
+     * WHY IT IS NOT A FIELD OF `GpuCapabilities`. That struct's own header says it is "a snapshot of
      * what the hardware can do, queried once at device selection" — and the Vulkan specification calls
      * the two numbers below *"a rough estimate"* that is *"not invariant"*. Putting a non-invariant
      * reading in the struct everybody treats as constant is how a stale number becomes a budget: a
@@ -234,7 +237,7 @@ namespace Desert::Engine
         /**
          * @brief Returns the device's hardware capabilities.
          */
-        [[nodiscard]] virtual const DeviceCapabilities& GetCapabilities() const = 0;
+        [[nodiscard]] virtual const GpuCapabilities& GetCapabilities() const = 0;
 
         /**
          * @brief Wait for all device operations to complete.

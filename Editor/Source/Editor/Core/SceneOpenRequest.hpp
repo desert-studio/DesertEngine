@@ -33,10 +33,6 @@ namespace Desert::Editor::Core
         }
 
     private:
-        static std::optional<std::string>& Pending()
-        {
-            static std::optional<std::string> s_Pending;
-            return s_Pending;
-        }
+        static std::optional<std::string>& Pending();
     };
 } // namespace Desert::Editor::Core

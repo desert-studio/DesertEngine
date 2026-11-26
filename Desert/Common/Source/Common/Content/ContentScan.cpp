@@ -26,6 +26,7 @@
 #include <vector>
 #include <cstdio>
 #include <Common/Json/ReadWrite.hpp>
+#include <Common/Content/ContentPaths.hpp>
 
 namespace Common::Content
 {

@@ -50,7 +50,7 @@ namespace Desert::Core
     //  GBuffer          — the masked depth prepass + the EQUAL G-buffer pass (the blade rasterised twice).
     //  VisibilityBuffer — the blades rasterise once into a 64-bit visibility buffer (depth | row | triangle,
     //                     atomicMax) and the material is evaluated once per pixel by a tiled resolve.
-    // VisibilityBuffer, asked for by either, needs DeviceCapabilities::SupportsVisibilityBuffer64; a device
+    // VisibilityBuffer, asked for by either, needs GpuCapabilities::SupportsVisibilityBuffer64; a device
     // without it keeps the G-buffer path and logs the refusal once. v75 (Core/Serialize/SceneUpgrade.hpp,
     // MigrateGrassRasterPathV74ToV75) restated the former bool GrassVisibilityBuffer: false (the former default,
     // which every volume serialised) -> Scalability, true -> VisibilityBuffer.
@@ -228,8 +228,6 @@ namespace Desert::Core
 
         PROPERTY( DisplayName( "Auto Exposure" ), Category( "Exposure" ) )
         bool AutoExposure = false;
-        PROPERTY( DisplayName( "Auto Exposure Key" ), Category( "Exposure" ), Range( 0.0f, 1.0f ) )
-        float AutoExposureKey = 0.18f; // middle-grey target
         PROPERTY( DisplayName( "Auto Exposure Speed" ), Category( "Exposure" ), Range( 0.0f, 10.0f ) )
         float AutoExposureSpeed = 1.5f; // higher = adapts faster
         // UE AutoExposureMinBrightness / MaxBrightness with "Extend default luminance range" (the only mode UE5
@@ -244,8 +242,10 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Max EV100" ), Category( "Exposure" ), Range( -15.0f, 25.0f ), Units( "EV100" ),
                   Tooltip( "Brightest scene the eye adapts to (UE Max EV100); a 100 000 lux sun meters ~15." ) )
         float AutoExposureMaxEV100 = 20.0f;
-        // UE's Exposure Compensation (AutoExposureBias, EV): 2^bias multiplies the exposure, manual or auto. The
-        // default 0 keeps the exposure every scene before v74 was graded under.
+        // UE's Exposure Compensation (AutoExposureBias, EV): 2^bias multiplies the exposure, manual or auto - the
+        // only offset of the exposure law, whose middle grey is the constant Graphic::kExposureMiddleGrey (v78
+        // folded the former AutoExposureKey in as log2(key / 0.18)). The default 0 keeps the exposure every scene
+        // before v74 was graded under.
         PROPERTY( DisplayName( "Exposure Compensation" ), Category( "Exposure" ), Range( -15.0f, 15.0f ),
                   Units( "EV" ) )
         float AutoExposureBias = 0.0f;

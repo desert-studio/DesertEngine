@@ -29,6 +29,31 @@ endfunction()
 
 desert_header_tool_roots(context _context_roots)
 
+# What every editor layer's code calls besides the layers below it and the engine: as DLLs (Development/DebugGame)
+# each layer resolves its own imports; in the Shipping monolith these travel to the executable with the archives.
+set(_editor_thirdparty
+    GLFW ${DESERT_OPTICK} MeshOptimizer Voro Compressonator OpenSubdiv Embree ImGui ImGuiNodeEditor Assimp OpenEXRCore
+    Dav1d Opus)
+if(IS_DIRECTORY "${DESERT_ROOT}/ThirdParty/dlib")
+    list(APPEND _editor_thirdparty Dlib)
+endif()
+
+desert_unity_exclude(REASON "anonymous-namespace SlicePreviewHelper also in Panels/Clouds/CloudModellingVolumePanel.cpp"
+    "Source/Editor/Panels/Clouds/CloudNoiseVolumePanel.cpp")
+desert_unity_exclude(REASON "defines IMGUI_DEFINE_MATH_OPERATORS / NOMINMAX before its includes"
+    "Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp" "Source/EditorLayer.cpp")
+desert_unity_exclude(REASON "defines DE_POSIX_PROC before its includes"
+    "Source/Editor/Panels/Photogrammetry/PhotogrammetryPanel.cpp")
+desert_unity_exclude(REASON "anonymous-namespace AddCategory / kAddCategories also in the component widget registry"
+    "Source/Editor/Panels/SceneHierarchy/SceneHierarchyPanel.cpp")
+desert_unity_exclude(REASON "anonymous-namespace Target / edges also in the modeling operations"
+    "Source/Editor/Panels/ViewportPanel/Tools/ElementSelectTool.cpp")
+desert_unity_exclude(REASON "anonymous-namespace kTraceDistanceCm / TraceLandscape() also in LandscapePaintTool.cpp"
+    "Source/Editor/Panels/ViewportPanel/Tools/LandscapeSculptTool.cpp")
+desert_unity_exclude(REASON "anonymous-namespace kDome* camera constants also in AssetThumbnailRenderer.cpp"
+    "Source/Editor/Widgets/PreviewViewport.cpp")
+
+set(_lower_layers "")
 set(_first_layer ON)
 foreach(layer IN LISTS DESERT_EDITOR_LAYERS)
     set(_files ${DESERT_EDITOR_LAYER_${layer}_FILES})
@@ -38,9 +63,13 @@ foreach(layer IN LISTS DESERT_EDITOR_LAYERS)
         desert_platform_foreign_sources(${_foreign})
         list(FILTER _files EXCLUDE REGEX "/Source/Editor/(Splash|Platform)/Windows/")
     endif()
-    desert_add_library(${layer} SOURCES "Source/EditorPCH.cpp" "Source/EditorPCH.hpp" ${_files})
+    desert_module_library(${layer} SOURCES "Source/EditorPCH.cpp" "Source/EditorPCH.hpp" ${_files})
     if(_first_layer)
         target_sources(${layer} PRIVATE "ThirdParty/ImGuizmo/ImGuizmo.cpp")
+        # ImGuizmo marks its own functions IMGUI_API, which is dllimport outside the ImGui DLL; its
+        # definitions live in this layer, so they compile with IMGUI_API empty.
+        set_source_files_properties("ThirdParty/ImGuizmo/ImGuizmo.cpp" TARGET_DIRECTORY ${layer}
+            PROPERTIES COMPILE_DEFINITIONS "IMGUI_API=" SKIP_UNITY_BUILD_INCLUSION ON)
         set(_first_layer OFF)
     endif()
     desert_enable_unity(${layer})
@@ -48,18 +77,29 @@ foreach(layer IN LISTS DESERT_EDITOR_LAYERS)
     desert_shared_pch(${layer} Editor "${CMAKE_CURRENT_SOURCE_DIR}/Source/EditorPCH.hpp")
     desert_depend_on_codegen(${layer})
     if(layer STREQUAL DESERT_EDITOR_CODEGEN_LIB)
-        add_dependencies(${layer} DesertHeaderTool)
+        # The editor's subsystem registry is written into the build tree, never the source tree (B-TREE); the step
+        # re-runs only when the tool, a template, an editor file or an engine file it reads for context changes.
+        set(_editor_subsystems "${DESERT_GENERATED_DIR}/Editor/Generated/EditorSubsystems.gen.cpp")
+        set_source_files_properties("${_editor_subsystems}" PROPERTIES GENERATED TRUE)
+        target_sources(${layer} PRIVATE "${_editor_subsystems}")
+        desert_header_tool_inputs(_editor_tool_inputs)
+        desert_sources(_editor_scanned "${DESERT_ROOT}/Editor/Source")
+        desert_engine_source_files(_editor_context)
         desert_prebuild(${layer} HeaderTool
             COMMAND "$<TARGET_FILE:DesertHeaderTool>"
                 --templates "${DESERT_ROOT}/Tools/DesertHeaderTool/Templates"
                 --check "${DESERT_ROOT}/Editor/Source"
                 ${_context_roots}
-                --subsystems Editor Desert::Editor::EditorLayer EditorLayer.hpp
-                "${DESERT_ROOT}/Editor/Source/Editor/Generated/EditorSubsystems.gen.cpp"
-            DEPENDS DesertHeaderTool
+                --subsystems Editor Desert::Editor::EditorLayer EditorLayer.hpp "${_editor_subsystems}"
+            DEPENDS ${_editor_tool_inputs} ${_editor_scanned} ${_editor_context}
+            BYPRODUCTS "${_editor_subsystems}"
             COMMENT "DesertHeaderTool: editor subsystem codegen")
     endif()
     _desert_editor_compile_settings(${layer})
+    # A layer calls the layers below it, never above (DESERT_EDITOR_LAYERS is bottom first).
+    target_link_libraries(${layer} PRIVATE ${_lower_layers} ${_editor_thirdparty})
+    desert_link_engine(${layer})
+    list(APPEND _lower_layers ${layer})
 endforeach()
 
 # The Windows system libraries EditorCore's own sources call, on EditorCore and not on one executable: the
@@ -83,13 +123,9 @@ set_target_properties(Editor PROPERTIES
     VS_DEBUGGER_COMMAND_ARGUMENTS "--project ../Projects/Desert/Desert.deproj")
 _desert_editor_compile_settings(Editor)
 desert_link_mimalloc(Editor)
-desert_link_editor_libs(Editor WHOLE_ARCHIVE)
-target_link_libraries(Editor PRIVATE
-    GLFW ${DESERT_OPTICK} MeshOptimizer Voro Compressonator OpenSubdiv Embree ImGui ImGuiNodeEditor Assimp OpenEXRCore Dav1d Opus)
+desert_link_editor_libs(Editor)
+target_link_libraries(Editor PRIVATE ${_editor_thirdparty})
 desert_link_engine(Editor)
-if(IS_DIRECTORY "${DESERT_ROOT}/ThirdParty/dlib")
-    target_link_libraries(Editor PRIVATE Dlib)
-endif()
 if(DESERT_IS_WINDOWS)
     # A windowed app that still enters through main() (WINDOWED + /ENTRY:mainCRTStartup).
     target_link_options(Editor PRIVATE /ENTRY:mainCRTStartup)
@@ -100,7 +136,7 @@ desert_copy_streamline_runtime(Editor)
 desert_copy_oidn_runtime(Editor)
 if(DESERT_IS_MACOS)
     target_link_libraries(Editor PRIVATE
-        Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp
+        Common Jolt Luau ReflectCpp
         "-framework Cocoa" "-framework IOKit" "-framework CoreFoundation" "-framework CoreVideo"
         "-framework CoreMedia" "-framework AVFoundation" "-framework QuartzCore"
         ${DESERT_DESERTSPECIFIC_LIBRARIES})

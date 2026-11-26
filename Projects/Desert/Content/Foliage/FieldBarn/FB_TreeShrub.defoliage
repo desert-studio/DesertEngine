@@ -3,7 +3,7 @@
         "Kind": "FoliageType",
         "Guid": "89f24c160b149347c112214c4f1582bf",
         "Versions": {
-            "FOLT": 11
+            "FOLT": 12
         },
         "Dependencies": ["3a128cc7205aa269d0fbaca6e09d04a0"]
     },
@@ -57,6 +57,7 @@
         "Height": 150.0
     },
     "IncludeInHLOD": true,
+    "EnableDensityScaling": false,
     "Procedural": {
         "CollisionRadius": 90.0,
         "ShadeRadius": 30.0,

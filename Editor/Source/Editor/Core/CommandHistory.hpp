@@ -69,11 +69,7 @@ namespace Desert::Editor
     class CommandHistory
     {
     public:
-        static CommandHistory& Get()
-        {
-            static CommandHistory s_Instance;
-            return s_Instance;
-        }
+        static CommandHistory& Get();
 
         // Reflected-property byte edit (see PropertyEditorBuilder): before/after bytes at a raw field
         // address. Pointer-based -> volatile (dropped when the edited object may have died).

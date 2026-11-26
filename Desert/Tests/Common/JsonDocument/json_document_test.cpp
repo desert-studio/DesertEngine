@@ -16,7 +16,8 @@
 #include <string>
 #include <vector>
 #include <Common/Json/ReadWrite.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
+#include <glm/glm.hpp>
 
 // Named after the suite: every suite of the layer links into one runner, and two suites'
 // namespace-scope types of one name would be an ODR violation the linker resolves silently. Not an

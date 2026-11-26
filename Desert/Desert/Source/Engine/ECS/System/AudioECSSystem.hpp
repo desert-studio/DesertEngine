@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Core/Camera.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Audio/AudioEngine.hpp>

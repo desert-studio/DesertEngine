@@ -46,13 +46,15 @@ def author(path, n, seed, kmin, kmax, wind_deg, spread, slope):
                 s = sin_t[(kx * x + base) % n]
                 rx[x] -= sx * s
                 ry[x] -= sy * s
-    rms = math.sqrt(sum(v * v for r in gx for v in r) / (n * n) + sum(v * v for r in gy for v in r) / (n * n))
-    g = slope / rms
+    # Each axis to the same RMS: the material adds the octaves' variances per axis.
+    gain = []
+    for g in (gx, gy):
+        gain.append(slope / math.sqrt(sum(v * v for r in g for v in r) / (n * n)))
     rows = []
     for y in range(n):
         row = []
         for x in range(n):
-            dx, dy = gx[y][x] * g, gy[y][x] * g
+            dx, dy = gx[y][x] * gain[0], gy[y][x] * gain[1]
             l = math.sqrt(dx * dx + dy * dy + 1.0)
             nx, ny, nz = -dx / l, dy / l, 1.0 / l  # image v runs down: +Y (GL) is up the image
             row += [int(round((nx * 0.5 + 0.5) * 255)), int(round((ny * 0.5 + 0.5) * 255)), int(round((nz * 0.5 + 0.5) * 255))]
@@ -61,5 +63,5 @@ def author(path, n, seed, kmin, kmax, wind_deg, spread, slope):
     print(path, len(waves), 'waves')
 
 out = sys.argv[1]
-author(out + "/T_WaterRipple_A_N.png", 512, 11, 2, 32, 0.0, 2, 0.16)
-author(out + '/T_WaterRipple_B_N.png', 512, 29, 3, 40, 35.0, 2, 0.12)
+author(out + "/T_WaterRipple_A_N.png", 512, 11, 2, 32, 0.0, 0, 0.10)
+author(out + '/T_WaterRipple_B_N.png', 512, 29, 3, 40, 35.0, 0, 0.10)

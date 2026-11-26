@@ -10,7 +10,7 @@
 // scaffolded with — that census lives with the project format and has its own suite.
 
 #include "TestSupport/source_roots.hpp"
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Core/Constants.hpp>
 
 #include "../../TestSupport/engine_dir.hpp"

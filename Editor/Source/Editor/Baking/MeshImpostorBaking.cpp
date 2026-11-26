@@ -37,7 +37,7 @@ namespace Desert::Editor::Baking
             std::filesystem::path                OutputDir; // beside the mesh asset
         };
 
-        RunningImpostorBake& Running()
+        RunningImpostorBake& RunningImpostor()
         {
             static RunningImpostorBake running;
             return running;
@@ -78,7 +78,7 @@ namespace Desert::Editor::Baking
     Common::BoolResultStr StartImpostorBakeOf( ::Desert::Core::Scene& scene, const ECS::Entity& entity,
                                                const Assets::AssetManager& assets )
     {
-        RunningImpostorBake& running = Running();
+        RunningImpostorBake& running = RunningImpostor();
         if ( running.Bake )
             return Common::MakeError( "Bake Impostor: a bake is already running" );
         if ( !entity.HasComponent<ECS::StaticMeshComponent>() || !entity.HasComponent<ECS::UUIDComponent>() )
@@ -123,7 +123,7 @@ namespace Desert::Editor::Baking
 
     void TickImpostorBake( const Assets::AssetManager& assets, ::Desert::Core::Scene* activeScene )
     {
-        RunningImpostorBake& running = Running();
+        RunningImpostorBake& running = RunningImpostor();
         if ( !running.Bake || !running.Bake->Tick() )
             return;
         const std::unique_ptr<HLODApproximateBake> bake = std::move( running.Bake );
@@ -186,6 +186,6 @@ namespace Desert::Editor::Baking
 
     bool IsImpostorBakeRunning()
     {
-        return Running().Bake != nullptr;
+        return RunningImpostor().Bake != nullptr;
     }
 } // namespace Desert::Editor::Baking

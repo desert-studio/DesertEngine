@@ -47,7 +47,7 @@
 
 #include <Common/Json/Document.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <cstdint>
 #include <filesystem>

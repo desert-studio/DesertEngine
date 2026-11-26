@@ -5,7 +5,7 @@
 #include <Common/Content/AssetMove.hpp>
 #include <Common/Content/AssetTrash.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Content/ContentScan.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -191,14 +191,9 @@ namespace Desert::Assets
 
             // A FUNCTION-LOCAL STATIC, for `AssetPathIndex`'s reason: `NoteAsset` is reachable from
             // `AssetManager::CreateAsset`, which a translation unit's static initialiser can reach, and a
-            // namespace-scope object would then be read before its own constructor ran. It is also the
-            // spelling that makes this header-only: one definition, shared across every translation unit
-            // that includes this file, without a `.cpp` for anyone to have to link.
-            inline State& Get_()
-            {
-                static State state;
-                return state;
-            }
+            // namespace-scope object would then be read before its own constructor ran. It is defined in
+            // ContentRegistry.cpp (BINT-STATE): a header definition gave every module DLL its own registry.
+            State& Get_();
 
             // Lower-cased so a `.TEX` on a case-preserving filesystem matches the census row, exactly as
             // `AssetPreloader`'s scan used to lower-case before comparing.

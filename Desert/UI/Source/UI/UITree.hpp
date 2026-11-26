@@ -25,6 +25,7 @@
 namespace Desert::UI
 {
     struct UIPaintArgs;
+    struct UIWorld;
 
     // A node of the tree. Bit-for-bit an `entt::entity` in the ECS adapter (null mapped explicitly), so the
     // id a debugger prints for an element is the same id either side of the seam.
@@ -71,6 +72,10 @@ namespace Desert::UI
         // registry), so a view that remembers per-node state must notice when it is handed another scene;
         // two trees over the same store answer the same address. Never dereferenced by the framework.
         [[nodiscard]] virtual const void* Storage() const = 0;
+
+        // The world this tree's screen belongs to: the values its bindings read, its message queue, its raised
+        // notifications (UIWorld.hpp).
+        [[nodiscard]] virtual UIWorld& World() const = 0;
 
         // Where the HOST places @p n in its world — the origin a WorldSpace canvas is billboarded from (UE's
         // WidgetComponent is a scene component; the widget tree itself has no world). nullopt when the host

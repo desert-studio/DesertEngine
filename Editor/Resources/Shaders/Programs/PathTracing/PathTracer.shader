@@ -295,12 +295,9 @@ Shader "PathTracer"
                 }
                 // Every lobe the BSDF has keeps at least 5 % of the samples (the two-lobe sampler's clamp), so no
                 // direction it reflects into has a vanishing density; a black surface samples its GGX lobe alone.
-                // The transmitted albedo takes no more than the diffuse reflection leaves, so a leaf authored with a
-                // bright BaseColor and a bright SubsurfaceColor does not amplify the light.
-                m.Transmission = m.Model == SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE
-                                     ? clamp(DesertSubsurfaceColor(m.Model, m.Payload), vec3(0.0),
-                                             max(vec3(1.0) - m.BaseColor * (1.0 - m.Metallic), vec3(0.0)))
-                                     : vec3(0.0);
+                // The transmitted albedo is the model's own (R + T = albedo, Common/FoliageEnergy.glslh; 0 for a
+                // model that lets no light through).
+                m.Transmission = DesertSubsurfaceColor(m.Model, m.Payload);
                 const vec4  weights = vec4(diffuse, specular, coat, PathTracingLuminance(m.Transmission));
                 const float total   = weights.x + weights.y + weights.z + weights.w;
                 m.LobeProbability         = vec3(0.0, 1.0, 0.0);
@@ -333,16 +330,11 @@ Shader "PathTracer"
                 return dot(N, L) < 0.0 ? 2.0 * m.Position - origin : origin;
             }
 
-            // f * cos of the hit's model toward L. Two-sided foliage: the raster's Evaluate with no transmitted
-            // light (its wrapped, view-dependent scatter fits a single punctual light and does not conserve energy)
-            // plus the Lambert transmission lobe the mixture samples and weighs.
+            // f * cos of the hit's model toward L, transmission included: the raster's Evaluate.
             vec3 PathTracingEvaluateCos(PathTracingMaterial m, vec3 N, vec3 V, vec3 L)
             {
-                DesertLight light = PathTracingUnitLight(L);
-                if (m.Model == SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE)
-                    light.TransmissionShadow = 0.0;
-                return DesertEvaluateShadingModel(m.Model, light, PathTracingSurfaceOf(m, N, V), m.Payload) +
-                       m.Transmission * (max(-dot(N, L), 0.0) / PI);
+                return DesertEvaluateShadingModel(m.Model, PathTracingUnitLight(L), PathTracingSurfaceOf(m, N, V),
+                                                  m.Payload);
             }
 
             // f * cos toward L; the model's specular lobe (EvaluateSpecular) is the share.
@@ -823,25 +815,32 @@ Shader "PathTracer"
                 DesertLight light;
                 vec3        position;
                 float       sourceRadius;
+                int         shadowFlags;
                 if (i < Counts.x)
                 {
                     light        = DesertPointLightAt(pointLights[i], P);
                     position     = pointLights[i].position;
                     sourceRadius = pointLights[i].sourceRadius;
+                    shadowFlags  = pointLights[i].shadowFlags;
                 }
                 else
                 {
                     light        = DesertSpotLightAt(spotLights[i - Counts.x], P);
                     position     = spotLights[i - Counts.x].position;
                     sourceRadius = spotLights[i - Counts.x].sourceRadius;
+                    shadowFlags  = spotLights[i - Counts.x].shadowFlags;
                 }
                 float      reach;
                 const vec3 toLight = SampleLightSourceSphere(normalize(position - origin), distance(position, origin),
                                                              sourceRadius, u, reach);
                 if (!PathTracingReaches(m, dot(N, toLight)))
                     return vec3(0.0);
+                // A light with CastShadows off has no shadow ray (UE PATHTRACER_FLAG_CAST_SHADOW_MASK), as in the
+                // raster and the GI hits.
                 const vec3 transmittance =
-                    PathTracingTransmittance(PathTracingOriginToward(m, origin, N, toLight), toLight, reach);
+                    DesertLightCastsShadows(shadowFlags)
+                        ? PathTracingTransmittance(PathTracingOriginToward(m, origin, N, toLight), toLight, reach)
+                        : vec3(1.0);
                 return PathTracingBsdfCos(m, N, V, toLight) * light.Radiance * transmittance / pickPdf;
             }
 
@@ -878,7 +877,10 @@ Shader "PathTracer"
                 const float cosEmit   = -dot(L, normal);
                 if (cosEmit <= 0.0 || !PathTracingReaches(m, dot(N, L)))
                     return vec3(0.0);
-                const vec3 transmittance = PathTracingTransmittance(PathTracingOriginToward(m, origin, N, L), L, dist);
+                const vec3 transmittance =
+                    DesertLightCastsShadows(source.shadowFlags)
+                        ? PathTracingTransmittance(PathTracingOriginToward(m, origin, N, L), L, dist)
+                        : vec3(1.0);
                 if (all(lessThanEqual(transmittance, vec3(0.0))))
                     return vec3(0.0);
                 const float area   = (x1 - x0) * (y1 - y0);

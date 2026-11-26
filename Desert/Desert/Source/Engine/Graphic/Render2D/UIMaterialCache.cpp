@@ -51,7 +51,7 @@ namespace Desert::Graphic::Render2D
             if ( textureHandle == 0 )
                 return nullptr;
             auto* texService = Runtime::ResourceRegistry::GetTextureService();
-            auto* imgService = Runtime::ResourceRegistry::GetImageService();
+            auto* imgService = Runtime::GetImageService();
             if ( !texService || !imgService )
                 return nullptr;
             auto* tex = texService->Get( Assets::AssetHandle( textureHandle ) );

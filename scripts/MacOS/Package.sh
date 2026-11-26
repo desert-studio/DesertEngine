@@ -2,7 +2,7 @@
 # THE ENGINE DROP — the downloadable build of the TOOLS, not of a game.
 # Output: dist/DesertEngine-<config>/ — CI archives this directory as an artifact (ci.yml).
 #
-#   ./scripts/MacOS/Package.sh [Release|Debug]
+#   ./scripts/MacOS/Package.sh [Development|DebugGame|Shipping]
 #
 # WHAT THIS IS AND WHAT IT IS NOT (П5). A GAME is packaged by the editor's own PackageGame() and by
 # nothing else: it needs an OPEN PROJECT, which is a thing this script does not have and CI does not
@@ -36,7 +36,7 @@
 # descriptor and this script has no project to describe: "No game to run", reproduced by running it.
 set -euo pipefail
 
-CONFIG="${1:-Release}"
+CONFIG="${1:-Development}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BIN="$ROOT/build/Bin/$CONFIG"
 OUT="$ROOT/dist/DesertEngine-$CONFIG"
@@ -63,6 +63,11 @@ mkdir -p "$OUT"
 
 for exe in Editor Runtime PakTool DShaderTool; do
     [ -x "$BIN/$exe" ] && cp "$BIN/$exe" "$OUT/"
+done
+# Development and DebugGame link the modules and the shared third-party libraries as dylibs beside the
+# executables (@executable_path rpath, cmake/DesertWorkspace.cmake); Shipping is one static binary with none.
+for lib in "$BIN"/*.dylib; do
+    [ -f "$lib" ] && cp "$lib" "$OUT/"
 done
 
 # The engine resource trees, whole. `--exclude` rather than a delete pass afterwards, and the

@@ -15,6 +15,7 @@
 #include "Editor/Core/ActorDropPlacement.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
+#include "Editor/Core/Selection/ViewportMode.hpp"
 #include "Editor/Core/ViewportModes.hpp"
 #include "Editor/Core/IPanel.hpp"
 
@@ -170,6 +171,11 @@ namespace Desert::Editor
         // scene still share an answer, and any of them being in 2D mode hides the grid for that scene.
         static Graphic::DebugViewState EffectiveDebugView( const Graphic::DebugViewState& user,
                                                            const Desert::Core::Scene&     scene );
+
+        // The editor mode changed (Core::ViewportMode's listener): every live viewport tells its scene whether
+        // the foliage mode edits it (ECS::FoliageEditing: MeshECSSystem then draws every instance). Written on
+        // the change and when a viewport opens, never per frame.
+        static void OnEditorModeChanged( Core::EditorMode mode );
 
         // Flip 2D UI mode on every viewport showing `scene`, from outside the panel — the command palette's
         // "Toggle 2D UI mode". It exists for the same reason К6 gave the snap steps and the Perf HUD names:

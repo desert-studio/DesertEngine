@@ -86,8 +86,9 @@ namespace Desert::Graphic
     // once its visibility source is drawn; invalid refs before the grid, as the grid's.
     struct MegaLightsVolumeRefs
     {
-        RDG::BufferRef                 Params;   // "MegaLights.Volume.Params", MegaLightsVolumeReadParams
-        std::array<RDG::TextureRef, 3> Lighting; // R, G, B
+        RDG::BufferRef                 Params;      // "MegaLights.Volume.Params", MegaLightsVolumeReadParams
+        std::array<RDG::TextureRef, 3> Lighting;    // R, G, B
+        bool                           Lit = false; // on: the forward cells read it, they loop no light
     };
 
     // THE VIEW'S LANDSCAPE RUNTIME VIRTUAL TEXTURE (LANDSCAPE-RVT, System::LandscapeVirtualTexture; UE Runtime Virtual
@@ -126,7 +127,7 @@ namespace Desert::Graphic
         RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
         // The closest-depth HZB of the opaque scene depth (the G-buffer's; on the forward path the depth prepass's,
         // single-sample), built once per graph by its first reader (SceneRenderer::AddFrameHZB)   -> the screen
-        // traces (SSR, screen probes), MegaLights' trace and its volume
+        // traces (SSR, screen probes), MegaLights' trace and its volume, the shadow of a local light without a map (SceneViewInputs::ClosestHzb)
         RDG::TextureRef ClosestHzb;
         // SSR's full-resolution trace ray (xyz the point each pixel's reflection came from, w log2 pdf, -126 no
         // ray), set only when the temporal upscaler takes the reflection raw  -> TemporalUpscalerInputs
@@ -166,6 +167,8 @@ namespace Desert::Graphic
         // The view's rain occlusion map (MeshRenderer::GetRainOcclusionImage, imported: the renderer owns it and
         // redraws it only when its box moves); invalid when the view has none   -> the wetted mesh cells
         RDG::TextureRef RainOcclusionMap;
+        // The water's foam map the wetted ground samples bindless (RainOcclusionUB.ShoreFoamShape); invalid: none.
+        RDG::TextureRef ShoreFoam;
         // The water's caustics map and its frame row (System::WaterCaustics::AddPasses, SceneRenderer::
         // AddFrameWaterCaustics before any lit pass). Every graph starts with the neutral pair, System.White and
         // a zeroed row with no map (FrameTextures::SetSceneViewInputsOff); the producer overwrites it when the
@@ -347,6 +350,9 @@ namespace Desert::Graphic
         // layer per ShadowMaskSlot), read by an OPAQUE forward draw's DESERT_LOCAL_SHADOW_SCREEN_MASK permutation in
         // place of the atlas. Invalid when the local shadows are not ray traced (the permutation is then not chosen).
         RDG::TextureRef LocalShadowMasks;
+        // FrameTransients::ClosestHzb, walked for the shadow of a casting local light without a map
+        // (Mesh/LocalLightShadow.glslh); System.Black (depth 0 stops no ray: unoccluded) where the graph built none.
+        RDG::TextureRef ClosestHzb;
         // Shadows.Method VirtualMaps: the view's virtual shadow map (FrameTransients::Vsm), read by a
         // DESERT_LOCAL_SHADOW_VSM program in place of the atlas.
         VirtualShadowMapReadRefs Vsm;
@@ -361,6 +367,7 @@ namespace Desert::Graphic
         // The MegaLights translucency volume (MegaLightsVolumeRefs): its block and three volumes, bound where the
         // layout reads them (the forward and translucent cells, Common/MegaLightsVolume.glslh).
         MegaLightsVolumeRefs MegaLightsVolume;
+        RDG::TextureRef ShoreFoam; // sampled bindless wherever the layout reads the rain block; invalid: none
         RDG::TextureRef RainOcclusionMap; // the view's map, or System.White (depth 1: nothing overhead)
         // The water's caustics (Common/WaterCaustics.glslh): the map, or System.White, and its frame row - the
         // zeroed 'off' row of FrameTextures::SetSceneViewInputsOff in a graph whose frame drew none (a reflection
@@ -395,6 +402,7 @@ namespace Desert::Graphic
             for ( const RDG::TextureRef ref :
                   { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, ReflectionCaptureCubes, LocalShadowAtlas,
                     SceneDepth, SceneShadingWord, SunShadowMask, SunDistanceFieldShadow, LocalShadowMasks,
+                    ClosestHzb,
                     RadianceCacheIrradiance, RadianceCacheDepth,
                     RainOcclusionMap, FogAerialPerspective, FogDistantSkyLight, FogVolume, DBufferA, DBufferB,
                     DBufferC, TranslucencyLightingVolume, WaterCausticsMap, LandscapeVirtualTexture.Color,
@@ -428,6 +436,8 @@ namespace Desert::Graphic
     inline constexpr std::string_view kTranslucencyLightingVolumeName = "TranslucencyLightingVolumeTexture";
     // DeferredLighting.shader and Mesh/ForwardLocalLights.glslh's DESERT_LOCAL_SHADOW_SCREEN_MASK branch.
     inline constexpr std::string_view kSceneViewLocalShadowMasksName = "LocalShadowMasksTexture";
+    // DeferredLighting.shader and Mesh/ForwardLocalLights.glslh.
+    inline constexpr std::string_view kSceneViewClosestHzbName = "ClosestHzbTexture";
     inline constexpr std::string_view kSceneViewRainOcclusionMapName = "RainOcclusionMapTexture";
     // The water's caustics (Common/WaterCaustics.glslh): the map, through the pass's LinearRepeatSampler, and the
     // frame row's std430 block.
@@ -544,6 +554,7 @@ namespace Desert::Graphic
     inline constexpr RDG::TextureParameter       kSceneViewTranslucencyLightingVolume{
          kTranslucencyLightingVolumeName };
     inline constexpr RDG::TextureParameter       kSceneViewLocalShadowMasks{ kSceneViewLocalShadowMasksName };
+    inline constexpr RDG::TextureParameter       kSceneViewClosestHzb{ kSceneViewClosestHzbName };
     inline constexpr RDG::StorageBufferParameter kLightGridParamsBlock{ kLightGridParamsBlockName };
     inline constexpr RDG::StorageBufferParameter kLightGridCellsBlock{ kLightGridCellsBlockName };
     inline constexpr RDG::StorageBufferParameter kLocalShadowViewsBlock{ kLocalShadowViewsBlockName };
@@ -598,7 +609,9 @@ namespace Desert::Graphic
         inputs.ReflectionCaptures     = t.ReflectionCaptures;
         inputs.LocalShadowAtlas       = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
         inputs.SceneDepth             = t.SceneDepth.IsValid() ? t.SceneDepth : refs.System.Black;
+        inputs.ClosestHzb             = t.ClosestHzb.IsValid() ? t.ClosestHzb : refs.System.Black;
         inputs.SceneShadingWord       = t.SceneShadingWord.IsValid() ? t.SceneShadingWord : refs.System.ZeroUint;
+        inputs.ShoreFoam              = t.ShoreFoam;
         inputs.RainOcclusionMap       = t.RainOcclusionMap.IsValid() ? t.RainOcclusionMap : refs.System.White;
         inputs.WaterCausticsMap       = t.WaterCausticsMap.IsValid() ? t.WaterCausticsMap : refs.System.White;
         inputs.WaterCausticsFrame     = t.WaterCausticsFrame;
@@ -715,6 +728,9 @@ namespace Desert::Graphic
             if ( inputs.LocalShadowMasks.IsValid() )
                 bind( SceneViewSlot::LocalShadowMasks, kSceneViewLocalShadowMasks, inputs.LocalShadowMasks, kPoint,
                       RDG::SamplerDesc::PointClamp() );
+            // Read with texelFetch, every mip (Common/HZBTrace.glslh).
+            bind( SceneViewSlot::ClosestHzb, kSceneViewClosestHzb, inputs.ClosestHzb, kPoint,
+                  RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the hit texel (an integer format is never filtered).
             bind( SceneViewSlot::SceneShadingWord, kSceneViewSceneShadingWord, inputs.SceneShadingWord, kPoint,
                   RDG::SamplerDesc::PointClamp() );
@@ -883,6 +899,8 @@ namespace Desert::Graphic
         // The grid's lights sample their light function tiles bindless: a grid reader declares the atlas.
         if ( slots.Has( SceneViewSlot::LightGridCells ) )
             block.BindlessRead( inputs.LightFunctionAtlas, RDG::Access::SampledGraphics );
+        if ( slots.Has( SceneViewSlot::RainOcclusionMap ) )
+            block.BindlessRead( inputs.ShoreFoam, RDG::Access::SampledGraphics );
         BindVirtualShadowMapReads( block, inputs.Vsm, slots );
         // The radiance cache, where the shader reads it (the forward passes' estimator). Bound here and not in
         // BindWhere: the surface cache's lighting passes bind their own cache under the same names.

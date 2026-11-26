@@ -130,7 +130,8 @@ namespace Desert::Editor
                                                                bool              materialPipelinesCompiling,
                                                                bool              grassInstancesSettling );
 
-        // OnDetach: abandon a request still in flight (logged, never answered) and remove the socket file.
+        // OnDetach: drain a window PNG still being written (its ticket back to the swap chain), abandon a request
+        // still in flight (logged, never answered) and remove the socket file.
         void Close();
 
     private:

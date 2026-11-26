@@ -53,9 +53,10 @@ namespace Desert::Runtime
         static SkyboxService*   GetSkyboxService();
         static TextureService*  GetTextureService();
         static ShaderService*   GetShaderService();
-        static ImageService*    GetImageService();
         static FontService*     GetFontService();
         static IconService*     GetIconService();
+        // The image service is RenderCore's: Runtime::GetImageService (Services/Image/ImageService.hpp). The
+        // environment cache writer is the skybox service's (SkyboxService::EnvironmentCache).
 
         static AnimatedImageService* GetAnimatedImageService();
         static VideoService*         GetVideoService();

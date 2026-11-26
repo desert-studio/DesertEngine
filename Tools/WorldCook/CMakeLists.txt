@@ -1,6 +1,6 @@
 # WorldCook: cooks a world's streaming cells; links the third-party libraries and the engine.
 # MikkTSpace is not linked: mikktspace.cpp is compiled into GeometryCore.
-desert_glob(_sources "Source/*.cpp")
+desert_sources(_sources "Source" MATCHING "\\.cpp$")
 desert_add_executable(WorldCook FOLDER Tools SOURCES ${_sources})
 # Include order: the engine roots, then Tools/Shared.
 desert_engine_includes(WorldCook)

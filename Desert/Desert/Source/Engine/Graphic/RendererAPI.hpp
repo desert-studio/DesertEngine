@@ -117,15 +117,6 @@ namespace Desert::Graphic
         std::optional<glm::uvec3> Resolve{};
     };
 
-    enum class RendererAPIType : uint8_t
-    {
-        None   = 0,
-        Vulkan = 1,
-        // Windows only (Graphic/API/D3D12, DX12-RHI part 1): the device and swap chain exist, the RendererAPI
-        // that records frames on them is part 2, so nothing selects this value yet.
-        D3D12 = 2,
-    };
-
     class RendererAPI
     {
     public:
@@ -426,15 +417,8 @@ namespace Desert::Graphic
         virtual void                         WaitDeviceIdle()                                     = 0;
         virtual std::shared_ptr<Framebuffer> GetCompositeFramebuffer() const                      = 0;
 
-    public:
-        static RendererAPIType GetAPIType()
-        {
-            return s_RenderingAPI;
-        }
-
     protected:
-        std::weak_ptr<Window>         m_Window;
-        static inline RendererAPIType s_RenderingAPI = RendererAPIType::Vulkan;
+        std::weak_ptr<Window> m_Window;
     };
 
 } // namespace Desert::Graphic

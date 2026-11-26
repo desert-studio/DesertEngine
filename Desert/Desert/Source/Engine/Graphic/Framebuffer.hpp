@@ -159,13 +159,10 @@ namespace Desert::Graphic
     class FramebufferLibrary final
     {
     public:
-        static const auto& GetFramebuffers()
-        {
-            return s_Framebuffers;
-        }
+        static const auto& GetFramebuffers();
 
     private:
-        static inline std::vector<std::shared_ptr<Graphic::Framebuffer>> s_Framebuffers;
+        static std::vector<std::shared_ptr<Graphic::Framebuffer>> s_Framebuffers;
 
         friend class Framebuffer;
     };

@@ -1,5 +1,8 @@
 #include "TextAssetHeader.hpp"
 
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/ContentKinds.hpp>
+
 #include <Common/Json/Json.hpp>
 
 #include <algorithm>

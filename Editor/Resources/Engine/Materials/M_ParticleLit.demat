@@ -5,7 +5,7 @@
         "Versions": {
             "MATL": 7
         },
-        "Dependencies": ["d7926d5472ac436a812d51b09fc07d9d"]
+        "Dependencies": ["d7926d5472ac436a812d51b09fc07d9d", "31883673a91744a7906bf38886911fb8"]
     },
     "Shader": {
         "Guid": "d7926d5472ac436a812d51b09fc07d9d",
@@ -17,6 +17,12 @@
             "Value": [1.0, 1.0, 1.0, 1.0]
         }
     ],
-    "Textures": [],
+    "Textures": [
+        {
+            "Name": "SpriteTexture",
+            "Guid": "31883673a91744a7906bf38886911fb8",
+            "Path": "engine:Engine/Textures/T_ParticleSoftDisc.detex"
+        }
+    ],
     "CloudAssets": []
 }

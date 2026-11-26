@@ -1,6 +1,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <spdlog/details/log_msg_buffer.h>
+#include <spdlog/pattern_formatter.h>
 
 #include <chrono>
 #include <condition_variable>

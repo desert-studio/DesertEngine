@@ -166,10 +166,10 @@ namespace Desert::Engine::ViewBudget
         switch ( reading.Source )
         {
             case CeilingSource::DriverBudget:
-                return std::format( "device-local budget {} (driver, VK_EXT_memory_budget)",
+                return std::format( "device-local budget {} (driver memory budget query)",
                                     FormatMiB( reading.CeilingBytes ) );
             case CeilingSource::HeapSize:
-                return std::format( "device-local budget unknown (VK_EXT_memory_budget absent), ceiling = "
+                return std::format( "device-local budget unknown (driver reports no budget), ceiling = "
                                     "device-local heap size {}",
                                     FormatMiB( reading.CeilingBytes ) );
             case CeilingSource::CommandLine:

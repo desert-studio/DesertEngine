@@ -825,6 +825,10 @@ namespace
     // ReplicationClient the engine's net driver runs, input sent at the 60 Hz client step.
     //   --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir x,y,z
     //         --turn-deg-s R] [--waypoints x,y,z;x,y,z...] [--lag-ms L --loss P]
+    //         [--hold-actions MASK --hold-from S --hold-until S]
+    // --hold-actions holds the pawn's declared action bits MASK (Gameplay::PawnActions: bit i = the prefab's i-th
+    // declared action - IA_Jump 1, IA_Sprint 2, IA_Crouch 4 for a CharacterController with the default names)
+    // from --hold-from to --hold-until seconds (PAWN-MANNEQUIN: a proxy that crouches in front of an observer).
     // --waypoints walks a SHUTTLE instead (NET-5's remote walk in front of an observer): the bot steers its pawn
     // straight at the current point from the SERVER's newest position of it (closed loop, so a slope or a push
     // cannot carry it off the path), turns back at each end of the list and walks until --seconds; only x and z
@@ -834,6 +838,19 @@ namespace
     // move). Walks its own pawn D cm along dir (server-authoritative: it stops when the SERVER's position of its
     // pawn has moved D cm), then idles; logs its own pawn and every remote pawn (interpolated) twice a second and
     // a final line per pawn with its displacement from where this client first saw it.
+    // The action bits the bot holds and when (--hold-actions / --hold-from / --hold-until).
+    struct HeldActions
+    {
+        std::uint32_t Mask  = 0;
+        float         From  = 0.0F;
+        float         Until = 0.0F;
+
+        [[nodiscard]] std::uint32_t At( double seconds ) const
+        {
+            return seconds >= From && seconds < Until ? Mask : 0u;
+        }
+    };
+
     int RunBot( int argc, char** argv )
     {
         std::string connect, cooked, tokenHex, name = "bot", joinOptions;
@@ -842,6 +859,7 @@ namespace
         double      seconds = 10.0, walkCm = 0.0, turnDegPerSecond = 0.0;
         NetVec3     dir{ 1.f, 0.f, 0.f };
         std::vector<NetVec3> waypoints;
+        HeldActions          held;
         NetSimulator simulator;
         for ( int i = 1; i < argc; ++i )
         {
@@ -871,6 +889,12 @@ namespace
                 seconds = std::atof( value.c_str() );
             else if ( arg == "--walk-cm" )
                 walkCm = std::atof( value.c_str() );
+            else if ( arg == "--hold-actions" )
+                held.Mask = static_cast<std::uint32_t>( std::strtoul( value.c_str(), nullptr, 10 ) );
+            else if ( arg == "--hold-from" )
+                held.From = static_cast<float>( std::atof( value.c_str() ) );
+            else if ( arg == "--hold-until" )
+                held.Until = static_cast<float>( std::atof( value.c_str() ) );
             else if ( arg == "--turn-deg-s" )
                 turnDegPerSecond = std::atof( value.c_str() );
             else if ( arg == "--lag-ms" )
@@ -912,12 +936,18 @@ namespace
                 return 1;
             }
         }
+        if ( held.Mask != 0u && !( held.Until > held.From ) )
+        {
+            Log( "--hold-actions {} needs --hold-until ({}) above --hold-from ({})", held.Mask, held.Until,
+                 held.From );
+            return 1;
+        }
         const auto token = FromHex( tokenHex );
         if ( connect.empty() || cooked.empty() || !token || seconds <= 0.0 )
         {
             Log( "usage: --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir "
                  "x,y,z --turn-deg-s R] [--waypoints x,y,z;x,y,z...] [--lag-ms L --loss P] [--join-options TEXT] "
-                 "[--protocol V]" );
+                 "[--protocol V] [--hold-actions MASK --hold-from S --hold-until S]" );
             return 1;
         }
         const std::optional<std::uint64_t> cookHash = ReadCookHash( cooked );
@@ -956,6 +986,8 @@ namespace
         const auto               period  = std::chrono::duration<double>( 1.0 / kNetStepHz );
         std::uint64_t            step    = 0;
         double                   nextLog = 0.5;
+        // The previous step's held actions: a step that overruns its slot still logs the boundary it crossed.
+        std::uint32_t lastActions = 0u;
         for ( ;; ++step )
         {
             std::this_thread::sleep_until( start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
@@ -1018,7 +1050,11 @@ namespace
             // Facing the walk (the editor's convention: yaw 0 faces -Z).
             const bool  moving = walking && ( dir.X != 0.f || dir.Z != 0.f );
             const float yaw    = moving ? std::atan2( -dir.X, -dir.Z ) : 0.f;
-            client.SendInput( InputStep{ .Move = walking ? dir : NetVec3{}, .Yaw = yaw } );
+            const std::uint32_t actions = held.At( now );
+            if ( actions != lastActions )
+                Log( "[{}] actions {} at {:.2f} s (step {})", name, actions, now, step );
+            lastActions = actions;
+            client.SendInput( InputStep{ .Move = walking ? dir : NetVec3{}, .Yaw = yaw, .Actions = actions } );
             // The cells around the SERVER's position of the own pawn, reported when they change.
             if ( client.OwnPawn() != kInvalidNetId && client.Pawns().contains( client.OwnPawn() ) )
             {

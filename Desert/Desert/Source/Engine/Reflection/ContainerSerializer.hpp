@@ -3,10 +3,10 @@
 // THE CODEGEN'S JSON HALVES OF A std::vector FIELD (FieldInfo::SerializeContainer / DeserializeContainer /
 // ContainerHandles / AssignHandles). DesertHeaderTool instantiates them per field with `decltype( T::field )` in
 // the generated Reflection_*.gen.cpp (through ContainerAccess.hpp), so the JSON parser they read with
-// (DocumentStruct.hpp) is compiled there and not in every includer of ReflectionSerializer.hpp.
+// (Common/Json/Detail/RflBridge.hpp) is compiled there and not in every includer of ReflectionSerializer.hpp.
 
 #include <Common/Json/Document.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 #include <cstddef>
 #include <cstdint>

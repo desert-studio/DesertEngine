@@ -1,0 +1,133 @@
+// WHAT THE DEPTH DOES TO A WAVE - the ONE statement of it, compiled twice from this text: as GLSL by every water
+// shader (WaterSurfaceField.glslh) and as C++ by Water/Private/WaterDepthTransform.cpp (the water query, buoyancy).
+// The dialect is GerstnerWave.glslh's: `f` literals, no swizzles, no `out`, no arrays, no `const` locals.
+//
+// Dean & Dalrymple, "Water Wave Mechanics", ch. 4-5 (shoaling by the conserved energy flux, the breaker index, bores);
+// Eckart 1952 (the explicit dispersion); Stockdon et al. 2006 (the 2 % run-up).
+// Axes: the plane is (world X, world Z), Y up, centimetres.
+
+#ifndef WATER_DEPTH_TRANSFORM_GLSLH
+#define WATER_DEPTH_TRANSFORM_GLSLH
+
+const float WATER_BREAKER_INDEX = 0.78f; // H / h where a wave breaks
+const float WATER_DEPTH_TWO_PI  = 6.2831853071795865f;
+// The mean of WaterBoreProfile over one wave: taken off it, so the bores raise no mean level.
+const float WATER_BORE_MEAN = 0.336f;
+
+// omega^2 = g k tanh( k h ) by Eckart's explicit form (error under 5 %), rad/cm.
+float WaterShoaledWaveNumber( float omega, float depthCm, float gravityCm )
+{
+    float k0 = omega * omega / gravityCm;
+    float e  = exp( -2.0f * k0 * max( depthCm, 0.01f ) );
+    return k0 / sqrt( max( ( 1.0f - e ) / ( 1.0f + e ), 1.0e-6f ) );
+}
+
+// x = the factor of the band's deep-water amplitude (shoaling under the breaker cap, 0 on land), y = 0..1, how much
+// of the band's height the cap removed. significantHeightCm = the band's Hs in deep water, omega its peak.
+vec2 WaterTransformBand( float significantHeightCm, float omega, float depthCm, float gravityCm )
+{
+    if ( depthCm <= 0.0f || omega <= 0.0f || gravityCm <= 0.0f )
+        return vec2( 0.0f, 0.0f );
+    float k        = WaterShoaledWaveNumber( omega, depthCm, gravityCm );
+    float kh       = k * depthCm;
+    float e        = exp( -2.0f * kh );
+    float n        = 0.5f * ( 1.0f + 4.0f * kh * e / max( 1.0f - e * e, 1.0e-6f ) ); // cg / c
+    float shoaling = sqrt( 0.5f * gravityCm / omega / max( n * omega / k, 1.0e-3f ) );
+    float height   = significantHeightCm * shoaling;
+    float cap      = WATER_BREAKER_INDEX * depthCm;
+    float kept     = min( 1.0f, cap / max( height, 1.0e-3f ) );
+    return vec2( shoaling * kept, 1.0f - kept );
+}
+
+// The share of the swell's energy the shore wave carries: whole under 1.5 Hs of water, none over 3 Hs, none far from
+// every shore. The swell's bands take the rest, so the energy is never drawn twice.
+float WaterShoreWeight( float significantHeightCm, float depthCm, float shoreDistanceCm )
+{
+    if ( significantHeightCm <= 1.0f )
+        return 0.0f;
+    float shallow = 1.0f - smoothstep( 1.5f * significantHeightCm, 3.0f * significantHeightCm, depthCm );
+    return shallow * ( 1.0f - smoothstep( 40000.0f, 60000.0f, shoreDistanceCm ) );
+}
+
+// The bore's profile over one wave: crest 1 at u = 0 (and at u = 1), a steep face before it, a long back after.
+float WaterBoreProfile( float u )
+{
+    float face = smoothstep( 0.84f, 1.0f, u );
+    return exp( -12.0f * u * u ) * ( 1.0f - face ) + face;
+}
+
+// d( WaterBoreProfile ) / du.
+float WaterBoreProfileSlope( float u )
+{
+    float t     = clamp( ( u - 0.84f ) / 0.16f, 0.0f, 1.0f );
+    float face  = t * t * ( 3.0f - 2.0f * t );
+    float dFace = 6.0f * t * ( 1.0f - t ) / 0.16f;
+    float back  = exp( -12.0f * u * u );
+    return -24.0f * u * back * ( 1.0f - face ) + ( 1.0f - back ) * dFace;
+}
+
+// Stockdon et al. 2006: the level 2 % of the waves run up past the still line, cm.
+float WaterRunUp2Percent( float significantHeightCm, float omega, float beachSlope, float gravityCm )
+{
+    float l0    = WATER_DEPTH_TWO_PI * gravityCm / max( omega * omega, 1.0e-6f );
+    float swash = sqrt( significantHeightCm * l0 * ( 0.563f * beachSlope * beachSlope + 0.004f ) );
+    return 1.1f * ( 0.35f * beachSlope * sqrt( significantHeightCm * l0 ) + 0.5f * swash );
+}
+
+struct WaterShoreWave
+{
+    float Height; // above the still level, cm: the bore and the swash level
+    vec2  Slope;  // dHeight / d( world X, world Z )
+    float Front;  // 0..1 the bore's face: the foam source
+    float RunUp;  // the level of the swash tongue over the still level, cm
+};
+
+// THE SHORE WAVE: phase = omega t + the integral of k over the shore distance for h = slope s, which is
+// 2 omega sqrt( s / ( g slope ) ) - a closed function of the place and the time. shoreDirection points at the shore.
+WaterShoreWave WaterEvaluateShoreWave( float omega, float significantHeightCm, float beachSlope,
+                                       float shoreDistanceCm, vec2 shoreDirection, float depthCm, vec2 worldXZ,
+                                       float timeSeconds, float gravityCm )
+{
+    WaterShoreWave wave;
+    wave.Height  = 0.0f;
+    wave.Slope   = vec2( 0.0f, 0.0f );
+    wave.Front   = 0.0f;
+    wave.RunUp   = 0.0f;
+    float weight = WaterShoreWeight( significantHeightCm, depthCm, shoreDistanceCm );
+    if ( weight <= 0.0f || omega <= 0.0f || beachSlope <= 0.0f )
+        return wave;
+
+    float gs = gravityCm * beachSlope;
+    float s  = max( shoreDistanceCm, 0.0f );
+    // The crest line is broken along the shore by a slow noise (40-90 m), a third of a wave at most.
+    float crest = 0.8f * sin( dot( worldXZ, vec2( 0.00116f, 0.00071f ) ) ) +
+                  0.6f * sin( dot( worldXZ, vec2( -0.00052f, 0.00102f ) ) + 1.7f ) +
+                  0.5f * sin( dot( worldXZ, vec2( 0.00069f, -0.00034f ) ) + 4.1f );
+    float shoreTime = omega * timeSeconds + crest;
+    float radians_  = shoreTime + 2.0f * omega * sqrt( s / gs );
+    float turns     = radians_ / WATER_DEPTH_TWO_PI;
+    float u         = turns - floor( turns );
+    float group     = 0.72f + 0.28f * cos( radians_ / 7.0f );
+    float water     = max( depthCm, 0.0f );
+    float bore      = min( WATER_BREAKER_INDEX * water, 1.2f * significantHeightCm ) * group * weight;
+
+    float dTurns = omega / sqrt( gs * max( s, 100.0f ) ) / WATER_DEPTH_TWO_PI; // per cm away from the shore
+    float rise   = bore * WaterBoreProfileSlope( u ) * dTurns;
+    wave.Slope   = vec2( -shoreDirection.x * rise, -shoreDirection.y * rise );
+    wave.Height  = bore * ( WaterBoreProfile( u ) - WATER_BORE_MEAN );
+    // The face (the rise before the crest) and the turbulent roller just behind it, where the water breaks.
+    float breaking = smoothstep( 0.35f, 0.75f, bore / max( water, 1.0f ) );
+    float roller   = smoothstep( 0.86f, 0.95f, u ) + 1.0f - smoothstep( 0.0f, 0.18f, u );
+    wave.Front     = breaking * clamp( roller, 0.0f, 1.0f );
+
+    // The swash: the tongue at the still line, one per wave, under the group's envelope; quick up, slow back.
+    float shoreTurns = shoreTime / WATER_DEPTH_TWO_PI;
+    float u0         = shoreTurns - floor( shoreTurns );
+    float tongue     = 0.5f - 0.5f * cos( WATER_DEPTH_TWO_PI * sqrt( u0 ) );
+    float reach      = WaterRunUp2Percent( significantHeightCm, omega, beachSlope, gravityCm );
+    wave.RunUp       = reach * ( 0.15f + 0.85f * tongue * ( 0.72f + 0.28f * cos( shoreTime / 7.0f ) ) );
+    wave.Height += wave.RunUp * ( 1.0f - smoothstep( 0.0f, 2.0f * reach, water ) );
+    return wave;
+}
+
+#endif // WATER_DEPTH_TRANSFORM_GLSLH

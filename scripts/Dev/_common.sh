@@ -3,16 +3,24 @@
 # Logs live under build/DevLogs (ignored by git, one copy per worktree) so parallel agents never share them.
 
 DEV_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# The host's configure preset (CMakePresets.json) and its build tree. Ninja Multi-Config: one tree holds Debug, Release
-# and Shipping, each with its own build-<Config>.ninja; the dev scripts build and run DEV_CONFIG, the host's row of
-# scripts/Dev/dev_config.txt (play_scenario.py reads the same row). A host without a row is an error, not a default.
+# The host's configure preset (CMakePresets.json) and its build tree. Single-config Ninja: one tree per configuration
+# (build/cmake/<preset>). DEV_CONFIG is the host's row of scripts/Dev/dev_config.txt (play_scenario.py reads the same
+# row) and names the preset: Development -> <host>-dev, DebugGame -> <host>-debug, Shipping -> <host>-ship.
+# A host without a row, or a row naming another configuration, is an error, not a default.
 case "$(uname -s)" in
-    Darwin) DEV_PRESET="macos-clang-ninja"; DEV_HOST=Darwin ;;
-    *)      DEV_PRESET="windows-msvc-ninja"; DEV_HOST=Windows ;;
+    Darwin) DEV_PREFIX="mac"; DEV_HOST=Darwin ;;
+    *)      DEV_PREFIX="win"; DEV_HOST=Windows ;;
 esac
-DEV_BUILD="$DEV_ROOT/build/cmake/$DEV_PRESET"
 DEV_CONFIG="$(awk -v host="$DEV_HOST" '$1 == host { print $2 }' "$DEV_ROOT/scripts/Dev/dev_config.txt" 2>/dev/null)"
 [ -n "$DEV_CONFIG" ] || { echo "_common.sh: scripts/Dev/dev_config.txt has no row for $DEV_HOST" >&2; return 1 2>/dev/null || exit 1; }
+case "$DEV_CONFIG" in
+    Development) DEV_PRESET="$DEV_PREFIX-dev" ;;
+    DebugGame)   DEV_PRESET="$DEV_PREFIX-debug" ;;
+    Shipping)    DEV_PRESET="$DEV_PREFIX-ship" ;;
+    *) echo "_common.sh: dev_config.txt names '$DEV_CONFIG'; the configurations are Development, DebugGame, Shipping" >&2
+       return 1 2>/dev/null || exit 1 ;;
+esac
+DEV_BUILD="$DEV_ROOT/build/cmake/$DEV_PRESET"
 DEV_BIN="$DEV_ROOT/build/Bin/$DEV_CONFIG"
 
 # dev_logdir <name> — creates and prints build/DevLogs/<name>-<timestamp>
@@ -44,8 +52,8 @@ dev_help() {
 }
 
 # dev_configure <log dir> [A,B,...] — configure the host preset once; again only when the DevTests suite list changes.
-# A merge that adds or removes sources needs nothing here: every source glob is CONFIGURE_DEPENDS, so the next build
-# re-globs and re-configures by itself. The suite list (suite.sh --dev-suites) is the one input a build cannot see,
+# A merge that adds or removes sources needs nothing here: it changes a committed Sources.cmake (sources_sync.py), and
+# the next build re-configures by itself because that list changed. The suite list (suite.sh --dev-suites) is the one input a build cannot see,
 # so it is compared with the cache: a plain call after a --dev-suites one configures DevTests out again.
 dev_configure() {
     local logdir="$1" suites="${2:-}" current
@@ -57,24 +65,24 @@ dev_configure() {
 
 # dev_has_target <name> — the DEV_CONFIG build defines that target (a runner, a tool, Editor).
 dev_has_target() {
-    grep -q "^build $1: phony" "$DEV_BUILD/build-$DEV_CONFIG.ninja" 2>/dev/null
+    grep -q "^build $1: phony" "$DEV_BUILD/build.ninja" 2>/dev/null
 }
 
 # dev_up_to_date <name> — Ninja, asked in dry run, has nothing left to do for the target: it is newer than every object,
 # library and generated file it depends on. The build's own dependency graph answers, not a timestamp guess.
 dev_up_to_date() {
-    # CONFIGURE_DEPENDS globs (desert_glob) make the glob check an always-dirty phony edge, so a dry run lists it and
-    # the CMake re-run behind it after every build ("[0/2] Re-checking globbed directories...", "[1/2] Re-running
-    # CMake..."). Any OTHER step is real work left for the target.
+    # The engine reads committed source lists and its generators run only on changed inputs (B-TREE), so a dry run of
+    # an up-to-date engine target says "no work to do". The DevTests suites still glob (CONFIGURE_DEPENDS): with them
+    # configured, the glob re-check and the CMake re-run behind it are listed after every build and are not work.
     local out
-    out=$(ninja -C "$DEV_BUILD" -f "build-$DEV_CONFIG.ninja" -n "$1" 2>/dev/null) || return 1
+    out=$(ninja -C "$DEV_BUILD" -n "$1" 2>/dev/null) || return 1
     grep -q '^ninja: no work to do' <<<"$out" && return 0
-    ! grep -E '^\[[0-9]+/[0-9]+\] ' <<<"$out" | grep -vqE '\] ((Re-checking globbed directories|Re-running CMake)\.\.\.|GenVersion: .*|DesertHeaderTool: .*)$'
+    ! grep -E '^\[[0-9]+/[0-9]+\] ' <<<"$out" | grep -vqE '\] (Re-checking globbed directories|Re-running CMake)\.\.\.$'
 }
 
-# dev_drop_foreign_pch — deletes every DEV_CONFIG precompiled header of this tree that another tree compiled, so the
+# dev_drop_foreign_pch — deletes every precompiled header of this tree that another tree compiled, so the
 # build compiles it again. A PCH holds the absolute paths of the tree that compiled it; before ccache_launcher.sh kept
-# PCH compiles out of base_dir, the shared cache could hand a tree another tree's Release PCH (S1's in LAND, 11-25:
+# PCH compiles out of base_dir, the shared cache could hand a tree another tree's PCH (S1's in LAND, 11-25:
 # "redefinition of 'UUID'" -- the PCH's headers were S1's files). This tree's PCH names this tree about 30 KB
 # in; another tree's never does. Only where ccache_launcher.sh compiles (not Windows).
 dev_drop_foreign_pch() {
@@ -84,7 +92,7 @@ dev_drop_foreign_pch() {
         LC_ALL=C grep -q -a -F "$DEV_ROOT/" "$pch" && continue
         echo "dev: ${pch#"$DEV_BUILD"/} was compiled by another tree -- deleted, it is compiled again"
         rm -f "$pch" "$pch.sum"
-    done < <(find "$DEV_BUILD" -path "*/$DEV_CONFIG/*" -name '*.pch' 2>/dev/null)
+    done < <(find "$DEV_BUILD" -name '*.pch' 2>/dev/null)
 }
 
 # dev_build <log> <target...> — build the DEV_CONFIG targets (and what they link) with the compiler cache, after any other
@@ -98,5 +106,7 @@ dev_build() {
     fi
     # The compile cache's settings (base_dir, PCH digests) are the build's own: scripts/Dev/ccache_launcher.sh.
     dev_drop_foreign_pch >>"$log"
-    cmake --build "$DEV_BUILD" --config "$DEV_CONFIG" -j "${DEV_JOBS:-4}" "${args[@]}" >>"$log" 2>&1
+    # The branch's own changed sources leave the unity batches (adaptive unity); a changed list reconfigures.
+    python "$DEV_ROOT/scripts/Dev/adaptive_unity.py" "$DEV_BUILD" >>"$log" 2>&1 || return 1
+    cmake --build "$DEV_BUILD" -j "${DEV_JOBS:-4}" "${args[@]}" >>"$log" 2>&1
 }

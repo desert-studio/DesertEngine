@@ -481,6 +481,13 @@ namespace Desert::Editor
             ImGui::SetNextItemWidth( 90.0f );
             dirty |= ImGui::DragFloat( "##sampleValue", &sample.Value, 1.0f );
             ImGui::SameLine();
+            // UE FBlendSample::RateScale: the clip's own rate times this, so its native speed meets the row value.
+            ImGui::SetNextItemWidth( 70.0f );
+            dirty |= ImGui::DragFloat( "##sampleRate", &sample.RateScale, 0.01f, 0.05f, 4.0f, "x%.2f",
+                                       ImGuiSliderFlags_AlwaysClamp );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Rate Scale: this sample's playback rate against its clip" );
+            ImGui::SameLine();
             if ( ImGui::SmallButton( "x" ) )
                 removed = static_cast<int>( s );
             ImGui::PopID();

@@ -11,6 +11,7 @@
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/TextureCubeProperty.hpp>
+#include <Engine/Graphic/Materials/Properties/TProperty.hpp>
 
 #include <glm/glm.hpp>
 
@@ -29,7 +30,6 @@
 
 namespace Desert::Graphic
 {
-    class Material;
     class ViewResources;
 
     // A pass that applies the material in its exec declares it in setup (PassBuilder::Prepares).
@@ -171,8 +171,9 @@ namespace Desert::Graphic
         // setup, or travels by value with the draw (DrawPushFields).
         [[nodiscard]] Common::BoolResultStr CheckRecordable() const;
         // The Material this executor is the GPU half of (set once by Material's constructor; null for an
-        // executor created on its own). Its pending properties are what PrepareForRecording uploads first.
-        void SetOwner( Material* owner )
+        // executor created on its own), seen through IPropertyOwner (Properties/TProperty.hpp). Its pending
+        // properties are what PrepareForRecording uploads first.
+        void SetOwner( IPropertyOwner* owner )
         {
             m_Owner = owner;
         }
@@ -197,10 +198,8 @@ namespace Desert::Graphic
             return m_MaterialBackend;
         }
 
-        // A null @p parameterSchema means the shader's OWN ProgramMeta.
-        static std::unique_ptr<MaterialExecutor>
-        Create( std::string&& debugName, const std::string& shaderName,
-                const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
+        // A null @p parameterSchema means the shader's OWN ProgramMeta. A shader named by its name is resolved by
+        // the caller (Material's by-name constructor asks the ShaderService; RenderCore does not know of it).
         static std::unique_ptr<MaterialExecutor>
         Create( std::string&& debugName, const std::shared_ptr<Shader>& shader,
                 const Core::Formats::ShaderProgramMeta* parameterSchema = nullptr );
@@ -232,7 +231,7 @@ namespace Desert::Graphic
         using PropertyLookup = std::unordered_map<std::string, size_t, PropertyNameHash, std::equal_to<>>;
 
         Common::Memory::Buffer m_PushConstantBuffer;
-        Material*              m_Owner                = nullptr;
+        IPropertyOwner*        m_Owner                = nullptr;
         bool                   m_ReportedPushOverflow = false;
         // What the last PrepareForRecording applied: the absolute frame and the newest property write it saw
         // (PropertyVersion). CheckRecordable compares the material against them.

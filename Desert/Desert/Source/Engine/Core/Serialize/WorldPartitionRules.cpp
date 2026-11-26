@@ -1,6 +1,6 @@
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 #include <unordered_set> // the keys a plan knows (UnregisteredRecords)
 

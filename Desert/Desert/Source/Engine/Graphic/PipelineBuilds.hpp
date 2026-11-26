@@ -108,9 +108,5 @@ namespace Desert::Graphic::PipelineBuilds
         std::array<uint64_t, 2> m_Started{};
     };
 
-    inline Tracker& Get()
-    {
-        static Tracker tracker;
-        return tracker;
-    }
+    Tracker& Get();
 } // namespace Desert::Graphic::PipelineBuilds

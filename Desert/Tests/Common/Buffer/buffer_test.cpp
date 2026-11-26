@@ -3,7 +3,7 @@
 #include <Common/Core/Memory/Buffer.hpp>
 
 #include <cstring>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 // WHY THIS SUITE EXISTS. Common::Memory::Buffer had NO test at all, and its Release() spent its whole
 // life doing `delete[]` on a `void*` — an undefined array delete that only the workspace's `-w` kept

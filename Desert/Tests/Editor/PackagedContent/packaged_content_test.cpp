@@ -959,7 +959,7 @@ TEST( PackagedContent, PackageGameProducesTheLauncherAndBinaryTheHostDescription
 
     // The Runtime the packager copies. It looks beside the ENGINE directory (proj, here), which is why the
     // project sits inside `base` rather than being `base`.
-    StageRuntimeBinary( base / "build" / "Bin" / "Release" / host.RuntimeBinary );
+    StageRuntimeBinary( base / "build" / "Bin" / "Development" / host.RuntimeBinary );
 
     SetEnv( "HOME", base.string() );
     Common::Constants::Path::SetEngineDir( proj ); // Resources/ here; build/ beside it
@@ -970,7 +970,7 @@ TEST( PackagedContent, PackageGameProducesTheLauncherAndBinaryTheHostDescription
     // construction and asking for it elsewhere is refused (with a log line) rather than obeyed.
     Desert::Editor::PackageOptions options;
     options.OutputDir    = ( base / "out" ).string();
-    options.Config       = "Release";
+    options.Config       = "Development";
     options.MacAppBundle = false;
 
     const auto result = Desert::Editor::PackageGame( options );
@@ -1024,7 +1024,7 @@ TEST( PackagedContent, AMissingRuntimeIsRefusedByNamingThisHostsOwnBuildScript )
 
     Desert::Editor::PackageOptions options;
     options.OutputDir = ( base / "out" ).string();
-    options.Config    = "Release"; // nothing was built into base/build/Bin/Release
+    options.Config    = "Development"; // nothing was built into base/build/Bin/Development
 
     const auto result = Desert::Editor::PackageGame( options );
     ASSERT_FALSE( result.Success ) << "a package was produced with no Runtime binary to put in it";
@@ -1078,7 +1078,7 @@ TEST( PackagedContent, PackageGameRefusesAMissingChunkSchemeBeforeTheCookAndWrit
 
     Desert::Editor::PackageOptions options;
     options.OutputDir = ( base / "out" ).string();
-    options.Config    = "Release"; // nothing was built into base/build/Bin/Release
+    options.Config    = "Development"; // nothing was built into base/build/Bin/Development
 
     const auto result = Desert::Editor::PackageGame( options );
     ASSERT_FALSE( result.Success ) << "a project with no chunk scheme packaged anyway";
@@ -1173,7 +1173,7 @@ namespace
         WriteFile( proj / "T.deproj", R"({"Name":"T","AssetsRoot":"GameAssets","DefaultScene":)"
                                       "\"GameAssets/Scenes/level.desce\"}" );
         // The packager looks beside the engine directory (the project, in these fixtures) for it.
-        StageRuntimeBinary( base / "build" / "Bin" / "Release" / runtimeBinaryName );
+        StageRuntimeBinary( base / "build" / "Bin" / "Development" / runtimeBinaryName );
         return proj;
     }
 } // namespace
@@ -1196,7 +1196,7 @@ TEST( PackagedContent, APackagedGameIsABinaryAndAnArchiveThatStartWithNoArgument
     // The PLAIN layout, because it is the one every host has.
     Desert::Editor::PackageOptions options;
     options.OutputDir    = ( base / "out" ).string();
-    options.Config       = "Release";
+    options.Config       = "Development";
     options.MacAppBundle = false;
 
     const auto result = Desert::Editor::PackageGame( options );
@@ -1271,7 +1271,7 @@ TEST( PackagedContent, TheArchiveSitsBesideThePlayerBinaryInWhicheverLayoutTheHo
 
     Desert::Editor::PackageOptions options;
     options.OutputDir    = ( base / "out" ).string();
-    options.Config       = "Release";
+    options.Config       = "Development";
     options.MacAppBundle = true;
 
     const auto result = Desert::Editor::PackageGame( options );
@@ -1343,7 +1343,7 @@ namespace
     {
         Desert::Editor::PackageOptions options;
         options.OutputDir    = outDir.string();
-        options.Config       = "Release";
+        options.Config       = "Development";
         options.MacAppBundle = false;
         return Desert::Editor::PackageGame( options );
     }
@@ -1366,7 +1366,7 @@ TEST( PackagedContent, APackagedReleaseRecordsAManifestOfTheArchiveItActuallyShi
 
     Desert::Editor::PackageOptions options;
     options.OutputDir    = ( base / "out" ).string();
-    options.Config       = "Release";
+    options.Config       = "Development";
     options.MacAppBundle = false;
 
     const auto result = Desert::Editor::PackageGame( options );
@@ -1438,7 +1438,7 @@ TEST( PackagedContent, AnUpdateBuiltAgainstTheRecordedManifestReachesThePlayerAs
     // ---- release 1: what the player installs, and the record of it the publisher keeps.
     Desert::Editor::PackageOptions v1;
     v1.OutputDir    = ( base / "out1" ).string();
-    v1.Config       = "Release";
+    v1.Config       = "Development";
     v1.MacAppBundle = false;
 
     const auto first = Desert::Editor::PackageGame( v1 );
@@ -1831,7 +1831,7 @@ TEST( PackagedContent, EachConfigurationPackagesExactlyTheShaderProgramsItsRunti
         return out;
     };
 
-    for ( const std::string config : { "Debug", "Release", "Shipping" } )
+    for ( const std::string config : { "DebugGame", "Development", "Shipping" } )
     {
         const bool dev = Common::ConfigHasDeveloperInstruments( config );
         EXPECT_EQ( dev, config != "Shipping" ) << config;

@@ -58,175 +58,74 @@ namespace Desert::Editor::Core
     {
     public:
         // --- types checked for painting -----------------------------------------------------------------
-        static std::vector<Common::UUID>& ActiveTypes()
-        {
-            return s_Active;
-        }
-        static bool HasActive()
-        {
-            return !s_Active.empty();
-        }
-        static bool IsActive( const Common::UUID& u )
-        {
-            return std::find( s_Active.begin(), s_Active.end(), u ) != s_Active.end();
-        }
-        static void ToggleActive( const Common::UUID& u )
-        {
-            const auto it = std::find( s_Active.begin(), s_Active.end(), u );
-            if ( it != s_Active.end() )
-                s_Active.erase( it );
-            else
-                s_Active.push_back( u );
-        }
-        static void SetActiveOnly( const Common::UUID& u )
-        {
-            s_Active.clear();
-            s_Active.push_back( u );
-        }
-        static void ClearActive()
-        {
-            s_Active.clear();
-        }
+        static std::vector<Common::UUID>& ActiveTypes();
+        static bool HasActive();
+        static bool IsActive( const Common::UUID& u );
+        static void ToggleActive( const Common::UUID& u );
+        static void SetActiveOnly( const Common::UUID& u );
+        static void ClearActive();
 
         // --- the type whose detailed settings are shown (last clicked row) ------------------------------
-        static std::optional<Common::UUID> EditingType()
-        {
-            return s_Editing;
-        }
-        static void SetEditingType( const Common::UUID& u )
-        {
-            s_Editing = u;
-        }
-        static void ClearEditingType()
-        {
-            s_Editing.reset();
-        }
+        static std::optional<Common::UUID> EditingType();
+        static void SetEditingType( const Common::UUID& u );
+        static void ClearEditingType();
 
         // --- brush --------------------------------------------------------------------------------------
-        static float& BrushRadius()
-        {
-            return s_Radius;
-        }
-        static float& PaintDensity()
-        {
-            return s_PaintDensity;
-        } // 0..1 multiplier on each type's Density
-        static FoliageTool& Tool()
-        {
-            return s_Tool;
-        }
-        static Tools::FoliageReapplySettings& Reapply()
-        {
-            return s_Reapply;
-        }
+        static float& BrushRadius();
+        static float& PaintDensity(); // 0..1 multiplier on each type's Density
+        static FoliageTool& Tool();
+        static Tools::FoliageReapplySettings& Reapply();
         // UE FFoliageUISettings EraseDensity: the share of each type's Density the Erase tool leaves under the
         // brush, 0..1 (0 erases to empty, 1 leaves the type's full density).
-        static float& EraseDensity()
-        {
-            return s_EraseDensity;
-        }
+        static float& EraseDensity();
 
         // --- selected instances, per foliage entity (UE FFoliageInfo::SelectedIndices) -----------------
-        static std::unordered_map<Common::UUID, Tools::FoliageSelection>& Selection()
-        {
-            return s_Selection;
-        }
-        static Tools::FoliageSelection SelectionOf( const Common::UUID& u )
-        {
-            const auto it = s_Selection.find( u );
-            return it == s_Selection.end() ? Tools::FoliageSelection{} : it->second;
-        }
-        static size_t SelectedCount()
-        {
-            size_t n = 0;
-            for ( const auto& [id, selected] : s_Selection )
-                n += selected.size();
-            return n;
-        }
+        static std::unordered_map<Common::UUID, Tools::FoliageSelection>& Selection();
+        static Tools::FoliageSelection SelectionOf( const Common::UUID& u );
+        static size_t SelectedCount();
         // UE FFoliageUISettings bFilterLandscape / bFilterStaticMesh: the surfaces the brush may place on.
-        static bool& FilterLandscape()
-        {
-            return s_FilterLandscape;
-        }
-        static bool& FilterStaticMesh()
-        {
-            return s_FilterStaticMesh;
-        }
+        static bool& FilterLandscape();
+        static bool& FilterStaticMesh();
 
         // FO-UI1: the brush held to landscape layers (FoliageSurfaceFilter::LayerFiltered): the weight-plane
         // names the brush reads, and the weight they must reach. Empty = the filter is off.
-        static std::vector<std::string>& BrushLayers()
-        {
-            return s_BrushLayers;
-        }
-        static float& BrushLayerMinWeight()
-        {
-            return s_BrushLayerMinWeight;
-        }
-        static Tools::FoliageSurfaceFilter SurfaceFilter()
-        {
-            Tools::FoliageSurfaceFilter filter;
-            filter.Landscape          = s_FilterLandscape;
-            filter.StaticMesh         = s_FilterStaticMesh;
-            filter.LayerFiltered      = !s_BrushLayers.empty();
-            filter.MinimumLayerWeight = s_BrushLayerMinWeight;
-            return filter;
-        }
+        static std::vector<std::string>& BrushLayers();
+        static float& BrushLayerMinWeight();
+        static Tools::FoliageSurfaceFilter SurfaceFilter();
 
         // --- the palette's view (FO-UI1) ---------------------------------------------------------------
-        static std::string& Search()
-        {
-            return s_Search;
-        }
-        static bool& GridView()
-        {
-            return s_GridView;
-        }
-        static std::string& PresetName()
-        {
-            return s_PresetName;
-        }
+        static std::string& Search();
+        static bool& GridView();
+        static std::string& PresetName();
         // Where the brush would land now (the tool's hover trace), for the footprint preview; nullopt when the
         // cursor is off every surface or off the viewport.
-        static std::optional<glm::vec3>& HoverPoint()
-        {
-            return s_Hover;
-        }
+        static std::optional<glm::vec3>& HoverPoint();
         // The view the cost column is measured from (the viewport camera, set each frame in Foliage mode).
-        static glm::vec3& ViewPosition()
-        {
-            return s_View;
-        }
+        static glm::vec3& ViewPosition();
 
         // The seed of the next stroke: a stroke draws every random number from one stream seeded here, so a
         // stroke replayed with its seed places the same instances. SplitMix64 of a per-session counter, so
         // consecutive strokes do not share a stream.
-        static uint64_t NextStrokeSeed()
-        {
-            uint64_t z = ( s_StrokeCounter += 0x9E3779B97F4A7C15ull );
-            z          = ( z ^ ( z >> 30u ) ) * 0xBF58476D1CE4E5B9ull;
-            z          = ( z ^ ( z >> 27u ) ) * 0x94D049BB133111EBull;
-            return z ^ ( z >> 31u );
-        }
+        static uint64_t NextStrokeSeed();
 
     private:
-        static inline std::vector<Common::UUID>     s_Active;
-        static inline std::optional<Common::UUID>   s_Editing;
-        static inline float                         s_Radius       = 300.0f; // world units (cm) = 3 m
-        static inline float                         s_PaintDensity = 1.0f;
-        static inline FoliageTool                   s_Tool         = FoliageTool::Paint;
-        static inline Tools::FoliageReapplySettings s_Reapply;
-        static inline float                         s_EraseDensity = 0.0f;
-        static inline std::unordered_map<Common::UUID, Tools::FoliageSelection> s_Selection;
-        static inline bool                                                      s_FilterLandscape  = true;
-        static inline bool                                                      s_FilterStaticMesh = true;
-        static inline uint64_t                                                  s_StrokeCounter    = 0u;
-        static inline std::vector<std::string>                                  s_BrushLayers;
-        static inline float                                                     s_BrushLayerMinWeight = 0.5f;
-        static inline std::string                                               s_Search;
-        static inline bool                                                      s_GridView   = false;
-        static inline std::string                                               s_PresetName = "Palette";
-        static inline std::optional<glm::vec3>                                  s_Hover;
-        static inline glm::vec3                                                 s_View = glm::vec3( 0.0f );
+        static std::vector<Common::UUID> s_Active;
+        static std::optional<Common::UUID> s_Editing;
+        static float s_Radius; // world units (cm) = 3 m
+        static float s_PaintDensity;
+        static FoliageTool s_Tool;
+        static Tools::FoliageReapplySettings s_Reapply;
+        static float s_EraseDensity;
+        static std::unordered_map<Common::UUID, Tools::FoliageSelection> s_Selection;
+        static bool s_FilterLandscape;
+        static bool s_FilterStaticMesh;
+        static uint64_t s_StrokeCounter;
+        static std::vector<std::string> s_BrushLayers;
+        static float s_BrushLayerMinWeight;
+        static std::string s_Search;
+        static bool s_GridView;
+        static std::string s_PresetName;
+        static std::optional<glm::vec3> s_Hover;
+        static glm::vec3 s_View;
     };
 } // namespace Desert::Editor::Core

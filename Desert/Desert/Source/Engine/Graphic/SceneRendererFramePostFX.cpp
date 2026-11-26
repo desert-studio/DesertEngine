@@ -288,7 +288,6 @@ namespace Desert::Graphic
         const RDG::TextureRef adapted = adaptedImport.IsValid() ? adaptedImport : textures.System.White;
         const System::LocalExposureRenderer::FusionExposure exposure{
              .ManualExposure = tonemap.GetExposure(),
-             .ExposureKey    = tonemap.GetExposureKey(),
              .AutoExposure   = tonemap.IsAutoExposureEnabled() && adaptedImport.IsValid(),
              .Reinhard       = tonemap.GetTonemapOperator() == Core::TonemapOperator::Reinhard };
         auto* lePtr = &le;
@@ -372,7 +371,7 @@ namespace Desert::Graphic
                  *desc, kernel, named ? textureService->GetSourcePath( kernelHandle ) : std::string{} );
             if ( convolution )
                 kernelImage = textures.Import(
-                     Runtime::ResourceRegistry::GetImageService()->Share( kernel->GetImageHandle() ), "Bloom.Kernel" );
+                     Runtime::GetImageService()->Share( kernel->GetImageHandle() ), "Bloom.Kernel" );
             if ( convolution )
                 kernelSpectrum = textures.Import( bloom->GetKernelSpectrum(), "Bloom.KernelSpectrum" );
             if ( convolution && ( !kernelImage.IsValid() || !kernelSpectrum.IsValid() ) )

@@ -104,7 +104,7 @@
 #include <UI/Args/UIButtonArgs.hpp>
 #include <Engine/Animation/Graph/LayeredBlendPerBone.hpp>
 #include <Common/Json/ReadWrite.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Migration
 {
@@ -2758,6 +2758,33 @@ namespace Desert::Migration
             Assets::Serialization::FoliageCollision     Collision;
         };
 
+        // FOLT 11's body: v10 with the procedural block's falloff. The engine's struct is v12.
+        struct FoliageTypeDataV11
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            Assets::Serialization::FoliageTypeKind      Kind = Assets::Serialization::FoliageTypeKind::Mesh;
+            Assets::AssetGuidRef                        Mesh;
+            Assets::AssetGuidRef                        Prefab;
+            float                                       Density = 100.0f;
+            Assets::Serialization::FoliageScaling       Scaling = Assets::Serialization::FoliageScaling::Uniform;
+            Assets::Serialization::FoliageFloatInterval ScaleX{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval ScaleY{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval ScaleZ{ 0.8f, 1.3f };
+            Assets::Serialization::FoliageFloatInterval ZOffset{ 0.0f, 0.0f };
+            bool                                        AlignToNormal    = true;
+            bool                                        RandomYaw        = true;
+            float                                       RandomPitchAngle = 0.0f;
+            Assets::Serialization::FoliageFloatInterval GroundSlopeAngle{ 0.0f, 90.0f };
+            Assets::Serialization::FoliageFloatInterval Height{ -262144.0f, 262144.0f };
+            std::vector<Assets::AssetGuidRef>           LandscapeLayers;
+            float                                       MinimumLayerWeight = 0.0f;
+            Assets::Serialization::FoliageFloatInterval CullDistance{ 0.0f, 0.0f };
+            Assets::Serialization::FoliageWind          Wind;
+            bool                                        IncludeInHLOD = true;
+            Assets::Serialization::FoliageProcedural    Procedural;
+            Assets::Serialization::FoliageCollision     Collision;
+        };
+
         // FOLT 1's body, member for member: the engine's struct is v3 and cannot read what v1 meant.
         struct FoliageTypeDataV1
         {
@@ -3085,6 +3112,79 @@ namespace Desert::Migration
         }
     } // namespace TargetSkeletonStep
 
+    namespace BlendSampleRateStep
+    {
+        // ANGR 5: every Blend Space 1D sample (an object with "Clip" and "Value" in a "Samples" array; a 2D
+        // sample states X / Y, not Value) states RateScale, 1.0 where the file had none.
+        rfl::Generic StateRateScale( const rfl::Generic& node )
+        {
+            if ( const auto array = node.to_array(); array.has_value() )
+            {
+                rfl::Generic::Array raised;
+                for ( const auto& item : array.value() )
+                    raised.push_back( StateRateScale( item ) );
+                return rfl::Generic( std::move( raised ) );
+            }
+            const auto object = node.to_object();
+            if ( !object.has_value() )
+                return node;
+            rfl::Generic::Object raised;
+            for ( const auto& [key, field] : object.value() )
+            {
+                if ( key == "Samples" && field.to_array().has_value() )
+                {
+                    rfl::Generic::Array samples;
+                    for ( const auto& item : field.to_array().value() )
+                    {
+                        auto sample = item.to_object();
+                        if ( sample.has_value() && sample.value().get( "Clip" ).has_value() &&
+                             sample.value().get( "Value" ).has_value() &&
+                             !sample.value().get( "RateScale" ).has_value() )
+                        {
+                            sample.value()["RateScale"] = rfl::Generic( 1.0 );
+                            samples.push_back( rfl::Generic( std::move( sample.value() ) ) );
+                        }
+                        else
+                            samples.push_back( item );
+                    }
+                    raised[key] = rfl::Generic( std::move( samples ) );
+                    continue;
+                }
+                raised[key] = key == "Header" ? field : StateRateScale( field );
+            }
+            return rfl::Generic( std::move( raised ) );
+        }
+    } // namespace BlendSampleRateStep
+
+    Common::ResultStr<std::string> MigrateAnimGraphV4ToV5( const std::string& text )
+    {
+        auto read = rfl::json::read<rfl::Generic::Object>( text );
+        if ( !read )
+            return Common::MakeFormattedError<std::string>( "ANGR 4 body does not read: {}", read.error().what() );
+        auto header = read.value().get( "Header" ).value_or( rfl::Generic() ).to_object();
+        if ( !header.has_value() )
+            return Common::MakeFormattedError<std::string>( "the file states no header" );
+        auto      versions = header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object();
+        const int stated   = versions.has_value()
+                                  ? versions.value().get( "ANGR" ).value_or( rfl::Generic() ).to_int().value_or( -1 )
+                                  : -1;
+        if ( stated != 4 )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states ANGR {}, and this step raises ANGR 4 only",
+                 stated < 0 ? std::string( "nothing" ) : std::to_string( stated ) );
+        auto raised = BlendSampleRateStep::StateRateScale( rfl::Generic( std::move( read.value() ) ) ).to_object();
+        if ( !raised.has_value() )
+            return Common::MakeFormattedError<std::string>( "the raised graph is not an object" );
+        versions.value()["ANGR"]   = rfl::Generic( 5 );
+        header.value()["Versions"] = rfl::Generic( std::move( versions.value() ) );
+        raised.value()["Header"]   = rfl::Generic( std::move( header.value() ) );
+        const auto written         = TargetSkeletonStep::Canonical( "ANGR", rfl::json::write( raised.value() ) );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as ANGR 5: {}",
+                                                            written.GetError() );
+        return written;
+    }
+
     Common::ResultStr<std::string> MigrateControlRigToV4( const std::string& text )
     {
         auto read = rfl::json::read<rfl::Generic::Object>( text );
@@ -3229,6 +3329,14 @@ namespace Desert::Migration
         target["Guid"]             = rfl::Generic( fits.front()->Guid );
         target["Path"]             = rfl::Generic( fits.front()->Path );
         document["TargetSkeleton"] = rfl::Generic( std::move( target ) );
+        // ANGR 3 is raised to the current generation in one step: ANGR 5's RateScale on every blend sample too.
+        if ( tag == "ANGR" )
+        {
+            auto rated = BlendSampleRateStep::StateRateScale( rfl::Generic( std::move( document ) ) ).to_object();
+            if ( !rated.has_value() )
+                return Common::MakeFormattedError<std::string>( "the raised graph is not an object" );
+            document = std::move( rated.value() );
+        }
 
         const auto written = TargetSkeletonStep::Canonical( tag, rfl::json::write( document ) );
         if ( !written )
@@ -4345,8 +4453,10 @@ namespace Desert::Migration
             return Common::MakeFormattedError<std::string>( "FOLT 10 body does not read: {}", v10.GetError() );
         const FoliageTypeDataV10& old = v10.GetValue();
 
-        Assets::Serialization::FoliageTypeData data;
-        data.Header             = old.Header;
+        // v11 text, not the engine's struct: v11 -> v12 is the chain's next step.
+        FoliageTypeDataV11 data;
+        data.Header                   = old.Header;
+        data.Header->Versions["FOLT"] = 11u;
         data.Kind               = old.Kind;
         data.Mesh               = old.Mesh;
         data.Prefab             = old.Prefab;
@@ -4390,9 +4500,55 @@ namespace Desert::Migration
         // default, for the author who turns it on).
         p.DensityFalloff = Assets::Serialization::FoliageDensityFalloff{};
 
+        std::string written = Common::Json::Write( data );
+        if ( auto next = MigrateFoliageTypeV11ToV12( written ); !next )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 11: {}",
+                                                            next.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateFoliageTypeV11ToV12( const std::string& text )
+    {
+        if ( const auto stated = Assets::Serialization::StatedFoliageTypeGeneration( text ); stated != 11u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states FOLT {}, and this step raises FOLT 11 only",
+                 stated ? std::to_string( *stated ) : std::string( "nothing" ) );
+        const auto v11 = Common::Json::Read<FoliageTypeDataV11>( text );
+        if ( !v11 )
+            return Common::MakeFormattedError<std::string>( "FOLT 11 body does not read: {}", v11.GetError() );
+        const FoliageTypeDataV11& old = v11.GetValue();
+
+        Assets::Serialization::FoliageTypeData data;
+        data.Header             = old.Header;
+        data.Kind               = old.Kind;
+        data.Mesh               = old.Mesh;
+        data.Prefab             = old.Prefab;
+        data.Density            = old.Density;
+        data.Scaling            = old.Scaling;
+        data.ScaleX             = old.ScaleX;
+        data.ScaleY             = old.ScaleY;
+        data.ScaleZ             = old.ScaleZ;
+        data.ZOffset            = old.ZOffset;
+        data.AlignToNormal      = old.AlignToNormal;
+        data.RandomYaw          = old.RandomYaw;
+        data.RandomPitchAngle   = old.RandomPitchAngle;
+        data.GroundSlopeAngle   = old.GroundSlopeAngle;
+        data.Height             = old.Height;
+        data.LandscapeLayers    = old.LandscapeLayers;
+        data.MinimumLayerWeight = old.MinimumLayerWeight;
+        data.CullDistance       = old.CullDistance;
+        data.Wind               = old.Wind;
+        data.IncludeInHLOD      = old.IncludeInHLOD;
+        data.Procedural         = old.Procedural;
+        data.Collision          = old.Collision;
+        // Ground cover may be thinned: a mesh that nothing collides with and that the type itself stops drawing at
+        // a distance. A tree or a rock (no cull distance, or a body) keeps every instance.
+        data.EnableDensityScaling =
+             !data.IsPrefab() && !data.Collision.Enabled && data.CullDistance.Max > 0.0f;
+
         std::string written = Assets::Serialization::WriteFoliageType( data );
         if ( auto reread = Assets::Serialization::ParseFoliageType( written ); !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 11: {}",
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as FOLT 12: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }

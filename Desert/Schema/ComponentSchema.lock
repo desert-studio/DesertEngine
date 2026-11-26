@@ -223,7 +223,7 @@ IesBrightnessScale: float
 LightFunctionMaterial: AssetHandle
 LightFunctionScale: vec3
 
-[PostProcessVolume] Version 1
+[PostProcessVolume] Version 2
 Unbound: bool
 Extent: vec3
 BlendRadius: float
@@ -276,7 +276,6 @@ Settings.ColorCorrectionHighlightsMax: float
 Settings.ManualExposureEV100: float
 Settings.WhitePoint: float
 Settings.AutoExposure: bool
-Settings.AutoExposureKey: float
 Settings.AutoExposureSpeed: float
 Settings.AutoExposureMinEV100: float
 Settings.AutoExposureMaxEV100: float
@@ -902,19 +901,18 @@ VolumeResolution: int32_t
 WindOffset: vec3
 Drift: bool
 
-[WaterBody] Version 1
+[WaterBody] Version 3
 WaterWaves: AssetHandle
 OceanExtents: vec2
-TargetWaveMaskDepth: float
 WaterMaterial: AssetHandle
 Type: enum WaterBodyType {Ocean=0, River=1}
 RiverSpline: vector<float>
 RiverWidth: float
 RiverFlowSpeed: float
 RiverFlowPeriod: float
-FallFoam: AssetHandle
 FallSpray: AssetHandle
 FallMist: AssetHandle
+FallSound: AssetHandle
 Density: float
 Drag: float
 

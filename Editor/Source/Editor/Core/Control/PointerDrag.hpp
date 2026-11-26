@@ -214,16 +214,8 @@ namespace Desert::Editor::Control
             return static_cast<std::size_t>( subject );
         }
 
-        static Playback& State() noexcept
-        {
-            static Playback state;
-            return state;
-        }
+        static Playback& State() noexcept;
 
-        static std::array<PointerTargetRect, kSubjectCount>& Targets() noexcept
-        {
-            static std::array<PointerTargetRect, kSubjectCount> targets{};
-            return targets;
-        }
+        static std::array<PointerTargetRect, kSubjectCount>& Targets() noexcept;
     };
 } // namespace Desert::Editor::Control

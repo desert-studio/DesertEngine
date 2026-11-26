@@ -252,8 +252,8 @@ namespace Desert::ECS
                     // very next graph tick and never on the one after it.
                     //
                     // That next tick is the NEXT FRAME, and this is the decision rather than the accident:
-                    // ScriptSystem is registered AFTER AnimationECSSystem (EditorLayer::BuildSceneSystems,
-                    // RuntimeLayer), so a value set in OnUpdate on frame N is drained at the top of frame
+                    // ScriptSystem is registered AFTER AnimationECSSystem (WorldStage::Pose before Think,
+                    // Core/WorldSystems.hpp), so a value set in OnUpdate on frame N is drained at the top of frame
                     // N+1. ONE frame of latency, and the alternative was moving a system: the registration
                     // order that produces it is load-bearing twice over — AttachmentSystem must run right
                     // after animation to follow a freshly-posed bone THIS frame, and ScriptSystem must run
@@ -513,8 +513,7 @@ namespace Desert::ECS
             if ( ++m_CostFrames < kCostWindow )
                 return;
             const double frames = static_cast<double>( m_CostFrames );
-            Animation::g_AnimationCpuMsPerFrame.store( static_cast<float>( 1000.0 * m_CostSeconds / frames ),
-                                                       std::memory_order_relaxed );
+            Animation::SetAnimationCpuMsPerFrame( static_cast<float>( 1000.0 * m_CostSeconds / frames ) );
             LOG_INFO( "[SkinnedLOD] anim CPU {:.4f} ms/frame over {} frames: {:.1f} animated instances, {:.2f} "
                       "evaluations and {:.1f} bones evaluated per frame",
                       1000.0 * m_CostSeconds / frames, m_CostFrames, static_cast<double>( m_CostInstances ) / frames,

@@ -2,7 +2,7 @@
 
 #include <UI/UITree.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <cstdint>
 #include <type_traits>
@@ -57,6 +57,7 @@ namespace Desert::UI
         {
             return m_Reg;
         }
+        [[nodiscard]] UIWorld&                 World() const override;
         [[nodiscard]] std::optional<glm::vec3> WorldOrigin( NodeId n ) const override;
 
         [[nodiscard]] entt::registry& Registry() const

@@ -109,9 +109,8 @@ namespace Desert::World::Landscape
         Weights, ///< LandscapeECSSystem: the RGBA8 weightmap copy. Told about weight writes ONLY — a paint
                  ///< stroke changes no height, so neither the R16 copy nor the heightfield is re-sent for it.
         Grass,   ///< LandscapeECSSystem: the grass field (heights and grass-layer weights) the grass grows from.
-        Water,   ///< WaterZoneECSSystem: the WaterInfo ground (the zone's bottom seen from above, UE WaterInfo).
     };
-    inline constexpr size_t kLandscapeDirtyConsumerCount = 5u;
+    inline constexpr size_t kLandscapeDirtyConsumerCount = 4u;
 
     /// Longest weight-layer name a tile blob carries. Exists because the length comes from a file.
     inline constexpr uint32_t kLandscapeMaxWeightLayerName = 64u;
@@ -191,6 +190,16 @@ namespace Desert::World::Landscape
         /// numbers.
         static Common::ResultStr<LandscapeTileData> FromSamples( uint32_t samplesX, uint32_t samplesZ,
                                                                  std::vector<uint16_t> samples );
+
+        /**
+         * @brief The stamp of this tile's heights: a 64-bit hash of its dimensions and samples, kept as they are
+         * written. Tiles of the same heights have the same stamp, so heights put back (an undo) are the stamp they
+         * were. Reading it takes nothing: any number of readers may key what they derived by it.
+         */
+        [[nodiscard]] uint64_t HeightStamp() const
+        {
+            return m_HeightStamp;
+        }
 
         [[nodiscard]] uint32_t SamplesX() const
         {
@@ -354,6 +363,7 @@ namespace Desert::World::Landscape
         uint32_t                   m_SamplesX = 0u;
         uint32_t                   m_SamplesZ = 0u;
         std::vector<uint16_t>      m_Samples;
+        uint64_t                                                             m_HeightStamp   = 0u;
         uint16_t                                                             m_LowestSample  = 0u;
         uint16_t                                                             m_HighestSample = 0u;
         std::array<std::vector<LandscapeRect>, kLandscapeDirtyConsumerCount> m_Dirty;

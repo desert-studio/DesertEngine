@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Core/Core.hpp>
+
 #include <memory>
 #include <utility>
 
@@ -11,17 +13,20 @@ namespace Common
     public:
         static T& GetInstance()
         {
-            return *m_Instance;
+            std::unique_ptr<T>& instance = Instance();
+            DESERT_VERIFY( instance, "a singleton is read before CreateInstance" );
+            return *instance;
         }
 
         template <typename... Args>
         static T& CreateInstance( Args&&... args )
         {
-            if ( !m_Instance )
+            std::unique_ptr<T>& instance = Instance();
+            if ( !instance )
             {
-                m_Instance = std::make_unique<T>( std::forward<Args>( args )... );
+                instance = std::make_unique<T>( std::forward<Args>( args )... );
             }
-            return *m_Instance;
+            return *instance;
         }
 
     protected:
@@ -34,12 +39,13 @@ namespace Common
         virtual ~Singleton() = default;
 
     private:
-        static std::unique_ptr<T> m_Instance;
+        // The one storage of the instance. No generic definition: the owner declares the explicit specialization
+        // right after its class and defines it in its own .cpp with a function-local static, so every module DLL
+        // reaches the owner's single copy through a function (a header-defined static gives each DLL its own copy;
+        // design BINT-STATE). A TU that misses the declaration fails at link, never silently.
+        static std::unique_ptr<T>& Instance();
     public:
         template <class T2>
         friend class Singleton;
     };
-
-    template <typename T>
-    std::unique_ptr<T> Singleton<T>::m_Instance = nullptr;
 } // namespace Common

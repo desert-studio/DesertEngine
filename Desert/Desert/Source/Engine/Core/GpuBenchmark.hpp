@@ -36,6 +36,6 @@ namespace Desert::Engine
 
     // The cache key of the device the process created — pass device.GetCapabilities() (identity + the driver
     // version) — with the table's version.
-    [[nodiscard]] Common::Scalability::BenchmarkCacheKey MakeBenchmarkCacheKey( const DeviceCapabilities& caps,
+    [[nodiscard]] Common::Scalability::BenchmarkCacheKey MakeBenchmarkCacheKey( const GpuCapabilities& caps,
                                                                                 uint32_t tableVersion );
 } // namespace Desert::Engine

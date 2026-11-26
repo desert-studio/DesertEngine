@@ -4,11 +4,6 @@
 #include <Common/Core/UUID.hpp>
 #include <Common/Json/Json.hpp>
 
-#include <rflcpp/rfl/enums.hpp>
-#include <rflcpp/rfl/fields.hpp>
-
-#include <glm/glm.hpp>
-
 #include <cmath>
 #include <concepts>
 #include <cstddef>
@@ -120,16 +115,26 @@ namespace Common::Json
         std::string  KindName( Kind kind );
         // `string "abc"`, `integer 300`, `object with 2 members` — the Found text of an Issue.
         std::string DescribeFound( const Value& value );
+        // A glm float vector (vec2/3/4), told by its member types so this header needs no glm: of glm's types
+        // only the vectors declare bool_type (matrices and quaternions do not), and length() is static.
         template <typename T>
-        inline constexpr bool IsGlmVec = false;
-        template <glm::length_t L, glm::qualifier Q>
-        inline constexpr bool IsGlmVec<glm::vec<L, float, Q>> = true;
+        concept FloatVector = requires {
+            typename T::bool_type;
+            T::length();
+        } && std::same_as<typename T::value_type, float>;
 
-        // Value -> T through reflect-cpp's parser, with a number spelt either way taken by a float member
-        // (Common/Json/DocumentStruct.hpp, where the parser is included). Deduced return: a file that reads a
-        // struct without including that header is a compile error naming FromValue, never a link error.
+        // THE REFLECT-CPP BRIDGE (Common/Json/Detail/RflBridge.hpp defines these three,
+        // FromStruct and MemberNames). Deduced returns: a file
+        // that reads or writes a struct or an enum without including the bridge is a compile error naming the
+        // function, never a link error.
+        // Value -> T through reflect-cpp's parser, with a number spelt either way taken by a float member.
         template <class T, class... Ps>
         auto FromValue( const Value& value );
+        // An enumerator's name (std::string), and the enumerator a name spells (std::optional<E>).
+        template <typename E>
+        auto EnumName( E value );
+        template <typename E>
+        auto EnumFromName( std::string_view name );
     } // namespace Detail
 
     // A non-owning view of one value and its path. It never copies a subtree; the Value it looks at must
@@ -276,7 +281,7 @@ namespace Common::Json
     // A value of T as JSON would spell it — the same text Json::Write( value ) gives. Proven byte-identical
     // per field kind by the JsonDocument suite (risk R2 of the JS1c design): rfl writes a float as its
     // double, an integer as int64/uint64, and the value tree keeps exactly those.
-    // Defined in Common/Json/DocumentStruct.hpp (rfl::to_generic needs the whole parser).
+    // Defined in Common/Json/Detail/RflBridge.hpp (rfl::to_generic needs the whole parser).
     template <typename T>
     [[nodiscard]] auto FromStruct( const T& value );
 
@@ -291,7 +296,7 @@ namespace Common::Json
             else if constexpr ( std::is_same_v<U, Object> || std::is_same_v<U, bool> )
                 return Value( value );
             else if constexpr ( std::is_enum_v<U> )
-                return Value( rfl::enum_to_string( value ) );
+                return Value( Detail::EnumName( value ) );
             else if constexpr ( std::is_integral_v<U> )
                 return Value( static_cast<std::int64_t>( value ) );
             else if constexpr ( std::is_floating_point_v<U> )
@@ -300,10 +305,10 @@ namespace Common::Json
                 return Value( std::string( std::string_view( value ) ) );
             else if constexpr ( std::is_same_v<U, UUID> )
                 return Value( value.ToString() );
-            else if constexpr ( IsGlmVec<U> )
+            else if constexpr ( FloatVector<U> )
             {
                 Value::Array array;
-                for ( glm::length_t i = 0; i < U::length(); ++i )
+                for ( decltype( U::length() ) i = 0; i < U::length(); ++i )
                     array.emplace_back( static_cast<double>( value[i] ) );
                 return { std::move( array ) };
             }
@@ -341,19 +346,10 @@ namespace Common::Json
         Object m_Object;
     };
 
-    // The member names of T in declaration order (= write order), computed once per type.
+    // The member names of T in declaration order (= write order), computed once per type: a
+    // const std::vector<std::string>&. Defined in Common/Json/Detail/RflBridge.hpp (rfl::fields).
     template <typename T>
-    [[nodiscard]] const std::vector<std::string>& MemberNames()
-    {
-        static const std::vector<std::string> names = []
-        {
-            std::vector<std::string> out;
-            for ( const auto& field : rfl::fields<T>() )
-                out.push_back( field.name() );
-            return out;
-        }();
-        return names;
-    }
+    [[nodiscard]] const auto& MemberNames();
 
     // Two values are the same when their Write text is (the PrefabOverrides rule): member order counts,
     // 1 and 1.0 differ.
@@ -381,10 +377,10 @@ namespace Common::Json
             const auto text = AsString();
             if ( text )
             {
-                const auto parsed = rfl::string_to_enum<U>( text.GetValue() );
+                const auto parsed = Detail::EnumFromName<U>( text.GetValue() );
                 if ( parsed )
                 {
-                    out  = parsed.value();
+                    out  = *parsed;
                     read = true;
                 }
             }
@@ -434,12 +430,12 @@ namespace Common::Json
             else
                 Report( issues, "id (decimal string)" );
         }
-        else if constexpr ( Detail::IsGlmVec<U> )
+        else if constexpr ( Detail::FloatVector<U> )
         {
             const auto* array = std::get_if<Value::Array>( &m_Value->variant() );
             U           read{};
             bool        ok = array && array->size() == static_cast<std::size_t>( U::length() );
-            for ( glm::length_t i = 0; ok && i < U::length(); ++i )
+            for ( decltype( U::length() ) i = 0; ok && i < U::length(); ++i )
             {
                 const auto v = Node( ( *array )[i], m_Path.Index( i ) ).AsNumber();
                 ok           = static_cast<bool>( v );

@@ -1,0 +1,11 @@
+# scripts/Dev/header_fanout_budget.txt - max Release objects that may depend on a header (python arch_census.py --rule header-fanout).
+# Ceilings are a ratchet: each is the count after B-HEADERS (11-26) and may only be lowered. ContentKinds.hpp is identity only
+# (<array>, <string_view>); the kind table that pulls <filesystem> and Constants lives in ContentPaths.hpp. rfl reaches every
+# file that names Common::Json::Value (= rfl::Generic), so its ceiling falls only when Value stops being rfl::Generic.
+Desert/Common/Source/Common/Content/ContentKinds.hpp         540
+Desert/Common/Source/Common/Content/ContentPaths.hpp         290
+Desert/Common/Source/Common/Content/AssetEnvelope.hpp        490
+Desert/Common/Source/Common/Json/Document.hpp                470
+Desert/Desert/Source/Engine/Assets/AssetGuidRef.hpp          590
+Desert/Desert/Source/Engine/Core/TextTemplate.hpp            230
+ThirdParty/reflect-cpp/include/rflcpp/rfl/Object.hpp         650

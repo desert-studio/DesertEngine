@@ -79,21 +79,27 @@ desert_module(ScriptLuau DEPS Scripting UE "ScriptPlugin")
 
 # Core first: its files sit in directories whose catch-all rows below place them in Engine, Foliage or
 # ScriptLuau. A file joins Core by name here (and the RENDER_FREE check then holds it to that).
-desert_placement(Core [[Engine/Gameplay/|Engine/Core/Serialize/(ComponentRegistry|WorldPartitionRules|CookedWorld|WorldCells|WorldCellLoader|WorldPartitionResidencyExecutor|SceneDependencies|SceneFormat|SceneUpgrade|PrefabExpansion|EntityDescriptorIndex|EntityReferenceRemap|ExternalEntities|ForeignKeys)\.|Engine/Assets/Prefab/(PackedPrefab|PrefabFormat|PrefabOverrides)\.|Engine/Assets/Serialization/FoliageType\.|Engine/Scripting/ScriptSchema\.|Engine/Scripting/Luau/(LuauScriptSchema|LuauScriptSource|LuauRuntime|LuauBinder|LuauDebugger|LuauProperties)\.|Engine/ECS/ReflectedComponents\.]])
+desert_placement(Core [[Engine/Gameplay/|Engine/Core/Serialize/(ComponentRegistry|WorldPartitionRules|WorldPartitionHLODRules|WorldPartitionActivationCost|CookedWorld|WorldCells|WorldCellLoader|WorldPartitionResidencyExecutor|SceneDependencies|SceneFormat|SceneUpgrade|PrefabExpansion|EntityDescriptorIndex|EntityReferenceRemap|ExternalEntities|ForeignKeys)\.|Engine/Assets/Prefab/(PackedPrefab|PrefabFormat|PrefabOverrides)\.|Engine/Assets/Serialization/FoliageType\.|Engine/Scripting/ScriptSchema\.|Engine/Scripting/Luau/(LuauScriptSchema|LuauScriptSource|LuauRuntime|LuauBinder|LuauDebugger|LuauProperties)\.|Engine/ECS/ReflectedComponents\.]])
 # UI-FW-4 moved Render2DCore and DesertUI into their Folders (and CoreReflection's macros into its own);
 # what stays behind is the UMG-side adapter of the engine, Engine/UI/Ecs/, which the catch-all also places.
 desert_placement(Engine [[Engine/UI/Ecs/]])
 # leaves
 # The replication layout DesertHeaderTool emits (Engine/Reflection/ReplicatedFields.hpp): names only, so the
 # dedicated server, which links no component header, knows which fields it may replicate.
-desert_placement(CoreReflection [[Engine/Reflection/|Engine/Generated/ReplicatedFields\.gen\.cpp$]])
+desert_placement(CoreReflection [[Engine/Reflection/]])
 desert_placement(ImageCore [[Engine/Core/(Formats|IO)/]])
-desert_placement(ApplicationCore [[Engine/Core/(Window|WindowCloseGate|Input|Glfw|GlfwVulkan)\.|^Platform/]])
+# The OS window (Engine/Core/Window, Platform/<OS>/<OS>Window, GlfwWindowMode) owns the swapchain and presents through
+# the renderer, so it is RenderCore's (below): in ApplicationCore its calls into RenderCore would be unresolved in the
+# module DLL. ApplicationCore keeps what is render-free: input, the GLFW headers, the close gate, display luminance.
+# Input (Keyboard/Mouse) reads the window through EngineContext, which RenderCore holds: it sits in Engine, above both
+# (BINT-STATE: a call into a module above fails at link once the singleton's storage is one, in its owner).
+desert_placement(ApplicationCore [[Engine/Core/(WindowCloseGate|Glfw|GlfwVulkan)\.|^Platform/MacOS/MacOSDisplayLuminance\.]])
 # the asset framework (CoreUObject package loading + AssetRegistry)
-desert_placement(AssetCore [[Engine/Assets/(AssetBase|AssetManager|AssetRef|AssetRefSerialization|AssetGuidRef|AssetRootPin|AssetRootSet|AssetEvents|AssetMetadata|AsyncAssetLoader|ContentRegistry|ContentRegistryCook|ContentGate|ContentWork|ContentDirectoryWatch|RegistryDiscovery|TextAssetHeader\w*|ContainerBytes|FrameRetireQueue|SyncLoadLedger|ItemProgress|EvictionDeadline|AssetEviction|AssetEvictionServices|DDCShipRegister|Common)\.]])
+# AssetEviction sweeps the feature modules' hooks (Core::ModuleHooks) and the RHI's ResourceLedger, so it is Engine's.
+desert_placement(AssetCore [[Engine/Assets/(AssetBase|AssetManager|AssetRef|AssetRefSerialization|AssetGuidRef|AssetRootPin|AssetRootSet|AssetEvents|AssetMetadata|AsyncAssetLoader|ContentRegistry|ContentRegistryCook|ContentGate|ContentWork|ContentDirectoryWatch|RegistryDiscovery|TextAssetHeader\w*|ContainerBytes|FrameRetireQueue|SyncLoadLedger|ItemProgress|EvictionDeadline|DDCShipRegister|Common)\.]])
 desert_placement(Localization [[Engine/Localization/|Engine/Assets/StringTable(Asset|Source)\.]])
 # geometry / animation runtime cores
-desert_placement(Engine [[Engine/Geometry/(Mesh|StaticMesh|SkinnedMesh|MeshFactory|PrimitiveMeshFactory|ProceduralCharacter\w*|AutoRig|MeshAssetArrays|DynamicMeshAsset|DynamicMeshRenderConversion|RenderMeshData|LODSelection|PosedBounds)\.]])
+desert_placement(Engine [[Engine/Geometry/(Mesh|StaticMesh|SkinnedMesh|MeshFactory|PrimitiveMeshFactory|ProceduralCharacter\w*|AutoRig|MeshAssetArrays|DynamicMesh|DynamicMeshAsset|DynamicMeshRenderConversion|RenderMeshData|LODSelection|PosedBounds)\.]])
 desert_placement(GeometryCore [[Engine/Geometry/]])
 # Timeline/Hosts maps the UI's easing onto the Timeline's: the UI-side adapter, so Engine's (DesertUI is not in
 # AnimationCore's closure; MODULE BOUNDARY)
@@ -101,15 +107,21 @@ desert_placement(Engine [[Engine/Animation/(AnimationLibrary\.|Graph/AnimGraphSe
 desert_placement(AnimationCore [[Engine/Animation/]])
 # RHI + RDG
 desert_placement(ShaderCompiler [[Engine/Core/ShaderCompiler/]])
-desert_placement(RenderCore [[Engine/Graphic/API/|Engine/Graphic/RDG/|Engine/ShaderResources/|Engine/Core/(Device|GpuBenchmark|FrameManager|RenderTask).]])
-desert_placement(RenderCore [[Engine/Graphic/(Image|ImageFactory|ImageTraits|IndexBuffer|VertexBuffer|Framebuffer|RenderPass|RenderPassDeclaration|ExternalRenderPass|Pipeline|PipelineCache|PipelineCacheFile|PipelineBuilds|Shader|SwapChain|SwapchainAcquire|GpuBatch|ComputeImages|MipMapGenerator|DeviceLost|DrawCounters|MemoryReadout|MemoryReadoutSource|MappedMemory|AllocationLedger|ResourceLedger|RendererAPI|RendererTypes|Texture|TextureFactory|FallbackTextures|DefaultTextures|PixelPack|GpuTimestampLayout|ShaderBindingLayoutCache|DynamicResources|RenderGraphBuilder|RenderGraphSort|RenderPhase|RenderPhaseRegistry|FrameGraphRefs|ViewMemory|View/ViewFrame|GraphImageImporter|Renderer|RendererContext|RenderConfig|ViewResources|ViewDescriptorSets|ViewTargetFormats|ShadowCascades|BindlessTextureTable|RayTracingPipeline)\.]])
+# EngineContext (window, device, renderer context, frame manager) is read by the Vulkan RHI throughout, so its one
+# instance lives in RenderCore, the lowest module that reads it (BINT-STATE).
+desert_placement(RenderCore [[Engine/Graphic/API/|Engine/Graphic/Rhi/|Engine/Graphic/RDG/|Engine/ShaderResources/|Engine/Core/(Device|GpuBenchmark|FrameManager|EngineContext|RenderTask|Window|GlfwWindowMode)\.|^Platform/(Windows/WindowsWindow|MacOS/MacOSWindow)\.]])
+desert_placement(RenderCore [[Engine/Graphic/(Image|ImageFactory|ImageTraits|IndexBuffer|VertexBuffer|Framebuffer|RenderPass|RenderPassDeclaration|ExternalRenderPass|Pipeline|PipelineCache|PipelineCacheFile|PipelineBuilds|Shader|SwapChain|SwapchainAcquire|GeometryPool|MeshGeometry|GpuBatch|ComputeImages|MipMapGenerator|DeviceLost|DrawCounters|MemoryReadout|MemoryReadoutSource|MappedMemory|AllocationLedger|ResourceLedger|RendererAPI|RendererTypes|Texture|FallbackTextures|DefaultTextures|PixelPack|GpuTimestampLayout|ShaderBindingLayoutCache|DynamicResources|RenderGraphBuilder|RenderGraphSort|RenderPhase|RenderPhaseRegistry|FrameGraphRefs|ViewMemory|View/ViewFrame|GraphImageImporter|Renderer|RendererContext|RenderConfig|ViewResources|ViewDescriptorSets|ViewTargetFormats|ShadowCascades|BindlessTextureTable|RayTracingPipeline)\.]])
 # the RHI's ray-tracing interfaces (BLAS geometry, skinned / procedural BLAS, the view's TLAS) + the dynamic-BLAS
 # pass (RDG only); the Vulkan side implements them, the renderer's caches drive them
-desert_placement(RenderCore [[Engine/Graphic/Systems/RayTracing/(RayTracingGeometry\.hpp|RayTracingDynamicGeometry\.|SkinnedRayTracingGeometry\.hpp|ProceduralRayTracingGeometry\.hpp|RayTracingSceneTarget\.hpp|RayTracingHitGroupTable\.hpp)]])
+desert_placement(RenderCore [[Engine/Graphic/Systems/RayTracing/(RayTracingSbtWrites\.|RayTracingGeometry\.hpp|RayTracingDynamicGeometry\.|SkinnedRayTracingGeometry\.hpp|ProceduralRayTracingGeometry\.hpp|RayTracingSceneTarget\.hpp|RayTracingHitGroupTable\.hpp)]])
 desert_placement(RenderCore [[Engine/Graphic/Materials/(MaterialBackend|SceneResources|MaterialExecutor|Mesh/MeshVertexLayout)\.|Engine/Graphic/ShaderProtocols/|Engine/Graphic/(BRDFLut|SkyPayload)\.|Engine/Graphic/Materials/Properties/|Engine/Graphic/Environment/SkyLook\.]])
+# what the RHI and the Renderer call (BINT-RC): the display output, the video-memory budget, the engine-client
+# interface the Renderer drives its frame slot and teardown through, the indirect submission mode, the virtual
+# mesh table, and the image registry every Texture2D registers in
+desert_placement(RenderCore [[Engine/Graphic/(DisplayOutput|GpuMemoryBudget|RendererClient)\.|Engine/Graphic/GpuDriven/(GpuSceneLayout|IndirectSubmissionMode)\.|Engine/Graphic/VirtualGeometry/(VirtualMeshTable|VirtualGeometryLayout)\.|Engine/Runtime/(ImageHandle|Services/Image/ImageService)\.]])
 # the render-facing DATA the world produces (scene proxies, materials, sky/fog/cloud payloads) is Engine's
 desert_placement(Engine [[Engine/Graphic/Render/|Engine/Graphic/Clouds/|Engine/Graphic/Fog/|Engine/Graphic/(SkyRules|SkySettings|SkyPresets|SunLightFx|MaterialPipelineStates)\.]])
-desert_placement(Engine [[Engine/Graphic/Materials/(Material|MaterialInstance|DataDrivenMaterial|MaterialOverrides|MaterialProperty|Mesh/MeshVertexPath|Skybox/MaterialSkybox)\.|Engine/Graphic/Environment/(SceneEnvironment|OwnedEnvironment)\.]])
+desert_placement(Engine [[Engine/Graphic/Materials/(Material|MaterialInstance|DataDrivenMaterial|MaterialOverrides|MaterialProperty|Mesh/MeshVertexPath|Skybox/MaterialSkybox)\.|Engine/Graphic/Environment/(SceneEnvironment|OwnedEnvironment|EnvironmentBake)\.]])
 desert_placement(Renderer [[Engine/Graphic/]])
 desert_placement(Media [[Engine/Media/]])
 # feature modules over Engine (UE plugins own their assets, services, components and systems)

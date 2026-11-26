@@ -168,8 +168,7 @@ namespace Desert::Editor
         LOG_INFO( "[Import] {} import template(s) published from the loaded shaders",
                   ImportManager::PublishImportTemplates( *m_AssetManager ) );
 
-        m_Workspace.BuildSceneSystems( *m_Workspace.ActiveScene() );
-        return BOOLSUCCESS;
+        return m_Workspace.CreateSystems( *m_Workspace.ActiveScene() );
     }
 
     namespace

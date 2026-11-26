@@ -14,7 +14,9 @@
 //            hit lighting (LumenHardwareRayTracingCommon.ush CalculateRayTracedLighting):
 //     direct   the sun and the point/spot lights of the world light grid's cell at the hit
 //              (Mesh/LightGrid.glslh LightGridWorldLightsAt), each with a visibility ray (GITraceVisibility, the
-//              permutation's tracer) leaving the hit by the tracer's GIRayBias; Lambert for a guessed material,
+//              permutation's tracer) leaving the hit by the tracer's GIRayBias - none for a light whose own
+//              CastShadows is off (DesertLightCastsShadows, the payload's kLightShadowCasts: unoccluded, as in
+//              the raster and the path tracer, UE's rule); Lambert for a guessed material,
 //              the hit's own shading model for a closest-hit material (GIHitLightResponse: the generated dispatch
 //              the deferred composite calls, so ClearCoat, Cloth, Anisotropic... light as in the raster, UE's
 //              hit lighting evaluating the hit's BxDF);
@@ -35,7 +37,8 @@
 // spot rows (`pointLights[]`, `spotLights[]`), the world light grid (`lightGrid` + LIGHT_GRID_WORLD_CELLS, read
 // section included), the radiance cache read (Common/RadianceCache.glslh, read section included), samplers
 // EnvironmentSpecularTexture, GBufferDepthTexture, GBufferATexture, GBufferEmissiveTexture, GBufferShadingWordTexture
-// (a usampler2D, texelFetch: the EMISSION_IS_LIGHT mark; unread under GI_HIT_EXCLUDES_EMISSION), includes the tracer
+// (a usampler2D, texelFetch, only where the emissive texel has emission or marks a model that lights its far side:
+// the subsurface colour, the EMISSION_IS_LIGHT mark), includes the tracer
 // (Common/GITracer.glslh), and defines GI_SURFACE_CACHE_BINDING (the surface cache's seven bindings). Nothing here
 // knows which tracer that is. Optionally GI_HIT_DIRECTIONAL_CASCADES with Mesh/CascadedShadow.glslh included (its
 // bindings declared): a global-field hit inside a directional slot's cascades takes that light's shadow from the
@@ -57,6 +60,7 @@
 // The shading models' direct-light dispatch and the shading word's decode: a closest-hit material is lit by its
 // own model (GIHitLightResponse), the word the hit group packed (DesertRayPayload.ShadingWord).
 #include <Generated/ShadingModels.glslh>
+#include <Common/GBufferOcclusion.glslh>
 
 // The albedo of a hit the view does not see and no card holds (no material on a distance-field surface):
 // photographic middle grey, 0.18 linear.
@@ -67,10 +71,13 @@
 // no card holds to a pass of its own declares neither the G-buffer nor the voxel lighting nor the radiance cache's
 // probes: GIHitMaterial and the in-place lighting below are not compiled for it.
 #if !defined( GI_HIT_LIGHTING_NONE ) && !defined( GI_HIT_LIGHTING_CARDS_ONLY ) // GPU-FARFIELD-7: the hit readers
-void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emissive )
+// @p subsurface: the light the hit lets through to its other side (DesertSubsurfaceColor, the function the card
+// capture keeps per texel), 0 for a model that lets none through and off the screen.
+void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emissive, out vec3 subsurface )
 {
-    albedo   = vec3( GI_HIT_ALBEDO_OFF_SCREEN );
-    emissive = vec3( 0.0 );
+    albedo     = vec3( GI_HIT_ALBEDO_OFF_SCREEN );
+    emissive   = vec3( 0.0 );
+    subsurface = vec3( 0.0 );
     const vec4 clip = giFrame.viewProjection * vec4( hit.position, 1.0 );
     if ( clip.w <= 0.0 )
         return;
@@ -83,25 +90,27 @@ void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emis
     // The pixel's surface counts as the hit within the tracer's tolerance.
     if ( distance( seen, hit.position ) > GIRayBias( hit.position, hit.normal ).screenTolerance )
         return;
-    albedo   = textureLod( GBufferATexture, uv, 0.0 ).rgb;
+    albedo = textureLod( GBufferATexture, uv, 0.0 ).rgb;
+    const ivec2 extent    = textureSize( GBufferShadingWordTexture, 0 );
+    const ivec2 texel     = min( ivec2( uv * vec2( extent ) ), extent - ivec2( 1 ) );
+    const vec4  stored    = texelFetch( GBufferEmissiveTexture, texel, 0 );
+    const bool  transmits = GBufferTransmits( stored.a );
 #if defined( GI_HIT_EXCLUDES_EMISSION )
     // The includer counts the emitter -> origin path by light sampling (Common/SurfaceCacheSampling.glslh).
-    emissive = vec3( 0.0 );
+    const bool emits = false;
 #else
+    const bool emits = any( greaterThan( stored.rgb, vec3( 0.0 ) ) );
+#endif
+    // The word is a fetch of its own (FPS-RC-TRACE-2): only the few texels it can say something about read it.
+    if ( !transmits && !emits )
+        return;
+    const uvec2 word = texelFetch( GBufferShadingWordTexture, texel, 0 ).rg;
+    if ( transmits )
+        subsurface = DesertSubsurfaceColor( DesertShadingModelIndex( word ), DesertUnpackPayload( word ) );
     // A MegaLights emissive light source (EMISSION_IS_LIGHT, ShadingModels/ShadingModelContract.glslh) is counted
     // by MegaLights' own samples of it: the screen hit takes none of it, or the lamp would light the room twice.
-    emissive = textureLod( GBufferEmissiveTexture, uv, 0.0 ).rgb;
-    // FPS-RC-TRACE-2: only an emitting pixel can be a MegaLights emitter, and zeroing a black emission changes
-    // nothing, so the word is fetched for those alone (the radiance cache's trace paid the fetch on every screen
-    // hit since EMISSIVE-MEGALIGHTS-4, almost none of which emit).
-    if ( any( notEqual( emissive, vec3( 0.0 ) ) ) )
-    {
-        const ivec2 extent = textureSize( GBufferShadingWordTexture, 0 );
-        const ivec2 texel  = min( ivec2( uv * vec2( extent ) ), extent - ivec2( 1 ) );
-        if ( DesertEmissionIsLight( texelFetch( GBufferShadingWordTexture, texel, 0 ).rg ) )
-            emissive = vec3( 0.0 );
-    }
-#endif
+    if ( emits && !DesertEmissionIsLight( word ) )
+        emissive = stored.rgb;
 }
 
 #endif // GI_HIT_LIGHTING_NONE
@@ -123,7 +132,21 @@ struct GIHitSurface
     vec3  Emissive;
     bool  Specular;
     uvec2 ShadingWord;
+    // The albedo of the light let through to the far side (DesertSubsurfaceColor); 0 = the surface lets none through.
+    vec3  SubsurfaceColor;
 };
+
+// Whether the surface lets light through: then the lights of both its sides reach the ray.
+bool GIHitTransmits( GIHitSurface surface )
+{
+    return any( greaterThan( surface.SubsurfaceColor, vec3( 0.0 ) ) );
+}
+
+// The normal of the side @p L falls on: where a visibility ray towards the light leaves the hit.
+vec3 GIHitLitSide( vec3 N, vec3 L )
+{
+    return dot( N, L ) >= 0.0 ? N : -N;
+}
 
 vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, GIHitSurface surface );
 vec3 GIHitRadianceGlobalField( GIHit hit, vec3 rayDirection, GIHitSurface surface );
@@ -151,9 +174,10 @@ bool GIHitRadianceNeedsGlobalFieldInPlace( GIHit hit, vec3 rayDirection, out vec
         return true;
     vec3 albedo;
     vec3 emissive;
-    GIHitMaterial( hit, rayDirection, albedo, emissive );
+    vec3 subsurface;
+    GIHitMaterial( hit, rayDirection, albedo, emissive, subsurface );
     radiance = GIHitRadianceLit( hit, rayDirection,
-                                 GIHitSurface( albedo, 0.0, 1.0, emissive, false, uvec2( 0u ) ) );
+                                 GIHitSurface( albedo, 0.0, 1.0, emissive, false, uvec2( 0u ), subsurface ) );
     return false;
 }
 
@@ -162,9 +186,10 @@ vec3 GIHitRadianceGlobalFieldInPlace( GIHit hit, vec3 rayDirection )
 {
     vec3 albedo;
     vec3 emissive;
-    GIHitMaterial( hit, rayDirection, albedo, emissive );
+    vec3 subsurface;
+    GIHitMaterial( hit, rayDirection, albedo, emissive, subsurface );
     return GIHitRadianceGlobalField( hit, rayDirection,
-                                     GIHitSurface( albedo, 0.0, 1.0, emissive, false, uvec2( 0u ) ) );
+                                     GIHitSurface( albedo, 0.0, 1.0, emissive, false, uvec2( 0u ), subsurface ) );
 }
 
 vec3 GIHitRadiance( GIHit hit, vec3 rayDirection )
@@ -251,19 +276,33 @@ float GIHitDirectionalVisibility( int slot, vec3 origin, vec3 N, vec3 L )
 }
 
 // The response of the directional light of slot @p slot, travel @p travel (w > 0.5: on) and radiance @p radiance
-// (w > 0.5: casts shadows) at a hit, shadowed by GIHitDirectionalVisibility from @p origin.
-vec3 GIHitDirectionalGlobalField( GIHitSurface surface, vec3 N, vec3 V, vec3 origin, int slot, vec4 travel,
+// (w > 0.5: casts shadows) at a hit, shadowed by GIHitDirectionalVisibility from @p offset off the side it lights.
+vec3 GIHitDirectionalGlobalField( GIHitSurface surface, vec3 P, vec3 N, vec3 V, float offset, int slot, vec4 travel,
                                   vec4 radiance )
 {
     if ( travel.w <= 0.5 )
         return vec3( 0.0 );
     const vec3 L = -travel.xyz;
-    if ( dot( N, L ) <= 0.0 )
+    if ( dot( N, L ) <= 0.0 && !GIHitTransmits( surface ) )
         return vec3( 0.0 );
-    float visibility = 1.0;
+    const vec3 side       = GIHitLitSide( N, L );
+    const vec3 origin     = P + side * offset;
+    float      visibility = 1.0;
     if ( radiance.w > 0.5 )
-        visibility = GIHitDirectionalVisibility( slot, origin, N, L );
+        visibility = GIHitDirectionalVisibility( slot, origin, side, L );
     return GIHitLightResponse( surface, origin, N, V, L, radiance.rgb * visibility );
+}
+
+// The next bounce: last update's irradiance at the hit (already / pi), on the diffuse albedo only - and on a surface
+// that lets light through, its far side's on the light it lets through, as the cards take it
+// (Common/SurfaceCacheIndirectLightingTexel.glslh).
+vec3 GIHitBounce( GIHitSurface surface, vec3 P, vec3 N, vec3 V )
+{
+    const vec3 diffuseAlbedo = surface.BaseColor * ( 1.0 - surface.Metallic );
+    vec3       bounce = diffuseAlbedo * max( RadianceCacheIrradianceAt( P, N, V, 0.5 ).rgb, vec3( 0.0 ) );
+    if ( GIHitTransmits( surface ) )
+        bounce += surface.SubsurfaceColor * max( RadianceCacheIrradianceAt( P, -N, -N, 0.5 ).rgb, vec3( 0.0 ) );
+    return bounce;
 }
 
 // The in-place lighting of a global-field hit no card holds (GIHit.globalField): the coarse field's surface, with
@@ -282,18 +321,19 @@ vec3 GIHitRadianceGlobalField( GIHit hit, vec3 rayDirection, GIHitSurface surfac
     // near offset, then walk GIFarFieldTMin along L to the far offset's plane - the same height off the surface,
     // shifted along L (at a grazing L far along it, skipping the occluders beside the hit). The hardware tracer's
     // two offsets are one, so its origin and start are the same as before.
-    const vec3 origin = hit.position + N * GIFarFieldOffset( hit.position );
+    const float offset = GIFarFieldOffset( hit.position );
     // Slot 0 the sun, slot 1 atmosphere light 1 (the moon): GIFrame's two directional lights are the cascades'
     // two slots (SceneResources::kMaxShadowedDirectionalLights).
-    vec3 direct = GIHitDirectionalGlobalField( surface, N, V, origin, 0, giFrame.sunTravel, giFrame.sunRadiance );
-    direct += GIHitDirectionalGlobalField( surface, N, V, origin, 1, giFrame.light1Travel, giFrame.light1Radiance );
-    const vec3 diffuseAlbedo = surface.BaseColor * ( 1.0 - surface.Metallic );
-    const vec4 bounce        = RadianceCacheIrradianceAt( hit.position, N, -rayDirection, 0.5 );
-    return direct + diffuseAlbedo * max( bounce.rgb, vec3( 0.0 ) ) + surface.Emissive;
+    vec3 direct = GIHitDirectionalGlobalField( surface, hit.position, N, V, offset, 0, giFrame.sunTravel,
+                                               giFrame.sunRadiance );
+    direct += GIHitDirectionalGlobalField( surface, hit.position, N, V, offset, 1, giFrame.light1Travel,
+                                           giFrame.light1Radiance );
+    return direct + GIHitBounce( surface, hit.position, N, V ) + surface.Emissive;
 }
 
 // The response of @p surface to ONE analytic light of incident radiance @p radiance (shadow already applied) from
-// unit direction @p L, seen along @p V at @p P. Diffuse-only: Lambert, albedo / pi; otherwise the hit's own
+// unit direction @p L, seen along @p V at @p P. Diffuse-only: Lambert, albedo / pi, and behind the surface the
+// Lambert lobe around -N of what it lets through (ShadingModels/TwoSidedFoliage.shadingmodel); otherwise the hit's own
 // shading model through the dispatch the deferred composite and the forward passes call
 // (Generated/ShadingModels.glslh DesertEvaluateShadingModel), as UE's hit lighting evaluates the hit's BxDF for
 // every light (LumenHardwareRayTracingCommon.ush CalculateRayTracedLighting). The visibility is already in @p
@@ -303,7 +343,10 @@ vec3 GIHitRadianceGlobalField( GIHit hit, vec3 rayDirection, GIHitSurface surfac
 vec3 GIHitLightResponse( GIHitSurface surface, vec3 P, vec3 N, vec3 V, vec3 L, vec3 radiance )
 {
     if ( !surface.Specular )
-        return surface.BaseColor * ( 1.0 / PI ) * radiance * max( dot( N, L ), 0.0 );
+    {
+        const float cosine = dot( N, L );
+        return ( cosine >= 0.0 ? surface.BaseColor : surface.SubsurfaceColor ) * radiance * ( abs( cosine ) / PI );
+    }
     const DesertSurface S = DesertMakeSurface( P, N, V, surface.BaseColor, surface.Metallic, surface.Roughness,
                                                DesertShadingWordSpecular( surface.ShadingWord ) );
     DesertLight light;
@@ -326,37 +369,46 @@ vec3 GIHitLightResponse( GIHitSurface surface, vec3 P, vec3 N, vec3 V, vec3 L, v
 
 // The in-place lighting of a hit whose material is known: GIHitMaterial's diffuse guess above, or the hit's own
 // material from a closest-hit shader (Common/SSRTrace.glslh, hit-lit reflections). Every analytic light is
-// shadowed by a visibility ray (GITraceVisibility) - fired only where the light faces the surface.
+// shadowed by a visibility ray (GITraceVisibility) - fired only where the light faces the surface, or falls on the
+// back of one that lets it through (from that side).
 vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, GIHitSurface surface )
 {
     const vec3 N = hit.normal;
     const vec3 V = -rayDirection;
     // Visibility rays leave the hit by the tracer's offsets, so they do not re-enter the surface they start on.
-    const GITraceBias bias   = GIRayBias( hit.position, N );
-    const vec3        origin = hit.position + N * bias.nearOffset;
+    const GITraceBias bias      = GIRayBias( hit.position, N );
+    const bool        transmits = GIHitTransmits( surface );
 
     vec3 direct = vec3( 0.0 );
     if ( giFrame.sunTravel.w > 0.5 )
     {
         const vec3 L = -giFrame.sunTravel.xyz;
-        if ( dot( N, L ) > 0.0 )
+        if ( dot( N, L ) > 0.0 || transmits )
+        {
+            const vec3 side = GIHitLitSide( N, L );
             direct += GIHitLightResponse(
                  surface, hit.position, N, V, L,
                  giFrame.sunRadiance.rgb *
-                      ( giFrame.sunRadiance.w > 0.5 ? GITraceVisibility( origin, L, GIFarFieldTMin( bias, N, L ), 1.0e6 )
+                      ( giFrame.sunRadiance.w > 0.5 ? GITraceVisibility( hit.position + side * bias.nearOffset, L,
+                                                                         GIFarFieldTMin( bias, side, L ), 1.0e6 )
                                                     : 1.0 ) );
+        }
     }
     // Atmosphere light 1 (the moon), as the sun: UE's hit lighting lights every directional light. Either with
     // CastShadows off is unoccluded, as the deferred pass shades it.
     if ( giFrame.light1Travel.w > 0.5 )
     {
         const vec3 L = -giFrame.light1Travel.xyz;
-        if ( dot( N, L ) > 0.0 )
+        if ( dot( N, L ) > 0.0 || transmits )
+        {
+            const vec3 side = GIHitLitSide( N, L );
             direct += GIHitLightResponse(
                  surface, hit.position, N, V, L,
                  giFrame.light1Radiance.rgb *
-                      ( giFrame.light1Radiance.w > 0.5 ? GITraceVisibility( origin, L, GIFarFieldTMin( bias, N, L ), 1.0e6 )
+                      ( giFrame.light1Radiance.w > 0.5 ? GITraceVisibility( hit.position + side * bias.nearOffset, L,
+                                                                            GIFarFieldTMin( bias, side, L ), 1.0e6 )
                                                        : 1.0 ) );
+        }
     }
     const LightGridWorldRange range = LightGridWorldLightsAt( lightGrid, hit.position );
     for ( uint k = 0u; k < range.count; ++k )
@@ -365,33 +417,40 @@ vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, GIHitSurface surface )
         DesertLight light;
         vec3        lightPosition;
         float       sourceRadius;
+        int         shadowFlags;
         if ( index < lightGrid.counts.x )
         {
             light         = DesertPointLightAt( pointLights[index], hit.position );
             lightPosition = pointLights[index].position;
             sourceRadius  = pointLights[index].sourceRadius;
+            shadowFlags   = pointLights[index].shadowFlags;
         }
         else
         {
             light         = DesertSpotLightAt( spotLights[index - lightGrid.counts.x], hit.position );
             lightPosition = spotLights[index - lightGrid.counts.x].position;
             sourceRadius  = spotLights[index - lightGrid.counts.x].sourceRadius;
+            shadowFlags   = spotLights[index - lightGrid.counts.x].shadowFlags;
         }
-        if ( dot( N, light.L ) <= 0.0 || max( light.Radiance.r, max( light.Radiance.g, light.Radiance.b ) ) <= 0.0 )
+        if ( ( dot( N, light.L ) <= 0.0 && !transmits ) || max( light.Radiance.r, max( light.Radiance.g, light.Radiance.b ) ) <= 0.0 )
             continue;
-        // The ray ends on the light's emitter sphere, not at its centre: a caster inside the emitter (the bulb of
-        // its fixture) does not shadow it, as in the path tracer and the ray-traced local shadows.
-        const float toLight = LightSourceSphereAxisReach( distance( lightPosition, origin ), sourceRadius );
-        const vec3 toward = normalize( lightPosition - origin );
-        direct += GIHitLightResponse(
-             surface, hit.position, N, V, light.L,
-             light.Radiance * GITraceVisibility( origin, toward, GIFarFieldTMin( bias, N, toward ), toLight ) );
+        // A light with CastShadows off is unoccluded here, as in the raster and the path tracer (UE skips its
+        // shadow ray everywhere). The ray of a casting one ends on the light's emitter sphere, not at its centre: a
+        // caster inside the emitter (the bulb of its fixture) does not shadow it, as in the path tracer and the
+        // ray-traced local shadows.
+        float visibility = 1.0;
+        if ( DesertLightCastsShadows( shadowFlags ) )
+        {
+            const vec3  side    = GIHitLitSide( N, light.L );
+            const vec3  origin  = hit.position + side * bias.nearOffset;
+            const float toLight = LightSourceSphereAxisReach( distance( lightPosition, origin ), sourceRadius );
+            const vec3  toward  = normalize( lightPosition - origin );
+            visibility          = GITraceVisibility( origin, toward, GIFarFieldTMin( bias, side, toward ), toLight );
+        }
+        direct += GIHitLightResponse( surface, hit.position, N, V, light.L, light.Radiance * visibility );
     }
 
-    // The next bounce: last update's irradiance at the hit (already / pi), on the diffuse albedo only.
-    const vec3 diffuseAlbedo = surface.BaseColor * ( 1.0 - surface.Metallic );
-    const vec4 bounce        = RadianceCacheIrradianceAt( hit.position, N, -rayDirection, 0.5 );
-    return direct + diffuseAlbedo * max( bounce.rgb, vec3( 0.0 ) ) + surface.Emissive;
+    return direct + GIHitBounce( surface, hit.position, N, V ) + surface.Emissive;
 }
 
 #endif // GI_HIT_LIGHTING_NONE

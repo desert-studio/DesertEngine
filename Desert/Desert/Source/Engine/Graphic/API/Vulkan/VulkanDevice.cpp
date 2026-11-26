@@ -193,7 +193,7 @@ namespace Desert::Graphic::API::Vulkan
                       typeName, m_Capabilities.VideoMemory / ( 1024ull * 1024ull ) );
             // WHICH driver answered (core 1.2): on macOS the ICD is the pinned MoltenVK built by
             // scripts/MacOS/BuildMoltenVK.sh, and this line is how a run proves it was not Homebrew's.
-            // The device's cross-API identity (core 1.1) rides the same query: DeviceCapabilities::DeviceUuid.
+            // The device's cross-API identity (core 1.1) rides the same query: GpuCapabilities::DeviceUuid.
             VkPhysicalDeviceIDProperties     ids{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES };
             VkPhysicalDeviceDriverProperties driver{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES, &ids };
             VkPhysicalDeviceProperties2      props2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driver };
@@ -213,7 +213,7 @@ namespace Desert::Graphic::API::Vulkan
                       m_Capabilities.SupportsTextureCompressionBC ? "supported -> enabled on the device"
                                                                   : "NOT supported -- no BC textures" );
 
-            Graphic::RenderConfig::WideLines = m_Capabilities.SupportsWideLines; // clamp debug-line width if false
+            Graphic::RenderConfig::SetWideLines( m_Capabilities.SupportsWideLines ); // clamp debug-line width if false
 
             // The selectable lists, built once from probed facts (VulkanCapabilityCatalog.hpp). The surface half
             // (display outputs, present modes beyond FIFO) is probed when the first swapchain's surface exists.
@@ -322,16 +322,18 @@ namespace Desert::Graphic::API::Vulkan
         return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
     }
 
-    Common::ResultStr<std::shared_ptr<VulkanLogicalDevice>> VulkanLogicalDevice::Create()
+    Common::ResultStr<std::shared_ptr<VulkanLogicalDevice>>
+    VulkanLogicalDevice::Create( const RhiSelection& selection )
     {
         // machine.json is the one place a machine withholds a capability from the engine (NO-RT): read here, once,
         // before the probe, so the device is created as the restricted card would create it.
-        // --device-profile (RequestDeviceProfile, set by the host before this): the lower device this one plays.
+        // --device-profile and --adapter arrive in the RhiSelection the host resolved before the backend existed.
         const auto&              machine = Common::Settings::MachineSettings::Get();
         const DeviceRestrictions restrictions{ .HideRayTracing        = machine.HideRayTracing,
                                                .HideOpacityMicromap   = machine.HideOpacityMicromap,
                                                .HideInvocationReorder = machine.HideInvocationReorder,
-                                               .Profile               = RequestedDeviceProfile() };
+                                               .Profile               = selection.Profile,
+                                               .Adapter               = selection.Adapter };
         auto                     probed = SelectDevice( VulkanContext::GetBootstrapInstance(), restrictions );
         if ( !probed )
             return Common::MakeError<std::shared_ptr<VulkanLogicalDevice>>( probed.GetError() );
@@ -387,7 +389,7 @@ namespace Desert::Graphic::API::Vulkan
         Destroy();
     }
 
-    const Engine::DeviceCapabilities& VulkanLogicalDevice::GetCapabilities() const
+    const Engine::GpuCapabilities& VulkanLogicalDevice::GetCapabilities() const
     {
         return m_PhysicalDevice->GetCapabilities();
     }

@@ -130,7 +130,7 @@ namespace
         {
             return nullptr;
         }
-        Common::BoolResultStr PrepareNextFrame() const override
+        Common::BoolResultStr PrepareNextFrame( const Graphic::RendererContext& ) const override
         {
             return Common::MakeSuccess( true );
         }
@@ -149,7 +149,7 @@ namespace
         {
             return nullptr;
         }
-        Common::ResultStr<bool> SetupSwapChain() override
+        Common::ResultStr<bool> SetupSwapChain( const std::shared_ptr<Engine::Device>& ) override
         {
             return Common::MakeSuccess( true );
         }

@@ -35,10 +35,7 @@ namespace Desert::Graphic::API::Vulkan
         void        RetireAfterFramesInFlight( std::function<void()> retire ) override;
         std::size_t ReleaseRetiredAtViewClose() override;
 
-        [[nodiscard]] static const VkInstance& GetVulkanInstance()
-        {
-            return s_VulkanInstance;
-        }
+        [[nodiscard]] static const VkInstance& GetVulkanInstance();
 
         // The vk-bootstrap view of the same instance; device selection (DeviceCapsProbe) is built from it.
         [[nodiscard]] static const vkb::Instance& GetBootstrapInstance();
@@ -51,7 +48,7 @@ namespace Desert::Graphic::API::Vulkan
         }
 
     private:
-        inline static VkInstance         s_VulkanInstance;
+        static VkInstance s_VulkanInstance;
         VkDebugReportCallbackEXT         m_DebugReportCallback = VK_NULL_HANDLE;
         std::weak_ptr<Window>            m_Window;
         std::unique_ptr<VulkanAllocator> m_VulkanAllocator;

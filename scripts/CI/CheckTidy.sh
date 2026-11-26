@@ -143,7 +143,7 @@ echo "clang-tidy gate using: $TIDY_VERSION"
 # The compiler database is REGENERATED, never assumed. A stale one silently analyses the previous
 # commit's flags, and a missing one makes clang-tidy fall back to bare defaults and drown in
 # "'memory' file not found" — errors that WarningsAsErrors then reports as if they were findings.
-if ! "$ROOT/scripts/CI/GenCompileCommands.sh" Debug; then
+if ! "$ROOT/scripts/CI/GenCompileCommands.sh" DebugGame; then
     echo "clang-tidy: could not build compile_commands.json — see above. Gate did not run." >&2
     exit 2
 fi
@@ -153,10 +153,10 @@ fi
 # DesertHeaderTool codegen): analysing without them reports "file not found" as clang-diagnostic-errors.
 # DesertPrebuild (cmake/DesertWorkspace.cmake) runs exactly those steps and compiles nothing else.
 case "$(uname -s)" in
-    MINGW*|MSYS*|CYGWIN*) TIDY_TREE="$ROOT/build/cmake/windows-msvc-ninja" ;;
-    *)                    TIDY_TREE="$ROOT/build/cmake/macos-clang-ninja" ;;
+    MINGW*|MSYS*|CYGWIN*) TIDY_TREE="$ROOT/build/cmake/win-debug" ;;
+    *)                    TIDY_TREE="$ROOT/build/cmake/mac-debug" ;;
 esac
-if ! cmake --build "$TIDY_TREE" --config Debug --target DesertPrebuild; then
+if ! cmake --build "$TIDY_TREE" --target DesertPrebuild; then
     echo "clang-tidy: the build's generation steps (target DesertPrebuild) failed — see above. Gate did not run." >&2
     exit 2
 fi
@@ -444,7 +444,7 @@ if [ -n "$TRUE_ORPHANS" ]; then
     echo "clang-tidy: these changed sources are in NO CMake target, so nothing compiles them and" >&2
     echo "the gate cannot know their flags:" >&2
     printf '    %s\n' $TRUE_ORPHANS >&2
-    echo "Re-configure with 'scripts/MacOS/BuildMacOS.sh Debug --gen-only' — test targets exist only with" >&2
+    echo "Re-configure with 'scripts/MacOS/BuildMacOS.sh DebugGame --gen-only' — test targets exist only with" >&2
     echo "DESERT_WITH_TESTS=ON (the presets' default). If a file is still absent afterwards, it is missing from a CMakeLists.txt and" >&2
     echo "is not being built at all. This is an environment failure, NOT an analysis finding." >&2
     exit 2

@@ -11,7 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 // THE SURFACE CACHE — the interface (GI-CACHE-IFACE; owner 10-15 "surface cache — БЕРЁМ"). Port of UE Lumen's
 // Lumen Scene: LumenSceneData.h (FLumenCard, FLumenMeshCards), LumenSurfaceCache.cpp (atlases), MeshCardBuild /
@@ -188,8 +188,7 @@ namespace Desert::Graphic::SurfaceCache
         bool operator==( const SurfaceCacheBudget& ) const = default;
     };
 
-    // PURE. The budget of the machine's quality. The rows are Scalability placeholders until GI-SURFACE-CACHE
-    // gives them this reader's pass (Scalability.hpp, "GlobalIllumination: the budgets ...").
+    // PURE. The budget of the machine's quality (Scalability.hpp, "GlobalIllumination: the budgets ...").
     [[nodiscard]] inline SurfaceCacheBudget
     MakeSurfaceCacheBudget( const Common::Scalability::ResolvedQuality& quality )
     {

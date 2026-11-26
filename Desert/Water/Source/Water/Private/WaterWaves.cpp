@@ -63,10 +63,11 @@ namespace Desert::Assets::Serialization
         if ( auto ok = CheckUnit( "LargeWaveSteepness", g.LargeWaveSteepness ); !ok )
             return ok;
         if ( const char* problem = Water::FFTOceanSpectrumParamsProblem( data.FFT ) )
-            return Common::MakeFormattedError<bool>( "{} (FetchKm {}, CascadeSizes {} / {} / {}, "
+            return Common::MakeFormattedError<bool>( "{} (FetchKm {}, CascadeSizes {} / {} / {} / {}, "
                                                      "ShortestWavelength {})",
                                                      problem, data.FFT.FetchKm, data.FFT.CascadeSizes[0],
                                                      data.FFT.CascadeSizes[1], data.FFT.CascadeSizes[2],
+                                                     data.FFT.CascadeSizes[3],
                                                      data.FFT.ShortestWavelength );
         return BOOLSUCCESS;
     }

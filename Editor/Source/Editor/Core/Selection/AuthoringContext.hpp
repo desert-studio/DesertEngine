@@ -475,11 +475,7 @@ namespace Desert::Editor::Core
     // use, and — the part that matters here — so that nothing can read or write it without naming it.
     // Tests never touch this one; they build their own `AuthoringContextHost`, which is the property the
     // four statics could not have.
-    inline AuthoringContextHost& ActiveAuthoringContext()
-    {
-        static AuthoringContextHost s_Host;
-        return s_Host;
-    }
+    AuthoringContextHost& ActiveAuthoringContext();
 
     // ── WHAT THE §14.2 MODE SWITCHER TOOK FROM HERE, AND WHAT IT ADDED ───────────────────────────
     //

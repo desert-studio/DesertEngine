@@ -25,7 +25,8 @@ namespace Desert::ImGui
         virtual void Begin() = 0;
         virtual void End()   = 0;
 
-        static std::shared_ptr<ImGuiLayer> Create();
+        // The UI backend of the process's rendering backend; a backend with none is refused by name.
+        [[nodiscard]] static Common::ResultStr<std::shared_ptr<ImGuiLayer>> Create();
     };
 
 } // namespace Desert::ImGui

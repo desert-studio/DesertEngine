@@ -1,4 +1,5 @@
 #include "UICanvasLayout.hpp"
+#include "UIWalkCtx.hpp"
 
 #include <Render2DCore/ClipRegion2D.hpp>
 #include <Render2DCore/Transform2D.hpp>
@@ -182,38 +183,9 @@ namespace Desert::UI
 
     namespace
     {
-        // Maps the canvas to the viewport per its scale mode (see UICanvasScaleMode). Returns the canvas root
-        // rect (screen px) + a uniform scale applied to every element's offsets/min-size/font — so Stretch is
-        // 1:1 (anchors drive layout, no resize zoom), ScaleWithScreen scales the whole design from the
-        // reference resolution, and Letterbox fits + centres it. Mirrors RenderCanvas2D's own ResolveCanvas.
-        struct CanvasFit
-        {
-            Rect  Root;
-            float Scale;
-        };
-
-        CanvasFit ResolveCanvas( const UICanvasData& d, const Rect& viewportPx )
-        {
-            switch ( d.ScaleMode )
-            {
-                case UICanvasScaleMode::ScaleWithScreen:
-                {
-                    const float sx = d.ReferenceWidth > 0.0f ? viewportPx.W / d.ReferenceWidth : 1.0f;
-                    const float sy = d.ReferenceHeight > 0.0f ? viewportPx.H / d.ReferenceHeight : 1.0f;
-                    const float m  = std::clamp( d.MatchWidthHeight, 0.0f, 1.0f );
-                    return { viewportPx, sx * ( 1.0f - m ) + sy * m };
-                }
-                case UICanvasScaleMode::Letterbox:
-                {
-                    const Rect fit = CanvasRect( d.ReferenceWidth, d.ReferenceHeight, viewportPx.W, viewportPx.H );
-                    const float scale = d.ReferenceWidth > 0.0f ? fit.W / d.ReferenceWidth : 1.0f;
-                    return { Rect{ viewportPx.X + fit.X, viewportPx.Y + fit.Y, fit.W, fit.H }, scale };
-                }
-                case UICanvasScaleMode::Stretch:
-                default:
-                    return { viewportPx, 1.0f }; // canvas == viewport, 1:1 px
-            }
-        }
+        // The one canvas fit (UIWalkCtx), shared with the renderer so hit-testing matches drawing.
+        using Walk::CanvasFit;
+        using Walk::ResolveCanvas;
 
         // Resolves the root rect of the canvas the caller NAMED, exactly like the renderer. Shared by
         // PickElement / GetElementRect / CanvasScale so hit-testing matches drawing.
@@ -669,7 +641,7 @@ namespace Desert::UI
         const auto& b = *tree.Get<UIBindingData>( e );
         if ( b.Target != UIBindTarget::Visible || b.Key.empty() )
             return false;
-        const auto v = BindingStore( ctx, b.Key, row ).Bool( b.Key );
+        const auto v = BindingStore( tree.World(), ctx, b.Key, row ).Bool( b.Key );
         return v.has_value() && !*v;
     }
 

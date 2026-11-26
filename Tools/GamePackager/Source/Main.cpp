@@ -1,6 +1,6 @@
 // GamePackager — the artifact a PLAYER gets, produced without an editor.
 //
-//   GamePackager <project.deproj> [--config Shipping|Release|Debug] [--out <dir>] [--no-bundle]
+//   GamePackager <project.deproj> [--config Shipping|Development|DebugGame] [--out <dir>] [--no-bundle]
 //                [--engine-dir <dir>]
 //
 // WHY THIS EXISTS, AND WHAT WAS WRONG WITH THE REASON IT DID NOT. Everything this repository
@@ -61,7 +61,7 @@ namespace
     int Usage()
     {
         std::fprintf( stderr, "Usage:\n"
-                              "  GamePackager <project.deproj> [--config Shipping|Release|Debug]\n"
+                              "  GamePackager <project.deproj> [--config Shipping|Development|DebugGame]\n"
                               "               [--out <dir>] [--no-bundle] [--engine-dir <dir>]\n"
                               "\n"
                               "Packages the project into a self-contained game for THIS host - the player\n"

@@ -18,7 +18,7 @@
 #include <LandscapeCore/Public/LandscapeFrame.hpp>
 #include <PhysicsCore/PhysicsTypes.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <span>
 #include <unordered_map>

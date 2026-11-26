@@ -1,6 +1,6 @@
 #pragma once
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>

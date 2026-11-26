@@ -110,7 +110,7 @@
 // any suite in this repository. Desert/Tests/Engine/WorldPartition is what reaches this.
 
 #include <Common/Core/Math/AABB.hpp>
-#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetGuid.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/UUID.hpp>

@@ -51,6 +51,7 @@
 #include <Engine/Runtime/SelectionContext.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityLock.hpp>
+#include <Engine/ECS/FoliageEditing.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
@@ -100,7 +101,7 @@
 #include <Engine/UI/Ecs/UIToggleComponent.hpp>
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 #include <VFX/Public/VFXWorld.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 
 namespace Desert::Editor
@@ -357,6 +358,15 @@ namespace Desert::Editor
         m_LandscapePaintTool = std::make_unique<Tools::LandscapePaintTool>();
 
         s_Live.push_back( this );
+        Core::ViewportMode::SetChangeListener( &ViewportPanel::OnEditorModeChanged );
+        m_Scene->GetRegistry().ctx_or_set<::Desert::ECS::FoliageEditing>().Active = Core::ViewportMode::IsFoliage();
+    }
+
+    void ViewportPanel::OnEditorModeChanged( const Core::EditorMode mode )
+    {
+        for ( ViewportPanel* panel : s_Live )
+            panel->m_Scene->GetRegistry().ctx_or_set<::Desert::ECS::FoliageEditing>().Active =
+                 mode == Core::EditorMode::Foliage;
     }
 
     // Out-of-line so unique_ptr<AsyncMeshLoader> destroys with the complete type (joins the worker thread) —
@@ -1574,7 +1584,16 @@ namespace Desert::Editor
                 // UE's viewport "Realtime": while editing, whether the world's preview time moves — the
                 // cloud wind, particles, a material's Time node. The user's answer, so it lives in
                 // editor.json beside the Show flags and never in the level (Core::WorldTime).
-                viewChanged |= ImGui::Checkbox( "Realtime", &EditorPreferences::Get().ViewportRealtime );
+                // A command's session answer (UIPreview::Realtime) is shown while it stands; a click is the
+                // user's own and ends it.
+                auto& session  = Core::UIPreview::Get().Realtime;
+                bool  realtime = session.value_or( EditorPreferences::Get().ViewportRealtime );
+                if ( ImGui::Checkbox( "Realtime", &realtime ) )
+                {
+                    session.reset();
+                    EditorPreferences::Get().ViewportRealtime = realtime;
+                    viewChanged                               = true;
+                }
                 if ( ImGui::IsItemHovered() )
                     ImGui::SetTooltip( "Advance world time while editing (wind, particles, material Time)" );
                 // A PLAIN SAVE, and that is the deliverable of К10. This call used to be wrapped in three

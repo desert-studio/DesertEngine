@@ -1,6 +1,7 @@
 #include <UI/UIListSelection.hpp>
 
 #include <UI/UIDataStore.hpp>
+#include <UI/UIWorld.hpp>
 #include <UI/UILayout.hpp>
 
 #include <algorithm>
@@ -327,7 +328,7 @@ namespace Desert::UI
         const auto* lv = tree.Get<UIListViewData>( e );
         if ( lv == nullptr )
             return shape;
-        const UIDataStore& store = UIDataStore::Get();
+        const UIDataStore& store = tree.World().Data;
         if ( tree.Has<UITileViewData>( e ) )
         {
             const auto& tile = *tree.Get<UITileViewData>( e );

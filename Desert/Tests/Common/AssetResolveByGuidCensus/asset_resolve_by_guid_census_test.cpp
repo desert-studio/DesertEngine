@@ -32,7 +32,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/AssetRedirector.hpp>
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>

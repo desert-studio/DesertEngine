@@ -29,7 +29,7 @@
 #include <string>
 #include <string_view>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 namespace Desert::Net
 {
@@ -72,11 +72,7 @@ namespace Desert::Core
         }
         // The process's launch options (the editor's / the game's command line sets them before the first frame;
         // Play reads them when it begins, like UE's PIE net mode read at StartPlayInEditorSession).
-        static ClientNetOptions& Launch()
-        {
-            static ClientNetOptions options;
-            return options;
-        }
+        static ClientNetOptions& Launch();
     };
 
     // The own pawn's prediction as the client sees it (the viewport HUD's "Net" row; UE stat net's corrections).
@@ -114,12 +110,10 @@ namespace Desert::Core
         bool      PawnClosureLanded();
         void      ApplySpawnsAndDestroys( Scene& scene, Assets::AssetManager& assets );
         void      WriteTransforms( Scene& scene );
-        // NET-5: a remote pawn's locomotion variables from its interpolated replicated movement - the proxy's
-        // CharacterControllerComponent Velocity/CurrentSpeed and the anim graph parameters kLocomotion* of every
-        // AnimationComponent in its hierarchy.
-        void      WriteLocomotion( Scene& scene, entt::entity pawn, const Net::PawnState& sample );
-        static constexpr std::string_view kLocomotionSpeed   = "Speed";     // planar cm/s
-        static constexpr std::string_view kLocomotionFalling = "IsFalling"; // not on the ground
+        // NET-5: a remote pawn's movement state from its interpolated replicated sample (UE: the simulated
+        // proxy's replicated Velocity / MovementMode / bIsCrouched) into its CharacterControllerComponent through
+        // CharacterMovement::ApplyMoveState; LocomotionSystem publishes it to the pawn's graph, as for every pawn.
+        void WriteMoveState( Scene& scene, entt::entity pawn, const Net::PawnState& sample );
         // NET-2: the server's state of stable objects (cooked records, never spawned) written into the entities
         // this client's streamer made from the same records; a change whose entity is not streamed in waits for
         // it.
@@ -138,7 +132,8 @@ namespace Desert::Core
         // The collision world the own pawn is predicted in: the physics world of the scene this driver ticks
         // (UE: the CharacterMovement of the pawn's own UWorld). Null, said once, while that scene runs none.
         Net::IPawnMover*        PredictionMover( Scene& scene );
-        [[nodiscard]] glm::vec3 OwnDrawnPosition() const;
+        // The own pawn's drawn FEET: between its last two predicted steps, plus a correction's decaying offset.
+        [[nodiscard]] glm::vec3 OwnDrawnFeet() const;
 
         ClientNetOptions                        m_Options;
         std::unique_ptr<Net::INetTransport>     m_Transport;

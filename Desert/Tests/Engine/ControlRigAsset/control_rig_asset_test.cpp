@@ -17,6 +17,7 @@
 #include <Engine/Animation/AnimationClip.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Pose.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <Engine/Animation/Rig/ControlHierarchy.hpp>
 #include <Engine/Animation/Rig/ControlRigStage.hpp>
 #include <Engine/Animation/Skeleton.hpp>
@@ -913,11 +914,10 @@ TEST( ControlRigAssetTest, EveryLinkFromTheFileToTheSkinningMatricesHasACaller )
            "Demand<Assets::ControlRigAsset>( wanted, Common::Content::ContentKind::ControlRig",
            "rigs load on demand (AL1-6): without this the handle a scene names is never read and the "
            "character poses from its clip alone" },
-         { "Editor/Source/Editor/LevelEditor/SceneWorkspace.cpp",
-           "AddSystem<ECS::AnimationECSSystem>( m_Animations.get(), m_Assets.get() )",
+         { "Desert/Desert/Source/Engine/Core/WorldSystems.cpp",
+           "AddSystem<ECS::AnimationECSSystem>( services.Animations, services.Assets )",
            "without the manager the system cannot resolve a rig handle at all" },
-         { "Runtime/Source/RuntimeLayer.cpp",
-           "AddSystem<ECS::AnimationECSSystem>( m_AnimationLibrary.get(), m_AssetManager.get() )",
+         { "Runtime/Source/RuntimeLayer.cpp", "Core::CreateWorldSystems( *m_Scene, services )",
            "a rig that works in the editor and not in the packaged runtime is worse than no rig" },
          { "Editor/Source/Editor/LevelEditor/EditorPanels.cpp", "panels.Add<Editor::ControlRigPanel>(",
            "without this the panel exists as a file nobody opens" },

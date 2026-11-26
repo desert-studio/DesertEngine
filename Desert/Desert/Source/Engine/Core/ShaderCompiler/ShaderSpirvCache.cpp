@@ -106,7 +106,7 @@ namespace Desert::Core
     {
         static constexpr std::array<const char*, kPhaseCount> kNames = {
              "shader map", "preprocess",     "cache key",       "SPIR-V lookup",
-             "compile",    "VkShaderModule", "reflect+layouts", "pipelines" };
+             "compile",    "shader module",  "reflect+layouts", "pipelines" };
         std::string line;
         for ( size_t i = 0; i < kPhaseCount; ++i )
             line += std::format( "{}{} {:.1f} ms/{}", i == 0 ? "" : ", ", kNames[i],

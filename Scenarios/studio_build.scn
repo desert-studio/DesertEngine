@@ -1,0 +1,80 @@
+# STUDIO-BUILD (design F:/aftmp/DESIGN-STUDIO-AUDIT.md, «Приёмка»): the build itself is the subject. Every step is a
+# script call on the Windows host, no editor except [smoke_dll], which plays Scenarios/smoke_editor.scn on the
+# Development tree. Configurations: Development (win-dev, module DLLs, unity batches of 16, adaptive unity),
+# DebugGame (win-debug), Shipping (win-ship, static monolith, /GL + /LTCG). Times are wall clock from .ninja_log
+# (max(end) - min(start)); the reference numbers are the design's «Целевые числа».
+#
+# Дано: a clean tree on the commit under test; no editor running; ccache 4.x on PATH (CMakeLists.txt finds it).
+#
+# [clean_build]
+# Когда: rm -rf build/cmake/win-dev; ccache -C; bash .claude/tools/build_land.sh <tree> <log>   (preset win-dev)
+# Тогда [clean_build]: Editor finishes in <= 20 min wall (.ninja_log span <= 1 200 000 ms); objects <= 900;
+#   cmake_pch compiles <= 3 (Common, Engine, Editor); no first-party TU > 30 s; 0 LNK1327; a second configure
+#   with unchanged CMake files prints no "Configuring" step.
+# Тогда [bconfig_link]: the Editor.exe link edge (.ninja_log) <= 300 s on the clean build and <= 90 s on an
+#   incremental one; build/Bin/Development holds Editor.exe beside the module DLLs (Common.dll, DesertEngine.dll,
+#   DesertUI.dll, Render2DCore.dll, the five editor layer DLLs); 0 LNK2011 (PCH object), 0 LNK1189 (export count),
+#   0 LNK2019 across modules.
+#
+# [one_cpp]
+# Когда: touch Desert/Desert/Source/Engine/Graphic/MeshRendererForward.cpp; python scripts/Dev/adaptive_unity.py
+#   build/cmake/win-dev; ninja -C build/cmake/win-dev Editor
+# Тогда [one_cpp]: <= 60 s; .ninja_log holds exactly one .obj (the file outside its unity batch) plus the engine
+#   DLL link; Editor.exe is not relinked.
+#
+# [one_header]
+# Когда: touch Desert/Common/Source/Common/Content/ContentKinds.hpp; ninja -C build/cmake/win-dev Editor
+# Тогда [one_header]: <= 300 objects, <= 6 min wall. Same with Common/Json/Document.hpp: <= 150 objects.
+#
+# [cache]
+# Когда: a second clean build of the same revision in another worktree (F:/DesertEngine-wt), same ccache.
+# Тогда [cache]: ccache -s shows hits >= 90 %, Direct > 0 (base_dir = the tree, hash_dir off, depend_mode off).
+#
+# [census]
+# Когда: python scripts/Dev/arch_census.py --build build/cmake/win-dev
+# Тогда [census]: exit 0 on HEAD; no rule rises.
+#
+# [smoke_dll]
+# Когда: python .claude/tools/play_scenario.py <tree> Scenarios/smoke_editor.scn   (Development tree)
+# Тогда [smoke_dll]: Scenarios/smoke_editor.scn first frame draws the editor UI with one ImGui context, and logs come
+#   from one spdlog registry; PASS; the frame is byte-equal to the base build's; TURN x5 within +2 % of the base.
+#
+# [shipping]
+# Когда: cmake --preset win-ship; cmake --build --preset win-ship
+# Тогда [shipping]: one Editor.exe and one Runtime.exe in build/Bin/Shipping, no module DLLs beside them;
+#   build.ninja carries /LTCG /OPT:REF /OPT:ICF on their links and /GL on the desert_ltcg libraries;
+#   dumpbin /dependents Editor.exe lists no Desert*.dll, Common.dll or editor layer DLL.
+#
+# [configs]
+# Когда: cmake --preset win-dev with a Visual Studio (multi-config) generator forced by -G
+# Тогда [configs]: configure stops with the FATAL_ERROR naming the single-config Ninja presets.
+#
+# B-TREE / B-TOOLS / P-CRASH rows (host checks on the built tree).
+# Дано: a build of the branch in build/cmake/win-dev (bash .claude/tools/build_land.sh), the build log kept.
+# Тогда [tree_clean]: a second `cmake --build build/cmake/win-dev --target Editor` in a row prints no "Configuring",
+#   `ninja -C build/cmake/win-dev -d explain -n Editor` prints nothing, `git status --porcelain` is empty after both builds
+#   (no Generated/*.gen.* in the source tree, ComponentSchema.lock untouched unless scripts/Dev/schema_lock.sh ran);
+#   `python scripts/Dev/sources_sync.py --check` exits 0; configure refuses a stale Desert/Desert/Source/Engine/Generated.
+# Тогда [duplicate_compile]: `python scripts/Dev/arch_census.py --build build/cmake/win-dev --list duplicate-compile`
+#   lists no first-party engine source compiled by a tool target (WorldGen, LatticePeak, DShaderTool, CloudVolumeBaker,
+#   CloudLayoutBaker, AssetClosure, TextureCook, GamePackager, SceneMigrator, DesertCtl, FbxMeshSplitter link the
+#   engine or DesertSceneMigration); every tool still links.
+# Тогда [crash]: Editor crashed on purpose (the engine has no crash command: `cdb -p <pid> -c ".crash"`) writes <crash root>/<SHA7>-<time>-<pid>/crash.dmp under
+#   <project>/Saved/Crashes or %LOCALAPPDATA%/DesertEngine/Crashes; `bash scripts/Dev/sym.sh --dump <that crash.dmp>`
+#   fetches win-<SHA7> symbols (python scripts/Dev/artifacts.py fetch win-<SHA7> ... --symbols) and prints a stack
+#   with function names (module DLL PDBs in Development); the artifact win-<SHA7> carries Editor.pdb in its -symbols.zip.
+#
+# B-HEADERS / C-CENSUS / B-GATES rows, on the same build (build/cmake/win-dev):
+# [census_rules] python scripts/Dev/arch_census.py --build build/cmake/win-dev -> prints 20 rules, exit 0;
+#              python scripts/Dev/arch_census.py --list include-cycle -> no place beyond the baseline's 4.
+# [header_fanout] header-fanout lines of that run: ContentKinds.hpp <= 540, ContentPaths.hpp <= 290, AssetEnvelope.hpp
+#              <= 490, Document.hpp <= 470, AssetGuidRef.hpp <= 590, TextTemplate.hpp <= 230, rfl/Object.hpp <= 650
+#              objects (scripts/Dev/header_fanout_budget.txt). touch ContentPaths.hpp + build -> .ninja_log <= 290 obj.
+# [gate]       a commit adding #include <rflcpp/rfl.hpp> to ContentKinds.hpp -> census exit 2 locally (header-fanout
+#              ContentKinds.hpp over 540) and the 'Architecture census' step red on macOS and Windows CI.
+# [build_cost] configure with -DDESERT_TIME_TRACE=ON, build, then python scripts/Dev/build_cost.py --build <tree>
+#              --log <build output> -> the slowest objects, the /Bt+ front/back-end tables, the /d2cgsummary
+#              functions, and TOTAL_TOP_SECONDS.
+# [0_smoke]    in the editor (below, the only played step): the headers split changed no behaviour - assets load by kind and path as on dev.
+Дано state
+Тогда 0_smoke Редактор открыл проект как на dev: сцена, Content Browser с ассетами по папкам, без падения и диалога ошибки; в editor.log нет отказа загрузки ассета или заголовка

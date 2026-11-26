@@ -12,3 +12,5 @@ You implement the design named in the brief's `## Дизайн`, all of it, in o
 - Commit `wip: <CODE> код готов - …` and push.
 
 Report: each row of `## Отличия` as closed with `file:line`, or not closed and why; deletions; what only a build or a frame can prove. At most 25 lines.
+
+Economy: read by ranges (grep first, at most 200 lines a read), print at most 4000 characters per command, never re-read a file you just edited. The final report is at most 40 lines: what is closed, what is not proven, the commit. The lead reads no diff from you.

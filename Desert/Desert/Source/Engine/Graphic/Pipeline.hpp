@@ -55,11 +55,7 @@ namespace Desert::Graphic
             std::unordered_set<IPipeline*> All;
         };
 
-        inline LivePipelineSet& LivePipelines()
-        {
-            static LivePipelineSet s_Live;
-            return s_Live;
-        }
+        LivePipelineSet& LivePipelines();
     } // namespace detail
 
     class IPipeline
@@ -420,11 +416,7 @@ namespace Desert::Graphic
     // cache's card gather (MeshRenderer::GatherSurfaceCacheInstances) - asks its pipelines again only when it
     // moved, reading it BEFORE it asks them (UE: a material render proxy's invalidation, not a poll of every
     // pipeline every frame).
-    inline std::atomic<uint64_t>& PipelineReadinessCounter()
-    {
-        static std::atomic<uint64_t> counter{ 0 };
-        return counter;
-    }
+    std::atomic<uint64_t>& PipelineReadinessCounter();
     [[nodiscard]] inline uint64_t PipelineReadinessGeneration()
     {
         return PipelineReadinessCounter().load( std::memory_order_acquire );

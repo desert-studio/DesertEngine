@@ -307,10 +307,10 @@ namespace Desert::UI
         void UpdateToasts( IUITree& tree, UIViewContext& view )
         {
             // Notifications raised from outside the UI reach exactly one view — the one that owns the
-            // scene's shared clocks. See UIOverlay.hpp.
+            // scene's shared clocks. See UIOverlayRequests.hpp.
             if ( view.DrivesSceneAnimation )
             {
-                for ( UIOverlayRequests::Request& r : UIOverlayRequests::Get().Drain() )
+                for ( UIOverlayRequests::Request& r : tree.World().Overlays.Drain() )
                 {
                     const auto canvas = OverlayByName( tree, r.Overlay );
                     if ( !canvas )
@@ -418,35 +418,6 @@ namespace Desert::UI
                  "opened rather than one of them being guessed",
                  matches.size(), name );
         return Common::MakeSuccess( matches.front() );
-    }
-
-    UIOverlayRequests& UIOverlayRequests::Get()
-    {
-        static UIOverlayRequests requests;
-        return requests;
-    }
-
-    void UIOverlayRequests::Raise( std::string overlay, std::string text )
-    {
-        if ( overlay.empty() )
-        {
-            LOG_ERROR( "[UI] a notification was raised with no overlay name and is dropped; name the Toast "
-                       "overlay it belongs to" );
-            return;
-        }
-        m_Pending.push_back( { std::move( overlay ), std::move( text ) } );
-    }
-
-    std::vector<UIOverlayRequests::Request> UIOverlayRequests::Drain()
-    {
-        std::vector<Request> out;
-        out.swap( m_Pending );
-        return out;
-    }
-
-    void UIOverlayRequests::Clear()
-    {
-        m_Pending.clear();
     }
 
     std::string OverlayToastTextKey( int slot )

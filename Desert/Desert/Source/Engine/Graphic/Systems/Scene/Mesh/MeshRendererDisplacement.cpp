@@ -91,6 +91,9 @@ namespace Desert::Graphic::System
             const uint32_t group = static_cast<uint32_t>( std::countr_zero( ~hidden ) ) & 63u;
             return ( static_cast<uint32_t>( instance + 1 ) << 6u ) | group;
         };
+        // A thinned field's transform is keyed by its component index, so a density change keeps its twin.
+        const auto componentInstance = []( const InstancedMeshRenderData& ism, const size_t i ) -> size_t
+        { return ism.InstanceIds ? ( *ism.InstanceIds )[i] : i; };
         for ( const InstancedMeshRenderData& ism : m_InstancedQueue )
         {
             if ( !requestLevels )
@@ -118,8 +121,8 @@ namespace Desert::Graphic::System
                     materials[s] = record.GetValue();
             const std::vector<glm::mat4>& transforms = *ism.Transforms;
             for ( size_t i = 0; i < transforms.size(); ++i )
-                cache.Request( ism.Entity, ismPart( i, ism.HiddenSubmeshes ), mesh, transforms[i], materials, view,
-                               viewHeightPixels, frame );
+                cache.Request( ism.Entity, ismPart( componentInstance( ism, i ), ism.HiddenSubmeshes ), mesh,
+                               transforms[i], materials, view, viewHeightPixels, frame );
         }
 
         // SKINNED records (§9.8): displaced over the skin cache's pose, so only while the skin cache runs (off, the
@@ -258,8 +261,9 @@ namespace Desert::Graphic::System
                 bool anyTwin = false;
                 for ( size_t i = 0; i < transforms.size(); ++i )
                 {
-                    drawn.emplace_back( cache.Find( ism.Entity, ismPart( i, ism.HiddenSubmeshes ) ),
-                                        static_cast<uint32_t>( i ) );
+                    drawn.emplace_back(
+                         cache.Find( ism.Entity, ismPart( componentInstance( ism, i ), ism.HiddenSubmeshes ) ),
+                         static_cast<uint32_t>( i ) );
                     anyTwin = anyTwin || drawn.back().first != nullptr;
                 }
                 if ( anyTwin )
@@ -277,7 +281,7 @@ namespace Desert::Graphic::System
                             if ( t == group.Twin )
                             {
                                 subset->push_back( transforms[i] );
-                                ids->push_back( i );
+                                ids->push_back( static_cast<uint32_t>( componentInstance( ism, i ) ) );
                             }
                         group.Transforms  = std::move( subset );
                         group.InstanceIds = std::move( ids );

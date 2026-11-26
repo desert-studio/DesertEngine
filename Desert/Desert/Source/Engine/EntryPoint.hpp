@@ -3,6 +3,7 @@
 #include <Common/Core/CrashHandler.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
+#include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
 #include <cstdio>

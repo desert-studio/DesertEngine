@@ -172,10 +172,10 @@ namespace Desert::Graphic
         /// The sky/IBL bake — panorama, radiance, irradiance, prefiltered. Recipe is the sky settings.
         Environment,
 
-        /// The editor's own pictures: thumbnails, previews, panel slices, icon and font atlases.
+        /// The editor's own pictures: thumbnails, previews, panel slices.
         EditorTool,
 
-        /// The 2D/UI backend and the ImGui layer.
+        /// The 2D/UI backend and the ImGui layer, and the font and icon atlases game UI draws with as well.
         UserInterface,
 
         /// Swapchain, command pools, query pools, default and fallback textures — the device's own.
@@ -577,11 +577,7 @@ namespace Desert::Graphic
         /// Function-local statics rather than file-scope ones because GPU objects are constructed during
         /// static initialisation in some translation units (the default textures), and a file-scope map
         /// might not be alive yet. The `Meyers` form gives construction on first use in every order.
-        inline std::mutex& Lock()
-        {
-            static std::mutex lock;
-            return lock;
-        }
+        std::mutex& Lock();
 
         struct InstanceHash
         {
@@ -606,11 +602,7 @@ namespace Desert::Graphic
             InstanceTotalsMap Instances;
         };
 
-        inline LedgerState& State()
-        {
-            static LedgerState state;
-            return state;
-        }
+        LedgerState& State();
 
         inline std::unordered_map<uint64_t, LedgerRow>& Rows()
         {
@@ -660,34 +652,17 @@ namespace Desert::Graphic
                 InstanceTotals().erase( it );
         }
 
-        inline uint64_t& NextRowId()
-        {
-            static uint64_t next = 1; // 0 is "accounts for nothing" and is never handed out
-            return next;
-        }
+        uint64_t& NextRowId();
 
         /// The attribution a new row gets when nobody claims it. Thread-local: two threads building GPU
         /// objects at once must not attribute each other's, and the preloader does run staged work.
-        inline ResourceOwner& AmbientOwner()
-        {
-            static thread_local ResourceOwner owner = ResourceOwner::Unclaimed;
-            return owner;
-        }
+        ResourceOwner& AmbientOwner();
 
         /// The instance a new row gets beside the ambient owner. Thread-local for the same reason.
-        inline ResourceOwnerInstance& AmbientInstance()
-        {
-            static thread_local ResourceOwnerInstance instance;
-            return instance;
-        }
+        ResourceOwnerInstance& AmbientInstance();
 
         /// The next id of @p kind. One counter per kind, never reused (see ResourceOwnerInstance).
-        inline uint64_t MintInstanceId( const ResourceInstanceKind kind )
-        {
-            static std::atomic<uint64_t> scenes{ 0 };
-            static std::atomic<uint64_t> views{ 0 };
-            return ( kind == ResourceInstanceKind::Scene ? scenes : views ).fetch_add( 1 ) + 1;
-        }
+        uint64_t MintInstanceId( const ResourceInstanceKind kind );
     } // namespace LedgerDetail
 
     inline ResourceOwnerInstance ResourceOwnerInstance::NewScene()

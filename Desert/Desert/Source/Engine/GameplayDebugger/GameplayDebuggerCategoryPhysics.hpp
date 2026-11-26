@@ -5,7 +5,7 @@
 #if DESERT_DEV_INSTRUMENTS
 #include <Engine/GameplayDebugger/GameplayDebuggerCategory.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/glm.hpp>
 
 #include <cstdint>

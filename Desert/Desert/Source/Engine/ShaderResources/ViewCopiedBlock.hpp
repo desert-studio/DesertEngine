@@ -335,11 +335,7 @@ namespace Desert::ShaderResources
         }
 
         // GetCopyEpoch: a stamp greater than every one handed out before, by any block.
-        void StampCopyEpoch() noexcept
-        {
-            static std::atomic<uint64_t> s_Next{ 0 };
-            m_CopyEpoch.store( s_Next.fetch_add( 1, std::memory_order_relaxed ) + 1, std::memory_order_release );
-        }
+        void StampCopyEpoch() noexcept;
 
         // Acquire takes a factory; the copy is already made (and seeded), so this one just hands it over.
         class HandOver final : public Graphic::IViewResourceCopyFactory
@@ -454,11 +450,7 @@ namespace Desert::ShaderResources
             }
 
         private:
-            static uint64_t Next() noexcept
-            {
-                static std::atomic<uint64_t> s_Next{ 1 };
-                return s_Next.fetch_add( 1, std::memory_order_relaxed );
-            }
+            static uint64_t Next() noexcept;
             uint64_t m_Value;
         };
 

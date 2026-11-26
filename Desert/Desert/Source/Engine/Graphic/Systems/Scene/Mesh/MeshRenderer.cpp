@@ -563,6 +563,24 @@ namespace Desert::Graphic::System
         m_LODDistanceScale = scale;
     }
 
+    void MeshRenderer::SetDrawDistanceScale( const float scale )
+    {
+        if ( scale == m_DrawDistanceScale )
+            return;
+        LOG_INFO( "[Mesh] DrawDistanceScale {} (was {}): authored draw and cull distances x {}", scale,
+                  m_DrawDistanceScale, scale );
+        m_DrawDistanceScale = scale;
+    }
+
+    Geometry::LODView MeshRenderer::MainLODView( const Core::Camera& camera ) const
+    {
+        return { .Origin        = camera.GetPosition(),
+                 .Projection    = camera.GetProjectionMatrix(),
+                 .Temporal      = m_ViewTemporalLOD,
+                 .DistanceScale = m_LODDistanceScale,
+                 .DrawDistance  = m_DrawDistanceScale };
+    }
+
     uint32_t MeshRenderer::ComputeLOD( const glm::mat4& transform, const Mesh* mesh, int forcedLOD,
                                        int lodBias ) const
     {
@@ -576,10 +594,7 @@ namespace Desert::Graphic::System
 
         // The policy itself lives in Geometry::SelectLOD so the editor can report the SAME level it
         // draws with (Details "Mesh" section); this only resolves the renderer's camera + LOD toggle.
-        return Geometry::SelectLOD( transform, mesh->GetSubmeshes(),
-                                    Geometry::LODView{ .Origin        = camera->GetPosition(),
-                                                       .Projection    = camera->GetProjectionMatrix(),
-                                                       .DistanceScale = m_LODDistanceScale },
+        return Geometry::SelectLOD( transform, mesh->GetSubmeshes(), MainLODView( *camera ),
                                     mesh->GetLODScreenSizes(), forcedLOD, lodBias );
     }
 
@@ -597,10 +612,7 @@ namespace Desert::Graphic::System
         const auto* camera = m_SceneRenderer->GetMainCamera();
         if ( !camera )
             return levels;
-        const Geometry::LODView view{ .Origin        = camera->GetPosition(),
-                                      .Projection    = camera->GetProjectionMatrix(),
-                                      .Temporal      = m_ViewTemporalLOD,
-                                      .DistanceScale = m_LODDistanceScale };
+        const Geometry::LODView view = MainLODView( *camera );
         levels = Geometry::SelectDitheredLODFromBounds( transform, Geometry::LocalBounds( mesh->GetSubmeshes() ),
                                                         view, mesh->GetLODScreenSizes(), forcedLOD, lodBias );
         const uint32_t maxLevel = Geometry::MaxAvailableLOD( mesh->GetSubmeshes() );
@@ -686,7 +698,7 @@ namespace Desert::Graphic::System
         // one keeps the fields' proxies (GpuSceneProxies::KeepsFields).
         if ( data.Entity != row.Entity || data.Mesh != row.Mesh || data.Material != row.Material ||
              data.DisplacedMaterial != row.DisplacedMaterial || data.Transforms != row.Transforms ||
-             data.InstanceIds || data.HiddenSubmeshes != row.HiddenSubmeshes ||
+             data.InstanceIds != row.InstanceIds || data.HiddenSubmeshes != row.HiddenSubmeshes ||
              data.CastShadows != row.CastShadows || data.CastContactShadow != row.CastContactShadow )
             m_InstancedQueueChanged = true;
         data.Entity                   = row.Entity;
@@ -694,8 +706,7 @@ namespace Desert::Graphic::System
         AssignInstancedHandle( data.Material, row.Material );
         AssignInstancedHandle( data.DisplacedMaterial, row.DisplacedMaterial );
         AssignInstancedHandle( data.Transforms, row.Transforms );
-        if ( data.InstanceIds )
-            data.InstanceIds.reset(); // set only on a record ApplyDisplacement split; the row is the whole field
+        AssignInstancedHandle( data.InstanceIds, row.InstanceIds ); // a split record is the row's again
         data.HiddenSubmeshes   = row.HiddenSubmeshes;
         data.CastShadows       = row.CastShadows;
         data.CastContactShadow = row.CastContactShadow;
@@ -1647,7 +1658,7 @@ namespace Desert::Graphic::System
 
         // The active IBL environment (diffuse irradiance + prefiltered specular) and the split-sum BRDF
         // LUT, resolved once so each lit object samples real ambient/reflections instead of the dummy cube.
-        auto* imageService = Runtime::ResourceRegistry::GetImageService();
+        auto* imageService = Runtime::GetImageService();
         if ( const auto& env = m_SceneRenderer->GetEnvironment(); env.has_value() )
         {
             frame.EnvironmentLook = env->Look;
@@ -2730,9 +2741,7 @@ namespace Desert::Graphic::System
         if ( camera != nullptr )
         {
             frustum.emplace( camera->GetProjectionMatrix(), camera->GetViewMatrix() );
-            lodView.emplace( Geometry::LODView{ .Origin        = camera->GetPosition(),
-                                                .Projection    = camera->GetProjectionMatrix(),
-                                                .DistanceScale = m_LODDistanceScale } );
+            lodView.emplace( MainLODView( *camera ) );
         }
         // THE FAR CROWD (WP-FAR-12): a record at its lowest level and below the crowd's screen size plays its
         // clip from the baked vertex animation (VertexAnimationCrowd) - its row fetches the baked frame, the skin
@@ -3386,6 +3395,9 @@ namespace Desert::Graphic::System
                 fields.push_back( { .Entity            = data.Entity,
                                     .Mesh              = data.Mesh,
                                     .Transforms        = *data.Transforms,
+                                    .ComponentInstances =
+                                         data.InstanceIds ? std::span<const uint32_t>( *data.InstanceIds )
+                                                          : std::span<const uint32_t>{},
                                     .CullDistanceStart = data.CullDistance.Min,
                                     .CullDistanceEnd   = data.CullDistance.Max,
                                     .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow, true ) |

@@ -1,0 +1,15 @@
+# DX12-FIELD-BARN: FIELD_Barn through the IRhi (DX12-RHI). Run 1 (RHI-NEUTRAL) moves every static X::Create behind
+# Renderer::Rhi() and picks the backend once (RhiSelection: --rhi > machine.json Rhi > Vulkan); the Vulkan frame must
+# stay byte-identical to FPS-FIELD-BARN's still-air view on the base SHA (frame-compare, default machine settings).
+# Second pass, same lines with `--rhi d3d12` on the Проект line: until the D3D12 renderer lands (runs 2-8) the
+# editor exits non-zero before any window, editor.log carries one line
+#   [Rhi] cannot start: rendering backend d3d12: renderer not finished (resources, render graph and frame are not implemented); run without --rhi d3d12
+# and no frame is expected. From run 8 on the d3d12 pass shoots barn-lit too and is compared with the Vulkan frame
+# (mean |diff| <= max(2/255, 2x Vulkan-vs-Vulkan noise)).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 300
+Тогда-вид barn-lit FIELD_Barn at 1.7 m on Vulkan through the IRhi: barn, grass, trees and sky drawn, frame not black (mean > 0), no "did not execute"; editor.log has "[Rhi] vulkan from the default" and 0 VUID; pixel-equal to the base SHA's frame of the same lines

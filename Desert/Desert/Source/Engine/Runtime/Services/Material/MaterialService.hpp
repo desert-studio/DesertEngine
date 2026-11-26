@@ -197,6 +197,20 @@ namespace Desert::Runtime
                                                      const Core::ShaderVariant& permutation,
                                                      const void*                owner ) const;
 
+        // GetViewVariant with WHY it is null, decided under the same lock as the lookup: Pending = the asset's
+        // read is in flight (the sibling comes on a later frame), otherwise the cell was refused (and named by
+        // CreateSurfaceMaterial) or @p built is not a live service material (retired by Invalidate/Register). A
+        // separate IsPending after a null answer races the read's completion on a worker and reports a material
+        // that merely finished loading in between as refused.
+        struct ViewVariantAnswer
+        {
+            Graphic::DataDrivenMaterial* Material = nullptr;
+            bool                         Pending  = false;
+        };
+        [[nodiscard]] ViewVariantAnswer ResolveViewVariant( const Graphic::Material* built,
+                                                            Graphic::MeshVertexPath path, Graphic::MeshPass pass,
+                                                            uint32_t view ) const;
+
         // Destroys, NOW, every view copy GetViewVariant built for `owner` (never nullptr): the owner's teardown.
         // Not through the graveyard, because the owner is a view member and the view's ledger check runs as
         // the view closes — the caller guarantees the device is idle (a SceneRenderer is destroyed after

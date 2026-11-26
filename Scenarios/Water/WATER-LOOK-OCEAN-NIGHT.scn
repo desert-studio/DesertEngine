@@ -1,0 +1,27 @@
+# WATER-LOOK-OCEAN-NIGHT: the same beach under the moon (DirectionLight 0.25, the only light): the water and the foam carry
+# the moon's light and nothing glows without a light. Log: 0 VUID.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Ocean_Night.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,600,-1500
+Дано --subject viewport set Camera.Direction 0.5,-0.12,-0.85
+Когда frames 64
+Тогда-вид 6_night_a лунная дорожка на воде к горизонту, пена видна, берег не светится
+Когда frames 1
+Тогда-вид 6_night_b лунная дорожка на воде к горизонту, пена видна, берег не светится
+Когда frames 1
+Тогда-вид 6_night_c лунная дорожка на воде к горизонту, пена видна, берег не светится
+Когда frames 1
+# 4 m up: at 1.8 m the bores ran over the camera (b_wf8 night_near_a black, under water).
+Дано --subject viewport set Camera.Position 0,400,-2500
+Дано --subject viewport set Camera.Direction 0,-0.2,1
+Тогда-вид night_near_a вода и пена освещены луной; без света ничего не светится, дно в глубине тёмное
+Когда frames 1
+Тогда-вид night_near_b вода и пена освещены луной; без света ничего не светится, дно в глубине тёмное
+Когда frames 1
+Тогда-вид night_near_c вода и пена освещены луной; без света ничего не светится, дно в глубине тёмное
+Когда frames 1
+# No light at all: the moon (the scene's only light) is put out.
+Дано set 2655487512173432098 DirectionalLightData.Intensity 0
+Когда frames 64
+Тогда-вид night_near_dark луна погашена: вода и пена не светятся, ярче неба на воде ничего нет
+Дано set 2655487512173432098 DirectionalLightData.Intensity 0.25

@@ -112,13 +112,11 @@ _desert_exr_substitute("${_imath}/config/ImathConfig.h.in" _text)
 desert_write_generated("${_generated}/Imath/ImathConfig.h" "${_text}")
 desert_write_generated("${_generated}/ImathConfig.h" "${_text}")
 
-file(GLOB _core_src CONFIGURE_DEPENDS "${_core}/*.c" "${_core}/*.cpp" "${_core}/*.h")
-file(GLOB _ojph_src CONFIGURE_DEPENDS
+_desert_thirdparty_glob(_core_src "${_core}/*.c" "${_core}/*.cpp" "${_core}/*.h")
+_desert_thirdparty_glob(_ojph_src
     "${_ojph}/codestream/*.cpp" "${_ojph}/coding/*.cpp" "${_ojph}/others/*.cpp" "${_ojph}/others/*.c"
     "${_ojph}/transform/*.cpp")
 list(FILTER _ojph_src EXCLUDE REGEX "_(sse|sse2|ssse3|avx|avx2|avx512|wasm|vsx)\\.cpp$")
-list(SORT _core_src)
-list(SORT _ojph_src)
 set(_zstd_src
     common/debug.c common/entropy_common.c common/error_private.c common/fse_decompress.c common/pool.c
     common/threading.c common/xxhash.c common/zstd_common.c

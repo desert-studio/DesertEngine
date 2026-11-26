@@ -9,7 +9,7 @@
 namespace Desert::Core
 {
     // THREE ENUMS LEFT THIS HEADER WITH THE FIELDS THAT USED THEM (К3): AntiAliasingMode, TextureFilter
-    // and CloudQuality now live in Common/Settings/MachineSettings.hpp, because what they name is what a
+    // and the cloud quality are Common::Scalability rows now, because what they name is what a
     // MACHINE can afford and the packaged game has to be able to say it too. The texture-filter enum
     // additionally existed TWICE — here and in RenderConfig — under a "Must match" comment with nothing
     // asserting the match; both spellings are gone and Common::Settings::TextureFilter is the only one.
@@ -182,5 +182,13 @@ namespace Desert::Core
         float SplashDuration = 0.0f;
         PROPERTY( DisplayName( "Splash Fade" ), Category( "Splash" ), Range( 0.0f, 3.0f ) )
         float SplashFade = 0.4f;
+    };
+
+    // The registry context's link to its Scene's settings (registry.ctx holds a pointer, as HierarchyRevisionLink
+    // does: the Scene owns the settings and outlives its registry's systems). Set by Scene on every (re)load; a bare
+    // registry has none, and a reader that needs a setting refuses rather than assume one.
+    struct SceneSettingsLink
+    {
+        const SceneSettings* Settings = nullptr;
     };
 } // namespace Desert::Core

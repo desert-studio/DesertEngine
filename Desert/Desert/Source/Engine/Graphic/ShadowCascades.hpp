@@ -132,15 +132,7 @@ namespace Desert::Graphic
     public:
         ShadowAttachmentLease() = default;
 
-        explicit ShadowAttachmentLease( const ShadowQuality& quality, const uint32_t directionalLights = 1u )
-             : m_Bytes( ShadowAttachmentBytes( quality, directionalLights ) )
-        {
-            if ( m_Bytes != 0 )
-            {
-                s_LiveBytes += m_Bytes;
-                ++s_LiveHolders;
-            }
-        }
+        explicit ShadowAttachmentLease( const ShadowQuality& quality, const uint32_t directionalLights = 1u );
 
         ShadowAttachmentLease( const ShadowAttachmentLease& )            = delete;
         ShadowAttachmentLease& operator=( const ShadowAttachmentLease& ) = delete;
@@ -166,25 +158,12 @@ namespace Desert::Graphic
             Release();
         }
 
-        void Release()
-        {
-            if ( m_Bytes == 0 )
-                return;
-            s_LiveBytes -= m_Bytes;
-            --s_LiveHolders;
-            m_Bytes = 0;
-        }
+        void Release();
 
         // Every cascade set alive in this process, and how many renderers hold one. Read by the
         // renderer's own log line so a reader never has to guess the multiplier.
-        [[nodiscard]] static uint64_t LiveBytes()
-        {
-            return s_LiveBytes;
-        }
-        [[nodiscard]] static uint32_t LiveHolders()
-        {
-            return s_LiveHolders;
-        }
+        [[nodiscard]] static uint64_t LiveBytes();
+        [[nodiscard]] static uint32_t LiveHolders();
 
     private:
         uint64_t m_Bytes = 0;
@@ -192,8 +171,8 @@ namespace Desert::Graphic
         // Not atomic, and that is a statement rather than an omission: cascade framebuffers are created
         // and destroyed on the render thread only (MeshRenderer::Initialize runs inside
         // SceneRenderer::Init, which a JobSystem worker may not call — it touches the GPU).
-        inline static uint64_t s_LiveBytes   = 0;
-        inline static uint32_t s_LiveHolders = 0;
+        static uint64_t s_LiveBytes;
+        static uint32_t s_LiveHolders;
     };
 
     struct CascadeFit

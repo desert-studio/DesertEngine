@@ -73,12 +73,12 @@
 // HOW TO TELL A QUALITY KNOB FROM AN AUTHORED LOOK, because that is the boundary this went wrong on. Ask:
 // set to its cheapest value, has the level been MIS-AUTHORED, or merely RENDERED WORSE?
 //   * rendered worse -> machine quality. `MeshLOD` off is byte-identical geometry near the camera;
-//     `CloudQuality` High reproduces the calibrated constants to the digit; Anisotropy 1, Nearest
+//     the clouds' Epic rows reproduce the calibrated constants to the digit; Anisotropy 1, Nearest
 //     filtering and AA None are the same picture, blurrier or harsher.
 //   * mis-authored -> level data that happens to cost something. Forward and Deferred are two shading
 //     models that disagree about cloud shadow on the ground; ACES and Reinhard are two grades; GI Off is
 //     a darker room, not a coarser one.
-// This is what settles the disagreement inside SceneSettings' own comments, where CloudQuality's note
+// This is what settles the disagreement inside SceneSettings' own comments, where the cloud quality's note
 // counts NINE cost-versus-quality siblings and the struct header names only FIVE as misplaced. The other
 // four (RenderingPath, GlobalIllumination, EnableSSAO, EnableSSR) each change the authored look. The
 // closest call by far is EnableSSAO, and it is called Level here deliberately rather than quietly: it is

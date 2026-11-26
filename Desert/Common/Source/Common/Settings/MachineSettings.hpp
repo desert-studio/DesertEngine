@@ -51,8 +51,8 @@ namespace Common::Settings
     // WHAT IS IN IT AND WHAT IS NOT. The test is К1's and it is checkable rather than a matter of taste:
     // set the field to its CHEAPEST value — has the level been MIS-AUTHORED, or merely RENDERED WORSE?
     //   * rendered worse -> here. MeshLOD off is byte-identical geometry near the camera; Anisotropy 1,
-    //     Nearest filtering, AA None and MSAA off are the same picture, blurrier or harsher; CloudQuality
-    //     High reproduces the calibrated constants to the digit.
+    //     Nearest filtering, AA None and MSAA off are the same picture, blurrier or harsher; the
+    //     clouds' Epic rows reproduce the calibrated constants to the digit.
     //   * mis-authored -> the level file. Forward and Deferred disagree about cloud shadow on the ground;
     //     ACES and Reinhard are two grades; GI Off is a darker room, not a coarser one. Those stay in
     //     Core::SceneSettings and are named there.
@@ -77,21 +77,6 @@ namespace Common::Settings
         Bilinear    = 1, // linear min/mag + nearest mip
         Trilinear   = 2, // linear min/mag + linear mip
         Anisotropic = 3, // trilinear + anisotropic filtering (if the device supports it)
-    };
-
-    // How much the volumetric cloud layer may spend on OCCLUSION — the shadow ray each lit sample traces
-    // toward the sun, and the map the layer casts onto the world under it. See Graphic::CloudQualityScale
-    // for what each tier changes and Docs/Clouds/CALIBRATION.md section QT for what each one costs.
-    //
-    //  High   — the reference. Everything at the value the calibration converged on.
-    //  Medium — the cloud shadow map at HALF its linear footprint; the SKY is unchanged.
-    //  Low    — the above, plus the shadow ray capped at 16 samples, which runs the sunward highlights
-    //           about a third bright.
-    enum class CloudQuality : int
-    {
-        Low    = 0,
-        Medium = 1,
-        High   = 2,
     };
 
     struct MachineSettings
@@ -133,7 +118,7 @@ namespace Common::Settings
         // rows unreachable (DeviceCaps HideRayTracing): VK_KHR_acceleration_structure / ray_query /
         // ray_tracing_pipeline are not enabled, the catalog offers RayTracingMode None only, and every method is
         // lowered by the same ResolveRenderMethods a non-RT card goes through — no per-pass flag exists. Read
-        // once, when the Vulkan device is created (VulkanLogicalDevice::Create); a change takes effect on the next
+        // once, when the device is created (the backend's device creation); a change takes effect on the next
         // start.
         bool HideRayTracing = false;
 
@@ -141,7 +126,7 @@ namespace Common::Settings
         // r.RayTracing.OpacityMicromaps / r.RayTracing.ShaderExecutionReordering as console variables). True = the
         // probe plans that one row unreachable: VK_EXT_opacity_micromap (BLAS builds without micromaps,
         // alpha-masked triangles all reach any-hit) / VK_NV_ray_tracing_invocation_reorder (raygen without
-        // hitObject reorder). Read once, when the Vulkan device is created; a change takes effect on the next
+        // hitObject reorder). Read once, when the device is created; a change takes effect on the next
         // start.
         bool HideOpacityMicromap   = false;
         bool HideInvocationReorder = false;
@@ -152,6 +137,14 @@ namespace Common::Settings
         // (Neural::ResolveNeuralKernelPath). Written by the palette's "Neural: Kernel path ..." commands, so one
         // GPU runs all three paths (DesertCtl nn-check).
         std::optional<NeuralKernelPath> ForcedNeuralKernelPath;
+
+        // THE RENDERING BACKEND AND ADAPTER THIS MACHINE STARTS ON (DX12-RHI; UE keeps them as
+        // [/Script/WindowsTargetPlatform.WindowsTargetSettings] DefaultGraphicsRHI and r.GraphicsAdapter). Absent =
+        // Vulkan / the backend's own adapter rank. Text forms are RhiSelection's ("vulkan" | "d3d12"; "auto", "<n>",
+        // "nvidia", "vendor:0x<hex>", "name:<text>"); the command line's --rhi / --adapter win over both. Read once,
+        // at start (Engine/Graphic/Rhi/RhiSelection.hpp); a change takes effect on the next start.
+        std::optional<std::string> Rhi;
+        std::optional<std::string> Adapter;
 
         // --- EVERY OTHER KEY THE FILE HAPPENS TO CONTAIN -------------------------------------------
         // NOT A SETTING AND NOT A KEY OF ITS OWN. Json::CarriedKeys is spread flat at this struct's own

@@ -4,7 +4,7 @@
 #include <Editor/Core/ThumbnailFreshness.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 

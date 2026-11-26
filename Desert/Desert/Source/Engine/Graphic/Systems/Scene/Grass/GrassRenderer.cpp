@@ -604,7 +604,7 @@ namespace Desert::Graphic::System
         // tail it was loaded with (mip 4 of a 2K atlas) at the camera's feet: a near patch of thin grey stalks.
         void NoteVarietyTextureDemand( const GrassVarietyDraw& variety, const Desert::Mesh& mesh,
                                        const GrassFieldData& field, const ViewFrame& frame,
-                                       const float endCullDistance )
+                                       const float endCullDistance, const float mipBias )
         {
             const std::vector<uint32_t>& w          = field.Words;
             const uint32_t               viewHeight = frame.Split.Output.Height;
@@ -641,8 +641,10 @@ namespace Desert::Graphic::System
                 const Common::Math::AABB bounds = Geometry::LocalBounds( mesh.GetSubmeshes() );
                 radius                          = 0.5f * glm::length( bounds.Max - bounds.Min );
             }
-            const float pixels = TextureStreamingDemand::ScreenPixels( ground + glm::vec3( 0.0f, radius, 0.0f ),
-                                                                       radius * maxScale, view, viewHeight );
+            const float pixels = TextureStreamingDemand::BiasedPixels(
+                 TextureStreamingDemand::ScreenPixels( ground + glm::vec3( 0.0f, radius, 0.0f ), radius * maxScale,
+                                                       view, viewHeight ),
+                 mipBias );
             for ( const GrassSectionDraw& section : variety.Sections )
                 if ( section.Material )
                     TextureStreamingDemand::Get().Note( section.Material->GetParentMaterial(), pixels );
@@ -1908,6 +1910,7 @@ namespace Desert::Graphic::System
     bool GrassRenderer::BufferPool::Allocate( PoolRange& range, const uint64_t bytes )
     {
         Release( range );
+        ReclaimRetired();
         const uint64_t size =
              ( std::max( bytes, uint64_t{ 1u } ) + m_Alignment - 1u ) & ~( m_Alignment - 1u );
         for ( auto run = m_Free.begin(); run != m_Free.end(); ++run )
@@ -1932,11 +1935,25 @@ namespace Desert::Graphic::System
     {
         if ( range.Bytes == 0u )
             return;
+        m_Retired.Park( range, ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+        range = PoolRange{};
+    }
+
+    void GrassRenderer::BufferPool::ReclaimRetired()
+    {
+        const ::Desert::Engine::FrameManager& frames = ::Desert::Engine::FrameManager::GetInstance();
+        m_Due.clear();
+        m_Retired.TakeDue( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight(), m_Due );
+        for ( const PoolRange& range : m_Due )
+            FreeNow( range );
+    }
+
+    void GrassRenderer::BufferPool::FreeNow( const PoolRange& range )
+    {
         auto run = std::lower_bound( m_Free.begin(), m_Free.end(), range.Offset,
                                      []( const PoolRange& free, const uint64_t offset ) noexcept
                                      { return free.Offset < offset; } );
         run      = m_Free.insert( run, range );
-        range    = PoolRange{};
         if ( const auto next = std::next( run ); next != m_Free.end() && run->Offset + run->Bytes == next->Offset )
         {
             run->Bytes += next->Bytes;
@@ -2197,6 +2214,7 @@ namespace Desert::Graphic::System
 
     bool GrassRenderer::TakeTileSegment( uint32_t& index )
     {
+        ReclaimTileSegments();
         if ( m_FreeTileSegments.empty() )
         {
             m_TileSegments.emplace_back();
@@ -2233,18 +2251,29 @@ namespace Desert::Graphic::System
 
     void GrassRenderer::ReleaseTileSegments( VarietyGpu& gpu )
     {
+        const uint64_t frame = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         for ( const uint32_t index : gpu.TileSegments )
         {
             m_TileSegments[index].Held = false;
             m_TileSegments[index].Ref  = {};
-            m_FreeTileSegments.push_back( index );
+            m_RetiredTileSegments.Park( index, frame );
         }
         m_TileSegmentCount -= static_cast<uint64_t>( gpu.TileSegments.size() );
         gpu.TileSegments.clear();
     }
 
+    void GrassRenderer::ReclaimTileSegments()
+    {
+        const ::Desert::Engine::FrameManager& frames = ::Desert::Engine::FrameManager::GetInstance();
+        m_DueTileSegments.clear();
+        m_RetiredTileSegments.TakeDue( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight(),
+                                       m_DueTileSegments );
+        m_FreeTileSegments.insert( m_FreeTileSegments.end(), m_DueTileSegments.begin(), m_DueTileSegments.end() );
+    }
+
     void GrassRenderer::TrimTileSegments()
     {
+        ReclaimTileSegments();
         // As a pool's own segments were before CPU-GRASS-POOL-2: a released buffer is deleted once no frame in
         // flight holds it. The index stays free and takes a new buffer when a pool grows.
         for ( const uint32_t index : m_FreeTileSegments )
@@ -2855,7 +2884,8 @@ namespace Desert::Graphic::System
         m_FrameCull.push_back( gpu );
         DESERT_PROFILE_PHASE( varietyPhases, "Grass variety: Texture demand" );
         NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
-                                  ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
+                                  ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance,
+                                  m_Quality.TextureMipBias );
 
         // CPU-GRASS-POOL-8: the sections name the list pools' buffers and refs, so they are built
         // after CommitListPools (below the field loop).

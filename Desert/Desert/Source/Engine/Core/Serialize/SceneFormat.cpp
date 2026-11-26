@@ -1,7 +1,9 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/SceneUpgrade.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/AssetRedirector.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Core

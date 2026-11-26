@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
-#include <Common/Json/Document.hpp>
+#include <Common/Json/ValueFwd.hpp>
 
 #include <format>
 #include <functional>
@@ -59,6 +59,10 @@ namespace Common::Text
     [[nodiscard]] ResultStr<Template> Compile( std::string_view text, std::string_view name );
 
     [[nodiscard]] ResultStr<std::string> Render( const Template& tpl, const Json::Node& data,
+                                                 const TemplateLoader& loader = {} );
+    // The same over a whole value, rooted at the document (Json::Root): the spelling for a caller that holds
+    // a Value and should not compile Document.hpp to name its root.
+    [[nodiscard]] ResultStr<std::string> Render( const Template& tpl, const Json::Value& data,
                                                  const TemplateLoader& loader = {} );
 
     // A list as one run of text, "a, b, c" for separator ", ": what the `join` filter writes, for a list that

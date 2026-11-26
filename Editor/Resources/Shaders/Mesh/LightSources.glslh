@@ -24,6 +24,13 @@
 #include <Mesh/LightFunctionAtlas.glslh>
 #endif
 
+// THE LIGHT'S SHADOW BITS (PointLight.hpp ShadowFlags; kLightShadow* generated beside the structs), the one GLSL
+// spelling every reader uses.
+// The light casts in this view (raster: maps, MegaLights rays, surface-cache traces).
+bool DesertLightShadowsInView(int shadowFlags) { return (shadowFlags & kLightShadowInView) != 0; }
+// The light casts shadows at all (path tracer, GI hits): UE skips the shadow ray of a non-casting light everywhere.
+bool DesertLightCastsShadows(int shadowFlags) { return (shadowFlags & kLightShadowCasts) != 0; }
+
 // A local light's half of its contact shadow, as Common/ContactShadow.glslh takes it: (length, in world space,
 // casting intensity, non-casting intensity).
 vec4 LightContactShadow(PointLight source)

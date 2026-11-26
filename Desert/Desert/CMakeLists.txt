@@ -1,4 +1,5 @@
-# One static library per engine module, built from the module table (cmake/DesertModuleTable.cmake).
+# One library per engine module (a DLL in Development/DebugGame, static in Shipping: desert_module_library), built from
+# the module table (cmake/DesertModuleTable.cmake).
 # The libraries are named Desert<Module> (DesertModules.LegacyLibName); which files each one compiles is decided
 # by cmake/DesertModuleTable.cmake's placement rows (cmake/DesertModules.cmake).
 
@@ -21,7 +22,7 @@ endforeach()
 # the closure of Core) builds and links: the modules of that closure name exactly the libraries their code calls
 # (measured with nm -u on each archive), and the server build compiles no physics, ray tracing, Voronoi fracture,
 # texture compression or media decoding. Modules not named here link the full set.
-set(_luau LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon)
+set(_luau Luau)
 set(_thirdparty_default Jolt ${_luau} MeshOptimizer Voro Compressonator OpenSubdiv Embree Dav1d Opus)
 set(_thirdparty_CoreReflection "")
 set(_thirdparty_Projects "")
@@ -29,9 +30,42 @@ set(_thirdparty_AssetCore "")
 set(_thirdparty_GeometryCore OpenSubdiv MeshOptimizer)
 set(_thirdparty_Core ${_luau})
 
-desert_engine_header_tool_command(_header_tool_command)
+desert_engine_header_tool_command(_header_tool_command _header_tool_inputs)
+set_source_files_properties(${DESERT_ENGINE_GENERATED_FILES} PROPERTIES GENERATED TRUE)
+
+# DesertSchemaLock: the one explicit command that rewrites Desert/Schema/ComponentSchema.lock to the code's
+# COMPONENT blocks (scripts/Dev/schema_lock.sh); the build only compares and fails on a difference.
+add_custom_target(DesertSchemaLock
+    COMMAND ${_header_tool_command} --write-schema-lock
+    DEPENDS DesertHeaderTool
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    COMMENT "DesertHeaderTool: rewrite Desert/Schema/ComponentSchema.lock"
+    VERBATIM)
 
 set(_source "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+set(_postprocessing "${_source}/Engine/Graphic/Systems/Scene/PostProcessing")
+
+# Sources that never share a unity batch (cmake/DesertWorkspace.cmake desert_unity_exclude), each with the name it
+# would clash on.
+desert_sources(_d3d12 "${_source}" MATCHING "^Engine/Graphic/API/D3D12/[^/]+\\.cpp$")
+desert_unity_exclude(REASON "windows.h / d3d12.h macros (min, max, near, far, CreateWindow) leak into the batch"
+    ${_d3d12} "${_source}/Engine/Core/Device.cpp")
+desert_unity_exclude(REASON "anonymous-namespace Finite() also in Animation/Rig/ControlHierarchy.cpp"
+    "${_source}/Engine/Animation/Rig/ControlShape.cpp")
+desert_unity_exclude(REASON "anonymous-namespace kBytesPerVoxel / kFormatRgba8 / kMinResolution also in the other cloud volume and bake sources"
+    "${_source}/Engine/Assets/CloudNoiseVolume.cpp"
+    "${_source}/Engine/Assets/CloudNoiseVolumeSheet.cpp"
+    "${_source}/Engine/Assets/CloudProceduralVolume.cpp")
+desert_unity_exclude(REASON "anonymous-namespace FileHeader / kByteOrderTag also in Assets/Serialization/MeshBinary.cpp"
+    "${_source}/Engine/Assets/Serialization/TextureBinary.cpp")
+desert_unity_exclude(REASON "anonymous-namespace kGroupSize / GroupCount() also in the other compute-pass renderers"
+    "${_source}/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp"
+    "${_postprocessing}/AutoExposureRenderer.cpp"
+    "${_postprocessing}/BloomRenderer.cpp"
+    "${_postprocessing}/LensFlareRenderer.cpp"
+    "${_postprocessing}/LightShaftRenderer.cpp")
+desert_unity_exclude(REASON "anonymous-namespace FloorDiv() also in Landscape/Private/LandscapeBrush.cpp"
+    "${DESERT_ROOT}/Desert/Landscape/Source/Landscape/Private/LandscapeEditCache.cpp")
 
 function(_desert_engine_module_library name)
     set(target "Desert${name}")
@@ -52,15 +86,17 @@ function(_desert_engine_module_library name)
     foreach(rel IN LISTS DESERT_MODULE_${name}_LEGACY)
         _desert_add("${rel}" "${_source}/${rel}")
     endforeach()
+    # The module's generated registration (<build>/Generated, written by the codegen library's HeaderTool step).
+    list(APPEND _common ${DESERT_MODULE_${name}_GENERATED})
     string(LENGTH "${DESERT_MODULE_${name}_FOLDER}/" _prefix)
     foreach(file IN LISTS DESERT_MODULE_${name}_FOLDER_FILES)
         string(SUBSTRING "${file}" ${_prefix} -1 _rel)
         _desert_add("${_rel}" "${DESERT_ROOT}/${file}")
     endforeach()
 
-    desert_add_library(${target} SOURCES ${_common} ${_vendored_${name}})
+    desert_module_library(${target} SOURCES ${_common} ${_vendored_${name}})
     desert_enable_unity(${target})
-    # Runtime code: whole-program optimised under DESERT_LTCG (every module library, one shared PCH).
+    # Runtime code: whole-program optimised in Shipping (every module library, one shared PCH).
     desert_ltcg(${target})
 
     # pch.hpp, force-included into every source (pchheader/pchsource/forceincludes); every module library
@@ -76,9 +112,9 @@ function(_desert_engine_module_library name)
     if(_no_pch)
         set_source_files_properties(${_no_pch} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
     endif()
-    # The distance-field and card builders are optimised even in Debug (a Debug bake is otherwise unusable):
-    # desert_finalize_targets() compiles them as <target>-DebugOptimized with Debug /O2, no runtime checks and the
-    # PCH off in Debug only.
+    # The distance-field and card builders are optimised even in DebugGame (a DebugGame bake is otherwise unusable):
+    # desert_finalize_targets() compiles them as <target>-DebugOptimized with DebugGame /O2, no runtime checks and the
+    # PCH off in DebugGame only.
     foreach(src IN LISTS _common)
         if(src MATCHES "/Engine/Assets/(MeshDistanceFieldBuild|MeshCardBuild)\\.cpp$")
             set_property(SOURCE "${src}" PROPERTY DESERT_DEBUG_OPTIMIZE ON)
@@ -89,7 +125,8 @@ function(_desert_engine_module_library name)
         add_dependencies(${target} DesertHeaderTool)
         desert_prebuild(${target} HeaderTool
             COMMAND ${_header_tool_command}
-            DEPENDS DesertHeaderTool
+            DEPENDS ${_header_tool_inputs}
+            BYPRODUCTS ${DESERT_ENGINE_GENERATED_FILES}
             COMMENT "DesertHeaderTool: engine reflection and subsystem codegen")
     else()
         desert_depend_on_codegen(${target})
@@ -114,13 +151,36 @@ function(_desert_engine_module_library name)
         ${DESERT_COMMON_INCLUDE_DIRS}
         ${DESERT_DESERTSPECIFIC_INCLUDE_DIRS})
 
-    foreach(dep IN LISTS DESERT_MODULE_${name}_DEPS)
+    # The dependency CLOSURE, not only the named deps: a module compiles against its closure's headers
+    # (desert_module_includes), so it calls its closure's code, and a module DLL resolves every symbol it uses at its
+    # own link -- a PRIVATE dep of a dep is not on its link line (TextCore -> ImageCore -> Common left TextCore's Common
+    # calls unresolved, build #8 of B-INT).
+    desert_module_closure(${name} _link_closure)
+    foreach(dep IN LISTS _link_closure)
         target_link_libraries(${target} PRIVATE ${DESERT_MODULE_${dep}_LIBRARIES})
     endforeach()
+    # The module's own project library (Desert/Common's Common for DesertCommon): the table library's files call its
+    # out-of-line definitions (Constants.cpp's path roots since BINT-STATE, build #14 of B-INT).
+    if(DESERT_MODULE_${name}_OWN_PROJECT)
+        target_link_libraries(${target} PRIVATE ${name})
+    endif()
     if(DEFINED _thirdparty_${name})
         target_link_libraries(${target} PRIVATE ${DESERT_OPTICK} ${_thirdparty_${name}})
     else()
         target_link_libraries(${target} PRIVATE ${DESERT_OPTICK} ${_thirdparty_default})
+    endif()
+    # GLFW (the window, the surface, input) is called by the window and render modules and the modules above them;
+    # the server closure has none of these (cmake/DesertModules.cmake RENDER-FREE MODULES), so it never links GLFW.
+    desert_module_closure(${name} _closure)
+    list(APPEND _closure ${name})
+    if("ApplicationCore" IN_LIST _closure OR "RenderCore" IN_LIST _closure OR "Renderer" IN_LIST _closure)
+        target_link_libraries(${target} PRIVATE GLFW)
+    endif()
+    # The shader toolchain (vendored SPIRV-Cross: GLSL reflection + the HLSL path; the SDK's shaderc and Vulkan loader)
+    # is called by ShaderCompiler and by every module above it (RenderCore's shader reflection, the renderer); a
+    # module DLL resolves them at its own link (build #10 of B-INT: DesertShaderCompiler.dll, 123 unresolved).
+    if("ShaderCompiler" IN_LIST _closure)
+        target_link_libraries(${target} PRIVATE ${DESERT_DESERTSPECIFIC_LIBRARIES})
     endif()
 
     # Engine's client net driver (Engine/Net/ClientNetDriver: Play as a network client) runs Desert/Net's session;

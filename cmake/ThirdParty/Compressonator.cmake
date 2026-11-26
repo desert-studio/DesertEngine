@@ -9,7 +9,7 @@
 # takes minutes instead of seconds, and the cook is what the editor waits on (desert_optimize_speed: no Debug
 # runtime checks, which /O2 would conflict with).
 set(_root "${DESERT_ROOT}/ThirdParty/compressonator/cmp_core")
-desert_glob(_src "${_root}/shaders/bc7_encode_kernel.cpp" "${_root}/shaders/*.h" "${_root}/source/*.h")
+_desert_thirdparty_glob(_src RECURSE "${_root}/shaders/bc7_encode_kernel.cpp" "${_root}/shaders/*.h" "${_root}/source/*.h")
 desert_add_library(Compressonator FOLDER ThirdParty SOURCES ${_src})
 desert_warnings_off(Compressonator)
 desert_own_isa_dispatch(Compressonator)

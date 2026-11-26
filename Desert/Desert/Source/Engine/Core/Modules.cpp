@@ -36,8 +36,8 @@ namespace Desert::Core
     {
         static const bool started = []
         {
+            RegisterEngineWorldSystems();
             Destruction::StartupModule();
-            // Before Water: the landscape's collector precedes the water zones' (SceneRenderCollectors.cpp).
             Desert::LandscapeCore::StartupModule(); // the landscape world-partition descriptor hooks
                                                     // (BUILD-MOD-6L)
             Landscape::StartupModule();

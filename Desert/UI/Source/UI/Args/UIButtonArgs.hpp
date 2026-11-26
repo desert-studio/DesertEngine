@@ -17,12 +17,12 @@ namespace Desert::UI
     // Interactive button: tints its panel by pointer state, and on click hands its encoded action to the
     // HOST (RenderCanvas2D writes it to `outClicked`) -- the canvas itself knows nothing about scenes,
     // URLs or scripting. LoadScene/QuitGame/OpenURL are executed by the host; everything else, SendEvent
-    // included, goes on UI::UIMessageQueue and reaches every Lua script defining OnUIMessage. The word
+    // included, goes on its world's UIMessageQueue and reaches that world's scripts defining OnUIMessage. The word
     // "dispatches ... to Lua" used to stand here and was FALSE: both hosts logged the message and never
     // queued it, so the one action documented as a "gameplay event name" was the one that arrived nowhere.
     //
     // What a UI Button does when clicked. The target/payload is the button's "Action Target" string:
-    //  LoadScene   -> Core::OpenLevel(target): project-relative scene path, empty = the default map
+    //  LoadScene   -> the world's travel (Scene::Travel): project-relative scene path, empty = the default map
     //  SendEvent   -> gameplay event name (Lua/scripts)
     //  QuitGame    -> quit (target ignored)        OpenURL     -> open the URL
     enum class UIButtonAction

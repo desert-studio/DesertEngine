@@ -173,7 +173,7 @@ namespace Desert::Editor
         m_Preview  = std::make_unique<PreviewViewport>();
         m_UIHelper = std::make_unique<UI::UIHelper>();
         m_UIHelper->Init();
-        m_Preview->EnableAnimationSystem( m_Library, m_AssetManager );
+        m_Preview->RunAnimationGraphs( { m_AssetManager, m_Library } );
         if ( m_PendingOrbitDegrees )
         {
             m_Preview->SetOrbit( glm::radians( m_PendingOrbitDegrees->x ),

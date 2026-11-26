@@ -2,7 +2,7 @@
 
 #include <Destruction/Public/FractureEdit.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <memory>
 
 #include <Common/Content/AssetEnvelope.hpp>

@@ -8,6 +8,7 @@
 #include <format>
 #include <string>
 #include <vector>
+#include <Common/Json/Document.hpp>
 
 namespace Desert::Editor::Control
 {

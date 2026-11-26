@@ -1,0 +1,17 @@
+{
+    "Header": {
+        "Kind": "SkinnedMesh",
+        "Guid": "3a3d8fcca99632b5a40c04927ce7d4ca",
+        "Versions": {
+            "DIMP": 2
+        },
+        "Dependencies": []
+    },
+    "Source": "Mannequin.glb",
+    "Bounds": {
+        "Min": [-97.22271728515625, 0.046149399131536484, -16.41535758972168],
+        "Max": [97.22269439697266, 182.91783142089844, 20.544408798217773]
+    },
+    "SourceHash": 17557350306964355230,
+    "RenderDataKey": 7243867721712756900
+}

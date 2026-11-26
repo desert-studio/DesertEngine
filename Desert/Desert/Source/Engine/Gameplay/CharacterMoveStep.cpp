@@ -135,6 +135,16 @@ namespace Desert::Gameplay
         return { settings.CapsuleRadius, crouched ? settings.CrouchedHalfHeight : settings.CapsuleHalfHeight };
     }
 
+    DrawnPawn DrawnPawnOf( const PawnMoveSettings& settings, const PawnCapsule& capsule )
+    {
+        return { capsule.HalfHeight + capsule.Radius, settings.CapsuleHalfHeight - capsule.HalfHeight };
+    }
+
+    DrawnPawn DrawnPawnOf( const PawnMoveSettings& settings, std::uint8_t mode )
+    {
+        return DrawnPawnOf( settings, CapsuleOf( settings, ( mode & kModeCrouched ) != 0 ) );
+    }
+
     PawnMoveState StepPawnMove( const PawnMoveState& from, const InputStep& input, const PawnMovement& movement,
                                 IPawnMoveWorld& world, float dtSeconds, const NetVec3* rootMotionVelocity )
     {

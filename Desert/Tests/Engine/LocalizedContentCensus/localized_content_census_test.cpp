@@ -119,6 +119,8 @@ namespace
              // are the negative control that proves a language change does NOT move a literal. Keying
              // them would delete the control.
              { "UI_OverlayProbe", "", "probe fixture (tooltips, menus, modals, toasts)" },
+             { "WL_UiA", "", "probe fixture (world lifetimes: the labels say which world wrote them)" },
+             { "WL_UiB", "", "probe fixture (world lifetimes: the world nothing may leak into)" },
              { "UI_ThemeProbe_Dark", "", "probe fixture (theme resolution, dark)" },
              { "UI_ThemeProbe_Light", "", "probe fixture (theme resolution, light)" },
              { "UI_ThemeProbe_None", "", "probe fixture (no theme: every slot falls back to authored)" },

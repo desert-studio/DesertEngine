@@ -20,6 +20,8 @@ layout( std140, binding = kRainOcclusionBlockBinding ) uniform RainOcclusionUB
 {
     mat4 RainOcclusionWorldToMap; // world -> the map's clip (uv = (x, -y) * 0.5 + 0.5, z = depth)
     vec4 RainOcclusionParams;     // x = depth range (cm), y = valid (>0.5), z = bias (cm), w = texel (cm)
+    vec4 ShoreFoamOrigin[3];      // the view's foam map (Water/WaterFoamField.glslh): xy = window, z = 1 / texel
+    vec4 ShoreFoamShape;          // x = a level's side, y = 1 with a map, z = its bindless slot
 };
 #endif
 

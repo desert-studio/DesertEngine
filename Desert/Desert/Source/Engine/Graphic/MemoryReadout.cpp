@@ -54,7 +54,7 @@ namespace Desert::Graphic
         // 1. The device, as the driver sees it.
         if ( !Device.BudgetKnown )
         {
-            text += "device=unknown (VK_EXT_memory_budget not enabled)";
+            text += "device=unknown (driver memory budget not reported)";
         }
         else
         {
