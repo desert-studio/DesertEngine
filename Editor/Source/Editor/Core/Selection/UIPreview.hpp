@@ -3,7 +3,7 @@
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 
 #include <glm/glm.hpp>
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <cstdint>
 #include <optional>

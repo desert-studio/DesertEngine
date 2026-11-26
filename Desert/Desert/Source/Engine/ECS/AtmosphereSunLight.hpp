@@ -2,7 +2,7 @@
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <optional>

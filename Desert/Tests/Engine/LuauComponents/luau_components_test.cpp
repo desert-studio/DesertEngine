@@ -9,7 +9,7 @@
 #include <Destruction/Public/DestructibleComponent.hpp>
 #include <Engine/Scripting/Luau/LuauRuntime.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <gtest/gtest.h>
 
 #include <string>

@@ -25,7 +25,7 @@
 #include <Common/Core/UUID.hpp>
 #include <Engine/ECS/Entity.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <cstddef>
 #include <unordered_map>

@@ -20,7 +20,7 @@
 #include <UI/UICanvasContext.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <memory>
 #include <optional>

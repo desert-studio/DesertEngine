@@ -7,7 +7,7 @@
 // WaterWaveSources is): a second world in the process has its own.
 #include <Water/Public/WaterRiver.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <cstdint>
 #include <memory>

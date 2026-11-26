@@ -10,7 +10,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <cstdint>
 #include <functional>

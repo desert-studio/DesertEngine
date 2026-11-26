@@ -146,6 +146,13 @@ function(_desert_engine_module_library name)
     else()
         target_link_libraries(${target} PRIVATE ${DESERT_OPTICK} ${_thirdparty_default})
     endif()
+    # GLFW (the window, the surface, input) is called by the window and render modules and the modules above them;
+    # the server closure has none of these (cmake/DesertModules.cmake RENDER-FREE MODULES), so it never links GLFW.
+    desert_module_closure(${name} _closure)
+    list(APPEND _closure ${name})
+    if("ApplicationCore" IN_LIST _closure OR "RenderCore" IN_LIST _closure OR "Renderer" IN_LIST _closure)
+        target_link_libraries(${target} PRIVATE GLFW)
+    endif()
 
     # Engine's client net driver (Engine/Net/ClientNetDriver: Play as a network client) runs Desert/Net's session;
     # Core's Gameplay (Engine/Gameplay: the pawn's movement step) is the Net::IPawnMover the session calls.

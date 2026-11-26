@@ -26,6 +26,8 @@ endif()
 target_include_directories(Common PRIVATE "Source/" "Source/Common")
 desert_external_includes(Common ${DESERT_COMMON_INCLUDE_DIRS})
 target_link_libraries(Common PRIVATE ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
+# Logger.hpp is in CommonPCH and calls spdlog inline: every target that links Common links the one spdlog.
+target_link_libraries(Common PUBLIC spdlog)
 desert_config_platform_defines(Common)
 if(DESERT_IS_WINDOWS)
     target_link_libraries(Common PRIVATE dbghelp)

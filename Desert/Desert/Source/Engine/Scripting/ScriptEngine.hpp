@@ -4,7 +4,7 @@
 #include <Engine/Core/WorldContext.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/glm.hpp>
 
 #include <cstdint>

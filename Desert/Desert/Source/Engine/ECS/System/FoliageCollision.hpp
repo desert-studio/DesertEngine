@@ -18,7 +18,7 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <cstdint>
 #include <unordered_map>

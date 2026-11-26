@@ -189,10 +189,12 @@ set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<CONFIG:Shipping>,ProgramDatabase
 
 add_compile_definitions(
     $<$<CONFIG:Shipping>:DESERT_CONFIG_SHIPPING>
-    # EnTT's type-index counter must be atomic in every target or none.
+    # EnTT's own counters (entt::family) atomic in every target or none; its type index is process-wide
+    # (Common/Core/Entt.hpp).
     ENTT_USE_ATOMIC
-    # spdlog is header-only here, so every target or none (one logger::log_it_): spdlog catches nothing, its
-    # own failure aborts with its message, and a sink's throw ends the process at the log call (Logger.hpp).
+    # spdlog is a compiled library (cmake/ThirdParty/Spdlog.cmake), so every target or none: spdlog catches nothing,
+    # its own failure aborts with its message, and a sink's throw ends the process at the log call (Logger.hpp).
+    SPDLOG_COMPILED_LIB
     SPDLOG_NO_EXCEPTIONS
     # Optick (the CPU profiler) in every target or none, with ONE value: Profiler.hpp's class layout depends on it,
     # and optick.config.h turns an undefined USE_OPTICK on. Off in Shipping, where no target links the library
@@ -203,6 +205,32 @@ add_compile_definitions(
 )
 # The Optick library as a link item: every configuration but Shipping.
 set(DESERT_OPTICK "$<$<NOT:$<CONFIG:Shipping>>:Optick>")
+
+# ── THIRD-PARTY PROCESS STATE ─────────────────────────────────────────────────────────────────────
+# A vendored library that keeps process-wide state - the ImGui context, the node editor's current editor, the spdlog
+# registry, Jolt's allocator hooks and factory, the Optick profiler, GLFW's library state - is ONE shared library
+# outside Shipping (desert_add_library PROCESS_STATE), so every module DLL reads the same instance; the Shipping
+# monolith links it statically. Each library is built with its own documented shared-build switches: the library
+# compiles the export side, EVERY other target the import side, so no target's definitions depend on what it links
+# (the members of a shared PCH group must agree, C2855). Optick has no import side (OPTICK_EXPORTS, Optick.cmake).
+# EnTT is header-only; its type index is made process-wide by Common/Core/Entt.hpp.
+if(NOT DESERT_MONOLITHIC)
+    set(_desert_self "$<TARGET_PROPERTY:NAME>")
+    add_compile_definitions(
+        JPH_SHARED_LIBRARY                                   # Jolt.cmake adds JPH_BUILD_SHARED_LIBRARY
+        SPDLOG_SHARED_LIB                                    # Spdlog.cmake: spdlog_EXPORTS
+        FMT_SHARED                                           # spdlog's bundled fmt; Spdlog.cmake: FMT_LIB_EXPORT
+        # GLFW itself compiles _GLFW_BUILD_DLL (GLFW.cmake); glfw3.h refuses both at once.
+        "$<$<NOT:$<STREQUAL:${_desert_self},GLFW>>:GLFW_DLL>")
+    if(DESERT_IS_WINDOWS)
+        # ImGui and the node editor leave their API macro to the build; elsewhere default visibility exports.
+        add_compile_definitions(
+            "$<IF:$<STREQUAL:${_desert_self},ImGui>,IMGUI_API=__declspec(dllexport),IMGUI_API=__declspec(dllimport)>"
+            "$<IF:$<STREQUAL:${_desert_self},ImGuiNodeEditor>,IMGUI_NODE_EDITOR_API=__declspec(dllexport),IMGUI_NODE_EDITOR_API=__declspec(dllimport)>"
+            # The GLFW and Vulkan backends are not in the ImGui DLL: the editor compiles them (ImGuiBuild.cpp).
+            "IMGUI_IMPL_API=")
+    endif()
+endif()
 
 # ── LANGUAGE ───────────────────────────────────────────────────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 20)
@@ -351,10 +379,16 @@ function(desert_config_platform_defines target)
     endif()
 endfunction()
 
-# add_library(STATIC) for a first-party or vendored static library. FOLDER groups it in an IDE.
+# add_library for a first-party or vendored library: STATIC, or with PROCESS_STATE (the library keeps process-wide
+# state, THIRD-PARTY PROCESS STATE above) SHARED outside Shipping and STATIC in the Shipping monolith. FOLDER groups
+# it in an IDE.
 function(desert_add_library name)
-    cmake_parse_arguments(ARG "" "FOLDER" "SOURCES" ${ARGN})
-    add_library(${name} STATIC ${ARG_SOURCES})
+    cmake_parse_arguments(ARG "PROCESS_STATE" "FOLDER" "SOURCES" ${ARGN})
+    if(ARG_PROCESS_STATE AND NOT DESERT_MONOLITHIC)
+        add_library(${name} SHARED ${ARG_SOURCES})
+    else()
+        add_library(${name} STATIC ${ARG_SOURCES})
+    endif()
     if(ARG_FOLDER)
         set_target_properties(${name} PROPERTIES FOLDER "${ARG_FOLDER}")
     endif()

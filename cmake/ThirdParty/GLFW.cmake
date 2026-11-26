@@ -1,4 +1,6 @@
-# GLFW: GLFW as a C static library, the platform backend chosen per OS.
+# GLFW: GLFW as a C library, the platform backend chosen per OS. Its library state (glfwInit, windows, monitors) is
+# process-wide: a DLL outside Shipping (PROCESS_STATE; _GLFW_BUILD_DLL here, GLFW_DLL in every other target:
+# cmake/DesertWorkspace.cmake), static in the Shipping monolith.
 set(_root "${DESERT_ROOT}/ThirdParty/GLFW")
 set(_src
     include/GLFW/glfw3.h include/GLFW/glfw3native.h
@@ -22,10 +24,17 @@ list(TRANSFORM _src PREPEND "${_root}/")
 if(DESERT_IS_MACOS)
     enable_language(OBJC)
 endif()
-desert_add_library(GLFW FOLDER ThirdParty SOURCES ${_src})
+desert_add_library(GLFW PROCESS_STATE FOLDER ThirdParty SOURCES ${_src})
+if(NOT DESERT_MONOLITHIC)
+    list(APPEND _defs _GLFW_BUILD_DLL)
+endif()
 target_compile_definitions(GLFW PRIVATE ${_defs})
 if(DESERT_IS_WINDOWS)
     target_link_libraries(GLFW PRIVATE Dwmapi)
 else()
+    if(DESERT_IS_MACOS)
+        target_link_libraries(GLFW PRIVATE "-framework Cocoa" "-framework IOKit" "-framework CoreFoundation"
+                                           "-framework QuartzCore")
+    endif()
     set_target_properties(GLFW PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()

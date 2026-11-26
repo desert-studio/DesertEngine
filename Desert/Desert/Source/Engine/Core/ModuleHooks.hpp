@@ -8,7 +8,7 @@
 #include <Common/Core/Math/Ray.hpp>
 #include <Engine/Core/WorldSystems.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/vec3.hpp>
 
 #include <cstdint>

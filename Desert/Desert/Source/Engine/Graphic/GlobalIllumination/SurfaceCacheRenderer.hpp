@@ -12,7 +12,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/RayTracing/EmissiveLightsFrame.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/glm.hpp>
 
 #include <array>

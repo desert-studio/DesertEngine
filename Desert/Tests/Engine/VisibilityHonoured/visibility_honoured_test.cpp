@@ -31,7 +31,7 @@
 // that read comments would fire on every one of them.
 #include <Engine/ECS/EntityVisibility.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>

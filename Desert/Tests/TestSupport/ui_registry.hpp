@@ -2,7 +2,7 @@
 
 #include <UI/UIWorld.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 namespace TestSupport
 {

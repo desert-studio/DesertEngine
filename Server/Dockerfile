@@ -34,8 +34,8 @@ RUN python3 scripts/FetchGitDependencies.py
 ENV CCACHE_DIR=/ccache
 RUN --mount=type=cache,target=/ccache \
     cmake --preset linux-server-clang -DDESERT_COMPILER_LAUNCHER=ccache \
- && cmake --build --preset linux-server-clang-release \
- && file build/Bin/Release/DesertServer
+ && cmake --build --preset linux-server-clang \
+ && file build/Bin/Shipping/DesertServer
 
 FROM --platform=linux/amd64 ubuntu:24.04 AS runtime
 # The binary needs libstdc++/libc only (OpenSSL's libcrypto is linked statically); `file` stays for the image's
@@ -44,7 +44,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends file \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 desert
-COPY --from=build /src/build/Bin/Release/DesertServer /opt/desert/DesertServer
+COPY --from=build /src/build/Bin/Shipping/DesertServer /opt/desert/DesertServer
 USER desert
 WORKDIR /opt/desert
 ENTRYPOINT ["/opt/desert/DesertServer"]

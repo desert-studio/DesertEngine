@@ -29,7 +29,7 @@
 #include <string>
 #include <string_view>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 namespace Desert::Net
 {

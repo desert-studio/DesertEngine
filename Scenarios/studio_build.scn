@@ -36,7 +36,8 @@
 #
 # [smoke_dll]
 # Когда: python .claude/tools/play_scenario.py <tree> Scenarios/smoke_editor.scn   (Development tree)
-# Тогда [smoke_dll]: PASS; the frame is byte-equal to the base build's; TURN x5 within +2 % of the base.
+# Тогда [smoke_dll]: Scenarios/smoke_editor.scn first frame draws the editor UI with one ImGui context, and logs come
+#   from one spdlog registry; PASS; the frame is byte-equal to the base build's; TURN x5 within +2 % of the base.
 #
 # [shipping]
 # Когда: cmake --preset win-ship; cmake --build --preset win-ship

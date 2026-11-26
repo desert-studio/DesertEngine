@@ -16,7 +16,7 @@ while pgrep -x ninja >/dev/null; do sleep 5; done
 dev_drop_foreign_pch
 cd "$DEV_BUILD" || exit 1
 
-ninja -f "build-$DEV_CONFIG.ninja" -t inputs "${TARGETS[@]}" 2>"$LOG/inputs.err" | grep -E '\.(o|obj)$' > "$LOG/objects.txt"
+ninja -t inputs "${TARGETS[@]}" 2>"$LOG/inputs.err" | grep -E '\.(o|obj)$' > "$LOG/objects.txt"
 [ -s "$LOG/objects.txt" ] || { echo "compile_check: no objects for ${TARGETS[*]} (ninja -t inputs: $(head -1 "$LOG/inputs.err"))"; exit 1; }
 # The branch's own sources -> their DEV_CONFIG objects (compile_commands.json: file -> output), only those the targets use.
 base=$(git -C "$DEV_ROOT" merge-base HEAD origin/dev 2>/dev/null || git -C "$DEV_ROOT" rev-parse HEAD)
@@ -35,7 +35,7 @@ EOF
 JOBS="${DEV_JOBS:-6}"
 run_pass() {  # run_pass <name> <object list file>
     [ -s "$2" ] || return 0
-    xargs ninja -f "build-$DEV_CONFIG.ninja" -k 0 -j "$JOBS" < "$2" > "$LOG/$1.log" 2>&1
+    xargs ninja -k 0 -j "$JOBS" < "$2" > "$LOG/$1.log" 2>&1
 }
 report() {  # report <pass log>: the first errors, paths relative to the tree
     echo "compile_check: FAILED ($1, $(( $(date +%s) - start ))s; log $LOG/$1.log). First errors:"

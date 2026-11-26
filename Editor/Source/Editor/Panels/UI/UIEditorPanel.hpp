@@ -10,7 +10,7 @@
 #include <Engine/Graphic/Render2D/Render2D.hpp>
 #include <UI/UICanvasContext.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <cstdint>
 #include <memory>

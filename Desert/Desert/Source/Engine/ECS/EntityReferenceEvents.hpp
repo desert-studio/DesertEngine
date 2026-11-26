@@ -16,7 +16,7 @@
 
 #include <Common/Core/UUID.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <span>
 #include <vector>

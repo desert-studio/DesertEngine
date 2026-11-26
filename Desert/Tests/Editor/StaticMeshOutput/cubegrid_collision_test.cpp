@@ -15,7 +15,7 @@
 
 #include "../../Engine/PhysicsFixture.hpp"
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <gtest/gtest.h>
 
 #include <optional>
