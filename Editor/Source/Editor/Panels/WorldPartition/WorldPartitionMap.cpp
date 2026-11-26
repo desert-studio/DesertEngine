@@ -13,7 +13,6 @@
 #include <limits>
 #include <optional>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 namespace Desert::Editor::WorldPartitionMap
@@ -365,25 +364,36 @@ namespace Desert::Editor::WorldPartitionMap
         return labelSize.x <= room.x && labelSize.y <= room.y;
     }
 
-    std::vector<HLODState> HLODCellStates( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
-                                           std::span<const std::string>                     builtUnits,
-                                           std::span<const std::string>                     staleUnits )
+    std::vector<HLODState> HLODCellStates( const ::Desert::Core::Rules::WorldPartitionPlan&   plan,
+                                           const ::Desert::Core::WorldPartitionSerialized&    partition,
+                                           const ::Desert::Core::WorldCells::HLODWorldStatus& status )
     {
-        const std::unordered_set<std::string> stale( staleUnits.begin(), staleUnits.end() );
-        const std::unordered_set<std::string> built( builtUnits.begin(), builtUnits.end() );
-        std::vector<HLODState>                states;
+        namespace WC = ::Desert::Core::WorldCells;
+        std::vector<HLODState> states;
         states.reserve( plan.Cells.size() );
         for ( std::size_t cell = 0; cell < plan.Cells.size(); ++cell )
         {
             // A cell's unit follows the always-loaded composites (WorldPartitionResidencyRules.hpp, UNITS).
-            const std::string unit =
-                 ::Desert::Core::Rules::DescribeResidencyUnit( plan, plan.AlwaysLoaded.size() + cell );
-            if ( stale.contains( unit ) )
-                states.push_back( HLODState::Stale );
-            else if ( built.contains( unit ) )
-                states.push_back( HLODState::Built );
-            else
+            const WC::HLODNodeStatus* node = status.Find(
+                 ::Desert::Core::Rules::HLODRowName( partition, plan, plan.AlwaysLoaded.size() + cell ) );
+            if ( node == nullptr )
+            {
                 states.push_back( HLODState::None );
+                continue;
+            }
+            switch ( node->State )
+            {
+                case WC::HLODNodeState::Current:
+                    states.push_back( HLODState::Built );
+                    break;
+                case WC::HLODNodeState::Missing:
+                case WC::HLODNodeState::Stale:
+                    states.push_back( HLODState::Stale );
+                    break;
+                case WC::HLODNodeState::NoSource:
+                    states.push_back( HLODState::None );
+                    break;
+            }
         }
         return states;
     }
