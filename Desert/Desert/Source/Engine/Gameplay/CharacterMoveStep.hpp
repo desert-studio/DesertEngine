@@ -106,6 +106,19 @@ namespace Desert::Gameplay
     };
     [[nodiscard]] PawnCapsule CapsuleOf( const PawnMoveSettings& settings, bool crouched );
 
+    // THE DRAWN PAWN (UE ACharacter): the pawn's entity is its capsule's CENTRE on every side - standalone Play,
+    // the owner and the proxies - and a crouch lifts the drawn meshes by the half-height difference (UE
+    // OnStartCrouch: the Mesh's BaseTranslationOffset + HalfHeightAdjust), so their feet stay on the floor while
+    // the capsule shrinks; the camera rides the capsule. From the capsule the pawn moved with.
+    struct DrawnPawn
+    {
+        float CenterAboveFeet = 0.0f; // centre = feet + this, up: the half height with the cap
+        float MeshLift        = 0.0f; // the meshes above their authored place: standing - held half height
+    };
+    [[nodiscard]] DrawnPawn DrawnPawnOf( const PawnMoveSettings& settings, const PawnCapsule& capsule );
+    // The same from a move mode (PawnMoveState::Mode): its crouch bit picks the capsule.
+    [[nodiscard]] DrawnPawn DrawnPawnOf( const PawnMoveSettings& settings, std::uint8_t mode );
+
     // The collision world one move asks (UE SafeMoveUpdatedComponent + slide + FindFloor): where @p capsule whose
     // feet stand at @p from.Position ends after moving with @p velocity for @p dtSeconds, its velocity after
     // the walls and floors it met, and whether it stands on a walkable floor (@p gravity presses the floor's

@@ -140,6 +140,9 @@ namespace Desert::ECS
         bool                     OnGround         = false; // last physics result (self:isOnGround())
         bool                     IsCrouched       = false; // UE bIsCrouched: the capsule IS the crouched one
         bool JumpHeld = false; // the last step's Jump action (UE bPressedJump): one jump a press
+        // The lift the pawn's mesh children carry (UE the Mesh's BaseTranslationOffset.Z: HalfHeightAdjust while
+        // crouched), set by CharacterMovement::PlaceDrawnPawn.
+        float MeshLift = 0.0f;
 
         // INTENT, written by the pawn's script each frame (UE: AddMovementInput, Jump, Crouch / UnCrouch) and,
         // with the possessed pawn's declared actions held in Enhanced Input, made into the step's input

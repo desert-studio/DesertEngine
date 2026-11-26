@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/Physics/CharacterControllerComponent.hpp>
+#include <Engine/ECS/TransformComponent.hpp>
 
 namespace Desert::Net
 {
@@ -56,4 +57,17 @@ namespace Desert::ECS::CharacterMovement
      * graph picks and blends the clips.
      */
     void PublishAnimGraphParameters( const CharacterControllerComponent& cc, AnimationComponent& anim );
+
+    /**
+     * @brief THE DRAWN PAWN (UE ACharacter, Gameplay::DrawnPawn): @p pawn's entity at its capsule's CENTRE
+     * @p center, and its meshes - the direct children with a StaticMesh or SkinnedMesh (UE ACharacter::Mesh, the
+     * capsule's child) - @p meshLift above their authored place, so their feet stay on the floor while the
+     * capsule is crouched. Other children (the Spring Arm) ride the capsule. cc.MeshLift is the lift they carry.
+     */
+    void PlaceDrawnPawn( entt::registry& registry, entt::entity pawn, CharacterControllerComponent& cc,
+                         const glm::vec3& center, float meshLift );
+    /// Standalone Play: the character drawn at its interpolated centre with the lift of the capsule @p world
+    /// holds (the world's shape is the one record of the crouch).
+    void PlaceDrawnCharacter( entt::registry& registry, entt::entity pawn, CharacterControllerComponent& cc,
+                              const Physics::PhysicsWorld& world );
 } // namespace Desert::ECS::CharacterMovement

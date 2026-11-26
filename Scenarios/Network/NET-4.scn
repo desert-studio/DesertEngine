@@ -9,7 +9,8 @@
 # 75 ms each way (150 ms RTT) / 2 % loss link. Pass history (p1-p12, run_all.sh): git log of this file.
 # Fence 300001 in WP_Protocol: static box 20 x 180 x 600 cm at x=2500 (z 350-950), ~120 cm above the slope. A's
 # frames come from a FIXED side camera at (2100,120,50) that sees A's capsule approach the fence and cross it.
-# Net coordinates are Y-up (X, Y, Z); the net pawn position is the FEET.
+# Net coordinates are Y-up (X, Y, Z); the net pawn position is the FEET. The drawn pawn's entity is its capsule's CENTRE
+# (UE ACharacter, NET-PAWN-DRAW): "drawn own (x,y,z)" logs its feet (centre minus the half height with the cap), "centre y" the entity's.
 # NET-GAMEMODE p4: server and clients run Pawn_Player (CharacterController: Sprint Action IA_Sprint; IMC_Default maps
 # Left Shift -> IA_Sprint). A's sprint is Left Shift held in its local player's Enhanced Input (the walk mode presses
 # the key, UE UPlayerInput::InputKey), so IA_Sprint fires and the one Input::LocalPawnInputStep builds the step.
@@ -33,20 +34,21 @@
 Нет A \[Net\] correction \d+ at
 # No input step given up: every Input message resends each unacked step until the ack (kMaxUnackedInputSteps).
 Нет server never arrived
-# Когда: the server console relocates A 200 m back (-X) and 5 m up; it falls onto the landscape, no input.
+# Когда: the server console relocates A to (2300, 300, 520) cm - in front of the fence, in the side camera's view, a few metres
+# above the slope; it falls onto it, no input.
 Ждать server 30 player 1 account 1 \(
 Запомнить p server player 1 account 1 \((-?\d+), (-?\d+), (-?\d+)\)
-Консоль server teleport 1 {p1-20000} {p2+500} {p3}
+Консоль server teleport 1 2300 300 520
 Ждать server 30 \[Net\] player 1: pawn \d+ teleported to
 Ждать A 60 \[Net\] correction 1 at .*drawn at once
-Тогда A clientA_teleport the side camera's view right after the relocation: the fence scene, no A (it is 200 m away); the client keeps drawing
+Тогда A clientA_teleport the side camera's view right after the relocation: the fence scene with A's own capsule body in front of the fence (x ~2300), falling or just landed, drawn whole; the client keeps drawing
 # Тогда [net4_teleport_ground]: landed, server = client drawn; 10 s later both unchanged (< 1 cm); one correction.
 Ждать A 60 8x \[Net\] t=
 Ждать server 30 2x player 1 account 1 \(
 Запомнить s0 server player 1 account 1 \((-?\d+), (-?\d+), (-?\d+)\)
 Запомнить d0 A drawn own \((-?\d+),(-?\d+),(-?\d+)\)
 Сверить s0 d0 1
-Тогда A clientA_teleport_ground the side camera's view after A landed 200 m away: unchanged fence scene, no stray capsule
+Тогда A clientA_teleport_ground the side camera's view after A landed: A's own capsule body STANDS on the slope in front of the fence, whole - its lowest rows on the ground, nothing of it sunk into the slope (the entity is the capsule centre, 88 cm above the logged feet, as standalone Play draws netgm_local_walk); no second capsule
 Ждать A 60 10x \[Net\] t=
 Ждать server 30 2x player 1 account 1 \(
 Запомнить s1 server player 1 account 1 \((-?\d+), (-?\d+), (-?\d+)\)

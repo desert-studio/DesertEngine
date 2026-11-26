@@ -291,12 +291,12 @@ namespace Desert::ECS
 
             for ( auto entity : characters )
             {
-                const auto& cc = characters.get<CharacterControllerComponent>( entity );
+                auto& cc = characters.get<CharacterControllerComponent>( entity );
                 // A replicated pawn's transform is the network's (ClientNetDriver writes it before the systems).
                 if ( cc.RuntimeCharacter == Physics::kInvalidCharacter || registry.has<NetRoleComponent>( entity ) )
                     continue;
-                SetLocalTranslation( registry, entity,
-                                     m_World->GetInterpolatedCharacterPosition( cc.RuntimeCharacter ) );
+                // UE ACharacter: the entity is the capsule's centre, its meshes keep their feet while crouched.
+                CharacterMovement::PlaceDrawnCharacter( registry, entity, cc, *m_World );
             }
 
             // Projectiles after the step and its writeback (UE: UProjectileMovementComponent ticks in the frame
