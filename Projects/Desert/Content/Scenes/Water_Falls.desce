@@ -629,7 +629,10 @@
                 "RiverFlowPeriod": 1.0,
                 "FallSpray": "assets:VFX/Water/FallSpray.dfx",
                 "FallMist": "assets:VFX/Water/FallMist.dfx",
-                "FallSound": "assets:Audio/Water/S_WaterfallLoop.desound",
+                "FallSound": {
+                    "Guid": "de15d90d212d47b0b3776f062f0d18f8",
+                    "Path": "assets:Audio/Water/S_WaterfallLoop.desound"
+                },
                 "Density": 1000.0,
                 "Drag": 1.5
             }
@@ -734,7 +737,10 @@
                 "RiverFlowPeriod": 1.0,
                 "FallSpray": "",
                 "FallMist": "",
-                "FallSound": "",
+                "FallSound": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Density": 1000.0,
                 "Drag": 1.5
             }
@@ -811,7 +817,10 @@
                 "RiverFlowPeriod": 1.0,
                 "FallSpray": "",
                 "FallMist": "",
-                "FallSound": "",
+                "FallSound": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Density": 1000.0,
                 "Drag": 1.5
             }
@@ -901,7 +910,10 @@
                 "RiverFlowPeriod": 1.0,
                 "FallSpray": "",
                 "FallMist": "",
-                "FallSound": "",
+                "FallSound": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Density": 1000.0,
                 "Drag": 1.5
             }
