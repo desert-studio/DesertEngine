@@ -437,7 +437,7 @@ namespace Desert::Scripting
         lua_State* const main = lua_mainthread( L );
         for ( const LuauDebugTarget& target : m_Targets )
             if ( target.L == main && target.Held )
-                target.Held( heldCpu );
+                target.Held( held, heldCpu );
 
         if ( m_Aborting )
             luaL_errorL( L, "stopped by the script debugger" );

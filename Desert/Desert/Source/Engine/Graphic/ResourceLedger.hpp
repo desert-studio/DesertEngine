@@ -172,10 +172,10 @@ namespace Desert::Graphic
         /// The sky/IBL bake — panorama, radiance, irradiance, prefiltered. Recipe is the sky settings.
         Environment,
 
-        /// The editor's own pictures: thumbnails, previews, panel slices, icon and font atlases.
+        /// The editor's own pictures: thumbnails, previews, panel slices.
         EditorTool,
 
-        /// The 2D/UI backend and the ImGui layer.
+        /// The 2D/UI backend and the ImGui layer, and the font and icon atlases game UI draws with as well.
         UserInterface,
 
         /// Swapchain, command pools, query pools, default and fallback textures — the device's own.

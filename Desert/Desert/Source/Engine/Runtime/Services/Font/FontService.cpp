@@ -118,7 +118,7 @@ namespace Desert::Runtime
         // A PROCESS-WIDE SERVICE'S ATLAS: it is built when a view first asks for it, inside that view's
         // attribution scope, and outlives the view; the category scope clears the view's instance, so the
         // view's close does not report it as its own leak (WORLD-LIFETIMES: 786432 B row at view #1's close).
-        const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::EditorTool );
+        const Graphic::ResourceAttributionScope owned( Graphic::ResourceOwner::UserInterface );
         auto atlas = Graphic::Image2D::Create( spec );
         if ( !atlas )
         {

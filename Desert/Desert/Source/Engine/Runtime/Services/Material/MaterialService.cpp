@@ -671,16 +671,13 @@ namespace Desert::Runtime
     bool MaterialService::RequestIfUnread( const std::shared_ptr<Assets::MaterialAsset>& asset ) const
     {
         const WriteGuard serviceLock( Fence::LockOnly );
-        const auto       handle = asset->GetMetadata().Handle;
-        // A request in flight first: the worker marks the asset ready when the FILE is read, but its surface
-        // template is resolved by the completion (ResolveDependencies, under this lock, as it erases the
-        // request). Between the two the shell reads ready with a null shader handle, and building a cell then
-        // refused it as "no resolved surface template" (WATER-FALLS b_wf8: M_FallMist / M_FallSpray, the frame
-        // before ParticleSpriteLit was resolved). Ready means read AND completed.
-        if ( m_Requests.contains( handle ) )
-            return false;
+        // Ready means read AND completed: the completion below publishes it (SurfaceMaterialAsset::
+        // ResolveDependencies, under this lock), never the worker's read, so EnsureLoaded asks the same question.
         if ( asset->IsReadyForUse() )
             return true;
+        const auto handle = asset->GetMetadata().Handle;
+        if ( m_Requests.contains( handle ) )
+            return false;
         // BROKEN (its last read was refused, AssetBase::IsBroken): not read again per frame. The slot draws the
         // engine's Default Surface (MeshECSSystem::DefaultInstance); the completion below named the file once.
         // A hot reload (Load) is what asks the file again.
@@ -705,8 +702,12 @@ namespace Desert::Runtime
                      return;
                  }
                  // The shader is resolved by name through the manager, which a worker may not touch.
+                 // That resolve is also what makes it ready (SurfaceMaterialAsset::ResolveDependencies).
                  if ( const auto manager = m_Assets.lock() )
                      loaded->ResolveDependencies( *manager );
+                 else
+                     LOG_ERROR( "[MaterialService] '{}' was read after its asset manager closed; it stays unready",
+                                loaded->GetMetadata().Filepath.string() );
                  ++m_InvalidationVersion;
              },
              [this, handle]
