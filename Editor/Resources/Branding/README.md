@@ -16,5 +16,7 @@ for macOS, and pack the PNG sizes into an `.ico` (PNG-in-ICO entries).
   — the same in black. `DesertStudioMark.png` — 1024 px raster, white on transparent.
 - `DesertStudioLogo.svg` / `.png` — the lockup: the mark over the wordmark `DESERT STUDIO`.
 
-The geometry has one source: the mark and the letters are analytic shapes; the SVG paths and the PNGs are written
-from the same numbers that draw the studio ident (the game's `Content/Movies/DesertStudio.webm`).
+The geometry has one source, `scripts/Branding/studio_mark.py`: the mark and the letters are primitives defined
+once, and both the SVG paths and the PNGs' signed-distance field are derived from them. Regenerate all five files
+from the repository root with `python scripts/Branding/studio_mark.py` (numpy, Pillow). The game's studio ident
+video is rendered from the same numbers, outside the engine repository.
