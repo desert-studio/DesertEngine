@@ -192,10 +192,15 @@ namespace Desert::Graphic::System
         // makes not waiting safe rather than merely fast.
         m_Clipmap.CancelAll();
 
-        // THE PIPELINE BUILD IS WAITED FOR, unlike the bake: the set it returns owns compute pipelines, and the
-        // last owner of one retires its record past the frames in flight (VulkanPipelineCompute's destructor) —
-        // which belongs on this thread, not on whichever worker would otherwise drop the abandoned result.
-        if ( m_MediumBuild.valid() )
+        // THE PIPELINE BUILD IS CANCELLED, AND WAITED FOR ONLY IF IT RUNS (MediumBuildState). A build no worker
+        // has picked up yet builds nothing once it reads Cancelled, so it holds no pipeline and is not waited
+        // for. A running one stops at its next program boundary; it IS waited for, because the pipelines it
+        // already built retire their records past the frames in flight (VulkanPipelineCompute's destructor),
+        // which belongs on this thread and not on whichever worker would drop the abandoned result. The wait
+        // is therefore bounded by ONE driver compile, not by the whole set: the headless builder hung here on
+        // an unconditional wait for the set while its Background-priority build sat in the Metal compiler.
+        if ( m_MediumBuild.valid() && m_MediumBuildControl &&
+             m_MediumBuildControl->exchange( MediumBuildState::Cancelled ) == MediumBuildState::Running )
             m_MediumBuild.wait();
     }
 
@@ -606,8 +611,14 @@ namespace Desert::Graphic::System
 
     VolumetricCloudRenderer::MediumPipelineBuild
     VolumetricCloudRenderer::BuildMediumPipelineSet( Core::ShaderVariant variant, const uint64_t hash,
-                                                     const bool withFrameStatics ) noexcept
+                                                     const bool                            withFrameStatics,
+                                                     const std::atomic<MediumBuildState>& control ) noexcept
     {
+        // THE CANCEL POINTS are the program boundaries: a variant compile and a driver compile cannot be
+        // interrupted once entered, so the renderer's destructor waits for at most the one in flight.
+        const auto cancelled = [&control]() noexcept
+        { return control.load( std::memory_order_acquire ) == MediumBuildState::Cancelled; };
+
         const auto shaderService = Runtime::ResourceRegistry::GetShaderService();
         if ( !shaderService )
             return Common::MakeError<MediumPipelineSet>( std::string( "the shader service is gone" ) );
@@ -623,6 +634,8 @@ namespace Desert::Graphic::System
         // ShaderService is safe from any thread (AcquireVariant: "Any thread may take either path").
         const auto acquire = [&]( const char* name, std::shared_ptr<Shader>& hold ) -> std::shared_ptr<Shader>
         {
+            if ( cancelled() )
+                return nullptr; // `build` names the cancellation before it reads the null program
             if ( variant.IsDefault() )
                 return shaderService->GetByName( name );
 
@@ -647,6 +660,8 @@ namespace Desert::Graphic::System
         const auto build = [&]( const char* name, const std::shared_ptr<Shader>& shader,
                                 std::shared_ptr<ComputePipeline>& out ) -> std::optional<std::string>
         {
+            if ( cancelled() )
+                return std::string( "cancelled: the renderer that asked for the set is being destroyed" );
             if ( !shader )
                 return std::string( "compute shader '" ) + name +
                        "' is not registered. Expected Editor/Resources/Shaders/Programs/Clouds/" + name +
@@ -764,11 +779,21 @@ namespace Desert::Graphic::System
         // THE JOB OWNS ITS INPUTS: the variant moves in and nothing of this renderer is captured, so the job is
         // valid whatever happens to the renderer meanwhile. The destructor still waits for it: the set it
         // returns holds pipelines whose release (RetirePastFramesInFlight) belongs on this thread.
-        const bool statics = !m_ResolvePipeline;
-        m_MediumBuildHash  = hash;
-        m_MediumBuild      = Common::JobSystem::Get().Async(
-             [variant = std::move( next ), hash, statics]() mutable noexcept
-             { return BuildMediumPipelineSet( std::move( variant ), hash, statics ); },
+        const bool statics   = !m_ResolvePipeline;
+        m_MediumBuildHash    = hash;
+        m_MediumBuildControl = std::make_shared<std::atomic<MediumBuildState>>( MediumBuildState::Queued );
+        m_MediumBuild        = Common::JobSystem::Get().Async(
+             [variant = std::move( next ), hash, statics, control = m_MediumBuildControl]() mutable noexcept -> MediumPipelineBuild
+             {
+                 // Queued -> Running, or nothing: a build the destructor cancelled before a worker took it
+                 // must not start a compile nobody waits for (MediumBuildState).
+                 MediumBuildState expected = MediumBuildState::Queued;
+                 if ( !control->compare_exchange_strong( expected, MediumBuildState::Running,
+                                                         std::memory_order_acq_rel ) )
+                     return Common::MakeError<MediumPipelineSet>(
+                         std::string( "cancelled before a worker started it" ) );
+                 return BuildMediumPipelineSet( std::move( variant ), hash, statics, *control );
+             },
              Common::JobPriority::Background );
         return !m_MediumSetAdopted;
     }
