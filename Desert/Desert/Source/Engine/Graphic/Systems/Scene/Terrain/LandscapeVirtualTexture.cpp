@@ -33,6 +33,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageTexture, LandscapeVirtualColorAtlas );
         DESERT_SHADER_PARAMETER( StorageTexture, LandscapeVirtualNormalAtlas );
         DESERT_SHADER_PARAMETER( StorageTexture, LandscapeVirtualOcclusionAtlas );
+        DESERT_SHADER_PARAMETER( StorageTexture, LandscapeVirtualHeightAtlas );
     };
     constexpr std::string_view kPagePass   = "Landscape: Virtual Texture Pages";
     constexpr std::string_view kPageShader = "LandscapeVirtualTexturePage";
@@ -94,6 +95,7 @@ namespace Desert::Graphic::System
         m_Bindings.Color            = black;
         m_Bindings.Normal           = black;
         m_Bindings.Occlusion        = black;
+        m_Bindings.Height           = black;
     }
 
     void LandscapeVirtualTexture::ResetLayout( const glm::vec2 origin, const float extent ) noexcept
@@ -271,7 +273,8 @@ namespace Desert::Graphic::System
         }
         // An image lost with a failed graph (Extract never handed it back) drops the pages that were in it.
         if ( m_ResourcesValid &&
-             ( !m_PageTable.Physical || !m_Color.Physical || !m_Normal.Physical || !m_Occlusion.Physical ) )
+             ( !m_PageTable.Physical || !m_Color.Physical || !m_Normal.Physical || !m_Occlusion.Physical ||
+               !m_Height.Physical ) )
         {
             m_ResourcesValid = false;
             m_LayoutValid    = false;
@@ -305,6 +308,19 @@ namespace Desert::Graphic::System
                      { tile.Origin.x, tile.Origin.y, tile.Origin.x + tile.Side, tile.Origin.y + tile.Side } );
         }
         m_TileKeys = std::move( keys );
+        // The world-height channel's range (header words 28, 29): every sample a queued tile can hold. A change
+        // re-renders every resident page (their stored heights are fractions of the old range).
+        glm::vec2 heightRange( FLT_MAX, -FLT_MAX );
+        for ( const LandscapeVirtualTextureTile& tile : tiles )
+            heightRange = glm::vec2( std::min( heightRange.x, tile.HeightMin ), std::max( heightRange.y, tile.HeightMax ) );
+        if ( !( heightRange.y > heightRange.x ) )
+            heightRange = glm::vec2( heightRange.x, heightRange.x + 1.0f );
+        if ( heightRange != m_HeightRange )
+        {
+            m_HeightRange = heightRange;
+            for ( Slot& slot : m_Slots )
+                slot.Dirty = slot.Virtual >= 0;
+        }
         const float pixelAngle =
              2.0f / std::max( std::abs( frame.Projection[1][1] ) *
                                    std::max( static_cast<float>( frame.Split.Render.Height ), 1.0f ),
@@ -387,6 +403,7 @@ namespace Desert::Graphic::System
         RDG::TextureRef color;
         RDG::TextureRef normal;
         RDG::TextureRef occlusion;
+        RDG::TextureRef height;
         if ( !m_ResourcesValid )
         {
             const uint64_t tableBytes = ( kHeaderWords + m_Entries.size() ) * sizeof( uint32_t );
@@ -406,6 +423,8 @@ namespace Desert::Graphic::System
                  atlas( Core::Formats::ImageFormat::RGB10A2_UNORM, "Landscape.VirtualTexture.Normal", m_Normal );
             occlusion =
                  atlas( Core::Formats::ImageFormat::R8_UNORM, "Landscape.VirtualTexture.Occlusion", m_Occlusion );
+            height =
+                 atlas( Core::Formats::ImageFormat::R16_UNORM, "Landscape.VirtualTexture.Height", m_Height );
             m_ResourcesValid = true;
             m_UploadAll      = true;
         }
@@ -415,6 +434,7 @@ namespace Desert::Graphic::System
             color     = graph.RegisterExternal( m_Color, "Landscape.VirtualTexture.Color" );
             normal    = graph.RegisterExternal( m_Normal, "Landscape.VirtualTexture.Normal" );
             occlusion = graph.RegisterExternal( m_Occlusion, "Landscape.VirtualTexture.Occlusion" );
+            height    = graph.RegisterExternal( m_Height, "Landscape.VirtualTexture.Height" );
         }
 
         // The header, every frame (the feedback phase moves), then the changed entry runs.
@@ -434,6 +454,8 @@ namespace Desert::Graphic::System
         header[25] = std::bit_cast<uint32_t>( pixelAngle );
         header[26] = static_cast<uint32_t>( m_Entries.size() );
         header[27] = feedbackWords;
+        header[28] = std::bit_cast<uint32_t>( m_HeightRange.x );
+        header[29] = std::bit_cast<uint32_t>( m_HeightRange.y );
         graph.QueueBufferUpload( table, 0u, Bytes( header ) );
         constexpr uint64_t kEntriesOffset = kHeaderWords * sizeof( uint32_t );
         if ( m_UploadAll )
@@ -471,8 +493,12 @@ namespace Desert::Graphic::System
         slot.Generation = m_Generation;
         slot.Words      = feedbackWords;
 
-        m_Bindings = {
-             .PageTable = table, .Color = color, .Normal = normal, .Occlusion = occlusion, .Feedback = feedback };
+        m_Bindings = { .PageTable = table,
+                       .Color     = color,
+                       .Normal    = normal,
+                       .Occlusion = occlusion,
+                       .Height    = height,
+                       .Feedback  = feedback };
         if ( jobs.empty() )
             return BOOLSUCCESS;
 
@@ -526,7 +552,8 @@ namespace Desert::Graphic::System
              .Storage( PageShaderParameters::LandscapeVirtualColorAtlas, color, RDG::Access::StorageWrite, 0u )
              .Storage( PageShaderParameters::LandscapeVirtualNormalAtlas, normal, RDG::Access::StorageWrite, 0u )
              .Storage( PageShaderParameters::LandscapeVirtualOcclusionAtlas, occlusion, RDG::Access::StorageWrite,
-                       0u );
+                       0u )
+             .Storage( PageShaderParameters::LandscapeVirtualHeightAtlas, height, RDG::Access::StorageWrite, 0u );
         const auto count = static_cast<uint32_t>( jobs.size() );
         node.Record      = [pipeline = m_PagePipeline, count]( RDG::PassContext& context,
                                                           const FrameGraphRefs& ) -> Common::BoolResultStr

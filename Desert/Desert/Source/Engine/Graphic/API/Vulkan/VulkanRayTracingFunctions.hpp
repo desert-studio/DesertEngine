@@ -26,9 +26,21 @@ namespace Desert::Graphic::API::Vulkan
         // pointer, never Complete().
         PFN_vkGetBufferDeviceAddress GetBufferDeviceAddress = nullptr;
 
+        // VK_EXT_opacity_micromap (RT-OMM-SER): filled iff DeviceCaps carries OpacityMicromap, which needs
+        // AccelerationStructure. Null on every other device: a BLAS is then built without micromaps and every
+        // candidate of a non-opaque segment reaches the alpha test (the catalog's RayTracingFeatures say which).
+        PFN_vkCreateMicromapEXT         CreateMicromap         = nullptr;
+        PFN_vkDestroyMicromapEXT        DestroyMicromap        = nullptr;
+        PFN_vkGetMicromapBuildSizesEXT  GetMicromapBuildSizes  = nullptr;
+        PFN_vkCmdBuildMicromapsEXT      CmdBuildMicromaps      = nullptr;
+
         // Every entry resolved. False on a device without AccelerationStructure, and false when a driver that
         // advertised the extension failed to resolve one (the caller logs and treats ray tracing as absent).
         [[nodiscard]] bool Complete() const;
+
+        // Every micromap entry resolved (and Complete()). False without OpacityMicromap, or when a driver that
+        // advertised it failed to resolve one: LoadRayTracingDeviceFunctions then leaves all four null.
+        [[nodiscard]] bool MicromapsComplete() const;
 
         // The device address of @p buffer (created with SHADER_DEVICE_ADDRESS): what every AS build input names.
         [[nodiscard]] VkDeviceAddress BufferAddress( VkDevice device, VkBuffer buffer ) const

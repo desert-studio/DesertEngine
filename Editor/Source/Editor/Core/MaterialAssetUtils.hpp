@@ -5,6 +5,9 @@
 // runtime-only script seed, not an authoring surface.
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Editor/Core/AssetFileOps.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
@@ -63,6 +66,45 @@ namespace Desert::Editor::MaterialAssetUtils
         const Common::AssetHandle handle(
              static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) );
         return Assets::SurfaceMaterialAsset::StateShader( data, manager, handle );
+    }
+
+    // A NEW MATERIAL OF A TEMPLATE ROLE (UE: the Details asset picker's "Create New Asset", the Content
+    // Browser's New Water Material): `<stem>.demat` at the next free name in @p folder (created when absent),
+    // stated on the ONE shader declaring `Role <role>` (Assets::FindTemplateByRole) with the template's property
+    // defaults, entered into the content registry (NoteFile) so a picker lists it and TemplateRoleOf answers
+    // the role at once. Returns the new material's handle; every refusal names the file and the reason.
+    [[nodiscard]] inline Common::ResultStr<uint64_t> CreateRoleMaterial( const Assets::AssetManager&  manager,
+                                                                         std::string_view             role,
+                                                                         const std::filesystem::path& folder,
+                                                                         const std::string&           stem )
+    {
+        std::error_code ec;
+        std::filesystem::create_directories( folder, ec );
+        if ( ec )
+            return Common::MakeError<uint64_t>(
+                 std::format( "'{}' could not be created: {}", folder.generic_string(), ec.message() ) );
+        const std::string           ext( Common::Constants::Extensions::MATERIAL_EXTENSION );
+        const std::filesystem::path path =
+             folder / AssetFileOps::UniqueName( stem, ext, [&folder]( const std::string& name )
+                                                { return std::filesystem::exists( folder / name ); } );
+        const auto shader = Assets::FindTemplateByRole( manager, role );
+        if ( !shader )
+            return Common::MakeError<uint64_t>(
+                 std::format( "'{}' was not created: {}", path.generic_string(), shader.GetError() ) );
+        Assets::MaterialData data;
+        if ( const auto stated = Assets::SurfaceMaterialAsset::StateShader( data, manager, shader.GetValue() );
+             !stated )
+            return Common::MakeError<uint64_t>(
+                 std::format( "'{}' was not created: {}", path.generic_string(), stated.GetError() ) );
+        if ( const auto written = Assets::WriteMaterialFile( path, data ); !written )
+            return Common::MakeError<uint64_t>(
+                 std::format( "'{}' was not created: {}", path.generic_string(), written.GetError() ) );
+        Assets::ContentRegistry::NoteFile( path );
+        const auto row = Assets::ContentRegistry::RowOfPath( Common::Content::ContentKind::Material, path );
+        if ( !row )
+            return Common::MakeError<uint64_t>(
+                 std::format( "'{}' was written but did not enter the content registry", path.generic_string() ) );
+        return Common::MakeSuccess( static_cast<uint64_t>( row->Handle ) );
     }
 
     // WHICH OF THE TWO THINGS HAPPENED. The function below can either author a material or hand back

@@ -11,6 +11,11 @@
 // (ScreenProbeTrace.shader) run over the rays it left open, which it lists itself (THE LEGS' LISTS,
 // Common/ScreenProbeTracing.glslh): the near field's, the far field's and (the rays it walked to the cache) the
 // cache read's, one run per probe in texel order.
+// Permutations (ScreenProbeGather::TraceScreenProgram, UE's: the pass is chosen by what the view has, no stand-in
+// resource): SP_TRACE_SCREEN_MARCH - the view has a screen trace (HZB + a readable scene colour history), the walk
+// runs and binds them; without it every ray is listed for the world legs from the probe (UE ClearTracesCS).
+// SP_TRACE_SCREEN_SPARSE_STABLE - the sparse stable probes (FPS-SP-NEAR, the denoiser with the view's history):
+// settled tiles skip half their texels and the tiles' disoccluded share is bound; without it every texel traces.
 Shader "ScreenProbeTraceScreen"
 {
     Compute
@@ -46,6 +51,8 @@ Shader "ScreenProbeTraceScreen"
         {
             uint screenProbeTraceHit[];
         };
+#ifdef SP_TRACE_SCREEN_MARCH
+        // The screen hits' radiance (only the walk writes it here; the world legs write the rest).
         layout(binding = 6, rgba16f) restrict writeonly uniform image2D ScreenProbeTracedTexture;
         Uniform sampler PointClampSampler;
         Uniform(7) texture2D HzbTexture;               // this frame's closest-depth hierarchy (all mips, point)
@@ -59,6 +66,7 @@ Shader "ScreenProbeTraceScreen"
         };
         Uniform(10) texture2D Velocity; // NDC.xyz current - previous (View/Velocity.hpp): a hit's world motion
         #define Velocity sampler2D(Velocity, PointClampSampler)
+#endif // SP_TRACE_SCREEN_MARCH: without it slots 6..10 are bound by nothing (a binding gap)
         // The near field's list (no hit, not at the cache, before NearFieldEnd), the far field's (no hit, not at
         // the cache, past NearFieldEnd) and the cache read's (no hit, at the cache: nothing left to trace before the
         // cache answers - FPS-SP-TRACE-4, UE compacts only the rays a voxel trace still has to march): dispatch
@@ -100,12 +108,14 @@ Shader "ScreenProbeTraceScreen"
             uint screenProbeOut3Texels[];
         };
 
-        // The uniform tiles' disoccluded share (ScreenProbeDisocclusion.shader; a one-float stand-in, never read,
-        // without the denoiser - SP_FLAG_SPARSE_STABLE is off then).
+#ifdef SP_TRACE_SCREEN_SPARSE_STABLE
+        // The uniform tiles' disoccluded share (ScreenProbeDisocclusion.shader). Without the sparse stable probes
+        // slot 20 is bound by nothing.
         ReadBuffer(20) ScreenProbeDisocclusionUB
         {
             float screenProbeDisocclusion[];
         };
+#endif
 
         PushConstant ScreenProbeTraceScreenPush
         {
@@ -115,6 +125,7 @@ Shader "ScreenProbeTraceScreen"
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
         #include <Common/ScreenProbeTracing.glslh>
+#ifdef SP_TRACE_SCREEN_MARCH
         #include <Common/ReconstructPosition.glslh>
         #include <Common/HZBTrace.glslh>
 
@@ -239,6 +250,7 @@ Shader "ScreenProbeTraceScreen"
             result.velocity = surface - SPPreviousWorldPosition( screenProbeParams, previousNdc );
             return result;
         }
+#endif // SP_TRACE_SCREEN_MARCH
 
         // The probe's two open-ray prefix sums at once (near field in the low 16 bits, far field in the high: a
         // probe has at most SP_RES² rays), ping-ponged between two halves (Hillis-Steele: log2(SP_RES²) steps, each
@@ -320,16 +332,20 @@ Shader "ScreenProbeTraceScreen"
         // THE SPARSE STABLE PROBES (Common/ScreenProbes.glslh): whether @p texel of traced @p probe waits this frame
         // - a uniform probe of a settled tile, the checkerboard colour of the frame and the tile. Adaptive probes
         // (placed where the uniform ones miss geometry) and every probe of a tile with any disoccluded pixel trace
-        // every texel.
+        // every texel. Without the permutation (SP_TRACE_SCREEN_SPARSE_STABLE) every texel traces.
         bool SPTexelSkipped( const uint probe, const uint texel )
         {
-            if ( ( screenProbeParams.atlas.z & SP_FLAG_SPARSE_STABLE ) == 0u || probe >= screenProbeParams.grid.z )
+#ifdef SP_TRACE_SCREEN_SPARSE_STABLE
+            if ( probe >= screenProbeParams.grid.z )
                 return false;
             const ivec2 tile = SPUniformTileOf( SPProbePixelOf( screenProbes[probe] ) );
             if ( !SPUniformTileInside( tile ) || screenProbeDisocclusion[SPUniformTileIndex( tile )] > 0.0 )
                 return false;
             const uint parity = texel % SP_RES + texel / SP_RES + screenProbeParams.atlas.y + uint( tile.x + tile.y );
             return ( parity & 1u ) != 0u;
+#else
+            return false;
+#endif
         }
 
         void main()
@@ -350,7 +366,8 @@ Shader "ScreenProbeTraceScreen"
             const bool skipped   = SPTexelSkipped( probe, texel );
             if ( skipped )
                 encoded = SP_TRACE_SKIPPED_STATE; // traced by no leg, rebuilt by the spatial filter
-            else if ( ( screenProbeParams.atlas.z & SP_FLAG_SCREEN_TRACE ) != 0u )
+#ifdef SP_TRACE_SCREEN_MARCH
+            else
             {
                 const SPScreenTrace screen =
                      SPTraceScreen( ray.position + ray.normal * SP_SCREEN_BIAS, ray.direction, ray.tMax, ray.noise.z );
@@ -367,6 +384,7 @@ Shader "ScreenProbeTraceScreen"
                 else
                     distance = min( screen.distance, ray.tMax );
             }
+#endif
             if ( !screenHit && !skipped )
                 encoded = SPEncodeTraceHit( distance, false, false, ray.coverage.valid && distance >= ray.tMax );
             screenProbeTraceHit[slot] = encoded;

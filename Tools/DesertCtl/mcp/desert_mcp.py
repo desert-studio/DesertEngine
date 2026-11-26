@@ -42,6 +42,15 @@ import sys
 PROTOCOL_VERSION = "2024-11-05"
 
 
+def newest_desertctl() -> str:
+    """The last built DesertCtl of any configuration, on either platform; its absence is reported by the Channel."""
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "build", "Bin")
+    found = [os.path.join(root, c, n) for c in ("Release", "Debug", "Shipping")
+             for n in ("DesertCtl", "DesertCtl.exe")]
+    found = [f for f in found if os.path.isfile(f)]
+    return max(found, key=os.path.getmtime) if found else os.path.join(root, "Release", "DesertCtl")
+
+
 class ChannelError(RuntimeError):
     """The editor refused, or could not be reached. Carried separately from a tool's own bad arguments,
     because the two need different fixes: one is the editor's answer, the other is this client's mistake."""
@@ -325,7 +334,7 @@ def main() -> int:
     parser.add_argument("--socket", required=True, help="the editor's --control-socket path")
     parser.add_argument(
         "--desertctl",
-        default=os.environ.get("DESERTCTL", "build/Bin/Debug/DesertCtl"),
+        default=os.environ.get("DESERTCTL") or newest_desertctl(),
         help="path to the DesertCtl binary",
     )
     options = parser.parse_args()

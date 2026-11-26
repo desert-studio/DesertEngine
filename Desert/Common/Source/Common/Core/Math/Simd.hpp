@@ -5,8 +5,8 @@
 // Four floats in one register and the handful of operations the hand-written hot loops need (frustum culling,
 // box transforms, batch box culls). The path is chosen at COMPILE time, never by a runtime dispatch:
 //   DESERT_SIMD_SSE   x86-64: SSE2 is the x64 baseline, so this path exists in every x64 build; under
-//                     /arch:AVX2 (DESERT_AVX2, cmake/DesertWorkspace.cmake) the same intrinsics are emitted with
-//                     VEX encodings and Select uses blendv.
+//                     DESERT_AVX2 (/arch:AVX2, -march=x86-64-v3; cmake/DesertWorkspace.cmake) the same intrinsics
+//                     are emitted with VEX encodings and Select uses blendv.
 //   otherwise         the scalar path (macOS ARM64 and any other target): the same four lanes in a plain
 //                     struct, each operation lane by lane. NEON is not written: the ARM build has no hot loop
 //                     that measured it yet.
@@ -263,7 +263,7 @@ namespace Common::Math::Simd
         return Splat( 0.0f );
     }
 
-    // EIGHT LANES (UE VectorRegister8 / AVX). Under AVX (/arch:AVX2, DESERT_AVX2) one __m256; otherwise two
+    // EIGHT LANES (UE VectorRegister8 / AVX). Under AVX (DESERT_AVX2) one __m256; otherwise two
     // Float4 halves, each through the four-lane operations above - so the SSE2 build and the scalar build get
     // the same eight lanes with the same per-lane IEEE operation, and every path rounds alike (one add, subtract,
     // multiply, divide or root per lane, no FMA, no estimate).

@@ -1,11 +1,19 @@
 // DesertAsset {"Kind":"Shader","Guid":"e912e352bed746eab7c7aed8d0cda4a8","Versions":{"SHDR":1},"Dependencies":[]}
-// THE RADIANCE CACHE UPDATE, 1/7 — MARK (UE MarkRadianceProbesUsedByScreenProbes, LumenScreenProbeGather.usf): every
+// THE RADIANCE CACHE UPDATE, 1/5 — MARK AND FREE (UE MarkRadianceProbesUsedByScreenProbes, LumenScreenProbeGather.usf): every
 // cell a pixel's interpolated read will touch (RadianceCacheIrradianceAt: the eight cells around its biased position,
 // in each clipmap its dither may pick) is stamped with this frame. Until screen probes exist (GI-FINAL-GATHER) the
 // readers are the G-buffer's pixels themselves; one pixel of each 2x2 block per frame, the four in turn, so every
 // pixel marks within four frames — inside the eight a probe stays allocated unread.
 // The other readers are the REFLECTION CAPTURES' points (ReflectionCaptureDiffuse.shader reads the cache there in
 // the six axis directions): one thread stamps them every frame, since a capture hangs in the air where no pixel reads.
+// THE FREE (UE UpdateCacheForUsedProbes, LumenRadianceCacheUpdate.usf), in the same dispatch: the group rows past the
+// pixels' run one thread per PROBE SLOT (FPS-RADIANCE-CACHE: was its own pass, one thread per indirection entry -
+// 48^3 x 4 = 442k threads for at most 16k live slots, and one more pass on the async chain). A live slot (the entry
+// of its recorded cell holds it: it owns that entry) gives its slot back to the free list when the clipmap scrolled
+// past its cell (stale) or no reader stamped its entry for longer than the keep (unused). The age is measured up to
+// the LAST frame: this frame's stamps are written beside it, so a stamp it reads now counts as age 0 and one it does
+// not see yet is the frame it would have aged from anyway - the decision the entry pass made the frame before, one
+// frame later, still before this frame's Allocate takes slots. Each free is counted by why (RC_STAT_*).
 Shader "RadianceCacheMark"
 {
     Compute
@@ -44,6 +52,11 @@ Shader "RadianceCacheMark"
         #define RC_MARK_LEVELS         3u
         #define RC_MARK_NONE           0xFFFFFFFFu
         shared uint s_Key[RC_MARK_LEVELS][64];
+        // FPS-RADIANCE-CACHE-BRDF: the group's readers' normals as BRDF bins (RadianceCacheBrdfBin), ORed into every
+        // coverage entry the group stamps (RC_ENTRY_BRDF_BINS, Select's supersampling). One mask for the group's
+        // 16x16 pixels: a cell is written by one thread of the group for all its readers (the de-duplication below),
+        // and a superset only supersamples a square more.
+        shared uint s_Bins[2];
 
         uint MarkKey( vec3 p, vec3 N, vec3 V, uint clipmap )
         {
@@ -140,14 +153,113 @@ Shader "RadianceCacheMark"
                 MarkClipmap( p, N, N, coarse, RC_STAMP_COVERAGE );
         }
 
+        // FPS-SP-LIST-ATOMICS (UE BuildListsCS group reservation): the frees' counts and their pushes onto the free
+        // list are added once per group - one count atomic per freed slot and one push per slot, all on the same few
+        // words, serialised: a scroll or a turn frees thousands of probes a frame.
+        shared uint s_Freed[3]; // the group's frees by why: RC_STAT_FREED_STALE + i
+        shared uint s_Push;     // the group's slots pushed
+        shared int  s_PushBase; // the list's count before them: the first one's slot
+
+        // One group's frees (every thread of it calls this, the barriers): @p why the thread's slot's RC_STAT_FREED_*
+        // or ~0u, @p push whether it pushes @p probe.
+        void FlushFrees( const uint why, const bool push, const uint probe )
+        {
+            const uint t = gl_LocalInvocationIndex;
+            if ( t < 3u )
+                s_Freed[t] = 0u;
+            if ( t == 0u )
+                s_Push = 0u;
+            barrier();
+            if ( why != ~0u )
+                atomicAdd( s_Freed[why - RC_STAT_FREED_STALE], 1u );
+            uint local = 0u;
+            if ( push )
+                local = atomicAdd( s_Push, 1u );
+            barrier();
+            if ( t == 0u && s_Push != 0u )
+            {
+                const int count = int( s_Push );
+                const int base  = atomicAdd( radianceCacheFreeList[0], count );
+                // A full list means it already holds a doubled slot: a push that would land on the failed-
+                // allocation words or past the buffer, where a pop reads slot 0, is dropped instead.
+                const int dropped = clamp( base + count - int( MaxProbes ), 0, count );
+                if ( dropped > 0 )
+                    atomicAdd( radianceCacheFreeList[0], -dropped );
+                s_PushBase = base;
+            }
+            if ( t < 3u && s_Freed[t] != 0u )
+                atomicAdd( radianceCacheSchedule[RC_SCHEDULE_STATS + RC_STAT_FREED_STALE + t], s_Freed[t] );
+            barrier();
+            if ( push )
+            {
+                const int slot = s_PushBase + int( local );
+                if ( slot < int( MaxProbes ) )
+                    radianceCacheFreeList[1 + slot] = int( probe );
+            }
+        }
+
+        // The free of probe slot @p slot (every thread of a free group calls it: FlushFrees' barriers).
+        void FreeSlot( const uint slot, const bool firstGroup )
+        {
+            // After a frame whose reads found the atlas full, a probe unread for the pixels' rotation frees its slot.
+            const bool pressed =
+                 radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex - 1u )] > 0;
+            // This frame's failed allocations, counted by Allocate after this pass (the last frame's are the other
+            // parity's word, read above).
+            if ( firstGroup && gl_LocalInvocationIndex == 0u )
+            {
+                radianceCacheFreeList[RadianceCacheFailedAllocationsWord( MaxProbes, FrameIndex )] = 0;
+                radianceCacheSchedule[RC_SCHEDULE_STATS + RC_STAT_PRESSED] = pressed ? 1u : 0u;
+            }
+            uint        why     = ~0u; // the slot's RC_STAT_FREED_*, ~0u: kept (or free, or past the slots)
+            bool        push    = false;
+            const ivec4 cell    = slot < MaxProbes ? radianceCacheProbes[slot].cell : ivec4( 0, 0, 0, -1 );
+            const uint  clipmap = uint( cell.w );
+            if ( clipmap < radianceCache.shape.x )
+            {
+                // ONLY THE OWNER FREES THE SLOT. The probe's cell names the one entry it was allocated to (the
+                // toroidal index of that cell, which a scroll keeps); the slot is live while that entry holds it. A
+                // free slot (its entry emptied, or holding another slot since) is no entry's and is never pushed
+                // again (GPU-TURN-2: a slot pushed while live churned for ever).
+                const uint entry = RadianceCacheIndirectionIndex( radianceCache, cell.xyz, clipmap );
+                if ( ( radianceCacheIndirection[entry] & ~RADIANCE_CACHE_PROBE_UNTRACED ) == slot )
+                {
+                    // Stale: the clipmap's window (its corner and grid) no longer holds the cell.
+                    const ivec3 local = cell.xyz - RadianceCacheCornerCell( radianceCache, clipmap );
+                    const bool  stale = any( lessThan( local, ivec3( 0 ) ) ) ||
+                                       any( greaterThanEqual( local, ivec3( int( radianceCache.shape.y ) ) ) );
+                    const uint  keep =
+                         pressed ? min( UnusedFrames, RADIANCE_CACHE_PRESSURE_KEEP_FRAMES ) : UnusedFrames;
+                    // Read by either kind of reader (RadianceCacheState.glslh, RadianceCacheLastUsedUB): the later
+                    // stamp; one of this frame's (written beside this read) is age 0.
+                    const uint lastUsed =
+                         max( radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_COVERAGE )],
+                              radianceCacheLastUsed[RadianceCacheStampIndex( entry, RC_STAMP_FALLBACK )] );
+                    const uint age = lastUsed == FrameIndex ? 0u : ( FrameIndex - 1u ) - lastUsed;
+                    if ( stale || age > keep )
+                    {
+                        why = stale ? RC_STAT_FREED_STALE
+                                    : ( age > UnusedFrames ? RC_STAT_FREED_UNUSED : RC_STAT_FREED_PRESSURE );
+                        radianceCacheIndirection[entry] = RADIANCE_CACHE_INVALID_PROBE;
+                        push                            = true;
+                    }
+                }
+            }
+            FlushFrees( why, push, slot );
+        }
+
         void main()
         {
-            if ( gl_GlobalInvocationID.x == 0u && gl_GlobalInvocationID.y == 0u )
+            // The group rows past the pixels' (WorldRadianceCache: Mark's dispatch) free the probe slots, one a
+            // thread. A frame that initialises the state (Reset, RadianceCacheAllocate.shader) frees nothing.
+            const uint pixelRows = max( 1u, ( ( Height + 1u ) / 2u + 7u ) / 8u );
+            if ( gl_WorkGroupID.y >= pixelRows )
             {
-                // This frame's schedule header - the histogram, the counts and the update's counters - cleared by
-                // the update's first pass, so Update counts its frees into it and Allocate its slots.
-                for ( uint i = 0u; i < RC_SCHEDULE_LIST; ++i )
-                    radianceCacheSchedule[i] = 0u;
+                if ( Reset != 0u ) // a push constant: the whole group returns here, before any barrier
+                    return;
+                const uint group = ( gl_WorkGroupID.y - pixelRows ) * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+                FreeSlot( group * 64u + gl_LocalInvocationIndex, group == 0u );
+                return;
             }
             // The capture points, one (point, axis) per thread of the dispatch (GPU-SCREENPROBE-6: one thread
             // walked every point's 6 axes in series while its group waited).
@@ -155,6 +267,9 @@ Shader "RadianceCacheMark"
             if ( pointThread < MarkPointHeader.x * 6u )
                 MarkPointAxis( MarkPointsData[pointThread / 6u].xyz, pointThread % 6u );
 
+            if ( gl_LocalInvocationIndex < 2u )
+                s_Bins[gl_LocalInvocationIndex] = 0u;
+            barrier();
             for ( uint level = 0u; level < RC_MARK_LEVELS; ++level )
                 s_Key[level][gl_LocalInvocationIndex] = RC_MARK_NONE;
             const uvec2 pixel = gl_GlobalInvocationID.xy * 2u + uvec2( FrameIndex & 1u, ( FrameIndex >> 1 ) & 1u );
@@ -172,6 +287,8 @@ Shader "RadianceCacheMark"
                 const uvec2 ends   = MarkDitherEnds( p );
                 const uint  fine   = ends.x;
                 const uint  coarse = ends.y;
+                const uint  bin    = RadianceCacheBrdfBin( N );
+                atomicOr( s_Bins[bin / 32u], 1u << ( bin % 32u ) );
                 if ( fine < radianceCache.shape.x )
                     s_Key[RC_MARK_LEVEL_FINE][gl_LocalInvocationIndex] = MarkKey( p, N, V, fine );
                 if ( coarse != fine && coarse < radianceCache.shape.x )
@@ -199,7 +316,8 @@ Shader "RadianceCacheMark"
             const uint x = gl_LocalInvocationID.x;
             const uint y = gl_LocalInvocationID.y;
             const uint t = gl_LocalInvocationIndex;
-            const int  grid = int( radianceCache.shape.y );
+            const int   grid = int( radianceCache.shape.y );
+            const uvec2 bins = uvec2( s_Bins[0], s_Bins[1] );
             for ( uint level = 0u; level < RC_MARK_LEVELS; ++level )
             {
                 const uint key = s_Key[level][t];
@@ -255,6 +373,17 @@ Shader "RadianceCacheMark"
                     const uvec3 m     = uvec3( MarkSelect( wrapLo, wrapHi, up ) );
                     const uint  entry = m.x + clipmap * radianceCache.shape.y + width * ( m.y + radianceCache.shape.y * m.z );
                     radianceCacheLastUsed[RadianceCacheStampIndex( entry, kind )] = FrameIndex;
+                    // The read directions (RC_ENTRY_BRDF_BINS): only the coverage's (a fallback-only probe traces
+                    // at a quarter, unsupersampled), and only the bits the entry lacks (a read is cheaper than an
+                    // atomic, and a surface's bins are set from its first frame until its probe's next trace).
+                    if ( kind == RC_STAMP_COVERAGE )
+                    {
+                        const uint w = RadianceCacheStampIndex( entry, RC_ENTRY_BRDF_BINS );
+                        if ( ( radianceCacheLastUsed[w] & bins.x ) != bins.x )
+                            atomicOr( radianceCacheLastUsed[w], bins.x );
+                        if ( ( radianceCacheLastUsed[w + 1u] & bins.y ) != bins.y )
+                            atomicOr( radianceCacheLastUsed[w + 1u], bins.y );
+                    }
                 }
             }
         }

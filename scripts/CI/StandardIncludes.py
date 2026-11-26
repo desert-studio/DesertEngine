@@ -208,6 +208,9 @@ SCAN_ROOTS = ("Desert", "Editor", "Runtime", "Tools")
 NON_MODULE_INCLUDE_ROOTS = (
     "Desert/Desert/Source",
     "Desert/Common/Source/Common",
+    # DesertNet (Desert/Net/CMakeLists.txt): a library of its own, not an engine module, so the module table
+    # does not name its root; `#include <Net/...>` resolves through it.
+    "Desert/Net/Source",
     "Editor/Source",
     "Runtime/Source",
     "Tools/SceneMigrator/Source",

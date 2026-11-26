@@ -889,7 +889,7 @@ namespace Desert::Graphic::System
             // as the emissive lists do) marks the G-buffer's EMISSION_IS_LIGHT, so a screen GI hit takes no
             // emission from a MegaLights emitter; a GPU-instanced section casts contact shadows (UE's default).
             const uint32_t primitiveFlags =
-                 PrimitiveFlagsOf( true, gpu.Material != nullptr && gpu.Material->IsEmissiveLightsScene() );
+                 PrimitiveFlagsOf( true, gpu.Material != nullptr && gpu.Material->IsEmissiveLightsScene(), true );
             applyFrameState( draw.Instance.get() );
             if ( maskedPrepass )
             {

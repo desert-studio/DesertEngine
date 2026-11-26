@@ -218,27 +218,6 @@ namespace Desert::Graphic::System
             return Common::MakeError( "ParticleRenderer: the ParticleRibbonDefault template has no registered "
                                       "ParticleRibbon.Forward cell" );
         m_DefaultRibbonCell = *ribbon;
-        // The stand-in for a named material that cannot draw (UE WorldGridMaterial): the particle cells of the
-        // STAND-IN surface template (`Role StandInSurface`), found by that role and never by a name written here.
-        // A project whose stand-in declares no particle usage keeps the renderer: such a row is then not drawn,
-        // said here once.
-        for ( const auto& [path, into] : { std::pair{ MeshVertexPath::ParticleSprite, &m_BrokenCell },
-                                           std::pair{ MeshVertexPath::ParticleRibbon, &m_BrokenRibbonCell } } )
-        {
-            auto broken =
-                 Runtime::ResourceRegistry::GetMaterialService()->StandInSurfaceShader( path, MeshPass::Forward );
-            if ( broken &&
-                 Runtime::ResourceRegistry::GetShaderService()->GetByName( broken.GetValue() ) == nullptr )
-                broken = Common::MakeError<std::string>(
-                     std::format( "its cell '{}' is not registered", broken.GetValue() ) );
-            if ( broken )
-                *into = broken.GetValue();
-            else
-                LOG_ERROR( "[Particles] the stand-in surface has no {}.Forward cell ({}): a row whose material "
-                           "cannot draw will not be drawn at all - declare `Usage {}` in the stand-in surface",
-                           MeshVertexPathName( path ), broken.GetError(),
-                           path == MeshVertexPath::ParticleRibbon ? "ParticleRibbons" : "ParticleSprites" );
-        }
         return BOOLSUCCESS;
     }
 
@@ -1218,6 +1197,33 @@ namespace Desert::Graphic::System
         return slot.get();
     }
 
+    ParticleRenderer::SpriteDraw* ParticleRenderer::StandInDraw( const MeshVertexPath path )
+    {
+        // Asked when a row needs it and not at Initialize: a renderer is made before the shader assets are read, so
+        // the role has no template yet there.
+        StandInCell& standIn = path == MeshVertexPath::ParticleRibbon ? m_StandInRibbon : m_StandInSprite;
+        if ( standIn.Cell.empty() )
+        {
+            auto cell =
+                 Runtime::ResourceRegistry::GetMaterialService()->StandInSurfaceShader( path, MeshPass::Forward );
+            if ( cell && Runtime::ResourceRegistry::GetShaderService()->GetByName( cell.GetValue() ) == nullptr )
+                cell = Common::MakeError<std::string>(
+                     std::format( "its cell '{}' is not registered", cell.GetValue() ) );
+            if ( !cell )
+            {
+                if ( !standIn.Reported )
+                    LOG_ERROR( "[Particles] the stand-in surface has no {}.Forward cell ({}): a row whose material "
+                               "cannot draw is not drawn - declare `Usage {}` in the stand-in surface",
+                               MeshVertexPathName( path ), cell.GetError(),
+                               path == MeshVertexPath::ParticleRibbon ? "ParticleRibbons" : "ParticleSprites" );
+                standIn.Reported = true;
+                return nullptr;
+            }
+            standIn.Cell = cell.GetValue();
+        }
+        return SpriteDrawFor( standIn.Cell );
+    }
+
     ParticleRenderer::SpriteDraw* ParticleRenderer::ResolveSprite( const ParticleFrameEmitter&  fe,
                                                                    const ParticleFrameRenderer& row,
                                                                    EmitterMaterial&             material )
@@ -1227,7 +1233,6 @@ namespace Desert::Graphic::System
         const bool           ribbon = row.Kind == Assets::Serialization::VFXRendererKind::Ribbon;
         const MeshVertexPath path   = ribbon ? MeshVertexPath::ParticleRibbon : MeshVertexPath::ParticleSprite;
         const std::string&   engine = ribbon ? m_DefaultRibbonCell : m_DefaultCell;
-        const std::string&   broken = ribbon ? m_BrokenRibbonCell : m_BrokenCell;
         // A named material draws through its own cell of the row's path (UE: the renderer's material).
         if ( handle != Common::AssetHandle::Null() )
         {
@@ -1280,7 +1285,7 @@ namespace Desert::Graphic::System
             material.Handle   = Common::AssetHandle::Null();
             material.Instance = nullptr; // DefaultSurface has no parameters
             material.Cell     = nullptr;
-            return broken.empty() ? nullptr : SpriteDrawFor( broken );
+            return StandInDraw( path );
         }
         material.Handle   = Common::AssetHandle::Null();
         material.Instance = nullptr; // the default cell's own defaults

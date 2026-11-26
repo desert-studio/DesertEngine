@@ -21,6 +21,14 @@
 // The shading word's packing and the SHADING_MODEL_INDEX_<NAME> that DESERT_SHADING_MODEL_INDEX names: the closest
 // hit writes the template's model into the payload as the G-buffer pass writes it into its word.
 #include <Generated/ShadingModels.glslh>
+// THE WORLD'S WEATHER at the hit (Mesh/Surface/SurfaceWeather.glslh, the raster's own call): a template whose row
+// carries the weather response is wetted (film, puddles, ripples and streaks at the cone's mip) and snowed in its
+// hit as in its G-buffer, so a reflection, the hit-lit GI and the path tracer see the surface the raster draws. The
+// any hit tests opacity only and never reads it. Every ray generation that traces the scene's hit groups declares
+// the world's table and the view's rain occlusion (Common/RayTracingSceneReads.glslh).
+#if defined( DESERT_SURFACE_WEATHER ) && !defined( DESERT_SURFACE_RAY_ANY_HIT )
+#include <Mesh/Surface/SurfaceWeather.glslh>
+#endif
 
 // The surface input at the hit: world position along the ray, the world normal (inverse-transpose of the instance
 // transform), the tangent frame from the triangle's UV gradient (the record carries no tangent stream; a segment
@@ -57,6 +65,7 @@ SurfaceInput DesertRayHitSurfaceInput( DesertRayHitTriangle t )
     g_DesertRayHitLod     = uvArea > 1.0e-12 && worldArea > 1.0e-12
                                  ? log2( max( width, 1.0e-6 ) * sqrt( uvArea / worldArea ) / cosine )
                                  : 0.0;
+    g_DesertRayHitWorldLod = log2( max( width, 1.0e-6 ) / cosine );
 
     const bool frontFacing = gl_HitKindEXT == gl_HitKindFrontFacingTriangleEXT;
     return DesertSurfaceInput( worldPosition, N, t.UV, mat3( T, B, N ), vec2( 0.0 ), vec4( 1.0 ), frontFacing );
@@ -73,7 +82,11 @@ void main()
 void main()
 {
     const SurfaceInput  i = DesertRayHitSurfaceInput( DesertRayHitFetch() );
+#ifdef DESERT_SURFACE_WEATHER
+    const SurfaceOutput s = DesertApplySurfaceWeather( i, EvaluateSurface( i ) );
+#else
     const SurfaceOutput s = EvaluateSurface( i );
+#endif
     payload.HitT          = gl_HitTEXT;
     payload.BaseColor     = s.BaseColor;
     payload.Metallic      = s.Metallic;

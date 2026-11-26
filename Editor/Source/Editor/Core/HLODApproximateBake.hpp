@@ -65,6 +65,10 @@ namespace Desert::Editor
         // Stated = the cell is one mesh's octahedral impostor: Parts is that mesh with one identity instance;
         // Settings and Shell are not read.
         std::optional<::Desert::Core::HLODImpostorSettings> Impostor;
+        // Where an impostor cell's textures and M_I material are written; empty = beside the built HLODs
+        // (WorldCells::BuiltHLODDirectory, owned by Build/Delete HLODs). A per-mesh bake (Editor/Baking/
+        // MeshImpostorBaking) writes beside the mesh asset instead, so Delete HLODs never removes a component's card.
+        std::filesystem::path OutputDir;
     };
 
     // The material one cell's shell binds, as a StaticMesh slot states it.

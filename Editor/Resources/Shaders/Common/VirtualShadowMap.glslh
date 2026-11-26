@@ -359,7 +359,9 @@ bool VsmLocalReceiver( VsmLocalLight light, vec3 world, out uint first, out uint
 // THE SHADOW OF LIGHT @p light ON A RECEIVER at @p world with normal @p normal, 1 = lit. The receiver is offset along
 // its normal by a texel of its mip (more as the light grazes it), then a 3 x 3 bilinear PCF over the texels of that
 // mip (4 x 4 taps with tent weights, the atlas's LocalShadowPCF shape); depths are compared as distances along the
-// view axis, with a bias of one texel of the receiver's mip.
+// view axis, with a bias of one texel of the receiver's mip. The light's size is not read here: a surface receiver
+// takes Mesh/LocalLightShadowLookup.glslh VsmLocalShadowSoft (PCSS from SourceRadius / SourceLength, which falls
+// back to this for a point source), the G-buffer VsmLocalVisibilityRay; a froxel keeps this fixed-width PCF.
 float VsmLocalVisibility( VsmLocalLight light, vec3 world, vec3 normal )
 {
     uint first;

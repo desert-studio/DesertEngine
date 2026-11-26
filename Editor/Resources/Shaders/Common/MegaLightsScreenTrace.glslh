@@ -29,8 +29,9 @@ vec3 MegaLightsToScreen(vec3 world)
 // (Common/HZBTrace.glslh). Occluded when the walk stops on a depth texel the ray passes BEHIND by less than the
 // thickness (a surface in front of the ray, not a wall it merely went behind); a ray starting off the screen or
 // behind the near plane, or leaving them, is not occluded by what the screen does not hold (the next source
-// answers it, or none: unshadowed).
-bool MegaLightsScreenTraceOccluded(vec3 origin, vec3 dir, float length)
+// answers it, or none: unshadowed). @p hitDistance = how far along the ray the occluder stopped it (cm; unchanged
+// when nothing did).
+bool MegaLightsScreenTraceHit(vec3 origin, vec3 dir, float length, inout float hitDistance)
 {
 	if (length <= 0.0)
 		return false;
@@ -58,7 +59,16 @@ bool MegaLightsScreenTraceOccluded(vec3 origin, vec3 dir, float length)
 	const vec3  ray      = ReconstructWorldPosition(walk.Position.xy, walk.Position.z, MEGALIGHTS_SCREEN_TRACE_CLIP_TO_WORLD);
 	const float dSurface = distance(surface, MEGALIGHTS_SCREEN_TRACE_EYE);
 	const float dRay     = distance(ray, MEGALIGHTS_SCREEN_TRACE_EYE);
-	return dRay >= dSurface && dRay - dSurface <= MEGALIGHTS_SCREEN_TRACE_RELATIVE_THICKNESS * dSurface;
+	if (dRay < dSurface || dRay - dSurface > MEGALIGHTS_SCREEN_TRACE_RELATIVE_THICKNESS * dSurface)
+		return false;
+	hitDistance = clamp(dot(ray - origin, dir), 0.0, length);
+	return true;
+}
+
+bool MegaLightsScreenTraceOccluded(vec3 origin, vec3 dir, float length)
+{
+	float hitDistance = length;
+	return MegaLightsScreenTraceHit(origin, dir, length, hitDistance);
 }
 
 #endif // MEGALIGHTS_SCREEN_TRACE_GLSLH

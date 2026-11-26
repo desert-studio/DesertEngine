@@ -73,6 +73,19 @@ layout( binding = 21 ) uniform CloudShadowUB
 
 #include <Common/CloudShadowReceiver.glslh>
 
+// The water's caustics on the sun under a water body (Common/WaterCaustics.glslh; SceneViewInputs::WaterCausticsMap /
+// WaterCausticsFrame, bound by name). Set 1 after ViewIndirect's 0..6.
+layout( set = 1, binding = 7 ) uniform texture2D WaterCausticsTexture;
+#define WaterCausticsTexture sampler2D(WaterCausticsTexture, LinearRepeatSampler)
+layout( std430, set = 1, binding = 8 ) readonly buffer WaterCausticsFrameUB
+{
+    vec4 WaterCausticsWindow;
+    vec4 WaterCausticsShape;
+    vec4 WaterCausticsBodies[];
+};
+#define WATER_CAUSTICS_FRAME
+#include <Common/WaterCaustics.glslh>
+
 // The sun's contact shadow takes its highlight away too (Common/ContactShadow.glslh, through the opaque scene depth,
 // SceneDepthTexture of Mesh/Surface/SurfaceTypes.glslh). The block is the view's one ShadowUB (Mesh/ShadowUB.glslh,
 // SceneResources::ShadowUBData); the glass reads only its contact-shadow members.
@@ -119,7 +132,7 @@ void main()
     // Sun specular highlight (glass is smooth -> a tight hotspot).
     const vec3 L    = normalize( -directionLights.directionLights.Direction.xyz );
     vec3       spec = vec3( GlassHotspot( N, V, L ) * directionLights.directionLights.ColorIntensity.a *
-                            CloudShadowFactor( v_Surface.WorldPosition ) *
+                            CloudShadowFactor( v_Surface.WorldPosition ) * WaterCausticsFactor( v_Surface.WorldPosition ) *
                             ContactShadowFactor( v_Surface.WorldPosition, N, L, SunContactShadow,
                                                  /*not a subsurface receiver*/ -1.0 ) );
     // ...and each point and spot light's, by its radiance and its shadow.

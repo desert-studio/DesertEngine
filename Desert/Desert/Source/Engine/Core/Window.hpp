@@ -32,7 +32,7 @@ namespace Desert
 
     struct WindowSpecification
     {
-        std::string Title  = "Sandbox";
+        std::string Title;
         uint32_t    Width  = 1600;
         uint32_t    Height = 900;
         // FALSE = THE APPLICATION DRAWS ITS OWN TITLE BAR and the OS draws no frame at all. The editor

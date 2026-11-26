@@ -10,6 +10,7 @@
 #include <Engine/Assets/UIThemeAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/VFXEffectTypeAsset.hpp>
+#include <Engine/Assets/DataAsset.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -139,6 +140,7 @@ namespace Desert::Runtime
         AppendLoaded<Assets::UIThemeAsset>( assetManager, m_WatchedAssets );
         AppendLoaded<Assets::PrefabAsset>( assetManager, m_WatchedAssets );
         AppendLoaded<Assets::VFXEffectTypeAsset>( assetManager, m_WatchedAssets );
+        AppendLoaded<Assets::DataAsset>( assetManager, m_WatchedAssets );
         // A feature module's assets (ModuleHooks().HotReloads; the VFX module's `.dfx` systems): its poll reloads
         // these too, and a file no probe observed could never read as Changed.
         for ( const Core::HotReloadPoller& poller : Core::ModuleHooks().HotReloads )
@@ -230,6 +232,7 @@ namespace Desert::Runtime
             PollUIThemes( assetManager );
             PollPrefabs( assetManager );
             PollVFXEffectTypes( assetManager );
+            PollDataAssets( assetManager );
             for ( const Core::HotReloadPoller& poller : Core::ModuleHooks().HotReloads )
                 poller.Poll( assetManager,
                              [this]( const std::filesystem::path& path ) { return TouchWatched( path ); } );
@@ -419,6 +422,34 @@ namespace Desert::Runtime
             LOG_INFO( "[HotReload] VFX effect type '{}' reloaded - levels (MaxDistance x SpawnCountScale): {}; the "
                       "next VFX tick reads them.",
                       key, levels );
+        }
+    }
+
+    void AssetHotReload::PollDataAssets( Assets::AssetManager& assetManager )
+    {
+        // No service to notify: a game reads its WeaponDef through DataAsset::Get each time it needs it, and a
+        // re-read of the same type assigns into the payload every reader already points at. A failed re-read
+        // keeps the last good values (DataAsset::LoadFromFile).
+        for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::DataAsset>() )
+        {
+            if ( !asset )
+                continue;
+
+            // Touched before the readiness test, for the prefab's reason.
+            const auto& path    = asset->GetMetadata().Filepath;
+            const bool  changed = TouchWatched( path );
+            if ( !changed || !asset->IsReadyForUse() )
+                continue;
+
+            const std::string key = path.generic_string();
+            if ( const auto reloaded = asset->LoadFromFile(); !reloaded )
+            {
+                LOG_ERROR( "[HotReload] Data asset '{}' could not be re-read (the last good values are kept): {}",
+                           key, reloaded.GetError() );
+                continue;
+            }
+            LOG_INFO( "[HotReload] Data asset '{}' ({}) reloaded, revision {}.", key, asset->PayloadType()->Name,
+                      asset->Revision() );
         }
     }
 

@@ -130,7 +130,9 @@ namespace Desert::Graphic::VirtualGeometry
     // The rasters' indirect arguments, written by the cluster cull. HwDraw is a VkDrawIndirectCommand: vertexCount
     // = kClusterMaxTriangles * 3, instanceCount = HW clusters; the vertex shader reads triangle gl_VertexIndex / 3
     // of VisibleClusters[capacity - 1 - gl_InstanceIndex] and emits a NaN position past TriangleCount (UE's
-    // non-mesh-shader HW path). SwDispatch is a VkDispatchIndirectCommand: one workgroup per SW cluster.
+    // non-mesh-shader HW path). SwDispatch is a VkDispatchIndirectCommand: one SoftwareRaster.shader workgroup per SW
+    // cluster up to kSwRasterMaxGroups (the workgroups stride over the rest); SwCount = the SW clusters,
+    // VisibleClusters[0, SwCount).
     struct GpuClusterRasterArgs
     {
         uint32_t SwDispatch[3]{ 0u, 1u, 1u }; // 0
@@ -141,9 +143,31 @@ namespace Desert::Graphic::VirtualGeometry
         // VG_RASTER_BIN_GROUP_SIZE HW clusters, counted by the cut as it emits (ClusterCut.shader EmitCluster),
         // so an empty or small view bins nothing or little.
         uint32_t BinDispatch[3]{ 0u, 1u, 1u };
-        uint32_t BinPad = 0; // 44
+        // 44 rows the cut took from the visible list, SW + HW: a cluster takes one before it picks a raster, so
+        // SwCount + HwDraw[1] never pass the capacity and the two ends never meet (ClusterCut.shader EmitCluster).
+        uint32_t Emitted = 0;
+        // 48 / 52 VG-SW-RASTER (UE Nanite: the post pass appends to the main pass's VisibleClusters): the first SW
+        // row and the first HW counter value of THIS cut. A main cut starts both lists empty (0); the post cut
+        // continues the main cut's counters in the same list (ClusterCut.shader WriteDispatchArgs sets them from
+        // the copied counts), so its SW raster reads VisibleClusters[SwFirst, SwCount) and its raster binning the
+        // HW counters [HwFirst, HwDraw[1]).
+        uint32_t SwFirst = 0;
+        uint32_t HwFirst = 0;
+        uint32_t Pad[2]{ 0u, 0u };
     };
-    static_assert( sizeof( GpuClusterRasterArgs ) == 48, "std430 twin in Common/VirtualGeometry.glslh" );
+    static_assert( sizeof( GpuClusterRasterArgs ) == 64, "std430 twin in Common/VirtualGeometry.glslh" );
+    // Every reader (ClusterCut / RasterBinning / SoftwareRaster .shader) takes VgRasterArgs from that one glslh;
+    // the indirect offsets (SwDispatch 0, HwDraw 16, BinDispatch 32) are also consumed by vkCmd*Indirect.
+    static_assert( offsetof( GpuClusterRasterArgs, SwDispatch ) == 0,
+                   "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, SwCount ) == 12, "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, HwDraw ) == 16, "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, BinDispatch ) == 32,
+                   "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, Emitted ) == 44, "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, SwFirst ) == 48, "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, HwFirst ) == 52, "Common/VirtualGeometry.glslh VgRasterArgs" );
+    static_assert( offsetof( GpuClusterRasterArgs, Pad ) == 56, "Common/VirtualGeometry.glslh VgRasterArgs" );
 
     // THE VISIBILITY BUFFER WORD: one uint64 per pixel in a storage BUFFER (shaderBufferInt64Atomics, Vulkan 1.2;
     // a storage image of R64_UINT needs VK_EXT_shader_image_atomic_int64, which MoltenVK does not expose).
@@ -160,6 +184,12 @@ namespace Desert::Graphic::VirtualGeometry
     // out of range.
     inline constexpr uint32_t kMaxVisibleClustersPerCut = 1u << 22;
     static_assert( kMaxVisibleClustersPerCut <= kMaxVisibleClusters, "the budget is inside the visibility word" );
+    // The visible list's capacity a cut of the caller's exact bound @p visibleBound gets (the ONE rule:
+    // VirtualGeometryRenderer::AddClusterCut sizes the list by it, the SW raster gate checks its rows by it).
+    [[nodiscard]] constexpr uint32_t ClusterCutVisibleCapacity( const uint32_t visibleBound ) noexcept
+    {
+        return visibleBound < kMaxVisibleClustersPerCut ? visibleBound : kMaxVisibleClustersPerCut;
+    }
     [[nodiscard]] constexpr uint64_t PackVisibility( const uint32_t depthBits, const uint32_t visibleCluster,
                                                      const uint32_t triangle )
     {
@@ -171,4 +201,7 @@ namespace Desert::Graphic::VirtualGeometry
     // The HW/SW split (UE r.Nanite.MinPixelsPerEdgeHW = 32): a cluster whose MaxEdgeLength projects below this
     // many pixels goes to the compute raster.
     inline constexpr float kSwRasterMaxEdgePixels = 32.0f;
+    // SoftwareRaster.shader's indirect X bound (GLSL VG_SW_RASTER_MAX_GROUPS; maxComputeWorkGroupCount[0] is at
+    // least 65535 on every Vulkan device).
+    inline constexpr uint32_t kSwRasterMaxGroups = 65535u;
 } // namespace Desert::Graphic::VirtualGeometry

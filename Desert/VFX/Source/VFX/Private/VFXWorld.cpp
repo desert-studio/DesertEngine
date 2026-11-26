@@ -484,7 +484,8 @@ namespace Desert::VFX
                             reached = std::max( reached, emitter.StepsRun );
                         continue;
                     }
-                    emitter.SpawnCountScale = verdict.SpawnCountScale;
+                    emitter.SpawnCountScale =
+                         verdict.SpawnCountScale * static_cast<double>( p.Component->SpawnScale );
                     PlanEmitterSteps( emitter, system.Plans[k], steps, stepSeconds, m_Channels, p.EmitterCm );
                     reached = std::max( reached, emitter.StepsRun );
                 }
@@ -504,7 +505,8 @@ namespace Desert::VFX
                     emitter.ChannelSpawns.clear();
                     continue;
                 }
-                emitter.SpawnCountScale = verdict.SpawnCountScale;
+                emitter.SpawnCountScale =
+                     verdict.SpawnCountScale * static_cast<double>( p.Component->SpawnScale );
                 PlanEmitterSteps( emitter, system.Plans[k], m_Plan.StepCount, stepSeconds, m_Channels,
                                   p.EmitterCm );
             }

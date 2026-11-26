@@ -1,8 +1,10 @@
 #pragma once
 
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/GpuMemoryBudget.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -28,6 +30,9 @@ namespace Desert::Graphic::API::Vulkan
     // takes the smallest pooled heap that fits without wasting more than half of it, and a heap idle in the pool
     // for kGarbageCollectLatency frames is freed. Pooled heaps were last used by this slot's previous frame
     // (fenced at BeginFrameSlot) and nothing of this frame used them before: reusing their bytes needs no barrier.
+    // THE BUDGET (RT-WIN-PROOF-MEM): the heaps are a GpuMemoryBudget client - it cannot work below what its last
+    // frames' plans placed, and holds what is allocated. While another client waits for memory, what the plans do
+    // not use is given up after kPressureLatency frames instead of kGarbageCollectLatency.
     // Who calls it: VulkanRdgBackend::BeginGraph / EndGraph / AbandonGraph, and the renderer's frame loop
     // (BeginFrameSlot, right after the frames-in-flight fence wait - where VulkanRdgPool::BeginFrame is called
     // today). Never: free or rebind memory a submitted, unwaited frame may use; bind two live resources of the
@@ -80,9 +85,15 @@ namespace Desert::Graphic::API::Vulkan
             ResourceOwnership Ledger;
             uint32_t          OversizedFrames = 0; // consecutive frames the plan wanted at most half of Bytes
         };
-        // UE RHI transient allocator's GarbageCollectLatency: frames of a slot a pooled heap may stay idle,
-        // and a graph's heap may stay at least twice its plan's size, before its bytes go back to the driver.
-        static constexpr uint32_t kGarbageCollectLatency = 16;
+        // UE RHI transient allocator's GarbageCollectLatency (16 there): frames of a slot a pooled heap may stay
+        // idle, and a graph's heap may stay at least twice its plan's size, before its bytes go back to the
+        // driver.
+        static constexpr uint32_t kGarbageCollectLatency = 8;
+        // The same while another client of the GpuMemoryBudget is granted less than it wants.
+        static constexpr uint32_t kPressureLatency = 1;
+        // Frames whose largest plan is the client's minimum: one frame without a view does not give its bytes
+        // away.
+        static constexpr uint32_t kPlacedFrames = 8;
         struct PooledHeap
         {
             Heap     Pooled;
@@ -135,6 +146,7 @@ namespace Desert::Graphic::API::Vulkan
         struct Slot
         {
             std::vector<GraphHeaps> Graphs;
+            uint64_t                WantedBytes = 0; // the own heaps the slot's last frame's plans asked for
             // Heaps no graph holds, reusable by any graph of this slot (see THE HEAP POOL above).
             std::vector<PooledHeap> Pool;
             // Shared heaps this slot's frame gave up (grown or shrunk): freed at its next BeginFrameSlot, after
@@ -151,6 +163,8 @@ namespace Desert::Graphic::API::Vulkan
         static void RetirePlaced( Slot& slot, GraphHeaps& graph, uint32_t heap );
         static void Release( Slot& slot, GraphHeaps& graph );
         static void DestroyRetired( Slot& slot );
+        // Declares to the budget what the frames before the one beginning placed and what is held.
+        void        DeclareToBudget();
         void        FreePool( Slot& slot ) const;
         // A pooled heap fitting @p want (same class, an allowed memory type, at most twice its bytes), else none.
         [[nodiscard]] static bool TakePooled( Slot& slot, const RDG::TransientHeapDesc& want, Heap& out );
@@ -168,6 +182,11 @@ namespace Desert::Graphic::API::Vulkan
         bool                   m_Begun   = false; // BeginFrameSlot was called at least once
         // The shared heaps: one set for every graphics-only graph of every frame slot (see ReserveGraphHeaps).
         std::vector<SharedHeap> m_Shared;
+        GpuMemoryBudget::Client             m_Budget{ "RDG transient heaps", 1.0f };
+        std::array<uint64_t, kPlacedFrames> m_PlacedBytes{}; // a ring of the last frames' placed bytes
+        uint32_t                            m_PlacedFrame = 0;
+        // How long unused bytes are kept this frame: kPressureLatency or kGarbageCollectLatency.
+        uint32_t                m_Latency    = kGarbageCollectLatency;
         bool                    m_SharedUsed = false; // a graph held them: the next one needs the barrier
         int32_t                m_Current = -1;    // the open graph's index in the slot's Graphs, -1 between graphs
     };

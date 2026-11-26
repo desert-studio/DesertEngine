@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/ResourceLedger.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingFoliage.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometryVariants.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingProceduralGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
@@ -27,8 +28,9 @@ namespace Desert::Graphic::RayTracing
         }
 
         // Every view calls this before it gathers, with the engine's absolute frame number. A new number ends the
-        // previous frame: the variants and skin-cache entries no view asked for during it are released (their
-        // API objects retire on the frame ring, so a frame in flight still traces them safely).
+        // previous frame: the skin-cache entries no view asked for during it are released, BLAS entries none asked
+        // for in RayTracingGeometryVariants::kUnusedFramesBeforeRelease frames too (their API objects retire on
+        // the frame ring, so a frame in flight still traces them safely).
         void BeginViewFrame( const uint64_t frame )
         {
             if ( m_HasFrame && frame == m_Frame )
@@ -39,6 +41,7 @@ namespace Desert::Graphic::RayTracing
                 m_SkinCache.EndFrame( m_Frame );
                 m_Procedural.EndFrame( m_Frame );
                 m_Displacement.EndFrame( m_Frame );
+                m_FoliageWind.EndFrame( m_Frame );
             }
             m_Frame    = frame;
             m_HasFrame = true;
@@ -74,6 +77,11 @@ namespace Desert::Graphic::RayTracing
         {
             return m_SkinCache;
         }
+        // The swaying foliage's own wind BLASes (RayTracingFoliage.hpp), refit once per frame within the budget.
+        [[nodiscard]] RayTracingFoliageWind& GetFoliageWind()
+        {
+            return m_FoliageWind;
+        }
         [[nodiscard]] RayTracingProceduralCache& GetProcedural()
         {
             return m_Procedural;
@@ -105,6 +113,7 @@ namespace Desert::Graphic::RayTracing
         RayTracingSkinCache        m_SkinCache;
         System::DisplacementCache  m_Displacement;
         RayTracingProceduralCache  m_Procedural; // BLASes of meshes the uploader built none for
+        RayTracingFoliageWind      m_FoliageWind; // swaying ISM / foliage instances' refit BLASes
         uint64_t                   m_Frame    = 0;
         bool                       m_HasFrame = false;
     };

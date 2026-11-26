@@ -125,6 +125,26 @@ namespace Desert::Editor
             FieldSubject& operator=( const FieldSubject& ) = delete;
         };
 
+        // THE ASSET PAYLOAD A FIELD EDIT BELONGS TO (ASSET-TYPES-OPEN): FieldSubject's twin for an asset editor
+        // that draws a payload with the reflected-property builder (a `.dasset`'s struct). While a scope is alive,
+        // Push/PushString/PushFieldCommand are recorded as edits OF THAT OBJECT - EditedObject() answers it, so
+        // the record touches no scene file and the editor's DropFor( object ) forgets it when the window closes.
+        // An object scope wins over an entity scope; the two are not expected to nest.
+        class FieldObject
+        {
+        public:
+            explicit FieldObject( const void* object )
+            {
+                Get().m_FieldObjects.push_back( object );
+            }
+            ~FieldObject()
+            {
+                Get().m_FieldObjects.pop_back();
+            }
+            FieldObject( const FieldObject& )            = delete;
+            FieldObject& operator=( const FieldObject& ) = delete;
+        };
+
         // The entity ledger of the scene the scene commands edit (Commands::SetContext binds it). Held weakly: a
         // record outliving its scene stamps nothing.
         void BindPackages( std::weak_ptr<::Desert::Core::IEditStamps> ledger )
@@ -170,7 +190,9 @@ namespace Desert::Editor
     private:
         void PushFieldEdit( std::unique_ptr<ICommand> command )
         {
-            if ( m_FieldSubjects.empty() )
+            if ( !m_FieldObjects.empty() )
+                PushCommand( std::make_unique<ObjectFieldCommand>( std::move( command ), m_FieldObjects.back() ) );
+            else if ( m_FieldSubjects.empty() )
                 PushCommand( std::move( command ) );
             else
                 PushEntityEdit( std::move( command ), { m_FieldSubjects.back() } );
@@ -652,12 +674,43 @@ namespace Desert::Editor
             std::string  m_New;
         };
 
+        // A field record made under a FieldObject scope: the edit itself, named as an edit of the payload object.
+        class ObjectFieldCommand final : public ICommand
+        {
+        public:
+            ObjectFieldCommand( std::unique_ptr<ICommand> inner, const void* object )
+                 : m_Inner( std::move( inner ) ), m_Object( object )
+            {
+            }
+            bool Undo() override
+            {
+                return m_Inner->Undo();
+            }
+            bool Redo() override
+            {
+                return m_Inner->Redo();
+            }
+            [[nodiscard]] const void* EditedObject() const override
+            {
+                return m_Object;
+            }
+            std::string GetLabel() const override
+            {
+                return m_Inner->GetLabel();
+            }
+
+        private:
+            std::unique_ptr<ICommand> m_Inner;
+            const void*               m_Object = nullptr;
+        };
+
         static constexpr size_t kMaxEntries = 256;
 
         std::vector<std::unique_ptr<ICommand>> m_Undo;
         std::vector<std::unique_ptr<ICommand>> m_Redo;
         std::weak_ptr<::Desert::Core::IEditStamps> m_Packages;
         std::vector<Common::UUID>                  m_FieldSubjects; // FieldSubject scopes, innermost last
+        std::vector<const void*>                   m_FieldObjects;  // FieldObject scopes, innermost last
         uint64_t                               m_Revision = 0;
         // Set while an edit session is open: the undo depth it began at (OpenSession / CloseSession).
         std::optional<std::size_t> m_SessionFloor;

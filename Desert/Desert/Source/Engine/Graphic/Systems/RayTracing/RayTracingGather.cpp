@@ -5,8 +5,10 @@
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingFoliage.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstdint>
 #include <format>
@@ -136,9 +138,11 @@ namespace Desert::Graphic::RayTracing
 
         // Resolves @p mesh's BLAS for @p masks; false: the row is skipped (counted, the error kept). A SCENE gather
         // (@p variants null: no TLAS is built from it) resolves nothing and keeps every row, Geometry null.
+        // @p countsSkip false: the caller traces the row anyway (a coarser RT-LOD falling back to LOD 0), only the
+        // error is kept.
         bool ResolveGeometry( RayTracingGeometryVariants* variants, Mesh& mesh,
                               const RayTracingSubmeshMasks& masks, RayTracingGatherResult& out,
-                              const void*& geometry )
+                              const void*& geometry, const bool countsSkip = true )
         {
             geometry = nullptr;
             if ( variants == nullptr )
@@ -147,19 +151,25 @@ namespace Desert::Graphic::RayTracing
             if ( !resolved )
             {
                 out.Errors.push_back( resolved.GetError() );
-                Count( out, RayTracingSkip::NoGeometry );
+                if ( countsSkip )
+                    Count( out, RayTracingSkip::NoGeometry );
                 return false;
             }
             geometry = resolved.GetValue();
-            if ( masks != RayTracingSubmeshMasks{} )
+            // Every BLAS the owner answered, once (thousands of rows share a few): a kept gather asks again for
+            // each. A null answer of a cooked mesh (still streaming in) is kept too - its arrival regathers; a
+            // skinned or procedural mesh is never the owner's and needs no second ask.
+            if ( geometry != nullptr ? out.ResolvedGeometry.insert( geometry ).second
+                                     : !mesh.IsSkinned() && !mesh.IsProceduralRayTracingGeometry() )
                 out.VariantUses.push_back( { .MeshPtr = &mesh, .Masks = masks, .Geometry = geometry } );
             return true;
         }
-        // A mesh without an uploader BLAS whose buffers are resident: the procedural cache builds its BLAS. A
-        // mesh still streaming in has neither and stays NoGeometry.
-        bool IsResident( const Mesh& mesh )
+        // A procedural mesh (Mesh::IsProceduralRayTracingGeometry) whose buffers are resident: the RT scene's
+        // procedural cache builds its BLAS. One still streaming in has none and stays NoGeometry.
+        bool TracesProcedurally( const Mesh& mesh )
         {
-            return mesh.GetGeometry().IsResident() && mesh.GetGeometry().IndexCount > 0u;
+            return mesh.IsProceduralRayTracingGeometry() && mesh.GetGeometry().IsResident() &&
+                   mesh.GetGeometry().IndexCount > 0u;
         }
     } // namespace
 
@@ -188,10 +198,13 @@ namespace Desert::Graphic::RayTracing
             rowIndex[row] = rows.size();
             rows.push_back( { mesh, world, row, castShadows, kind, { section } } );
         };
+        // An impostor card (WP-FAR-12F) is a raster-only stand-in: a flat billboard in the TLAS would reflect and
+        // shadow as a plane. UE excludes the impostor LOD from ray tracing the same way.
         for ( const MeshRenderer::StaticMeshRenderData& data : inputs.Static )
-            add( data.Mesh, data.Transform, data.GpuInstance,
-                 SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ), data.CastShadows,
-                 RayTracingPrimitiveKind::Static );
+            if ( !data.ImpostorCard )
+                add( data.Mesh, data.Transform, data.GpuInstance,
+                     SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ), data.CastShadows,
+                     RayTracingPrimitiveKind::Static );
         // A generic record's material is its own program (a per-slot data-driven material, or a shader override
         // with no slot material): opaque, unless the record carries its own hit group with an alpha test (3D
         // text's glyph coverage, RayTracingProgramHit) - then its segments are non-opaque and their hits run that
@@ -223,7 +236,7 @@ namespace Desert::Graphic::RayTracing
             primitive.Translucent          = AllTranslucent( record.Sections );
             primitive.Submeshes            = masks;
             primitive.Kind                 = record.Kind;
-            if ( variants != nullptr && geometry == nullptr && IsResident( *record.MeshPtr ) )
+            if ( variants != nullptr && geometry == nullptr && TracesProcedurally( *record.MeshPtr ) )
             {
                 primitive.ProceduralMesh = record.MeshPtr;
                 primitive.Kind           = RayTracingPrimitiveKind::Procedural;
@@ -263,12 +276,43 @@ namespace Desert::Graphic::RayTracing
                 Count( out, RayTracingSkip::NothingVisible );
                 continue;
             }
-            const void* geometry = nullptr;
-            if ( !ResolveGeometry( variants, *data.Mesh, masks, out, geometry ) )
-                continue;
-            const auto                    firstRecord  = static_cast<uint32_t>( out.SegmentRecords.size() );
-            uint32_t                      recordCount  = 0;
-            bool                          recordsAdded = false;
+            // RT-FOLIAGE-BLAS / RT-FOLIAGE-LOD (RayTracingFoliage.hpp): each instance traces the shared BLAS of its
+            // RT-LOD, resolved on the first instance at that level - LOD 0 included, so a field whose every
+            // instance is past LOD 0 asks for no LOD-0 BLAS variant (UE: only the RT LOD's geometry is built). A
+            // coarser level that does not resolve (its error kept) or has no BLAS falls back to LOD 0, the instance
+            // still traced; LOD 0 not resolving skips the field's LOD-0 instances (counted once). A swaying instance
+            // is handed to the wind refit. RT-LOD selection in a TLAS gather only.
+            const std::vector<float> lodErrors =
+                 variants != nullptr && inputs.FoliageLod != nullptr && inputs.FoliageLodErrorPerCm > 0.0f
+                      ? RayTracingLodErrors( *data.Mesh, masks.Hidden )
+                      : std::vector<float>{};
+            std::array<const void*, kRayTracingMaxLod + 1u> lodGeometry{};
+            std::array<bool, kRayTracingMaxLod + 1u>        lodResolved{};
+            std::array<bool, kRayTracingMaxLod + 1u>        lodFailed{};
+            const auto resolveLevel = [&]( const uint8_t lod ) -> bool
+            {
+                if ( !lodResolved[lod] )
+                {
+                    lodResolved[lod]                = true;
+                    RayTracingSubmeshMasks lodMasks = masks;
+                    lodMasks.Lod                    = lod;
+                    const void* resolved            = nullptr;
+                    if ( ResolveGeometry( variants, *data.Mesh, lodMasks, out, resolved, lod == 0u ) )
+                        lodGeometry[lod] = resolved;
+                    else
+                        lodFailed[lod] = true;
+                }
+                return !lodFailed[lod];
+            };
+            const bool sways = variants != nullptr && data.Wind.Sways();
+            // One segment run per RT-LOD: the records follow the segments of that level's BLAS.
+            struct SegmentRun
+            {
+                uint32_t First = 0;
+                uint32_t Count = 0;
+                bool     Added = false;
+            };
+            std::array<SegmentRun, kRayTracingMaxLod + 1u> lodRuns{};
             const InstanceCullDistance    cull       = ScaledByLens( data.CullDistance, inputs.DrawDistanceScale );
             const std::vector<glm::mat4>& transforms = *data.Transforms;
             for ( std::size_t instance = 0; instance < transforms.size(); ++instance )
@@ -276,25 +320,51 @@ namespace Desert::Graphic::RayTracing
                 if ( !KeepsInstanceAtDistance( cull, static_cast<uint32_t>( instance ),
                                                glm::vec3( transforms[instance][3] ), inputs.ViewOrigin ) )
                     continue;
+                const uint32_t component = data.InstanceIds && instance < data.InstanceIds->size()
+                                                ? ( *data.InstanceIds )[instance]
+                                                : static_cast<uint32_t>( instance );
+                uint8_t lod = 0;
+                if ( !lodErrors.empty() )
+                {
+                    const glm::vec3 origin( transforms[instance][3] );
+                    lod = inputs.FoliageLod->Select( data.Entity, component, lodErrors,
+                                                     glm::length( origin - inputs.ViewOrigin ),
+                                                     RayTracingInstanceScale( transforms[instance] ),
+                                                     inputs.FoliageLodErrorPerCm );
+                }
+                if ( lod > 0u && ( !resolveLevel( lod ) || lodGeometry[lod] == nullptr ) )
+                    lod = 0u;
+                if ( lod == 0u && !resolveLevel( 0u ) )
+                    continue;
+                RayTracingSubmeshMasks instanceMasks    = masks;
+                instanceMasks.Lod                       = lod;
+                const void*            instanceGeometry = lodGeometry[lod];
                 RayTracingPrimitive& primitive = out.Primitives.emplace_back();
-                primitive.Geometry             = geometry;
+                primitive.Geometry             = instanceGeometry;
                 primitive.World                = transforms[instance];
                 primitive.GpuSceneRow          = data.FirstGpuInstance + static_cast<uint32_t>( instance );
                 primitive.SourceMesh           = data.Mesh;
                 primitive.CastShadows          = field.CastShadows;
                 primitive.Translucent          = AllTranslucent( field.Sections );
-                primitive.Submeshes            = masks;
+                primitive.Submeshes            = instanceMasks;
                 primitive.Kind                 = RayTracingPrimitiveKind::Instanced;
-                if ( variants != nullptr && geometry == nullptr && IsResident( *data.Mesh ) )
+                if ( sways && instanceGeometry != nullptr )
+                    primitive.Wind = { .MeshPtr  = data.Mesh,
+                                       .Rest     = instanceGeometry,
+                                       .Entity   = data.Entity,
+                                       .Instance = component };
+                if ( variants != nullptr && instanceGeometry == nullptr && TracesProcedurally( *data.Mesh ) )
                     primitive.ProceduralMesh = data.Mesh;
-                if ( !recordsAdded )
+                SegmentRun& run = lodRuns[lod];
+                if ( !run.Added )
                 {
+                    run.First = static_cast<uint32_t>( out.SegmentRecords.size() );
                     AppendSegmentRecords( *data.Mesh, field.Sections, primitive, out );
-                    recordCount  = primitive.SegmentRecordCount;
-                    recordsAdded = true;
+                    run.Count = primitive.SegmentRecordCount;
+                    run.Added = true;
                 }
-                primitive.FirstSegmentRecord = firstRecord;
-                primitive.SegmentRecordCount = recordCount;
+                primitive.FirstSegmentRecord = run.First;
+                primitive.SegmentRecordCount = run.Count;
             }
         }
 
@@ -411,7 +481,7 @@ namespace Desert::Graphic::RayTracing
                 primitive.CastShadows          = castShadows;
                 primitive.Submeshes            = masks;
                 primitive.Kind                 = RayTracingPrimitiveKind::GpuInstanced;
-                if ( variants != nullptr && geometry == nullptr && IsResident( *data->Mesh ) )
+                if ( variants != nullptr && geometry == nullptr && TracesProcedurally( *data->Mesh ) )
                     primitive.ProceduralMesh = data->Mesh;
                 AppendSegmentRecords( *data->Mesh, sections, primitive, out );
                 out.GpuInstanced.push_back( { .Primitive = index,
@@ -446,8 +516,9 @@ namespace Desert::Graphic::RayTracing
     bool RayTracingGatherCullsByView( const RayTracingGatherInputs& inputs )
     {
         for ( const MeshRenderer::InstancedMeshRenderData& data : inputs.Instanced )
-            if ( data.Mesh != nullptr && data.Transforms && data.CullDistance.Culls() )
-                return true;
+            if ( data.Mesh != nullptr && data.Transforms &&
+                 ( data.CullDistance.Culls() || !RayTracingLodErrors( *data.Mesh, data.HiddenSubmeshes ).empty() ) )
+                return true; // a distance cull, or an RT-LOD chosen by distance (RayTracingFoliage.hpp)
         return false;
     }
 

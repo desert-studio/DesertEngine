@@ -2,7 +2,9 @@
 
 // PRIVATE to the renderer (UE: FSceneRenderer in SceneRendering.h): the view's members and passes. Only the
 // SceneRenderer*.cpp translation units include it; everything else holds the interface (SceneRenderer.hpp).
+#include <Engine/Graphic/Systems/Scene/Weather/RainStreakRenderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Graphic/GpuMemoryBudget.hpp>
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Animation/AnimationUpdateRate.hpp>
@@ -27,6 +29,7 @@
 #include <Common/Core/Math/AABB.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneReads.hpp>
 #include <Engine/Graphic/RenderMethods.hpp>
 #include <Engine/Graphic/RenderPassDeclaration.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -171,6 +174,7 @@ namespace Desert::Graphic
         std::shared_ptr<System::HeterogeneousVolumeRenderer>        HeterogeneousVolume;
         std::shared_ptr<System::TranslucencyLightingVolumeRenderer> TranslucencyLightingVolume;
         std::shared_ptr<System::VolumetricCloudRenderer>            VolumetricCloud;
+        std::shared_ptr<System::RainStreakRenderer>                 RainStreaks;
         std::shared_ptr<System::ISceneFXSystem>                     Particle;
         std::shared_ptr<System::DeferredLightingRenderer>           DeferredLighting;
         std::shared_ptr<System::SubsurfaceRenderer>                 Subsurface;
@@ -647,6 +651,9 @@ namespace Desert::Graphic
         std::shared_ptr<ShaderResources::StorageBuffer> m_WorldParameters;
         // The values m_WorldParameters was built from this frame (GetWorldParameterScalar).
         std::vector<Desert::Core::WorldParameterValue> m_WorldParameterValues;
+        // The bytes m_WorldParameters was written with this frame: the ray tracing passes' copy of the same table
+        // (AddFrameRayTracingSceneReads), so a hit reads what the raster read.
+        std::vector<std::byte> m_WorldParameterBytes;
         // Uploads Scene::GetWorldParameters into m_WorldParameters (BeginScene, inside the view's scope).
         [[nodiscard]] Common::BoolResultStr UploadWorldParameters( const Desert::Core::Scene& scene );
 
@@ -804,8 +811,12 @@ namespace Desert::Graphic
         [[nodiscard]] bool SunCascadesRead() const;
         // Every point/spot light that casts in this view gets a ShadowMaskSlot (and a record of
         // m_LocalShadowMaskLights) when LocalShadowsAreScreenMask and its attenuation sphere meets @p view (the
-        // frame's unjittered frustum), every other -1. After UpdateLocalShadows.
+        // frame's unjittered frustum) and it was not left to its shadow map (m_LocalShadowMapLights), every other
+        // -1. After UpdateLocalShadows.
         void AssignLocalShadowMaskSlots( const Core::Frustum& view );
+        // The ray-traced lights whose denoiser history the video memory holds (GpuMemoryBudget), the largest on
+        // screen first; the others go to m_LocalShadowMapLights. Before UpdateLocalShadows, which draws their maps.
+        void SelectLocalShadowHistories( const ViewFrame& frame );
         // Per slot: trace, denoise (history per light, m_LocalShadowDenoisers) and pack into the frame's 2D-array
         // mask (one White layer when no slot). Invalid (logged) only when the array could not be filled at all;
         // the composite then draws its sun-mask program (the lights' shadow maps, if drawn, or unshadowed).
@@ -900,6 +911,18 @@ namespace Desert::Graphic
         // post pass): the main cut's carry ("Cluster Cut Post") against this frame's furthest HZB, drawn by the
         // GBuffer post-occlusion pass. Nothing when the main cut tested no HZB.
         void AddFrameVirtualGeometryPostOcclusion( RDG::Builder& graph, const ViewFrame& frame );
+        // VG-SW-RASTER: whether this frame's main view splits its clusters HW/SW - the view can keep a visibility
+        // buffer this frame (the deferred G-buffer path, a device with 64-bit buffer atomics, the buffer's
+        // programs loaded, and, when the grass shares the buffer, its rows not overflowing: the VG rows follow
+        // them). AddFrameVirtualGeometry records it in FrameVirtualGeometry::SoftwareRaster; the post cut splits
+        // by that record (one decision per frame for both phases).
+        [[nodiscard]] bool VirtualGeometrySwRasterOn() const;
+        // VG-SW-RASTER: the main SW raster's row base in this frame's visibility buffer (past every grass row when
+        // the grass shares it, else 0) once VirtualGeometry::SoftwareRasterRowsFit passes for a cut of
+        // @p visibleCapacity rows (ClusterCutVisibleCapacity); the refusal otherwise. Asked by the main cut BEFORE
+        // its HW/SW split (refused: every cluster stays HW this frame) and by the main SW raster for its row
+        // base - one gate, one row base.
+        [[nodiscard]] Common::ResultStr<uint32_t> VirtualGeometrySwRasterRowBase( uint32_t visibleCapacity ) const;
         // VIRT-GEOM step 16 (AddFrameVirtualSunShadow, between the page passes and "VSM: Raster"): the virtual
         // shadow map's clipmap levels as cut views - one instance cull over the levels (kVsmPageMask, the level's
         // drawn-page mask) appending only VG candidates, then per level a "Cluster Cut" at the level's texel
@@ -960,6 +983,9 @@ namespace Desert::Graphic
        // the AfterTranslucency extension point. The height fog's apply is not here: it fogs the opaque scene
        // only and runs before the scene copy (AddFrameOpaqueFog); what is drawn here fogs itself.
         void AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The falling rain (System::RainStreakRenderer) after the particles: its graph inputs from this frame's world
+        // parameters, rain occlusion and air; nothing when it does not rain.
+        void AddFrameRainStreaks( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // The passes registered at @p point on this frame's scene (m_FrameExtensions), in registration order: one
         // LOAD raster node each on the scene target (or @p overlay's set after the temporal resolve), placed by
         // the position of this call. The frame build calls it once per point, at that point's place.
@@ -1043,8 +1069,6 @@ namespace Desert::Graphic
         // OnUpdate once the grass visibility frame is made, before any phase-1 raster) or phase 2's (true: from
         // AddFrameGrassPostOcclusion, before its raster). The visibility raster's vertex stage and the blade
         // resolve read those records instead of placing each blade per vertex / per pixel. A refusal is logged.
-        void AddFrameGrassBladeSetup( RDG::Builder& graph, System::MeshRenderer* meshRenderer,
-                                      const ViewFrame& frame, bool postOcclusion );
         // GRASS-VIS-23: the ONE material pass over the visibility buffer, after both phases' rasters (UE Nanite's
         // base pass after the post pass): every word - phase 1's and phase 2's - shaded once into the G-buffer.
         // The blade resolve reads both phases' setup records (AddFrameGrassBladeSetup) instead of rebuilding each
@@ -1092,6 +1116,10 @@ namespace Desert::Graphic
         // (UE single layer water's SSR leg); invalid -> the graph's black, the water's captures and sky alone.
         void AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
                             const FrameFrontLayer& frontLayer );
+        // THE FFT OCEAN'S WAVES of this frame (WATER-RIVERS-FFT; WaterRenderer::AddWavePasses): recorded into
+        // @p graph by their first reader (the water's front layer or its surface node), the same ref after; the
+        // graph's black when the frame's water draws Gerstner.
+        RDG::TextureRef FrameWaterWaves( RDG::Builder& graph, FrameTextures& textures );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
         // The vg_clusters view (DebugViewState::VirtualGeometry = Clusters): "Debug: Virtual Geometry Clusters"
@@ -1141,6 +1169,13 @@ namespace Desert::Graphic
         // what was refused.
         [[nodiscard]] Common::BoolResultStr AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,
                                                                  const ViewFrame& frame );
+        // The scene reads the hit groups' weather makes (Common/RayTracingSceneReads.glslh) for one tracing pass of
+        // this frame: the world's table (this frame's bytes, uploaded into the graph), the view's rain occlusion map
+        // and its block - the raster's own values. And the hash of them a path-traced sum stands on (a rain that
+        // starts or a box that recentres restarts it).
+        [[nodiscard]] RayTracing::RayTracingSceneReadsInputs AddFrameRayTracingSceneReads( RDG::Builder& graph,
+                                                                                           FrameTextures& textures );
+        [[nodiscard]] uint64_t RayTracingSceneReadsHash() const;
         // What a path-traced view's sum stands on besides the camera (UE: the path tracer's invalidation on any
         // scene change): the TLAS rows, the lights, the GI record (sun, sky look), the environment, the hit
         // groups' templates, records and material rows, and the material service's invalidations. @p environment:
@@ -1194,6 +1229,9 @@ namespace Desert::Graphic
         // The WORLD layout of the same lights ("LightGridWorld" compute node: the radiance cache's clipmap cells
         // around the camera), into FrameTransients::Lights.World* — only when WorldLightGridRead().
         void AddFrameLightGridWorld( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // WATER-CAUSTICS: the water's caustics map and frame row (System::WaterCaustics::AddPasses) into
+        // FrameTransients::WaterCausticsMap / WaterCausticsFrame - before the first sun receiver, on both paths.
+        void AddFrameWaterCaustics( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         // Whether a node of this frame reads the world light grid: the radiance cache's trace (a traced GI method
         // lights its hits with it) and the "Light Grid (World)" view mode (Deferred).
         [[nodiscard]] bool WorldLightGridRead() const;
@@ -1450,7 +1488,16 @@ namespace Desert::Graphic
         // stage, right before the particles' DrawPass (AddFrameTranslucency).
         void AddFrameTranslucencyLightingVolume( RDG::Builder& graph, FrameTextures& textures,
                                                  const ViewFrame& frame );
-        void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // The queue the cloud layer's nodes ask for (FPS-CLOUDS-MARCH): AsyncCompute where the deferred lighting
+        // traces them between the probes' fork and join, far ahead of their composite; Graphics after the opaque
+        // scene, where the composite follows at once and a run would only be waited for.
+        enum class CloudQueue : uint8_t
+        {
+            Graphics,
+            AsyncCompute
+        };
+        void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
+                                       CloudQueue queue );
         // The selection outline composited over @p scene (the post input: the temporal resolve's output with the
         // overlays, or the scene colour). Returns what the tonemap reads - the outlined scene - or an invalid ref
         // when the outline system cannot record this frame (the tonemap then reads @p scene).
@@ -1595,6 +1642,16 @@ namespace Desert::Graphic
         // DebugViewState::ForceVirtualGeometryPostCutRefusal as last logged (logged once when it turns on).
         bool  m_VirtualGeometryPostRefusalLogged = false;
         float m_VirtualGeometryMaxPixelsPerEdge  = 1.0f;
+        // Scalability VirtualGeometry.SoftwareRaster (VG-SW-RASTER): the main cut hands small clusters to the
+        // compute raster when the view also has its visibility buffer (AddFrameVirtualGeometry).
+        bool m_VirtualGeometrySoftwareRaster = false;
+        // The main cut's last SW raster refusal (VirtualGeometrySwRasterRowBase) as logged: once per reason,
+        // cleared when the gate passes again.
+        std::string m_VirtualGeometrySwRefusal;
+        // The main / post SW raster's last error as logged (SceneRenderer.cpp): once per reason (a new reason
+        // logs). Not m_VirtualGeometryLastError, which AddFrameVirtualGeometry clears every frame its cuts pass -
+        // a raster error kept there was logged every frame.
+        std::string m_VirtualGeometrySwRasterError;
         // This frame's cut (reset by AddFrameVirtualGeometry): what the vg_clusters view draws.
         struct FrameVirtualGeometry
         {
@@ -1606,6 +1663,14 @@ namespace Desert::Graphic
             // the main cut tested no HZB.
             RDG::BufferRef OccludedCandidates;
             RDG::BufferRef OccludedCount;
+            // VG-SW-RASTER R2: the main cut split HW/SW this frame (AddFrameVirtualGeometry's gate): the view then
+            // keeps a visibility buffer even without grass on it, its SW rows rastered, depth-written and
+            // resolved.
+            bool SoftwareRaster = false;
+            // VG-SW-RASTER: the post cut's counters (its ClusterCullResult::RasterArgs; it appends to
+            // VisibleClusters above, GpuClusterRasterArgs::SwFirst / HwFirst): "VirtualGeometry: Software Raster
+            // Post" reads its SW rows from them. Invalid when no post cut ran.
+            RDG::BufferRef PostRasterArgs;
         };
         std::optional<FrameVirtualGeometry> m_FrameVirtualGeometry;
         uint32_t                            m_VirtualGeometryInstances = 0; // this frame's VG candidate instances
@@ -1816,6 +1881,10 @@ namespace Desert::Graphic
         // GlobalIllumination.ScreenProbeSparseStableRays, ScreenProbeGatherInputs::SparseStableRays), refreshed
         // each BeginScene.
         bool m_ScreenProbeSparseStableRays = true;
+        // The traced GI's final gather is the ReSTIR one (Scalability GlobalIllumination.FinalGather = ReSTIR on
+        // the hardware tracer, GlobalIllumination::ReSTIRGatherRuns; ScreenProbeGatherInputs::ReSTIR), refreshed
+        // each BeginScene.
+        bool m_ReSTIRGather = false;
         // The surface cache's radiosity on the async compute queue (Scalability
         // GlobalIllumination.SurfaceCacheAsyncRadiosity, SurfaceCacheRenderer::IndirectLightingInputs::Async),
         // refreshed each BeginScene.
@@ -1890,6 +1959,9 @@ namespace Desert::Graphic
         // A pruned light's denoiser (its extracted history textures) is PARKED here, not destroyed: frames still
         // in flight may read its history; released once no frame recorded before the prune can (FrameRetireQueue).
         Assets::FrameRetireQueue<std::unique_ptr<System::ScreenSpaceDenoiser>> m_RetiredLocalShadowDenoisers;
+        // This frame's lights past the histories' grant (SourceIds): no trace, no history - their shadow map is read.
+        std::unordered_set<uint32_t> m_LocalShadowMapLights;
+        GpuMemoryBudget::Client      m_LocalShadowHistoryBudget{ "Local shadow histories", 1.0f };
         bool                                                                   m_RayTracedShadowReady  = false;
         bool                                                                   m_RayTracedShadowFailed = false;
         // "Shadows: Distance Field Sun", created on the first frame DistanceFieldShadowRuns; latched like the

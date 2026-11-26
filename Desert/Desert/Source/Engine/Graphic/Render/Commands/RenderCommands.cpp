@@ -29,6 +29,12 @@ namespace Desert::Graphic::Render
     renderer.AddDecal( Decal );
     }
 
+    void DecalImpactsCommand::Execute( SceneRenderer& renderer )
+    {
+        for ( const System::DecalProxy& decal : Decals )
+            renderer.AddDecal( decal );
+    }
+
     void DrawGenericMeshCommand::Prepare()
     {
     if ( Mesh != nullptr )
@@ -150,8 +156,11 @@ namespace Desert::Graphic::Render
                            .MorphWeights  = MorphWeights,
                            .MorphRevision = MorphRevision,
                            .LodFeedback   = LodFeedback,
+                           .Leader        = Leader,
                            .Outlined      = Outlined,
-                           .CastShadows   = CastShadows } );
+                           .HiddenSubmeshes = HiddenSubmeshes,
+                           .CastShadows   = CastShadows,
+                           .ReceivesDecals = ReceivesDecals } );
     }
 
     void DrawSlotMaterialMeshCommand::Prepare()

@@ -9,6 +9,7 @@
 #include "Editor/Panels/Animation/AnimGraphPanel.hpp"
 #include "Editor/Panels/AnimationEditor/AnimationEditorDocument.hpp"
 #include "Editor/Panels/Clouds/CloudDocumentOpen.hpp"
+#include "Editor/Panels/DataAsset/DataAssetDocument.hpp"
 #include "Editor/Panels/Clouds/CloudLayoutPanel.hpp"
 #include "Editor/Panels/Clouds/CloudModellingVolumePanel.hpp"
 #include "Editor/Panels/Clouds/CloudNoiseVolumePanel.hpp"
@@ -44,6 +45,7 @@
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
+#include <Engine/Assets/Serialization/DataAsset.hpp>
 #include <Engine/Assets/Serialization/ShaderGraph.hpp>
 #include <Engine/Assets/Serialization/VFXDataChannel.hpp>
 #include <Engine/Assets/Serialization/VFXEffectType.hpp>
@@ -165,6 +167,22 @@ namespace Desert::Editor
                   [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                   {
                       return std::make_unique<Editor::VFXModuleDocument>( Assets::AssetHandle( subject.Owner ),
+                                                                          assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+
+        // THE DATA ASSET EDITOR. A `.dasset`'s registered struct in the generic reflected property panel (UE's
+        // data asset in Details, ASSET-TYPES-OPEN); no renderer slot.
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::DataAsset ) ),
+             Registration{
+                  "DataAsset", ICON_MDI_DATABASE,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
+                      return std::make_unique<Editor::DataAssetDocument>( Assets::AssetHandle( subject.Owner ),
                                                                           assetManager.get() );
                   },
                   [&assetManager]( const SubjectId& subject ) {
@@ -614,6 +632,10 @@ namespace Desert::Editor
                      return sky;
                  return RequestTextureDocument( assetManager.get(), path, documents.SubjectEditors() );
              } );
+        documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Assets::Serialization::kDataAssetExtension ) },
+             [&documents, &assetManager]( const std::string& path )
+             { return RequestDataAssetDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
         documents.SubjectEditors().RegisterPathOpener(
              { std::string( Assets::Serialization::kVFXDataChannelExtension ) },
              [&documents, &assetManager]( const std::string& path )

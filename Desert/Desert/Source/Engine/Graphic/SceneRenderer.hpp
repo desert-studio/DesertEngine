@@ -5,6 +5,7 @@
 // (forward-declared below) and not the passes that produce them; the members live in SceneRendererImpl.hpp.
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Animation/AnimationUpdateRate.hpp>
+#include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 #include <Engine/Graphic/DebugViewState.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
@@ -284,6 +285,7 @@ namespace Desert::Graphic
             std::vector<float>     MorphWeights;
             uint64_t               MorphRevision            = 0;
             std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback; // skinned + animated only
+            Animation::LeaderPoseLink Leader; // skinned only: a follower mesh's leader (UE LeaderPoseComponent)
             bool                   Outlined        = false;
             uint64_t               HiddenSubmeshes = 0;  // bit i = submesh i hidden (static meshes)
             int                    ForcedLOD       = -1; // -1 = auto (by distance)
@@ -291,6 +293,8 @@ namespace Desert::Graphic
             bool                   CastShadows     = true;
             bool                   ReceiveShadows  = true;
             bool                   CastContactShadow        = true; // UE bCastContactShadow (static meshes)
+            // UE bReceivesDecals: the component's (static: on by default; skinned: off by default).
+            bool                   ReceivesDecals           = true;
             int                    TranslucencySortPriority = 0; // lower draws first (translucency pass)
         };
 
@@ -553,6 +557,10 @@ namespace Desert::Graphic
             // VG instances still drawn by the bins of a view with a cut (main or cascade; must be 0: the cluster
             // raster draws them).
             uint32_t BinnedVgInstances = 0;
+            // VG-SW-RASTER: the main view's clusters per raster (main + post phase): the hardware raster's and the
+            // software raster's ("VirtualGeometry: Software Raster" -> the visibility buffer).
+            uint32_t HwClusters = 0;
+            uint32_t SwClusters = 0;
         };
         [[nodiscard]] virtual VirtualGeometryCounts GetVirtualGeometryCounts() const = 0;
         /// This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps). Public

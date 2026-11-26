@@ -166,7 +166,7 @@ namespace Desert::Graphic::RDG
     }
 
     void PassBindings::ResolveStorageImage( std::string_view shaderName, TextureRef texture, Access declared,
-                                            uint32_t mip )
+                                            SubresourceRange range )
     {
         if ( !m_FirstError.empty() )
             return;
@@ -179,7 +179,6 @@ namespace Desert::Graphic::RDG
                                          GetAccessName( declared ) ) );
             return;
         }
-        const SubresourceRange                  range    = SubresourceRange::Mip( mip );
         const Common::ResultStr<TextureBinding> resolved = m_Context.GetTexture( texture, declared, range );
         if ( !resolved.IsSuccess() )
         {
@@ -662,7 +661,7 @@ namespace Desert::Graphic::RDG
                     break;
                 case ShaderResourceKind::StorageTexture:
                     ResolveStorageImage( entry.ShaderName, TextureRef{ entry.Index }, entry.Declared,
-                                         entry.Range.BaseMip );
+                                         entry.Range );
                     break;
                 case ShaderResourceKind::UniformBuffer:
                     AddBuffer( m_Context, m_Buffers, m_FirstError, entry.ShaderName,

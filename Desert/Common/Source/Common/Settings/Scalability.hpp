@@ -114,6 +114,9 @@ namespace Common::Scalability
         DistanceFieldPoolMiB,    // mesh distance-field brick atlas (DistanceFieldSceneData). 32..512 MiB
         AmbientOcclusionSamples, // GTAO horizon taps per direction (SSAORenderer). 4..32, SSAO.shader kMaxTaps
         BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
+        // The bloom method (UE r.Bloom.Method): Values: BloomMethod (CapabilityCatalog.hpp) - Gaussian below Epic,
+        // Convolution (FFT, the volume's kernel image) at Epic and Cinematic. BloomRenderer::SetMethod.
+        BloomMethod,
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
         DepthOfFieldQuality,    // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
         ReflectionCaptureSize,  // reflection capture cube face, texels (r.ReflectionCaptureResolution). 32..1024,
@@ -317,24 +320,27 @@ namespace Common::Scalability
         // GI SoftwareTraced / HardwareTraced screen probe layout, read by SceneRenderer::BeginScene into
         // ScreenProbeGatherInputs: the gather compiles its programs under it (ScreenProbeLayout, the shaders'
         // SP_DOWNSAMPLE_LOG2 / SP_TRACED_TEXELS permutation) and resizes its atlases on a change.
-        ScreenProbeDownsample,            // screen pixels per probe side, 8 / 16 / 32 / 64 (UE
-                                          // r.Lumen.ScreenProbeGather.DownsampleFactor)
-        ScreenProbeTracedTexels,          // traced octahedral texels per probe side, 4..16 (UE
-                                          // r.Lumen.ScreenProbeGather.TracingOctahedronResolution)
-        IrradianceFieldProbesPerFrame,    // ProbeVolume's radiance-cache probes traced per frame (UE
-                                          // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget), read by
-                                          // RadianceCache::MakeRadianceCacheInputs for GIMethod::ProbeVolume
-        ReflectionsHitLighting,           // 0/1: HardwareTraced reflections run hit lighting - the ray
-                                          // tracing pipeline with each hit surface's own material (UE
-                                          // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
-        ScreenProbeAdaptiveAllocation,    // adaptive screen probes per uniform one, percent (UE
-                                          // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
-        ScreenProbeShortRangeAO,          // 0/1: the screen probe gather's own contact AO + bent normal (UE
-                                          // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
-        ScreenProbeSparseStableRays,      // 0/1: a uniform screen probe whose tile's history is settled traces
-                                          // half its texels a frame, a checkerboard alternating per frame, the
-                                          // other half rebuilt from its traced neighbours (FPS-SP-NEAR); 0 = every
-                                          // probe traces every texel
+        ScreenProbeDownsample,         // screen pixels per probe side, 8 / 16 / 32 / 64 (UE
+                                       // r.Lumen.ScreenProbeGather.DownsampleFactor)
+        ScreenProbeTracedTexels,       // traced octahedral texels per probe side, 4..16 (UE
+                                       // r.Lumen.ScreenProbeGather.TracingOctahedronResolution)
+        IrradianceFieldProbesPerFrame, // ProbeVolume's radiance-cache probes traced per frame (UE
+                                       // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget), read by
+                                       // RadianceCache::MakeRadianceCacheInputs for GIMethod::ProbeVolume
+        ReflectionsHitLighting,        // 0/1: HardwareTraced reflections run hit lighting - the ray
+                                       // tracing pipeline with each hit surface's own material (UE
+                                       // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
+        ScreenProbeAdaptiveAllocation, // adaptive screen probes per uniform one, percent (UE
+                                       // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
+        ScreenProbeShortRangeAO,       // 0/1: the screen probe gather's own contact AO + bent normal (UE
+                                       // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
+        ScreenProbeSparseStableRays,   // 0/1: a uniform screen probe whose tile's history is settled traces
+                                       // half its texels a frame, a checkerboard alternating per frame, the
+                                       // other half rebuilt from its traced neighbours (FPS-SP-NEAR); 0 = every
+                                       // probe traces every texel
+        ScreenProbeGatherMethod,       // the traced GI's final gather: ScreenProbeGatherMethod
+                                       // (CapabilityCatalog.hpp) - ScreenProbes, or ReSTIR on the hardware
+                                       // tracer (UE r.Lumen.ScreenProbeGather.ReSTIR)
         // GI ScreenSpace (System::SSGIRenderer::Settings, read by SceneRenderer::BeginScene; UE r.SSGI.Quality):
         GlobalIlluminationScreenSpaceRays,           // cosine rays per pixel, 1..32
         GlobalIlluminationScreenSpaceSteps,          // HZB walk iterations per ray, 8..128
@@ -369,10 +375,27 @@ namespace Common::Scalability
         // moving scene's tree degrades until the next build; 0 = built every frame. A cost/quality knob of every
         // ray-traced method; in the GlobalIllumination group, whose tracer reads the TLAS most. 0..240
         GlobalIlluminationTlasUpdatesBeforeRebuild,
+        // RT-FOLIAGE-LOD (UE: a static mesh's ray-tracing LOD / r.RayTracing.Geometry LOD bias, and WPO in ray
+        // tracing - r.RayTracing.Geometry.SupportsWPO with its distance cutoff and the dynamic geometry budget;
+        // RayTracing::RayTracingFoliageSettings). The error an ISM / foliage instance's RT-LOD may show, in
+        // 1/10000 cm per cm of distance from the view (50 = 0.005, ~0.3 degrees); 0 = every instance traces LOD 0.
+        // 0..1000
+        GlobalIlluminationRayTracingLodError,
+        // Swaying instances whose own BLAS is refit from the raster's wind per frame, all views together, nearest
+        // first; the rest trace their rest pose. 0 = none. 0..4096
+        GlobalIlluminationFoliageWindRefitBudget,
+        // The distance (cm) past which a swaying instance traces its rest pose (the raster's casters past their
+        // shadow wind distance cast the rest pose too). 0..100000
+        GlobalIlluminationFoliageWindDistance,
         // VIRT-GEOM (UE r.Nanite.MaxPixelsPerEdge): the screen-space error, in TENTHS of a pixel, a
         // virtual-geometry cluster may show before the cluster cut refines below it
         // (VirtualGeometryRenderer::AddClusterCull's threshold, x the view's LOD scale). Lower = finer. 1..1000
         ViewDistanceVirtualGeometryMaxPixelsPerEdge,
+        // VG-SW-RASTER (UE r.Nanite's SW raster, MinPixelsPerEdgeHW): 0/1, the main view's small virtual-geometry
+        // clusters (MaxEdgeLength under kSwRasterMaxEdgePixels) drawn by the compute raster into the view's
+        // visibility buffer (VirtualGeometryRenderer::AddSoftwareRaster) instead of the material cells. Needs the
+        // visibility buffer (64-bit buffer atomics, the grass's GRASS-VIS path): without it every cluster is HW.
+        VirtualGeometrySoftwareRaster,
         // 0/1: the view graph's AsyncCompute passes run on the device's compute queue family, overlapping the
         // graphics queue (UE r.RDG.AsyncCompute and the per-feature r.*.AsyncCompute). 0 = every pass records on
         // the graphics queue in AddPass order. Narrowed by the catalog: a device without a separate compute family
@@ -410,10 +433,10 @@ namespace Common::Scalability
         // chain as cooked.
         FoliageGrassMeshLodDistanceScalePercent,
         // Render pixels (FPS-GRASS-RASTER-COST; UE / Ghost of Tsushima grass: a blade's vertex count by its screen
-        // size, the LOD of the curve): the projected height of a blade's curve one strip segment stands for. A blade
-        // draws the coarsest strip level (each halves the segments) whose segments still stand at most this tall
-        // on screen - on top of the variety's LodDistance rings, never finer than they are - and a blade whose
-        // projected height falls below half a pixel is culled (it covers no sample). Read by SceneRenderer::
+        // size, the LOD of the curve): the projected height of a blade's curve one strip segment stands for. A
+        // blade draws the coarsest strip level (each halves the segments) whose segments still stand at most this
+        // tall on screen - on top of the variety's LodDistance rings, never finer than they are - and a blade
+        // whose projected height falls below half a pixel is culled (it covers no sample). Read by SceneRenderer::
         // BeginScene -> GrassRenderer::SetQuality -> PlanVariety (GrassParamsGpu::Lod.x / y of a blade) ->
         // GrassCull.shader through GrassFieldShare.glslh GrassBladeCurveLevel, the one bucket the visibility
         // raster, the masked depth prepass, the G-buffer and every cascade draw. 0 = the rings alone. 0..64.
@@ -543,17 +566,17 @@ namespace Common::Scalability
         // "Foliage.GrassVisibilityBuffer": 1 at every level, so only a machine override names it (0 = the A/B and
         // the rollback).
         FoliageGrassVisibilityBuffer,
-        // Landscape runtime virtual texture (UE r.VT.* under sg.TextureQuality, LANDSCAPE-RVT): the landscape layer
-        // blend rendered into 128-texel pages of a virtual square over the queued tiles, sampled by TerrainGBuffer.
-        // Read by SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality.
-        LandscapeVirtualTextureSizeLog2,         // mip0 side of the virtual square in texels, log2. 12..17
-        LandscapeVirtualTexturePoolPages,        // physical atlas side in pages (pool = side^2 pages). 8..64
-        LandscapeVirtualTextureUpdatesPerFrame,  // pages rendered per frame (r.VT.MaxUploadsPerFrame). 8..256
+        // Landscape runtime virtual texture (UE r.VT.* under sg.TextureQuality, LANDSCAPE-RVT): the landscape
+        // layer blend rendered into 128-texel pages of a virtual square over the queued tiles, sampled by
+        // TerrainGBuffer. Read by SceneRenderer::OnUpdate -> TerrainRenderer::SetVirtualTextureQuality.
+        LandscapeVirtualTextureSizeLog2,        // mip0 side of the virtual square in texels, log2. 12..17
+        LandscapeVirtualTexturePoolPages,       // physical atlas side in pages (pool = side^2 pages). 8..64
+        LandscapeVirtualTextureUpdatesPerFrame, // pages rendered per frame (r.VT.MaxUploadsPerFrame). 8..256
         // Impostor HLODs (IMPOSTORS-HLOD; UE: an HLOD layer's impostor batches switched by sg.ViewDistanceQuality,
-        // r.HLOD.*): 1 = a far cell built by an Impostor layer draws its octahedral impostor cards, 0 = it draws the
-        // same cell's source meshes instanced (the fallback the Impostor builder emits beside every card). The HLOD
-        // switch picks the variant: Core::WorldStreamer::SetHLODVisible. Key "ViewDistance.HLODImpostors": 1 at
-        // every level, so only a machine override names it (0 = the A/B and the off switch). 0/1
+        // r.HLOD.*): 1 = a far cell built by an Impostor layer draws its octahedral impostor cards, 0 = it draws
+        // the same cell's source meshes instanced (the fallback the Impostor builder emits beside every card). The
+        // HLOD switch picks the variant: Core::WorldStreamer::SetHLODVisible. Key "ViewDistance.HLODImpostors": 1
+        // at every level, so only a machine override names it (0 = the A/B and the off switch). 0/1
         ViewDistanceHLODImpostors,
         // Percent (CINEMATIC-LOD; UE r.StaticMeshLODDistanceScale / r.SkeletalMeshLODDistanceScale): every mesh's
         // LOD level - static, skinned, and the skinned instance's animation side (SkinnedLodFeedback screen size)
@@ -564,6 +587,22 @@ namespace Common::Scalability
         // SelectLODsFromBounds. 25..400; 100 = the meshes' screen sizes as authored. Cinematic 50 (MeshLOD stays
         // 1 at every level: UE never forces LOD 0, MeshLOD 0 is a debug/machine override).
         ViewDistanceLODDistanceScalePercent,
+        // 0/1: the water's caustics (WATER-CAUSTICS; UE's water caustics under sg.EffectsQuality): each frame the
+        // sun is refracted through the drawn wave field onto the floor (Programs/Water/WaterCausticsSplat +
+        // WaterCausticsResolve, a 512^2 map around the camera) and the deferred direct pass multiplies the sun on
+        // the texels under a water body's surface by it (Common/WaterCaustics.glslh). 0 = no pass, and the
+        // receiver's factor is exactly 1 (the frame without caustics, bit for bit). Read by SceneRenderer::OnUpdate
+        // -> WaterCaustics::SetEnabled. Key "Effects.WaterCaustics": off at Low and Medium.
+        EffectsWaterCaustics,
+        // WATER-RIVERS-FFT (UE has no FFT ocean; the tier follows sg.EffectsQuality as UE's r.Water.* do): the
+        // ceiling of the water's wave source - an FFT wave set draws its Tessendorf cascades at FFT (Epic,
+        // Cinematic) and its Gerstner generator below. Read by WaterRenderer::PrepareFrame. Values: WaterWaveMethod
+        EffectsWaterWaveMethod,
+        // The impact decal pool's capacity (NG-DECALS-MESH; UE: the spawned decals SpawnDecalAtLocation keeps,
+        // r.Decal.FadeDurationScale's quality twin): the ring of records World.spawnDecal writes; a spawn into a full
+        // ring replaces the oldest record. Read by ECS::DecalECSSystem::Update -> World::DecalImpactPool::
+        // SetCapacity. 0 = no impact decals. 0..4096
+        EffectsDecalImpactPoolSize,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

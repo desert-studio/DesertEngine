@@ -2930,7 +2930,8 @@ namespace Desert::Graphic::System
                 // An object with no section instance draws with the group's material: the group's flag is its own.
                 const bool emissionIsLight =
                      !standsIn && ( od.Inst != nullptr ? od.Inst->IsEmissiveLightsScene() : groupEmitsLight );
-                od.Alone = !obj->ReceiveShadows || !obj->CastContactShadow || emissionIsLight || od.HasOverrides;
+                od.Alone = !obj->ReceiveShadows || !obj->CastContactShadow || !obj->ReceivesDecals || emissionIsLight ||
+                           od.HasOverrides;
                 od.Hidden       = hiddenOf( obj );
                 bucketFor( obj->Mesh, od.Hidden ).push_back( od );
             }
@@ -3261,7 +3262,8 @@ namespace Desert::Graphic::System
                                          .PrimitiveFlags( PrimitiveFlagsOf(
                                               obj->CastContactShadow,
                                               mat != standInKey && ( inst != nullptr ? inst->IsEmissiveLightsScene()
-                                                                                     : mat->IsEmissiveLightsScene() ) ) )
+                                                                                     : mat->IsEmissiveLightsScene() ),
+                                              obj->ReceivesDecals ) )
                                          .LodFadeSide( singles[i].LodFadeSide ) } );
             }
         }
@@ -3458,7 +3460,8 @@ namespace Desert::Graphic::System
                     d.PrimitiveFlags = PrimitiveFlagsOf(
                          ism.CastContactShadow,
                          !ismStandsIn && ( ism.Material != nullptr ? ism.Material->IsEmissiveLightsScene()
-                                                                   : mat->IsEmissiveLightsScene() ) );
+                                                                   : mat->IsEmissiveLightsScene() ),
+                         true ); // an ISM field receives decals (UE's default; no per-field switch yet)
                     if ( ismSet->SceneIds )
                     {
                         // The level's slice of the ISM's range of the view's ids (PrepareViewIsmIds: the entry's
@@ -3930,7 +3933,7 @@ namespace Desert::Graphic::System
                                          .Transform( glm::mat4( 1.0f ) )
                                          .PrimitiveIndex( obj.Obj->GpuPrimitive )
                                          .MaterialIndex( *materialRow )
-                                         .PrimitiveFlags( PrimitiveFlagsOf( true, emissionIsLight ) ) } );
+                                         .PrimitiveFlags( PrimitiveFlagsOf( true, emissionIsLight, obj.Obj->ReceivesDecals ) ) } );
             }
         }
     }

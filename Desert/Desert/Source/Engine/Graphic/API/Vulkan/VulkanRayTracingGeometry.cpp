@@ -7,6 +7,8 @@
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
 
+#include <array>
+
 namespace Desert::Graphic::API::Vulkan
 {
 
@@ -34,13 +36,82 @@ namespace Desert::Graphic::API::Vulkan
 
         const std::vector<RayTracing::RayTracingGeometrySegment>& segments = input.Segments;
 
-        const VkDevice             device = logical->GetVulkanLogicalDevice();
+        const VkDevice device = logical->GetVulkanLogicalDevice();
+        const auto&    allocator =
+             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
+        auto geometry = std::make_shared<VulkanRayTracingGeometry>();
+
+        // THE OPACITY MICROMAPS FIRST (RT-OMM-SER): each baked one becomes a VkMicromapEXT whose handle the
+        // segment's geometry names; their builds are recorded below, before the BLAS build, behind a
+        // MICROMAP_BUILD -> ACCELERATION_STRUCTURE_BUILD barrier. A micromap on a device without the functions is
+        // a caller's bug (the catalog gates the bake): an error, never a BLAS silently built without it.
+        if ( !input.Micromaps.empty() && !functions.MicromapsComplete() )
+            return Common::MakeError<std::shared_ptr<VulkanRayTracingGeometry>>(
+                 "BLAS build: opacity micromaps given on a device without VK_EXT_opacity_micromap" );
+        std::vector<VulkanSegmentMicromap>  segmentMicromaps( input.Micromaps.empty() ? 0u : segments.size() );
+        std::vector<VkMicromapUsageEXT>     micromapUsages;
+        std::vector<VkMicromapBuildInfoEXT> micromapBuilds;
+        std::vector<VkDeviceSize>           micromapScratchOffsets;
+        micromapUsages.reserve( input.Micromaps.size() ); // never reallocated: the builds point into it
+        micromapBuilds.reserve( input.Micromaps.size() );
+        VkDeviceSize micromapScratchBytes = 0;
+        geometry->m_DestroyMicromap       = functions.DestroyMicromap;
+        for ( const RayTracing::RayTracingSegmentOpacityMicromap& source : input.Micromaps )
+        {
+            if ( source.Segment >= segments.size() || segments[source.Segment].Opaque ||
+                 source.TriangleCount != segments[source.Segment].PrimitiveCount ||
+                 segmentMicromaps[source.Segment].Micromap != VK_NULL_HANDLE )
+                return Common::MakeFormattedError<std::shared_ptr<VulkanRayTracingGeometry>>(
+                     "BLAS build: the micromap of segment {} ({} triangles) is not one of a non-opaque segment of {}",
+                     source.Segment, source.TriangleCount, segments.size() );
+            VkMicromapBuildInfoEXT& build = micromapBuilds.emplace_back();
+            build.sType                   = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT;
+            build.type                    = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
+            build.flags                   = VK_BUILD_MICROMAP_PREFER_FAST_TRACE_BIT_EXT;
+            build.mode                    = VK_BUILD_MICROMAP_MODE_BUILD_EXT;
+            build.usageCountsCount        = 1;
+            build.pUsageCounts =
+                 &micromapUsages.emplace_back( OpacityMicromapUsage( source.TriangleCount, kOpacityMicromapLevel ) );
+            build.data.deviceAddress          = source.DataAddress;
+            build.triangleArray.deviceAddress = source.TrianglesAddress;
+            build.triangleArrayStride         = sizeof( VkMicromapTriangleEXT );
+            VkMicromapBuildSizesInfoEXT sizes{ VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT };
+            functions.GetMicromapBuildSizes( device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build, &sizes );
+
+            Micromap&  micromap = geometry->m_Micromaps.emplace_back();
+            const auto storage  = allocator->RT_AllocateBuffer(
+                 "BLAS_micromap",
+                 DeviceAddressBufferInfo( sizes.micromapSize, VK_BUFFER_USAGE_MICROMAP_STORAGE_BIT_EXT ),
+                 VMA_MEMORY_USAGE_GPU_ONLY, micromap.Storage );
+            if ( !storage.IsSuccess() )
+                return Common::MakeFormattedError<std::shared_ptr<VulkanRayTracingGeometry>>(
+                     "BLAS micromap storage: {}", storage.GetError() );
+            micromap.StorageMemory = storage.GetValue();
+            micromap.Ledger        = RayTracing::RecordAccelerationStructureMemory(
+                 RayTracing::AccelerationStructureLevel::Bottom, VulkanAllocator::AllocationSize( storage.GetValue() ) );
+            VkMicromapCreateInfoEXT create{ VK_STRUCTURE_TYPE_MICROMAP_CREATE_INFO_EXT };
+            create.buffer = micromap.Storage;
+            create.size   = sizes.micromapSize;
+            create.type   = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
+            if ( const VkResult created = functions.CreateMicromap( device, &create, nullptr, &micromap.Handle );
+                 created != VK_SUCCESS )
+                return Common::MakeFormattedError<std::shared_ptr<VulkanRayTracingGeometry>>(
+                     "vkCreateMicromapEXT failed: {}", static_cast<int>( created ) );
+            build.dstMicromap = micromap.Handle;
+            // One scratch buffer for all of them: each build its own aligned slice (addresses set once it exists).
+            micromapScratchOffsets.push_back( micromapScratchBytes );
+            micromapScratchBytes += AlignScratchAddress( sizes.buildScratchSize );
+            segmentMicromaps[source.Segment] = VulkanSegmentMicromap{ .Micromap     = micromap.Handle,
+                                                                      .IndexAddress = source.IndexAddress };
+        }
+
         const VulkanBlasBuildInput buildInput =
              TranslateBlasGeometry( segments,
                                     functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() ) +
                                          input.VertexByteOffset,
                                     functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() ) +
-                                         input.IndexByteOffset );
+                                         input.IndexByteOffset,
+                                    segmentMicromaps );
         VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( buildInput );
 
         VkAccelerationStructureBuildSizesInfoKHR sizes{
@@ -48,10 +119,6 @@ namespace Desert::Graphic::API::Vulkan
         functions.GetAccelerationStructureBuildSizes( device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
                                                       &build, buildInput.MaxPrimitiveCounts.data(), &sizes );
 
-        const auto& allocator =
-             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
-
-        auto geometry             = std::make_shared<VulkanRayTracingGeometry>();
         geometry->m_Destroy       = functions.DestroyAccelerationStructure;
         geometry->m_Segments      = segments;
         geometry->m_Vertices      = VertexBufferRange{ input.Vertices, input.VertexByteOffset };
@@ -90,6 +157,26 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError<std::shared_ptr<VulkanRayTracingGeometry>>(
                  "BLAS scratch: {}", scratchMemory.GetError() );
 
+        VkBuffer                       micromapScratch = VK_NULL_HANDLE;
+        Common::ResultStr<VmaAllocation> micromapScratchMemory = Common::MakeSuccess( VmaAllocation{} );
+        if ( !micromapBuilds.empty() )
+        {
+            micromapScratchMemory = allocator->RT_AllocateBuffer(
+                 "BLAS_micromap_scratch",
+                 DeviceAddressBufferInfo( micromapScratchBytes + kMaxAccelerationStructureScratchAlignment,
+                                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT ),
+                 VMA_MEMORY_USAGE_GPU_ONLY, micromapScratch );
+            if ( !micromapScratchMemory.IsSuccess() )
+            {
+                allocator->RT_DestroyBuffer( scratch, scratchMemory.GetValue() );
+                return Common::MakeFormattedError<std::shared_ptr<VulkanRayTracingGeometry>>(
+                     "BLAS micromap scratch: {}", micromapScratchMemory.GetError() );
+            }
+            const VkDeviceAddress base = AlignScratchAddress( functions.BufferAddress( device, micromapScratch ) );
+            for ( std::size_t i = 0; i < micromapBuilds.size(); ++i )
+                micromapBuilds[i].scratchData.deviceAddress = base + micromapScratchOffsets[i];
+        }
+
         build.dstAccelerationStructure  = geometry->m_Handle;
         build.scratchData.deviceAddress = AlignScratchAddress( functions.BufferAddress( device, scratch ) );
 
@@ -97,6 +184,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( !command.IsSuccess() )
         {
             allocator->RT_DestroyBuffer( scratch, scratchMemory.GetValue() );
+            if ( micromapScratch != VK_NULL_HANDLE )
+                allocator->RT_DestroyBuffer( micromapScratch, micromapScratchMemory.GetValue() );
             return Common::MakeError<std::shared_ptr<VulkanRayTracingGeometry>>( command.GetError() );
         }
         // SUBMITTED, NOT WAITED FOR (FPS-CPU-2; UE builds a BLAS on the frame's command list and never sleeps
@@ -116,6 +205,33 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdPipelineBarrier( cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                               VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &inputsReady, 0,
                               nullptr, 0, nullptr );
+        // The micromaps, then the BLAS that names them (sync2: MICROMAP_BUILD has no legacy stage bit). The bake
+        // that wrote their inputs was submitted before this command buffer; inputsReady above covers its writes
+        // for the acceleration-structure stage, the barrier here covers them for the micromap build.
+        if ( !micromapBuilds.empty() )
+        {
+            const VkMemoryBarrier2 bakeWritten{ .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+                                                .srcStageMask  = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                                .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                                .dstStageMask  = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT,
+                                                .dstAccessMask = VK_ACCESS_2_MICROMAP_READ_BIT_EXT |
+                                                                 VK_ACCESS_2_SHADER_READ_BIT };
+            const VkDependencyInfo bakeDependency{ .sType              = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                                                   .memoryBarrierCount = 1,
+                                                   .pMemoryBarriers    = &bakeWritten };
+            vkCmdPipelineBarrier2( cmd, &bakeDependency );
+            functions.CmdBuildMicromaps( cmd, static_cast<uint32_t>( micromapBuilds.size() ), micromapBuilds.data() );
+            const VkMemoryBarrier2 micromapsBuilt{
+                 .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+                 .srcStageMask  = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT,
+                 .srcAccessMask = VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT,
+                 .dstStageMask  = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                 .dstAccessMask = VK_ACCESS_2_MICROMAP_READ_BIT_EXT };
+            const VkDependencyInfo builtDependency{ .sType              = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                                                    .memoryBarrierCount = 1,
+                                                    .pMemoryBarriers    = &micromapsBuilt };
+            vkCmdPipelineBarrier2( cmd, &builtDependency );
+        }
         const VkAccelerationStructureBuildRangeInfoKHR* ranges = buildInput.Ranges.data();
         functions.CmdBuildAccelerationStructures( cmd, 1, &build, &ranges );
         const VkMemoryBarrier built{ .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
@@ -126,8 +242,16 @@ namespace Desert::Graphic::API::Vulkan
                               VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &built, 0, nullptr, 0, nullptr );
         const VmaAllocation scratchAllocation = scratchMemory.GetValue();
         const auto          submitted         = CommandBufferAllocator::GetInstance().RT_SubmitGraphicThenRelease(
-             cmd, [alloc = allocator.get(), scratch, scratchAllocation]
-             { alloc->RT_ReleaseStaging( scratch, scratchAllocation, Common::MakeSuccess( VK_SUCCESS ) ); } );
+             cmd,
+             [alloc = allocator.get(), scratch, scratchAllocation, micromapScratch,
+              micromapScratchAllocation = micromapScratchMemory.GetValue(), sources = input.Micromaps]
+             {
+                 // sources: the bake's buffers, held until the micromap build that read them has finished.
+                 alloc->RT_ReleaseStaging( scratch, scratchAllocation, Common::MakeSuccess( VK_SUCCESS ) );
+                 if ( micromapScratch != VK_NULL_HANDLE )
+                     alloc->RT_ReleaseStaging( micromapScratch, micromapScratchAllocation,
+                                               Common::MakeSuccess( VK_SUCCESS ) );
+             } );
         if ( !submitted.IsSuccess() )
             return Common::MakeFormattedError<std::shared_ptr<VulkanRayTracingGeometry>>( "BLAS build submit: {}",
                                                                                           submitted.GetError() );
@@ -142,6 +266,82 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( std::move( geometry ) );
     }
 
+    namespace
+    {
+        // The three bake outputs of one segment; released on the frame-retire ring (RT_DestroyBuffer) with the
+        // last reference (RayTracingSegmentOpacityMicromap::Owner, the BLAS build's submit lambda).
+        struct OpacityMicromapBakeBuffers
+        {
+            std::array<VkBuffer, 3>      Buffers{};
+            std::array<VmaAllocation, 3> Memory{};
+
+            OpacityMicromapBakeBuffers()                                               = default;
+            OpacityMicromapBakeBuffers( const OpacityMicromapBakeBuffers& )            = delete;
+            OpacityMicromapBakeBuffers& operator=( const OpacityMicromapBakeBuffers& ) = delete;
+            ~OpacityMicromapBakeBuffers()
+            {
+                const auto& allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                                             ->GetVulkanAllocator();
+                for ( std::size_t i = 0; i < Buffers.size(); ++i )
+                    if ( Buffers[i] != VK_NULL_HANDLE )
+                        allocator->RT_DestroyBuffer( Buffers[i], Memory[i] );
+            }
+        };
+    } // namespace
+
+    Common::ResultStr<RayTracing::RayTracingSegmentOpacityMicromap>
+    VulkanRayTracingGeometry::AllocateOpacityMicromapBake( const uint32_t segment, const uint32_t triangleCount )
+    {
+        using Result       = RayTracing::RayTracingSegmentOpacityMicromap;
+        const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+        if ( !logical )
+            return Common::MakeError<Result>( "opacity micromap bake: no Vulkan device" );
+        const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
+        if ( !functions.Complete() || !functions.MicromapsComplete() )
+            return Common::MakeError<Result>(
+                 "opacity micromap bake: the device has no micromap functions (OpacityMicromap off or hidden)" );
+        if ( triangleCount == 0 )
+            return Common::MakeError<Result>( "opacity micromap bake: a segment with no triangle" );
+
+        const VkDevice device = logical->GetVulkanLogicalDevice();
+        const auto&    allocator =
+             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
+        constexpr VkBufferUsageFlags kMicromapInput =
+             VK_BUFFER_USAGE_MICROMAP_BUILD_INPUT_READ_ONLY_BIT_EXT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        constexpr VkBufferUsageFlags kBlasInput =
+             VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        const std::array<VkDeviceSize, 3> bytes{
+             VkDeviceSize{ OpacityMicromapBytesPerTriangle( kOpacityMicromapLevel ) } * triangleCount,
+             VkDeviceSize{ sizeof( VkMicromapTriangleEXT ) } * triangleCount,
+             VkDeviceSize{ sizeof( uint32_t ) } * triangleCount };
+        const std::array<VkBufferUsageFlags, 3> usage{ kMicromapInput, kMicromapInput, kBlasInput };
+        const std::array<const char*, 3>        tags{ "OMM_bake_data", "OMM_bake_triangles", "OMM_bake_indices" };
+
+        auto                    buffers = std::make_shared<OpacityMicromapBakeBuffers>();
+        std::array<uint64_t, 3> address{};
+        for ( std::size_t i = 0; i < 3u; ++i )
+        {
+            VkBuffer   buffer = VK_NULL_HANDLE;
+            const auto memory = allocator->RT_AllocateBuffer(
+                 tags[i], DeviceAddressBufferInfo( bytes[i], usage[i] ), VMA_MEMORY_USAGE_GPU_ONLY, buffer );
+            if ( !memory.IsSuccess() )
+                return Common::MakeFormattedError<Result>( "opacity micromap bake {}: {}", tags[i],
+                                                           memory.GetError() ); // earlier ones: ~buffers
+            buffers->Buffers[i] = buffer;
+            buffers->Memory[i]  = memory.GetValue();
+            address[i]          = functions.BufferAddress( device, buffer );
+        }
+        Result result;
+        result.Segment          = segment;
+        result.TriangleCount    = triangleCount;
+        result.DataAddress      = address[0];
+        result.TrianglesAddress = address[1];
+        result.IndexAddress     = address[2];
+        result.Owner            = std::move( buffers );
+        return Common::MakeSuccess( std::move( result ) );
+    }
+
     VulkanRayTracingGeometry::~VulkanRayTracingGeometry()
     {
         // Both on the frame ring: a frame in flight may still trace this BLAS through a TLAS instance.
@@ -149,5 +349,18 @@ namespace Desert::Graphic::API::Vulkan
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
         allocator->RT_DestroyAccelerationStructure( m_Handle, m_Destroy );
         allocator->RT_DestroyBuffer( m_Storage, m_StorageMemory );
+        // After the BLAS on the same ring (queued later, drained no earlier): a micromap outlives every trace of
+        // the BLAS that names it.
+        for ( Micromap& micromap : m_Micromaps )
+            allocator->RT_DestroyLater(
+                 [alloc = allocator.get(), destroy = m_DestroyMicromap, handle = micromap.Handle,
+                  storage = micromap.Storage, memory = micromap.StorageMemory,
+                  device = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+                                ->GetVulkanLogicalDevice()]
+                 {
+                     if ( handle != VK_NULL_HANDLE && destroy != nullptr )
+                         destroy( device, handle, nullptr );
+                     alloc->RT_DestroyBuffer( storage, memory );
+                 } );
     }
 } // namespace Desert::Graphic::API::Vulkan

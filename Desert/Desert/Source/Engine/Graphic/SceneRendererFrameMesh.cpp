@@ -1,3 +1,6 @@
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneReads.hpp>
+#include <Engine/Assets/Serialization/WorldParameters.hpp>
+#include <span>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
@@ -81,7 +84,8 @@ namespace Desert::Graphic
         // NeverCull: a pass body may change state outside the graph - per-frame material state - which no
         // declaration shows.
         // A pass on ONE LAYER of a graph depth array (TargetDepthArray) is a target of its own per layer: the
-        // first node on each (array, layer) clears it as the first on a framebuffer does (the far shadow cascades).
+        // first node on each (array, layer) clears it as the first on a framebuffer does (the far shadow
+        // cascades).
         const RenderPassSpecification defaults;
         std::shared_ptr<Framebuffer>  previous;
         std::optional<std::pair<RDG::TextureRef, uint32_t>> previousLayer;
@@ -90,13 +94,14 @@ namespace Desert::Graphic
             // A system whose pipeline or target failed to build hands back a pass with no target (it logged why).
             if ( ( !pass.TargetFramebuffer && !pass.TargetDepthArray.IsValid() ) || !pass.ExecuteFunc )
                 continue;
-            const std::shared_ptr<Framebuffer>& target  = pass.TargetFramebuffer;
-            const bool                          layered = pass.TargetDepthArray.IsValid();
-            const bool newTarget = layered ? !previousLayer || !( previousLayer->first == pass.TargetDepthArray ) ||
-                                                  previousLayer->second != pass.TargetLayer
-                                           : target != previous;
-            const bool clears    = clearFirst && newTarget;
-            previous             = target;
+            const std::shared_ptr<Framebuffer>& target    = pass.TargetFramebuffer;
+            const bool                          layered   = pass.TargetDepthArray.IsValid();
+            const bool                          newTarget = layered
+                                                                 ? !previousLayer || !( previousLayer->first == pass.TargetDepthArray ) ||
+                                               previousLayer->second != pass.TargetLayer
+                                                                 : target != previous;
+            const bool                          clears    = clearFirst && newTarget;
+            previous                                      = target;
             if ( layered )
                 previousLayer.emplace( pass.TargetDepthArray, pass.TargetLayer );
             else
@@ -209,9 +214,44 @@ namespace Desert::Graphic
             }
             AddSystemRasters( graph, textures, cascades.MovablePasses, false );
             // Each light's FAR CASCADE (UE's far shadow cascade), past the cascades in the same array: a layer
-            // whose static casters or placement changed is cleared and drawn again; the rest keep their depth.
-            std::vector<SystemRasterPass> farShadow = mesh.FarShadowPasses( maps );
-            AddSystemRasters( graph, textures, farShadow, true );
+            // whose static casters, sun, bias or depth placement changed is cleared and drawn again; the rest keep
+            // their depth.
+            System::MeshRenderer::FarShadowFrame farShadow = mesh.FarShadowPasses( maps );
+            AddSystemRasters( graph, textures, farShadow.RedrawPasses, true );
+            // A far layer whose map only recentred (UE's CSM scrolling, FPS-FAR-SHADOW-SCROLL): copied out to a
+            // scratch of the map's size (a layer cannot be copied onto itself shifted - its source and destination
+            // texels overlap) and back in shifted, the uncovered texels at the far plane (1, standard Z); its
+            // strip pass then LOADS the layer and draws the uncovered strips only.
+            for ( const auto& scroll : farShadow.Scrolls )
+            {
+                const RDG::TextureRef scratch = graph.CreateTexture(
+                     RDG::TextureDesc{ .Size   = { .Width = scroll.MapSize, .Height = scroll.MapSize },
+                                       .Format = scroll.Format },
+                     scroll.Name + ".ScrollScratch" );
+                graph.AddPass(
+                     scroll.Name + ".ToScratch", RDG::PassFlags::Copy,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         pass.Read( maps, RDG::Access::CopySrc, RDG::SubresourceRange::Layer( scroll.Layer ) );
+                         pass.Write( scratch, RDG::Access::CopyDst );
+                     },
+                     [scratch, maps, layer = scroll.Layer]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     { return Renderer::CopyGraphLayerToDepth( context, maps, layer, scratch ); } );
+                graph.AddPass(
+                     scroll.Name + ".Scroll", RDG::PassFlags::Copy,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         pass.Read( scratch, RDG::Access::CopySrc );
+                         pass.Write( maps, RDG::Access::CopyDst, RDG::SubresourceRange::Layer( scroll.Layer ) );
+                     },
+                     [scratch, maps, layer = scroll.Layer,
+                      shift = scroll.Shift]( RDG::PassContext& context ) -> Common::BoolResultStr {
+                         return Renderer::ScrollGraphDepthIntoLayer( context, scratch, maps, layer, shift.x,
+                                                                     shift.y, 1.0f );
+                     } );
+            }
+            // ...its strips drawn over the shifted layer: LOAD, no clear may wipe the copy.
+            AddSystemRasters( graph, textures, farShadow.ScrollPasses, false );
         }
     }
 
@@ -290,7 +330,55 @@ namespace Desert::Graphic
             AddFrameTranslucencyLightingVolume( graph, textures, frame );
             AddSystemRaster( graph, textures, particles->DrawPass() );
         }
+        // The falling rain over the particles (a sheet of thin streaks nearer than most of them).
+        if ( !m_ViewProfile.SceneCapture )
+            AddFrameRainStreaks( graph, textures, frame );
         AddExtensionPoint( graph, textures, RDG::ExtensionPoint::AfterTranslucency, {} );
+    }
+
+    void SceneRendererImpl::AddFrameRainStreaks( RDG::Builder& graph, FrameTextures& textures,
+                                                 const ViewFrame& frame )
+    {
+        auto* rain = m_Systems.RainStreaks.get();
+        if ( rain == nullptr || !rain->IsReady() || m_DebugView.HidesAtmosphere() )
+            return;
+        // The world's rows (UploadWorldParameters' values this frame), by key: RainDrops / RainDropShape are Vectors.
+        constexpr uint32_t kRainDropsKey     = Assets::Serialization::WorldParameterKey( "RainDrops" );
+        constexpr uint32_t kRainDropShapeKey = Assets::Serialization::WorldParameterKey( "RainDropShape" );
+        glm::vec4          drops{ 0.0f };
+        glm::vec4          shape{ 0.0f };
+        for ( const auto& value : m_WorldParameterValues )
+        {
+            if ( value.Key == kRainDropsKey )
+                drops = value.Value;
+            else if ( value.Key == kRainDropShapeKey )
+                shape = value.Value;
+        }
+        // UE Niagara SpawnCountScale: the Effects group's spawn-count scale thins the rain like every emitter.
+        const float spawnScale =
+             static_cast<float>( m_Quality.As<int>( Common::Scalability::Parameter::EffectsSpawnCountScalePercent ) ) /
+             100.0f;
+        System::RainStreaksFrameInputs inputs;
+        inputs.Drops = System::RainStreakRenderer::DropCount( GetWorldParameterScalar( "RainIntensity" ), drops,
+                                                              spawnScale );
+        if ( inputs.Drops == 0 || m_WorldParameterBytes.empty() )
+            return;
+        // The same table and occlusion the wet surfaces read this frame (two small uploads, as the RT passes make).
+        const RayTracing::RayTracingSceneReadsInputs reads = AddFrameRayTracingSceneReads( graph, textures );
+        inputs.WorldParameters  = reads.WorldParameters;
+        inputs.RainOcclusionMap = reads.RainOcclusionMap;
+        inputs.RainOcclusion    = reads.RainOcclusion;
+        System::RainStreaksUniforms uniforms;
+        uniforms.ViewProjection = frame.JitteredViewProjection;
+        uniforms.Camera         = glm::vec4( frame.CameraPosition, static_cast<float>( frame.TimeSeconds ) );
+        // The SceneWind block's directional air (ParticleRenderer MakeParticleSceneWind) and its gust fronts.
+        uniforms.Wind   = glm::vec4( frame.WindVelocityXZ.x, 0.0f, frame.WindVelocityXZ.y, frame.PreExposure );
+        uniforms.Gust   = frame.WindGust;
+        uniforms.Light  = glm::vec4( shape.z, 0.0f, 0.0f, 0.0f );
+        inputs.Uniforms = graph.CreateBuffer( RDG::BufferDesc{ sizeof( uniforms ) }, "Weather.RainStreaksUB" );
+        graph.QueueBufferUpload( inputs.Uniforms,
+                                 std::as_bytes( std::span<const System::RainStreaksUniforms>( &uniforms, 1 ) ) );
+        AddSystemRaster( graph, textures, rain->DrawPass( inputs ) );
     }
 
     void SceneRendererImpl::AddExtensionPoint( RDG::Builder& graph, FrameTextures& textures,
@@ -683,12 +771,25 @@ namespace Desert::Graphic
         // - before, the phase-1 words were resolved twice (FPS-FIELD-BARN scn-1031-101332: Resolve 1.64 + Resolve
         // Post 1.67 ms).
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Raster" );
-        if ( !targets || meshRenderer == nullptr || !meshRenderer->DrawsGrassVisibility() )
+        if ( !targets || meshRenderer == nullptr )
             return;
-        // FPS-GRASS-SETUP-TRIM: this phase's blades set up right before its raster reads them, once the sections
-        // were chosen (DrawsGrassVisibility above): only the varieties drawn here, only their drawn blades.
-        if ( const ViewFrame* const viewFrame = GetViewFrame(); viewFrame != nullptr )
-            AddFrameGrassBladeSetup( graph, meshRenderer, *viewFrame, postOcclusion );
+        // VG-SW-RASTER R2 (UE Nanite EmitDepthTargets, whatever rastered the words): a frame whose words hold only
+        // the virtual geometry's SW clusters (no grass section drawn through the buffer) still writes their depth
+        // after phase 1, so the base pass tests against them and the HZB phase 2 tests sees them.
+        if ( !meshRenderer->DrawsGrassVisibility() )
+        {
+            if ( postOcclusion || !visibility.HasVirtualGeometryRows() )
+                return;
+            RasterTargets vgDepthOnly;
+            vgDepthOnly.Depth = targets->Depth;
+            AddRaster(
+                 graph, "VirtualGeometry: Visibility Depth", vgDepthOnly, {}, RDG::LoadOp::Load(), {},
+                 [this]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return m_GrassVisibility.RecordDepth( context ); },
+                 [this, words = visibility.Words]( RDG::PassBuilder& pass )
+                 { m_GrassVisibility.DeclareDepthBindings( pass, words ); } );
+            return;
+        }
         RasterTargets depthOnly;
         depthOnly.Depth = targets->Depth;
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
@@ -794,7 +895,10 @@ namespace Desert::Graphic
         // holds the phase-1 words' depth ("Grass: Visibility Depth") and phase 2's meshes; the resolve writes each
         // word's own depth CloserOrEqual, so a phase-2 mesh in front keeps its texel.
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Resolve" );
-        if ( !targets || meshRenderer == nullptr || !meshRenderer->DrawsGrassVisibility() )
+        // VG-SW-RASTER R2: the classify, the material depth and the depth pass run for the grass's sections, the
+        // VG's SW rows, or both; each resolve below only for the rows it owns.
+        if ( !targets || meshRenderer == nullptr ||
+             ( !meshRenderer->DrawsGrassVisibility() && !visibility.HasVirtualGeometryRows() ) )
             return;
         // GRASS-VIS-MESH-2: the blades and the mesh grass resolve in passes of their own, so the profile states
         // each one's price ("Grass: Mesh Visibility Resolve" is what the mesh grass pays instead of the masked depth
@@ -854,6 +958,28 @@ namespace Desert::Graphic
                      meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args, path );
                  } );
         }
+        // VG-SW-RASTER R1 (UE 5 Nanite's material pass over VisBuffer64): the software raster's words, shaded per
+        // G-buffer IndirectGroup through its `.VisibilityResolve.Binned.VirtualGeometry` cell on the same material
+        // depth (VgMaterialDepth stamped each VG pixel with its group's value), EQUAL. Their depth is already in
+        // the G-buffer depth ("Grass: Visibility Depth" of every word).
+        if ( !visibility.HasVirtualGeometryRows() )
+            return;
+        const System::MeshRenderer::VirtualGeometryResolveInputs vgInputs{
+             .Visibility      = visibility.Words,
+             .ResolveArgs     = visibility.ResolveArgs,
+             .VisibleClusters = visibility.VgVisibleClusters,
+             .Clusters        = visibility.VgGroups.Clusters,
+             .Dags            = visibility.VgGroups.Dags,
+             .PrimitiveDraws  = visibility.VgGroups.PrimitiveDraws,
+             .FirstRow        = visibility.VgFirstRow,
+             .RowCount        = visibility.VgRowCount };
+        AddRaster(
+             graph, "VirtualGeometry: Visibility Resolve", resolveTargets,
+             textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderVirtualGeometryVisibilityResolve( context ); },
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ), vgInputs]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareVirtualGeometryVisibilityResolve( pass, view, vgInputs ); } );
     }
 
     void SceneRendererImpl::AddFrameGrassPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
@@ -906,20 +1032,6 @@ namespace Desert::Graphic
         }
         if ( visibility.IsValid() )
             AddFrameGrassVisibility( graph, textures, meshRenderer, visibility, true );
-    }
-
-    void SceneRendererImpl::AddFrameGrassBladeSetup( RDG::Builder& graph, System::MeshRenderer* meshRenderer,
-                                                     const ViewFrame& frame, const bool postOcclusion )
-    {
-        // Called by AddFrameGrassVisibility once the sections are chosen: GrassRenderer sets up only the varieties
-        // MeshRenderer draws through the visibility buffer (DrawsGrassVisibilitySection).
-        auto* grass = m_Systems.Grass.get();
-        if ( grass == nullptr || meshRenderer == nullptr )
-            return;
-        if ( const auto setup = grass->AddFrameBladeSetup( graph, frame, meshRenderer->GetFrameDeformationField(),
-                                                           *meshRenderer, postOcclusion );
-             !setup )
-            LOG_ERROR( "[Grass] Blade Setup{}: {}", postOcclusion ? " Post-Occlusion" : "", setup.GetError() );
     }
 
     void SceneRendererImpl::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
@@ -1025,16 +1137,17 @@ namespace Desert::Graphic
                                            const FrameFrontLayer& frontLayer )
     {
         auto* water = m_Systems.Water.get();
-        if ( water == nullptr || !water->HasDraws() || !sceneCopy.IsValid() )
+        if ( water == nullptr || ( !water->HasDraws() && !water->HasUnderwater() ) || !sceneCopy.IsValid() )
             return;
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Water" );
         if ( !targets )
             return;
         // LOAD colour and depth: the water is depth-tested against the composited opaque scene and writes its own
-        // depth, so the glass, the clouds and the particles after it see the surface. It samples the opaque
-        // scene's copy (refraction) and the G-buffer depth (SceneViewInputs::SceneDepth: the bottom, a different
-        // image from the scene target's depth it writes -
-        // UE's SceneDepthWithoutSingleLayerWater). It fogs itself at its own depth (the opaque fog ran before it;
+        // depth, so the glass, the clouds and the particles after it see the surface (the clouds through their
+        // composite's depth test when they were marched early against the G-buffer depth, CloudComposite.shader).
+        // It samples the opaque scene's copy (refraction) and the G-buffer depth (SceneViewInputs::SceneDepth: the
+        // bottom, a different image from the scene target's depth it writes - UE's
+        // SceneDepthWithoutSingleLayerWater). It fogs itself at its own depth (the opaque fog ran before it;
         // Mesh/Surface/SceneFog.glslh, bound by name through BindSceneViewInputs).
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
         // The surface cell's scene blocks (camera, sun, sky cubes, sky look), as the mesh draws get them.
@@ -1051,12 +1164,62 @@ namespace Desert::Graphic
         const RDG::TextureRef black           = textures.GraphRefs().System.Black;
         const RDG::TextureRef frontReflection = frontLayer.Reflection.IsValid() ? frontLayer.Reflection : black;
         const RDG::TextureRef frontDepth      = frontLayer.Depth.IsValid() ? frontLayer.Depth : black;
+        // THE UNDERWATER VOLUME (WATER-UNDERWATER) first: over the opaque scene where the near plane is under the
+        // water, reading the copy (the target as it is) and the G-buffer depth; the surface is drawn over it.
+        if ( water->HasUnderwater() )
+        {
+            const RDG::BufferRef underwaterUB = water->UploadUnderwater( graph, frame );
+            AddRaster(
+                 graph, "Deferred: Underwater", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
+                 RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return water->RenderUnderwaterManual( context ); },
+                 [water, sceneCopy, view, underwaterUB]( RDG::PassBuilder& pass )
+                 { water->DeclareUnderwater( pass, sceneCopy, view, underwaterUB ); } );
+        }
+        if ( !water->HasDraws() )
+            return;
+        const RDG::TextureRef waves           = FrameWaterWaves( graph, textures );
         AddRaster(
              graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return water->RenderManual( context ); },
-             [water, sceneCopy, waterInfo, frontReflection, frontDepth, view, frame]( RDG::PassBuilder& pass )
-             { water->DeclareDraws( pass, sceneCopy, waterInfo, frontReflection, frontDepth, view, frame ); } );
+             [water, sceneCopy, waterInfo, waves, frontReflection, frontDepth, view,
+              frame]( RDG::PassBuilder& pass ) {
+                 water->DeclareDraws( pass, sceneCopy, waterInfo, waves, frontReflection, frontDepth, view,
+                                      frame );
+             } );
+    }
+
+    RDG::TextureRef SceneRendererImpl::FrameWaterWaves( RDG::Builder& graph, FrameTextures& textures )
+    {
+        const RDG::TextureRef black = textures.GraphRefs().System.Black;
+        auto*                 water = m_Systems.Water.get();
+        if ( water == nullptr || !water->FrameWavesAreFFT() )
+            return black;
+        if ( const RDG::TextureRef recorded = water->RecordedWaves( graph ); recorded.IsValid() )
+            return recorded;
+        // The h0 cascades (uploaded once per wave set) and the persistent two-frame atlas, left sampled by the
+        // water's vertex and fragment stages for the next frame.
+        const RDG::TextureRef initial =
+             textures.Import( water->GetFFTInitialSpectrum(), "WaterFFT.H0", RDG::Access::SampledCompute );
+        const RDG::TextureRef atlas =
+             textures.Import( water->GetFFTWaves(), "WaterFFT.Waves", RDG::Access::SampledGraphics );
+        // The ground the surf foam breaks on; none composed yet: black, no surf.
+        const RDG::TextureRef waterInfo =
+             water->GetWaterInfo() != nullptr
+                   ? textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics )
+                   : black;
+        const ViewFrame* const frame = GetViewFrame();
+        const RDG::TextureRef  waves =
+             initial.IsValid() && atlas.IsValid() && frame != nullptr
+                   ? water->AddWavePasses( graph, initial, atlas, waterInfo,
+                                          static_cast<float>( frame->TimeSeconds ) )
+                   : RDG::TextureRef{};
+        if ( waves.IsValid() )
+            return waves;
+        LOG_ERROR(
+             "[SceneRenderer] Water: the FFT ocean's images cannot be imported - the waves read black (flat)" );
+        return black;
     }
 
 #if DESERT_DEV_INSTRUMENTS

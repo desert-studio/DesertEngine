@@ -90,6 +90,26 @@ namespace Desert::Graphic
         std::array<RDG::TextureRef, 3> Lighting; // R, G, B
     };
 
+    // THE VIEW'S LANDSCAPE RUNTIME VIRTUAL TEXTURE (LANDSCAPE-RVT, System::LandscapeVirtualTexture; UE Runtime Virtual
+    // Texture): its page table, its four persistent atlases and this frame's feedback bit field, as every reader binds
+    // them (Common/LandscapeVirtualTexture.glslh). A disabled view (forward path, scene capture, no tile) has a zero
+    // header, System.Black atlases and a one-word feedback: every reader then answers "no page".
+    struct LandscapeVirtualTextureRefs
+    {
+        RDG::BufferRef  PageTable;
+        RDG::TextureRef Color;
+        RDG::TextureRef Normal;
+        RDG::TextureRef Occlusion;
+        RDG::TextureRef Height;   // the ground's world height (UE WorldHeight RVT), unorm over the header's range
+        RDG::BufferRef  Feedback; // written: a reader marks the pages it wants (atomicOr)
+
+        [[nodiscard]] bool IsValid() const
+        {
+            return PageTable.IsValid() && Color.IsValid() && Normal.IsValid() && Occlusion.IsValid() &&
+                   Height.IsValid() && Feedback.IsValid();
+        }
+    };
+
     struct FrameTransients
     {
         RDG::TextureRef Bloom;          // BloomRenderer chain (mip 0 read)   -> Tonemap
@@ -134,15 +154,24 @@ namespace Desert::Graphic
         RDG::TextureRef FogDistantSkyLight;
         RDG::TextureRef FogVolume;
         // The clouds' full-resolution image written this frame
-        // (VolumetricCloudRenderer::GetFrameResult().Upsampled, CloudUpsample.shader: premultiplied radiance +
+        // (VolumetricCloudRenderer::GetFrameResult().Upsampled, CloudTemporalResolve.shader: premultiplied radiance +
         // transmittance per framebuffer pixel); invalid when the frame has none -> CloudComposite
         RDG::TextureRef CloudScatter;
+        // Beside it, each pixel's cloud-front device depth (GetFrameResult().UpsampledFrontDepth): the composite's
+        // fragment depth, depth-tested against the water drawn after an early march          -> CloudComposite
+        RDG::TextureRef CloudFrontDepth;
         // The cloud layer's shadow map (VolumetricCloudRenderer::GetShadowMap, a transient of this graph), set
         // once its shadow node was accepted; invalid when the frame has none   -> Deferred: Composite
         RDG::TextureRef CloudShadowMap;
         // The view's rain occlusion map (MeshRenderer::GetRainOcclusionImage, imported: the renderer owns it and
         // redraws it only when its box moves); invalid when the view has none   -> the wetted mesh cells
         RDG::TextureRef RainOcclusionMap;
+        // The water's caustics map and its frame row (System::WaterCaustics::AddPasses, SceneRenderer::
+        // AddFrameWaterCaustics before any lit pass). Every graph starts with the neutral pair, System.White and
+        // a zeroed row with no map (FrameTextures::SetSceneViewInputsOff); the producer overwrites it when the
+        // caustics draw                                                          -> every sun receiver
+        RDG::TextureRef WaterCausticsMap;
+        RDG::BufferRef  WaterCausticsFrame;
         // The view's DBuffer (DECALS-DBUFFER, Common/DBuffer.glslh: A base colour, B normal, C roughness /
         // metallic / AO of the frame's decals, premultiplied, transmittance in alpha), written by "Deferred:
         // Decals" between the depth prepass and the G-buffer (System::DecalRenderer); invalid when the frame
@@ -151,6 +180,10 @@ namespace Desert::Graphic
         RDG::TextureRef DBufferA;
         RDG::TextureRef DBufferB;
         RDG::TextureRef DBufferC;
+        // The view's landscape runtime virtual texture (TerrainRenderer::AddVirtualTexturePasses publishes it before
+        // the G-buffer is declared; invalid in a graph that runs no terrain)
+        //   -> TerrainGBuffer.shader and the surfaces that blend into the ground, through SceneViewInputs
+        LandscapeVirtualTextureRefs LandscapeVirtualTexture;
         // The view's velocity (ViewRasterTargets.hpp CreateViewVelocity): one per view graph, the colour slot
         // every depth-writing node on the scene target / G-buffer writes, never on a light view   -> TAA
         RDG::TextureRef Velocity;
@@ -329,11 +362,19 @@ namespace Desert::Graphic
         // layout reads them (the forward and translucent cells, Common/MegaLightsVolume.glslh).
         MegaLightsVolumeRefs MegaLightsVolume;
         RDG::TextureRef RainOcclusionMap; // the view's map, or System.White (depth 1: nothing overhead)
+        // The water's caustics (Common/WaterCaustics.glslh): the map, or System.White, and its frame row - the
+        // zeroed 'off' row of FrameTextures::SetSceneViewInputsOff in a graph whose frame drew none (a reflection
+        // capture, a preview): the receiver's factor is then exactly 1.0, never a fault.
+        RDG::TextureRef WaterCausticsMap;
+        RDG::BufferRef  WaterCausticsFrame;
         // The view's DBuffer (FrameTransients::DBufferA/B/C), or System.Black (alpha 1 = transmittance 1: no
         // decal, so the G-buffer writers keep their exact bits, Common/DBuffer.glslh DesertApplyDBuffer).
         RDG::TextureRef DBufferA;
         RDG::TextureRef DBufferB;
         RDG::TextureRef DBufferC;
+        // The view's landscape RVT (FrameTransients::LandscapeVirtualTexture), invalid where the graph has none: a
+        // reader then faults its pass by name (a registration fault, as a missing light grid).
+        LandscapeVirtualTextureRefs LandscapeVirtualTexture;
         // The fog a translucent surface applies at its own depth (FrameTransients::FogParams and its three
         // images).
         RDG::BufferRef  FogParams;
@@ -356,7 +397,9 @@ namespace Desert::Graphic
                     SceneDepth, SceneShadingWord, SunShadowMask, SunDistanceFieldShadow, LocalShadowMasks,
                     RadianceCacheIrradiance, RadianceCacheDepth,
                     RainOcclusionMap, FogAerialPerspective, FogDistantSkyLight, FogVolume, DBufferA, DBufferB,
-                    DBufferC, TranslucencyLightingVolume } )
+                    DBufferC, TranslucencyLightingVolume, WaterCausticsMap, LandscapeVirtualTexture.Color,
+                    LandscapeVirtualTexture.Normal, LandscapeVirtualTexture.Occlusion,
+                    LandscapeVirtualTexture.Height } )
                 add( ref );
             for ( const RDG::TextureRef ref : MegaLightsVolume.Lighting )
                 add( ref );
@@ -386,6 +429,14 @@ namespace Desert::Graphic
     // DeferredLighting.shader and Mesh/ForwardLocalLights.glslh's DESERT_LOCAL_SHADOW_SCREEN_MASK branch.
     inline constexpr std::string_view kSceneViewLocalShadowMasksName = "LocalShadowMasksTexture";
     inline constexpr std::string_view kSceneViewRainOcclusionMapName = "RainOcclusionMapTexture";
+    // The water's caustics (Common/WaterCaustics.glslh): the map, through the pass's LinearRepeatSampler, and the
+    // frame row's std430 block.
+    inline constexpr std::string_view kSceneViewWaterCausticsMapName   = "WaterCausticsTexture";
+    inline constexpr std::string_view kSceneViewWaterCausticsFrameName = "WaterCausticsFrameUB";
+    // The frame row's std430 head: two vec4 {Window, Shape} (System::WaterCausticsFrameHead, asserted equal in
+    // WaterCaustics.cpp). All zero is the 'off' row every graph starts with
+    // (FrameTextures::SetSceneViewInputsOff).
+    inline constexpr uint64_t kSceneViewWaterCausticsHeadBytes = 2 * 4 * sizeof( float );
     // Slots a pass binds itself where its cell declares them (SceneViewSlot rows, tested by bit per block): the
     // glass cells' scene copy and front-layer reflection (MeshRendererForward.cpp), the instanced VSM casters'
     // remap (MeshRendererVirtualShadow.cpp), a ribbon cell's link order (ParticleRenderer.cpp). Each pass's
@@ -402,6 +453,15 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewDBufferSamplerName = "DBufferSampler";
     // Its own shared sampler state (SharedSamplerBinding.hpp): the G-buffer cells declare none of the others.
     inline constexpr std::string_view kSceneViewRainOcclusionSamplerName = "RainOcclusionSampler";
+    // LANDSCAPE-RVT (Common/LandscapeVirtualTexture.glslh): the page table, the four atlases (bilinear through a
+    // shared sampler state of their own) and the feedback bit field.
+    inline constexpr std::string_view kLandscapeVirtualPageTableName = "LandscapeVirtualPageTable";
+    inline constexpr std::string_view kLandscapeVirtualColorName     = "LandscapeVirtualColorAtlas";
+    inline constexpr std::string_view kLandscapeVirtualNormalName    = "LandscapeVirtualNormalAtlas";
+    inline constexpr std::string_view kLandscapeVirtualOcclusionName = "LandscapeVirtualOcclusionAtlas";
+    inline constexpr std::string_view kLandscapeVirtualHeightName    = "LandscapeVirtualHeightAtlas";
+    inline constexpr std::string_view kLandscapeVirtualSamplerName   = "LandscapeVirtualSampler";
+    inline constexpr std::string_view kLandscapeVirtualFeedbackName  = "LandscapeVirtualFeedback";
     // DEFORM-GRASS: the deformation field as a surface reads it (Deformation/DeformationFieldRead.glslh): each level's
     // Height and Detail image, read with texelFetch through a shared sampler state of its own (the grass blade cells
     // declare none of the others), and the block that places the levels' windows.
@@ -494,10 +554,19 @@ namespace Desert::Graphic
     inline constexpr RDG::StorageBufferParameter kLightGridWorldCellsBlock{ kLightGridWorldCellsBlockName };
     inline constexpr RDG::TextureParameter       kSceneViewRainOcclusionMap{ kSceneViewRainOcclusionMapName };
     inline constexpr RDG::SamplerParameter kSceneViewRainOcclusionSampler{ kSceneViewRainOcclusionSamplerName };
+    inline constexpr RDG::TextureParameter kSceneViewWaterCausticsMap{ kSceneViewWaterCausticsMapName };
+    inline constexpr RDG::StorageBufferParameter kSceneViewWaterCausticsFrame{ kSceneViewWaterCausticsFrameName };
     inline constexpr RDG::TextureParameter kSceneViewDBufferA{ kSceneViewDBufferAName };
     inline constexpr RDG::TextureParameter kSceneViewDBufferB{ kSceneViewDBufferBName };
     inline constexpr RDG::TextureParameter kSceneViewDBufferC{ kSceneViewDBufferCName };
     inline constexpr RDG::SamplerParameter kSceneViewDBufferSampler{ kSceneViewDBufferSamplerName };
+    inline constexpr RDG::StorageBufferParameter kLandscapeVirtualPageTable{ kLandscapeVirtualPageTableName };
+    inline constexpr RDG::TextureParameter       kLandscapeVirtualColor{ kLandscapeVirtualColorName };
+    inline constexpr RDG::TextureParameter       kLandscapeVirtualNormal{ kLandscapeVirtualNormalName };
+    inline constexpr RDG::TextureParameter       kLandscapeVirtualOcclusion{ kLandscapeVirtualOcclusionName };
+    inline constexpr RDG::TextureParameter       kLandscapeVirtualHeight{ kLandscapeVirtualHeightName };
+    inline constexpr RDG::SamplerParameter       kLandscapeVirtualSampler{ kLandscapeVirtualSamplerName };
+    inline constexpr RDG::StorageBufferParameter kLandscapeVirtualFeedback{ kLandscapeVirtualFeedbackName };
     inline constexpr RDG::StorageBufferParameter kSceneViewRadianceCacheParams{
          kSceneViewRadianceCacheParamsName };
     inline constexpr RDG::StorageBufferParameter kSceneViewRadianceCacheIndirection{
@@ -531,6 +600,8 @@ namespace Desert::Graphic
         inputs.SceneDepth             = t.SceneDepth.IsValid() ? t.SceneDepth : refs.System.Black;
         inputs.SceneShadingWord       = t.SceneShadingWord.IsValid() ? t.SceneShadingWord : refs.System.ZeroUint;
         inputs.RainOcclusionMap       = t.RainOcclusionMap.IsValid() ? t.RainOcclusionMap : refs.System.White;
+        inputs.WaterCausticsMap       = t.WaterCausticsMap.IsValid() ? t.WaterCausticsMap : refs.System.White;
+        inputs.WaterCausticsFrame     = t.WaterCausticsFrame;
         inputs.SunDistanceFieldShadow =
              t.SunDistanceFieldShadow.IsValid() ? t.SunDistanceFieldShadow : refs.System.White;
         inputs.TranslucencyLightingVolume =
@@ -539,6 +610,7 @@ namespace Desert::Graphic
         inputs.DBufferA = t.DBufferA.IsValid() ? t.DBufferA : refs.System.Black;
         inputs.DBufferB = t.DBufferB.IsValid() ? t.DBufferB : refs.System.Black;
         inputs.DBufferC = t.DBufferC.IsValid() ? t.DBufferC : refs.System.Black;
+        inputs.LandscapeVirtualTexture = t.LandscapeVirtualTexture;
         inputs.LightGridParams        = t.Lights.GridParams;
         inputs.LightGridCells         = t.Lights.GridCells;
         inputs.LocalShadowViews       = t.Lights.ShadowViews;
@@ -614,6 +686,10 @@ namespace Desert::Graphic
                   RDG::SamplerDesc::LinearClamp() );
             bind( SceneViewSlot::CloudShadowMap, kSceneViewCloudShadowMap, inputs.CloudShadowMap, kRepeat,
                   RDG::SamplerDesc::LinearRepeat() );
+            // The receiver reads it only inside [0, 1] and fades to none over its border (WATER_CAUSTICS_BORDER_UV),
+            // so the wrap never shows: the cloud map's shared state, which every sun receiver declares.
+            bind( SceneViewSlot::WaterCausticsMap, kSceneViewWaterCausticsMap, inputs.WaterCausticsMap, kRepeat,
+                  RDG::SamplerDesc::LinearRepeat() );
             if ( inputs.ReflectionCaptureCubes.IsValid() )
                 bind( SceneViewSlot::ReflectionCubes, kSceneViewReflectionCubes, inputs.ReflectionCaptureCubes,
                       kClamp, RDG::SamplerDesc::LinearClamp() );
@@ -663,6 +739,19 @@ namespace Desert::Graphic
                 bind( SceneViewSlot::DBufferC, kSceneViewDBufferC, inputs.DBufferC, kSceneViewDBufferSampler,
                       RDG::SamplerDesc::PointClamp() );
             }
+            // The landscape RVT's atlases, bilinear inside a page's 4-texel border (LandscapeVirtualDecode).
+            if ( inputs.LandscapeVirtualTexture.IsValid() )
+            {
+                const LandscapeVirtualTextureRefs& rvt = inputs.LandscapeVirtualTexture;
+                bind( SceneViewSlot::LandscapeVirtualColor, kLandscapeVirtualColor, rvt.Color,
+                      kLandscapeVirtualSampler, RDG::SamplerDesc::LinearClamp() );
+                bind( SceneViewSlot::LandscapeVirtualNormal, kLandscapeVirtualNormal, rvt.Normal,
+                      kLandscapeVirtualSampler, RDG::SamplerDesc::LinearClamp() );
+                bind( SceneViewSlot::LandscapeVirtualOcclusion, kLandscapeVirtualOcclusion, rvt.Occlusion,
+                      kLandscapeVirtualSampler, RDG::SamplerDesc::LinearClamp() );
+                bind( SceneViewSlot::LandscapeVirtualHeight, kLandscapeVirtualHeight, rvt.Height,
+                      kLandscapeVirtualSampler, RDG::SamplerDesc::LinearClamp() );
+            }
         }
 
         // A storage buffer bound where its SceneViewSlot is set.
@@ -685,7 +774,8 @@ namespace Desert::Graphic
     inline constexpr SceneViewSlots kSceneViewReceiverSlots = SceneViewSlots::Of(
          { SceneViewSlot::ShadowCascades, SceneViewSlot::EnvIrradiance, SceneViewSlot::EnvSpecular,
            SceneViewSlot::BrdfLut, SceneViewSlot::CloudShadowMap, SceneViewSlot::LocalShadowAtlas,
-           SceneViewSlot::RainOcclusionMap, SceneViewSlot::FogVolume, SceneViewSlot::DBufferA } );
+           SceneViewSlot::RainOcclusionMap, SceneViewSlot::FogVolume, SceneViewSlot::DBufferA,
+           SceneViewSlot::WaterCausticsMap, SceneViewSlot::LandscapeVirtualPageTable } );
 
     // Whether a layout samples any scene/view input: the lit programs do; a G-buffer, unlit or custom program
     // without the receivers does not. Read from the shader's REFLECTED resources (the layout's SceneViewSlots,
@@ -767,7 +857,8 @@ namespace Desert::Graphic
         // The light grid and the local shadow views its lights name, where the shader reads them. A frame graph
         // without them (no AddFrameLightGrid) hands invalid refs, and a shader that reads them then faults its
         // pass by name rather than reading nothing. The MegaLights volume's block likewise (invalid before
-        // AddFrameMegaLightsVolume: a reader faults by name).
+        // AddFrameMegaLightsVolume: a reader faults by name). The water caustics' row is always valid in a graph
+        // with FrameTextures (its 'off' row, FrameTextures::SetSceneViewInputsOff).
         for ( const SceneViewDetail::SlotBuffer& entry :
               { SceneViewDetail::SlotBuffer{ SceneViewSlot::LightGridParams, kLightGridParamsBlock,
                                              inputs.LightGridParams },
@@ -776,9 +867,19 @@ namespace Desert::Graphic
                 SceneViewDetail::SlotBuffer{ SceneViewSlot::LocalShadowViews, kLocalShadowViewsBlock,
                                              inputs.LocalShadowViews },
                 SceneViewDetail::SlotBuffer{ SceneViewSlot::MegaLightsVolumeParams, kMegaLightsVolumeBlock,
-                                             inputs.MegaLightsVolume.Params } } )
+                                             inputs.MegaLightsVolume.Params },
+                SceneViewDetail::SlotBuffer{ SceneViewSlot::WaterCausticsFrame, kSceneViewWaterCausticsFrame,
+                                             inputs.WaterCausticsFrame } } )
             if ( slots.Has( entry.Slot ) )
                 block.Storage( entry.Name, entry.Buffer, RDG::Access::StorageRead );
+        // The landscape RVT's page table (read) and feedback (each reader marks its pages: written), where the
+        // layout reads them. Invalid refs are handed on: the reader faults its pass by name.
+        if ( slots.Has( SceneViewSlot::LandscapeVirtualPageTable ) )
+            block.Storage( kLandscapeVirtualPageTable, inputs.LandscapeVirtualTexture.PageTable,
+                           RDG::Access::StorageRead );
+        if ( slots.Has( SceneViewSlot::LandscapeVirtualFeedback ) )
+            block.Storage( kLandscapeVirtualFeedback, inputs.LandscapeVirtualTexture.Feedback,
+                           RDG::Access::StorageWrite );
         // The grid's lights sample their light function tiles bindless: a grid reader declares the atlas.
         if ( slots.Has( SceneViewSlot::LightGridCells ) )
             block.BindlessRead( inputs.LightFunctionAtlas, RDG::Access::SampledGraphics );

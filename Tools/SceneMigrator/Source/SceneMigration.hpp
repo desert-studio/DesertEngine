@@ -25,6 +25,7 @@
 #include <span>
 #include <string_view>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Core/Serialize/SceneUpgrade.hpp>
 
 // The `.deprefab` payload and its gate. A prefab's entities ARE Core::SceneSerialized::Entities - the
 // same struct, written by the same ComponentRegistry - so it is raised by the SAME step chain rather
@@ -465,67 +466,20 @@ namespace Desert::Migration
 
     //  70 - AN EXTERNAL-ENTITIES SCENE PERSISTS NO ROOT ORDER (WP17). Its roots are the cells streamed in,
     //       appended in load order, so the running root count v69 wrote said 0 with the cells away and 28 with
-    //       Load All - an untouched entity differed from its own file depending on what was loaded. UE keeps no
-    //       order for OFPA top-level actors either. A ROOT record of a scene with a WorldPartition block states
-    //       no siblingIndex; children keep theirs (MigrateRootSiblingIndexV69ToV70). Scenes only.
-    inline constexpr int kSceneVersionRootSiblingIndex = 70;
-
-    //  71 - VOLUMETRIC FOG (VOLFOG, UE's Volumetric Fog group and ULightComponent::VolumetricScatteringIntensity).
-    //       ExponentialHeightFog gains VolumetricFog, VolumetricFogScatteringDistribution, VolumetricFogAlbedo,
-    //       VolumetricFogEmissive, VolumetricFogExtinctionScale, VolumetricFogDistance, VolumetricFogStartDistance
-    //       and VolumetricFogNearFadeInDistance; DirectionLight, PointLight and SpotLight gain
-    //       VolumetricScatteringIntensity. Every new field is ADDITIVE with a default that reproduces the old
-    //       picture (VolumetricFog off, intensity 1), so the step has no transform of its own: the record is read
-    //       with the declared defaults and the migrator's save states them. Scenes and prefabs alike.
-    inline constexpr int kSceneVersionVolumetricFog = 71;
-
-    //  72 - A VIEW ASKS FOR "TRACED", NOT FOR A TRACER (TRACED-METHOD-AXIS; UE: the volume picks Lumen,
-    //       r.Lumen.HardwareRayTracing the tracer). PostProcessSettings.GlobalIlluminationMethod is a
-    //       Common::Scalability::GIRequest (Off 0, Lightmaps 1, ScreenSpace 2, ProbeVolume 3, Traced 4,
-    //       PathTraced 5) and ReflectionsMethod a ReflectionRequest (Off 0, Captures 1, ScreenSpace 2, Traced 3,
-    //       PathTraced 4). A v64..v71 file stated the rendered ladders: GI SoftwareTraced 4 / HardwareTraced 5 /
-    //       PathTraced 6, reflections SoftwareTraced 3 / HardwareTraced 4 / PathTraced 5. Both traced numbers
-    //       become Traced (GI 4, reflections 3) and PathTraced moves down one; the rest keep their number. A value
-    //       outside the old ladder is refused, naming the entity (MigrateTracedRequestV71ToV72). Scenes and
-    //       prefabs alike, the record and every prefab override.
-    inline constexpr int kSceneVersionTracedRequest = 72;
-
-    //  73 - GI COMES FROM THE METHOD ALONE (GTX-TIER-LADDER). The deferred composite's screen-space gather (a
-    //       sun-only bounce of the on-screen G-buffer neighbours, scaled by PostProcessSettings.GIIntensity) is
-    //       gone, and GIRequest ScreenSpace (2) was then declared but not implemented (SSGIRenderer, the HZB
-    //       screen trace, implements it since SSGI2-GTAO, no scene version). A volume that stated it asks for
-    //       Off (0) - the GI it rendered in effect: the gather measured mean 0.11/255 on CornellDemo - and
-    //       GIIntensity, read by nothing now, is dropped (MigrateComposedGIV72ToV73). Scenes and prefabs alike,
-    //       the record and every prefab override.
-    inline constexpr int kSceneVersionComposedGI = 73;
-
-    //  74 - FILMIC BY DEFAULT (POST-LOOK-LAND, UE parity). The tonemapper a volume states when it states the
-    //       former default ACES (0) is Filmic (2), UE's default; Reinhard stays. The grade fields added with it
-    //       (film curve, white balance, colour grading, exposure compensation) are additive, identity by
-    //       default (MigrateFilmicDefaultV73ToV74). Scenes and prefabs alike, the record and every override.
-    inline constexpr int kSceneVersionFilmicDefault = 74;
-
-    //  75 - THE GRASS RASTER PATH IS THE RENDERER'S (FPS-GRASS-VISBUF; UE 5 Nanite foliage). The volume's bool
-    //       PostProcessSettings.GrassVisibilityBuffer becomes GrassRaster, a Core::GrassRasterPath (Scalability 0,
-    //       GBuffer 1, VisibilityBuffer 2): false - the former default, which every volume serialised - is
-    //       Scalability (the level's Foliage.GrassVisibilityBuffer decides), true is VisibilityBuffer. A value
-    //       that is not a bool is refused, naming the entity (MigrateGrassRasterPathV74ToV75). Scenes and
-    //       prefabs alike, the record and every prefab override.
-    inline constexpr int kSceneVersionGrassRasterPath = 75;
-
-    //  76 - ONE ENTITY PER LANDSCAPE SPLINE (WP-LANDSCAPE-SPLINES; UE 5.5 ALandscapeSplineActor,
-    //       ULandscapeInfo::MoveSplinesToLevel). A Landscape block's Splines {ControlPoints, Segments} leaves the
-    //       root: every connected group of its control points (joined by segments; a lone point is its own group)
-    //       becomes one new record {LandscapeSpline: {Landscape: the root's id, Splines: the group, its segments
-    //       re-indexed}}, Tag "Landscape Spline", its id FNV-1a over "LandscapeSpline:<root id>:<group>" so a
-    //       re-run states the same identity. Scene-side; a prefab (or a prefab override) whose Landscape states
-    //       control points is refused naming it - no prefab in the content carries splines, and a spline cannot
-    //       become an entity of an instance (MigrateLandscapeSplineEntitiesV75ToV76).
-    inline constexpr int kSceneVersionLandscapeSplineEntities = 76;
-
-    static_assert( kSceneVersionLandscapeSplineEntities == kSceneVersion,
-                   "the last migration step and the engine's required scene version must be the same "
-                   "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
+    //       Load All. A ROOT record of a scene with a WorldPartition block states no siblingIndex; children keep
+    //       theirs (MigrateRootSiblingIndexV69ToV70, this tool's last step). Scenes only.
+    //
+    //  71 .. 77 - THE ENGINE'S (SCENE-UPGRADE-ON-LOAD): every step at or above Core::kSceneUpgradeFloor (70) lives
+    //       in Engine/Core/Serialize/SceneUpgrade.hpp, the one copy the loader raises a file with in memory. This
+    //       tool is the resave: it runs its own steps up to the floor, then Core::UpgradeSceneRecords, then writes.
+    using Core::kSceneVersionComposedGI;
+    using Core::kSceneVersionFilmicDefault;
+    using Core::kSceneVersionGrassRasterPath;
+    using Core::kSceneVersionLandscapeSplineEntities;
+    using Core::kSceneVersionRootSiblingIndex;
+    using Core::kSceneVersionTracedRequest;
+    using Core::kSceneVersionTubeSourceLength;
+    using Core::kSceneVersionVolumetricFog;
 
     // WORLD PARTITION'S OWN CHAIN (MIGRATE-SUBSYS, owner 2026-10-22; UE FCustomVersion). The steps below are keyed
     // by the number a file states under Assets::kWorldPartitionSchemaTag, not by the scene schema number, and run
@@ -623,74 +577,21 @@ namespace Desert::Migration
     //       (WP-HLOD-APPROX), whose Settings are Core::HLODApproximationSettings - additive, no v11 layer states
     //       it. Scenes only carry layers; a prefab's chain raises the number and changes nothing. (v10 and v11 are
     //       the WP-INT-1117 integration's steps.)
-    inline constexpr int kWorldPartitionVersionHLODBuilderSettings = 12;
+    //       This step is this tool's last World Partition step: v12 is Core::kWorldPartitionUpgradeFloor.
+    //  13, 14 - additive, the engine's (SceneUpgrade.hpp).
+    using Core::kWorldPartitionVersionEntityHLODLayer;
+    using Core::kWorldPartitionVersionHLODBuilderSettings;
+    using Core::kWorldPartitionVersionImpostorLayers;
 
-    //  13 - HLOD LAYER PER ENTITY (WP-SETTINGS-UI; UE AActor::HLODLayer). A record may state an `HLODLayer`
-    //       component naming one of the world's HLOD layers: its composite's part of its cell's HLOD is built by
-    //       that layer and its builder's Settings instead of its partition's first HLOD setup's
-    //       (Rules::CellHLODParts). ADDITIVE: a v12 record states none and is built by its partition's layer,
-    //       exactly as before - the step has no transform of its own, the stamp states WPAR 13. The number moves
-    //       so a v12 build refuses a world whose per-entity layers it would silently ignore. Scenes and prefabs
-    //       alike.
-    inline constexpr int kWorldPartitionVersionEntityHLODLayer = 13;
-
-    //  14 - IMPOSTOR HLOD LAYERS (IMPOSTORS-HLOD; UE ImpostorBaker + HLOD layers). HLODLayerType gains Impostor,
-    //       whose builder's Settings are Core::HLODImpostorSettings (FramesPerSide, Hemisphere, FrameResolution).
-    //       ADDITIVE: a v13 world states no Impostor layer and builds as before - the step has no transform of its
-    //       own, the stamp states WPAR 14. The number moves because the enum is read by name and strictly: a v13
-    //       build would refuse an "Impostor" layer without naming the migrator. Scenes and prefabs alike.
-    inline constexpr int kWorldPartitionVersionImpostorLayers = 14;
-
-    // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
-    // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
-    //
-    //   1 - STATIC MESHES AND MATERIALS BY {Guid, Path} (STATICMESH-FORMAT). The Static Mesh block's MeshGuid +
-    //       MeshPath become its reflected `MeshHandle` {Guid, Path} and MaterialGuids + MaterialPaths its
-    //       `MaterialSlots` [{Guid, Path}] (the GUIDs the file already states); every reflected material field
-    //       stated as a bare key (LandscapeMaterial.Material, VolumetricCloud.Material,
-    //       Destructible.InteriorMaterial, UIPanel.Material) becomes {Guid, Path}, the GUID read from the
-    //       `.demat` header. Records and prefab overrides alike. MigrateReflectedAssetRefsV0ToV1.
-    inline constexpr int kAssetRefVersionReflected = 1;
-
-    static_assert( kAssetRefVersionReflected == Core::kAssetRefVersion,
-                   "the last asset-reference step and the engine's required asset-reference version must be the "
-                   "same generation - raise Core::kAssetRefVersion in Engine/Core/Serialize/SceneFormat.hpp" );
-
-    // THE LIGHT COMPONENTS' OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a file states under
-    // Assets::kLightSchemaTag and run after the asset-reference chain.
-    //
-    //   1 - A DIRECTIONAL LIGHT IS AIMED BY ITS ROTATION (PORT-SUN-ROTATION), as in UE: the light travels along
-    //       the entity's world forward axis (-Z) and its Translation is only where it sits. Every record with a
-    //       DirectionLight block whose Translation is a direction (longer than 1e-4, the old engine's gate) gets
-    //       the Rotation that aims its world forward axis along normalize(Translation) - the parents' stated
-    //       Rotations divided out - and a zero Translation, so no direction is stored twice. A light whose
-    //       Translation was no direction emitted nothing before; it keeps its Rotation and is counted. A prefab
-    //       override that states a Translation beside a DirectionLight block is converted the same way, its
-    //       parent rotation unknown here and taken as identity, and counted (MigrateLightRotationV0ToV1).
-    //       Scenes and prefabs alike.
-    inline constexpr int kLightVersionRotation = 1;
-
-    static_assert( kLightVersionRotation == Core::kLightVersion,
-                   "the last light step and the engine's required light version must be the same generation - "
-                   "raise Core::kLightVersion in Engine/Core/Serialize/SceneFormat.hpp" );
-
-    // What MigrateReflectedAssetRefsV0ToV1 did to one file.
-    struct ReflectedAssetRefsReport
-    {
-        std::size_t              MeshBlocks     = 0; // Static Mesh blocks (records and overrides) restated
-        std::size_t              MaterialFields = 0; // bare material keys restated as {Guid, Path}
-        std::vector<std::string> Refused;            // a material file with no header GUID, or a wrong shape
-    };
-
-    // Restates the reflected static-mesh and material references as {Guid, Path} (kAssetRefVersionReflected).
-    // `assetsRoot` locates the `.demat` an "assets:" key names. Reads files; writes none.
-    ReflectedAssetRefsReport MigrateReflectedAssetRefsV0ToV1( std::vector<Assets::EntityData>& entities,
-                                                              const std::filesystem::path&     assetsRoot );
-
-    static_assert(
-         kWorldPartitionVersionImpostorLayers == Core::kWorldPartitionVersion,
-         "the last World Partition step and the engine's required World Partition version must be the "
-         "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
+    // THE ASSET-REFERENCE AND LIGHT CHAINS (kAssetRefVersionReflected, kLightVersionRotation) are the engine's
+    // whole (SceneUpgrade.hpp): Core::UpgradeSceneRecords runs them, this tool hands it a MaterialGuidLookup over
+    // its assets root.
+    using Core::kAssetRefVersionReflected;
+    using Core::kLightVersionRotation;
+    using Core::MigrateLightRotationV0ToV1;
+    using Core::MigrateReflectedAssetRefsV0ToV1;
+    using Core::ReflectedAssetRefsReport;
+    using Core::SunRotationReport;
 
     // What MigratePathOnlyMeshGuidsV31ToV32 did to one file (also the shape of the v27->28 step this tool
     // no longer carries: kept as one struct name so a future step over the same MeshGuid slot need not
@@ -750,6 +651,8 @@ namespace Desert::Migration
     // overrides are deltas: untouched). Returns how many it stated. PURE.
     std::size_t MigrateSourceAngleV54ToV55( std::vector<Assets::EntityData>& entities );
 
+    using Core::MigrateTubeSourceLengthV76ToV77;
+
     // The keys MigrateLandscapeLayerModesV37ToV38 takes out of every LandscapeMaterial block.
     inline constexpr std::array<const char*, 3> kRetiredLandscapeLayerModeKeys = { "GrassMode", "RockMode",
                                                                                    "SnowMode" };
@@ -802,19 +705,8 @@ namespace Desert::Migration
         std::size_t OverridesDropped = 0;     // wind keys taken out of prefab overrides
     };
 
-    // What MigrateLandscapeSplineEntitiesV75ToV76 did to one file.
-    struct LandscapeSplineEntitiesReport
-    {
-        std::size_t RootsCleared   = 0;   // Landscape blocks (and overrides) whose Splines key was taken out
-        std::size_t SplinesCreated = 0;   // LandscapeSpline records added, one per connected group
-        std::vector<std::string> Refused; // a Splines value of the wrong shape, or splines in a prefab
-    };
-
-    // Splits every Landscape block's Splines into LandscapeSpline records under the rule
-    // kSceneVersionLandscapeSplineEntities states. @p createEntities: true for a scene, false for a prefab (whose
-    // control points are refused). PURE.
-    LandscapeSplineEntitiesReport
-    MigrateLandscapeSplineEntitiesV75ToV76( std::vector<Assets::EntityData>& entities, bool createEntities );
+    using Core::LandscapeSplineEntitiesReport;
+    using Core::MigrateLandscapeSplineEntitiesV75ToV76;
 
     // Moves the cloud layer's wind into a WindSource record under the rule kSceneVersionWindSource states.
     // @p createSource: true for a scene, false for a prefab. The record's id is derived from @p fileName so a
@@ -1043,63 +935,15 @@ namespace Desert::Migration
     // prefab override. PURE.
     DisplayTransferReport MigrateDisplayTransferV64ToV65( std::vector<Assets::EntityData>& entities );
 
-    // What MigrateTracedRequestV71ToV72 did to one file.
-    struct TracedRequestReport
-    {
-        std::size_t              Restated = 0; // GlobalIlluminationMethod / ReflectionsMethod numbers changed
-        std::vector<std::string> Refused;      // a Settings block or a value that is not on the old ladder
-    };
-
-    // Re-states every PostProcessVolume.Settings GlobalIlluminationMethod and ReflectionsMethod by the old ->
-    // new tables kSceneVersionTracedRequest states, in the record and in every prefab override. PURE.
-    TracedRequestReport MigrateTracedRequestV71ToV72( std::vector<Assets::EntityData>& entities );
-
-    // What MigrateComposedGIV72ToV73 did to one file.
-    struct ComposedGIReport
-    {
-        std::size_t              Restated = 0; // GlobalIlluminationMethod ScreenSpace re-stated as Off
-        std::size_t              Dropped  = 0; // GIIntensity keys removed
-        std::vector<std::string> Refused;      // a Settings block that is not an object
-    };
-
-    // Re-states every PostProcessVolume.Settings GlobalIlluminationMethod ScreenSpace (2) as Off (0) and drops
-    // its GIIntensity, in the record and in every prefab override (kSceneVersionComposedGI). PURE.
-    ComposedGIReport MigrateComposedGIV72ToV73( std::vector<Assets::EntityData>& entities );
-
-    // What MigrateFilmicDefaultV73ToV74 did to one file.
-    struct FilmicDefaultReport
-    {
-        std::size_t              Restated = 0; // Tonemapper ACES re-stated as Filmic
-        std::vector<std::string> Refused;      // a Settings block that is not an object
-    };
-
-    // Re-states every PostProcessVolume.Settings Tonemapper ACES (0) as Filmic (2), in the record and in every
-    // prefab override (kSceneVersionFilmicDefault). PURE.
-    FilmicDefaultReport MigrateFilmicDefaultV73ToV74( std::vector<Assets::EntityData>& entities );
-
-    // What MigrateGrassRasterPathV74ToV75 did to one file.
-    struct GrassRasterPathReport
-    {
-        std::size_t              Restated = 0; // GrassVisibilityBuffer bools re-stated as GrassRaster
-        std::vector<std::string> Refused;      // a Settings block that is not an object, or a non-bool value
-    };
-
-    // Re-states every PostProcessVolume.Settings GrassVisibilityBuffer (bool) as GrassRaster: false ->
-    // Scalability (0), true -> VisibilityBuffer (2), in the record and in every prefab override
-    // (kSceneVersionGrassRasterPath). PURE.
-    GrassRasterPathReport MigrateGrassRasterPathV74ToV75( std::vector<Assets::EntityData>& entities );
-
-    // What MigrateLightRotationV0ToV1 did to one file.
-    struct SunRotationReport
-    {
-        std::size_t Aimed      = 0; // records whose Translation became their Rotation
-        std::size_t Overrides  = 0; // prefab overrides converted with an identity parent rotation
-        std::size_t Undirected = 0; // lights whose Translation was no direction; Rotation kept as stated
-    };
-
-    // Moves every directional light's direction from its Translation into its Rotation, under the rule
-    // kLightVersionRotation states. PURE.
-    SunRotationReport MigrateLightRotationV0ToV1( std::vector<Assets::EntityData>& entities );
+    // v72..v75 (SceneUpgrade.hpp).
+    using Core::ComposedGIReport;
+    using Core::FilmicDefaultReport;
+    using Core::GrassRasterPathReport;
+    using Core::MigrateComposedGIV72ToV73;
+    using Core::MigrateFilmicDefaultV73ToV74;
+    using Core::MigrateGrassRasterPathV74ToV75;
+    using Core::MigrateTracedRequestV71ToV72;
+    using Core::TracedRequestReport;
 
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
@@ -1308,11 +1152,17 @@ namespace Desert::Migration
     // DecodeMeshBinary and re-stated by EncodeMeshBinary. PURE.
     Common::ResultStr<std::string> MigrateMeshBinaryV5ToV6( std::string_view path, std::string_view bytes );
 
-    // MeshBinary 6/7 -> 8 (GPU-COST-9): v8 states per submesh whether its LODs are the cook's whole chain. The
+    // MeshBinary 6..9 -> 10. v8 (GPU-COST-9) states per submesh whether its LODs are the cook's whole chain; the
     // engine's DecodeMeshBinary reads 6/7 with that derived from the LODs present (a submesh carrying LODs drew
-    // exactly those, one without generated them at load), and EncodeMeshBinary re-states it as v8, so the raise
-    // keeps what every load of the file drew. Any other version is refused by name. PURE.
-    Common::ResultStr<std::string> MigrateMeshBinaryToV8( std::string_view path, std::string_view bytes );
+    // exactly those, one without generated them at load). v9 (FPS-GRASS-LOD) states each LOD's cluster-DAG cut
+    // error; 6-8 read as "none stated" (uncapped levels, what their loads drew). EncodeMeshBinary re-states both
+    // as v10, so the raise keeps what every load of the file drew; the VG DDC key (kClusterDagCutErrors)
+    // re-derives the cut levels and their errors on the next cook. v10 (VG-STREAMING) states each DAG's streaming
+    // pages and every cluster's generating group: a v7-v9 DAG's generators are recovered bit-exactly from its
+    // records (a cluster's LodBounds + LodError are its generator's LodBounds + ParentLodError; none or several
+    // matches is refused) and Geometry::PaginateClusterDag cuts the pages. Any other version is refused by name.
+    // PURE.
+    Common::ResultStr<std::string> MigrateMeshBinaryToV10( std::string_view path, std::string_view bytes );
 
     // MSAS SRCE 2 -> 3 (a `.stmesh` / `.skmesh` mesh source asset): the skin's bone signature (U64) becomes its
     // skeleton's GUID (Hi, Lo; same rule as above) and the header's dependencies gain it after the materials; a
@@ -1496,7 +1346,6 @@ namespace Desert::Migration
         bool        RootSiblingIndexRaised  = false; // below kSceneVersionRootSiblingIndex
         // v70 -> v71 is additive (no transform), but it IS a step: without its own flag a v70 file read as
         // unchanged, and SceneMigrator printed "version unchanged" / "already at v71" over a v70 file.
-        bool        VolumetricFogRaised     = false; // below kSceneVersionVolumetricFog
         // World Partition's chain (keyed by the WPAR number the file states, not the scene number).
         int         StatedWorldPartitionVersion = 0; // what the file stated under kWorldPartitionSchemaTag
         bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
@@ -1516,16 +1365,8 @@ namespace Desert::Migration
         bool        MiniMapRaised            = false; // below kWorldPartitionVersionMiniMap (additive)
         bool        HLODBuilderSettingsRaised   = false; // below kWorldPartitionVersionHLODBuilderSettings
         std::size_t HLODMergeMaterialsMoved     = 0; // layers whose MergeMaterials became Settings.MergeMaterials
-        bool        EntityHLODLayerRaised       = false; // below kWorldPartitionVersionEntityHLODLayer (additive)
-        bool        ImpostorLayersRaised        = false; // below kWorldPartitionVersionImpostorLayers (additive)
         // The asset-reference chain (keyed by the AREF number the file states).
-        int                      StatedAssetRefVersion = 0;
-        bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
-        ReflectedAssetRefsReport ReflectedAssetRefs;
         // The light chain (keyed by the LGHT number the file states).
-        int               StatedLightVersion = 0;
-        bool              SunRotationRaised  = false; // below kLightVersionRotation
-        SunRotationReport SunRotation;
         std::size_t RootSiblingIndexDropped = 0;     // root records that lost their siblingIndex
 
         bool                      AssetKeysRaised = false; // below kSceneVersionAssetKeys
@@ -1558,16 +1399,9 @@ namespace Desert::Migration
         bool                  DisplayTransferRaised = false; // below kSceneVersionDisplayTransfer
         DisplayTransferReport DisplayTransfer;
 
-        bool                TracedRequestRaised = false; // below kSceneVersionTracedRequest
-        TracedRequestReport TracedRequest;
-        bool                ComposedGIRaised = false; // below kSceneVersionComposedGI
-        ComposedGIReport    ComposedGI;
-        bool                FilmicDefaultRaised = false; // below kSceneVersionFilmicDefault
-        FilmicDefaultReport FilmicDefault;
-        bool                  GrassRasterPathRaised = false; // below kSceneVersionGrassRasterPath
-        GrassRasterPathReport GrassRasterPath;
-        bool                  LandscapeSplineEntitiesRaised = false; // below kSceneVersionLandscapeSplineEntities
-        LandscapeSplineEntitiesReport LandscapeSplineEntities;
+        // Every step at or above the floors - scene v71..v77, World Partition v13/v14, the asset-reference and
+        // light chains - is the engine's: what Core::UpgradeSceneRecords did to this file.
+        Core::SceneUpgradeReport Upgrade;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -1588,11 +1422,8 @@ namespace Desert::Migration
                    RootSiblingIndexRaised || WorldPartitionTagRaised || DataLayersRaised ||
                    RuntimeDataLayersRaised || DataLayerOutlinerRaised || RuntimePartitionsRaised ||
                    LocationVolumesRaised || PrefabRuntimeBehaviorRaised || HLODBuildersRaised ||
-                   ReflectedAssetRefsRaised || SunRotationRaised || VolumetricFogRaised || TracedRequestRaised ||
-                   ComposedGIRaised || FilmicDefaultRaised || GrassRasterPathRaised || HLODMergeMaterialsRaised ||
-                   DebugColorsRaised || MiniMapRaised || LandscapeSplineEntitiesRaised ||
-                   HLODBuilderSettingsRaised || EntityHLODLayerRaised ||
-                   ImpostorLayersRaised;
+                   HLODMergeMaterialsRaised || DebugColorsRaised || MiniMapRaised || HLODBuilderSettingsRaised ||
+                   Upgrade.AnyRaised();
         }
     };
 

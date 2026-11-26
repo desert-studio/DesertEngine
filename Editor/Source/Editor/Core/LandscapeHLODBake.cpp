@@ -47,11 +47,11 @@ namespace Desert::Editor
         constexpr uint32_t kBakeLongSide = 1024;
         // Frames recorded before the albedo is read: the landscape's material and its textures are resolved
         // while the scene draws (AssetThumbnailRenderer warms the same way).
-        constexpr int kWarmFrames = 60;
+        constexpr int kLandscapeBakeWarmFrames = 60;
         // The camera hangs this high above the tile and sees this deep: any landscape height lies between.
-        constexpr float kEyeHeightCm = 5.0e5f;
-        constexpr float kNearCm      = 100.0f;
-        constexpr float kFarCm       = 1.0e6f;
+        constexpr float kLandscapeBakeEyeHeightCm = 5.0e5f;
+        constexpr float kLandscapeBakeNearCm      = 100.0f;
+        constexpr float kLandscapeBakeFarCm       = 1.0e6f;
 
         // THE NORMAL MAP, in the tangent frame the runtime shades the HLOD mesh with: every texel of the tile's
         // HLOD render mesh in UV space (HLODBake::RasterizeUV, the albedo's own layout), the G-buffer's world
@@ -158,13 +158,14 @@ namespace Desert::Editor
         world[0] = glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f );  // right
         world[1] = glm::vec4( 0.0f, 0.0f, -1.0f, 0.0f ); // up
         world[2] = glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f );  // backward (the camera looks down -Y)
-        world[3] =
-             glm::vec4( tile.OriginX + tile.SizeX * 0.5f, kEyeHeightCm, tile.OriginZ + tile.SizeZ * 0.5f, 1.0f );
+        world[3] = glm::vec4( tile.OriginX + tile.SizeX * 0.5f, kLandscapeBakeEyeHeightCm,
+                              tile.OriginZ + tile.SizeZ * 0.5f, 1.0f );
         m_Camera->SetOrthoSize( tile.SizeZ * 0.5f );
-        m_Camera->SetView( ::Desert::Core::CameraEntityViewOf( world, 45.0f, kNearCm, kFarCm ), width, height,
-                           ::Desert::Core::Camera::kNoSourceEntity );
+        m_Camera->SetView(
+             ::Desert::Core::CameraEntityViewOf( world, 45.0f, kLandscapeBakeNearCm, kLandscapeBakeFarCm ), width,
+             height, ::Desert::Core::Camera::kNoSourceEntity );
         m_Scene->PinActiveCamera( m_Camera );
-        m_WarmFrames = kWarmFrames;
+        m_WarmFrames = kLandscapeBakeWarmFrames;
         m_Phase      = Phase::Frame;
     }
 

@@ -19,11 +19,13 @@
 // tree (UE r.Water.WaterMesh.GPUQuadTree).
 
 #include <Engine/Core/Frustum.hpp>
+#include <Water/Public/WaterRiver.hpp>
 
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -35,6 +37,12 @@ namespace Desert::Water
         glm::vec2 FootprintMin{ 0.0f };
         glm::vec2 FootprintMax{ 0.0f };
         float     SurfaceY = 0.0f;
+        /// Where two footprints overlap, the higher priority owns the tiles (Water::WaterBodyPriority: a river
+        /// over an ocean); equal priorities keep the first body that covers a node whole.
+        int32_t Priority = 0;
+        /// A river's baked flow (null for an ocean): the body owns only the leaf tiles its ribbon (bank mask)
+        /// touches, not its whole footprint box (UE draws a river along its spline, not over its bounds).
+        std::shared_ptr<const RiverFlowField> Ribbon;
     };
 
     /// The zone the tree covers (ECS::WaterZoneData, placed at the zone entity).
@@ -57,10 +65,18 @@ namespace Desert::Water
         glm::vec2 Corner{ 0.0f };
         float     Size          = 0.0f;
         float     SurfaceY      = 0.0f;
+        /// The body that owns the tile: its index in the bodies the tree was built from (the renderer's per-tile
+        /// material, waves and flow row).
+        uint32_t  BodyIndex     = 0;
         int32_t   LODLevel      = 0;
         int32_t   DensityIndex  = 0;
         bool      ShouldMorph   = false;
         bool      CanMorphTwice = false;
+        /// An ocean drawn UNDER a river in a leaf the river's banks only partly cover (UE: the ocean under the
+        /// river, the river-to-ocean transition): this tile is clipped to the complement of the river's bank mask
+        /// (WaterMeshTiles.glslh WaterBankClipped), the river's own tile in the same leaf to the mask, so the two
+        /// partition the leaf by the one mask the CPU query answers by (Water::QueryWater).
+        bool UnderRiver = false;
         /// The lowest LOD's global morph toward the next one, from the camera's height (0 on every other LOD).
         float HeightMorph = 0.0f;
     };
@@ -140,7 +156,35 @@ namespace Desert::Water
         {
             glm::ivec2 Min{ 0 };
             glm::ivec2 Max{ 0 };
-            float      SurfaceY = 0.0f;
+            float      SurfaceY  = 0.0f;
+            uint32_t   BodyIndex = 0;
+            int32_t    Priority  = 0;
+            // A ribbon's leaves (WaterQuadTreeBody::Ribbon): the summed-area table of the leaves it touches over
+            // [Min, Max], (Max - Min + 1) per side, so a node's owned-leaf count is four reads. Empty = all.
+            std::vector<int32_t> LeafSums;
+            // The same table of the leaves the ribbon covers WHOLE: no bilinear sample of the bank mask inside the
+            // leaf falls below kRiverBankClip, so its surface there is never clipped. Empty = all.
+            std::vector<int32_t> FullSums;
+            [[nodiscard]] bool   IsRibbon() const noexcept
+            {
+                return !LeafSums.empty();
+            }
+            [[nodiscard]] int32_t CountLeaves( glm::ivec2 lo, glm::ivec2 hi ) const noexcept;
+            [[nodiscard]] int32_t        CountFullLeaves( glm::ivec2 lo, glm::ivec2 hi ) const noexcept;
+            [[nodiscard]] static int32_t SumOver( const std::vector<int32_t>& sums, glm::ivec2 rangeMin,
+                                                  glm::ivec2 rangeMax, glm::ivec2 lo, glm::ivec2 hi ) noexcept;
+        };
+
+        // The body a node's tiles are drawn as.
+        struct TileOwner
+        {
+            float    SurfaceY  = 0.0f;
+            uint32_t BodyIndex = 0;
+            // A leaf a ribbon owns but does not cover whole, over a non-ribbon body (an ocean): that body is drawn
+            // too, under the ribbon, clipped to the bank mask's complement (WaterTileInstance::UnderRiver).
+            bool     HasUnder       = false;
+            float    UnderSurfaceY  = 0.0f;
+            uint32_t UnderBodyIndex = 0;
         };
 
         // A node: its level (leaf = 0) and first leaf tile; it spans 2^Level tiles per side.
@@ -167,7 +211,9 @@ namespace Desert::Water
             std::vector<WaterTileInstance>* Output = nullptr;
         };
 
-        [[nodiscard]] Coverage           Classify( const Node& node, float& surfaceY ) const;
+        [[nodiscard]] Coverage Classify( const Node& node, TileOwner& owner ) const;
+        // Fills @p range.LeafSums from the ribbon's bank mask; false when no in-bank texel lies inside the range.
+        [[nodiscard]] bool BuildRibbonLeaves( const RiverFlowField& flow, TileRange& range ) const noexcept;
         [[nodiscard]] Common::Math::AABB NodeBox( const Node& node, const Traversal& t ) const;
         [[nodiscard]] bool               Visible( const Node& node, const Traversal& t ) const;
         // Bit i: Visible( Child( node, i ) ), the four tested at once (Frustum::Intersects4).
@@ -178,7 +224,7 @@ namespace Desert::Water
         void SelectLOD( const Node& node, int32_t lodLevel, const Traversal& t ) const;
         void SelectLODRefinement( const Node& node, int32_t densityLevel, int32_t lodLevel,
                                   const Traversal& t ) const;
-        void AddNodeForRender( const Node& node, float surfaceY, int32_t densityLevel, int32_t lodLevel,
+        void AddNodeForRender( const Node& node, const TileOwner& owner, int32_t densityLevel, int32_t lodLevel,
                                const Traversal& t ) const;
 
         glm::vec2              m_RootMin{ 0.0f };

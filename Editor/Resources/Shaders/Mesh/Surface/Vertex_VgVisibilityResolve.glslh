@@ -1,0 +1,20 @@
+// THE VIRTUAL GEOMETRY VISIBILITY RESOLVE'S VERTEX STAGE (VG-SW-RASTER; Mesh/Surface/VgVisibilityResolve.glslh), the
+// `.VisibilityResolve.Binned.VirtualGeometry` cell of Vertex_Static.glslh and Vertex_Instanced.glslh alike: no
+// cluster is placed here - the draw is two triangles per held screen tile (VisibilityBufferFrame::ResolveArgs record 0,
+// its instance count written by "Grass: Visibility Classify", read as a non-indexed {3, 2 x tiles, 0, 0}); a tile
+// whose rows miss the VG's SW rows [first, + count) collapses (Common/VisibilityBuffer.glslh
+// DesertVisibilityTilePositionAt), and the rest stand at the draw's IndirectGroup's material depth, so the EQUAL test
+// lets through only the pixels "Grass: Visibility Material Depth" stamped with this group
+// (VisibilityMaterialDepth.shader VgMaterialDepth). UE draws every material over every tile of the screen; here the
+// tile's row range already skips the tiles without a VG word.
+#define DESERT_GPU_SCENE_NO_VISIBLE_ROW 1
+#include <Mesh/Surface/VgVisibilityResolve.glslh>
+#define DESERT_VISIBILITY_READ_ONLY
+#include <Common/VisibilityBuffer.glslh>
+void main()
+{
+    gl_Position =
+         DesertVisibilityTilePositionAt( uint( gl_InstanceIndex ), uint( gl_VertexIndex ), DesertVgResolveFirstRow(),
+                                         DesertVgResolveRowCount(),
+                                         DesertVisibilityVgMaterialDepth( DesertVgResolveGroup() ) );
+}

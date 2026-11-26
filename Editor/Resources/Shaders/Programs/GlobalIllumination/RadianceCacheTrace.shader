@@ -1,14 +1,16 @@
 // DesertAsset {"Kind":"Shader","Guid":"a0fa2ae2b4ca49f2940bb34be1953134","Versions":{"SHDR":1},"Dependencies":[]}
-// THE RADIANCE CACHE UPDATE, 6/7 — TRACE (UE TraceFromProbes, LumenRadianceCache.usf): one workgroup per TRACE
-// TILE of a selected probe - an 8x8 SQUARE of its traced octahedral texels, one ray per thread (UE's 8x8 probe trace
-// tiles; workgroup (x = the tile, y = the probe's place in the schedule), WorldRadianceCache's Trace dispatch).
+// THE RADIANCE CACHE UPDATE, 4/5 — TRACE (UE TraceFromProbes, LumenRadianceCache.usf): one workgroup per TRACE
+// TILE of a selected probe - an 8x8 of its rays at the tile's level (full, half or a quarter of the probe's
+// resolution, RADIANCE_CACHE_TRACE_LEVEL_*), one ray per thread (UE's 8x8 probe trace
+// tiles; one group per word of Select's trace tile list, RadianceCacheTraceTileList, a probe's tiles one after the
+// other; an indirect dispatch of exactly that many groups, written by Select).
 // FPS-RC-TRACE: the tile is a square, not 64 texels in row order - a row of a 32-texel probe spans the whole
 // octahedron (sky to ground), so a warp's rays ran as long as its longest march while its sky rays idled; a square's
-// rays are neighbours in direction (one warp = 8x4 of them). The probe is the slow axis of the dispatch, so its
-// tiles run next to each other on the same origin, object list and field neighbourhood. Every texel keeps its ray:
+// rays are neighbours in direction (one warp = 8x4 of them). A probe's tiles are consecutive in the list, so they
+// run next to each other on the same origin, object list and field neighbourhood. Every texel keeps its ray:
 // the jitter is keyed by the texel's row-order index as before. One workgroup per
 // probe looping over its res^2 texels left 100 groups of serial rays on the whole GPU (GPU-TURN-4: 0.62 ms on the
-// TURN for 100 probes). The probe was moved out of geometry by the pass before (RadianceCachePlace.shader, once a
+// TURN for 100 probes). The probe was moved out of geometry by the pass before (RadianceCacheSelect.shader, once a
 // probe; FPS-RC-TRACE2: every tile of it ran that field walk in its thread 0 behind a barrier) - its ray origin is
 // the cell centre plus the probe's offset - and each texel traces one jittered ray by the GI ray contract
 // (Common/GITracing.glslh GIRayRadianceFarField: the permutation's far field only - UE's probes trace the global
@@ -84,13 +86,6 @@ Shader "RadianceCacheTrace"
 
         // How far a probe ray looks before it is a miss, cm (UE r.Lumen.MaxTraceDistance).
         #define RC_PROBE_TRACE_DISTANCE 20000.0
-        // DOWNSAMPLED FAR PROBES (UE r.Lumen.RadianceCache.DownsampleDistanceFromCamera, GenerateProbeTraceTiles
-        // in LumenRadianceCache.usf): a probe whose cell centre is further than this from the camera, cm, traces
-        // at half its resolution - one ray per 2x2 texels, jittered over all four, written to each of them with its
-        // own history - so it costs a quarter of a near probe's rays. Its converged radiance is the 2x2 box of the
-        // full-resolution one; the irradiance and moments (Filter) integrate the same. A probe crossing the
-        // distance keeps its atlas texels: only the next traces' rays change.
-        #define RC_TRACE_DOWNSAMPLE_DISTANCE 4000.0
 
         // Per texel and frame, a stratified jitter inside the texel (PCG hash).
         vec2 TexelJitter( uint probe, uint texel, uint frame )
@@ -104,25 +99,25 @@ Shader "RadianceCacheTrace"
 
         void main()
         {
-            const uint count = min( radianceCacheSchedule[RC_SCHEDULE_COUNT], radianceCache.atlas.z );
-            if ( gl_WorkGroupID.y >= count )
+            // This group's trace tile (RadianceCacheSelect.shader's list; the dispatch's rows of tiles end past it).
+            const uint index = gl_WorkGroupID.x + gl_WorkGroupID.y * gl_NumWorkGroups.x;
+            if ( index >= radianceCacheSchedule[RC_SCHEDULE_TILES] )
                 return;
-            const uint               probe   = radianceCacheSchedule[RC_SCHEDULE_LIST + gl_WorkGroupID.y];
+            const uint               word    = radianceCacheSchedule[RadianceCacheTraceTileList( radianceCache.atlas.z ) + index];
+            const uint               probe   = word >> RADIANCE_CACHE_TRACE_TILE_PROBE_SHIFT;
+            const uint               tile    = word & RADIANCE_CACHE_TRACE_TILE_MASK;
+            const uint               level   = ( word >> RADIANCE_CACHE_TRACE_TILE_LEVEL_SHIFT ) & 3u;
+            const uint               skip    = ( word >> RADIANCE_CACHE_TRACE_TILE_SKIP_SHIFT ) & 0xFu;
             const RadianceCacheProbe state   = radianceCacheProbes[probe];
             const uint               clipmap = uint( state.cell.w );
             const vec3               centre  = RadianceCacheWorldCellCentre( radianceCache, state.cell.xyz, clipmap );
             const uint               res     = radianceCache.shape.z;
-            // The traced resolution: res, or half of it (rounded up) for a far probe; texels per ray side.
-            const bool downsampled = distance( giFrame.camera.xyz, centre ) > RC_TRACE_DOWNSAMPLE_DISTANCE;
-            const uint traceRes    = downsampled ? ( res + 1u ) / 2u : res;
-            const uint blockSide   = downsampled ? 2u : 1u;
-            // The dispatch's tiles cover a full-resolution probe (ceil(res / 8)^2 squares); a downsampled one needs
-            // the squares of its own traced resolution; the groups past them end.
-            const uint tilesPerSide = ( traceRes + 7u ) / 8u;
-            const uint tile         = gl_WorkGroupID.x;
-            if ( tile >= tilesPerSide * tilesPerSide )
-                return;
-            // Out of geometry: RadianceCachePlace.shader wrote this frame's offset to the probe before this pass.
+            // The traced resolution of the tile's level (RADIANCE_CACHE_TRACE_LEVEL_*): one ray per texel, per 2x2
+            // or per 4x4 texels.
+            const uint traceRes     = RadianceCacheTraceResolution( res, level );
+            const uint blockSide    = 1u << level;
+            const uint tilesPerSide = RadianceCacheTraceTilesPerSide( res, level );
+            // Out of geometry: RadianceCacheSelect.shader wrote this frame's offset to the probe before this pass.
             const vec3 position = centre + state.offset.xyz;
 
             const ivec2 origin  = RadianceCacheProbeAtlasOrigin( radianceCache, probe, radianceCache.shape.w ) + 1;
@@ -132,15 +127,18 @@ Shader "RadianceCacheTrace"
             const float history = fresh ? 0.0 : ( state.frames.w != state.frames.z ? DirtyHistory : HistoryWeight );
             // The cone of one traced texel: its solid angle 4 pi / traceRes^2 as a cone's half angle.
             const float cone    = sqrt( 4.0 / float( traceRes * traceRes ) );
-            // This thread's traced texel: its place in the tile's 8x8 square (the edge squares of a traceRes that is
-            // no multiple of 8 are cut at the probe's edge). No barrier follows, so the threads past them end.
-            const uvec2 square = uvec2( tile % tilesPerSide, tile / tilesPerSide );
-            const ivec2 t      = ivec2( square * 8u + gl_LocalInvocationID.xy );
-            if ( t.x < int( traceRes ) && t.y < int( traceRes ) )
+            // This thread's traced texel: its place in the tile's 8x8 (the edge tiles of a traceRes that is no
+            // multiple of 8 are cut at the probe's edge). A HALF tile's 4x4 quarter over a square the probe
+            // supersamples (skip, RadianceCacheTraceTileWord) is a FULL tile's. No barrier follows, so those
+            // threads end.
+            const uvec2 square  = uvec2( tile % tilesPerSide, tile / tilesPerSide );
+            const ivec2 t       = ivec2( square * 8u + gl_LocalInvocationID.xy );
+            const uint  quarter = ( gl_LocalInvocationID.y / 4u ) * 2u + gl_LocalInvocationID.x / 4u;
+            if ( t.x < int( traceRes ) && t.y < int( traceRes ) && ( ( skip >> quarter ) & 1u ) == 0u )
             {
                 // The texel's row-order index: its jitter sequence (the same ray whatever the tile shape).
                 const uint  texel = uint( t.y ) * traceRes + uint( t.x );
-                // A full-resolution texel keeps its own jitter sequence; a downsampled ray's spans its 2x2 block.
+                // A full-resolution texel keeps its own jitter sequence; a lower level's ray spans its block.
                 const vec2  o = ( vec2( t ) + TexelJitter( probe, texel, FrameIndex ) ) / float( traceRes ) * 2.0 -
                                1.0;
                 GITraceInput ray;
@@ -155,8 +153,8 @@ Shader "RadianceCacheTrace"
                 // The far field alone (UE TraceFromProbesCS: the global SDF, no mesh SDFs; GIRayRadianceFarField).
                 const vec3 radiance = GIRayRadianceFarField( ray, hitDistance );
                 const vec4 traced   = vec4( radiance, hitDistance );
-                // The atlas texels the ray stands for: itself, or its 2x2 block (an odd res's last row and column
-                // block is cut at the probe's edge).
+                // The atlas texels the ray stands for: itself, or its 2x2 or 4x4 block (the last row and column of
+                // blocks of a res that is no multiple of the block is cut at the probe's edge).
                 for ( uint j = 0u; j < blockSide; ++j )
                 {
                     for ( uint i = 0u; i < blockSide; ++i )

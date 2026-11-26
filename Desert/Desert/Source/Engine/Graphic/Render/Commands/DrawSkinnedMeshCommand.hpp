@@ -4,6 +4,7 @@
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/AnimationUpdateRate.hpp>
+#include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 
@@ -33,18 +34,28 @@ namespace Desert::Graphic::Render
         uint64_t                        MorphRevision = 0;
         // The animated instance's LOD / update-rate feedback (null: not animated).
         std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
+        // A follower mesh's leader (UE LeaderPoseComponent): empty = it leads itself.
+        Animation::LeaderPoseLink       Leader;
+        // The body's hidden sections (Animation::HiddenSections): bit i = submesh i not drawn.
+        uint64_t                        HiddenSubmeshes = 0;
         bool                            Outlined    = false;
         bool                            CastShadows = true;
+        // SkinnedMeshComponent::ReceivesDecals (UE bReceivesDecals; off by default on a skinned mesh).
+        bool                            ReceivesDecals = false;
 
         DrawSkinnedMeshCommand( uint32_t entity, Desert::SkinnedMesh* mesh,
                                 Graphic::MaterialSlotBindingPtr materialSlot, const glm::mat4& transform,
                                 std::shared_ptr<const std::vector<glm::mat4>> bones,
                                 std::vector<float>                            morphWeights,
                                 uint64_t morphRevision, bool outlined, bool castShadows,
-                                std::shared_ptr<Animation::SkinnedLodFeedback> lodFeedback = nullptr )
+                                std::shared_ptr<Animation::SkinnedLodFeedback> lodFeedback = nullptr,
+                                Animation::LeaderPoseLink                      leader      = {},
+                                uint64_t                                       hiddenSubmeshes = 0,
+                                bool receivesDecals = false )
              : Entity( entity ), Mesh( mesh ), MaterialSlot( std::move( materialSlot ) ), Transform( transform ),
                BoneMatrices( std::move( bones ) ), MorphWeights( std::move( morphWeights ) ), MorphRevision( morphRevision ),
-               LodFeedback( std::move( lodFeedback ) ), Outlined( outlined ), CastShadows( castShadows )
+               LodFeedback( std::move( lodFeedback ) ), Leader( leader ), HiddenSubmeshes( hiddenSubmeshes ), Outlined( outlined ), CastShadows( castShadows ),
+               ReceivesDecals( receivesDecals )
         {
         }
 

@@ -1,5 +1,6 @@
 #pragma once
 #include <Engine/Animation/Skeleton.hpp>
+#include <Engine/Geometry/LightTravel.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 
 #include <glm/glm.hpp>
@@ -178,7 +179,10 @@ namespace Desert::ECS::Rules
     // where the editor draws the light's icon. A rotation is always a direction, so there is no degenerate
     // sun any more: the old Translation-as-direction model had an epsilon, a "light emits nothing" report
     // and a migration-era comment explaining why the rotation gizmo did nothing — all gone with it.
-    inline constexpr glm::vec3 kLightForwardAxis = glm::vec3( 0.0f, 0.0f, -1.0f );
+    // The axis and its inverse (RotationForTravel) are GeometryCore's (LightTravel.hpp): the scene upgrade in
+    // Core turns a light v0 heading into a Rotation by the same rule.
+    using Geometry::kLightForwardAxis;
+    using Geometry::RotationForTravel;
 
     // The direction the light TRAVELS (sun -> scene), from the entity's WORLD rotation.
     inline glm::vec3 DirectionalLightTravel( const glm::quat& worldRotation )
@@ -197,20 +201,6 @@ namespace Desert::ECS::Rules
     inline glm::vec3 AtmosphereSunDirection( const glm::quat& worldRotation )
     {
         return AtmosphereSunDirection( DirectionalLightTravel( worldRotation ) );
-    }
-
-    // The rotation whose forward axis is `travel` — the shortest arc from kLightForwardAxis, so roll stays
-    // zero for every heading except the exact opposite one (a light aimed along +Z), which turns about +Y.
-    // Roll does not change a directional light. This is the inverse of DirectionalLightTravel and the one
-    // way the clock, the editor's direction widget and the scene migrator turn a heading into a Rotation.
-    inline glm::quat RotationForTravel( const glm::vec3& travel )
-    {
-        const glm::vec3 to = glm::normalize( travel );
-        const float     d  = glm::dot( kLightForwardAxis, to );
-        if ( d < -0.999999f )
-            return glm::quat( 0.0f, glm::vec3( 0.0f, 1.0f, 0.0f ) ); // 180 deg about +Y
-        const glm::vec3 axis = glm::cross( kLightForwardAxis, to );
-        return glm::normalize( glm::quat( 1.0f + d, axis ) );
     }
 
     // A SUN'S PLACE AS AN ARTIST STATES IT: elevation above the horizon and compass azimuth, both in degrees

@@ -15,6 +15,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Foliage/FoliageTypeService.hpp>
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 
 #include <Engine/Graphic/Render/Commands/DrawMeshCommand.hpp>
 #include <Engine/Graphic/Render/Commands/DrawSkinnedMeshCommand.hpp>
@@ -232,12 +233,32 @@ namespace Desert::ECS
                          const Animation::Animator* animator = nullptr;
                          // The animated pose's LOD / update-rate feedback (null on the bind pose: it is whole).
                          std::shared_ptr<Animation::SkinnedLodFeedback> lodFeedback;
-                         if ( !bindPreview )
-                             if ( const auto* anim = registry.try_get<AnimationComponent>( entity );
-                                  anim != nullptr && anim->Animator && !anim->Animator->GetPose().Matrices.empty() )
+                         // A FOLLOWER MESH (ModularCharacter AttachFollowerMesh; UE SetLeaderPoseComponent)
+                         // evaluates no animation of its own: it is skinned with its LEADER'S pose, index for
+                         // index (the skeletons match, AttachFollowerMesh refuses any other), and its draw names
+                         // the leader so the renderer draws it at the leader's level, path and size
+                         // (SelectSkinnedLods). The feedback stays the leader's: one animated instance, one
+                         // feedback. A link to a leader no longer alive draws the follower as a mesh of its own.
+                         Animation::LeaderPoseLink leaderLink;
+                         entt::entity              poseEntity = entity;
+                         if ( const auto* link = registry.try_get<Animation::LeaderPoseLink>( entity );
+                              link != nullptr && link->Follows() )
+                         {
+                             const auto leader = static_cast<entt::entity>( *link->LeaderEntity );
+                             if ( leader != entity && registry.valid( leader ) )
                              {
-                                 animator    = anim->Animator.get();
-                                 lodFeedback = anim->LodFeedback;
+                                 leaderLink = *link;
+                                 poseEntity = leader;
+                             }
+                         }
+                         if ( !bindPreview )
+                             if ( const auto* anim = registry.try_get<AnimationComponent>( poseEntity );
+                                  anim != nullptr && anim->Animator &&
+                                  !anim->Animator->GetPose().Matrices.empty() )
+                             {
+                                 animator = anim->Animator.get();
+                                 if ( !leaderLink.Follows() )
+                                     lodFeedback = anim->LodFeedback;
                              }
                          // THE POSE IS COPIED ONCE PER PUBLISHED POSE (UE: a skeletal proxy's bone buffer is
                          // updated on a new pose only): a still or paused character re-records the same co-owned
@@ -292,10 +313,14 @@ namespace Desert::ECS
                              morphRevision     = morph.GetRevision();
                          }
 
+                         // The body's sections a script hid under clothing (ModularCharacter SetBodySectionVisible).
+                         const auto*    hiddenBody     = registry.try_get<Animation::HiddenSections>( entity );
+                         const uint64_t hiddenSections = hiddenBody != nullptr ? hiddenBody->Mask : 0;
                          renderCommandBuffer.Emplace<Graphic::Render::DrawSkinnedMeshCommand>(
                               static_cast<uint32_t>( entity ), skinnedMesh, slots, worldTransform, palette.Current,
                               std::move( morphWeights ), morphRevision, isSelected, mesh.GetCastShadows(),
-                              std::move( lodFeedback ) );
+                              std::move( lodFeedback ), leaderLink, hiddenSections,
+                              mesh.GetReceivesDecals() );
                      } );
                 // A character no longer drawn (destroyed, hidden, no mesh) gives its buffers back.
                 std::erase_if( m_BonePalettes,
@@ -632,7 +657,7 @@ namespace Desert::ECS
                      x.TranslucencySortPriority != y.TranslucencySortPriority ||
                      x.MaxDrawDistance != y.MaxDrawDistance || x.Outlined != y.Outlined ||
                      x.CastShadows != y.CastShadows || x.ReceiveShadows != y.ReceiveShadows ||
-                     x.CastContactShadow != y.CastContactShadow ||
+                     x.CastContactShadow != y.CastContactShadow || x.ReceivesDecals != y.ReceivesDecals ||
                      x.ImpostorScreenSize != y.ImpostorScreenSize || x.ImpostorCard != y.ImpostorCard ||
                      x.ImpostorBounds.Min != y.ImpostorBounds.Min || x.ImpostorBounds.Max != y.ImpostorBounds.Max )
                     return false;
@@ -799,6 +824,7 @@ namespace Desert::ECS
                                 .CastShadows              = mesh.GetCastShadows(),
                                 .ReceiveShadows           = first.ReceiveShadows,
                                 .CastContactShadow        = first.CastContactShadow,
+                                .ReceivesDecals           = first.ReceivesDecals,
                                 .ImpostorScreenSize       = mesh.GetImpostorScreenSize(),
                                 .ImpostorCard             = true,
                                 .ImpostorBounds           = first.LocalBounds };
@@ -1705,7 +1731,8 @@ namespace Desert::ECS
                                                 .Outlined                 = outlined,
                                                 .CastShadows              = d.CastShadows,
                                                 .ReceiveShadows           = mesh.GetReceiveShadows(),
-                                                .CastContactShadow        = mesh.GetCastContactShadow() } );
+                                                .CastContactShadow        = mesh.GetCastContactShadow(),
+                                                .ReceivesDecals           = mesh.GetReceivesDecals() } );
 
             // An upload not made yet (a new or edited mesh: its revision and bounds change at the fence): taken
             // again next update. A slot still waiting for its section material is m_StaticAdoptWait's (keyed on

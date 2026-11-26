@@ -225,9 +225,11 @@ namespace Desert::Graphic
         // This frame's set: transients of @p graph ("ScreenProbes.<name>") extracted into the view for the next
         // frame. At most one call per graph.
         [[nodiscard]] Refs CreateCurrent( RDG::Builder& graph, ViewExtent extent );
-        // The AddPass index of the temporal pass that writes the set (Builder::GetPassCount() before its
-        // AddPass), whose loss EndFrame checks. Not called -> the set counts as unwritten.
-        void SetWriterPass( uint32_t writerPass );
+        // Adds the AddPass index of a pass that writes the set (Builder::GetPassCount() before its AddPass):
+        // the integrates with the temporal filter fused in, one each (FPS-SP-INTEGRATE), or the ReSTIR gather's
+        // temporal pass (RESTIR-GI). EndFrame drops the set
+        // when any writer was lost. Not called -> the set counts as unwritten.
+        void AddWriterPass( uint32_t writerPass );
 
         // After Execute succeeded: the extracted set becomes the previous one when its writer survived (@p
         // report); otherwise, and when this frame created none, the next frame has no previous.
@@ -235,6 +237,39 @@ namespace Desert::Graphic
         void Reset();
 
         [[nodiscard]] uint64_t HeldBytes() const;
+
+        // ---- THE RESTIR GI RESERVOIRS (GlobalIllumination::ReSTIRGather, UE FReSTIRTemporalResamplingState) ----
+        // The temporal resampling's reservoirs of the ReSTIR final gather, one per reservoir texel (the
+        // G-buffer's extent / kReSTIRDownsample), under the same protocol as the set above and swapped by the same
+        // EndFrame, but a set of its own: a frame of the screen-probe method creates none and the next frame has
+        // no previous reservoirs (their memory goes with them). Written by the temporal resampling, which runs
+        // before the spatial one: the spatial output is never fed back (Ouyang et al. 2021 sec. 4). A frame without
+        // previous reservoirs runs no temporal resampling: its initial sample writes them (ReSTIRGather::AddPasses).
+        enum Reservoir : uint32_t
+        {
+            ReservoirHit = 0,  // xyz = the sample's hit point (world cm; a sky sample: the visible point + its
+                               // direction x kReSTIRSkyDistance), w = its oct-packed hit normal (uintBitsToFloat;
+                               // 0 = the sky)
+            ReservoirRadiance, // rgb = the sample's outgoing radiance toward the visible point, a = unused (1)
+            ReservoirState,    // x = W (the unbiased contribution weight), y = M (the samples it stands for),
+                               // z = the visible point's distance to the camera (cm), w = its oct-packed normal
+            ReservoirCount
+        };
+        using ReservoirRefs = std::array<RDG::TextureRef, ReservoirCount>;
+
+        // One reservoir texture at @p reservoirExtent: rgba32f (hit, state), rgba16f (radiance); storage +
+        // sampled.
+        [[nodiscard]] static RDG::TextureDesc ReservoirDesc( Reservoir reservoir, ViewExtent reservoirExtent );
+        // Last frame's reservoirs at @p reservoirExtent ("ReSTIR.<name>.Previous"); every ref invalid when there
+        // are none (first frame, Reset, a frame without the temporal resampling or with it lost, another extent).
+        // At most one call per graph, before CreateCurrentReservoirs.
+        [[nodiscard]] ReservoirRefs RegisterPreviousReservoirs( RDG::Builder& graph, ViewExtent reservoirExtent );
+        // This frame's reservoirs ("ReSTIR.<name>"), extracted into the view for the next frame.
+        [[nodiscard]] ReservoirRefs CreateCurrentReservoirs( RDG::Builder& graph, ViewExtent reservoirExtent );
+        // The AddPass index of the pass that writes them - the temporal resampling, or the initial sample on a frame
+        // without previous reservoirs (Builder::GetPassCount() before its AddPass). Not called -> they count as
+        // unwritten.
+        void SetReservoirWriterPass( uint32_t writerPass );
 
     private:
         // [slot][Texture]
@@ -244,7 +279,16 @@ namespace Desert::Graphic
         uint32_t                                                      m_PreviousSlot = 0;
         bool                                                          m_HasPrevious  = false;
         bool                                                          m_Created      = false;
-        uint32_t                                                      m_WriterPass   = UINT32_MAX;
+        std::vector<uint32_t>                                         m_WriterPasses; // cleared each frame
+
+        // [slot][Reservoir]
+        std::array<std::array<RDG::ExternalTexture, ReservoirCount>, 2> m_ReservoirSlots;
+        ViewExtent                                                      m_PreviousReservoirExtent{};
+        ViewExtent                                                      m_CurrentReservoirExtent{};
+        uint32_t                                                        m_PreviousReservoirSlot = 0;
+        bool                                                            m_HasPreviousReservoirs = false;
+        bool                                                            m_ReservoirsCreated     = false;
+        uint32_t                                                        m_ReservoirWriterPass   = UINT32_MAX;
     };
 
     // ---- Temporal history ------------------------------------------------------------------------------------

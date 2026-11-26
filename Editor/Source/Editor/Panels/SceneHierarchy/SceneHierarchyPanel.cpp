@@ -13,6 +13,7 @@
 #include <format>
 #include <string_view>
 #include <Engine/ECS/EditorHLODComponent.hpp>
+#include <Engine/ECS/TransientComponent.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
@@ -152,27 +153,14 @@ namespace Desert::Editor
                     break;
                 }
                 case Archetype::PointLight:
-                {
-                    auto e = scene.CreateNewEntity( "Point Light" );
-                    e.AddComponent<ECS::PointLightComponent>();
-                    Track( e );
+                    (void)SceneHierarchyPanel::SpawnLocalLight( scene, SceneHierarchyPanel::LocalLightKind::Point );
                     break;
-                }
                 case Archetype::SpotLight:
-                {
-                    auto e = scene.CreateNewEntity( "Spot Light" );
-                    e.AddComponent<ECS::SpotLightComponent>();
-                    Track( e );
+                    (void)SceneHierarchyPanel::SpawnLocalLight( scene, SceneHierarchyPanel::LocalLightKind::Spot );
                     break;
-                }
                 case Archetype::RectLight:
-                {
-                    // UE ARectLight: the component's defaults (a 64 x 64 cm rect facing the entity's -Z).
-                    auto e = scene.CreateNewEntity( "Rect Light" );
-                    e.AddComponent<ECS::RectLightComponent>();
-                    Track( e );
+                    (void)SceneHierarchyPanel::SpawnLocalLight( scene, SceneHierarchyPanel::LocalLightKind::Rect );
                     break;
-                }
                 case Archetype::SkinnedModel:
                 {
                     auto e = scene.CreateNewEntity( "Skinned Model" );
@@ -216,6 +204,34 @@ namespace Desert::Editor
         ECS::StaticMeshDesc mesh;
         mesh.Primitive = type;
         ECS::SetStaticMesh( *e.GetRegistry(), e.GetHandle(), mesh );
+        Track( e );
+        return e.GetComponent<ECS::UUIDComponent>().UUID;
+    }
+
+    Common::UUID SceneHierarchyPanel::SpawnLocalLight( Desert::Core::Scene& scene, LocalLightKind kind )
+    {
+        switch ( kind )
+        {
+            case LocalLightKind::Point:
+            {
+                auto e = scene.CreateNewEntity( "Point Light" );
+                e.AddComponent<ECS::PointLightComponent>();
+                Track( e );
+                return e.GetComponent<ECS::UUIDComponent>().UUID;
+            }
+            case LocalLightKind::Spot:
+            {
+                auto e = scene.CreateNewEntity( "Spot Light" );
+                e.AddComponent<ECS::SpotLightComponent>();
+                Track( e );
+                return e.GetComponent<ECS::UUIDComponent>().UUID;
+            }
+            case LocalLightKind::Rect:
+                break;
+        }
+        // UE ARectLight: the component's defaults (a 64 x 64 cm rect facing the entity's -Z).
+        auto e = scene.CreateNewEntity( "Rect Light" );
+        e.AddComponent<ECS::RectLightComponent>();
         Track( e );
         return e.GetComponent<ECS::UUIDComponent>().UUID;
     }
@@ -1231,9 +1247,11 @@ namespace Desert::Editor
 
         // Entity / selection counters (compact, above the table).
         {
-            // The editor HLODs (WP-EDITOR-HLOD) are not the world's: counted no more than they are listed.
-            const size_t total =
-                 m_Scene->GetAllEntities().size() - m_Scene->GetRegistry().view<ECS::EditorHLODComponent>().size();
+            // The editor HLODs (WP-EDITOR-HLOD) and the transient entities are not the world's: counted no more
+            // than they are listed.
+            const size_t total = m_Scene->GetAllEntities().size() -
+                                 m_Scene->GetRegistry().view<ECS::EditorHLODComponent>().size() -
+                                 m_Scene->GetRegistry().view<ECS::TransientComponent>().size();
             const size_t sel   = Core::SelectionManager::Count();
             if ( sel > 0 )
                 ImGui::TextDisabled( "%zu entities, %zu selected", total, sel );
@@ -1373,8 +1391,10 @@ namespace Desert::Editor
                     ECS::Entity entity( entityHandle, registry );
                     bool        hasParent = entity.HasComponent<ECS::RelationshipComponent>() &&
                                      entity.GetComponent<ECS::RelationshipComponent>().Parent != entt::null;
-                    // An editor HLOD (WP-EDITOR-HLOD) is not the world's: the Outliner does not list it.
-                    if ( !hasParent && !entity.HasComponent<ECS::EditorHLODComponent>() )
+                    // An editor HLOD (WP-EDITOR-HLOD) or a transient entity is not the world's: the Outliner does
+                    // not list it.
+                    if ( !hasParent && !entity.HasComponent<ECS::EditorHLODComponent>() &&
+                         !entity.HasComponent<ECS::TransientComponent>() )
                         DrawEntityNode( entity );
                 }
 

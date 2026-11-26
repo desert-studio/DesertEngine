@@ -16,8 +16,8 @@ Claude cannot run a slash command itself, so this hook finds the Terminal.app ta
 process's tty and types the command there (synthetic input is allowed, owner 09-30). It fires at most once per
 COOLDOWN seconds and only after the turn has ended (Stop), a few seconds later so the prompt is idle.
 Log: ~/.claude/tools/auto_compact.log.  Off switch: touch ~/.claude/tools/auto_compact.off
-macOS only (Terminal.app + osascript); on other platforms it logs once per call and does nothing — the Windows
-machine adds its own keystroke path (console window of the claude process, e.g. WScript.Shell AppActivate+SendKeys).
+Windows: console_type.py writes into the input buffer of the claude.exe console (no focus needed, unlike SendKeys).
+Only /compact there: typing /clear and the continue prompt waits for the owner's word on that machine.
 /clear only when the lead asked for it with --clear, after writing the handover (LEAD_PROTOCOL «КОНТЕКСТ ТИМЛИДА»).
 """
 import json, os, subprocess, sys, time
@@ -61,6 +61,10 @@ def context_tokens(path):
 
 
 def claude_tty():
+    if sys.platform == "win32":
+        import console_type
+        pid = console_type.ancestor(os.getpid(), "claude.exe")
+        return str(pid) if pid else None
     pid = os.getppid()
     for _ in range(6):
         out = subprocess.run(["ps", "-o", "ppid=,tty=,comm=", "-p", str(pid)], capture_output=True, text=True).stdout.split(None, 2)
@@ -75,6 +79,14 @@ def claude_tty():
 
 def type_into(tty, text, enters):
     """Select the Terminal tab on @p tty, type @p text and press Enter @p enters times."""
+    if sys.platform == "win32":
+        import console_type
+        try:
+            console_type.type_into(int(tty), text, enters, CLEAR_LINES)
+            log(f"{text[:40]!r}: typed into pid {tty}")
+        except OSError as e:
+            log(f"{text[:40]!r}: {e}")
+        return
     keys = "\n".join(['        delay 0.7\n        tell application "System Events" to key code 36'] * enters)
     # Empty the prompt box first: whatever is left there would be sent together with @p text.
     wipe = "\n".join(['        tell application "System Events"\n'
@@ -120,6 +132,8 @@ def worker(tty, cmd, transcript):
     time.sleep(DELAY)
     # Two Enters: the first may only accept the slash-command completion; on an empty prompt the second does nothing.
     type_into(tty, cmd, 2)
+    if sys.platform == "win32":
+        return
     if cmd == "/compact":
         deadline = time.time() + 900
         while compactions(transcript) <= before and time.time() < deadline:
@@ -141,13 +155,13 @@ def main():
         return
     if os.path.exists(os.path.join(HOME, "auto_compact.off")):
         return
-    if sys.platform != "darwin":
+    if sys.platform not in ("darwin", "win32"):
         return
     data = json.load(sys.stdin)
     if data.get("stop_hook_active"):
         return
     ctx = context_tokens(data.get("transcript_path", ""))
-    clear = os.path.exists(CLEAR)
+    clear = os.path.exists(CLEAR) and sys.platform == "darwin"
     forced = clear or os.path.exists(NOW)
     cmd = "/clear" if clear else "/compact"
     if not forced:
@@ -168,7 +182,8 @@ def main():
             os.remove(flag)
     # Detached worker: the hook must return at once, the typing happens after the turn has ended.
     subprocess.Popen([sys.executable, os.path.abspath(__file__), "--type", tty, cmd, data.get("transcript_path", "")],
-                     start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                     start_new_session=True, creationflags=0x208 if sys.platform == "win32" else 0,  # detached, own group
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     why = "by the lead's flag" if forced else f">= {THRESHOLD//1000}k"
     log(f"context {ctx//1000}k {why}: {cmd} scheduled into {tty}")
 

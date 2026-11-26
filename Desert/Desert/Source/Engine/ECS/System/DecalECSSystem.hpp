@@ -11,6 +11,11 @@
 #include <Engine/ECS/RelationshipComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
+#include <Engine/World/Decals/DecalImpactPool.hpp>
+
+#include <Common/Settings/Scalability.hpp>
+
+#include <vector>
 
 namespace Desert::ECS
 {
@@ -26,7 +31,11 @@ namespace Desert::ECS
     class DecalECSSystem final : public System
     {
     public:
-        using System::System;
+        // @p impacts: the scene's impact decal ring (Scene::GetDecalImpacts), aged here by gameplay time and
+        // drawn through the same pass as the components (NG-DECALS-MESH).
+        explicit DecalECSSystem( World::DecalImpactPool& impacts ) : m_Impacts( impacts )
+        {
+        }
 
         bool CanRunParallel() const override
         {
@@ -34,8 +43,23 @@ namespace Desert::ECS
         }
 
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer& renderCommandBuffer,
-                     const Common::Timestep& /*ts*/ ) override
+                     const Common::Timestep& ts ) override
         {
+            // The impact ring: its capacity is the quality's (before Initialize - a tool, a headless test - the
+            // parameter's own default), its clock the gameplay step (frozen in Edit and Paused, as UE's LifeSpan).
+            namespace Scalability = ::Common::Scalability;
+            const auto capacity   = static_cast<uint32_t>(
+                 Scalability::QualityState::Initialized()
+                      ? Scalability::QualityState::Resolved().As<int>(
+                             Scalability::Parameter::EffectsDecalImpactPoolSize )
+                      : Scalability::SpecOf( Scalability::Parameter::EffectsDecalImpactPoolSize ).Default );
+            m_Impacts.SetCapacity( capacity );
+            m_Impacts.Advance( ts.GetSeconds() );
+            m_ImpactProxies.clear();
+            m_Impacts.Collect( m_ImpactProxies );
+            if ( !m_ImpactProxies.empty() )
+                renderCommandBuffer.Emplace<Graphic::Render::DecalImpactsCommand>( m_ImpactProxies );
+
             auto view = registry.view<DecalComponent, TransformComponent>();
             view.each(
                  [&]( auto entity, const auto& decal, const auto& transform )
@@ -72,6 +96,9 @@ namespace Desert::ECS
         }
 
     private:
+        World::DecalImpactPool&                  m_Impacts;
+        std::vector<Graphic::System::DecalProxy> m_ImpactProxies; // reused: cleared, never shrunk
+
         static uint64_t EntityId( entt::registry& registry, entt::entity entity )
         {
             if ( auto* id = registry.try_get<ECS::UUIDComponent>( entity ) )

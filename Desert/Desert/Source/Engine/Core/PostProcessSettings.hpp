@@ -7,6 +7,7 @@
 
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/RenderMethods.hpp>
+#include <Engine/Assets/Common.hpp>
 #include <CoreReflection/ReflectionMacros.hpp>
 
 namespace Desert::Core
@@ -50,7 +51,7 @@ namespace Desert::Core
     //  VisibilityBuffer — the blades rasterise once into a 64-bit visibility buffer (depth | row | triangle,
     //                     atomicMax) and the material is evaluated once per pixel by a tiled resolve.
     // VisibilityBuffer, asked for by either, needs DeviceCapabilities::SupportsVisibilityBuffer64; a device
-    // without it keeps the G-buffer path and logs the refusal once. v75 (Tools/SceneMigrator,
+    // without it keeps the G-buffer path and logs the refusal once. v75 (Core/Serialize/SceneUpgrade.hpp,
     // MigrateGrassRasterPathV74ToV75) restated the former bool GrassVisibilityBuffer: false (the former default,
     // which every volume serialised) -> Scalability, true -> VisibilityBuffer.
     enum class GrassRasterPath : int
@@ -305,6 +306,18 @@ namespace Desert::Core
         float BloomIntensity = 0.8f;
         PROPERTY( DisplayName( "Lens Dispersion" ), Category( "Bloom" ), Range( 0.0f, 3.0f ) )
         float LensDispersion = 0.0f; // chromatic rainbow fringe on the bloom halo (glare); 0 = off
+        // CONVOLUTION BLOOM (UE BloomConvolutionTexture / BloomConvolutionSize; PostProcessFFTBloom). Read only
+        // where Scalability PostProcess.BloomMethod is Convolution (Epic, Cinematic): the thresholded
+        // half-resolution scene (Bloom Threshold above) is convolved with this image in the frequency domain, so a
+        // bright source wears the kernel's shape (diffraction star, streaks, glare). The kernel's centre is the
+        // image's centre (UE's default BloomConvolutionCenterUV 0.5, 0.5); its sum is normalised to 1, so the
+        // shape, not the energy, is what the image authors. None = the tier's convolution has nothing to convolve
+        // with: that view keeps the Gaussian chain and says so once ("[Bloom] method=Gaussian ... no kernel").
+        PROPERTY( DisplayName( "Convolution Kernel" ), Category( "Bloom" ), Asset<TextureAsset> )
+        Assets::AssetHandle BloomConvolutionKernel;
+        PROPERTY( DisplayName( "Convolution Scale" ), Category( "Bloom" ), Range( 0.0f, 1.0f ),
+                  Tooltip( "Kernel image size relative to the viewport's minor axis (UE BloomConvolutionSize)." ) )
+        float BloomConvolutionScale = 1.0f;
 
         // MR3 (Graphic/View/DepthOfField.hpp): UE DepthOfFieldFocalDistance / DepthOfFieldFstop /
         // DepthOfFieldSensorWidth, UE's defaults (focal distance 0 = no depth of field), and the largest bokeh

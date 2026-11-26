@@ -706,7 +706,7 @@ namespace
         const char* Task;
     };
 
-    constexpr std::array<AheadOfImplementationRow, 6> k_AheadOfImplementation = { {
+    constexpr std::array<AheadOfImplementationRow, 5> k_AheadOfImplementation = { {
          { "IClothingSimulation", "Desert/PhysicsCore/Source/PhysicsCore/Cloth/ClothingSimulation.hpp",
            "CLO1: Jolt SoftBody backend" },
          { "IClothingSimulationFactory", "Desert/PhysicsCore/Source/PhysicsCore/Cloth/ClothingSimulation.hpp",
@@ -716,8 +716,6 @@ namespace
            "HAIR1: guide solver" },
          { "IGroomRenderDataSource", "Desert/Desert/Source/Engine/Hair/GroomSimulation.hpp",
            "HAIR1: groom instance + strand renderer" },
-         { "IModularCharacter", "Desert/Desert/Source/Engine/Animation/Modular/ModularCharacter.hpp",
-           "EQP1: ECS modular character + Lua bindings" },
     } };
 
     bool DeclaredAheadOfImplementation( const std::string& cls )
@@ -927,7 +925,7 @@ TEST( PureVirtualCensus, InterfacesDeclaredAheadOfImplementationAreStillUnimplem
              << "): delete its k_AheadOfImplementation row so the two census rules hold it like any other base.";
     }
     // Stated so growth is visible, as the count below is.
-    EXPECT_EQ( k_AheadOfImplementation.size(), 6u );
+    EXPECT_EQ( k_AheadOfImplementation.size(), 5u );
 }
 
 TEST( PureVirtualCensus, TheNumberIsStatedSoAShrinkageIsVisible )

@@ -5,9 +5,30 @@
 // blend (Common/LandscapeSurface.glslh EvaluateLandscapeLayers) the page render
 // (Programs/Terrain/LandscapeVirtualTexturePage.shader) stored in 128-texel pages, found through the page table
 // (Graphic/Systems/Scene/Terrain/LandscapeVirtualTexture.cpp AddPasses: a 32-word header, then per mip the entries,
-// slot + 1, 0 = not resident). The includer declares VirtualPageTable[], VirtualFeedback[], the three atlases
-// LandscapeVirtualColorAtlas / NormalAtlas / OcclusionAtlas and LandscapeVirtualSampler (TerrainGBuffer.shader), and
-// includes Common/LandscapeSurface.glslh first (TerrainLayer, TerrainMixLayer).
+// slot + 1, 0 = not resident), plus the ground's world height (UE's WorldHeight RVT). This header declares the page
+// table, the four atlases, their sampler state and the feedback itself (below). Two readers: the landscape's own
+// G-buffer, which includes Common/LandscapeSurface.glslh first and reads the layer blend as a TerrainLayer
+// (LandscapeVirtualLayer), and any surface that blends into the ground (Mesh/Surface/SurfaceLandscapeBlend.glslh),
+// which reads LandscapeVirtualGround - colour, normal, roughness, occlusion, world height and the ground's world
+// normal - without the landscape's material text.
+
+// THE DECLARATIONS, at the scene-read slots (Core::kLandscapeVirtual*Binding, ShaderGraphBindings.hpp), so any cell -
+// the terrain G-buffer and a mesh that blends into the ground (RVT-MESH-BLEND) - reads the one RVT through one text,
+// bound by name as scene-view inputs (FrameGraphRefs.hpp BindSceneViewInputs, SceneViewInputs::LandscapeVirtualTexture).
+#include <Generated/SceneBindings.glslh>
+layout( std430, binding = kLandscapeVirtualPageTableBinding ) readonly buffer LandscapeVirtualPageTable
+{
+    uint VirtualPageTable[];
+};
+layout( binding = kLandscapeVirtualColorBinding ) uniform texture2D LandscapeVirtualColorAtlas;
+layout( binding = kLandscapeVirtualNormalBinding ) uniform texture2D LandscapeVirtualNormalAtlas;
+layout( binding = kLandscapeVirtualOcclusionBinding ) uniform texture2D LandscapeVirtualOcclusionAtlas;
+layout( binding = kLandscapeVirtualHeightBinding ) uniform texture2D LandscapeVirtualHeightAtlas;
+Uniform sampler LandscapeVirtualSampler;
+layout( std430, binding = kLandscapeVirtualFeedbackBinding ) buffer LandscapeVirtualFeedback
+{
+    uint VirtualFeedback[];
+};
 
 const uint kLandscapeVirtualHeaderWords = 32u;
 const uint kLandscapeVirtualPageTexels  = 128u;
@@ -50,6 +71,141 @@ bool LandscapeVirtualAtlasUV( vec2 p0, uint mip, out vec2 uv )
     return false;
 }
 
+// THE LEVEL a footprint reads (@p dx / @p dy the screen derivatives of the world point's xz, taken by the caller
+// before any discard): the minor axis, at most a quarter of the major (the atlas is sampled bilinearly, so a long
+// footprint is not left to alias). @p p0 the point in mip0 texels, @p m0 the floor level, @p f the fraction to the
+// next. Marks the floor level's page in the feedback on one pixel of each 4 x 4 block per frame (the header's phase).
+void LandscapeVirtualLevel( vec3 worldPosition, vec2 dx, vec2 dy, out vec2 p0, out uint m0, out float f )
+{
+    const vec2  origin = vec2( uintBitsToFloat( VirtualPageTable[0] ), uintBitsToFloat( VirtualPageTable[1] ) );
+    const float extent = uintBitsToFloat( VirtualPageTable[2] );
+    const float size   = float( 1u << VirtualPageTable[24] );
+    const uint  mips   = VirtualPageTable[4];
+    p0                 = ( worldPosition.xz - origin ) / extent * size;
+    const vec2  gx     = dx / extent * size;
+    const vec2  gy     = dy / extent * size;
+    const float lx     = length( gx );
+    const float ly     = length( gy );
+    const float major  = max( lx, ly );
+    const float minor  = min( lx, ly );
+    const float lod    = clamp( log2( max( max( minor, 0.25 * major ), 1.0e-6 ) ), 0.0, float( mips - 1u ) );
+    m0                 = uint( floor( lod ) );
+    f                  = lod - float( m0 );
+
+    const uvec2 pixel = uvec2( gl_FragCoord.xy ) & 3u;
+    if ( pixel.x + 4u * pixel.y == VirtualPageTable[3] )
+    {
+        const uint  side = max( VirtualPageTable[5] >> m0, 1u );
+        const uvec2 page = uvec2( clamp( floor( p0 / float( 1u << m0 ) / float( kLandscapeVirtualPageTexels ) ),
+                                         vec2( 0.0 ), vec2( float( side - 1u ) ) ) );
+        const uint  bit  = VirtualPageTable[8u + m0] + page.y * side + page.x;
+        atomicOr( VirtualFeedback[bit >> 5u], 1u << ( bit & 31u ) );
+    }
+}
+
+// THE GROUND'S WORLD HEIGHT (cm) at atlas @p uv: the height atlas holds it as a fraction of the header's range
+// (words 28, 29: every sample a queued tile can hold).
+float LandscapeVirtualHeightAt( vec2 uv )
+{
+    const float r = textureLod( sampler2D( LandscapeVirtualHeightAtlas, LandscapeVirtualSampler ), uv, 0.0 ).r;
+    return mix( uintBitsToFloat( VirtualPageTable[28] ), uintBitsToFloat( VirtualPageTable[29] ), r );
+}
+
+// THE GROUND UNDER A POINT, as a surface that blends into it reads it (RVT-MESH-BLEND; UE: Runtime Virtual Texture
+// Sample of the BaseColor / Normal / WorldHeight RVTs). Normal is the shaded ground's world normal: the layer blend's
+// tangent normal over the ground's geometric normal (GeometricNormal, the height channel's central difference one
+// texel of the read level either side), in the landscape's own tangent frame (LandscapeSurface.glslh
+// LandscapeSurfaceOf), so the mesh's foot takes the normal the ground beside it is shaded with.
+struct LandscapeVirtualGroundSample
+{
+    vec3  Albedo; // linear
+    vec3  Normal; // world
+    vec3  GeometricNormal;
+    float Roughness;
+    float AO;
+    float Height; // world cm
+};
+
+void LandscapeVirtualGroundDecode( vec2 uv, out vec3 albedo, out vec3 tangentNormal, out float roughness,
+                                   out float ao, out float height )
+{
+    const vec3 c  = textureLod( sampler2D( LandscapeVirtualColorAtlas, LandscapeVirtualSampler ), uv, 0.0 ).rgb;
+    const vec3 n  = textureLod( sampler2D( LandscapeVirtualNormalAtlas, LandscapeVirtualSampler ), uv, 0.0 ).rgb;
+    ao            = textureLod( sampler2D( LandscapeVirtualOcclusionAtlas, LandscapeVirtualSampler ), uv, 0.0 ).r;
+    albedo        = c * c * 2.0;
+    const vec2 xy = n.xy * 2.0 - 1.0;
+    tangentNormal = vec3( xy, sqrt( max( 1.0 - dot( xy, xy ), 0.0 ) ) );
+    roughness     = n.z;
+    height        = LandscapeVirtualHeightAt( uv );
+}
+
+// The ground at world point @p worldPosition (@p dx / @p dy as LandscapeVirtualLevel's), trilinear between two
+// levels as the landscape's G-buffer reads it, so the blended foot and the ground beside it are one colour. False
+// when the view has no RVT or no page answers (the caller leaves the surface as it is).
+bool LandscapeVirtualGround( vec3 worldPosition, vec2 dx, vec2 dy, out LandscapeVirtualGroundSample g )
+{
+    g.Albedo          = vec3( 0.0 );
+    g.Normal          = vec3( 0.0, 1.0, 0.0 );
+    g.GeometricNormal = vec3( 0.0, 1.0, 0.0 );
+    g.Roughness       = 1.0;
+    g.AO              = 1.0;
+    g.Height          = 0.0;
+    if ( !LandscapeVirtualEnabled() )
+        return false;
+    vec2  p0;
+    uint  m0;
+    float f;
+    LandscapeVirtualLevel( worldPosition, dx, dy, p0, m0, f );
+    vec2 uvA;
+    if ( !LandscapeVirtualAtlasUV( p0, m0, uvA ) )
+        return false;
+    vec3 tn;
+    LandscapeVirtualGroundDecode( uvA, g.Albedo, tn, g.Roughness, g.AO, g.Height );
+    vec2 uvB;
+    if ( f > 1.0 / 255.0 && m0 + 1u < VirtualPageTable[4] && LandscapeVirtualAtlasUV( p0, m0 + 1u, uvB ) )
+    {
+        vec3  albedoB;
+        vec3  tnB;
+        float roughnessB;
+        float aoB;
+        float heightB;
+        LandscapeVirtualGroundDecode( uvB, albedoB, tnB, roughnessB, aoB, heightB );
+        g.Albedo    = mix( g.Albedo, albedoB, f );
+        tn          = mix( tn, tnB, f );
+        g.Roughness = mix( g.Roughness, roughnessB, f );
+        g.AO        = mix( g.AO, aoB, f );
+        g.Height    = mix( g.Height, heightB, f );
+    }
+
+    // The geometric normal: the height one texel of level m0 either side along x and z (each through its own
+    // resident page; a missing one falls back to its parent, as the colour does).
+    const float stride = float( 1u << m0 );
+    const float texel  = stride * uintBitsToFloat( VirtualPageTable[2] ) / float( 1u << VirtualPageTable[24] ); // cm
+    vec2        uvXm;
+    vec2        uvXp;
+    vec2        uvZm;
+    vec2        uvZp;
+    if ( LandscapeVirtualAtlasUV( p0 - vec2( stride, 0.0 ), m0, uvXm ) &&
+         LandscapeVirtualAtlasUV( p0 + vec2( stride, 0.0 ), m0, uvXp ) &&
+         LandscapeVirtualAtlasUV( p0 - vec2( 0.0, stride ), m0, uvZm ) &&
+         LandscapeVirtualAtlasUV( p0 + vec2( 0.0, stride ), m0, uvZp ) )
+    {
+        const float dhdx = ( LandscapeVirtualHeightAt( uvXp ) - LandscapeVirtualHeightAt( uvXm ) ) / ( 2.0 * texel );
+        const float dhdz = ( LandscapeVirtualHeightAt( uvZp ) - LandscapeVirtualHeightAt( uvZm ) ) / ( 2.0 * texel );
+        g.GeometricNormal = normalize( vec3( -dhdx, 1.0, -dhdz ) );
+    }
+    // LandscapeSurfaceOf's frame: T follows +X projected onto the ground, B = Ng x T.
+    const vec3 Ng = g.GeometricNormal;
+    const vec3 T  = normalize( vec3( 1.0, 0.0, 0.0 ) - Ng * Ng.x );
+    const vec3 B  = cross( Ng, T );
+    tn            = normalize( tn );
+    g.Normal      = normalize( T * tn.x + B * tn.y + Ng * tn.z );
+    return true;
+}
+
+#ifdef LANDSCAPE_SURFACE_GLSLH
+// THE LAYER FORM, for the landscape's own G-buffer (Common/LandscapeSurface.glslh included first: TerrainLayer,
+// TerrainMixLayer).
 TerrainLayer LandscapeVirtualDecode( vec2 uv )
 {
     const vec3   c = textureLod( sampler2D( LandscapeVirtualColorAtlas, LandscapeVirtualSampler ), uv, 0.0 ).rgb;
@@ -65,37 +221,15 @@ TerrainLayer LandscapeVirtualDecode( vec2 uv )
     return l;
 }
 
-// The layer blend at world point @p worldPosition from the RVT: @p dx / @p dy the screen derivatives of its xz (taken
-// by the caller before any discard). The level is the footprint's (the minor axis, at most a quarter of the major:
-// the atlas is sampled bilinearly, so a long footprint is not left to alias), trilinear between two pages. Marks the
-// floor level's page in the feedback on one pixel of each 4 x 4 block per frame (the header's phase). False when no
-// page answers (the caller blends per pixel).
+// The layer blend at world point @p worldPosition from the RVT (@p dx / @p dy and the level: LandscapeVirtualLevel),
+// trilinear between two pages. False when no page answers (the caller blends per pixel).
 bool LandscapeVirtualLayer( vec3 worldPosition, vec2 dx, vec2 dy, out TerrainLayer layer )
 {
-    const vec2  origin = vec2( uintBitsToFloat( VirtualPageTable[0] ), uintBitsToFloat( VirtualPageTable[1] ) );
-    const float extent = uintBitsToFloat( VirtualPageTable[2] );
-    const float size   = float( 1u << VirtualPageTable[24] );
-    const uint  mips   = VirtualPageTable[4];
-    const vec2  p0     = ( worldPosition.xz - origin ) / extent * size;
-    const vec2  gx     = dx / extent * size;
-    const vec2  gy     = dy / extent * size;
-    const float lx     = length( gx );
-    const float ly     = length( gy );
-    const float major  = max( lx, ly );
-    const float minor  = min( lx, ly );
-    const float lod    = clamp( log2( max( max( minor, 0.25 * major ), 1.0e-6 ) ), 0.0, float( mips - 1u ) );
-    const uint  m0     = uint( floor( lod ) );
-    const float f      = lod - float( m0 );
-
-    const uvec2 pixel = uvec2( gl_FragCoord.xy ) & 3u;
-    if ( pixel.x + 4u * pixel.y == VirtualPageTable[3] )
-    {
-        const uint  side = max( VirtualPageTable[5] >> m0, 1u );
-        const uvec2 page = uvec2( clamp( floor( p0 / float( 1u << m0 ) / float( kLandscapeVirtualPageTexels ) ),
-                                         vec2( 0.0 ), vec2( float( side - 1u ) ) ) );
-        const uint  bit  = VirtualPageTable[8u + m0] + page.y * side + page.x;
-        atomicOr( VirtualFeedback[bit >> 5u], 1u << ( bit & 31u ) );
-    }
+    const uint mips = VirtualPageTable[4];
+    vec2       p0;
+    uint       m0;
+    float      f;
+    LandscapeVirtualLevel( worldPosition, dx, dy, p0, m0, f );
 
     vec2 uvA;
     if ( !LandscapeVirtualAtlasUV( p0, m0, uvA ) )
@@ -106,5 +240,6 @@ bool LandscapeVirtualLayer( vec3 worldPosition, vec2 dx, vec2 dy, out TerrainLay
         layer = TerrainMixLayer( layer, LandscapeVirtualDecode( uvB ), f );
     return true;
 }
+#endif // LANDSCAPE_SURFACE_GLSLH
 
 #endif // LANDSCAPE_VIRTUAL_TEXTURE_GLSLH

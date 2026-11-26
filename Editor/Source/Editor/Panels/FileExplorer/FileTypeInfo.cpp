@@ -96,6 +96,8 @@ namespace Desert::Editor
              FileTypeInfo{ FileType::IesProfile, "IES Profile", { 1.00f, 0.80f, 0.43f, 1.00f }, ICON_MDI_LAMP },
              // The fog family's grey-blue: a baked smoke / fire medium.
              FileTypeInfo{ FileType::SparseVolume, "Sparse Volume", { 0.62f, 0.70f, 0.80f, 1.00f }, ICON_MDI_SMOKE },
+             // A neutral teal of its own: a game data asset is no engine family's member.
+             FileTypeInfo{ FileType::DataAsset, "Data Asset", { 0.30f, 0.78f, 0.72f, 1.00f }, ICON_MDI_DATABASE },
         };
 
         constexpr bool RowsAreInEnumOrder()

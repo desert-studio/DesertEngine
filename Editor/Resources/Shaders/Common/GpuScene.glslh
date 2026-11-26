@@ -27,6 +27,11 @@
 #define DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION      16u
 #define DESERT_GPU_PRIMITIVE_MOVABLE_CASTER      32u
 #define DESERT_GPU_PRIMITIVE_PREVIOUS_POSITIONS  64u
+// The impostor pair (GpuSceneLayout.hpp kImpostorSource / kImpostorCard): InstanceCull's ImpostorGate.
+#define DESERT_GPU_PRIMITIVE_IMPOSTOR_SOURCE     256u
+#define DESERT_GPU_PRIMITIVE_IMPOSTOR_CARD       512u
+// 128 is DESERT_GPU_DRAW_EMISSION_IS_LIGHT (below), never a primitive bit; 256/512 are the impostor pair.
+#define DESERT_GPU_PRIMITIVE_NO_DECALS           1024u
 // Never in Primitives[]: DesertResolveDrawOf sets it on a resolved draw's Flags from its slot's
 // DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT (the submesh's material has Emissive Lights Scene on), so the binned
 // G-buffer cell marks the shading word's EMISSION_IS_LIGHT (Mesh/Surface/Pass_GBuffer.glslh).
@@ -72,7 +77,7 @@ struct GpuScenePrimitive
     GpuAffine3x4 LocalToWorld;  // offset 0
     GpuAffine3x4 PrevLocalToWorld; // offset 48
     vec4  LocalBoundsCenter;    // offset 96 — xyz cm, w = wind reach past the bounds (cm)
-    vec4  LocalBoundsExtent;    // offset 112 — xyz cm, w = 0
+    vec4  LocalBoundsExtent;    // offset 112 — xyz cm, w = impostor switch screen size (0 = none)
     uint  FirstInstance;        // offset 128
     uint  InstanceCount;        // offset 132
     uint  FirstLodScreenSize;   // offset 136 — into LodScreenSizes[]
@@ -161,6 +166,11 @@ struct GpuDrawSlot
 // GpuDriven::kDrawSlotEmissionIsLight: the slot's material has Emissive Lights Scene on (its emission is a MegaLights
 // light source); the resolved draw carries it as DESERT_GPU_DRAW_EMISSION_IS_LIGHT.
 #define DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT 2u
+// GpuDriven::kDrawSlotSoftwareRaster: the slot's cell neither clips nor culls front faces, so its small virtual
+// geometry clusters may go to the compute raster (ClusterCut.shader, Programs/VirtualGeometry/SoftwareRaster.shader).
+#define DESERT_GPU_DRAW_SLOT_SOFTWARE_RASTER 4u
+// GpuDriven::kDrawSlotTwoSided: the slot's cell culls no face (the compute raster keeps both windings).
+#define DESERT_GPU_DRAW_SLOT_TWO_SIDED 8u
 
 // Per bin of a pass (pass x pipeline x mesh x submesh x LOD). 32 bytes.
 struct GpuDrawBin
@@ -306,7 +316,12 @@ gpuSceneInstances;
 #ifndef DESERT_GPU_SCENE_PRIMITIVES
 #error "DESERT_GPU_SCENE_DRAWS reads the primitive table: define DESERT_GPU_SCENE_PRIMITIVES too"
 #endif
+// VG-SW-RASTER: the VG visibility resolve (Mesh/Surface/Pass_VisibilityResolve.glslh, both stages) reads no
+// instance id stream - its row comes from the pixel's visibility word (DesertResolveVgDrawOf) - and defines
+// DESERT_GPU_SCENE_NO_VISIBLE_ROW.
+#ifndef DESERT_GPU_SCENE_NO_VISIBLE_ROW
 layout( location = 9 ) in uint a_VisibleRow; // GpuDriven::kVisibleRowVertexLocation
+#endif
 
 #ifndef DESERT_GPU_SCENE_VIRTUAL_GEOMETRY
 layout( std430, binding = kGpuSceneVisibleInstancesBinding ) readonly buffer GpuSceneVisibleInstances
@@ -371,10 +386,12 @@ DesertMeshDraw DesertResolveDrawOf( const GpuVisibleInstance visible )
 }
 
 #ifndef DESERT_GPU_SCENE_VIRTUAL_GEOMETRY
+#ifndef DESERT_GPU_SCENE_NO_VISIBLE_ROW
 DesertMeshDraw DesertResolveMeshDraw()
 {
     return DesertResolveDrawOf( gpuSceneVisible.VisibleInstances[a_VisibleRow] );
 }
+#endif
 #else
 // THE VIRTUAL GEOMETRY RASTER'S DRAW (the `.VirtualGeometry` surface cells; kVgRaster*Binding): the
 // instance id names a row of the cluster cut's VisibleClusters (written per material group by "VirtualGeometry:
@@ -412,9 +429,12 @@ struct DesertVgDraw
     uint           View; // the cut view the cluster was found for (a VSM cut: the clipmap level)
 };
 
-DesertVgDraw DesertResolveVgDraw()
+// The draw of VisibleClusters row @p visibleRow: the raster's instance id (DesertResolveVgDraw), or the row a
+// software-rastered pixel's visibility word names (VG-SW-RASTER, Pass_VisibilityResolve.glslh: word row -
+// VgFirstRow), so the pixels of both rasters rebuild the very same draw.
+DesertVgDraw DesertResolveVgDrawOf( const uint visibleRow )
 {
-    const VgVisibleCluster visible = vgRasterVisible.VisibleClusters[a_VisibleRow];
+    const VgVisibleCluster visible = vgRasterVisible.VisibleClusters[visibleRow];
     DesertVgDraw           vg;
     vg.Cluster = vgRasterClusters.Clusters[visible.Cluster];
     vg.Dag     = vgRasterDags.Dags[vg.Cluster.Dag];
@@ -428,6 +448,12 @@ DesertVgDraw DesertResolveVgDraw()
     vg.Draw      = DesertResolveDrawOf( row );
     return vg;
 }
+#ifndef DESERT_GPU_SCENE_NO_VISIBLE_ROW
+DesertVgDraw DesertResolveVgDraw()
+{
+    return DesertResolveVgDrawOf( a_VisibleRow );
+}
+#endif
 #endif
 #endif
 

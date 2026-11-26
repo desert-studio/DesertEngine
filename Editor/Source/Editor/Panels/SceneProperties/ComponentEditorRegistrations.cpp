@@ -113,6 +113,7 @@
 #include <Engine/ECS/TwoBoneIKComponent.hpp>
 #include <Engine/ECS/UUIDComponent.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
+#include <Water/Public/BuoyancyComponent.hpp>
 #include <Water/Public/WaterBodyComponent.hpp>
 #include <Water/Public/WaterZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
@@ -232,6 +233,8 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::DestructibleComponent, Data,
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::WaterBodyComponent, Data, "WaterBodyData", "Water Body" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RagdollComponent, Data, "RagdollData", "Ragdoll" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::WaterZoneComponent, Data, "WaterZoneData", "Water Zone" )
+// A body that floats in the water bodies (UE UBuoyancyComponent): its pontoons, read by the water's physics feature.
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::BuoyancyComponent, Data, "BuoyancyData", "Buoyancy" )
 // Fields (UE Field System actors): placed at the entity, fired once by ECS::FireDestructionField.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RadialImpulseFieldComponent, Data, "RadialImpulseFieldData",
                                      "Radial Impulse Field" )

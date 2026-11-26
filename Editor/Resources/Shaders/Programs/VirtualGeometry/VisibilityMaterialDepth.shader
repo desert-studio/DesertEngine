@@ -40,10 +40,75 @@ Shader "VisibilityMaterialDepth"
         	uint SectionFirst[];
         };
 
+        // VG-SW-RASTER: the virtual geometry's SW rows [VgRows.x, VgRows.x + VgRows.y) - row - VgRows.x is the main
+        // cut's VisibleClusters row - and the tables that name the IndirectGroup resolving each (RasterBinning.shader
+        // GroupOf's walk: cluster -> instance -> primitive -> lod-0 draw slot of the DAG submesh -> bin -> group).
+        // VgRows.y = 0: no VG word this frame (the tables are then whatever VisibilityBuffer binds, never read).
+        // Read as 32-bit words at the structs' offsets, so this program keeps no buffer-reference or 64-bit type:
+        // VgVisibleCluster 16 B (Instance 0, Cluster 4), GpuSceneInstance 64 B (Primitive 48), VgCluster 64 B
+        // (Dag 60), VgClusterDag 64 B (Submesh 44), GpuPrimitivePassDraws 16 B (FirstDrawSlot 0, SubmeshCount 4),
+        // GpuDrawSlot 16 B (Bin 0), GpuDrawBin 32 B (Group 20) - Common/VirtualGeometry.glslh, Common/GpuScene.glslh.
+        ReadBuffer(4) VgVisibleClusters
+        {
+        	uvec4 VgVisible[];
+        };
+        ReadBuffer(5) VgInstances
+        {
+        	uvec4 VgInstanceRows[]; // 4 per GpuSceneInstance
+        };
+        ReadBuffer(6) VgPrimitiveDraws
+        {
+        	uvec4 VgPrimitiveDraw[];
+        };
+        ReadBuffer(7) VgDrawSlots
+        {
+        	uvec4 VgDrawSlot[];
+        };
+        ReadBuffer(8) VgDrawBins
+        {
+        	uvec4 VgDrawBin[]; // 2 per GpuDrawBin
+        };
+        ReadBuffer(9) VgClusters
+        {
+        	uvec4 VgClusterRows[]; // 4 per VgCluster
+        };
+        ReadBuffer(10) VgDags
+        {
+        	uvec4 VgDagRows[]; // 4 per VgClusterDag
+        };
+
+        PushConstant PushConstants
+        {
+        	uvec4 VgRows;   // x first VG row, y VG rows (0: none), z primitive rows of the pass, w draw slot rows
+        	uvec4 VgTables; // x bin rows, y group count of the pass
+        };
+
+        // The material depth of VG row @p row, 0 (no resolve's value) when the pass does not draw it.
+        float VgMaterialDepth(const uint row)
+        {
+        	const uvec4 visible   = VgVisible[row - VgRows.x];
+        	const uint  primitive = VgInstanceRows[4u * visible.x + 3u].x;
+        	if (primitive >= VgRows.z)
+        		return 0.0;
+        	const uvec4 draws = VgPrimitiveDraw[primitive];
+        	const uint  dag   = VgClusterRows[4u * visible.y + 3u].w;
+        	const uint  sub   = VgDagRows[4u * dag + 2u].w;
+        	if (sub >= draws.y)
+        		return 0.0;
+        	const uint slot = draws.x + sub; // lod 0, as the cut and the binning take it
+        	if (slot >= VgRows.w)
+        		return 0.0;
+        	const uint bin = VgDrawSlot[slot].x;
+        	if (bin >= VgTables.x)
+        		return 0.0;
+        	const uint group = VgDrawBin[2u * bin + 1u].y;
+        	return group < VgTables.y ? DesertVisibilityVgMaterialDepth(group) : 0.0;
+        }
+
         void main()
         {
         	const ivec2 pixel = ivec2(gl_FragCoord.xy);
-        	if (uint(pixel.x) >= Words[0] || uint(pixel.y) >= Words[1] || SectionCount == 0u)
+        	if (uint(pixel.x) >= Words[0] || uint(pixel.y) >= Words[1] || (SectionCount == 0u && VgRows.y == 0u))
         		discard;
         	const uint word      = 4u + 2u * (uint(pixel.y) * Words[0] + uint(pixel.x));
         	const uint payload   = Words[word];
@@ -54,7 +119,16 @@ Shader "VisibilityMaterialDepth"
         	if (uintBitsToFloat(depthBits) < texelFetch(SceneDepthTexture, pixel, 0).r)
         		discard; // a nearer surface holds the pixel
         	const uint row = payload >> 7u; // kVisTriangleBits
-        	if (row < SectionFirst[0])
+        	// A VG SW row resolves by its IndirectGroup's draw (VgMaterialDepth), never by a grass section.
+        	if (VgRows.y != 0u && row >= VgRows.x && row - VgRows.x < VgRows.y)
+        	{
+        		const float vgDepth = VgMaterialDepth(row);
+        		if (vgDepth == 0.0)
+        			discard;
+        		gl_FragDepth = vgDepth;
+        		return;
+        	}
+        	if (SectionCount == 0u || row < SectionFirst[0])
         		discard;
         	// The last section whose first row is not past `row`.
         	uint low  = 0u;

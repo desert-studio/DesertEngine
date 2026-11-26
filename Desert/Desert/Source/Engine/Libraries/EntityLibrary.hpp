@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/EntityValue.hpp>
 #include <Engine/Libraries/DeformationLibrary.hpp>
+#include <Engine/World/Decals/DecalImpactPool.hpp>
 #include <CoreReflection/ReflectionMacros.hpp>
 
 #include <glm/vec3.hpp>
@@ -221,5 +222,12 @@ namespace Desert::Libraries
                            "World.deform{ Stamp = name, At = vector.create(x, y, z), Params = { Radius = cm, ... } }. "
                            "Ok, or false and the reason." ) )
         static Common::BoolResultStr Deform( const DeformCall& call );
+        /// The script source of the world's impact decals (NG-DECALS-MESH, Engine/World/Decals; UE
+        /// SpawnDecalAtLocation): one record in the world's ring, no entity. Defined in DecalLibrary.cpp.
+        FUNCTION( ScriptCallable, ScriptName( "spawnDecal" ),
+                  Tooltip( "Leaves an impact decal at a hit: World.spawnDecal{ Material = asset, At = "
+                           "vector.create(x, y, z), Normal = n, Size = vector.create(x, y, depth), Lifetime = s, "
+                           "FadeDuration = s }. Ok, or false and the reason." ) )
+        static Common::BoolResultStr SpawnDecal( const World::DecalImpactSpawn& spawn );
     };
 } // namespace Desert::Libraries

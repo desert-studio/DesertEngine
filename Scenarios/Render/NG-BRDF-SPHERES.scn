@@ -1,0 +1,103 @@
+# NG-BRDF-SPHERES: the GGX lobe across roughness, on one row of metals and one of dielectrics (roughness 0..1, step 0.1),
+# plus a ClearCoat and a Cloth sphere; then a white furnace (uniform sky, F0 = 1 metals) - NG-BRDF pass 1/2:
+# exact height-correlated Smith (Mesh/BRDF.glslh VisibilitySmith), the split-sum LUT and the multiple-scattering albedo table
+# integrating the same Vis, and (pass 2) the anisotropic slab lobe compensated from the same table.
+# Scene = Starter (Projects/Desert/Content/Scenes/Starter.desce, not saved): its 6-step rows stay at z -460/-300; the
+# scenario spawns the 0.1-step rows at z 900 from Meshes/Modeling/Sphere.stmesh (bounds +-50 cm, so radius 50 cm).
+# Materials (committed assets): M_Metal_R0..R100 / M_Dielectric_R0..R100 (the R10/30/50/70/90 ones added by NG-BRDF),
+# M_Furnace_R0..R100 (StandardSurface, albedo 1, metallic 1: F0 = 1), M_BRDF_ClearCoat (ClearCoatSurface: red
+# dielectric base roughness 0.6 under a coat of roughness 0.05), M_BRDF_Cloth (ClothSurface: dark blue, fuzz 0.8, Cloth 1).
+# Entity UUIDs: metal i = 73100000000000001(00+i), dielectric i = ..2(00+i), clearcoat ..301, cloth ..302.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce
+Дано run View "View mode: Lit"
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh -550,170,900 --id 7310000000000000100
+Дано set 7310000000000000100 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Metal_R0.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh -440,170,900 --id 7310000000000000101
+Дано set 7310000000000000101 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Metal_R10.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh -330,170,900 --id 7310000000000000102
+Дано set 7310000000000000102 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Metal_R20.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh -220,170,900 --id 7310000000000000103
+Дано set 7310000000000000103 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Metal_R30.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh -110,170,900 --id 7310000000000000104
+Дано set 7310000000000000104 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Metal_R40.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 0,170,900 --id 7310000000000000105
+Дано set 7310000000000000105 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Metal_R50.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 110,170,900 --id 7310000000000000106
+Дано set 7310000000000000106 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Metal_R60.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 220,170,900 --id 7310000000000000107
+Дано set 7310000000000000107 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Metal_R70.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 330,170,900 --id 7310000000000000108
+Дано set 7310000000000000108 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Metal_R80.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 440,170,900 --id 7310000000000000109
+Дано set 7310000000000000109 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Metal_R90.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 550,170,900 --id 7310000000000000110
+Дано set 7310000000000000110 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Metal_R100.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh -550,55,900 --id 7310000000000000200
+Дано set 7310000000000000200 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Dielectric_R0.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh -440,55,900 --id 7310000000000000201
+Дано set 7310000000000000201 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Dielectric_R10.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh -330,55,900 --id 7310000000000000202
+Дано set 7310000000000000202 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Dielectric_R20.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh -220,55,900 --id 7310000000000000203
+Дано set 7310000000000000203 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Dielectric_R30.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh -110,55,900 --id 7310000000000000204
+Дано set 7310000000000000204 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Dielectric_R40.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 0,55,900 --id 7310000000000000205
+Дано set 7310000000000000205 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Dielectric_R50.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 110,55,900 --id 7310000000000000206
+Дано set 7310000000000000206 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Dielectric_R60.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 220,55,900 --id 7310000000000000207
+Дано set 7310000000000000207 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Dielectric_R70.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 330,55,900 --id 7310000000000000208
+Дано set 7310000000000000208 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Dielectric_R80.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 440,55,900 --id 7310000000000000209
+Дано set 7310000000000000209 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Dielectric_R90.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 550,55,900 --id 7310000000000000210
+Дано set 7310000000000000210 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Dielectric_R100.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh -720,112,900 --id 7310000000000000301
+Дано set 7310000000000000301 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_BRDF_ClearCoat.demat
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 720,112,900 --id 7310000000000000302
+Дано set 7310000000000000302 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_BRDF_Cloth.demat
+# Key light as SSS-PROFILE (Starter is unitless: sun 1 lux at EV100 0.53 leaves the sun term invisible). A DirectionLight
+# travels along its TRANSLATION (Scene.cpp:815): 30,-60,-100 = from behind the camera, up and to its left, so every
+# sphere carries its sun highlight toward the camera.
+Дано set 13376537502658031226 DirectionalLightData.Intensity 1000
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.ManualExposureEV100 8.5
+Дано run Entity Sun
+Дано --subject selection set Translation 30,-60,-100
+Дано --subject viewport set Camera.Position 0,115,2000
+Дано --subject viewport set Camera.Direction 0,0,-1
+Дано --subject viewport set Camera.FOV 75
+Когда --subject viewport drag 600,40 600,40 16
+Тогда-вид brdf_spheres top row metals R0..R100 left to right, bottom row red dielectrics R0..R100, clearcoat far left, cloth far right. Metal row: the highlight widens and dims smoothly, the sphere's overall brightness does NOT fall toward R100 (multiple scattering keeps rough metal's energy), no brightness step between neighbours (no R0->R10 or R40->R50 jump). Dielectric row: same smooth widening, the red body colour constant. ClearCoat: a second sharp small highlight on top of the broad red one. Cloth: a soft bright sheen rim at grazing angles, no sharp highlight. editor.log 0 VUID
+# --- white furnace: a uniform sky of radiance 0.5 in every direction (zenith = horizon = ground = night colour, no sun
+# disc / glow / stars), every light off, the ground taken away so the lower hemisphere sees the sky too. A metal of F0 = 1
+# reflects all of it at every roughness: the sphere reads the sky's brightness (Kulla-Conty / UE EnvBRDF energy terms).
+Когда set 7310000000000000100 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Furnace_R0.demat
+Когда set 7310000000000000101 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Furnace_R10.demat
+Когда set 7310000000000000102 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Furnace_R20.demat
+Когда set 7310000000000000103 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Furnace_R30.demat
+Когда set 7310000000000000104 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Furnace_R40.demat
+Когда set 7310000000000000105 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Furnace_R50.demat
+Когда set 7310000000000000106 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Furnace_R60.demat
+Когда set 7310000000000000107 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Furnace_R70.demat
+Когда set 7310000000000000108 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Furnace_R80.demat
+Когда set 7310000000000000109 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Furnace_R90.demat
+Когда set 7310000000000000110 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Furnace_R100.demat
+Когда set 154921903075818553 SkyAtmosphereData.ZenithColor 0.5,0.5,0.5
+Когда set 154921903075818553 SkyAtmosphereData.HorizonColor 0.5,0.5,0.5
+Когда set 154921903075818553 SkyAtmosphereData.GroundColor 0.5,0.5,0.5
+Когда set 154921903075818553 SkyAtmosphereData.NightColor 0.5,0.5,0.5
+Когда set 154921903075818553 SkyAtmosphereData.SunIntensity 0
+Когда set 154921903075818553 SkyAtmosphereData.SunGlow 0
+Когда set 154921903075818553 SkyAtmosphereData.SunsetIntensity 0
+Когда set 154921903075818553 SkyAtmosphereData.StarIntensity 0
+Когда set 13376537502658031226 DirectionalLightData.Intensity 0
+Когда set 17693095525329290091 PointLightData.Intensity 0
+Когда set 17729774111420330691 PointLightData.Intensity 0
+Когда set 17921165617746467452 PostProcessVolumeData.Settings.EnableSSAO false
+Когда set 17921165617746467452 PostProcessVolumeData.Settings.ManualExposureEV100 0.5260688662528992
+Когда select 9810771712317175157
+Когда --subject selection set Translation 0,-100000,0
+Когда --subject viewport drag 600,40 600,40 16
+Тогда-вид brdf_furnace the top row (F0 = 1 metals R0..R100) reads uniformly at the sky's brightness: every sphere's mean within a few % of the sky behind it and of its neighbours, R100 not darker than R0, no dark rim at grazing angles beyond the edge's own anti-aliasing. (Rows below are not part of the check.) If every sphere still mirrors the old blue sky, the sky cube was not rebaked - that is a finding (AutoRebakeEnvironment), not a BRDF result.

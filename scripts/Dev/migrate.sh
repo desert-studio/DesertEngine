@@ -32,6 +32,7 @@ fi
 [ -x "$BINARY" ] || { echo "migrate.sh: $BINARY missing after build"; exit 2; }
 if ! dev_up_to_date SceneMigrator; then
     echo "migrate.sh: REFUSED — $BINARY is older than its inputs (ninja -n SceneMigrator in build/cmake/$DEV_PRESET has work left)"
+    ninja -C "$DEV_BUILD" -f "build-${DEV_CONFIG:-Debug}.ninja" -n SceneMigrator 2>&1 | grep -E '^\[[0-9]+/' | head -8
     exit 2
 fi
 

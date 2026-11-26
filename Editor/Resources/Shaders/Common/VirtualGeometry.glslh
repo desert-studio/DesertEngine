@@ -149,14 +149,23 @@ struct VgVisibleCluster
 
 struct VgRasterArgs
 {
-    uint SwDispatch[3]; // 0
-    uint SwCount;       // 12
+    uint SwDispatch[3]; // 0 VkDispatchIndirectCommand: min( SW clusters, VG_SW_RASTER_MAX_GROUPS ) workgroups
+    uint SwCount;       // 12 SW clusters: VisibleClusters[0, SwCount)
     uint HwDraw[4];     // 16 VkDrawIndirectCommand: vertexCount, instanceCount (= HW clusters), firstVertex, firstInstance
     // 32 VkDispatchIndirectCommand of "VirtualGeometry: Raster Binning" Count / Scatter: ceil( HW clusters /
     // VG_RASTER_BIN_GROUP_SIZE ) workgroups, counted by the cut as it emits (ClusterCut.shader EmitCluster).
     uint BinDispatch[3];
-    uint BinPad;        // 44
+    uint Emitted;       // 44 rows taken from the visible list, SW + HW (never past the capacity)
+    uint SwFirst;       // 48 this cut's first SW row (post cut: the main cut's SwCount; VisibleClusters shared)
+    uint HwFirst;       // 52 this cut's first HW counter value (post cut: the main cut's HwDraw[1])
+    uint Pad0;          // 56
+    uint Pad1;          // 60
 };
+
+// VgVisibleCluster.Flags (VirtualGeometryLayout.hpp VisibleClusterFlags): drawn by SoftwareRaster.shader.
+#define VG_VISIBLE_SOFTWARE 1u
+// SoftwareRaster.shader's indirect X bound (GpuClusterRasterArgs::SwDispatch): the workgroups stride past it.
+#define VG_SW_RASTER_MAX_GROUPS 65535u
 
 // RasterBinning.shader LocalSize: the workgroup the cut counts into VgRasterArgs.BinDispatch.
 #define VG_RASTER_BIN_GROUP_SIZE 64u

@@ -1,0 +1,27 @@
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 200
+Тогда-вид m_lit lit
+Когда run View "View mode: Albedo"
+Когда frames 30
+Тогда-вид m0_albedo Albedo
+Когда run View "View mode: World Normal"
+Когда frames 30
+Тогда-вид m1_worldnormal World Normal
+Когда run View "View mode: Roughness"
+Когда frames 30
+Тогда-вид m2_roughness Roughness
+Когда run View "View mode: Shading Model"
+Когда frames 30
+Тогда-вид m3_shadingmodel Shading Model
+Когда run View "View mode: Shadow Factor"
+Когда frames 30
+Тогда-вид m4_shadowfactor Shadow Factor
+Когда run View "View mode: Metallic"
+Когда frames 30
+Тогда-вид m5_metallic Metallic
+Когда run View "View mode: Lit"
+Когда frames 5

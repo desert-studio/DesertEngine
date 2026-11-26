@@ -62,6 +62,7 @@ namespace Desert::Editor::Core
             case Assets::AssetTypeID::VFXSystem:      // the `.dfx` System | Preview | Stack editor (VFX-12)
             case Assets::AssetTypeID::WorldParameters: // the `.dworldparams` parameter-list editor (WTH-PARAMS)
             case Assets::AssetTypeID::VFXModule:      // the `.dfxmod` module editor (VFXModuleDocument)
+            case Assets::AssetTypeID::DataAsset:      // the `.dasset` reflected-struct editor (DataAssetDocument)
                 return nullptr;
             case Assets::AssetTypeID::Unknown:
                 return "the asset has no type — nothing can say which editor opens it";

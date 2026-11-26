@@ -95,11 +95,12 @@ vec3 SPPreviousWorldPosition( ScreenProbeParams params, vec3 previousNdc )
     return world.xyz / world.w;
 }
 
-// ScreenProbeParams.atlas.z — must match GlobalIllumination::kScreenProbe* (ScreenProbeGather.hpp).
-#define SP_FLAG_HISTORY_VALID  1u // the temporal filter's history set is this view's previous frame
+// ScreenProbeParams.atlas.z — must match GlobalIllumination::kScreenProbe* (ScreenProbeGather.hpp). Bit 1 is
+// free: no pass tests the view's history - without it the history passes are not added (or are their
+// no-history permutation, ScreenProbeTemporal SP_TEMPORAL_NO_HISTORY). Bits 4 and 8 are free too: the screen walk
+// and the sparse stable probes are permutations of the screen leg (ScreenProbeTraceScreen SP_TRACE_SCREEN_MARCH /
+// SP_TRACE_SCREEN_SPARSE_STABLE), chosen by what the view has, so no pass tests a flag for them.
 #define SP_FLAG_SHORT_RANGE_AO 2u // the ShortRangeAO pass ran this frame: the integrate reads its bent normal + AO
-#define SP_FLAG_SCREEN_TRACE   4u // the scene colour history holds the previous frame: the screen trace runs
-#define SP_FLAG_SPARSE_STABLE  8u // settled uniform probes trace a checkerboard half of their texels (FPS-SP-NEAR)
 
 // THE SPARSE STABLE PROBES (FPS-SP-NEAR; UE spends a probe's rays by importance, here by the history's need): a
 // uniform probe whose tile's history is settled (ScreenProbes.Disocclusion 0: every surface pixel of the tile holds

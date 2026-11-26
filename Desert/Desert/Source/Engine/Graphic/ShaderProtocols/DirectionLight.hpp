@@ -17,7 +17,8 @@
 //
 // FIELD( C++ type, member, GLSL name, initialiser )
 #define DESERT_DIRECTION_LIGHT_FIELDS( FIELD )                                                                    \
-    FIELD( glm::vec4, Direction, Direction, {} ) /* offset  0: xyz = normalized direction (from light) */         \
+    /* offset 0: xyz = normalized direction (from light); w = sin(SourceAngle / 2), the disc's radius */          \
+    FIELD( glm::vec4, Direction, Direction, {} )                                                                  \
     FIELD( glm::vec4, ColorIntensity, ColorIntensity, {} ) /* offset 16: rgb = color, a = intensity */
 
 namespace Desert::Graphic::ShaderProtocols

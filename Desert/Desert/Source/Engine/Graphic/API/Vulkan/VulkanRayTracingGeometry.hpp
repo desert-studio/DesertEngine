@@ -31,6 +31,15 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] static Common::ResultStr<std::shared_ptr<VulkanRayTracingGeometry>>
         BuildStatic( const RayTracing::RayTracingMeshInput& input );
 
+        // THE OUTPUT BUFFERS OF ONE SEGMENT'S OPACITY MICROMAP BAKE (RT-OMM-SER; OpacityMicromapBake.shader writes
+        // them by address, BuildStatic reads them through RayTracingMeshInput::Micromaps): data (64 B per
+        // triangle at kOpacityMicromapLevel), VkMicromapTriangleEXT rows (8 B) and the uint32 per-triangle index.
+        // Owner holds the three until its last reference drops; they are then released on the frame-retire ring,
+        // so a bake or a build still in flight never reads a freed buffer. An error: the device has no micromap
+        // functions (the caller reads the catalog first) or an allocation failed.
+        [[nodiscard]] static Common::ResultStr<RayTracing::RayTracingSegmentOpacityMicromap>
+        AllocateOpacityMicromapBake( uint32_t segment, uint32_t triangleCount );
+
         ~VulkanRayTracingGeometry() override;
 
         [[nodiscard]] uint64_t GetDeviceAddress() const override
@@ -76,5 +85,16 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<RayTracing::RayTracingGeometrySegment> m_Segments;
         VertexBufferRange                                  m_Vertices;
         IndexBufferRange                                   m_Indices;
+        // The opacity micromaps the BLAS was built with (RayTracingMeshInput::Micromaps): each must outlive every
+        // trace of the BLAS (VK_EXT_opacity_micromap), so it is released with it, on the same frame ring.
+        struct Micromap
+        {
+            VkMicromapEXT     Handle        = VK_NULL_HANDLE;
+            VkBuffer          Storage       = VK_NULL_HANDLE;
+            VmaAllocation     StorageMemory = nullptr;
+            ResourceOwnership Ledger;
+        };
+        std::vector<Micromap>    m_Micromaps;
+        PFN_vkDestroyMicromapEXT m_DestroyMicromap = nullptr;
     };
 } // namespace Desert::Graphic::API::Vulkan
