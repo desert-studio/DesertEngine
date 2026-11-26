@@ -166,10 +166,7 @@ namespace Desert::Editor
     {
         if ( m_Preview || m_AssetManager == nullptr )
             return;
-        m_MeshCandidates.clear();
-        for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::SkinnedMesh ) )
-            m_MeshCandidates.push_back( row.Path );
-        std::ranges::sort( m_MeshCandidates );
+        CollectPreviewMeshes();
 
         m_Preview  = std::make_unique<PreviewViewport>();
         m_UIHelper = std::make_unique<UI::UIHelper>();
@@ -182,6 +179,39 @@ namespace Desert::Editor
             m_PendingOrbitDegrees.reset();
         }
         SetPreviewMesh( m_MeshIndex );
+    }
+
+    void AnimGraphPanel::CollectPreviewMeshes()
+    {
+        // THE PREVIEW MESH COMES FROM THE GRAPH'S SKELETON (UE: the Animation Blueprint editor previews on its
+        // TargetSkeleton's preview mesh, and offers only meshes of that skeleton). Candidates are the skinned
+        // mesh rows whose Rig tag is the graph's TargetSkeleton GUID, by path - so the first is the same pick
+        // as ContentRegistry::PreviewMeshRow. None is a message in the pane naming the skeleton, never a
+        // mesh of another body.
+        m_MeshCandidates.clear();
+        m_MeshIndex = 0;
+        m_NoPreviewMesh.clear();
+        const auto asset = ResolveAsset();
+        if ( !asset || !asset->GetGraph() )
+        {
+            m_NoPreviewMesh = "the graph is not loaded, so its skeleton is unknown";
+            return;
+        }
+        const Assets::AssetGuidRef& target = asset->GetGraph()->TargetSkeleton;
+        const auto                  guid   = Common::Content::AssetGuidFromText( target.Guid );
+        if ( !guid || guid.GetValue().IsNull() )
+        {
+            m_NoPreviewMesh = std::format( "the graph names no well-formed TargetSkeleton ('{}')", target.Guid );
+            return;
+        }
+        for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::SkinnedMesh ) )
+        {
+            if ( row.Skeleton == guid.GetValue() )
+                m_MeshCandidates.push_back( row.Path );
+        }
+        std::ranges::sort( m_MeshCandidates );
+        if ( m_MeshCandidates.empty() )
+            m_NoPreviewMesh = std::format( "no skeletal mesh uses the skeleton '{}'", target.Path );
     }
 
     void AnimGraphPanel::SetPreviewMesh( const size_t candidate )
@@ -259,7 +289,7 @@ namespace Desert::Editor
         m_DrewThisFrame         = true;
         const std::string shown = m_MeshIndex < m_MeshCandidates.size()
                                        ? m_MeshCandidates[m_MeshIndex].filename().string()
-                                       : std::string( "(no skeletal mesh)" );
+                                       : std::string( "(no preview mesh)" );
         ImGui::SetNextItemWidth( width );
         if ( ImGui::BeginCombo( "##agPreviewMesh", shown.c_str() ) )
         {
@@ -268,9 +298,19 @@ namespace Desert::Editor
                     SetPreviewMesh( i );
             ImGui::EndCombo();
         }
-        Utils::ImGuiUtilities::Tooltip( "Preview mesh: the character this graph plays on in the pane below" );
+        Utils::ImGuiUtilities::Tooltip(
+             "Preview mesh: a skeletal mesh of this graph's TargetSkeleton, the character it plays on below" );
         const ImVec2 size( width, std::max( 64.0f, height - ImGui::GetFrameHeightWithSpacing() ) );
         m_RenderSize = glm::uvec2( static_cast<uint32_t>( size.x ), static_cast<uint32_t>( size.y ) );
+        if ( !m_NoPreviewMesh.empty() )
+        {
+            // No body of this skeleton: the pane says why instead of drawing an empty stage.
+            ImGui::PushTextWrapPos( ImGui::GetCursorPosX() + size.x );
+            ImGui::TextColored( ImVec4( 0.95f, 0.65f, 0.25f, 1.0f ), "No preview: %s", m_NoPreviewMesh.c_str() );
+            ImGui::PopTextWrapPos();
+            ImGui::Dummy( ImVec2( size.x, std::max( 0.0f, size.y - ImGui::GetTextLineHeightWithSpacing() ) ) );
+            return;
+        }
         if ( !m_Preview || !m_UIHelper )
         {
             ImGui::Dummy( size );

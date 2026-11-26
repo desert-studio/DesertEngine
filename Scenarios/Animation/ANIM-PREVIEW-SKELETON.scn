@@ -1,0 +1,11 @@
+# ANIM-PREVIEW-SKELETON: the Anim Graph editor's preview mesh comes from the graph's TargetSkeleton (UE: the
+# Animation Blueprint editor previews on a skeletal mesh of its TargetSkeleton). Mannequin_Locomotion names
+# Characters/Mannequin/Mannequin.skeleton, so its preview pane draws Mannequin.skmesh (the grey Quaternius
+# mannequin) and the mesh combo lists only meshes of that skeleton. Nothing is saved.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/PawnNoController_Demo.desce
+Дано run View "View mode: Lit"
+# [preview_mannequin] the graph document opens; its preview pane plays the graph on the mannequin.
+Когда run Open "Characters/Mannequin/Mannequin_Locomotion.danimgraph"
+Когда 30 frames render
+Тогда preview_mannequin the preview pane of Mannequin_Locomotion draws the grey Quaternius mannequin, not the Humanoid character; the combo above it reads Mannequin.skmesh and the pane shows no "No preview" message
+Когда run Document "Mannequin_Locomotion: Close Discard"

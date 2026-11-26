@@ -281,14 +281,17 @@ namespace Desert::Editor
         /// The preview pane: created on the first frame the window is drawn, its target given the chosen
         /// skeletal mesh and an AnimationComponent naming this graph (PreviewViewport::SetGraphCharacter).
         void EnsurePreview();
+        /// m_MeshCandidates = the skinned meshes of the graph's TargetSkeleton, by path; none sets m_NoPreviewMesh.
+        void CollectPreviewMeshes();
         void SetPreviewMesh( size_t candidate );
         void TogglePreview();
         void DrawPreviewPane( float width, float height );
 
         std::unique_ptr<PreviewViewport>   m_Preview;
         std::unique_ptr<UI::UIHelper>      m_UIHelper;
-        std::vector<std::filesystem::path> m_MeshCandidates; // every registered .skmesh (ContentRegistry rows)
+        std::vector<std::filesystem::path> m_MeshCandidates; // the .skmesh rows of the graph's TargetSkeleton
         size_t                             m_MeshIndex = 0;
+        std::string                        m_NoPreviewMesh; // why no candidate exists; empty = there are some
         Assets::AssetHandle                m_PreviewMesh{ static_cast<uint64_t>( 0 ) };
         glm::uvec2                         m_RenderSize{ 0u };
         bool                               m_DrewThisFrame = false;
