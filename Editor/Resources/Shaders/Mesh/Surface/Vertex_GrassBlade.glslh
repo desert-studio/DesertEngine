@@ -80,27 +80,21 @@ GpuInstanceDrawRow g_GrassDrawRow; // set first thing in main()
 #include <Deformation/DeformationFieldRead.glslh>
 #endif
 
-// The variety's shape (GrassBladeShapeGpu), std430.
+// The variety's shape (GrassBladeShapeGpu: Blade, BladeHullTexels, BladeHull, BladeHullLine), std430.
 #ifndef DESERT_SURFACE_DRAW_ROWS
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 {
-    GrassBladeShapeData Blade;
-    vec4                BladeHullTexels; // GrassBladeShapeGpu::HullTexels (FPS-GRASS-HULL)
-    vec4                BladeHull[128];  // GrassBladeShapeGpu::Hull
-    vec4                BladeHullLine[32]; // GrassBladeShapeGpu::HullLine (FPS-GRASS-RASTER-2)
+    DESERT_GrassBladeShapeRecord_MEMBERS
 };
 #else
 layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GrassDrawRowBlade
 {
-    GrassBladeShapeData Shape;
-    vec4                HullTexels; // GrassBladeShapeGpu::HullTexels (FPS-GRASS-HULL)
-    vec4                Hull[128];  // GrassBladeShapeGpu::Hull
-    vec4                HullLine[32]; // GrassBladeShapeGpu::HullLine (FPS-GRASS-RASTER-2)
+    GrassBladeShapeRecord Record;
 };
-#define Blade           GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).Shape
-#define BladeHullTexels GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).HullTexels
-#define BladeHull       GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).Hull
-#define BladeHullLine   GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).HullLine
+#define Blade           GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).Record.Blade
+#define BladeHullTexels GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).Record.BladeHullTexels
+#define BladeHull       GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).Record.BladeHull
+#define BladeHullLine   GrassDrawRowBlade( g_GrassDrawRow.BladeShape ).Record.BladeHullLine
 #endif
 
 #include <Common/MaterialTransport.glslh>

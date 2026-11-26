@@ -24,13 +24,12 @@
 // width -> 0) asks the last class, every level.
 //
 // Needs, declared by the includer: `Blade` (the variety's GrassBladeShapeData), `BladeHullTexels` (vec4: mask
-// level-0 texels xy, z = 1 when the hull is drawn) `BladeHull` (vec4[128]: GrassBladeShapeGpu::Hull),
-// `BladeHullLine` (vec4[32]: GrassBladeShapeGpu::HullLine) and the view's cameraUB.
+// level-0 texels xy, z = 1 when the hull is drawn) `BladeHull` (vec4[128]: GrassBladeShapeRecord.BladeHull),
+// `BladeHullLine` (vec4[32]: GrassBladeShapeRecord.BladeHullLine) and the view's cameraUB.
 #ifndef GRASS_BLADE_HULL_GLSLH
 #define GRASS_BLADE_HULL_GLSLH
 
-#define GRASS_BLADE_HULL_CLASSES 4u
-#define GRASS_BLADE_HULL_BANDS 8u
+#include <Generated/Grass/Grass.glslh>
 
 // Pixels of the view that the world-space step @p d at @p p spans on screen (its projection's derivative).
 float BladeHullScreenPixels( const vec3 p, const vec3 d )
@@ -77,7 +76,7 @@ float BladeHullSideOf( const uint card, const float width, const BladePoint blad
     const vec4  rect  = Blade.Cards[card];
     const uint  cls   = BladeHullClass( blade, rect, width );
     // FPS-GRASS-RASTER-2: a one-segment strip (the far levels) stands on the card's fitted trapezoid
-    // (GrassBladeShapeGpu::HullLine, GrassBladeHullLine) - its rows' lines hold every band, so no fragment the clip
+    // (GrassBladeShapeRecord.BladeHullLine, GrassBladeHullLine) - its rows' lines hold every band, so no fragment the clip
     // keeps is lost, and the tapered tip no longer spans the widest band (fewer fragments, no 8-band walk).
     if ( rowSpan >= 1.0 )
     {

@@ -184,8 +184,8 @@ namespace Desert::Graphic::System
             return Common::MakeError<Value>( pipeline.GetError() );
 
         const std::vector<Submesh>& levels = strip.GetSubmeshes();
-        const BladeKey              blade{ .Size      = shape.Size,
-                                           .Bend      = shape.Bend,
+        const BladeKey              blade{ .Size      = shape.Blade.Size,
+                                           .Bend      = shape.Blade.Bend,
                                            .Levels    = static_cast<uint32_t>( levels.size() ),
                                            .NonOpaque = nonOpaque };
         VarietyState&               state = m_Varieties[key];

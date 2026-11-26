@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Formats/MaterialLayout.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
+#include <Engine/Graphic/Materials/SceneResourcesLayout.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/Metadata.hpp>
@@ -29,20 +30,7 @@ namespace Desert::Graphic::SceneResources
     // writes exactly the groups the layout names. A data-driven template that samples the shadow map gets
     // the cascades because it declares them — not because someone wrote a C++ class for it.
 
-    // How many shadow cascades the ShadowUB block carries PER DIRECTIONAL LIGHT, and therefore how many layers of
-    // the cascade array one light may hold. ONE number for the whole chain: SceneFrameBinding's views and the
-    // renderer's cascade count are defined from it.
-    inline constexpr uint32_t kMaxCascades = 4;
-
-    // HOW MANY DIRECTIONAL LIGHTS HAVE CASCADES OF THEIR OWN (UE: every directional light with a whole-scene
-    // shadow gets its own CSM; the cap is the shadow budget, not "the one lamp"). The slot IS the light's
-    // Atmosphere Sun Light Index (ECS::Rules::kAtmosphereLightCount, asserted in Core/Scene.cpp): 0 the sun,
-    // 1 the moon - the only directional lights the frame shades. Each slot is fitted, cached, drawn and sampled
-    // by the same code; nothing below names "the moon".
-    inline constexpr uint32_t kMaxShadowedDirectionalLights = 2;
-    inline constexpr uint32_t kDirectionalShadowSun         = 0; // the slot the sun's occluders are sampled from
-    // Every cascade of every slot: ShadowUBData::LightViewProj is indexed [slot * kMaxCascades + cascade].
-    inline constexpr uint32_t kMaxCascadeViews = kMaxShadowedDirectionalLights * kMaxCascades;
+    // kMaxCascades, kMaxShadowedDirectionalLights, kMaxCascadeViews and ShadowUBData: SceneResourcesLayout.hpp.
 
     // ONE DIRECTIONAL LIGHT'S CASCADES as the frame publishes them (MeshRenderer::DirectionalShadows) and every
     // receiver's block packs them (PackDirectionalShadow): the deferred composite, the forward meshes, the glass,
@@ -63,34 +51,6 @@ namespace Desert::Graphic::SceneResources
         float     FarWorldPerTexel = 1.0f;
         float     FarDepthRange    = 1.0f;
         uint32_t  FarLayer         = 0; // its layer of the shared cascade array
-    };
-
-    // The C++ half of the `ShadowUB` block every lit surface declares. PUBLIC because the other half is
-    // GLSL: reflecting the block and comparing it with this is the only way to assert the pair agrees on a
-    // machine with no device (Desert/Tests/Engine/SceneFrameBinding).
-    struct ShadowUBData
-    {
-        glm::mat4 LightViewProj[kMaxCascadeViews]; // [slot * kMaxCascades + cascade]
-        // Per slot: x = tan(source angle / 2), y = casts shadows (1/0), z = cascades fitted, w = first array layer.
-        glm::vec4 DirectionalShadow[kMaxShadowedDirectionalLights];
-        glm::vec4 CascadeTexelWorld[kMaxShadowedDirectionalLights]; // per cascade: world size of one map texel
-        glm::vec4 CascadeDepthRange[kMaxShadowedDirectionalLights]; // per cascade: world length of [0,1] map depth
-        glm::vec4 DebugParams; // x = show normals, y = lighting debug, z = cascade debug mode (0/1/2), w = 0
-        // The contact shadows' march (Common/ContactShadow.glslh): x = ray steps (0 = none), y = tan(fovY / 2),
-        // z = dither frame 0..7, w unused. Packed by PackContactShadow.
-        glm::vec4 ContactShadowView;
-        // x = the sun's ContactShadowLength, y = 1 when it is in world centimetres, z = its Contact Shadow Casting
-        // Intensity, w = its Non Casting Intensity (Common/ContactShadow.glslh's `light`).
-        glm::vec4 SunContactShadow;
-        // The PCSS cost (Mesh/CascadedShadow.glslh): x = blocker search taps, y = filter taps; z = 1 when the
-        // directional lights' cascades hand over to this frame's distance-field shadow
-        // (ShadowFilterSettings::DistanceField), w = the local lights' screen-trace iterations. Packed by PackShadowFilter.
-        glm::vec4 ShadowFilter;
-        // THE FAR SHADOW per slot (DirectionalShadowView::Far*), appended so every receiver's block keeps its
-        // offsets above: its matrix, and x = world size of one texel, y = world length of [0,1] depth, z = its
-        // array layer, w = 1 when fitted this frame (0: lit past the cascades).
-        glm::mat4 FarShadowViewProj[kMaxShadowedDirectionalLights];
-        glm::vec4 FarShadow[kMaxShadowedDirectionalLights];
     };
 
     // THE ONE PACKER of a directional light's cascades into its slot of the block. A light with no view (no

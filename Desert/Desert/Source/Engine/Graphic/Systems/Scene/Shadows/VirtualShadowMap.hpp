@@ -6,6 +6,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMapLayout.hpp>
 #include <Engine/Graphic/PassNameTable.hpp>
 
 #include <glm/glm.hpp>
@@ -130,48 +131,6 @@ namespace Desert::Graphic::System
 
     inline constexpr std::string_view kVirtualShadowMapPassPrefix = "VSM: ";
 
-    // ---- GPU records (std430; the glslh structs of the same name).
-    // ------------------------------------------------
-    struct VsmFrameGpu
-    {
-        glm::mat4 InvViewProjection{ 1.0f };
-        glm::vec4 CameraFootprint{ 0.0f }; // xyz camera cm, w = world size of one render pixel per cm of distance
-        glm::vec4 Lod{ 0.0f };             // x LOD bias, y level count, z first level, w frame index
-        glm::vec4 ToSun{ 0.0f };           // xyz toward the sun, w SourceAngle radians
-        glm::vec4 Smrt{ 0.0f };            // x rays, y samples per ray, z normal bias texels, w ray length pages
-        glm::vec4 SmrtLocal{ 0.0f };       // x samples per local ray, y extrapolation max slope, zw 0 (std430 pad)
-    };
-    static_assert( sizeof( VsmFrameGpu ) == 144 );
-
-    struct VsmLevelGpu
-    {
-        glm::mat4  ViewProjection{ 1.0f }; // world -> level clip, orthographic, standard Z
-        glm::ivec4 Window{ 0 };            // xy window origin (world page), z absolute level, w 1 = reset now
-        glm::vec4  Extent{ 0.0f };         // x page world cm, y depth range cm, z radius cm, w texel world cm
-        // x first page-table entry, y pages per side (0 = unused level), z kVsmLevelKind*, w local light index
-        glm::uvec4 Pages{ 0u };
-    };
-    static_assert( sizeof( VsmLevelGpu ) == 112 );
-
-    // One point / spot light shaded from the map this frame (VsmLocalLight in Common/VirtualShadowMap.glslh).
-    struct VsmLocalLightGpu
-    {
-        glm::vec4  Position{ 0.0f }; // xyz cm, w attenuation radius cm
-        glm::vec4  Spot{ 0.0f };     // xyz out of the apex, w cos outer (kVsmLocalPointCone = point)
-        glm::uvec4 Views{ 0u };      // x level of view 0 mip 0, y view count, z mask layer, w finest mip
-        glm::vec4  Params{ 0.0f }; // x near cm, y far cm, z texel world size at unit distance (mip 0), w source cm
-    };
-    static_assert( sizeof( VsmLocalLightGpu ) == 64 );
-
-    struct VsmPageEntryGpu
-    {
-        uint32_t Physical = 0;
-        uint32_t Flags    = 0;
-        int32_t  TagX     = 0;
-        int32_t  TagY     = 0;
-    };
-    static_assert( sizeof( VsmPageEntryGpu ) == 16 );
-
     // "VSM: Dirty Mask": per level, one bit per cell of kVsmMaskCellPages x kVsmMaskCellPages window pages, set
     // when a page of the cell is drawn this frame - what "VSM: Cull Casters" tests a caster's footprint against
     // (UE: the page flags' hierarchy CullPerPageDrawCommands reads). Two masks end to end: first the STATIC mask
@@ -181,26 +140,6 @@ namespace Desert::Graphic::System
     inline constexpr uint32_t kVsmMaskCellPages     = 8;
     inline constexpr uint32_t kVsmMaskCells         = kVsmLevelPages / kVsmMaskCellPages; // per side
     inline constexpr uint32_t kVsmMaskWordsPerLevel = kVsmMaskCells * kVsmMaskCells / 32u;
-
-    // "VSM: Cull Casters" records (std430; Programs/Shadows/VirtualShadowMapCullCasters.shader).
-    // One instance a draw may draw: its world box and which draw it belongs to.
-    struct VsmCullInstanceGpu
-    {
-        glm::vec4  Min{ 0.0f };
-        glm::vec4  Max{ 0.0f };
-        glm::uvec4 Draw{ 0u }; // x = its draw, y = the instance index its vertex stage fetches, zw 0
-    };
-    static_assert( sizeof( VsmCullInstanceGpu ) == 48 );
-    // One draw: its argument records (MeshDrawArguments.hpp: one per drawn submesh, consecutive) and the slots of
-    // the instance remap its surviving instances fill (its records' first instance is RemapBase).
-    struct VsmCullDrawGpu
-    {
-        uint32_t FirstRecord = 0;
-        uint32_t Records     = 0;
-        uint32_t RemapBase   = 0;
-        uint32_t Padding     = 0;
-    };
-    static_assert( sizeof( VsmCullDrawGpu ) == 16 );
 
     // What one level's casters hand "VSM: Cull Casters": every draw's records with an instance count of 0, every
     // instance, and the remap's size (the sum of the draws' instance counts).
@@ -220,24 +159,8 @@ namespace Desert::Graphic::System
         RDG::BufferRef InstanceRemap;
     };
 
-    // VsmAllocator: the frame's counters and the indirect dispatch of "VSM: Clear Pages" at kVsmClearArgsOffset.
-    // The VsmAllocator record of the page shaders (Allocate, Gather, Clear Args).
-    struct VsmAllocatorGpu
-    {
-        uint32_t   EmptyCount       = 0;
-        uint32_t   CachedCount      = 0;
-        uint32_t   AllocationCursor = 0;
-        uint32_t   DirtyCount       = 0; // pages cleared and drawn this frame
-        uint32_t   Overflow         = 0; // requests the pool could not hold
-        uint32_t   StaticRedrawn    = 0; // of DirtyCount, the pages whose static layer is redrawn
-        uint32_t   MovableRedrawn   = 0; // of DirtyCount, the pages whose static layer was copied (movers only)
-        uint32_t   Padding          = 0;
-        glm::uvec4 ClearArgs{ 0u }; // VkDispatchIndirectCommand of "VSM: Clear Pages"
-    };
-    static_assert( sizeof( VsmAllocatorGpu ) == 48 );
     inline constexpr uint64_t kVsmAllocatorBytes  = sizeof( VsmAllocatorGpu );
     inline constexpr uint64_t kVsmClearArgsOffset = offsetof( VsmAllocatorGpu, ClearArgs );
-    static_assert( kVsmClearArgsOffset == 32 );
 
     // The pages of the newest frame read back (DesertCtl state "vsm" pages): every level, sun and local.
     struct VsmPageStats

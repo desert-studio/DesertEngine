@@ -240,25 +240,6 @@ namespace Desert::Graphic::VirtualGeometry
         std::unique_ptr<Programs> m_Programs;
     };
 
-    // ClusterCut.shader's Status block: each failure counted with the lowest DAG row it hit (kInvalidIndex =
-    // none), so the host names the mesh.
-    struct ClusterCutStatus
-    {
-        uint32_t StackOverflow      = 0; // hierarchy nodes a full traversal stack could not take
-        uint32_t StackOverflowDag   = 0xFFFFFFFFu;
-        uint32_t MissingSlot        = 0; // candidates whose primitive has no lod-0 draw slot for the DAG's submesh
-        uint32_t MissingSlotDag     = 0xFFFFFFFFu;
-        uint32_t VisibleOverflow    = 0; // clusters past ClusterCandidates::VisibleCapacity
-        uint32_t VisibleOverflowDag = 0xFFFFFFFFu;
-        uint32_t OccludedNodes      = 0; // node children the previous-frame HZB hid (not a failure)
-        uint32_t OccludedClusters   = 0; // clusters the previous-frame HZB hid (not a failure)
-        // VG instances InstanceCull still put into a bin of a view the cut serves (an invariant: 0; the raster
-        // draws them), copied from the candidates' count block.
-        uint32_t BinnedVgInstances = 0;
-        uint32_t OccludedOverflow  = 0; // occluded entries past the post carry's capacity (missing one frame)
-    };
-    static_assert( sizeof( ClusterCutStatus ) == 40, "std430 twin: ClusterCut.shader ClusterCutStatus" );
-
     struct ClusterCutCount
     {
         uint32_t ClustersVisible = 0; // the main view's main phase: RasterArgs.HwDraw[1]

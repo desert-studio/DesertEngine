@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/TerrainLayout.hpp>
 #include <LandscapeCore/Public/LandscapeLayerLimits.hpp>
 
 #include <glm/glm.hpp>
@@ -80,33 +81,6 @@ namespace Desert::Graphic::System
     void UpdateTerrainLayerInputs( const Core::Formats::ShaderProgramMeta& schema,
                                    const MaterialOverrides& overrides, const std::string& materialTag,
                                    const std::shared_ptr<Image2D>& emptyArray, TerrainLayerInputs& inputs );
-
-    /**
-     * @brief THE LANDSCAPE MATERIAL'S VALUES the ground reads (Terrain.shader / TerrainGBuffer.shader Properties).
-     *
-     * GLSL twin: Common/LandscapeSurface.glslh `LandscapeMaterial`, the struct the one statement of the ground
-     * (EvaluateLandscapeSurface) takes - the raster builds it from its Material, the landscape's ray tracing hit
-     * group reads it from its row. vec4 slots only, so one layout in std140, std430 and here.
-     */
-    struct LandscapeMaterialValues
-    {
-        /// FarTilingDistance (cm), FarTilingScale, MacroVariationSize (cm), MacroVariationStrength.
-        glm::vec4 Tiling{ 0.0f };
-        /// DetailNormalScale (times the input's tile size), DetailNormalStrength, MacroHueSize (cm), MacroHueStrength
-        /// (radians).
-        glm::vec4 Detail{ 0.0f };
-        /// Input k's LayerKTint.
-        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> LayerTint{};
-        /// Input k's (LayerKTileSize cm, LayerKBlend, LayerKNormalStrength, 0).
-        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> LayerParams{};
-        /// The weather's: x = Porosity (how much of the rain's film the ground soaks in, Common/WeatherRain.glslh),
-        /// y, z, w = 0.
-        glm::vec4 Weather{ 0.0f };
-    };
-    static_assert( World::Landscape::kLandscapeMaxWeightLayers == 8u,
-                   "Common/LandscapeSurface.glslh LandscapeMaterial declares eight inputs" );
-    static_assert( sizeof( LandscapeMaterialValues ) == 19u * sizeof( glm::vec4 ),
-                   "LandscapeMaterialValues is GLSL LandscapeMaterial's 19 vec4 slots" );
 
     /**
      * @brief A tile's landscape material as the raster drew it this frame, outside the draw

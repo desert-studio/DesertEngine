@@ -43,11 +43,6 @@ namespace Desert::Graphic::System
 {
     class MeshRenderer;
 
-    // GPU-COST-21: the cascade views a variety keeps a list of its own for, at most (every shadowed directional
-    // light's cascades; MeshRenderer::kCascadeViews). GrassGenerate.shader CascadePlanes and GrassCull.shader
-    // kCascadeViews are sized by it.
-    inline constexpr uint32_t kGrassCascadeLists = SceneResources::kMaxCascadeViews;
-
     // One landscape root's heights and grass-layer weights on ONE sample grid over all its tiles (tiles share
     // their edge samples), packed as the generator reads it (Programs/Grass/GrassGenerate.shader, FieldData):
     //   [0] samples X, [1] samples Z, [2] grass layer count, [3] 0, [4] origin X (float bits), [5] origin Z,
@@ -104,12 +99,7 @@ namespace Desert::Graphic::System
         std::vector<glm::vec4> CardHulls;
         glm::vec2              HullTexels{ 0.0f };
     };
-    // The hull's classes and bands per card (Assets::kGrassCardHullClasses / kGrassCardHullBands; GrassBlade.glslh).
-    inline constexpr uint32_t kGrassBladeHullClasses = 4u;
-    inline constexpr uint32_t kGrassBladeHullBands   = 8u;
-
-    // The generator reads at most this many of a blade's cards (GrassParamsGpu::CardWidths, two vec4s).
-    inline constexpr size_t kGrassBladeMaxCards = 8u;
+    // kGrassBladeHullClasses, kGrassBladeHullBands and kGrassBladeMaxCards: GrassLayout.hpp.
 
     // The mean blade's width (cm) at the ScaleX range's middle @p scaleX: the mean of its first
     // kGrassBladeMaxCards cards' widths (Height x du / dv) - the width the screen-width floor's distance is
@@ -382,7 +372,7 @@ namespace Desert::Graphic::System
         // passes alone read and write, by the variety table's addresses (pool + offset), so the shaders are
         // unchanged.
         static constexpr uint32_t kNoFeedbackSlot = 0xFFFFFFFFu; // VarietyGpu::FeedbackSlot: none handed out
-        static constexpr uint32_t kParamsWords    = 60u; // GrassRenderer.cpp GrassParamsGpu's words (asserted)
+        static constexpr uint32_t kParamsWords    = 60u; // GrassLayout.hpp GrassParamsGpu's words (asserted)
         struct PoolRange
         {
             uint64_t Offset = 0;
@@ -801,7 +791,7 @@ namespace Desert::Graphic::System
         [[nodiscard]] bool UpdateTiles( VarietyGpu& gpu, std::vector<uint32_t> placement,
                                         std::vector<uint32_t> thin, glm::vec2 eye, float cell, float radius,
                                         float stray );
-        // GRASS-CULL-2: this frame's variety table (GrassRenderer.cpp GrassVarietyRowGpu): m_FrameCull's rows,
+        // GRASS-CULL-2: this frame's variety table (GrassLayout.hpp GrassVarietyRowGpu): m_FrameCull's rows,
         // written into m_Table and imported into @p graph (m_TableRef).
         // Refused when a variety's buffer has no device address.
         // @p occlusion: the HZB the camera cull tests this frame (it keys the camera's held lists).

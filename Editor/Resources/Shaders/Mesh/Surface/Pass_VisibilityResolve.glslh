@@ -45,10 +45,7 @@ layout( std430, binding = GRASS_BLADE_SETUP_BINDING ) readonly buffer GrassBlade
 };
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 {
-    GrassBladeShapeData Blade;
-    vec4                BladeHullTexels; // GrassBladeShapeGpu::HullTexels (FPS-GRASS-HULL)
-    vec4                BladeHull[128];  // GrassBladeShapeGpu::Hull
-    vec4                BladeHullLine[32]; // GrassBladeShapeGpu::HullLine (FPS-GRASS-RASTER-2)
+    DESERT_GrassBladeShapeRecord_MEMBERS
 };
 // The raster narrowed each strip row to its card's hull: the corners are rebuilt through the same expressions.
 #include <Mesh/Surface/GrassBladeHull.glslh>

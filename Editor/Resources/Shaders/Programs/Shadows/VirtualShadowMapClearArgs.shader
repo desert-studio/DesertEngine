@@ -7,18 +7,9 @@ Shader "VirtualShadowMapClearArgs"
     {
         LocalSize(1, 1, 1);
 
-        Buffer(0) VsmAllocator
-        {
-            uint  EmptyCount;
-            uint  CachedCount;
-            uint  AllocationCursor;
-            uint  DirtyCount;
-            uint  Overflow;
-            uint  StaticRedrawn;  // of DirtyCount, the pages whose static layer is redrawn
-            uint  MovableRedrawn; // of DirtyCount, the pages whose static layer is copied (the movers drawn alone)
-            uint  Padding;
-            uvec4 ClearArgs;
-        };
+        #include <Generated/Shadows/VirtualShadowMap.glslh> // VsmAllocatorRecord: Shadows/VirtualShadowMapLayout.hpp
+
+        Buffer(0) VsmAllocator { DESERT_VsmAllocatorRecord_MEMBERS };
 
         void main()
         {

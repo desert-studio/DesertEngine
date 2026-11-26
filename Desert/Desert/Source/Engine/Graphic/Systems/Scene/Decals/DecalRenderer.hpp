@@ -7,6 +7,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/Systems/Scene/Decals/DecalLayout.hpp>
 
 #include <glm/glm.hpp>
 
@@ -44,19 +45,6 @@ namespace Desert::Graphic::System
         // an impact decal (World::DecalImpactPool, UE SetFadeOut).
         float               Opacity        = 1.0f;
     };
-
-    // One row of "Decals.Rows" (std430, Programs/Decals/DefaultDecal.shader DecalRow): what a decal's vertex and
-    // fragment stages need, baked per view on the CPU so the push block stays one row index.
-    struct DecalRowGpu
-    {
-        glm::mat4 DecalToClip; // view-projection x DecalToWorld: the box's corners to clip space
-        glm::mat4 ClipToDecal; // inverse( DecalToWorld ) x inverse view-projection: a depth texel into the box
-        glm::vec4 AxisX;       // the box's world x / y / z axes, normalised (the decal's tangent frame)
-        glm::vec4 AxisY;
-        glm::vec4 AxisZ;
-        glm::vec4 Params; // x opacity (the CPU fade), y edge fade, z channel mask (as a float), w unused
-    };
-    static_assert( sizeof( DecalRowGpu ) == 192, "DecalRowGpu is the std430 DecalRow of the decal shaders" );
 
     // The pass's own inputs, the one spelling Declare binds and every decal program is validated against.
     struct DecalShaderParameters

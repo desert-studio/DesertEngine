@@ -16,16 +16,7 @@ Shader "DefaultDecal"
 
     Vertex
     {
-        // One row of "Decals.Rows" (System::DecalRowGpu, 208 bytes std430), baked per view on the CPU.
-        struct DecalRow
-        {
-            mat4 DecalToClip; // the box's corners to clip space (jittered view-projection x DecalToWorld)
-            mat4 ClipToDecal; // a depth texel's clip position into the box
-            vec4 AxisX;       // the box's world axes, normalised: x / y the texture plane, z the projection axis
-            vec4 AxisY;
-            vec4 AxisZ;
-            vec4 Params; // x opacity (the CPU fade), y edge fade, z the channel mask (DecalChannel bits, float)
-        };
+        #include <Generated/Decals/Decal.glslh> // DecalRow: Decals/DecalLayout.hpp, baked per view on the CPU
         ReadBuffer(2) DecalRowsBuffer
         {
             DecalRow DecalRows[];

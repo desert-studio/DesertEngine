@@ -6,6 +6,7 @@ desert_sources(_sources "Source" MATCHING "\\.cpp$")
 desert_add_executable(ShaderProtocolGen FOLDER Tools SOURCES ${_sources})
 target_include_directories(ShaderProtocolGen PRIVATE
     "${DESERT_ROOT}/Desert/Desert/Source"
+    "${DESERT_ROOT}/Desert/Landscape/Source"
     "${DESERT_ROOT}/Desert/Water/Source"
     "${DESERT_ROOT}/Desert/VFX/Source")
 desert_external_includes(ShaderProtocolGen "${DESERT_ROOT}/ThirdParty/glm")

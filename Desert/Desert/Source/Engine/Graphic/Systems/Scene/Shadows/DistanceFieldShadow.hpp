@@ -31,6 +31,7 @@
 #include <utility>
 #include <vector>
 #include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/DistanceFieldShadowLayout.hpp>
 
 // "Shadows: Distance Field Sun" (UE FProjectedShadowInfo::RenderRayTracedDistanceFieldProjection, r.DFShadow*):
 // the sun past its last cascade. Four compute nodes over this frame's mesh distance fields and global distance
@@ -113,23 +114,6 @@ namespace Desert::Graphic::System
                                             .Feedback    = "ShadowMask.Light1.DistanceField.Feedback",
                                             .Half        = "ShadowMask.Light1.DistanceField.Half" } };
 
-    // std430 `struct DistanceFieldShadowParams` (Common/DistanceFieldShadow.glslh), field for field.
-    struct DistanceFieldShadowGpuParams
-    {
-        glm::vec4  LightX{ 1.0f, 0.0f, 0.0f, 0.0f }; // xyz = light-space x axis (unit), w = -dot(axis, camera)
-        glm::vec4  LightY{ 0.0f, 1.0f, 0.0f, 0.0f };
-        glm::vec4  LightZ{ 0.0f, 0.0f, 1.0f, 0.0f }; // toward the sun
-        glm::vec4  Tiles{ 0.0f };                    // xy = the grid's min corner (cm), zw = 1 / tile size (1/cm)
-        glm::vec4  Receivers{ 0.0f };                // lowest light z, tan(angle / 2), max distance, band
-        glm::uvec4 Counts{ 0u };                     // objects (meshes + tiles), tiles a side, tiles, list room
-        glm::mat4  InvViewProjection{ 1.0f };        // the G-buffer's inverse jittered view-projection
-        glm::mat4  LastCascade{ 1.0f };              // the sun's last cascade's view-projection
-        glm::vec4  Camera{ 0.0f };                   // xyz = camera (cm), w = 1 when LastCascade is the light's
-        std::array<glm::vec4, DistanceField::kGlobalDistanceFieldClipmaps> GdfLevels{};    // centre.xyz, voxel cm
-        glm::vec4                                                          Extent{ 0.0f }; // full xy, half zw
-    };
-    static_assert( sizeof( DistanceFieldShadowGpuParams ) == 320 );
-
     // The slot names each node binds, spelled once (RDGShaderParameters.hpp), checked against the shaders in
     // Initialize.
     struct DistanceFieldShadowCullShaderParameters
@@ -193,9 +177,6 @@ namespace Desert::Graphic::System
              RDG::Erase( DistanceFieldShadowHalfTexture ), RDG::Erase( DistanceFieldShadowTexture ),
              RDG::Erase( PointClampSampler ) };
     };
-
-
-
 
     // This frame's view and fields, gathered by SceneRenderer::AddFrameDistanceFieldShadow.
     struct DistanceFieldShadowInputs

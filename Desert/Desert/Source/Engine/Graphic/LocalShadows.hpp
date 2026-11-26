@@ -2,6 +2,7 @@
 
 #include <Common/Core/Units.hpp>
 #include <Common/Settings/RenderMethods.hpp>
+#include <Engine/Graphic/LightingLayout.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 
 #include <glm/glm.hpp>
@@ -70,18 +71,6 @@ namespace Desert::Graphic
 
         bool operator==( const LocalLightShadowSettings& ) const = default;
     };
-
-    // ONE ROW OF THE VIEW TABLE THE RECEIVER READS — std430, matching `struct LocalShadowView` in
-    // Mesh/LocalLightShadow.glslh (112 bytes).
-    struct LocalShadowViewPayload
-    {
-        glm::mat4 ViewProj{ 1.0f };  // world -> clip of this view (standard Z, [0,1])
-        glm::vec4 AtlasRect{ 0.0f }; // xy = the tile's top-left in atlas UV, zw = its size in atlas UV
-        glm::vec4 Params{ 0.0f };    // x = near, y = far, z = world size of one texel at unit distance, w = unused
-        glm::vec4 Params2{ 0.0f };   // x = unused, y = 1 / atlas side, zw = unused
-        // No depth bias here: the casters carry it (LocalCasterBias), the receiver only its normal offset.
-    };
-    static_assert( sizeof( LocalShadowViewPayload ) == 112 );
 
     // A 2D rectangle of the atlas, in texels.
     struct AtlasTile
