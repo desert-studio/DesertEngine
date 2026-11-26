@@ -407,7 +407,11 @@ namespace Desert::Core
 
     Common::ResultStr<std::vector<std::string>> ScriptFileSaveGameLookup( const std::string& scriptPath )
     {
-        return Scripting::ReadScriptSaveGameProperties( scriptPath );
+        const ScriptSaveGameReader reader = ModuleHooks().ScriptSaveGameNames;
+        if ( reader == nullptr )
+            return Common::MakeError<std::vector<std::string>>( std::format(
+                 "script '{}': no script language module registered a SaveGame reader", scriptPath ) );
+        return reader( scriptPath );
     }
 
     SaveGameSchema EngineSaveGameSchema()

@@ -26,7 +26,9 @@
 #include <Engine/Gameplay/PawnPrefabMovement.hpp>
 #include <Engine/Gameplay/PhysicsPawnMoveWorld.hpp>
 #include <Engine/Gameplay/ScriptedPawnInput.hpp>
-#include <Engine/ECS/System/ScriptSystem.hpp>
+#include <Engine/Core/WorldContext.hpp>
+#include <Common/Core/KeyCodes.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Engine/Input/InputKey.hpp>
 #include <Engine/Input/LocalPawnInput.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
@@ -515,8 +517,8 @@ namespace Desert::Core
                     // UE APlayerController::Possess -> PawnClientRestart: the pawn's mapping contexts join the
                     // local player's Enhanced Input (its EnhancedInputPlayerComponent), as GameMode's restart
                     // does.
-                    if ( auto* scripts = scene.FindSystem<ECS::ScriptSystem>() )
-                        scripts->PlayerInput().PossessPawn( reg, assets, pawn );
+                    if ( auto* scripts = scene.FindSystem<Core::ScriptHostSystem>() )
+                        scripts->Host().PlayerInput().PossessPawn( reg, assets, pawn );
                     LOG_INFO( "[Net] the level names no pawn: spawned the server's pawn prefab {:016x} as this "
                               "player's",
                               m_Client->PawnPrefab() );
@@ -846,9 +848,9 @@ namespace Desert::Core
             // IA_Sprint) fires its declared Sprint action; the jump is the pawn's Jump request (UE
             // ACharacter::Jump, a script's self:jump). Both reach the step through the one builder below.
             if ( frame.Sprint != m_ScriptSprintKeyHeld )
-                if ( auto* scripts = scene.FindSystem<ECS::ScriptSystem>() )
+                if ( auto* scripts = scene.FindSystem<Core::ScriptHostSystem>() )
                 {
-                    scripts->PlayerInput().InputKey( Input::InputKey::Of( Common::KeyCode::LeftShift ),
+                    scripts->Host().PlayerInput().InputKey( Input::InputKey::Of( Common::KeyCode::LeftShift ),
                                                      frame.Sprint );
                     m_ScriptSprintKeyHeld = frame.Sprint;
                     LOG_INFO( "[Net] scripted walk: Left Shift {} in the player's Enhanced Input at t={:.1f}s",

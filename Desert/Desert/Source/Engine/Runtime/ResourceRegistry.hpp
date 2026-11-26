@@ -23,7 +23,7 @@ namespace Desert::Runtime
     class FontService;
     class IconService;
     class AnimatedImageService;
-    class VideoService;
+    class IVideoService;
     class CloudNoiseService;
     class CloudTypeService;
     class CloudModellingService;
@@ -59,7 +59,10 @@ namespace Desert::Runtime
         // environment cache writer is the skybox service's (SkyboxService::EnvironmentCache).
 
         static AnimatedImageService* GetAnimatedImageService();
-        static VideoService*         GetVideoService();
+        // The UI's video clips: the Media module's VideoService, which its StartupModule provides; nullptr in
+        // an executable that links no Media module.
+        static IVideoService*        GetVideoService();
+        static void                  ProvideVideoService( IVideoService* service );
         static CloudNoiseService*    GetCloudNoiseService();
         static CloudTypeService*     GetCloudTypeService();
         // The sculpted hero-cloud bodies (`.dcmv`), slot A of the cloud field's seam.

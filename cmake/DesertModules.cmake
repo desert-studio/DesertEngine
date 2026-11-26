@@ -98,16 +98,21 @@ if(NOT DESERT_MODULES OR NOT _desert_table_placement_modules)
     message(FATAL_ERROR "DesertModuleTable.cmake declares no module or no placement row")
 endif()
 
-# The generated files of the whole set (the module list, the component list, the subsystem tables, the shaders'
-# push structs) are Engine's; the replication layout is CoreReflection's, which the dedicated server links
-# (Engine/Reflection/ReplicatedFields.hpp).
-foreach(_gen Reflection.gen.cpp Components.gen.cpp EngineSubsystems.gen.cpp WorldSubsystems.gen.cpp
-             ReflectedComponentBlocks.gen.hpp ShaderPushConstants.gen.hpp)
+# The generated files of the whole set (the subsystem tables, the shaders' push structs) are Engine's; the
+# replication layout is CoreReflection's, which the dedicated server links (Engine/Reflection/ReplicatedFields.hpp).
+# The two MODULE LISTS (Reflection.gen.cpp, Components.gen.cpp) name every module's registration function, so they
+# belong to no module: they are compiled into each executable that links the engine (desert_link_engine), the one
+# image above every module (BINT-ENG; UE: the target's module list in the executable).
+foreach(_gen EngineSubsystems.gen.cpp WorldSubsystems.gen.cpp ReflectedComponentBlocks.gen.hpp
+             ShaderPushConstants.gen.hpp)
     list(APPEND DESERT_MODULE_Engine_GENERATED "${DESERT_ENGINE_GENERATED_DIR}/${_gen}")
 endforeach()
 list(APPEND DESERT_MODULE_CoreReflection_GENERATED "${DESERT_ENGINE_GENERATED_DIR}/ReplicatedFields.gen.cpp")
+set(DESERT_EXECUTABLE_GENERATED
+    "${DESERT_ENGINE_GENERATED_DIR}/Reflection.gen.cpp"
+    "${DESERT_ENGINE_GENERATED_DIR}/Components.gen.cpp")
 # Every file DesertHeaderTool writes for the engine: the byproducts of its step (Desert/Desert/CMakeLists.txt).
-set(DESERT_ENGINE_GENERATED_FILES "")
+set(DESERT_ENGINE_GENERATED_FILES ${DESERT_EXECUTABLE_GENERATED})
 foreach(name IN LISTS DESERT_MODULES)
     list(APPEND DESERT_ENGINE_GENERATED_FILES ${DESERT_MODULE_${name}_GENERATED})
 endforeach()
@@ -510,6 +515,15 @@ function(desert_link_engine target)
         list(APPEND _names ${DESERT_MODULE_${name}_LIBRARIES})
     endforeach()
     target_link_libraries(${target} PRIVATE ${_names} ${DESERT_DESERTSPECIFIC_LIBRARIES})
+    # The executable's module list (BINT-ENG): the generated reflection and component lists and the feature
+    # modules' startup (Desert/Launch/LinkedModules.cpp). Only an executable gets it: a library linking the engine
+    # (an editor layer) is a module of its own, and a second copy would register every module twice.
+    get_target_property(_type ${target} TYPE)
+    if(_type STREQUAL "EXECUTABLE")
+        set_source_files_properties(${DESERT_EXECUTABLE_GENERATED} TARGET_DIRECTORY ${target} PROPERTIES GENERATED TRUE)
+        target_sources(${target} PRIVATE ${DESERT_EXECUTABLE_GENERATED} "${DESERT_ROOT}/Desert/Launch/LinkedModules.cpp")
+        target_include_directories(${target} PRIVATE "${DESERT_ROOT}/${DESERT_LEGACY_ROOT}" "${DESERT_GENERATED_DIR}")
+    endif()
 endfunction()
 
 # A tool that runs engine code (WorldCook, SceneMigrator): the module libraries (desert_link_engine) and the

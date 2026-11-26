@@ -191,7 +191,7 @@ namespace Desert::Scripting
         // every script; then the WorldPartition.waitUntilStreamed callbacks whose query completed. After
         // DeliverGameModeEvents, before the scripts run.
         void DeliverWorldPartitionEvents( entt::registry& registry );
-        Input::LocalPlayerInput& PlayerInput();
+        Input::LocalPlayerInput& PlayerInput() override;
 
     public:
         // Public FORWARD declaration only: the definition lives in Luau/LuauHost.hpp,

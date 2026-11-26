@@ -18,7 +18,7 @@
 #include <Engine/Runtime/Services/Subsurface/SubsurfaceProfileService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
-#include <Engine/Runtime/Services/Video/VideoService.hpp>
+#include <Engine/Runtime/Services/IVideoService.hpp>
 #include <Engine/Runtime/Services/Weather/WeatherPresetService.hpp>
 #include <Engine/Runtime/Services/WorldParameters/WorldParametersService.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
@@ -43,6 +43,11 @@ namespace Desert::Runtime
         {
             (void)GetImageService();
         }
+
+        // The Media module's video service, handed over by its StartupModule (ProvideVideoService); the module
+        // owns the instance, so it is destroyed with the module, before the RenderCore image service it holds
+        // views of.
+        IVideoService* s_VideoService = nullptr;
     } // namespace
 
     MeshService* ResourceRegistry::GetMeshService()
@@ -95,11 +100,14 @@ namespace Desert::Runtime
         return &animatedImageService;
     }
 
-    VideoService* ResourceRegistry::GetVideoService()
+    IVideoService* ResourceRegistry::GetVideoService()
     {
-        ImageServiceConstructedFirst(); // holds Texture2Ds -- see the function
-        static VideoService videoService;
-        return &videoService;
+        return s_VideoService;
+    }
+
+    void ResourceRegistry::ProvideVideoService( IVideoService* service )
+    {
+        s_VideoService = service;
     }
 
     CloudNoiseService* ResourceRegistry::GetCloudNoiseService()
@@ -211,7 +219,8 @@ namespace Desert::Runtime
         GetFontService()->Clear();
         GetIconService()->Clear();
         GetAnimatedImageService()->Clear();
-        GetVideoService()->Clear();
+        if ( s_VideoService != nullptr )
+            s_VideoService->Clear();
         GetCloudNoiseService()->Clear();
         GetCloudTypeService()->Clear();
         GetCloudModellingService()->Clear();

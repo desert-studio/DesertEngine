@@ -120,12 +120,19 @@ desert_placement(RenderCore [[Engine/Graphic/Materials/(MaterialBackend|SceneRes
 # mesh table, and the image registry every Texture2D registers in
 desert_placement(RenderCore [[Engine/Graphic/(DisplayOutput|GpuMemoryBudget|RendererClient)\.|Engine/Graphic/GpuDriven/(GpuSceneLayout|IndirectSubmissionMode)\.|Engine/Graphic/VirtualGeometry/(VirtualMeshTable|VirtualGeometryLayout)\.|Engine/Runtime/(ImageHandle|Services/Image/ImageService)\.]])
 # the render-facing DATA the world produces (scene proxies, materials, sky/fog/cloud payloads) is Engine's
-desert_placement(Engine [[Engine/Graphic/Render/|Engine/Graphic/Clouds/|Engine/Graphic/Fog/|Engine/Graphic/(SkyRules|SkySettings|SkyPresets|SunLightFx|MaterialPipelineStates)\.]])
+desert_placement(Engine [[Engine/Graphic/Render/|Engine/Graphic/Clouds/|Engine/Graphic/Fog/|Engine/Graphic/(SkyRules|SkySettings|SkyPresets|SunLightFx|MaterialPipelineStates|TextureStreamingDemand|IesProfile)\.|Engine/Graphic/SubsurfaceProfiles/]])
 desert_placement(Engine [[Engine/Graphic/Materials/(Material|MaterialInstance|DataDrivenMaterial|MaterialOverrides|MaterialProperty|Mesh/MeshVertexPath|Skybox/MaterialSkybox)\.|Engine/Graphic/Environment/(SceneEnvironment|OwnedEnvironment|EnvironmentBake)\.]])
 desert_placement(Renderer [[Engine/Graphic/]])
 desert_placement(Media [[Engine/Media/]])
+# the UI's video clips (BINT-ENG-A): the player, texture and sound of each open clip; Engine reaches it only as
+# Runtime::IVideoService, which the Media module's StartupModule hands to ResourceRegistry
+desert_placement(Media [[Engine/Runtime/Services/Video/]])
 # feature modules over Engine (UE plugins own their assets, services, components and systems)
 desert_placement(Foliage [[Engine/World/Foliage/|Engine/Assets/(FoliageTypeAsset|Serialization/FoliageType)\.|Engine/Runtime/Services/Foliage/|Engine/ECS/ProceduralFoliageComponent\.]])
 desert_placement(ScriptLuau [[Engine/Scripting/Luau/]])
+# the world system that runs the scripts and the gameplay debugger's Script category hold the ScriptEngine the Luau
+# plugin implements (BINT-ENG-A); Engine reaches them only through Core::ScriptHostSystem and the hooks the
+# module's StartupModule registers (Engine/Scripting/Luau/LuauScriptingModule.cpp)
+desert_placement(ScriptLuau [[Engine/ECS/System/ScriptSystem\.|Engine/GameplayDebugger/GameplayDebuggerCategoryScript\.]])
 desert_placement(Scripting [[Engine/Scripting/]])
 desert_placement(Engine [[^]])  # everything else of the old library (Core, ECS, Runtime, typed Assets, Generated, pch)

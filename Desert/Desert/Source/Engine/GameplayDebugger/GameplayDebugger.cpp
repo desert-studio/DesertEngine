@@ -1,17 +1,20 @@
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 
 #if DESERT_DEV_INSTRUMENTS
+#include <Engine/Core/ModuleHooks.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/GameplayDebugger/GameplayDebuggerCategoryBasic.hpp>
 #include <Engine/GameplayDebugger/GameplayDebuggerCategoryPhysics.hpp>
 #include <Engine/GameplayDebugger/GameplayDebuggerCategoryRendering.hpp>
-#include <Engine/GameplayDebugger/GameplayDebuggerCategoryScript.hpp>
 #include <Engine/GameplayDebugger/GameplayDebuggerCategoryWorldPartition.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
 
 #include <Common/Core/KeyCodes.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Math/Ray.hpp>
 
+#include <algorithm>
+#include <cstdint>
 #include <format>
 #include <string>
 #include <Engine/ECS/TagComponent.hpp>
@@ -78,11 +81,28 @@ namespace Desert::Debug
 
     GameplayDebugger::GameplayDebugger()
     {
-        AddCategory( std::make_unique<GameplayDebuggerCategoryBasic>() );
-        AddCategory( std::make_unique<GameplayDebuggerCategoryPhysics>() );
-        AddCategory( std::make_unique<GameplayDebuggerCategoryScript>() );
-        AddCategory( std::make_unique<GameplayDebuggerCategoryRendering>() );      // key 4
-        AddCategory( std::make_unique<GameplayDebuggerCategoryWorldPartition>() ); // key 5
+        // The engine's categories at their keys, the modules' (Core::ModuleHookLists::DebuggerCategories, the
+        // script language's Script at 3) between them; a category's digit is its place in this order.
+        struct Keyed
+        {
+            std::uint8_t                               Key = 0;
+            std::unique_ptr<IGameplayDebuggerCategory> Category;
+        };
+        std::vector<Keyed> keyed;
+        keyed.push_back( { 1, std::make_unique<GameplayDebuggerCategoryBasic>() } );
+        keyed.push_back( { 2, std::make_unique<GameplayDebuggerCategoryPhysics>() } );
+        keyed.push_back( { 4, std::make_unique<GameplayDebuggerCategoryRendering>() } );
+        keyed.push_back( { 5, std::make_unique<GameplayDebuggerCategoryWorldPartition>() } );
+        for ( const Core::GameplayDebuggerCategoryMaker& maker : Core::ModuleHooks().DebuggerCategories )
+            keyed.push_back( { maker.Key, maker.Make() } );
+        std::ranges::stable_sort( keyed, {}, &Keyed::Key );
+        for ( std::size_t i = 0; i < keyed.size(); ++i )
+        {
+            if ( keyed[i].Key != i + 1 )
+                LOG_ERROR( "[GameplayDebugger] category '{}' asks for key {} but sits at {}",
+                           keyed[i].Category->GetName(), keyed[i].Key, i + 1 );
+            AddCategory( std::move( keyed[i].Category ) );
+        }
     }
 
     IGameplayDebuggerCategory* GameplayDebugger::FindCategory( const std::string_view name )

@@ -36,7 +36,10 @@ namespace Desert::ECS
     // DOES NOT HONOUR VisibilityComponent, AND MUST NOT: it runs gameplay Lua and owns the frame's cursor
     // capture. A hidden entity whose script stops running is a behaviour change, not a drawing one.
     // Verdict and mutation gate: Desert/Tests/Engine/VisibilityHonoured.
-    class ScriptSystem final : public System
+    // Placed in the script language's module (cmake/DesertModuleTable.cmake): it owns the ScriptEngine that module
+    // implements. Engine reaches it only as Core::ScriptHostSystem; the module's StartupModule registers its world
+    // system row (Engine/Scripting/Luau/LuauScriptingModule.cpp).
+    class ScriptSystem final : public System, public Core::ScriptHostSystem
     {
     public:
         explicit ScriptSystem( Core::Scene* scene, Assets::AssetManager* assetManager = nullptr )
@@ -55,6 +58,13 @@ namespace Desert::ECS
         [[nodiscard]] Input::LocalPlayerInput& PlayerInput()
         {
             return m_Engine.PlayerInput();
+        }
+
+        /// The world's running script host (Core::ScriptHostSystem): what Engine code reads the player's input
+        /// through.
+        [[nodiscard]] Core::ScriptHost& Host() override
+        {
+            return m_Engine;
         }
 
         /// The scene's scripts while they run: what the gameplay debugger reads a slot's live state from.
