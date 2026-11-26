@@ -47,17 +47,18 @@ namespace Desert::Editor
         // The editor's load (EditorRegions::LoadHeld) of what a builder step holds. An entity that differs from its
         // file and would leave is refused, not dropped: UE saves the dirty packages before a builder runs, so a
         // builder never unloads an unsaved edit - the user saves (or discards) and runs it again.
-        Common::ResultStr<Core::EditorRegions::RegionOutcome> HoldForBuilder( Core::Scene& scene,
-                                                                             Assets::AssetManager* assets,
-                                                                             const Core::EditorRegions::HeldRegions& held )
+        Common::ResultStr<::Desert::Core::EditorRegions::RegionOutcome>
+        HoldForBuilder( ::Desert::Core::Scene& scene, Assets::AssetManager* assets,
+                        const ::Desert::Core::EditorRegions::HeldRegions& held )
         {
-            auto loaded = Core::EditorRegions::LoadHeld( scene, assets, held, Core::EditorRegions::UnsavedPolicy::Ask );
+            auto loaded = ::Desert::Core::EditorRegions::LoadHeld(
+                 scene, assets, held, ::Desert::Core::EditorRegions::UnsavedPolicy::Ask );
             if ( !loaded || loaded.GetValue().Unsaved.empty() )
                 return loaded;
             std::string names;
-            for ( const Core::EditorRegions::UnsavedEntity& entity : loaded.GetValue().Unsaved )
+            for ( const ::Desert::Core::EditorRegions::UnsavedEntity& entity : loaded.GetValue().Unsaved )
                 names += std::format( "{}{}", names.empty() ? "" : ", ", entity.Name );
-            return Common::MakeError<Core::EditorRegions::RegionOutcome>( std::format(
+            return Common::MakeError<::Desert::Core::EditorRegions::RegionOutcome>( std::format(
                  "{} entit{} differ from their files and would be unloaded ({}): save the world first",
                  loaded.GetValue().Unsaved.size(), loaded.GetValue().Unsaved.size() == 1 ? "y" : "ies", names ) );
         }
@@ -103,9 +104,10 @@ namespace Desert::Editor
         return BOOLSUCCESS;
     }
 
-    std::vector<Core::Rules::CellBounds> IterativeCells2D( const Core::Rules::CellBounds& world, float cellSize )
+    std::vector<::Desert::Core::Rules::CellBounds>
+    IterativeCells2D( const ::Desert::Core::Rules::CellBounds& world, float cellSize )
     {
-        std::vector<Core::Rules::CellBounds> cells;
+        std::vector<::Desert::Core::Rules::CellBounds> cells;
         if ( !( cellSize > 0.0f ) || world.MaxX < world.MinX || world.MaxZ < world.MinZ )
             return cells;
         const auto firstX = static_cast<long long>( std::floor( world.MinX / cellSize ) );
@@ -117,7 +119,8 @@ namespace Desert::Editor
             {
                 const float minX = static_cast<float>( x ) * cellSize;
                 const float minZ = static_cast<float>( z ) * cellSize;
-                cells.push_back( Core::Rules::CellBounds{ minX, minZ, minX + cellSize, minZ + cellSize } );
+                cells.push_back(
+                     ::Desert::Core::Rules::CellBounds{ minX, minZ, minX + cellSize, minZ + cellSize } );
             }
         return cells;
     }
@@ -158,7 +161,7 @@ namespace Desert::Editor
         m_Row                            = FindWorldPartitionBuilder( options.Builder );
         if ( m_Row == nullptr )
             return Common::MakeError( std::format( "--builder '{}' is not a World Partition builder", options.Builder ) );
-        const std::shared_ptr<Core::Scene> scene = m_Workspace.ActiveScene();
+        const std::shared_ptr<::Desert::Core::Scene> scene = m_Workspace.ActiveScene();
         if ( !scene )
             return Common::MakeError( "no scene is open" );
         // The scene the command line named, and no other: a refused load leaves the project's default (or the
@@ -187,8 +190,9 @@ namespace Desert::Editor
         // Every data layer of the world is loaded for a builder (it builds the world, not one person's view of it).
         const auto& partition = scene->GetWorldPartition();
         if ( partition && partition->DataLayers )
-            for ( const Core::DataLayerSerialized& layer : *partition->DataLayers )
-                m_Layers = Core::EditorRegions::WithDataLayerLoaded( *partition, m_Layers, layer.Name, true );
+            for ( const ::Desert::Core::DataLayerSerialized& layer : *partition->DataLayers )
+                m_Layers =
+                     ::Desert::Core::EditorRegions::WithDataLayerLoaded( *partition, m_Layers, layer.Name, true );
         const bool fromFiles = partition.has_value() && scene->Packages()->BaselinePath().has_value();
 
         const BuilderLoadingMode mode =
@@ -200,19 +204,20 @@ namespace Desert::Editor
                 return Common::MakeError( std::format( "'{}' is not a partitioned world opened from its files; only "
                                                        "such a world is loaded cell by cell",
                                                        open.string() ) );
-            auto index = Core::DescriptorIndex::Refresh( open );
+            auto index = ::Desert::Core::DescriptorIndex::Refresh( open );
             if ( !index )
                 return Common::MakeError( "the world's descriptor index: " + index.GetError() );
-            const std::vector<Core::Rules::EntityDescriptor> descriptors =
-                 Core::DescriptorIndex::Descriptors( index.GetValue().Index );
-            const Core::Rules::WorldPartitionPlan plan = Core::Rules::PlanWorldPartition(
-                 std::span<const Core::Rules::EntityDescriptor>( descriptors ), *partition, Core::RegistryMeshBounds() );
-            std::optional<Core::Rules::CellBounds> world;
-            for ( const Core::Rules::PlannedComposite& composite : plan.Composites )
+            const std::vector<::Desert::Core::Rules::EntityDescriptor> descriptors =
+                 ::Desert::Core::DescriptorIndex::Descriptors( index.GetValue().Index );
+            const ::Desert::Core::Rules::WorldPartitionPlan plan = ::Desert::Core::Rules::PlanWorldPartition(
+                 std::span<const ::Desert::Core::Rules::EntityDescriptor>( descriptors ), *partition,
+                 ::Desert::Core::RegistryMeshBounds() );
+            std::optional<::Desert::Core::Rules::CellBounds> world;
+            for ( const ::Desert::Core::Rules::PlannedComposite& composite : plan.Composites )
             {
                 if ( !composite.Footprint )
                     continue;
-                const Core::Rules::CellBounds& foot = *composite.Footprint;
+                const ::Desert::Core::Rules::CellBounds& foot = *composite.Footprint;
                 if ( !world )
                     world = foot;
                 world->MinX = std::min( world->MinX, foot.MinX );
@@ -223,7 +228,8 @@ namespace Desert::Editor
             if ( !world )
                 return Common::MakeError( "the world places nothing on the ground: there is no cell to load (run the "
                                           "builder without --builder-cell-size)" );
-            const std::vector<Core::Rules::CellBounds> squares = IterativeCells2D( *world, options.IterativeCellSize );
+            const std::vector<::Desert::Core::Rules::CellBounds> squares =
+                 IterativeCells2D( *world, options.IterativeCellSize );
             for ( std::size_t i = 0; i < squares.size(); ++i )
                 m_Cells.push_back( BuilderCell{ squares[i], i, squares.size(), false } );
         }
@@ -231,8 +237,9 @@ namespace Desert::Editor
         {
             if ( mode == BuilderLoadingMode::EntireWorld && fromFiles )
             {
-                auto loaded = HoldForBuilder( *scene, m_Assets.get(),
-                                              Core::EditorRegions::HeldRegions{ .Whole = true, .DataLayers = m_Layers } );
+                auto loaded = HoldForBuilder(
+                     *scene, m_Assets.get(),
+                     ::Desert::Core::EditorRegions::HeldRegions{ .Whole = true, .DataLayers = m_Layers } );
                 if ( !loaded )
                     return Common::MakeError( "loading the entire world: " + loaded.GetError() );
                 if ( loaded.GetValue().Loaded > 0 || loaded.GetValue().Unloaded > 0 )
@@ -262,8 +269,9 @@ namespace Desert::Editor
             {
                 auto loaded = HoldForBuilder(
                      *m_Context.Scene, m_Assets.get(),
-                     Core::EditorRegions::HeldRegions{ .Regions    = { Core::EditorRegions::RegionLoader{ cell.Bounds } },
-                                                       .DataLayers = m_Layers } );
+                     ::Desert::Core::EditorRegions::HeldRegions{
+                          .Regions    = { ::Desert::Core::EditorRegions::RegionLoader{ cell.Bounds } },
+                          .DataLayers = m_Layers } );
                 if ( !loaded )
                     return Common::MakeError<bool>(
                          std::format( "cell {}/{}: loading it: {}", cell.Index + 1, cell.Count, loaded.GetError() ) );
