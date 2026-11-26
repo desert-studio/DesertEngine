@@ -3,30 +3,14 @@
 # source blocks (StaticMesh, InstancedStaticMesh, Foliage, a SkinnedMesh's presence, every module's HLOD builder
 # component: LandscapeTile, LandscapeSpline), id, parent, transform and its ancestors' transforms - and the assets
 # those blocks name; a member with none (a pawn's controller, a trigger, a player start, a light) adds nothing.
-# The new form stales every saved HLOD once: this scenario rebuilds the HLODs of every World Partition world of
-# Projects/Desert through Build HLODs (WP_Protocol, WP21_PrefabSpan_Far, WP21_PrefabSpan_Near, WP23_Regions; FOLIAGE_Edit
-# states no HLOD layer), then Play's far view of WP_Protocol.
+# The new form stales every saved HLOD once: the HLODs of every World Partition world of Projects/Desert are rebuilt
+# with the path a user runs, headless (Build > Build HLODs; BuilderRunOptions.hpp), from Editor/ via run_capped:
+#   <bin>/Editor --project ../Projects/Desert/Desert.deproj --scene Content/Scenes/<World>.desce --run WorldPartitionBuilder --builder HLODs
+# for WP_Protocol, WP21_PrefabSpan_Far, WP21_PrefabSpan_Near, WP23_Regions (FOLIAGE_Edit states no HLOD layer), committed;
+# then Play's far view of WP_Protocol.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
 Дано run Panel "Open World Partition"
-Дано run Scene "Build HLODs"
-Дано wait-idle 2400
-Тогда 0_wp_protocol_built WP_Protocol: World Partition panel, HLODs «0 stale HLOD»; editor.log «built N of N HLOD cells», read back 0 stale
-Дано run Scene "Open Scene WP21_PrefabSpan_Far.desce"
-Дано wait-idle 60
-Дано run Scene "Build HLODs"
-Дано wait-idle 2400
-Тогда 1_far_built WP21_PrefabSpan_Far: «0 stale HLOD» after its Build HLODs
-Дано run Scene "Open Scene WP21_PrefabSpan_Near.desce"
-Дано wait-idle 60
-Дано run Scene "Build HLODs"
-Дано wait-idle 2400
-Тогда 2_near_built WP21_PrefabSpan_Near: «0 stale HLOD» after its Build HLODs
-Дано run Scene "Open Scene WP23_Regions.desce"
-Дано wait-idle 60
-Дано run Scene "Build HLODs"
-Дано wait-idle 2400
-Тогда 3_regions_built WP23_Regions: «0 stale HLOD» after its Build HLODs
 Когда run Scene "Open Scene WP_Protocol.desce"
 Когда wait-idle 60
 Когда run Mode "Select mode"
@@ -43,12 +27,12 @@
 Тогда hlod_hash_view_far HH-06: WP_Protocol from 400 m up, every far cell drawn by its HLOD (no hole, no doubled block) as in dev's frame (pixel diff named)
 Когда run Action "Stop"
 # [hlod_hash_gameplay] / [hlod_hash_source] (WorldCook, not DesertCtl steps): on the rebuilt WP_Protocol, each edit
-# in Main cell G0L0(0,0) is made in the editor and saved, then from Projects/Desert
+# on Foliage Bush 0_0 (200978, cell (0,0) of the Foliage grid, HLOD_G1_L0_0_0) is written to its file, then from Projects/Desert
 #   WorldCook Content/Scenes/WP_Protocol.desce --out <scratch>/wc/<HH> --project Desert.deproj --project-registry
 # and the edit is reverted with `git restore` of the files it wrote:
-#   HH-01 Player 9000001 gains a CharacterController (MaxStepHeight 45, then 60): 0 World Partition issue(s).
-#   HH-04 a PlayerStart and a trigger volume added at (500, -200, 500): 0 issue(s).
-#   HH-02 Foliage Bush 0_0 (200978) moved 3 m on X: StaleHLOD for exactly G0L0(0,0)'s HLOD and its parents.
+#   HH-01 Bush 0_0 gains a CharacterController (MaxWalkSpeed 600, then 650 + MaxSlopeDeg 40): 0 World Partition issue(s).
+#   HH-04 a PlayerStart and a trigger volume (Collider only) added in that cell at (1500, -404, 1500): 0 issue(s).
+#   HH-02 Foliage Bush 0_0 (200978) moved 3 m on X: StaleHLOD for exactly that cell's HLOD and its parents.
 #   HH-03 Foliage Bush 0_0's material slot replaced: StaleHLOD for that cell and its parents.
 # [hlod_hash_view] HH-05: WorldCook of WP_Protocol, WP21_PrefabSpan_Far, WP21_PrefabSpan_Near, WP23_Regions,
 # FOLIAGE_Edit: 0 issue(s) each.
