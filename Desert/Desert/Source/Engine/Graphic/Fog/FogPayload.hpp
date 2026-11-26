@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/Graphic/AtmosphereEnv.hpp>
+#include <Engine/Graphic/Fog/FogLayout.hpp>
 
 #include <glm/glm.hpp>
 
@@ -10,83 +11,9 @@
 
 namespace Desert::Graphic
 {
-    /**
-     * The GPU side of ExponentialHeightFogData, and the ONLY place the component is turned into bytes.
-     *
-     * The GLSL half of this layout is the block in Editor/Resources/Shaders/Common/FogParams.glslh,
-     * member for member and in this order. The static_asserts below make a divergence a build error
-     * instead of a frame in which every parameter after the inserted one is read from the wrong offset.
-     *
-     * Units: KILOMETRES and per-kilometre coefficients throughout — this packer is where the component's
-     * world-unit distances and UE-unit densities are converted, exactly once ("kilometres once, inside
-     * the shader"; the closed form's precision argument is in HeightFog.glslh).
-     */
-    struct FogGpuPayload
-    {
-        glm::vec4 SunDirection; // xyz toward sun (normalized), w = DirectionalInscatteringExponent
-        glm::vec4 Directional;  // rgb lobe colour, w = directional start distance (km)
-        glm::vec4 Inscattering; // rgb fog colour (sky ambient folded in), w = 1 - FogMaxOpacity
-        glm::vec4 Layer0;       // x density /km, y falloff /km, z fog height (km), w start distance (km)
-        glm::vec4 Layer1;       // x density /km, y falloff /km, z fog height (km), w cutoff distance (km)
-
-        // The SKY AMBIENT the fog adds to its in-scattering colour, in the form the GPU needs it:
-        //   rgb = SkyAtmosphereAmbientContributionColorScale, the artist's per-channel scale;
-        //   w   = 1 when the distant-sky-light texel is bound and must be sampled, 0 otherwise.
-        //
-        // The VALUE it scales is not here because it does not exist on the CPU: the physical average sky
-        // is one texel produced by Programs/Sky/SkyDistantLight.shader and read by the fog pass in the
-        // same frame, exactly as UE's height fog reads its Distant Sky Light LUT. With w = 0 the shader
-        // adds nothing and Inscattering below carries whatever ambient the model does have — see
-        // PackFogParams.
-        glm::vec4 Ambient;
-
-        // The VOLUMETRIC FOG this pass composes under the analytic fog (VolumetricFogRenderer's integrated volume,
-        // UE's CombineVolumetricFog). Not authored data: PackFogParams leaves both zero (no volume) and
-        // HeightFogRenderer fills them from the frame's VolumetricFogFrameResult when the volume ran.
-        //   Volumetric0: x = froxel edge (render pixels), y/z = froxels across/down, w = 1 when the volume is
-        //   bound Volumetric1: x/y/z = B, O, S of slice = log2(depth * B + O) * S (depth in cm), w = slices
-        glm::vec4 Volumetric0;
-        glm::vec4 Volumetric1;
-
-        // The per-VIEW facts of this frame, in the block (not the opaque pass's push constant) because the
-        // translucent surfaces evaluate the same fog at their own depth from this same buffer
-        // (Common/ViewFog.glslh): one block, read by the opaque composite and by every translucent draw.
-        // Not authored data: PackFogParams leaves both zero and HeightFogRenderer fills them every frame.
-        //   View:  xy = the scene view's size (render pixels), z = the AP volume's far extent (km,
-        //          AtmosphereEnv::AerialPerspectiveDepthKm), w = the read-side view-distance scale
-        //          (AtmosphereEnv::AerialPerspectiveViewDistanceScale)
-        //   Gates: x = 1 when there is an AP volume to sample, y = 1 when the height fog itself is enabled,
-        //          z = ViewFrame::PreExposure (the inscattering is written multiplied by it, the transmittance not).
-        //          Either at 0 makes its half the exact arithmetic identity (fog-without-sky, sky-without-fog
-        //          and both from one shader, no permutation); both 0 = no fog this frame, every reader leaves
-        //          its colour untouched.
-        //   Forward: xyz = the camera's forward (normalized, world): a point's froxel slice is its distance
-        //          along it, the same for the opaque pixel and the translucent fragment.
-        //   Camera: xyz = the camera's position (world units): where every fog integral starts.
-        glm::vec4 View;
-        glm::vec4 Gates;
-        glm::vec4 Forward;
-        glm::vec4 Camera;
-    };
-
-    static_assert( offsetof( FogGpuPayload, SunDirection ) == 0 );
-    static_assert( offsetof( FogGpuPayload, Directional ) == 16 );
-    static_assert( offsetof( FogGpuPayload, Inscattering ) == 32 );
-    static_assert( offsetof( FogGpuPayload, Layer0 ) == 48 );
-    static_assert( offsetof( FogGpuPayload, Layer1 ) == 64 );
-    static_assert( offsetof( FogGpuPayload, Ambient ) == 80 );
-    static_assert( offsetof( FogGpuPayload, Volumetric0 ) == 96 );
-    static_assert( offsetof( FogGpuPayload, Volumetric1 ) == 112 );
-    static_assert( offsetof( FogGpuPayload, View ) == 128 );
-    static_assert( offsetof( FogGpuPayload, Gates ) == 144 );
-    static_assert( offsetof( FogGpuPayload, Forward ) == 160 );
-    static_assert( offsetof( FogGpuPayload, Camera ) == 176 );
-    static_assert( sizeof( FogGpuPayload ) == 192, "Twelve vec4s, nothing else — the shader reads exactly this." );
-
-    // The block is a buffer of each frame's graph (HeightFogRenderer::DeclareFrameNodes, sized by the struct:
-    // already a multiple of std430's 16-byte alignment), found BY ITS NAME (kSceneFogParamsBlockName) in every
-    // layout that declares it - the fog compute at FOG_PARAMS_BINDING 1, a surface cell at
-    // Core::kSceneFogParamsBinding - so no binding number is spelled on this side.
+    // The block (FogLayout.hpp) is a buffer of each frame's graph (HeightFogRenderer::DeclareFrameNodes, sized by
+    // the struct), found BY ITS NAME (kSceneFogParamsBlockName) in every layout that declares it - the fog compute
+    // at kFogParamsBinding, a surface cell at Core::kSceneFogParamsBinding.
 
     // The per-dispatch push (the camera's InverseViewProjection) is HeightFog.shader's block,
     // ShaderPush::HeightFog: the camera position, the aerial-perspective extent, the two gates and the pre-exposure

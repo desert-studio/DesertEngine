@@ -67,10 +67,10 @@ ReadBuffer(13) SurfaceCacheShadowUB
 
 Uniform(14) texture2D CloudShadowMapTexture;
 #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearRepeatSampler)
+#include <Generated/Clouds/CloudShadow.glslh>
 ReadBuffer(15) SurfaceCacheCloudShadowUB
 {
-    mat4 CloudShadowWorldToMap;
-    vec4 CloudShadowParams; // Graphic::CloudShadowPackUniforms
+    DESERT_CloudShadowUniforms_MEMBERS
 };
 #include <Common/CloudShadowReceiver.glslh>
 

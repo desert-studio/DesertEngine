@@ -3,6 +3,7 @@
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/Graphic/AtmosphereEnv.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
+#include <Engine/Graphic/Clouds/CloudLayout.hpp>
 #include <Engine/Graphic/Clouds/CloudTypeShape.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -17,229 +18,10 @@
 
 namespace Desert::Graphic
 {
-    /// How many clip levels the block carries (CloudGpuPayload::Level, CloudLevel). Pinned equal to
-    /// Assets::kCloudProceduralClipLevels in CloudProceduralClipmap.cpp; a number here because this header
-    /// is the GPU layout and does not pull the bake in.
-    inline constexpr uint32_t kCloudClipLevelSlots = 3u;
-    /// The far path's height bands (Assets::kCloudFarBands; the renderer asserts the two agree).
-    inline constexpr uint32_t kCloudFarBandSlots = 8u;
-
-    /**
-     * The GPU side of VolumetricCloudData, and the ONLY place the component is turned into bytes.
-     *
-     * The GLSL half of this layout is the block in Editor/Resources/Shaders/Common/CloudParams.glslh,
-     * member for member and in this order. The static_asserts below make a divergence a build error
-     * instead of a frame in which every parameter after the inserted one is read from the wrong offset —
-     * which does not look like a bug, it looks like the clouds being badly tuned.
-     *
-     * Units: KILOMETRES throughout. This packer is where the component's world-unit distances are
-     * converted, exactly once.
-     *
-     * EVERY SLOT IS READ, OR IT HAS A ROW IN kUnreadSlots SAYING WHY NOT. The block is 83 floats with no
-     * reserved field and no padding, and that is a deliberate constraint rather than an accident of
-     * packing: a spare slot is where a future parameter gets quietly stashed without a name, a range or a
-     * tooltip. Two of the 83 are not read, both of them the toll std430 charges for storing a
-     * three-component COLOUR in a grid of vec4s — see kUnreadSlots below, which is the register a test
-     * checks the shader text against. It is a register with a reason per row and not a count: a count is
-     * the number the next author adjusts instead of explaining.
-     *
-     * TWENTY-EIGHT OF THE EIGHTY-THREE ARE THE FOUR SPECIES' — SpeciesEdge's sixteen, SpeciesNoise's four and
-     * the wispy base's eight (SpeciesWispBase, SpeciesWispTop). The
-     * three slots T3 freed by moving a type's factors out of the layer's own vec4s were spent rather than
-     * kept: `Weather.w` held the one species' DetailCharacter, `Detail.y` and `Detail.z` held the products
-     * of the layer's strength and density with that species' factors, and `March.w` held the product with
-     * its extinction. With four kinds of cloud in one shell none of those products can be formed once, so
-     * each became a per-species number and the vec4s they left closed up around the layer's own settings.
-     *
-     * THE PREVIOUS SENTENCE READ "THIRTY-TWO OF THE SEVENTY-NINE" UNTIL 2026-09-08, AND BOTH NUMBERS WERE
-     * ONCE TRUE. 79 floats is 316 bytes: this block BEFORE the per-species placement basis left it (four
-     * vec4s, -64 bytes) and before SpeciesNoise arrived (+16). Thirty-two was that basis's sixteen floats
-     * plus SpeciesEdge's sixteen. So the sentence was not a typo and nobody miscounted — it was ORPHANED
-     * from the layout by two changes that did not come back for it, which is a different defect from a
-     * wrong comment and needs a different habit: whoever moves a layout owns every number written about
-     * it. O1_DESIGN.md §8.2 recorded this as a numeric typo; it was not, and §10.5 records what it was.
-     */
-    struct CloudGpuPayload
-    {
-        glm::vec4 Layer;        // x planet radius, y bottom altitude, z thickness, w max view distance (km)
-        // w is the LAYER's extinction alone; the winning species' factor multiplies it in the march.
-        glm::vec4 March;        // x max steps, y stop transmittance, z tracing start (km), w extinction (1/km)
-        // THE MODELLING VOLUME'S REGION, IN THE SLOT THE WEATHER SETTINGS VACATED.
-        //
-        // This vec4 held (coverage tile, coverage, coverage contrast, detail tile). Three of those four
-        // decided WHERE cloud is, and none of them decides it any more: the lattice a cluster of lumps is
-        // drawn in, the fraction of cells that carry one, and how sharply a cell fills are all consumed by
-        // Assets::BakeCloudProceduralVolume on the CPU, at bake time. Sending them to the march as well
-        // would be three dead slots in a block whose whole discipline is that every slot has a consumer —
-        // so the region moved in and the fourth number, which the erosion still reads, stayed put.
-        //
-        // xy the region's minimum corner in world kilometres, SNAPPED to the lump lattice by
-        // Assets::CloudProceduralRegionOriginKm; z the RECIPROCAL of its horizontal side, because the march
-        // only ever divides by it; w the erosion's period, unchanged.
-        // CLIP-2: THE CLIPMAP'S THREE LEVELS, finest first (Graphic::CloudProceduralClipmap::LevelUniforms):
-        // xy the level's minimum corner on the device, world km; z 1 / its side; w its voxel, km. The detail
-        // tile that shared the old region vec4 moved to Detail.z, the slot the scalar albedo vacated.
-        glm::vec4 Level[kCloudClipLevelSlots];
-        // z HELD THE SCALAR SCATTERING ALBEDO and holds nothing now — the albedo became a colour and moved
-        // to its own vec4 below. It is not reused and not renamed to a pad: kUnreadSlots carries its row.
-        glm::vec4 Detail;       // x detail strength, y density scale, z detail tile (km), w species count
-        glm::vec4 Wind;         // xyz accumulated wind offset (km), w phase g
-        glm::vec4 Sun;          // xyz TOWARD the sun (normalized), w light march distance (km)
-        glm::vec4 SunColour;    // rgb sun irradiance (linear), w light march sample count
-        glm::vec4 Ambient;      // rgb ambient radiance OR its scale, w = 1 when the distant sky light is read
-        glm::vec4 MultiScatter; // x octave count, y contribution, z occlusion, w eccentricity
-        glm::vec4 Phase;        // x second lobe g, y phase blend, z AO strength, w tracing start max (km)
-        glm::vec4 Fade;         // x AP start (km), y AP fade (km), z near fade end (km), w near fade start (km)
-
-        // THE FOUR SPECIES. Both arrays are indexed by the same slot, and slots at or past Detail.w are
-        // zero — the loop in the march stops at the count, and an unfilled slot's channel of the profile
-        // table is zero at every altitude anyway, so there are two independent reasons it is never read.
-        //
-        // x DetailCharacter, y DetailFactor, z DensityFactor, w ExtinctionFactor: what that kind of cloud
-        // is MADE OF. The winner of the union at a sample takes all four; nothing is averaged.
-        glm::vec4 SpeciesEdge[kCloudSpeciesSlots];
-
-        // WHICH NOISE VOLUME EACH SPECIES' EDGE IS CUT FROM — x for species 0, y for 1, z for 2, w for 3,
-        // each of them an index into the four `sampler3D` slots the march binds. Four floats and four
-        // consumers, which is the same discipline the array above is held to.
-        //
-        // IT IS A DEDUPLICATED INDEX AND NOT THE SPECIES NUMBER, and the difference is the whole reason
-        // this vec4 exists rather than the march simply reading `sampler[speciesIndex]`. Eight of the nine
-        // shipped types name no volume of their own, so the ordinary four-species sky reads ONE volume
-        // through four descriptors — and a fetch selected by a value that varies across a wave costs the
-        // wave every branch it takes, whether or not the branches land on the same image. Deduplicated,
-        // that sky sends {0,0,0,0}, the compare chain is uniformly false, and the march does exactly what
-        // it did before this field existed. Graphic::ResolveCloudNoiseVolumes computes it, once, and the
-        // renderer binds the images in the same order it numbers them.
-        glm::vec4 SpeciesNoise;
-
-        // THE MEDIUM'S SCATTERING ALBEDO, PER COLOUR. rgb; w = Sky Light Cloud Bottom Occlusion, which
-        // closes the hole the colour opened — Unreal's own arrangement of a scalar beside its albedo.
-        //
-        // WHY IT IS ITS OWN vec4 AND NOT THREE SLOTS SOMEWHERE. Three components of one colour have to be
-        // contiguous to be fetched as `.rgb`, and no existing member had three free slots. A vec4 is
-        // therefore the smallest shape a colour fits in, and the fourth float is unreachable arithmetic
-        // rather than a choice: this block is a grid of vec4s, so it can only grow by four, and turning a
-        // one-float value into a three-float one asks for two. No shuffling of the other members removes
-        // that — every candidate move (the species count, the AO strength into the albedo's alpha the way
-        // Unreal packs it, the albedo inside Detail) closes one hole and opens another, because the
-        // remainder modulo four does not care where the values sit.
-        //
-        // AND IT SITS BEFORE THE TRAILING vec3, WHICH IS NOT A PREFERENCE. `glm::vec3` aligns to 4 and a
-        // std430 vec4 aligns to 16, so a vec4 appended AFTER Aerial would land at 268 in C++ and at 272 in
-        // GLSL — a silent divergence of the two halves of one layout, which is the worst outcome this file
-        // exists to prevent. The species array is where it is for the same reason; see the note at its own
-        // static_assert.
-        glm::vec4 Albedo;
-
-        // THE WORLD WEATHER, as Assets::CloudFarWeatherUniform packs it: y the weather strength = PatchStrength
-        // (ZERO when a painted pattern is the weather or the strength is nil), w 1 / kCloudFarWeatherPeriodKm;
-        // x the far path's read scale of the same map (Assets::CloudFarFieldScale); z the Coverage slider, laid
-        // over the uniform by PackCloudParams from the RESOLVED material (WTH-CLOUDS) — the march thresholds the
-        // baked field by it (Assets::CloudProceduralCoverageRemap), so the weather moves it with no re-bake.
-        // The march remaps the baked profile by the W this decides — Assets::CloudProceduralCoverRemap is the CPU
-        // half of the same remap. Before the trailing vec3 for the reason Albedo is.
-        glm::vec4 Weather;
-
-        // THE WISPY BASE, PER SPECIES (x species 0 .. w species 3), in the LAYER's height fraction (the
-        // march's own `heightFraction`): where the type's band starts and where its altitude density H
-        // first reaches its maximum (CloudProfileWispTopFraction). Between the two the march blends the
-        // winner's DetailCharacter from 0 (wispy) up to the type's own — Nubis' wispy-at-the-base,
-        // billowy-above erosion, driven by the same curve the bake multiplies the profile by, so the base
-        // that H thins is the base the erosion frays. Slots at or past the species count are zero.
-        glm::vec4 SpeciesWispBase;
-        glm::vec4 SpeciesWispTop;
-
-        // PER SPECIES (x species 0 .. w species 3), the material's CloudTypeWeight of the slot the species
-        // came from (WTH-OVERCAST): the march cuts that species' channel at Coverage x this, so a weather fades
-        // cumulus out and a stratus deck in without a re-bake. Slots at or past the species count are zero.
-        glm::vec4 SpeciesCover;
-
-        // THE PAINTED LAYOUT'S PLACE AND STRENGTH (WX-PAINT), Assets::CloudLayoutPlaceUniform /
-        // CloudLayoutStrengthUniform: the march multiplies the cover by the painted W per column, as Unreal's
-        // Layout does, reading the CloudLayoutPatternTexture / CloudLayoutMaskTexture block entries through these.
-        glm::vec4 LayoutPlace;
-        glm::vec4 LayoutStrength;
-
-        // THE FAR PATH (CLOUD-SEAM24), Assets::CloudProceduralFarStatistics of the coarsest clip level on the
-        // device: per height band, per species channel, the share of the level's voxels that are cloud and
-        // the mean profile where they are. Past that level's window the march draws a world column field
-        // against these (Common/CloudField.glslh CloudSampleProceduralFar) instead of repeating its torus.
-        glm::vec4 FarPresence[kCloudFarBandSlots];
-        glm::vec4 FarProfile[kCloudFarBandSlots];
-
-        // A vec3 AND LAST, which is the only shape in which three values can be three values. It was a
-        // vec4 whose fourth slot carried the cloud type's variance, and then briefly the domain warp's
-        // amount; the warp was measured and taken out again (Common/CloudField.glslh has the numbers), and
-        // a float nobody reads is where the next parameter gets stashed without a name, a range or a
-        // tooltip. Moving it to the end is what lets it shrink: std430 aligns it to 16 and the block ends
-        // at 268 bytes rather than at 272.
-        glm::vec3 Aerial; // x AP far extent (km), y AP view-distance scale, z AP gate
-    };
-
-    static_assert( offsetof( CloudGpuPayload, Layer ) == 0 );
-    static_assert( offsetof( CloudGpuPayload, March ) == 16 );
-    static_assert( offsetof( CloudGpuPayload, Level ) == 32 );
-    static_assert( offsetof( CloudGpuPayload, Detail ) == 80 );
-    static_assert( offsetof( CloudGpuPayload, Wind ) == 96 );
-    static_assert( offsetof( CloudGpuPayload, Sun ) == 112 );
-    static_assert( offsetof( CloudGpuPayload, SunColour ) == 128 );
-    static_assert( offsetof( CloudGpuPayload, Ambient ) == 144 );
-    static_assert( offsetof( CloudGpuPayload, MultiScatter ) == 160 );
-    static_assert( offsetof( CloudGpuPayload, Phase ) == 176 );
-    static_assert( offsetof( CloudGpuPayload, Fade ) == 192 );
-    // The species array sits BEFORE the trailing vec3 rather than after it, and that is the only reason it
-    // is there rather than appended. std430 aligns an array of vec4 to 16; appended after a vec3 that ends
-    // at 188 it would start at 192 and leave four bytes nobody wrote — which is a reserved slot with extra
-    // steps. Both sides of the layout move together in one commit and the offsets below are what makes a
-    // half-move a build error rather than a frame read from the wrong place.
-    static_assert( offsetof( CloudGpuPayload, SpeciesEdge ) == 208 );
-    // The noise index array sits between the species array and the trailing vec3 for the reason the
-    // species array itself sits there: std430 aligns a vec4 to 16, and after a vec3 that ends at 252 it
-    // would start at 256 and leave four bytes nobody wrote.
-    static_assert( offsetof( CloudGpuPayload, SpeciesNoise ) == 272 );
-    static_assert( offsetof( CloudGpuPayload, Albedo ) == 288 );
-    static_assert( offsetof( CloudGpuPayload, Weather ) == 304 );
-    static_assert( offsetof( CloudGpuPayload, SpeciesWispBase ) == 320 );
-    static_assert( offsetof( CloudGpuPayload, SpeciesWispTop ) == 336 );
-    static_assert( offsetof( CloudGpuPayload, LayoutPlace ) == 368 );
-    static_assert( offsetof( CloudGpuPayload, LayoutStrength ) == 384 );
-    static_assert( offsetof( CloudGpuPayload, FarPresence ) == 400 );
-    static_assert( offsetof( CloudGpuPayload, FarProfile ) == 528 );
-    static_assert( offsetof( CloudGpuPayload, Aerial ) == 656 );
-    // 332, NOT 336, and the difference is the point. std430 rounds a block's STRIDE up to a multiple of
-    // 16, but a stride only exists for an ARRAY of blocks and this is a single one — the shader never
-    // reads past the last member, so the block ends at 300 and so does this. glm::vec3 aligns to 4 rather
-    // than to 16, so the C++ struct ends there too and there is no trailing padding to explain. Same
-    // arrangement, and the same reasoning, as CloudResolveParams below.
-    //
-    // THE BLOCK SHRANK BY 64 BYTES, which is the four vec4s of the per-species placement basis. Nothing
-    // was appended to replace them: the region took the weather settings' slot, and the settings that
-    // moved to the bake left the block rather than travelling to a march that would not read them.
-    //
-    // AND IT GREW BY THIRTY-TWO FOR THE WISPY BASE (H-BASE): two vec4s, the band's base and the top of the
-    // altitude density's rise per species, before the trailing vec3 for the reason Albedo is.
-    //
-    // AND IT GREW BY SIXTEEN THREE TIMES. The third is Weather — the cut the march makes against the rank,
-    // which the bake stopped making when the world weather moved to the march (FARWX).
-    //
-    // AND IT GREW BY SIXTEEN TWICE BEFORE THAT. Once for SpeciesNoise — the price of a type's noise volume
-    // reaching the march at all; until it was paid, three of a layer's four slots could name a volume the frame
-    // never read. Once for Albedo, which is the price of the scattering albedo being a COLOUR: a vec4 is
-    // the smallest shape three contiguous components fit in.
-    //
-    // AND IT GREW BY 256 FOR THE FAR PATH (CLOUD-SEAM24): two vec4[8] of the coarsest level's statistics.
-    //
-    // AND BY SIXTEEN FOR SpeciesCover (WTH-OVERCAST): the per-type weights of the weather's cut.
-    static_assert( sizeof( CloudGpuPayload ) == 668,
-                   "Two vec4s, a vec4[3], eight vec4s, a vec4[4], eight more vec4s, two vec4[8] and a vec3 — the "
-                   "shader reads exactly this and "
-                   "nothing more." );
-
     inline constexpr uint32_t kCloudPayloadBytes = sizeof( CloudGpuPayload );
 
     /// How many floats travel in the block. DERIVED from the struct, so it cannot be a number somebody
-    /// updates separately from the layout — which is exactly what happened to the two prose counts above.
+    /// updates separately from the layout.
     inline constexpr uint32_t kCloudPayloadFloats = kCloudPayloadBytes / 4u;
 
     /// ONE SLOT OF THE BLOCK THAT NO SHADER READS, AND WHY.
@@ -267,29 +49,20 @@ namespace Desert::Graphic
     /// not a thing in C++: clang takes it as a GNU extension and MSVC rejects it outright (C2466). That
     /// has reached `dev` twice in one day from two censuses that achieved their own goal. A type has to be
     /// able to express its structure's success.
-    inline constexpr std::array<CloudUnreadSlot, 2> kCloudUnreadSlots = {
+    inline constexpr std::array<CloudUnreadSlot, 3> kCloudUnreadSlots = {
          { { "CloudLayoutStrength", 'z',
              "the layout has two strengths and a grid of vec4s grows by four; the place took its own vec4 "
              "whole, so the two strengths leave two floats nobody has a number for" },
-           { "CloudLayoutStrength", 'w', "as z" } } };
+           { "CloudLayoutStrength", 'w', "as z" },
+           { "CloudAerial", 'w',
+             "the aerial perspective has three numbers and closes the block; a generated block is a whole "
+             "number of its 16-byte alignment on both sides, so the last vec4 carries one float nobody has a "
+             "number for" } } };
 
     /// How many of the block's floats a shader is expected to fetch. DERIVED, so the two halves of the
     /// claim — the layout and the exceptions — cannot be adjusted independently.
     inline constexpr uint32_t kCloudPayloadReadFloats =
          kCloudPayloadFloats - static_cast<uint32_t>( kCloudUnreadSlots.size() );
-
-    // The cloud march's setter-bound parameter block (the authored instance buffer is the other one,
-    // CloudAuthoredPayload.hpp): handed to SetStorageBuffer verbatim, so it must equal CLOUD_PARAMS_BINDING.
-    // Every IMAGE of the march (scatter, guide, scene depth, the four noise volumes, modelling, authored
-    // atlas, sky-light occlusion, distant sky light, aerial perspective, transmittance LUT) is a binding-block
-    // entry named by its shader name (VolumetricCloudRenderer), so it has no number on this side.
-    inline constexpr uint32_t kCloudParamsBinding = 1; // must equal CLOUD_PARAMS_BINDING
-
-    // The TEMPORAL RESOLVE pass (Programs/Clouds/CloudTemporalResolve.shader). Same rule as above: the number
-    // is handed to SetStorageBuffer verbatim and must equal the one written in the shader. Every image of the
-    // pass (trace pair, history read and write slots) is a binding-block entry named by shader name
-    // (RenderPassDeclaration::BlockDeclaration), so none has a number here.
-    inline constexpr uint32_t kCloudResolveParamsBinding = 6; // CloudResolveParams
 
     // The march's per-dispatch push (camera, trace grid, frame gates, visualize) is ShaderPush::CloudRaymarch, CloudRaymarch.shader's PushConstants block.
 
@@ -417,69 +190,6 @@ namespace Desert::Graphic
     static_assert( CloudTraceSubPixel( kCloudTraceWalkFrames ).X == CloudTraceSubPixel( 0u ).X &&
                         CloudTraceGridPhase( kCloudTraceWalkFrames ).Index() == CloudTraceGridPhase( 0u ).Index(),
                    "The walk must be periodic." );
-
-    /**
-     * The temporal reconstruction's per-frame data.
-     *
-     * A STORAGE BUFFER RATHER THAN A PUSH CONSTANT, and the reason is a hard limit rather than a
-     * preference: this pass needs two 4x4 matrices (128 bytes) plus the camera and the frame's state, and
-     * Vulkan only guarantees 128 bytes of push-constant space. Several desktop drivers report exactly
-     * that minimum, so a 160-byte push block is a pass that works on this machine and fails elsewhere
-     * with a validation error rather than a picture. The buffer is created NON-PERSISTENT, which is what
-     * gives it one copy per (frame x recording renderer slot) — the Docs/RENDERER_FRAME_STATE.md rule.
-     *
-     * Laid out for std430 with no padding member: the vec3 leaves exactly one float of room after it and
-     * HistoryValid occupies it, which is why the flag is a float and sits where it does.
-     */
-    struct CloudResolveParams
-    {
-        // clip -> world, THIS frame, UNJITTERED (ViewFrame::InvViewProjection): rebuilds the pixel's ray. The
-        // march traces through the same matrix (VolumetricCloudRenderer, SKY-FLICKER), so at a still camera
-        // the reprojection through PrevViewProjection lands on this very texel.
-        glm::mat4 InverseViewProjection;
-        // world -> clip, the PREVIOUS frame. Composed with the inverse above this is Unreal's
-        // ClipToPrevClip; it is factored into two matrices here because the reprojected point is found by
-        // walking the ray to the guide's cloud front distance, which is not a clip-space operation.
-        glm::mat4 PrevViewProjection;
-        // THE MARCH'S SHELL, CloudGpuPayload::Layer copied from the very payload the march was given this frame
-        // (x planet radius, y bottom altitude, z thickness, w max view distance; km). The resolve classifies
-        // each pixel's ray exactly as the march does (Common/CloudSceneDepth.glslh, CloudFootprintOccluded),
-        // which takes the layer's segment along the ray.
-        glm::vec4  CloudShell;
-        glm::vec3  CameraPosition; // world units (centimetres)
-        float      HistoryValid;   // 1 when the history targets hold a real previous frame, 0 otherwise
-        glm::ivec2 SubPixelOffset; // this frame's traced sub-pixel, the same pair the march was given
-        // The march's reach along the ray, from the same payload: x the tracing start (CloudGpuPayload::March.z),
-        // y the tracing start's maximum (CloudGpuPayload::Phase.w); km.
-        glm::vec2 CloudReach;
-        // THE WIND'S STEP SINCE THE HISTORY: this frame's CloudGpuPayload::Wind minus the one the view's previous
-        // pair was traced under (VolumetricCloudHistory::Refs::WindOffsetKm), km in the field's frame. The resolve
-        // reprojects each front from where the wind carried it from; zero when there is no history to read.
-        glm::vec3 WindStepKm;
-        // This frame's phase of the trace grid's 2x2 lattice (CloudTraceGridPhase, as CloudTracePhase::Index), the
-        // same one the march was given: a quarter-res texel holds a sample this frame only when
-        // (x & 1) | (y & 1) << 1 equals it.
-        int32_t TraceGridPhase;
-    };
-
-    static_assert( offsetof( CloudResolveParams, InverseViewProjection ) == 0 );
-    static_assert( offsetof( CloudResolveParams, PrevViewProjection ) == 64 );
-    static_assert( offsetof( CloudResolveParams, CloudShell ) == 128 );
-    static_assert( offsetof( CloudResolveParams, CameraPosition ) == 144 );
-    static_assert( offsetof( CloudResolveParams, HistoryValid ) == 156 );
-    static_assert( offsetof( CloudResolveParams, SubPixelOffset ) == 160 );
-    static_assert( offsetof( CloudResolveParams, CloudReach ) == 168 );
-    static_assert( offsetof( CloudResolveParams, WindStepKm ) == 176 );
-    // The int fills the vec3's last four bytes, where std430 places a scalar after a vec3 too.
-    static_assert( offsetof( CloudResolveParams, TraceGridPhase ) == 188 );
-    // 192 (was 188 before the trace phase): the vec3 starts on its 16-byte std430 boundary and the int closes
-    // its 16 bytes, so the block ends on a 16-byte multiple with no padding member. The buffer is created at
-    // exactly the struct's size (kCloudResolveParamsBytes) and the shader never reads past the last member.
-    // Pinned here so that inserting a member and quietly changing the size is a build error.
-    static_assert( sizeof( CloudResolveParams ) == 192,
-                   "The GLSL block in Common/CloudResolveParams.glslh (CloudTemporalResolve) reads "
-                   "exactly these members, in this "
-                   "order, at these offsets." );
 
     inline constexpr uint32_t kCloudResolveParamsBytes = sizeof( CloudResolveParams );
 
@@ -1067,8 +777,8 @@ namespace Desert::Graphic
             p.FarProfile[band]  = region.FarProfile[band];
         }
 
-        p.Aerial = glm::vec3( atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale,
-                              atmosphere.AerialPerspectiveVolume != nullptr ? 1.0f : 0.0f );
+        p.Aerial = glm::vec4( atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale,
+                              atmosphere.AerialPerspectiveVolume != nullptr ? 1.0f : 0.0f, 0.0f );
 
         // The second phase lobe, the ambient-occlusion amount and the distance past which the layer is not
         // traced at all. The last is Unreal's TracingStartMaxDistance, and its absence was found on review:

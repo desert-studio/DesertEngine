@@ -105,10 +105,10 @@ layout( binding = 8 ) uniform textureCube EnvironmentSpecularTexture;
 #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
 layout( binding = 9 ) uniform textureCube EnvironmentIrradianceTexture;
 #define EnvironmentIrradianceTexture samplerCube(EnvironmentIrradianceTexture, LinearClampSampler)
+#include <Generated/Environment/SkyLook.glslh>
 layout( binding = 22 ) uniform SkyLookUB
 {
-    vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
-    vec4 Gain;      // rgb = tint * intensity
+    DESERT_SkyLookGPU_MEMBERS
 }
 skyLook;
 layout( binding = 10 ) uniform texture2D BrdfLutTexture;
@@ -117,12 +117,10 @@ layout( binding = 10 ) uniform texture2D BrdfLutTexture;
 // The cloud layer's shadow on the world, the sun's second occluder (Common/CloudShadowReceiver.glslh).
 layout( binding = 20 ) uniform texture2D CloudShadowMapTexture;
 #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearRepeatSampler)
+#include <Generated/Clouds/CloudShadow.glslh>
 layout( binding = 21 ) uniform CloudShadowUB
 {
-    mat4 CloudShadowWorldToMap;
-    // x = the kilometres the map's clip z spans, y = 1 when the map is real and must be read,
-    // z = the UV width of the border fade, w = the artist's shadow strength.
-    vec4 CloudShadowParams;
+    DESERT_CloudShadowUniforms_MEMBERS
 };
 
 #include <Common/CloudShadowReceiver.glslh>

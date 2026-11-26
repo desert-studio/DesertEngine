@@ -52,10 +52,10 @@ layout( binding = 5 ) uniform texture2DArray ShadowCascadesTexture;
 #include <Mesh/CascadedShadow.glslh>
 layout( binding = 20 ) uniform texture2D CloudShadowMapTexture;
 #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearRepeatSampler)
+#include <Generated/Clouds/CloudShadow.glslh>
 layout( binding = 21 ) uniform CloudShadowUB
 {
-    mat4 CloudShadowWorldToMap;
-    vec4 CloudShadowParams;
+    DESERT_CloudShadowUniforms_MEMBERS
 };
 #include <Common/CloudShadowReceiver.glslh>
 
@@ -65,10 +65,10 @@ layout( binding = 9 ) uniform textureCube EnvironmentIrradianceTexture;
 #define EnvironmentIrradianceTexture samplerCube(EnvironmentIrradianceTexture, LinearClampSampler)
 layout( binding = 10 ) uniform texture2D BrdfLutTexture;
 #define BrdfLutTexture sampler2D(BrdfLutTexture, LinearClampSampler)
+#include <Generated/Environment/SkyLook.glslh>
 layout( binding = 22 ) uniform SkyLookUB
 {
-    vec4 YawCosSin; // xy = (cos yaw, sin yaw) - Graphic::SkyLookGPU
-    vec4 Gain;      // rgb = tint * intensity
+    DESERT_SkyLookGPU_MEMBERS
 }
 skyLook;
 #include <Common/SkyLook.glslh>

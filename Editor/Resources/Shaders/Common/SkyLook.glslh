@@ -19,10 +19,10 @@
 // The includer declares the block itself, at a slot free in ITS layout (the layouts differ, and the
 // DShader parser's occupancy scan reads literal digits only, so a macro slot would be invisible to it):
 //
+//     #include <Generated/Environment/SkyLook.glslh>
 //     Uniform(N) SkyLookUB
 //     {
-//         vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
-//         vec4 Gain;      // rgb = tint * intensity
+//         DESERT_SkyLookGPU_MEMBERS // Graphic::SkyLookGPU (Environment/SkyLookLayout.hpp)
 //     } skyLook;
 //
 // This text declares nothing, so it also compiles as C++ (Desert/Tests/Engine/SkyPanorama).

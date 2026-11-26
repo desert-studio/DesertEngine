@@ -129,10 +129,10 @@ Shader "DeferredLighting"
         #define BrdfLutTexture sampler2D(BrdfLutTexture, LinearClampSampler)
         // The sky's look — how the two cubes above are read (Common/SkyLook.glslh). Slot 20: the
         // first free one in this layout.
+        #include <Generated/Environment/SkyLook.glslh>
         Uniform(20) SkyLookUB
         {
-            vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
-            vec4 Gain;      // rgb = tint * intensity
+            DESERT_SkyLookGPU_MEMBERS
         } skyLook;
 
         // THE TRACED GI'S FINAL GATHER (Params.w == 2, or 3 when it carries its own short-range AO): per pixel,
@@ -340,11 +340,9 @@ Shader "DeferredLighting"
         // received a cloud shadow. See Common/CloudShadowReceiver.glslh.
         layout(set = 0, binding = 11) uniform texture2D CloudShadowMapTexture;
         #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearRepeatSampler)
+        #include <Generated/Clouds/CloudShadow.glslh>
         Uniform(12) CloudShadowUB {
-        	mat4 CloudShadowWorldToMap;
-        	// x = the kilometres the map's clip z spans, y = 1 when the map is real and must be read,
-        	// z = the UV width of the border fade, w = the artist's shadow strength.
-        	vec4 CloudShadowParams;
+        	DESERT_CloudShadowUniforms_MEMBERS
         };
 
         // THE receiver, shared verbatim with the forward mesh shaders, the glass pass and the terrain.

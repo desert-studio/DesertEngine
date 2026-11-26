@@ -44,13 +44,9 @@ Shader "ProceduralSky"
         // SetUniformBuffer — its binding surface is inputs, outputs, storage buffers and push constants.
         // One buffer, one layout, every consumer.
         //
-        // The binding is written explicitly as (1) and must stay equal to Graphic::kSkyPayloadBinding: the
-        // graphics descriptor write uses the buffer's OWN binding number while a compute dispatch passes
-        // one as an argument, and when those disagree the buffer quietly lands on another resource's slot.
-        ReadBuffer(1) SkyBuffer
-        {
-            vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT];
-        };
+        // The generated block sits at Graphic::kSkyPayloadBinding (SkyLayout.hpp), the one number the
+        // buffer is created with and every compute dispatch passes.
+        #include <Generated/Sky/SkyBuffer.glslh>
 
         // PhysicalAtmosphere only. When the gradient renders, both stay on their fallback descriptors
         // and the branch below never samples them.
@@ -194,9 +190,7 @@ Shader "ProceduralSky"
 
         void main()
         {
-            SkyPacked s;
-            for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
-                s.v[i] = SkyPackedData[i];
+            SkyPacked s = SkyPackedData;
 
             vec3 dir = normalize(v_RayDir);
 

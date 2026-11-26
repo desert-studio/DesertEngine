@@ -10,34 +10,14 @@
 // THE INCLUDER DECLARES the volumes buffer (heterogeneousVolumes[], HETEROGENEOUS_VOLUMES_BINDING) itself, so a
 // shader that reads only the cache (the froxels) and one that reads only the medium bind the same struct.
 
-// Must equal Graphic::kHeterogeneousVolumesBinding (SetStorageBuffer takes the number, not reflection).
-#define HETEROGENEOUS_VOLUMES_BINDING 15
-// Must equal Graphic::kHeterogeneousVolumeCacheResolution.
-#define HETEROGENEOUS_VOLUME_CACHE_RES 32.0
-// Must equal Graphic::kHeterogeneousVolumeMaxVolumes (the cache atlas holds this many slabs along Z).
-#define HETEROGENEOUS_VOLUME_MAX 8.0
-// Must equal Graphic::kSparseVolumePagesBinding: the resident baked volumes' page tables, one uint per page
-// (0 = an empty page, else 1 + the brick's index in the shared atlas).
-#define HETEROGENEOUS_VOLUME_PAGES_BINDING 18
+// HeterogeneousVolumeGpu, HeterogeneousVolumeMarchGpu and the binding / cache constants are declared once, in C++
+// (Engine/Graphic/Fog/FogLayout.hpp), and generated into Generated/Fog/HeterogeneousVolume.glslh.
+#include <Generated/Fog/HeterogeneousVolume.glslh>
+
 // Must equal Assets::kSparseVolumeBrickSize / kSparseVolumeBrickPhysical: a page is 16^3 voxels, stored in the
 // atlas as an 18^3 brick (one voxel of apron on every side, so the trilinear filter never leaves the brick).
 #define HV_BRICK_SIZE 16.0
 #define HV_BRICK_PHYSICAL 18.0
-
-// Byte for byte Graphic::HeterogeneousVolumeGpu (HeterogeneousVolumePayload.hpp), std430.
-struct HeterogeneousVolumeGpu
-{
-    mat4 LocalToWorld; // the unit box [-1, 1]^3 -> world
-    mat4 WorldToLocal; // world -> the unit box
-    vec4 Medium;       // x = extinction per cm, y = phase g, z = coverage, w = edge fade
-    vec4 Albedo;       // rgb = albedo, w = 1 / noise scale (per cm)
-    vec4 HalfSize;     // xyz = world half size along the box axes (cm)
-    vec4 Wind;         // xyz = local advection velocity (cm/s), w = the noise clock (s)
-    vec4 Emissive;     // rgb = emission per unit extinction, w = peak temperature (K)
-    vec4 Blackbody;    // x = blackbody intensity, y = lighting-cache slab
-    uvec4 Sparse;      // baked source: x = first page in the page table, yzw = pages per axis (0 = procedural)
-    vec4 SparseScale;  // baked source: xyz = voxels per axis, w = the asset's peak temperature (K)
-};
 
 // Integer hash -> [0, 1) (PCG3D-style), the value-noise lattice.
 float HvHash(ivec3 c)

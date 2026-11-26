@@ -23,14 +23,8 @@ Shader "RainStreaks"
         const uint kDesertRainDropsKey     = 0xe5bb4d7bu; // "RainDrops"
         const uint kDesertRainDropShapeKey = 0x71b62487u; // "RainDropShape"
 
-        Uniform(0) RainStreaksUB
-        {
-            mat4 RainViewProjection; // the view's jittered view-projection
-            vec4 RainCamera;         // xyz camera (cm), w = scene time (s)
-            vec4 RainWind;           // xz = SceneWind directional velocity (cm/s), y = 0, w = PreExposure
-            vec4 RainGust;           // SceneWind gust fronts (CameraUB::WindGust, Common/WindGust.glslh)
-            vec4 RainLight;          // x = the drop's radiance (RainDropShape.z), yzw = 0
-        };
+        #include <Generated/Weather/RainStreaks.glslh>
+        Uniform(0) RainStreaksUB { DESERT_RainStreaksUniforms_MEMBERS };
 
         Out(0) vec2  v_Quad;    // x across the streak (-1..1), y along it (0 tail .. 1 head)
         Out(1) float v_Opacity; // the drop's coverage (distance fade x intensity)
@@ -111,14 +105,8 @@ Shader "RainStreaks"
 
     Fragment
     {
-        Uniform(0) RainStreaksUB
-        {
-            mat4 RainViewProjection;
-            vec4 RainCamera;
-            vec4 RainWind;
-            vec4 RainGust;
-            vec4 RainLight;
-        };
+        #include <Generated/Weather/RainStreaks.glslh>
+        Uniform(0) RainStreaksUB { DESERT_RainStreaksUniforms_MEMBERS };
 
         In(0) vec2  v_Quad;
         In(1) float v_Opacity;

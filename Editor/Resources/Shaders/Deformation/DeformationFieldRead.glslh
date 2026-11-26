@@ -17,11 +17,12 @@ layout( binding = kDeformHeight1Binding ) uniform texture2D DeformHeight1Texture
 layout( binding = kDeformDetail0Binding ) uniform texture2D DeformDetail0Texture;
 layout( binding = kDeformDetail1Binding ) uniform texture2D DeformDetail1Texture;
 Uniform sampler DeformationFieldSampler;
-// Deformation::DeformationFieldParamsGpu, std430.
+// Graphic::Deformation::DeformationFieldParamsGpu (Engine/Graphic/Deformation/DeformationLayout.hpp); the slot is
+// the set-0 scene table's, so the block is declared here around the generated members.
+#include <Generated/Deformation/DeformationFieldParams.glslh>
 layout( std430, binding = kDeformationFieldParamsBinding ) readonly buffer DeformationFieldParams
 {
-    ivec4 DeformWindows; // xy: level 0's minimum cell, zw: level 1's
-    vec4  DeformLevels;  // x, y: texel (cm) of level 0, 1; z, w: their resolution (0: no field this frame)
+    DESERT_DeformationFieldParamsGpu_MEMBERS
 };
 
 // THE TRAMPLE at the world point @p root (a blade's root), from this view's set-0 field: Deformation/
