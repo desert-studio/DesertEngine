@@ -21,7 +21,6 @@
 //
 // PURE: no clock, no scene. The executor times the slices and hands the measurements in.
 
-#include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
