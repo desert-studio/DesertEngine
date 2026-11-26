@@ -1,0 +1,73 @@
+# ANIM-PROOF: every shipped animation feature shown in the editor, one frame per feature, on committed content only
+# (Characters/Mannequin: Mannequin.skmesh, its clips, Mannequin_Locomotion.danimgraph). The scene is not saved.
+# Two mannequins are spawned in PawnNoController_Demo at z = -300: ProofA (x 0) plays one clip, ProofB (x 150) runs
+# the locomotion graph. Both evaluate in Edit mode (Animation.UpdateAnimationInEditor, UE "Update Animation in Editor").
+# Features with engine code but NO committed content that uses them (Sequence Player / Layered Blend / Apply Additive /
+# Linked Anim Layer / Two Bone IK / Look At nodes, Retarget, Sequencer skeletal track, notifies, curves) and features
+# with no runtime path (Blend Space 2D node, inertialization) are listed in the INVENTORY with file:line; their frame
+# here is the authoring surface (the graph panel's Add commands), not an evaluated pose.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/PawnNoController_Demo.desce
+Дано run View "View mode: Lit"
+Дано spawn Characters/Mannequin/Mannequin.skmesh 0,0,-300 --id 7700000000000000001
+Дано set 7700000000000000001 Tag.Tag ProofA
+Дано set 7700000000000000001 Animation.UpdateAnimationInEditor true
+Дано spawn Characters/Mannequin/Mannequin.skmesh 150,0,-300 --id 7700000000000000002
+Дано set 7700000000000000002 Tag.Tag ProofB
+Дано set 7700000000000000002 Animation.UpdateAnimationInEditor true
+Дано set 7700000000000000002 Animation.Graph "\"assets:Characters/Mannequin/Mannequin_Locomotion.danimgraph\""
+Дано --subject viewport set Camera.Position 75,110,0
+Дано --subject viewport set Camera.Direction 0,-0.15,-1
+# [anim_clip] AnimationComponent.CurrentClip plays one looping clip (Animator::Play) with no graph.
+Когда set 7700000000000000001 Animation.CurrentClip "\"Walk_Loop\""
+Когда 40 frames render
+Тогда-вид anim_clip ProofA (left) is mid-stride in the Walk_Loop clip (one knee forward, arms swinging), not the bind pose
+# [anim_bs1d_idle] the graph's Locomotion state is a Blend Space 1D on Speed (cm/s): Speed 0 = Idle_Loop.
+Когда lua "World.find('ProofB'):setAnimParam('Speed', 0.0)"
+Когда 40 frames render
+Тогда-вид anim_bs1d_idle ProofB (right) stands in Idle_Loop: feet apart, arms down
+# [anim_bs1d_sprint] Speed 1000 = the Sprint_Loop sample: a long stride, torso leaning forward.
+Когда lua "World.find('ProofB'):setAnimParam('Speed', 1000.0)"
+Когда 40 frames render
+Тогда-вид anim_bs1d_sprint ProofB sprints in place: long stride, forward lean, clearly different from anim_bs1d_idle
+# [anim_state_crouch] a Bool condition fires the Locomotion -> Crouch transition (0.2 s cross-fade).
+Когда lua "local b = World.find('ProofB'); b:setAnimParam('Speed', 0.0); b:setAnimParam('IsCrouched', true)"
+Когда 40 frames render
+Тогда-вид anim_state_crouch ProofB crouches (knees deeply bent, hips low), the Crouch state's Crouch_Idle_Loop
+# [anim_state_jump] IsFalling fires Crouch -> Jump; the Jump state plays Jump_Loop.
+Когда lua "World.find('ProofB'):setAnimParam('IsFalling', true)"
+Когда 40 frames render
+Тогда-вид anim_state_jump ProofB in the airborne Jump_Loop pose (legs tucked), not crouching
+# [anim_state_back] clearing both returns to Locomotion through the IsFalling-false transition.
+Когда lua "local b = World.find('ProofB'); b:setAnimParam('IsFalling', false); b:setAnimParam('IsCrouched', false)"
+Когда 40 frames render
+Тогда-вид anim_state_back ProofB back in the standing Idle_Loop pose
+# [anim_graph_editor] the AnimGraph document: the state machine wired to Output Pose; its Add commands are the
+# authoring surface of the Sequence Player, Blend Space 1D, Layered Blend Per Bone, Apply Additive, Linked Anim
+# Layer, Two Bone IK and Look At nodes. Its preview must pick the graph's TargetSkeleton (Mannequin).
+Когда run Open "Characters/Mannequin/Mannequin_Locomotion.danimgraph"
+Когда 10 frames render
+Тогда anim_graph_editor the graph document shows State Machine 'Locomotion' -> Output Pose; the preview shows the Mannequin and NO warning "which this skeleton has no animation for"
+# [anim_add_nodes] each pose node kind is added from the palette (not saved: the document is closed with Discard).
+Когда run Document "Mannequin_Locomotion: Add Two Bone IK"
+Когда run Document "Mannequin_Locomotion: Add Look At"
+Когда run Document "Mannequin_Locomotion: Add Layered Blend Per Bone"
+Когда run Document "Mannequin_Locomotion: Add Apply Additive"
+Когда run Document "Mannequin_Locomotion: Add Sequence Player"
+Когда run Document "Mannequin_Locomotion: Add Linked Anim Layer"
+Когда 10 frames render
+Тогда anim_add_nodes six new nodes on the canvas (Two Bone IK, Look At, Layered Blend Per Bone, Apply Additive, Sequence Player, Linked Anim Layer), unwired
+Когда run Document "Mannequin_Locomotion: Close Discard"
+# [anim_clip_editor] the animation editor on one clip.
+Когда run Open "Characters/Mannequin/Mannequin_Walk_Loop.anim"
+Когда 10 frames render
+Тогда anim_clip_editor the animation editor shows Walk_Loop: the mannequin in its preview, a timeline with the clip's length, the skeleton tree
+# [anim_control_rig] the Control Rig panel on ProofA.
+Когда run Entity ProofA
+Когда run Panel "Open Control Rig"
+Когда run "Control Rig" "Author the control rig on the selection"
+Когда 10 frames render
+Тогда anim_control_rig the Control Rig panel lists ProofA's controls; control shapes drawn on the mannequin in the viewport
+# [anim_sequencer] a new Level Sequence opens the Sequencer.
+Когда run Assets "New Level Sequence"
+Когда 10 frames render
+Тогда anim_sequencer the Sequencer document is open on a new Level Sequence (empty track list, time ruler)
