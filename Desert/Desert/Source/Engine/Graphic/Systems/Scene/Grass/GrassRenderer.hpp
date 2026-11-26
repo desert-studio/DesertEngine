@@ -395,7 +395,8 @@ namespace Desert::Graphic::System
             // Hands @p range @p bytes (aligned) of the pool, releasing what it held first: the lowest free run
             // that fits, else the end. False (@p range empty): the pool would pass a storage buffer's 4 GB.
             [[nodiscard]] bool Allocate( PoolRange& range, uint64_t bytes );
-            // Gives @p range's bytes back (merged with free neighbours; a run at the end shortens the pool).
+            // Gives @p range's bytes back once no frame in flight reads them (SCAL-COVER: frame-fenced, see
+            // m_Retired); @p range is empty at once.
             void Release( PoolRange& range );
             // Once a frame, after every Allocate of it: the device-local buffer is (re)made when the ranges
             // handed out passed its room, then imported into @p graph and registered once (Ref). CPU-GRASS-POOL-3
@@ -433,6 +434,20 @@ namespace Desert::Graphic::System
             uint64_t                                        m_End     = 0; // the bytes the ranges span
             uint64_t                                        m_Epoch   = 0;
             std::vector<PoolRange>                          m_Free; // by offset, never adjacent, never at the end
+            // SCAL-COVER: a released range with the frame that released it. The frames in flight before it may
+            // still read its bytes, so it joins m_Free only once FrameManager's margin has passed (a free while
+            // bound would let this frame's uploads overwrite what the GPU is reading).
+            struct RetiredRange
+            {
+                PoolRange Range;
+                uint64_t  Frame = 0u;
+            };
+            std::vector<RetiredRange> m_Retired;
+            // Moves the retired ranges no frame in flight reads any more into m_Free.
+            void ReclaimRetired();
+            // Gives @p range's bytes to m_Free now (merged with free neighbours; a run at the end shortens the
+            // pool).
+            void                                            FreeNow( const PoolRange& range );
             RDG::ExternalBuffer                             m_Import;
             RDG::BufferRef                                  m_Ref{};
             // CPU-GRASS-POOL-8 (UE FRHIResource deferred deletion): a buffer a growth replaced is parked with the
