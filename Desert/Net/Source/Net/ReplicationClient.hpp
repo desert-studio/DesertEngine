@@ -13,6 +13,7 @@
 // the engine's driver replays from it (NET-4).
 
 #include <Net/NetTransport.hpp>
+#include <Net/Relevancy.hpp>
 #include <Net/Replication.hpp>
 
 #include <chrono>
@@ -43,6 +44,12 @@ namespace Desert::Net
             std::uint32_t       Player = 0;
             bool                Owned  = false;
             InterpolationBuffer History;
+            // WP-FAR-15: the period, in server steps, the server sends this pawn at now (the newest snapshot entry's
+            // SnapshotEntry::PeriodSteps), and how much farther behind the connection's delay it is drawn for it:
+            // slides toward PawnInterpolationDelay(PeriodSteps) - InterpolationDelay() at the render clock's rate,
+            // so a band change never jumps the pawn (UE: a simulated proxy smoothed over its own update interval).
+            std::uint8_t PeriodSteps = 2;
+            double       ExtraDelay  = 0.0;
         };
 
         ReplicationClient( INetTransport& transport, HelloMessage hello, NetLogSink log );
@@ -125,6 +132,18 @@ namespace Desert::Net
         // forgets so the full state the server sends when they return applies again. Nothing is sent before the
         // session or for an empty change.
         void ReportResidency( const CellResidencyMessage& change, std::span<const StableNetId> gone );
+        // WP-FAR-15 THE VIEW (UE APlayerController::ServerUpdateCamera): the shape this client looks through - its
+        // streaming source's - sent on the State lane (unreliable) when it changed by kViewAngleStepDeg /
+        // kViewRangeStepCm (a circle's yaw never counts) or kViewResendSeconds passed, so a lost report is
+        // repeated; never more often than kViewMinIntervalSeconds. Nothing before the session.
+        void ReportView( const ViewReport& view );
+        static constexpr float  kViewAngleStepDeg       = 1.0f;
+        static constexpr float  kViewRangeStepCm        = 100.0f;
+        static constexpr double kViewResendSeconds      = 1.0;
+        static constexpr double kViewMinIntervalSeconds = 0.5;
+        // A remote pawn's whole interpolation delay (the connection's + its own, seconds), for the log; nullopt
+        // for a pawn this client does not have. Its period is RemotePawn::PeriodSteps.
+        [[nodiscard]] std::optional<double> PawnDelay( NetId id ) const;
         [[nodiscard]] std::size_t        PendingInputs() const
         {
             return m_Inputs.Size();
@@ -152,6 +171,10 @@ namespace Desert::Net
         [[nodiscard]] double LocalSeconds() const;
         void                 MeasureArrival( double serverSeconds, NetClock::time_point received );
         void                 AdvanceRenderClock();
+        // The snapshot cadence as received: the median interval between the server times of the snapshots in the
+        // jitter window (the server's first band's period; nothing in code says it). Nullopt below two snapshots.
+        // Computed once per arrival (MeasureArrival) into m_SnapshotInterval.
+        [[nodiscard]] std::optional<double> SnapshotInterval() const;
 
         INetTransport&               m_Transport;
         HelloMessage                 m_Hello;
@@ -186,9 +209,13 @@ namespace Desert::Net
         Clock::time_point                        m_Epoch = Clock::now();
         std::deque<std::pair<double, double>>    m_Arrivals; // (local seconds, local - server seconds)
         double                                   m_FastestOffset = 0.0, m_Jitter = 0.0;
+        std::optional<double>                    m_SnapshotInterval; // SnapshotInterval() at the newest arrival
         double                                   m_Delay         = kInterpolationDelaySeconds;
         std::optional<double>                    m_RenderSeconds;
         double                                   m_LastAdvance = 0.0, m_NextDelayLog = 0.0;
         int                                      m_ClockSnaps = 0; // past the first set, logged
+        // The last view shape sent (ReportView) and when, in local seconds.
+        std::optional<ViewReport>                m_SentView;
+        double                                   m_ViewSentAt = 0.0;
     };
 } // namespace Desert::Net
