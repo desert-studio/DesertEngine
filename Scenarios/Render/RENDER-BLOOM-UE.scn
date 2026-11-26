@@ -4,7 +4,7 @@
 Дано --subject viewport set Camera.Position -150,80,50
 Дано --subject viewport set Camera.Direction 1,-0.05,0
 Дано run View "View mode: Lit"
-Дано set 7437228965709132698 PrimitiveComponent.SetScalarParameterValue EmissiveIntensity 60
+Дано set 7437228965709132698 StaticMeshComponent.MaterialSlots[0] assets:Materials/Bloom_Emissive60.demat
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposure false
 Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomIntensity 0
 Тогда-вид bloom_off куб без ореола, база для сравнения
