@@ -335,11 +335,20 @@ namespace Desert::Core::Serialize::Builtins
                     out.Set( "SequencePath",
                              Common::AssetHandle::StableKeyForPath( sequence->GetMetadata().Filepath ) );
                 }
+                // A handle assigned through the reflected field (Details picker, scenario `set ... assets:`) is a
+                // registry number whose asset may not be created yet: the registry row states the same identity.
+                else if ( const auto row = Assets::ContentRegistry::RowOf( Common::Content::ContentKind::LevelSequence,
+                                                                           static_cast<uint64_t>( actor.Sequence ) );
+                          row && row->Guid )
+                {
+                    out.Set( "SequenceGuid", Common::Content::AssetGuidToText( *row->Guid ) );
+                    out.Set( "SequencePath", row->Key );
+                }
                 else if ( static_cast<uint64_t>( actor.Sequence ) != 0 )
                 {
                     LOG_ERROR(
-                         "[LevelSequence] Entity '{}' names sequence handle {} that no loaded asset carries; "
-                         "its reference is saved empty",
+                         "[LevelSequence] Entity '{}' names sequence handle {} that neither a loaded asset nor a "
+                         "registry row carries; its reference is saved empty",
                          entity.GetComponent<ECS::TagComponent>().Tag, static_cast<uint64_t>( actor.Sequence ) );
                 }
                 // LoopMode is stored BY NAME ("Once" / "Loop" / "PingPong"): the scene is text a person reads.

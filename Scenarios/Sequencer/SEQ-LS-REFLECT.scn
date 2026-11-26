@@ -1,0 +1,29 @@
+# SEQ-LS-REFLECT: a level sequence actor (UE ALevelSequenceActor) is given its `.dseq` through the reflected property path - the same path Details edits and undo records - and plays it in Play: Sequences/SEQ_Proof.dseq cuts to SeqCamA 0-2.5 s, then SeqCamB 2.5-5 s. Not saved.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/PawnNoController_Demo.desce
+Дано run View "View mode: Lit"
+Дано spawn Characters/Mannequin/Mannequin.skmesh 0,0,-300 --id 7710000000000000001
+Дано set 7710000000000000001 Tag.Tag SeqMannequin
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 0,110,-50 --id 7710000000000000002
+Дано set 7710000000000000002 Tag.Tag SeqCamA
+Дано add-component 7710000000000000002 Camera
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 250,110,-300 --id 7710000000000000003
+Дано set 7710000000000000003 Tag.Tag SeqCamB
+Дано add-component 7710000000000000003 Camera
+Дано lua "local a = World.find('SeqCamA'); a:setPosition(vector.create(0, 110, -50)); a:setScale(vector.create(0.01, 0.01, 0.01)); local b = World.find('SeqCamB'); b:setPosition(vector.create(250, 110, -300)); b:setRotation(vector.create(0, 1.5708, 0)); b:setScale(vector.create(0.01, 0.01, 0.01))"
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 0,0,200 --id 7710000000000000004
+Дано set 7710000000000000004 Tag.Tag SeqActor
+Дано add-component 7710000000000000004 LevelSequenceComponent
+Дано --subject viewport set Camera.Position 400,250,250
+Дано --subject viewport set Camera.Direction -0.6,-0.2,-0.8
+# The reflected field: `assets:` resolves through the content registry (ReflectedFieldText ParseAssetPath), with undo.
+Когда set 7710000000000000004 LevelSequenceComponent.Sequence assets:Sequences/SEQ_Proof.dseq
+Когда set 7710000000000000004 LevelSequenceComponent.Loop Once
+Когда set 7710000000000000004 LevelSequenceComponent.AutoPlay true
+Когда select 7710000000000000004
+Когда 10 frames render
+Тогда ls_details Details of SeqActor shows the Level Sequence component with Sequence = SEQ_Proof, Loop = Once, Auto Play checked, Play Rate 1
+# [ls_play_cut] Play: AutoPlay starts the sequence; at ~0.5 s the Camera Cut track's first section (SeqCamA) owns the view.
+Когда run Action "Play"
+Когда advance 0.5
+Когда 10 frames render
+Тогда-вид ls_play_cut the view looks THROUGH SeqCamA (mannequin from the front, about 250 cm away), not from the editor camera at 400,250,250
