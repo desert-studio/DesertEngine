@@ -421,12 +421,14 @@ namespace Desert::Scripting
         m_StoppedDepth  = DepthOf( L );
         PatchAll(); // back to the user's breakpoints while stopped
 
-        const auto start = std::chrono::steady_clock::now();
+        const auto start    = std::chrono::steady_clock::now();
+        const auto startCpu = Common::Platform::ThreadCpuClock::now();
         m_Host->OnStopped( reason, description );
         while ( m_Stopped && m_Host != nullptr )
             m_Host->WhileStopped();
         m_Stopped       = false;
-        const auto held = std::chrono::steady_clock::now() - start;
+        const auto held    = std::chrono::steady_clock::now() - start;
+        const auto heldCpu = Common::Platform::ThreadCpuClock::now() - startCpu;
 
         ReleaseContainers();
         if ( m_Host != nullptr )
@@ -435,7 +437,7 @@ namespace Desert::Scripting
         lua_State* const main = lua_mainthread( L );
         for ( const LuauDebugTarget& target : m_Targets )
             if ( target.L == main && target.Held )
-                target.Held( held );
+                target.Held( heldCpu );
 
         if ( m_Aborting )
             luaL_errorL( L, "stopped by the script debugger" );

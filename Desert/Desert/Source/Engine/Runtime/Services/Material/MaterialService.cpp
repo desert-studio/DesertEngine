@@ -671,11 +671,16 @@ namespace Desert::Runtime
     bool MaterialService::RequestIfUnread( const std::shared_ptr<Assets::MaterialAsset>& asset ) const
     {
         const WriteGuard serviceLock( Fence::LockOnly );
-        if ( asset->IsReadyForUse() )
-            return true;
-        const auto handle = asset->GetMetadata().Handle;
+        const auto       handle = asset->GetMetadata().Handle;
+        // A request in flight first: the worker marks the asset ready when the FILE is read, but its surface
+        // template is resolved by the completion (ResolveDependencies, under this lock, as it erases the
+        // request). Between the two the shell reads ready with a null shader handle, and building a cell then
+        // refused it as "no resolved surface template" (WATER-FALLS b_wf8: M_FallMist / M_FallSpray, the frame
+        // before ParticleSpriteLit was resolved). Ready means read AND completed.
         if ( m_Requests.contains( handle ) )
             return false;
+        if ( asset->IsReadyForUse() )
+            return true;
         // BROKEN (its last read was refused, AssetBase::IsBroken): not read again per frame. The slot draws the
         // engine's Default Surface (MeshECSSystem::DefaultInstance); the completion below named the file once.
         // A hot reload (Load) is what asks the file again.

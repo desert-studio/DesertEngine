@@ -613,6 +613,7 @@ namespace Desert::Graphic::API::Vulkan
         // is the allocator's, not a width x height x bytes-per-pixel product computed elsewhere — which
         // additionally is the number that stops existing the day a format is block-compressed.
         RecordDeviceBytes( VulkanAllocator::AllocationSize( m_Resource.Allocation ) );
+        NameLedgerRow( m_Specification.Tag );
 
         // The Tag already named the VMA allocation, which only shows up in a VMA dump. Name the VkImage
         // itself as well so a graphics debugger lists "GBuffer_attachment0" instead of "Image 1234" —

@@ -1,6 +1,7 @@
 #include <Engine/Scripting/Luau/LuauRuntime.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Platform/ThreadCpuClock.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
 #include <Engine/Scripting/Luau/LuauBinder.hpp>
 #include <Engine/Scripting/Luau/LuauDebugger.hpp>
@@ -33,7 +34,9 @@ namespace Desert::Scripting
         };
         using Bytecode = std::unique_ptr<char, FreeBytecode>;
 
-        using Clock = std::chrono::steady_clock;
+        // The watchdog counts the CPU the calling thread spent, not the wall: a call is stopped for running away,
+        // never because the thread was preempted, paged in or blocked by the engine (ThreadCpuClock.hpp).
+        using Clock = Common::Platform::ThreadCpuClock;
 
         /// Luau numbers its memory categories 0..LUA_MEMORY_CATEGORIES-1; 0 is the engine's own (libraries,
         /// prototypes, the console). One category per SCRIPT, so the count is of distinct scripts, not slots.
@@ -112,7 +115,7 @@ namespace Desert::Scripting
                              impl.Limits.ScriptMemoryBytes );
         }
 
-        /// The watchdog's clock: steady time minus the time held at debugger stops.
+        /// The watchdog's clock: the thread's CPU time minus the CPU it spent held at debugger stops.
         [[nodiscard]] Clock::time_point RunClock() const
         {
             return Clock::now() - Held;
