@@ -2,7 +2,7 @@
 # after the day street. The GI histories are keyed by the sky they were lit with (GlobalIllumination::LightingHistoryKey:
 # sun, moon, sky cube identity, sky gain and yaw), and the sky light is the world's (SceneRenderState::Clear remakes it).
 # Numbers, 8-bit frame mean over the whole frame unless stated, same camera and EV100 in every frame:
-# C1 hwgi_night_no_blue mean within +-10 % of ss_night and of S_pt (before: S_hw 225 vs S_pt 134).
+# C1 hwgi_night_no_blue mean within +-10 % of ss_night and of S_pt (before: S_hw 225 vs S_pt 84 full-frame mean; 134 was its red channel).
 # C2 hwgi_open_30 <= hwgi_night_no_blue x 1.10; editor.log after the open has NO "deg from the captured one" line, and
 #    its first "Sky light recapture begins" is the whole capture, not the 54-slice one.
 # C3 day_B16 mean |d| <= 1/255 against the pre-change build.
@@ -51,7 +51,7 @@
 Когда run Quality "Quality: PathTracing.Denoiser Off"
 Когда run Quality "Quality: PathTracing.SamplesPerPixel 64"
 Когда frames 200
-Тогда-вид S_pt [S_pt] the path tracer of this build: the C1 reference (134 in scn-1126-123325)
+Тогда-вид S_pt [S_pt] the path tracer of this build: the C1 reference (full-frame mean 84.2 in scn-1126-123325; 134 is its red channel only)
 Когда run Quality "Quality: PathTracing.SamplesPerPixel Level"
 Когда run Quality "Quality: PathTracing.Denoiser Level"
 Когда run Quality "Quality: Reflections.Method Level"
@@ -60,7 +60,7 @@
 # D3: day -> night inside one world, no reload: the new night cube is a new identity, so both histories reset when it lands.
 Когда set 4576059197435775655 TimeOfDayData.TimeOfDay 12
 Когда frames 300
-Тогда-вид scrub_noon [scrub_noon] noon in the night world: the day street lit, no night residue (context for scrub_night)
+Тогда-вид scrub_noon [scrub_noon] noon in the night world: the sun turned 150 deg at the scene's own intensity (22, a dim noon by content); the log shows the sky recapture and rebake after the turn (context for scrub_night)
 Когда set 4576059197435775655 TimeOfDayData.TimeOfDay 22
 Когда frames 300
 Тогда-вид scrub_night [scrub_night] back to 22:00 inside one world: no blue sheet; mean = hwgi_night_no_blue +-5 %; лог: the frame is >= 120 frames after "sky bake 0x... -> 0x..." for the night cube
