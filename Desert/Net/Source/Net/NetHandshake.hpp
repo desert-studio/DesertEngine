@@ -29,7 +29,9 @@ namespace Desert::Net
     // 6: the input step carries the pawn's declared action set (bits + axes), not engine-fixed buttons.
     // 7: the move state's flag byte carries the game's movement mode bits (crouched, swimming) beside Grounded.
     // 8: snapshot entries carry their send period; ViewReport (WP-FAR-15).
-    inline constexpr std::uint32_t kProtocolVersion = 8;
+    // 9: packed Input run - quantized fields, one step number per run, per-step deltas (NET-INPUT-PACK,
+    //    InputWire.hpp); the mesh handover's pending steps carry their actions and axes.
+    inline constexpr std::uint32_t kProtocolVersion = 9;
     // "DSNT": a Hello from something that is not our client is refused before its fields are read.
     inline constexpr std::uint32_t kHelloMagic = 0x544E5344u;
 

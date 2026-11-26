@@ -1,4 +1,5 @@
 #include "Net/MeshLink.hpp"
+#include "Net/InputWire.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -122,6 +123,11 @@ namespace Desert::Net
                          }
                      },
                      value );
+            }
+            // An input step with its number and every field (InputWire.hpp) - the handover's pending list.
+            void InputStepFull( const InputStep& step )
+            {
+                AppendInputStepFull( m_Out, step );
             }
             std::vector<std::byte> Take()
             {
@@ -250,6 +256,14 @@ namespace Desert::Net
             {
                 return m_In.subspan( m_At );
             }
+            bool InputStepFull( InputStep& step )
+            {
+                std::span<const std::byte> rest = Rest();
+                if ( !ReadInputStepFull( rest, step ) )
+                    return false;
+                m_At = m_In.size() - rest.size();
+                return true;
+            }
             [[nodiscard]] bool Done() const
             {
                 return m_At == m_In.size();
@@ -322,15 +336,6 @@ namespace Desert::Net
             std::uint32_t From = 0, Epoch = 0, To = 0, Step = 0, Gateway = 0;
         };
 
-        void WriteInputStep( Writer& w, const InputStep& input )
-        {
-            w.U32( input.Step );
-            w.F32( input.Move.X );
-            w.F32( input.Move.Y );
-            w.F32( input.Move.Z );
-            w.F32( input.Yaw );
-        }
-
         void WriteMoveState( Writer& w, const PawnMoveState& move )
         {
             w.F32( move.Position.X );
@@ -354,12 +359,6 @@ namespace Desert::Net
             return true;
         }
 
-        bool ReadInputStep( Reader& r, InputStep& input )
-        {
-            return r.U32( input.Step ) && r.F32( input.Move.X ) && r.F32( input.Move.Y ) &&
-                   r.F32( input.Move.Z ) && r.F32( input.Yaw );
-        }
-
         std::vector<std::byte> EncodeHandover( EMesh type, const HandoverHeader& h,
                                                const PawnSimulation::HandoverPawn& pawn )
         {
@@ -378,7 +377,7 @@ namespace Desert::Net
             WriteMoveState( w, pawn.Move );
             w.U32( static_cast<std::uint32_t>( pawn.Pending.size() ) );
             for ( const InputStep& input : pawn.Pending )
-                WriteInputStep( w, input );
+                w.InputStepFull( input );
             return w.Take();
         }
 
@@ -397,7 +396,7 @@ namespace Desert::Net
                 pawn.LastProcessed = processed;
             pawn.Pending.resize( pending );
             for ( InputStep& input : pawn.Pending )
-                if ( !ReadInputStep( r, input ) )
+                if ( !r.InputStepFull( input ) )
                     return false;
             return true;
         }

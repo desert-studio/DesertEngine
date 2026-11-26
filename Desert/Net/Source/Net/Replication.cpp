@@ -1,4 +1,5 @@
 #include "Replication.hpp"
+#include "InputWire.hpp"
 #include "WireCodec.hpp"
 
 #include <algorithm>
@@ -33,25 +34,13 @@ namespace Desert::Net
     std::vector<std::byte> EncodeInput( const InputMessage& message )
     {
         Writer out( EReplicationMessage::Input );
-        static_assert( kMaxUnackedInputSteps <= 255, "the step count is one byte" );
         out.U32( message.Sequence );
-        // Every step the message holds - the client's ring (Replication.hpp kMaxUnackedInputSteps) never holds
-        // more; past it only a lost session's oldest steps go, as the ring itself drops them.
-        const std::size_t count = std::min( message.Steps.size(), kMaxUnackedInputSteps );
-        out.U8( static_cast<std::uint8_t>( count ) );
-        for ( std::size_t i = message.Steps.size() - count; i < message.Steps.size(); ++i )
-        {
-            out.U32( message.Steps[i].Step );
-            out.Vec( message.Steps[i].Move );
-            out.F32( message.Steps[i].Yaw );
-            // The pawn's declared action set, opaque (Replication.hpp InputStep): the bits, then the axes.
-            out.U32( message.Steps[i].Actions );
-            const std::size_t axes = std::min( message.Steps[i].Axes.size(), kMaxInputAxes );
-            out.U8( static_cast<std::uint8_t>( axes ) );
-            for ( std::size_t a = 0; a < axes; ++a )
-                out.F32( message.Steps[i].Axes[a] );
-        }
-        return out.Take();
+        // Every step the message holds, as one run (InputWire.hpp); a run the codec refuses (not consecutive, too
+        // long, too many axes) sends nothing - the empty buffer is the refusal, the caller reports it.
+        std::vector<std::byte> bytes = out.Take();
+        if ( !AppendInputRun( bytes, message.Steps ) )
+            return {};
+        return bytes;
     }
 
     std::vector<std::byte> EncodeSnapshot( const SnapshotMessage& message )
@@ -103,24 +92,16 @@ namespace Desert::Net
 
     std::optional<InputMessage> DecodeInput( std::span<const std::byte> data )
     {
-        Reader       in( data, EReplicationMessage::Input );
-        InputMessage message;
-        std::uint8_t count = 0;
-        if ( !in.U32( message.Sequence ) || !in.U8( count ) || count == 0 || count > kMaxUnackedInputSteps )
+        // The message head (type, sequence), then the run to the end of the message (InputWire.hpp).
+        constexpr std::size_t kHeadBytes = 1 + sizeof( std::uint32_t );
+        if ( data.size() < kHeadBytes )
             return std::nullopt;
-        message.Steps.resize( count );
-        for ( InputStep& step : message.Steps )
-        {
-            std::uint8_t axes = 0;
-            if ( !in.U32( step.Step ) || !in.Vec( step.Move ) || !in.F32( step.Yaw ) || !in.U32( step.Actions ) ||
-                 !in.U8( axes ) || axes > kMaxInputAxes )
-                return std::nullopt;
-            step.Axes.resize( axes );
-            for ( float& axis : step.Axes )
-                if ( !in.F32( axis ) )
-                    return std::nullopt;
-        }
-        if ( !in.Done() )
+        Reader       in( data.first( kHeadBytes ), EReplicationMessage::Input );
+        InputMessage message;
+        if ( !in.U32( message.Sequence ) || !in.Done() )
+            return std::nullopt;
+        std::span<const std::byte> run = data.subspan( kHeadBytes );
+        if ( !ReadInputRun( run, message.Steps ) || !run.empty() )
             return std::nullopt;
         return message;
     }
