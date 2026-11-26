@@ -213,7 +213,7 @@ namespace Desert::Graphic::API::Vulkan
                       m_Capabilities.SupportsTextureCompressionBC ? "supported -> enabled on the device"
                                                                   : "NOT supported -- no BC textures" );
 
-            Graphic::RenderConfig::WideLines = m_Capabilities.SupportsWideLines; // clamp debug-line width if false
+            Graphic::RenderConfig::SetWideLines( m_Capabilities.SupportsWideLines ); // clamp debug-line width if false
 
             // The selectable lists, built once from probed facts (VulkanCapabilityCatalog.hpp). The surface half
             // (display outputs, present modes beyond FIFO) is probed when the first swapchain's surface exists.

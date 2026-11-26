@@ -1,0 +1,21 @@
+# BINT-RC: DesertRenderCore.dll links on its own - every symbol it imported from the engine is either placed in
+# RenderCore (DisplayOutput, GpuMemoryBudget with the texture streaming pool stats, VirtualMeshTable, the indirect
+# submission mode, the image service) or reached through an inversion the engine registers at init
+# (Graphic::IRendererClient = Core/EngineRendererClient: environment cache pump/drain, ResourceRegistry::ClearAll,
+# primitive meshes; IPropertyOwner for material properties; the cooked texture read in Assets/CookedTextureLoad).
+# [bint_rc]: build #14 links DesertRenderCore.dll with 0 LNK errors; the BINT-STATE.scn Lit frame matches dev.
+# What the frame proves: textures come through Assets::CreateTexture2D / ReadCookedTextureMips, material properties
+# upload through IPropertyOwner, the skybox environment is cached through SkyboxService::EnvironmentCache, and
+# shutdown runs the client's drain and release in the old order (no crash, no leak report at exit).
+# Outside the editor: python scripts/Dev/arch_census.py exits 0; RenderConfig has no public static atomics.
+Проект Projects/Desert/Desert.deproj
+Дано state
+Когда run View "View mode: Lit"
+Когда frames 120
+Тогда 0_lit_vulkan сцена Projects/Desert под Vulkan как в dev (кадр равен кадру 0_lit_vulkan из BINT-STATE.scn на dev): геометрия, свет, небо и его отражения, текстуры и материалы на месте; без падения и диалога ошибки; в editor.log нет ошибки валидации, отказа загрузки текстуры и строки "[CookedTextureLoad]"
+Когда run View "View mode: Wireframe"
+Когда frames 60
+Тогда 1_wireframe та же сцена каркасом, как в dev: RenderConfig через свои функции доходит до рендерера
+Когда run View "View mode: Lit"
+Когда frames 60
+Тогда 2_lit_back снова Lit, равен 0_lit_vulkan; после выхода редактора в editor.log нет ошибки завершения (drain кэша окружения, ClearAll, примитивы - в прежнем порядке)

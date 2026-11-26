@@ -146,7 +146,7 @@ namespace Desert::Graphic
         // sun-shadow path, decided after the view's TLAS (OnUpdate), so OnUpdate imports them then
         // (ImportViewShadowMaps).
         FrameTransients& view   = textures.Transients;
-        auto* images = Runtime::ResourceRegistry::GetImageService();
+        auto* images = Runtime::GetImageService();
         if ( const auto env = GetEnvironment(); env.has_value() )
         {
             if ( env->IrradianceMap.IsValid() )
@@ -1139,7 +1139,7 @@ namespace Desert::Graphic
         const CloudShadowInput   cloudShadow = GetCloudShadowInput();
         DeferredEnvironmentInput environment;
         {
-            auto* imageService = Runtime::ResourceRegistry::GetImageService();
+            auto* imageService = Runtime::GetImageService();
             environment.Sky    = GetSkyLightState();
             if ( const auto& env = GetEnvironment(); env.has_value() )
             {

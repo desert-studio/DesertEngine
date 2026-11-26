@@ -10,7 +10,6 @@
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Core/Formats/BlockCompression.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 #include <spdlog/fmt/fmt.h>
@@ -362,7 +361,7 @@ namespace Desert::Graphic
                        write.Entry.SourceKey, write.Entry.Path.string(), cube.GetError() );
             return;
         }
-        auto* images = Runtime::ResourceRegistry::GetImageService();
+        auto* images = Runtime::GetImageService();
         if ( images == nullptr || !images->Replace( write.Entry.Live, cube.ExtractValue() ) )
         {
             // The environment was released before its write landed (a scene change): nothing draws it any more.

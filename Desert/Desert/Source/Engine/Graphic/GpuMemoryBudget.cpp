@@ -49,6 +49,11 @@ namespace Desert::Graphic
         return budget;
     }
 
+    GpuMemoryBudget::StreamingPoolStats& GpuMemoryBudget::TextureStreamingPool()
+    {
+        return m_TextureStreamingPool;
+    }
+
     GpuMemoryBudget::Client::Client( std::string name, const float weight )
          : m_Id( GpuMemoryBudget::Get().Register( std::move( name ), weight ) )
     {

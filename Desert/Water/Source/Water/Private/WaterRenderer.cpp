@@ -548,7 +548,7 @@ namespace Desert::Graphic::System
             if ( texture == nullptr )
                 continue; // still loading: picked up the frame it lands
             const auto* image = dynamic_cast<Image2D*>(
-                 Runtime::ResourceRegistry::GetImageService()->Resolve( texture->GetImageHandle() ) );
+                 Runtime::GetImageService()->Resolve( texture->GetImageHandle() ) );
             // FPS-MAT-HANDLES3: through the cell's handle for this override's place (re-resolved by name only
             // when the layout, the executor or the name there moved).
             if ( image != nullptr )

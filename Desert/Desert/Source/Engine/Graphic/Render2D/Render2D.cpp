@@ -167,7 +167,7 @@ namespace Desert::Graphic::Render2D
                 return Common::MakeError( "Render2D::Init: failed to create white texture" );
             m_WhiteTexture = texResult.ExtractValue();
 
-            if ( auto* imgService = Runtime::ResourceRegistry::GetImageService() )
+            if ( auto* imgService = Runtime::GetImageService() )
                 m_WhiteImage = static_cast<Image2D*>( imgService->Resolve( m_WhiteTexture->GetImageHandle() ) );
         }
 

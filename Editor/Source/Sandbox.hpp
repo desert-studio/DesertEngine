@@ -278,9 +278,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     Desert::Core::ClientNetOptions::Launch()                         = options.NetClient;
     Desert::Editor::Control::ControlChannelOptions::Get().SocketPath = options.ControlSocket;
     Desert::Graphic::SetViewBudgetOverrideMiB( options.ViewBudgetMiB );
-    Desert::Graphic::RenderConfig::CloudVisualize = options.CloudVisualize;
-    Desert::Graphic::RenderConfig::RdgCompileCache = options.RdgCompileCache;
-    Desert::Graphic::RenderConfig::ParallelSetupOverride = options.ParallelSetup;
+    Desert::Graphic::RenderConfig::SetCloudVisualize( options.CloudVisualize );
+    Desert::Graphic::RenderConfig::SetRdgCompileCache( options.RdgCompileCache );
+    Desert::Graphic::RenderConfig::SetParallelSetupOverride( options.ParallelSetup );
 
     if ( options.LogLevel )
         Common::Logger::SetLevel( *options.LogLevel ); // --log-level: the gate, before the device logs its start

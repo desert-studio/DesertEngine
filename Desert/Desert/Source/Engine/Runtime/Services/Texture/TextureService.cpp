@@ -3,7 +3,8 @@
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/RenderTask.hpp>
-#include <Engine/Graphic/TextureFactory.hpp>
+#include <Engine/Assets/CookedTextureLoad.hpp>
+#include <Engine/Graphic/GpuMemoryBudget.hpp>
 #include <Engine/Graphic/TextureStreamingDemand.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -34,7 +35,7 @@ namespace Desert::Runtime
         {
             if ( !texture )
                 return;
-            if ( auto* image = ResourceRegistry::GetImageService()->Resolve( texture->GetImageHandle() ) )
+            if ( auto* image = GetImageService()->Resolve( texture->GetImageHandle() ) )
                 image->ClaimOwnership( Graphic::ResourceOwner::AssetService, asset );
         }
     } // namespace
@@ -67,7 +68,7 @@ namespace Desert::Runtime
     {
         // The GPU texture is created before the lock and the one it replaces is freed after it.
         const Assets::AssetHandle           handle = texture->GetHandle();
-        std::shared_ptr<Graphic::Texture2D> built  = Graphic::TextureFactory::Create2D( texture );
+        std::shared_ptr<Graphic::Texture2D> built  = Assets::CreateTexture2D( texture );
         std::shared_ptr<Graphic::Texture2D> replaced;
         {
             const std::unique_lock table( m_TableLock );
@@ -169,7 +170,7 @@ namespace Desert::Runtime
              {
                  TextureCookOutcome outcome;
                  const auto         began  = std::chrono::steady_clock::now();
-                 auto cooked = Graphic::Texture2D::ReadCookedMips( job->Asset, job->FirstMip, job->TailSize );
+                 auto cooked = Assets::ReadCookedTextureMips( job->Asset, job->FirstMip, job->TailSize );
                  LOG_DEBUG( "[TextureService] '{}' platform data read on a worker in {:.1f} ms",
                             Common::PathUtf8( job->Asset.filename() ),
                             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began )
@@ -830,7 +831,7 @@ namespace Desert::Runtime
                                  1024ull * 1024ull;
         m_PoolBudget.Declare(
              poolRow / 4u, poolRow,
-             Graphic::TextureStreamingDemand::Get().Pool().ResidentBytes.load( std::memory_order_relaxed ) );
+             Graphic::GpuMemoryBudget::Get().TextureStreamingPool().ResidentBytes.load( std::memory_order_relaxed ) );
         const uint64_t budget = m_PoolBudget.Grant();
         // DECIDED SHARED, COMMITTED EXCLUSIVE ONLY WHERE A ROW MOVES (CPU-ONE-SYNC step 12; UE
         // FRenderAssetStreamingManager: residency and wanted mips are read without blocking readers, the pending
@@ -1007,7 +1008,7 @@ namespace Desert::Runtime
                           change.To );
         }
 
-        auto& pool = Graphic::TextureStreamingDemand::Get().Pool();
+        auto& pool = Graphic::GpuMemoryBudget::Get().TextureStreamingPool();
         pool.ResidentBytes.store( resident, std::memory_order_relaxed );
         pool.WantedBytes.store( wanted, std::memory_order_relaxed );
         pool.BudgetBytes.store( budget, std::memory_order_relaxed );

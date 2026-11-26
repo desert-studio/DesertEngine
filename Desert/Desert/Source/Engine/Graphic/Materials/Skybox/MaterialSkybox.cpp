@@ -2,7 +2,6 @@
 
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Systems/Scene/Skybox/SkyCapture.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -63,7 +62,7 @@ namespace Desert::Graphic
                 return;
             }
         }
-        auto* images = Runtime::ResourceRegistry::GetImageService();
+        auto* images = Runtime::GetImageService();
         if ( !m_Capture->BeginPanorama( System::SkyCapturePanorama{
                   .Panorama = images->Share( m_Convolution->Panorama->GetImageHandle() ),
                   .Source   = m_Environment.Filepath } ) )
@@ -101,7 +100,7 @@ namespace Desert::Graphic
         }
 
         auto* image = static_cast<ImageCube*>(
-             Runtime::ResourceRegistry::GetImageService()->Resolve( m_Environment.RadianceMap ) );
+             Runtime::GetImageService()->Resolve( m_Environment.RadianceMap ) );
         if ( !image )
             return;
 

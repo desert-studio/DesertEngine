@@ -56,7 +56,7 @@ namespace Desert::Editor
             const auto material = Runtime::ResourceRegistry::GetSkyboxService()->Get( skybox );
             if ( !material || !material->GetEnvironment().PreFilteredMap.IsValid() )
                 return 0u;
-            const auto* image = Runtime::ResourceRegistry::GetImageService()->Resolve(
+            const auto* image = Runtime::GetImageService()->Resolve(
                  material->GetEnvironment().PreFilteredMap );
             return image != nullptr ? image->GetMipmapLevels() : 0u;
         }
@@ -119,7 +119,7 @@ namespace Desert::Editor
                  Graphic::SampledCube source;
                  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): all three keys name cubes
                  source.Cube = static_cast<Graphic::ImageCube*>(
-                      Runtime::ResourceRegistry::GetImageService()->Resolve( key ) );
+                      Runtime::GetImageService()->Resolve( key ) );
                  source.Lod = level->Lod;
                  // The file as authored, turned by THIS WINDOW's rotation; gain and tint stay identity (the
                  // component's knobs belong to a scene, not to the asset).

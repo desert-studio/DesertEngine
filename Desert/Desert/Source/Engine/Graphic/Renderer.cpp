@@ -4,11 +4,11 @@
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/BRDFLut.hpp>
-#include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Graphic/GpuMemoryBudget.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
+#include <Engine/Graphic/RendererClient.hpp>
 
 #include <Engine/Graphic/RendererAPI.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -16,9 +16,6 @@
 
 #include <Engine/Graphic/Rhi/Rhi.hpp>
 
-#include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/Reflection/ReflectionRegistry.hpp>
-#include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Engine/Graphic/RendererContext.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -40,9 +37,7 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    Renderer::Renderer() : m_EnvironmentCache( std::make_unique<EnvironmentCacheWriter>() )
-    {
-    }
+    Renderer::Renderer() = default;
 
     Renderer::~Renderer() = default;
 
@@ -57,13 +52,17 @@ namespace Desert::Graphic
         return BOOLSUCCESS;
     }
 
+    void Renderer::AttachClient( std::unique_ptr<IRendererClient> client )
+    {
+        m_Client = std::move( client );
+    }
+
     Common::BoolResultStr Renderer::Init()
     {
-        // Pull in the generated reflection TU (static lib would otherwise strip it) so all
-        // REFLECT()-annotated types are registered before any editor / shader-upload use.
-        Reflection::ForceLinkGeneratedReflection();
-        LOG_INFO( "[Reflection] {} reflected type(s) registered",
-                  Reflection::ReflectionRegistry::Get().All().size() );
+        // The generated reflection is linked by the Application right before this call (Application::Application).
+        if ( !m_Client )
+            return Common::MakeError( "Renderer::Init: no renderer client is attached (Renderer::AttachClient runs "
+                                      "before Init, from the Application: Core/EngineRendererClient)" );
 
         const auto& init = InitGraphicAPI();
         if ( !init )
@@ -182,8 +181,9 @@ namespace Desert::Graphic
 
         if ( const Common::BoolResultStr waited = Api().WaitFrameSlot(); !waited )
             return waited;
-        // Every host begins its frames here, so no host has to remember the environment cache's readbacks.
-        m_EnvironmentCache->Pump();
+        // Every host begins its frames here, so no host has to remember the environment cache's readbacks
+        // (the engine's client pumps them: EngineRendererClient::OnFrameSlot).
+        m_Client->OnFrameSlot();
         return BOOLSUCCESS;
     }
 
@@ -527,7 +527,7 @@ namespace Desert::Graphic
         // Each image re-points at the sampler the new setting names (the device's VulkanSamplerCache); the old
         // sampler is never destroyed here. Idle first anyway: the image descriptors are rewritten next frame.
         WaitDeviceIdle();
-        auto* imageService = Runtime::ResourceRegistry::GetImageService();
+        auto* imageService = Runtime::GetImageService();
         imageService->ForEachImage(
              []( Image& image )
              {
@@ -551,12 +551,22 @@ namespace Desert::Graphic
         // Mirror image of Init(), and called from ~Application so it runs inside main. Everything below
         // is owned by a static that outlives the Application object; a static destructor cannot be
         // ordered against the device, so the release has to be said out loud here instead.
-        // Its readbacks own staging buffers and command buffers: finished while the device is alive.
-        m_EnvironmentCache->Drain();
+        // THE ORDER (unchanged by BINT-RC, which moved the engine's steps behind IRendererClient):
+        //   1. the engine drains its GPU work in flight (the environment cache's readbacks own staging buffers
+        //      and command buffers: finished while the device is alive) - OnShutdownDrain;
+        //   2. the BRDF LUT;
+        //   3. the engine empties its resources: ResourceRegistry::ClearAll, then the shared primitive meshes -
+        //      OnShutdownRelease;
+        //   4. fallback textures, default textures, the geometry pool, the virtual mesh table, the backend.
+        if ( !m_Client )
+        {
+            LOG_ERROR( "[Renderer] Shutdown without Init: no renderer client is attached, nothing to release" );
+            return;
+        }
+        m_Client->OnShutdownDrain();
 
         m_BRDFTexture.reset();
-        Runtime::ResourceRegistry::ClearAll();
-        Geometry::PrimitiveMeshFactory::ReleaseShared();
+        m_Client->OnShutdownRelease();
 
         if ( const auto released = FallbackTextures::Get().Release(); !released )
         {

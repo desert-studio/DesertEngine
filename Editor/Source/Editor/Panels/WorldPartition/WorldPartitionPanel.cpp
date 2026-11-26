@@ -2566,7 +2566,7 @@ namespace Desert::Editor
                 static_cast<void>( textures->Require( *m_MiniMapHandle ) ); // starts the read; drawn once ready
                 const auto* texture = textures->Get( *m_MiniMapHandle );
                 auto*       image   = texture ? static_cast<Graphic::Image2D*>(
-                                               ::Desert::Runtime::ResourceRegistry::GetImageService()->Resolve(
+                                               ::Desert::Runtime::GetImageService()->Resolve(
                                                     texture->GetImageHandle() ) )
                                               : nullptr;
                 if ( image != nullptr )

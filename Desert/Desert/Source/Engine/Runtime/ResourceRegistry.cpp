@@ -36,12 +36,12 @@ namespace Desert::Runtime
         // without this call the texture service would be built before the image service, destroyed
         // after it, and every texture it still held would unregister into a destroyed object. Renderer::
         // Shutdown empties them through ClearAll() first, but a process that never reaches it (a tool, a
-        // test, an early exit) still runs the static destructors. Touching the ImageService getter
-        // before the holder's own static makes the order a property of the code rather than of which
+        // test, an early exit) still runs the static destructors. Touching the ImageService getter (RenderCore's
+        // Runtime::GetImageService) before the holder's own static makes the order a property of the code rather than of which
         // service somebody happened to ask for first.
         void ImageServiceConstructedFirst()
         {
-            (void)ResourceRegistry::GetImageService();
+            (void)GetImageService();
         }
     } // namespace
 
@@ -68,12 +68,6 @@ namespace Desert::Runtime
     {
         static ShaderService shaderService;
         return &shaderService;
-    }
-
-    ImageService* ResourceRegistry::GetImageService()
-    {
-        static ImageService imageService;
-        return &imageService;
     }
 
     MaterialService* ResourceRegistry::GetMaterialService()

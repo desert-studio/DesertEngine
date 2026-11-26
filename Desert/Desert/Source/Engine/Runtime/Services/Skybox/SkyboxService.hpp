@@ -3,6 +3,7 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 
+#include <Engine/Graphic/Environment/EnvironmentBake.hpp>       // EnvironmentCacheWriter, owned here
 #include <Engine/Graphic/Materials/Skybox/MaterialSkybox.hpp> // the type this service caches by handle
 
 namespace Desert::Runtime
@@ -30,7 +31,16 @@ namespace Desert::Runtime
         std::shared_ptr<Graphic::MaterialSkybox> Get( const Assets::AssetHandle& handle ) const;
         void                                     Clear();
 
+        /// The skybox conversions' cache writes (EnvironmentManager::WriteCache begins them). Owned by this
+        /// service, so it lives exactly as long as the skyboxes it caches; Clear does not touch it. Pumped after
+        /// the frame slot and drained first at shutdown by the engine's renderer client (Core/EngineRendererClient).
+        [[nodiscard]] Graphic::EnvironmentCacheWriter& EnvironmentCache()
+        {
+            return m_EnvironmentCache;
+        }
+
     private:
+        Graphic::EnvironmentCacheWriter                                                   m_EnvironmentCache;
         std::weak_ptr<Assets::AssetManager>                                               m_Assets;
         std::unordered_map<Assets::AssetHandle, std::shared_ptr<Graphic::MaterialSkybox>> m_Skyboxes;
         std::unordered_map<Assets::AssetHandle, Assets::LoadRequest>                      m_Pending;

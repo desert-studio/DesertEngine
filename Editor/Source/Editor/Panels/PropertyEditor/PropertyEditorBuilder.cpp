@@ -80,7 +80,7 @@ namespace Desert::Editor
             if ( !tex )
                 return nullptr;
             auto* img = static_cast<Graphic::Image2D*>(
-                 Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
+                 Runtime::GetImageService()->Resolve( tex->GetImageHandle() ) );
             if ( !img )
                 return nullptr;
             return std::shared_ptr<Graphic::Image2D>( img, []( Graphic::Image2D* ) {} );

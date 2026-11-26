@@ -324,12 +324,12 @@ namespace Desert::Graphic
         // buffers touched this frame" (TProperty::Set skips unchanged values, so a constant parameter
         // would stop being reported and its other frame copies would go stale -- that was the outline
         // flicker), so the set had no possible consumer.
-        void UploadRegisteredProperties();
+        void UploadRegisteredProperties() final;
         // True while a registered property was written and not uploaded yet.
-        [[nodiscard]] bool HasPendingRegisteredProperties() const;
+        [[nodiscard]] bool HasPendingRegisteredProperties() const final;
         // CPU-BIND-PREPARE: how many writes the registered properties counted (TProperty::AttachWriteSink), or
         // nullopt when one of them counts none - then only HasPendingRegisteredProperties answers.
-        [[nodiscard]] std::optional<uint64_t> RegisteredWrites() const noexcept
+        [[nodiscard]] std::optional<uint64_t> RegisteredWrites() const noexcept final
         {
             if ( !m_RegisteredWritesCounted )
                 return std::nullopt;

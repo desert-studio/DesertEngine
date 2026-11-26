@@ -1463,7 +1463,7 @@ namespace Desert::Graphic::System
                     // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact type
                     const auto* img = tex == nullptr ? nullptr
                                                      : static_cast<const Image2D*>(
-                                                            Runtime::ResourceRegistry::GetImageService()->Resolve(
+                                                            Runtime::GetImageService()->Resolve(
                                                                  tex->GetImageHandle() ) );
                     // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
                     m_GroupSamplerScratch.push_back( img );

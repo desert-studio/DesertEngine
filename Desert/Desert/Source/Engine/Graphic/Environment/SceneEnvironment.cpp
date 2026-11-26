@@ -1,10 +1,11 @@
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 
 #include <Engine/Graphic/Environment/EnvironmentBake.hpp>
-#include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Assets/CookedTextureLoad.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Skybox/SkyboxService.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
 
-#include <Engine/Runtime/ResourceRegistry.hpp>
 
 
 #include <chrono>
@@ -22,7 +23,7 @@ namespace Desert::Graphic
         // than five claims — see Engine/Graphic/ResourceLedger.hpp on ResourceAttributionScope.
         const ResourceAttributionScope owned( ResourceOwner::Environment );
 
-        auto* imageService = Runtime::ResourceRegistry::GetImageService();
+        auto* imageService = Runtime::GetImageService();
 
         // ── THE BAKED FORM, IF THERE IS ONE ──────────────────────────────────────────────────
         //
@@ -114,7 +115,7 @@ namespace Desert::Graphic
             LOG_INFO( "[SceneEnvironment] '{}' is being baked: {}", meta.Filepath.string(), staged->MissReason );
         }
 
-        auto panorama = Texture2D::CreateFromAsset( panoramaPath );
+        auto panorama = Assets::CreateTextureFromAsset( panoramaPath );
         if ( !panorama )
         {
             LOG_ERROR( "[SceneEnvironment] the cooked panorama '{}' of skybox '{}' did not load, so this "
@@ -162,7 +163,7 @@ namespace Desert::Graphic
         // failure costs the cache and nothing else, and is logged with the file.
         const std::array<Runtime::ImageHandle, 3> live         = { converted.RadianceMap, converted.IrradianceMap,
                                                                    converted.PreFilteredMap };
-        auto*                                     imageService = Runtime::ResourceRegistry::GetImageService();
+        auto*                                     imageService = Runtime::GetImageService();
         for ( size_t i = 0; i < live.size(); ++i )
         {
             EnvironmentCacheEntry& entry = convolution.Cache[i];
@@ -176,7 +177,7 @@ namespace Desert::Graphic
                 continue;
             }
             entry.Live = live[i];
-            if ( const auto begun = Renderer::GetInstance().GetEnvironmentCache().Begin( *cube, entry ); !begun )
+            if ( const auto begun = Runtime::ResourceRegistry::GetSkyboxService()->EnvironmentCache().Begin( *cube, entry ); !begun )
                 LOG_ERROR( "[SceneEnvironment] '{}' was converted but will not be cached to '{}': {}",
                            converted.Filepath.string(), entry.Path.string(), begun.GetError() );
         }
