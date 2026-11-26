@@ -948,6 +948,7 @@ namespace Desert::Graphic
                 LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), message );
             m_VirtualGeometryLastError = message;
         };
+        const auto passes = meshes->GetDrawCommandCache()->Passes();
         // DebugViewState::ForceVirtualGeometryCutRefusal: every cut of the frame refused AFTER InstanceCull took
         // the candidates out of the bins - the state a refused cut leaves, so the CPU walk's fallback
         // (MeshRenderer::CpuWalkHidden) is what draws the VG primitives ([vg_refused_fallback]).
@@ -973,6 +974,10 @@ namespace Desert::Graphic
                 cascadesCut = false;
                 continue;
             }
+            // A pass whose table holds no draw slot (its pipelines still compiling) has nothing to bin into:
+            // DrawCommandCache::RebuildPass skips every record without a ready pipeline, so no cut runs for it.
+            if ( passes[cascadeView.GetValue().Instance.View.Pass].DrawSlots.empty() )
+                continue;
             const auto cascade = AddVirtualGeometryCut(
                  graph, *m_VirtualGeometry, *m_ClusterCutCounts, *meshes, in, candidates, cascadeView.GetValue(),
                  bins.CutViewOf[v], bins.ViewKeys[v], GpuDriven::CullPhase::Main,
@@ -996,6 +1001,11 @@ namespace Desert::Graphic
             view.Instance.View.Flags &= ~GpuDriven::CullViewFlags::kTestHzb;
         }
         const uint32_t pass = view.Instance.View.Pass;
+        if ( passes[pass].DrawSlots.empty() )
+        {
+            m_ClusterCutCounts->Forget();
+            return;
+        }
         const auto     culled =
              AddVirtualGeometryCut( graph, *m_VirtualGeometry, *m_ClusterCutCounts, *meshes, in, candidates, view,
                                     bins.CutViewOf.front(), System::MeshRenderer::kBinnedMainView,
@@ -1209,6 +1219,9 @@ namespace Desert::Graphic
         constexpr GpuDriven::MeshPass   kTablePass = GpuDriven::MeshPass::VirtualShadow;
         const auto                      tableIndex = static_cast<size_t>( kTablePass );
         const GpuDriven::PassDrawTable& passTable  = meshes->GetDrawCommandCache()->Passes()[tableIndex];
+        // No draw slot in the VSM table (its pipelines still compiling): nothing to bin into, no cut.
+        if ( passTable.DrawSlots.empty() )
+            return;
         std::vector<VirtualGeometry::ClusterCullView> cutViews;
         cutViews.reserve( views.size() );
         // Both layers of a level select LOD by its texel.
