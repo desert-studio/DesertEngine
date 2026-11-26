@@ -122,7 +122,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Libraries` — 34 files, 3,818 lines: AnimatorLibrary, AudioLibrary, CharacterLibrary, DebugDrawLibrary, DeformCall, EntityLibrary, GameModeLibrary, GameplayDebuggerLibrary, HitResult, InputLibrary, LanguageInfo, LevelLibrary, … (+15)
 - `Localization` — 10 files, 2,112 lines: CalendarDate, CurrencyRow, FormatArguments, FormattedText, LocaleRow, Localization, LocalizedEntry, PluralOperands, Resolved, Row, RowTable, Snapshot, … (+2)
 - `Media` — 12 files, 2,430 lines: Av1VideoDecoder, ClusterEntry, CueEntry, IMediaAudioSink, MediaAudioOutput, MediaColorCoefficients, MediaPacket, MediaPlane, MediaPlayer, MediaSource, MediaTexture, OpusAudioDecoder, … (+6)
-- `Net` — 3 files, 1,239 lines: ClientNetDriver, ClientNetOptions, NetPredictionStats, NetRoleComponent
+- `Net` — 3 files, 1,246 lines: ClientNetDriver, ClientNetOptions, NetPredictionStats, NetRoleComponent
 - `Physics` — 10 files, 1,122 lines: CharacterControllerComponent, CharacterControllerData, ColliderComponent, ColliderData, PhysicsAssetGenerationSettings, ProjectileComponent, ProjectileData, RigidBodyComponent, RigidBodyData
 - `Reflection` — 14 files, 2,741 lines: AssetResolver, Callable, EntityRef, EnumBits, EnumValue, EventInfo, EventMetadata, EventSignature, FieldInfo, FunctionInfo, FunctionMetadata, Map, … (+14)
 - `Runtime` — 6 files, 1,340 lines: AssetHotReload, ImageHandle, Probe, ResourceRegistry, SelectionContext
@@ -197,7 +197,7 @@ Per directory: files, lines, the classes its headers declare.
 - `LandscapeCore/Public` — 10 files, 1,338 lines: LandscapeEditLayer, LandscapeEditLayerStack, LandscapeEditLayerTarget, LandscapeEditLayerTileData, LandscapeFrame, LandscapeLayerRule, LandscapeRect, LandscapeRoot, LandscapeSplineControlPoint, LandscapeSplineCurve, LandscapeSplineInterpPoint, LandscapeSplineMeshEntry, … (+6)
 
 ## Net — `Desert/Net/Source`
-- `Net` — 22 files, 6,916 lines: AckedMove, Authority, Cell, CellResidencyMessage, ConnectToken, ConnectTokenVerifier, Connection, ConnectionStats, DestroyMessage, DisconnectInfo, FieldUpdate, Gateway, … (+75)
+- `Net` — 24 files, 7,442 lines: AckedMove, Authority, Cell, CellResidencyMessage, ConnectToken, ConnectTokenVerifier, Connection, ConnectionStats, DestroyMessage, DisconnectInfo, FieldUpdate, Gateway, … (+76)
 
 ## PhysicsCore — `Desert/PhysicsCore/Source`
 - `PhysicsCore` — 12 files, 3,966 lines: BodyDesc, CharacterCapsule, CharacterDesc, CollisionChannelConfig, CollisionProfileConfig, CollisionProfiles, CollisionProfilesConfig, CollisionResponseConfig, CompoundBodyDesc, ContactEvent, ContactImpulse, ConvexHullGeometry, … (+16)
