@@ -5,7 +5,7 @@
 # value row 198..230 (Toggle x 300..332, Speed 342..502, Tint swatch 512..544, R 550..650, G 656..756, B 762..862),
 # Name field 240..280. Points = the viewport panel's points (E2: centre 640,360).
 # Typing goes as key events (DesertCtl input key); whether a key event also carries TypedText is what step 2 shows.
-Проект Desert.deproj --scene Content/Scenes/MainMenu.desce
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/MainMenu.desce
 Дано run UI "UI: Toggle the widget gallery"
 Тогда-вид 1_gallery галерея: под слайдером ряд «тумблер | поле Speed 1.000 | свотч + R 0.800 G 0.500 B 0.200», ниже поле имени «Desert»
 Когда input click Viewport 620,260

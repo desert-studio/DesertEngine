@@ -14,7 +14,7 @@
 Тогда-вид 7a_audio_play the Mirage main menu running in Play, no error toast or log overlay about audio
 # A UI click plays a one-shot (Lua Audio.play, Effects, Resident): the pointer onto Credits and a click.
 Когда input move - 574,481
-Когда input click - left
+Когда input click - 574,481
 Когда advance 1
 # Тогда [7b_audio_oneshot]: the log still has no "[Audio]" warning or error; a click's one-shot was reclaimed when it
 # ended (no growth of voices between two clicks - AUD-DEBUG will show the count; until then the log is the proof).
