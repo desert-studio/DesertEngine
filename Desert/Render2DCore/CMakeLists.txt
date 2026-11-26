@@ -1,5 +1,5 @@
 # Render2DCore: the Render2DCore module library (a DLL in Development/DebugGame, static in Shipping: desert_module_library).
-desert_glob(_sources "Source/Render2DCore/*.cpp" "Source/Render2DCore/*.hpp")
+desert_sources(_sources "Source/Render2DCore" MATCHING "\\.(cpp|hpp)$")
 desert_module_library(Render2DCore SOURCES ${_sources})
 desert_enable_unity(Render2DCore)
 desert_shared_pch(Render2DCore Common "${DESERT_ROOT}/Desert/Common/Source/Common/CommonPCH.hpp")

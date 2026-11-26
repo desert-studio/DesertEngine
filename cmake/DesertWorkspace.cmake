@@ -356,11 +356,30 @@ endfunction()
 
 # ── TARGET HELPERS ─────────────────────────────────────────────────────────────────────────────────
 
-# Recursive glob, re-run on every build so a new file is picked up without a manual re-configure.
-# Patterns are relative to the calling CMakeLists.txt's directory unless absolute.
-function(desert_glob out)
-    file(GLOB_RECURSE _files LIST_DIRECTORIES false CONFIGURE_DEPENDS ${ARGN})
-    list(SORT _files)
+# desert_sources(<out> <dir> [MATCHING <regex>] [RELATIVE]): the files <dir>/Sources.cmake lists, sorted. That list
+# is written by scripts/Dev/sources_sync.py from git and committed; nothing in the build globs a first-party
+# directory, so a build re-configures only when a Sources.cmake (or another CMake file) changed. <dir> is relative
+# to the calling CMakeLists.txt unless absolute; MATCHING keeps the paths (relative to <dir>) that match; RELATIVE
+# returns them relative to <dir> instead of absolute.
+function(desert_sources out dir)
+    cmake_parse_arguments(_s "RELATIVE" "MATCHING" "" ${ARGN})
+    get_filename_component(_dir "${dir}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    if(NOT EXISTS "${_dir}/Sources.cmake")
+        message(FATAL_ERROR "${_dir}/Sources.cmake is missing: run python scripts/Dev/sources_sync.py")
+    endif()
+    set(DESERT_SOURCES "")
+    include("${_dir}/Sources.cmake")
+    set(_files "")
+    foreach(rel IN LISTS DESERT_SOURCES)
+        if(_s_MATCHING AND NOT rel MATCHES "${_s_MATCHING}")
+            continue()
+        endif()
+        if(_s_RELATIVE)
+            list(APPEND _files "${rel}")
+        else()
+            list(APPEND _files "${_dir}/${rel}")
+        endif()
+    endforeach()
     set(${out} ${_files} PARENT_SCOPE)
 endfunction()
 
@@ -427,21 +446,26 @@ function(desert_external_includes target)
     endforeach()
 endfunction()
 
-# Commands that must run on EVERY build before the target's sources compile (the header
-# tool, GenVersion). A custom command whose output is a SYMBOLIC file is never up to date, so it runs every
-# build, and as a source of the target it orders before every object of that target -- and only of that
-# target, which adds no target to the build (a custom target would).
+# A command that runs before the target's sources compile (the header tool, GenVersion), and only when one of its
+# DEPENDS changed: the step touches a stamp after the command succeeds, so a build that changed nothing runs
+# nothing (`ninja -d explain` is empty). DEPENDS must name every file the command reads (the header tool's inputs
+# come from the Sources.cmake lists); BYPRODUCTS names the files it writes (rewritten only when their text changes,
+# so ninja's restat keeps their readers up to date).
 function(desert_prebuild target name)
-    cmake_parse_arguments(ARG "" "COMMENT" "COMMAND;DEPENDS" ${ARGN})
+    cmake_parse_arguments(ARG "" "COMMENT" "COMMAND;DEPENDS;BYPRODUCTS" ${ARGN})
+    if(NOT ARG_DEPENDS)
+        message(FATAL_ERROR "desert_prebuild(${target} ${name}): DEPENDS names no input, the step would never re-run")
+    endif()
     set(_stamp "${CMAKE_CURRENT_BINARY_DIR}/${target}.${name}.prebuild")
     add_custom_command(
         OUTPUT "${_stamp}"
+        BYPRODUCTS ${ARG_BYPRODUCTS}
         COMMAND ${ARG_COMMAND}
+        COMMAND "${CMAKE_COMMAND}" -E touch "${_stamp}"
         DEPENDS ${ARG_DEPENDS}
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         COMMENT "${ARG_COMMENT}"
         VERBATIM)
-    set_source_files_properties("${_stamp}" PROPERTIES SYMBOLIC TRUE)
     # The step is its own target (<target>-<name>) that <target> depends on, so a tool that needs the generated
     # sources and nothing else can build them: DesertPrebuild (desert_finalize_targets) depends on every step.
     # One target owns the output; <target> only orders after it, so the command never runs twice in parallel.

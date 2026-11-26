@@ -86,7 +86,7 @@ desert_placement(Engine [[Engine/UI/Ecs/]])
 # leaves
 # The replication layout DesertHeaderTool emits (Engine/Reflection/ReplicatedFields.hpp): names only, so the
 # dedicated server, which links no component header, knows which fields it may replicate.
-desert_placement(CoreReflection [[Engine/Reflection/|Engine/Generated/ReplicatedFields\.gen\.cpp$]])
+desert_placement(CoreReflection [[Engine/Reflection/]])
 desert_placement(ImageCore [[Engine/Core/(Formats|IO)/]])
 desert_placement(ApplicationCore [[Engine/Core/(Window|WindowCloseGate|Input|Glfw|GlfwVulkan)\.|^Platform/]])
 # the asset framework (CoreUObject package loading + AssetRegistry)

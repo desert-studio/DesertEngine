@@ -49,7 +49,17 @@
 # Когда: cmake --preset win-dev with a Visual Studio (multi-config) generator forced by -G
 # Тогда [configs]: configure stops with the FATAL_ERROR naming the single-config Ninja presets.
 #
-# [crash]
-# Когда: a scenario that forces a crash in the Development editor.
-# Тогда [crash]: <crash root>/<SHA7>-*/crash.dmp exists; scripts/Dev/sym.sh --dump prints the stack with function
-#   names from the module DLL PDBs.
+# B-TREE / B-TOOLS / P-CRASH rows (host checks on the built tree).
+# Дано: a build of the branch in build/cmake/win-dev (bash .claude/tools/build_land.sh), the build log kept.
+# Тогда [tree_clean]: a second `cmake --build build/cmake/win-dev --target Editor` in a row prints no "Configuring",
+#   `ninja -C build/cmake/win-dev -d explain -n Editor` prints nothing, `git status --porcelain` is empty after both builds
+#   (no Generated/*.gen.* in the source tree, ComponentSchema.lock untouched unless scripts/Dev/schema_lock.sh ran);
+#   `python scripts/Dev/sources_sync.py --check` exits 0; configure refuses a stale Desert/Desert/Source/Engine/Generated.
+# Тогда [duplicate_compile]: `python scripts/Dev/arch_census.py --build build/cmake/win-dev --list duplicate-compile`
+#   lists no first-party engine source compiled by a tool target (WorldGen, LatticePeak, DShaderTool, CloudVolumeBaker,
+#   CloudLayoutBaker, AssetClosure, TextureCook, GamePackager, SceneMigrator, DesertCtl, FbxMeshSplitter link the
+#   engine or DesertSceneMigration); every tool still links.
+# Тогда [crash]: Editor crashed on purpose (the engine has no crash command: `cdb -p <pid> -c ".crash"`) writes <crash root>/<SHA7>-<time>-<pid>/crash.dmp under
+#   <project>/Saved/Crashes or %LOCALAPPDATA%/DesertEngine/Crashes; `bash scripts/Dev/sym.sh --dump <that crash.dmp>`
+#   fetches win-<SHA7> symbols (python scripts/Dev/artifacts.py fetch win-<SHA7> ... --symbols) and prints a stack
+#   with function names (module DLL PDBs in Development); the artifact win-<SHA7> carries Editor.pdb in its -symbols.zip.

@@ -1,7 +1,7 @@
 # UIMockup: renders the editor theme to a PNG with no engine linked; ThemeManager.cpp and the ImGui GLFW + OpenGL3
 # backends compiled straight in against the GLFW and ImGui libraries, fonts copied next to it. Absent from Shipping
 # (desert_remove_configuration).
-desert_glob(_sources "Source/*.hpp" "Source/*.cpp")
+desert_sources(_sources "Source" MATCHING "\\.(cpp|hpp)$")
 set(_imgui "${DESERT_ROOT}/ThirdParty/ImGui")
 desert_add_executable(UIMockup FOLDER Tools SOURCES ${_sources}
     "${DESERT_ROOT}/Editor/Source/Editor/Core/ThemeManager.cpp"

@@ -30,7 +30,17 @@ set(_thirdparty_AssetCore "")
 set(_thirdparty_GeometryCore OpenSubdiv MeshOptimizer)
 set(_thirdparty_Core ${_luau})
 
-desert_engine_header_tool_command(_header_tool_command)
+desert_engine_header_tool_command(_header_tool_command _header_tool_inputs)
+set_source_files_properties(${DESERT_ENGINE_GENERATED_FILES} PROPERTIES GENERATED TRUE)
+
+# DesertSchemaLock: the one explicit command that rewrites Desert/Schema/ComponentSchema.lock to the code's
+# COMPONENT blocks (scripts/Dev/schema_lock.sh); the build only compares and fails on a difference.
+add_custom_target(DesertSchemaLock
+    COMMAND ${_header_tool_command} --write-schema-lock
+    DEPENDS DesertHeaderTool
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    COMMENT "DesertHeaderTool: rewrite Desert/Schema/ComponentSchema.lock"
+    VERBATIM)
 
 set(_source "${CMAKE_CURRENT_SOURCE_DIR}/Source")
 set(_postprocessing "${_source}/Engine/Graphic/Systems/Scene/PostProcessing")
@@ -76,6 +86,8 @@ function(_desert_engine_module_library name)
     foreach(rel IN LISTS DESERT_MODULE_${name}_LEGACY)
         _desert_add("${rel}" "${_source}/${rel}")
     endforeach()
+    # The module's generated registration (<build>/Generated, written by the codegen library's HeaderTool step).
+    list(APPEND _common ${DESERT_MODULE_${name}_GENERATED})
     string(LENGTH "${DESERT_MODULE_${name}_FOLDER}/" _prefix)
     foreach(file IN LISTS DESERT_MODULE_${name}_FOLDER_FILES)
         string(SUBSTRING "${file}" ${_prefix} -1 _rel)
@@ -113,7 +125,8 @@ function(_desert_engine_module_library name)
         add_dependencies(${target} DesertHeaderTool)
         desert_prebuild(${target} HeaderTool
             COMMAND ${_header_tool_command}
-            DEPENDS DesertHeaderTool
+            DEPENDS ${_header_tool_inputs}
+            BYPRODUCTS ${DESERT_ENGINE_GENERATED_FILES}
             COMMENT "DesertHeaderTool: engine reflection and subsystem codegen")
     else()
         desert_depend_on_codegen(${target})

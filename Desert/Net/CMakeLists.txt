@@ -3,7 +3,7 @@
 # server (DesertServer), the client runtime and the editor's PIE all link the same library. GameNetworkingSockets
 # keeps one process-wide instance (GameNetworkingSockets_Init) and the Engine and Core module DLLs both link this
 # library, so it is a module library: one DLL outside Shipping, static in the Shipping monolith.
-desert_glob(_sources "Source/*.cpp" "Source/*.hpp")
+desert_sources(_sources "Source" MATCHING "\\.(cpp|hpp)$")
 desert_module_library(DesertNet FOLDER Engine SOURCES ${_sources})
 target_include_directories(DesertNet PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/Source")
 target_link_libraries(DesertNet PRIVATE GameNetworkingSockets)

@@ -77,15 +77,22 @@ foreach(layer IN LISTS DESERT_EDITOR_LAYERS)
     desert_shared_pch(${layer} Editor "${CMAKE_CURRENT_SOURCE_DIR}/Source/EditorPCH.hpp")
     desert_depend_on_codegen(${layer})
     if(layer STREQUAL DESERT_EDITOR_CODEGEN_LIB)
-        add_dependencies(${layer} DesertHeaderTool)
+        # The editor's subsystem registry is written into the build tree, never the source tree (B-TREE); the step
+        # re-runs only when the tool, a template, an editor file or an engine file it reads for context changes.
+        set(_editor_subsystems "${DESERT_GENERATED_DIR}/Editor/Generated/EditorSubsystems.gen.cpp")
+        set_source_files_properties("${_editor_subsystems}" PROPERTIES GENERATED TRUE)
+        target_sources(${layer} PRIVATE "${_editor_subsystems}")
+        desert_header_tool_inputs(_editor_tool_inputs)
+        desert_sources(_editor_scanned "${DESERT_ROOT}/Editor/Source")
+        desert_engine_source_files(_editor_context)
         desert_prebuild(${layer} HeaderTool
             COMMAND "$<TARGET_FILE:DesertHeaderTool>"
                 --templates "${DESERT_ROOT}/Tools/DesertHeaderTool/Templates"
                 --check "${DESERT_ROOT}/Editor/Source"
                 ${_context_roots}
-                --subsystems Editor Desert::Editor::EditorLayer EditorLayer.hpp
-                "${DESERT_ROOT}/Editor/Source/Editor/Generated/EditorSubsystems.gen.cpp"
-            DEPENDS DesertHeaderTool
+                --subsystems Editor Desert::Editor::EditorLayer EditorLayer.hpp "${_editor_subsystems}"
+            DEPENDS ${_editor_tool_inputs} ${_editor_scanned} ${_editor_context}
+            BYPRODUCTS "${_editor_subsystems}"
             COMMENT "DesertHeaderTool: editor subsystem codegen")
     endif()
     _desert_editor_compile_settings(${layer})

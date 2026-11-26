@@ -1,5 +1,5 @@
 # UI: the DesertUI module library (a DLL in Development/DebugGame, static in Shipping: desert_module_library).
-desert_glob(_sources "Source/UI/*.cpp" "Source/UI/*.hpp")
+desert_sources(_sources "Source/UI" MATCHING "\\.(cpp|hpp)$")
 desert_module_library(DesertUI SOURCES ${_sources})
 desert_enable_unity(DesertUI)
 desert_shared_pch(DesertUI Common "${DESERT_ROOT}/Desert/Common/Source/Common/CommonPCH.hpp")

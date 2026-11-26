@@ -1,12 +1,35 @@
 #!/usr/bin/env bash
 # sym.sh <name> [tree]        — where <name> is defined/declared: class/struct/enum/using, Class::name(, functions, constants.
 # sym.sh --refs <name> [tree] — how many lines use <name>, and the top 15 files by use count.
+# sym.sh --dump <crash.dmp> [symbol dir] — crash triage (Windows): cdb `!analyze -v` + the faulting stack with names.
+#   Without [symbol dir] the symbols of the build named by the dump's directory (<SHA7>-<stamp>-<pid>) are fetched once
+#   into build/Symbols/<SHA7> from the `win-<SHA7>` artifact (scripts/Dev/artifacts.py publishes every .pdb).
 # <name> may be qualified (AssetRegistry::FindByGuidReference): the last part is searched, the qualifier filters.
 # Searches tracked C/C++/GLSL sources (ThirdParty and Generated excluded); prints file:line + context, ≤15 hits.
 # Exit 1 when nothing is found.
 set -u
 source "$(dirname "$0")/_common.sh"
 [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ] || [ $# -eq 0 ] && { dev_help "$0"; exit 0; }
+if [ "$1" = "--dump" ]; then
+    dmp="${2:-}"; syms="${3:-}"
+    [ -f "$dmp" ] || { echo "sym --dump: no dump file '$dmp'"; exit 2; }
+    # The crash directory is <SHA7>-<start stamp>-<pid> (CrashHandler RunDirectoryName): the build that crashed.
+    run="$(basename "$(dirname "$dmp")")"; sha7="${run%%-*}"
+    if [ -z "$syms" ]; then
+        [[ "$sha7" =~ ^[0-9a-f]{7}$ ]] || { echo "sym --dump: '$run' names no build (<SHA7>-<stamp>-<pid>); pass the symbol directory"; exit 2; }
+        syms="$DEV_ROOT/build/Symbols/$sha7"
+        if [ ! -d "$syms" ]; then
+            python "$DEV_ROOT/scripts/Dev/artifacts.py" fetch "win-$sha7" "$syms" --platform win --symbols || exit 2
+        fi
+    fi
+    cdb="$(command -v cdb.exe || true)"
+    [ -n "$cdb" ] || cdb="/c/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe"
+    [ -x "$cdb" ] || { echo "sym --dump: cdb.exe not found (Windows SDK 'Debugging Tools for Windows')"; exit 2; }
+    wsyms="$(cygpath -w "$syms")"; wcache="$(cygpath -w "$DEV_ROOT/build/Symbols/ms")"
+    "$cdb" -z "$(cygpath -w "$dmp")" -i "$wsyms" -y "$wsyms;srv*$wcache*https://msdl.microsoft.com/download/symbols" \
+        -c "!analyze -v; .ecxr; kP 40; q"
+    exit $?
+fi
 refs=0; [ "$1" = "--refs" ] && { refs=1; shift; }
 full="$1"; tree="${2:-$DEV_ROOT}"
 name="${full##*::}"; qual=""; [ "$name" != "$full" ] && qual="${full%::*}"; qual="${qual##*::}"

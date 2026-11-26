@@ -11,7 +11,7 @@
 #
 # The file is rewritten ONLY when its content actually changes, so an unchanged version never
 # triggers rebuilds. That frugality is what made the staleness invisible for a month, and it is still
-# the right behaviour now that the generator actually runs on every build.
+# the right behaviour: the generator runs when VERSION, the git HEAD log or the index changes (its DEPENDS, B-TREE).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

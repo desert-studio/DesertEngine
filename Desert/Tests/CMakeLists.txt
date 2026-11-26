@@ -57,12 +57,17 @@ function(_desert_runner_settings target)
     target_link_libraries(${target} PRIVATE ReflectCpp)
 endfunction()
 
-# The header tool run before a runner compiles (desert_prebuild, after DesertHeaderTool is built).
+# The header tool run before a runner compiles (desert_prebuild): READS the files it scans (re-run when one, the tool
+# or a template changes), writes OUTPUTS into the build tree (never the source tree, B-TREE), compiled into the runner.
 function(_desert_tests_header_tool target name)
-    add_dependencies(${target} DesertHeaderTool)
+    cmake_parse_arguments(ARG "" "" "READS;OUTPUTS;ARGS" ${ARGN})
+    desert_header_tool_inputs(_inputs)
+    set_source_files_properties(${ARG_OUTPUTS} PROPERTIES GENERATED TRUE)
+    target_sources(${target} PRIVATE ${ARG_OUTPUTS})
     desert_prebuild(${target} ${name}
-        COMMAND "$<TARGET_FILE:DesertHeaderTool>" --templates "${DESERT_ROOT}/Tools/DesertHeaderTool/Templates" ${ARGN}
-        DEPENDS DesertHeaderTool
+        COMMAND "$<TARGET_FILE:DesertHeaderTool>" --templates "${DESERT_ROOT}/Tools/DesertHeaderTool/Templates" ${ARG_ARGS}
+        DEPENDS ${_inputs} ${ARG_READS}
+        BYPRODUCTS ${ARG_OUTPUTS}
         COMMENT "DesertHeaderTool: ${target} ${name}")
 endfunction()
 
@@ -71,14 +76,19 @@ function(_desert_runner_Common target)
     target_include_directories(${target} PRIVATE "${DESERT_ROOT}/Editor/Source" "${DESERT_ROOT}/Runtime/Source")
     target_link_libraries(${target} PRIVATE Common ReflectCpp ${DESERT_OPTICK})
     set(_subsystems "${DESERT_ROOT}/Desert/Tests/Common/Subsystems")
-    _desert_tests_header_tool(${target} Subsystems
-        --check "${_subsystems}/Owner"
-        --context "${DESERT_ROOT}/Desert/Common/Source/Common/Core/Events"
-        --subsystems Sample SubsystemSamples::SampleOwner SampleOwner.hpp "${_subsystems}/Generated/SampleSubsystems.gen.cpp"
-        --subsystems SampleWorld SubsystemSamples::SampleWorld SampleOwner.hpp "${_subsystems}/Generated/SampleWorldSubsystems.gen.cpp")
-    file(GLOB _files CONFIGURE_DEPENDS "${_subsystems}/Owner/*.hpp" "${_subsystems}/Generated/*.gen.cpp")
+    set(_out "${DESERT_GENERATED_DIR}/Tests/Subsystems")
+    file(GLOB _files CONFIGURE_DEPENDS "${_subsystems}/Owner/*.hpp")
     list(SORT _files)
     target_sources(${target} PRIVATE ${_files})
+    file(GLOB _events CONFIGURE_DEPENDS "${DESERT_ROOT}/Desert/Common/Source/Common/Core/Events/*.hpp")
+    _desert_tests_header_tool(${target} Subsystems
+        READS ${_files} ${_events}
+        OUTPUTS "${_out}/SampleSubsystems.gen.cpp" "${_out}/SampleWorldSubsystems.gen.cpp"
+        ARGS
+        --check "${_subsystems}/Owner"
+        --context "${DESERT_ROOT}/Desert/Common/Source/Common/Core/Events"
+        --subsystems Sample SubsystemSamples::SampleOwner SampleOwner.hpp "${_out}/SampleSubsystems.gen.cpp"
+        --subsystems SampleWorld SubsystemSamples::SampleWorld SampleOwner.hpp "${_out}/SampleWorldSubsystems.gen.cpp")
     target_include_directories(${target} PRIVATE "${_subsystems}/Owner")
 endfunction()
 
@@ -92,19 +102,9 @@ function(_desert_runner_Tools target)
     _desert_runner_settings(${target})
     target_link_libraries(${target} PRIVATE Lua)
     set(_t "${DESERT_ROOT}/Tools")
+    # The migration steps are linked from DesertSceneMigration, never compiled a second time here (B-TOOLS).
+    target_link_libraries(${target} PRIVATE DesertSceneMigration)
     target_sources(${target} PRIVATE
-        "${_t}/SceneMigrator/Source/MigratorMain.cpp"
-        "${_t}/SceneMigrator/Source/SceneMigration.cpp"
-        "${_t}/SceneMigrator/Source/SettingsCanonical.cpp"
-        "${_t}/SceneMigrator/Source/UILift.cpp"
-        "${_t}/SceneMigrator/Source/MaterialAOParam.cpp"
-        "${_t}/SceneMigrator/Source/MaterialMaskClipParam.cpp" # MaterialWithMaskedTemplate, called by MigratorMain
-        "${_t}/SceneMigrator/Source/ClipInterpShift.cpp"
-        "${_t}/SceneMigrator/Source/ClipMigration.cpp"
-        "${_t}/SceneMigrator/Source/ClipGeneration3.cpp"
-        "${_t}/SceneMigrator/Source/ClipLift.cpp"
-        "${_t}/SceneMigrator/Source/ImportRecordSourceHash.cpp"
-        "${_t}/SceneMigrator/Source/ShaderLocatorFollow.cpp"
         "${_t}/WorldGen/Source/WorldBuild.cpp"
         "${_t}/WorldGen/Source/WorldGenMain.cpp"
         "${_t}/CrashReporter/Source/CrashReport.cpp"
@@ -126,17 +126,23 @@ function(_desert_runner_Tools target)
         "${_t}/DesertHeaderTool/Source"
         "${_reflected_functions}"
         "${_luau_runtime}")
+    set(_out "${DESERT_GENERATED_DIR}/Tests")
+    file(GLOB _function_fixture CONFIGURE_DEPENDS "${_reflected_functions}/Fixture/*.hpp")
+    file(GLOB _luau_fixture CONFIGURE_DEPENDS "${_luau_runtime}/Fixture/*.hpp")
+    target_sources(${target} PRIVATE ${_function_fixture} ${_luau_fixture})
     _desert_tests_header_tool(${target} ReflectedFunctions
-        --reflect "${_reflected_functions}" "Fixture" "${_reflected_functions}/Generated/FunctionFixture.gen.cpp"
+        READS ${_function_fixture}
+        OUTPUTS "${_out}/ReflectedFunctions/FunctionFixture.gen.cpp"
+                "${_out}/ReflectedFunctions/Reflection_FunctionFixture.gen.cpp"
+        ARGS
+        --reflect "${_reflected_functions}" "Fixture" "${_out}/ReflectedFunctions/FunctionFixture.gen.cpp"
         --reflect-anchor ForceLinkReflectedFunctionFixture)
     _desert_tests_header_tool(${target} LuauRuntime
-        --reflect "${_luau_runtime}" "Fixture" "${_luau_runtime}/Generated/LuauFixture.gen.cpp"
+        READS ${_luau_fixture}
+        OUTPUTS "${_out}/LuauRuntime/LuauFixture.gen.cpp" "${_out}/LuauRuntime/Reflection_LuauFixture.gen.cpp"
+        ARGS
+        --reflect "${_luau_runtime}" "Fixture" "${_out}/LuauRuntime/LuauFixture.gen.cpp"
         --reflect-anchor ForceLinkLuauRuntimeFixture)
-    file(GLOB _files CONFIGURE_DEPENDS
-        "${_reflected_functions}/Fixture/*.hpp" "${_reflected_functions}/Generated/*.gen.cpp"
-        "${_luau_runtime}/Fixture/*.hpp" "${_luau_runtime}/Generated/*.gen.cpp")
-    list(SORT _files)
-    target_sources(${target} PRIVATE ${_files})
 endfunction()
 
 function(_desert_runner_Engine target)

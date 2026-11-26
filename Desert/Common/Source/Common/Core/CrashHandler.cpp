@@ -1530,7 +1530,7 @@ namespace Common::Crash
         }
 
         // What a later MoveReportRoot needs to rebuild the per-crash paths under another root: the
-        // directory NAME (start stamp + pid, fixed for the process) and the reporter found at Install.
+        // directory NAME (RunDirectoryName, fixed for the process) and the reporter found at Install.
         std::string           g_RunName;
         std::filesystem::path g_Reporter;
 
@@ -1541,6 +1541,21 @@ namespace Common::Crash
             Detail::CopyIntoFixed( ioSlot.dirUtf8, Detail::kPathField, inDirectory.string() );
             Detail::CopyIntoFixed( ioSlot.txtUtf8, Detail::kPathField, ( inDirectory / "crash.txt" ).string() );
             Detail::FreezeNativePaths( ioSlot, inDirectory, inReporter );
+        }
+
+        // The per-crash directory NAME, fixed for the process: <SHA7>-<start stamp>-<pid> in a developer build,
+        // so a dump is filed under the build that made it and `scripts/Dev/sym.sh --dump` names the matching
+        // `win-<SHA7>` symbols artifact; a player report never names the repository state: <start stamp>-<pid>.
+        std::string RunDirectoryName( const std::string& inStamp, std::uint64_t inPid )
+        {
+            if constexpr ( Detail::kPlayerReport )
+            {
+                return std::format( "{}-{}", inStamp, inPid );
+            }
+            else
+            {
+                return std::format( "{}-{}-{}", std::string( Common::Version::Hash() ).substr( 0, 7 ), inStamp, inPid );
+            }
         }
 
         std::string FormatStartStamp()
@@ -1583,7 +1598,8 @@ namespace Common::Crash
 #else
         const auto pid = static_cast<std::uint64_t>( ::getpid() );
 #endif
-        const std::filesystem::path directory = root / std::format( "{}-{}", stamp, pid );
+        const std::string           runName   = RunDirectoryName( stamp, pid );
+        const std::filesystem::path directory = root / runName;
 
         // The ROOT is created now, while the process is healthy and can report a failure; the
         // per-crash directory is created inside the handler, so a run that never crashes leaves no
@@ -1625,7 +1641,7 @@ namespace Common::Crash
             reporter.clear();
         }
         g_Reporter = reporter;
-        g_RunName  = std::format( "{}-{}", stamp, pid );
+        g_RunName  = runName;
         FillSlot( g_PathSlots[0], directory, reporter );
         g_Paths.store( &g_PathSlots[0], std::memory_order_release );
 
