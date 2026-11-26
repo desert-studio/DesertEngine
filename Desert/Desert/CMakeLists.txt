@@ -171,6 +171,12 @@ function(_desert_engine_module_library name)
     if("ApplicationCore" IN_LIST _closure OR "RenderCore" IN_LIST _closure OR "Renderer" IN_LIST _closure)
         target_link_libraries(${target} PRIVATE GLFW)
     endif()
+    # The shader toolchain (vendored SPIRV-Cross: GLSL reflection + the HLSL path; the SDK's shaderc and Vulkan loader)
+    # is called by ShaderCompiler and by every module above it (RenderCore's shader reflection, the renderer); a
+    # module DLL resolves them at its own link (build #10 of B-INT: DesertShaderCompiler.dll, 123 unresolved).
+    if("ShaderCompiler" IN_LIST _closure)
+        target_link_libraries(${target} PRIVATE ${DESERT_DESERTSPECIFIC_LIBRARIES})
+    endif()
 
     # Engine's client net driver (Engine/Net/ClientNetDriver: Play as a network client) runs Desert/Net's session;
     # Core's Gameplay (Engine/Gameplay: the pawn's movement step) is the Net::IPawnMover the session calls.
