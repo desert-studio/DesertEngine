@@ -1,0 +1,3 @@
+# SCENE-UPGRADE-FILES [upgrade_files]: the scene upgrade lives in Core/SceneUpgrade, one file per step and one table; GI_Bistro_Night.desce stays SCNE 71 on disk.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
+Тогда-вид upgrade_files ночной Bistro как до разделения; лог «upgraded v71->v78 in memory (... steps VolumetricFog, TracedRequest, ComposedGI, FilmicDefault, GrassRasterPath, LandscapeSplineEntities, TubeSourceLength, ExposureBiasOnly ...), save to keep»; SceneMigrator --check на Projects/Desert/Content/Scenes — тот же итог, что до разделения

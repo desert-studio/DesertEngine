@@ -6,8 +6,9 @@
 // A DIRECTIONAL LIGHT'S DIRECTION IS ITS ROTATION, as in UE (ULightComponent::GetDirection =
 // GetComponentTransform().GetUnitAxis( EAxis::X )). The light travels along the entity's forward axis, which in
 // this engine is -Z for every entity (cameras, spot lights, projectiles). The one definition: ECS::Rules
-// (SystemRules.hpp) names it for the systems, Core::MigrateLightRotationV0ToV1 (SceneUpgrade.hpp) for the
-// upgrade of a light v0 file - Core sits below the ECS rules, so the rule lives in GeometryCore, beneath both.
+// (SystemRules.hpp) names it for the systems, Core::MigrateLightRotationV0ToV1
+// (Core/SceneUpgrade/Steps/Light1Rotation.hpp) for the upgrade of a light v0 file - Core sits below the ECS rules, so
+// the rule lives in GeometryCore, beneath both.
 namespace Desert::Geometry
 {
     inline constexpr glm::vec3 kLightForwardAxis = glm::vec3( 0.0f, 0.0f, -1.0f );
