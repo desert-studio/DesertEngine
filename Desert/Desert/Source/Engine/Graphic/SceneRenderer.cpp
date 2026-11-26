@@ -753,8 +753,8 @@ namespace Desert::Graphic
         ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
         const ActiveViewScope          viewScope( m_ViewResources );
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
-        // A lent surface cache / distance field is its lender's (a reflection capture's), released with it; the
-        // view's surface cache is its scene's (Scene::GetSurfaceCache), released with the scene's world.
+        // A lent distance field is its lender's (a reflection capture's), released with it; the view's surface
+        // cache is its scene's (Graphic::SceneRenderState::GetSurfaceCache), released with the scene's world.
         m_RadianceCache.reset();
         m_ScreenProbeGather.reset();
         m_IrradianceFieldGather.reset();
@@ -1364,7 +1364,6 @@ namespace Desert::Graphic
         m_SSRMaxDistance = post.SSRMaxDistance;
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
         m_SSRRaysPerPixel      = quality.As<int>( Parameter::ReflectionRaysPerPixel );
-        m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
         // Tenths of a pixel (Scalability.cpp row) -> pixels per edge.
         m_VirtualGeometryMaxPixelsPerEdge =
              static_cast<float>( quality.As<int>( Parameter::ViewDistanceVirtualGeometryMaxPixelsPerEdge ) ) /
@@ -5485,11 +5484,6 @@ namespace Desert::Graphic
     void SceneRendererImpl::ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field )
     {
         m_SharedGlobalDistanceField = field;
-    }
-
-    void SceneRendererImpl::ShareSurfaceCache( SurfaceCache::SurfaceCacheRenderer* cache )
-    {
-        m_SharedSurfaceCache = cache;
     }
 
     std::shared_ptr<Image2D> SceneRendererImpl::GetShadowCascadeCacheImage( const uint32_t cascade ) const

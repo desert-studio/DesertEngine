@@ -323,7 +323,6 @@ namespace Desert::Graphic
         std::optional<Environment> GetEnvironment() override;
         void                       BorrowEnvironment( std::optional<Environment> environment ) override;
         void                       ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field ) override;
-        void                       ShareSurfaceCache( SurfaceCache::SurfaceCacheRenderer* cache ) override;
         void SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow, const SkySettings& sky,
                                const SunLightFx& fx, const AtmosphereLight1& light1 ) override;
         void SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data, float fogHeightY ) override;
@@ -563,10 +562,9 @@ namespace Desert::Graphic
         std::unique_ptr<GlobalIllumination::ScreenProbeGather> m_ScreenProbeGather;
         // The surface cache (GI-SURFACE-CACHE-2): the Lumen scene of the mesh cards, its atlases and capture.
         // Read by the traced GI's hits (GI-CARD-LOOKUP) and by its view modes. The view owns none (UE: the Lumen
-        // scene is FScene's): it reads its scene's (m_FrameSurfaceCache) - unless one is lent
-        // (ShareSurfaceCache): a face view of a reflection capture reads its capture's. ReadSurfaceCache() is the
-        // one the frame reads.
-        SurfaceCache::SurfaceCacheRenderer* m_SharedSurfaceCache       = nullptr;
+        // scene is FScene's): it reads its scene's (m_FrameSurfaceCache, Graphic::SceneRenderState); a reflection
+        // capture's face view runs no surface cache (SurfaceCacheRuns). ReadSurfaceCache() is the one the frame
+        // reads.
         uint64_t                            m_SurfaceCacheLoggedCensus = 0; // cards << 32 | captured
         // This frame's surface cache (AddFrameSurfaceCache): the scene's records, their graph buffers and what a
         // traced hit reads - for the traced GI and the view modes of the same graph; reset every frame.
@@ -1246,7 +1244,7 @@ namespace Desert::Graphic
         // Whether this frame brings the surface cache up: the GI pipeline reads it (m_GIPipeline.SurfaceCache),
         // the traced reflections read it (ReflectionsTraced), or one of its view modes is on. Deferred only.
         [[nodiscard]] bool SurfaceCacheRuns() const;
-        // The surface cache this view reads - the lent one (ShareSurfaceCache), else its scene's - once
+        // The surface cache of this view's scene (m_FrameSurfaceCache, Graphic::SceneRenderState) - once
         // initialised (AddFrameSurfaceCache brings it up); null before.
         [[nodiscard]] SurfaceCache::SurfaceCacheRenderer* ReadSurfaceCache() const;
         // Whether this frame's reflections are traced (ReflectionMethod::SoftwareTraced or HardwareTraced): SSR's
@@ -1284,8 +1282,8 @@ namespace Desert::Graphic
         [[nodiscard]] std::optional<System::SSRRenderer::TracedReads>
         MakeTracedReflectionReads( RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
                                    const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
-        // The surface cache this view is bound to this frame - the lent one (ShareSurfaceCache), else its scene's
-        // (m_FrameSurfaceCache) - initialised or not; null outside BeginScene/EndScene.
+        // The surface cache of this view's scene (m_FrameSurfaceCache, Graphic::SceneRenderState) bound this
+        // frame - initialised or not; null outside BeginScene/EndScene.
         [[nodiscard]] SurfaceCache::SurfaceCacheRenderer* BoundSurfaceCache() const;
         // What the bound cache's owner stated for this engine frame (SurfaceCacheRenderer::BeginFrame): every
         // view's origin, the budget and the card tracer. Null when it stated nothing.
@@ -1610,9 +1608,8 @@ namespace Desert::Graphic
         // contacts, and it now runs before the TLAS, ahead of the cascade cache plan that reads this). Empty: no
         // capture this frame, or a reflection capture's face.
         std::vector<glm::vec4> m_FramePendingFootprints;
-        // The scene's surface cache (Scene::GetSurfaceCache), the same bracket: what this view reads and, the
-        // first view of an engine frame, updates (AddFrameSurfaceCache), unless one is lent
-        // (m_SharedSurfaceCache).
+        // The scene's surface cache (Graphic::SceneRenderState::GetSurfaceCache), the same bracket: what this view
+        // reads and, the first view of an engine frame, updates (AddFrameSurfaceCache).
         SurfaceCache::SurfaceCacheRenderer* m_FrameSurfaceCache = nullptr;
 #if DESERT_DEV_INSTRUMENTS
         // The gameplay debug drawing of the scene BeginScene was handed (Core/DebugDraw.hpp): this view's lines
@@ -1861,10 +1858,6 @@ namespace Desert::Graphic
         // BeginScene.
         System::PathTracer::Settings m_PathTracingSettings;
         bool                         m_PathTracerReady = false;
-        // The mesh distance-field brick pool, MiB (Scalability GlobalIllumination.DistanceFieldPoolMiB): this
-        // view's request to its scene's pool (DistanceFieldSceneData::BeginViewFrame) - a scene budget, counted
-        // once in the scene's ledger rows, not per view.
-        uint32_t m_DistanceFieldPoolMiB = 256;
         // Mesh displacement (Scalability ViewDistance.DisplacementDicingRate / DisplacementPoolMiB), handed to the
         // scene's DisplacementCache before this view requests levels. Rate 0 = runtime displacement off.
         int      m_DisplacementDicingRate = 2;

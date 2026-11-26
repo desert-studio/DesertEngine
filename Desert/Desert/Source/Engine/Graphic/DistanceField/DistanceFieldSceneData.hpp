@@ -2,22 +2,27 @@
 
 // THE GPU SCENE'S MESH DISTANCE FIELDS (UE FDistanceFieldSceneData, DistanceFieldObjectManagement.cpp /
 // DistanceFieldStreaming.cpp): the resident mips of every mesh field in one R8 brick atlas (a volume texture 64 x
-// 64 bricks wide, as deep as the pool), their indirection tables rewritten to atlas brick slots in one table, and
-// one asset record per field - the three buffers Shaders/Common/MeshDistanceField.glslh reads.
+// 64 bricks wide, as deep as the scene's fields need at full residency - it grows in 8 MiB steps up to the
+// Scalability ceiling GlobalIllumination.DistanceFieldPoolMiB, UE ResizeBrickAtlasIfNeeded), their indirection
+// tables rewritten to atlas brick slots in one table, and one asset record per field - the three buffers
+// Shaders/Common/MeshDistanceField.glslh reads.
 //
 // RESIDENCY FOLLOWS USE AND DISTANCE (UE DistanceFieldStreaming). A field becomes resident the first time an
 // object draws with it (Acquire), with its COARSEST mip only - the always-loaded one; the finer mips stream in by
 // the distance from the camera to the nearest object using the field (Stream) - all of them where a clipmap that
-// reads them is (UE's policy, DfWantedMips) - and out again when the camera leaves; all of it inside the pool the
-// Scalability parameter GlobalIllumination.DistanceFieldPoolMiB sets, nearest first, a bounded number of bricks
-// uploaded per frame. A field leaves when nothing holds it any more (ReleaseUnused, from the weak pointer each
-// entry keeps) - its brick slots, table ranges and asset record go back to the free lists.
+// reads them is (UE's policy, DfWantedMips) - and out again when the camera leaves; all of it inside the atlas
+// (never past the ceiling the Scalability parameter GlobalIllumination.DistanceFieldPoolMiB sets), nearest first,
+// a bounded number of bricks uploaded per frame. A field leaves when nothing holds it any more (ReleaseUnused,
+// from the weak pointer each entry keeps) - its brick slots, table ranges and asset record go back to the free
+// lists.
 //
 // The record lists the resident mips COARSEST FIRST (UE's reversed mip index), so a finer mip arriving or leaving
 // only changes the record's mip count and one row; Mips[] of the asset stays finest first.
 //
-// ONE PER SCENE (UE: FDistanceFieldSceneData lives in FScene): Core::Scene owns it (Scene::GetDistanceFields)
-// and every view of the scene - the viewports and the reflection captures' face views - shares the one atlas,
+// ONE PER SCENE (UE: FDistanceFieldSceneData lives in FScene): Graphic::SceneRenderState owns it, one per
+// Core::Scene (ISceneRenderState); every view of the scene reads it for its frame
+// (SceneRendererImpl::m_FrameDistanceFields) and never owns it - the viewports and the reflection captures' face
+// views share the one atlas,
 // the one record and indirection buffers and the one streaming. Its device objects are rows of the scene's
 // ledger instance, so the pool is the scene's budget entry, counted once, never a view's. Only the global
 // distance field's clipmaps, its object grid, its object buffer and the near field stay per view
@@ -71,9 +76,9 @@ namespace Desert::Graphic::DistanceField
     {
     public:
         // The first free range of @p count, or a new one at the end.
-        uint32_t Allocate( uint32_t count );
-        void                                  Free( uint32_t offset, uint32_t count );
-        [[nodiscard]] uint32_t                End() const
+        uint32_t               Allocate( uint32_t count );
+        void                   Free( uint32_t offset, uint32_t count );
+        [[nodiscard]] uint32_t End() const
         {
             return m_End;
         }
@@ -93,6 +98,9 @@ namespace Desert::Graphic::DistanceField
     public:
         // Forgets every slot; @p capacity slots are free.
         void Reset( uint32_t capacity );
+        // Raises the capacity to @p capacity (>= the current one), keeping every slot handed out and every free
+        // one: the atlas grew in depth, and a slot's texel does not depend on the depth.
+        void Grow( uint32_t capacity );
         // @p count slots, or nullopt (nothing taken) when fewer are free.
         [[nodiscard]] std::optional<std::vector<uint32_t>> Allocate( uint32_t count );
         void                                               Free( const std::vector<uint32_t>& slots );
@@ -103,6 +111,10 @@ namespace Desert::Graphic::DistanceField
         [[nodiscard]] uint32_t Used() const
         {
             return m_Capacity - Available();
+        }
+        [[nodiscard]] uint32_t Capacity() const
+        {
+            return m_Capacity;
         }
 
     private:
@@ -115,12 +127,14 @@ namespace Desert::Graphic::DistanceField
     struct DistanceFieldStreamingStats
     {
         uint32_t Fields         = 0;
-        uint32_t CapacityBricks = 0;
+        uint32_t CapacityBricks = 0; // the atlas as allocated (its depth), <= CapBricks
+        uint32_t CapBricks      = 0; // the ceiling: Scalability GlobalIllumination.DistanceFieldPoolMiB
+        uint32_t NeedBricks     = 0; // every mip of every resident field: what full residency would take
         uint32_t UsedBricks     = 0;
         uint32_t CoarseBricks   = 0;
         uint32_t ResidentByMips[Assets::kDistanceFieldNumMips]{}; // fields with 1, 2, 3 mips resident
         uint32_t UnmetRequests  = 0; // fields wanting a finer mip than the pool or this frame's uploads gave
-        uint32_t UploadedBricks = 0; // this frame
+        uint32_t UploadedBricks = 0; // this frame (streaming and a growth's re-upload together)
     };
 
     class DistanceFieldSceneData
@@ -152,26 +166,27 @@ namespace Desert::Graphic::DistanceField
         DistanceFieldSceneData( const DistanceFieldSceneData& )            = delete;
         DistanceFieldSceneData& operator=( const DistanceFieldSceneData& ) = delete;
 
-        // Every view calls this first, with the engine's absolute frame number, its pool request (Scalability
-        // GlobalIllumination.DistanceFieldPoolMiB) and the distinct fields of every distance-field-bearing
-        // primitive of the scene, first use first (GlobalDistanceFieldObjectSet::Fields: work per asset, not per
-        // instance). A new number starts the scene's frame and decides its resident set (above): the pool becomes
-        // the largest any view asked for during the previous frame (a different size drops every resident field
-        // and re-creates the atlas: GetPoolGeneration moves), fields nothing holds leave, the finer mips stream,
-        // the waiting fields and then @p fields get their coarse mip, the atlas and this frame's copies of the
-        // records are written. The same number again (a later view) only records its pool request and returns
-        // the frame start's result. An error names what the pool could not hold.
-        [[nodiscard]] Common::BoolResultStr BeginViewFrame( uint64_t frame, uint32_t poolMiB,
-                                                            const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>& fields );
+        // Every view calls this first, with the engine's absolute frame number and the distinct fields of every
+        // distance-field-bearing primitive of the scene, first use first (GlobalDistanceFieldObjectSet::Fields:
+        // work per asset, not per instance). ONCE PER FRAME PER SCENE: the first view of an engine frame to call
+        // it starts the scene's frame - the ceiling is read (Scalability GlobalIllumination.DistanceFieldPoolMiB;
+        // a different one drops every resident field: GetPoolGeneration moves), fields nothing holds leave, the
+        // atlas grows to what the resident fields and @p fields need at full residency (never past the ceiling;
+        // slots stay valid), the finer mips stream, the waiting fields and then @p fields get their coarse mip,
+        // the atlas and this frame's copies of the records are written. A later view of the same frame returns
+        // the frame start's result. An error names what the ceiling could not hold.
+        [[nodiscard]] Common::BoolResultStr
+        BeginViewFrame( uint64_t frame,
+                        const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>& fields );
 
-        // THE NEXT WORLD TAKES THE POOL OVER (Scene::Clear, the device idle): the brick atlas is sized by the
-        // project's pool, not by the world, so the new world's scene data keeps @p previous's allocation with
-        // nothing resident in it (as SetPoolMiB drops a pool's residents) instead of freeing 384 MiB and
-        // allocating the same 384 MiB again - UE keeps such pools across worlds too (pooled render targets).
-        // The generation moves on, so a view rewrites what it composited from the old world's bricks.
+        // THE NEXT WORLD TAKES THE ATLAS OVER (Scene::Clear, the device idle): the new world's scene data keeps
+        // @p previous's allocation (its depth and its ceiling) with nothing resident in it instead of freeing it
+        // and allocating it again - UE keeps such pools across worlds too (pooled render targets). The generation
+        // moves on, so a view rewrites what it composited from the old world's bricks.
         void AdoptPool( DistanceFieldSceneData& previous );
 
-        // Bumped whenever the pool was re-created: a view rewrites everything it composited from the old atlas.
+        // Bumped whenever the ceiling changed or the atlas was adopted (not when it grew: every slot keeps its
+        // texel): a view rewrites everything it composited from the old atlas.
         [[nodiscard]] uint64_t GetPoolGeneration() const
         {
             return m_PoolGeneration;
@@ -256,13 +271,14 @@ namespace Desert::Graphic::DistanceField
             std::weak_ptr<const Assets::MeshDistanceFieldVolume>   Field;
             uint32_t                                               AssetIndex = 0;
             uint32_t                                               NumMips    = 0; // resident, coarsest first
+            uint32_t                                               FullBricks = 0; // every mip's bricks: its need
             std::array<ResidentMip, Assets::kDistanceFieldNumMips> Mips{};
             float                                                  Distance = 0.0f; // this frame's nearest use
             bool                                                   Used     = false;
         };
 
         // Makes the next finer mip of @p resident resident (slots, table, record row, queued bricks); false when
-        // the pool has no room for it.
+        // the atlas has no room for it.
         [[nodiscard]] bool AddMip( Resident& resident, const Assets::MeshDistanceFieldVolume& field );
         // Drops the finest resident mip of @p resident.
         void DropMip( Resident& resident );
@@ -271,27 +287,37 @@ namespace Desert::Graphic::DistanceField
         // only when that is enough: false, and nothing dropped, when even every such mip would not make the
         // room (a request that cannot be met must not take mips the farther fields will only want back).
         bool                                MakeRoom( float distance, uint32_t bricks, const Resident* except );
+        // Creates the atlas at m_AtlasSlices when it is missing (first frame, after a ceiling change or a growth).
         [[nodiscard]] Common::BoolResultStr EnsureAtlas();
 
-        // The pool, in MiB of R8 bricks. A different size drops every resident field and re-creates the atlas:
-        // true when that happened.
-        [[nodiscard]] bool SetPoolMiB( uint32_t poolMiB );
+        // The ceiling, in MiB of R8 bricks (Scalability). A different one drops every resident field and the
+        // atlas (the next EnsureAtlas sizes it from the need again): true when that happened.
+        [[nodiscard]] bool SetPoolCapMiB( uint32_t capMiB );
+        // Grows the atlas to hold @p needBricks (rounded up to kDfAtlasGrowSlices slices, at least x1.5 the
+        // current depth, at most the ceiling): the brick slots keep their places, the old atlas is dropped and
+        // every resident brick is queued again (outside the per-frame streaming budget). Nothing when it holds
+        // them already.
+        void GrowAtlasFor( uint32_t needBricks );
+        // The bricks every mip of @p field takes (its need at full residency).
+        [[nodiscard]] static uint32_t FullBricksOf( const Assets::MeshDistanceFieldVolume& field );
         // Starts a frame's acquisition: forgets the distances of the last one.
-        void BeginFrame();
-        // Streams the finer mips toward the acquired distances, inside the pool and the per-frame upload
+        void ResetFrameUse();
+        // Streams the finer mips toward the acquired distances, inside the atlas and the per-frame upload
         // budget.
         void Stream();
         // Returns every field nothing holds any more to the free lists.
         void ReleaseUnused();
-        // Writes the bricks Acquire and Stream queued into the atlas (created on the first call after a pool
-        // change).
+        // Writes the bricks Acquire and Stream queued into the atlas (created on the first call after a ceiling
+        // change or a growth).
         [[nodiscard]] Common::BoolResultStr FlushUploads();
         // One line when the streaming settles (no field waits for a finer mip) after it moved.
         void LogStreaming();
-        // The frame start of BeginViewFrame (the resident set, the atlas, the records).
-        [[nodiscard]] Common::BoolResultStr DecideFrame( bool hadFrame, uint32_t pool, const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>& fields );
+        // The frame start of BeginViewFrame (the ceiling, the resident set, the atlas, the records).
+        [[nodiscard]] Common::BoolResultStr
+        DecideFrame( bool hadFrame,
+                     const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>& fields );
         // The record index of @p field, making it resident (coarsest mip) on first use, at @p distance. An error
-        // when not even the coarse mip fits the pool. Frame start only.
+        // when not even the coarse mip fits under the ceiling. Frame start only.
         [[nodiscard]] Common::ResultStr<std::optional<uint32_t>>
         Acquire( const std::shared_ptr<const Assets::MeshDistanceFieldVolume>& field, float distance );
 
@@ -304,31 +330,33 @@ namespace Desert::Graphic::DistanceField
         std::unordered_map<const Assets::MeshDistanceFieldVolume*, Resident> m_Resident;
         uint64_t                                                             m_ResidentEpoch = 0;
         BrickAllocator                                                       m_BrickSlots;
-        RangeAllocator                                                     m_IndirectionSlots;
-        RangeAllocator                                                     m_AssetSlots;
-        std::vector<glm::vec4>                                             m_AssetData;
-        std::vector<uint32_t>                                              m_Indirection;
+        RangeAllocator                                                       m_IndirectionSlots;
+        RangeAllocator                                                       m_AssetSlots;
+        std::vector<glm::vec4>                                               m_AssetData;
+        std::vector<uint32_t>                                                m_Indirection;
         uint64_t                                                             m_Revision = 0;
 
-        uint32_t                    m_PoolMiB        = 0;
-        uint32_t                    m_CapacityBricks = 0;
-        std::shared_ptr<Image3D> m_Atlas;
-        uint32_t                    m_UploadedThisFrame = 0;
+        uint32_t                    m_PoolCapMiB  = 0; // the ceiling (Scalability)
+        uint32_t                    m_CapBricks   = 0; // the ceiling in bricks
+        uint32_t                    m_AtlasSlices = 0; // the atlas's depth in brick slices (64x64 bricks), 0 = none yet
+        uint32_t                    m_NeedBricks  = 0; // the sum of m_Resident's FullBricks
+        std::shared_ptr<Image3D>    m_Atlas;
+        uint32_t                    m_UploadedThisFrame = 0; // streamed this frame (the budget counts these)
+        uint32_t                    m_RegrownThisFrame  = 0; // queued again by this frame's growth (outside it)
         DistanceFieldStreamingStats m_Stats;
         // Bricks waiting for the atlas: (slot, the field that holds the bytes, mip, brick within the mip).
         struct PendingBrick
         {
-            uint32_t                                             Slot = 0;
+            uint32_t                                               Slot = 0;
             std::shared_ptr<const Assets::MeshDistanceFieldVolume> Field;
-            uint32_t                                             Mip   = 0;
-            uint32_t                                             Brick = 0;
+            uint32_t                                               Mip   = 0;
+            uint32_t                                               Brick = 0;
         };
         std::vector<PendingBrick> m_Pending;
 
-        ResourceOwnerInstance m_LedgerInstance; // the owning Core::Scene's
+        ResourceOwnerInstance m_LedgerInstance;       // the owning Core::Scene's
         uint64_t              m_Frame            = 0; // the engine frame BeginViewFrame last started
         bool                  m_HasFrame         = false;
-        uint32_t              m_RequestedPoolMiB = 0; // the largest pool a view asked for this frame
         uint64_t              m_PoolGeneration   = 0;
         bool                  m_StreamingMoved   = false;
         // Per-frame buffers (persistent = false): each frame in flight has its own copy.

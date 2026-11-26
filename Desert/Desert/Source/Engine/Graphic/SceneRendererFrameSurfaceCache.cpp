@@ -24,6 +24,10 @@ namespace Desert::Graphic
 {
     bool SceneRendererImpl::SurfaceCacheRuns() const
     {
+        // A reflection capture's face view runs no surface cache under any mode (its profile has no GI and no
+        // traced reflections; the scene's cache is the viewports' to bring up).
+        if ( m_ViewProfile.SceneCapture )
+            return false;
         if ( m_RenderPath != Core::RenderPath::Deferred )
             return false;
         // The GI's cards only where the view runs the GI (RadianceCacheRuns asks the same of its profile): a
@@ -75,16 +79,17 @@ namespace Desert::Graphic
         return m_FrameLocalLighting;
     }
 
+    // A capture face never sees the scene's surface cache: it is raised by the viewports, and a baked capture
+    // must not depend on whether one is open.
     SurfaceCache::SurfaceCacheRenderer* SceneRendererImpl::ReadSurfaceCache() const
     {
-        SurfaceCache::SurfaceCacheRenderer* const cache =
-             m_SharedSurfaceCache != nullptr ? m_SharedSurfaceCache : m_FrameSurfaceCache;
-        return cache != nullptr && cache->IsInitialized() ? cache : nullptr;
+        const SurfaceCache::SurfaceCacheRenderer* const cache = BoundSurfaceCache();
+        return cache != nullptr && cache->IsInitialized() ? m_FrameSurfaceCache : nullptr;
     }
 
     SurfaceCache::SurfaceCacheRenderer* SceneRendererImpl::BoundSurfaceCache() const
     {
-        return m_SharedSurfaceCache != nullptr ? m_SharedSurfaceCache : m_FrameSurfaceCache;
+        return m_ViewProfile.SceneCapture ? nullptr : m_FrameSurfaceCache;
     }
 
     const SurfaceCache::SurfaceCacheRenderer::FrameViews* SceneRendererImpl::SurfaceCacheFrameViews() const
@@ -207,9 +212,8 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] Surface Cache: no MeshSystem" );
             return;
         }
-        // The cache this view reads: the one lent to it (ShareSurfaceCache: a reflection capture's face views share
-        // their capture's), else its scene's (Scene::GetSurfaceCache, one for every view of the scene: UE's Lumen
-        // scene is FScene's); initialised by the first view that brings it up.
+        // The cache this view reads: its scene's (Graphic::SceneRenderState::GetSurfaceCache, one for every view of
+        // the scene: UE's Lumen scene is FScene's); initialised by the first view that brings it up.
         SurfaceCache::SurfaceCacheRenderer* const cache = BoundSurfaceCache();
         if ( cache == nullptr )
         {
