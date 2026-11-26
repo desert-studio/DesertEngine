@@ -1733,7 +1733,7 @@ namespace Desert::Graphic::System
         // redrawn only when its light, its tile or a caster in its reach changed, whichever view of the scene
         // drew it last (UE: cached shadow maps of a stationary light, on FScene). Without @p shadowMaps (Shadows
         // Stochastic: MegaLights traces the local lights) no tile is given and no view drawn; every light that
-        // casts is still marked ShadowCaster, which is what the traced visibility reads. @p onlyLights (SourceIds;
+        // casts is still marked kLightShadowInView, which is what the traced visibility reads. @p onlyLights (SourceIds;
         // null = every light that casts): the maps of these alone, every other light traced and marked as above.
         void UpdateLocalShadows( std::vector<ShaderProtocols::PointLightPayload>& points,
                                  const std::vector<LocalLightShadowSettings>&     pointShadows,

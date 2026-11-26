@@ -217,11 +217,11 @@ vec3 MegaLightsLightPosition(int light)
 	return light < points ? pointLights[light].position : spotLights[light - points].position;
 }
 
-// A light whose shadowCaster is 0 casts no shadow in this view (UE CastShadows off): visible without a ray.
+// A light without kLightShadowInView casts no shadow in this view (UE CastShadows off): visible without a ray.
 bool MegaLightsLightCastsShadow(int light)
 {
 	const int points = int(Counts.x);
-	return (light < points ? pointLights[light].shadowCaster : spotLights[light - points].shadowCaster) != 0;
+	return DesertLightShadowsInView(light < points ? pointLights[light].shadowFlags : spotLights[light - points].shadowFlags);
 }
 
 // UE SourceRadius (cm): the sphere a shadow ray aims at; 0 = a point.

@@ -1880,7 +1880,7 @@ namespace Desert::Graphic
         const bool virtualMaps =
              m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::VirtualMaps;
         const auto unmapped = [virtualMaps]( const auto& light )
-        { return light.ShadowCaster != 0 && ( virtualMaps ? light.ShadowMaskSlot : light.ShadowView ) < 0; };
+        { return ( light.ShadowFlags & ShaderProtocols::kLightShadowInView ) != 0 && ( virtualMaps ? light.ShadowMaskSlot : light.ShadowView ) < 0; };
         return std::ranges::any_of( GetPointLights().PointLights, unmapped ) ||
                std::ranges::any_of( GetSpotLights().SpotLights, unmapped );
     }

@@ -12,10 +12,12 @@
 #include <rflcpp/rfl/json.hpp>
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <format>
 #include <map>
+#include <optional>
 #include <unordered_map>
 #include <span>
 #include <utility>
@@ -74,6 +76,17 @@ namespace Desert::Core
         constexpr int kTonemapFilmic               = 2; // Core::TonemapOperator::Filmic at v74
         constexpr int kGrassRasterScalability      = 0; // Core::GrassRasterPath::Scalability at v75
         constexpr int kGrassRasterVisibilityBuffer = 2; // Core::GrassRasterPath::VisibilityBuffer at v75
+        constexpr double kExposureMiddleGreyV78       = 0.18; // Graphic::kExposureMiddleGrey at v78
+
+        // A stated JSON number (a float, or an integer such as `0`) as a double; nullopt for anything else.
+        std::optional<double> NumberOf( const rfl::Generic& value )
+        {
+            if ( const auto real = value.to_double(); real.has_value() )
+                return real.value();
+            if ( const auto whole = value.to_int(); whole.has_value() )
+                return static_cast<double>( whole.value() );
+            return std::nullopt;
+        }
     } // namespace
 
 
@@ -500,6 +513,89 @@ namespace Desert::Core
         return stated;
     }
 
+    ExposureKeyReport MigrateExposureKeyV77ToV78( std::vector<Assets::EntityData>& entities )
+    {
+        ExposureKeyReport report;
+
+        // @p delta: a prefab override, whose absent bias is the prefab's and not 0.
+        const auto fold = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who, bool delta )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           const auto           former   = settings.get( "AutoExposureKey" );
+                           if ( !former.has_value() )
+                               return false;
+                           const std::optional<double> key = NumberOf( former.value() );
+                           if ( !key.has_value() || !( key.value() > 0.0 ) )
+                           {
+                               report.Refused.push_back( std::format(
+                                    "{}: PostProcessVolume.Settings.AutoExposureKey {} is not a positive number",
+                                    who, rfl::json::write( former.value() ) ) );
+                               return false;
+                           }
+                           // Rounded to 1e-6 EV: a float key folds to what it stated (0.18000000715 to no offset,
+                           // 0.04500000178 to -2).
+                           const double folded   = std::log2( key.value() / kExposureMiddleGreyV78 );
+                           const double offset   = std::round( folded * 1.0e6 ) / 1.0e6;
+                           const auto   biasKept = settings.get( "AutoExposureBias" );
+                           double       bias     = 0.0;
+                           if ( biasKept.has_value() )
+                           {
+                               const std::optional<double> statedBias = NumberOf( biasKept.value() );
+                               if ( !statedBias.has_value() )
+                               {
+                                   report.Refused.push_back( std::format(
+                                        "{}: PostProcessVolume.Settings.AutoExposureBias {} is not a number", who,
+                                        rfl::json::write( biasKept.value() ) ) );
+                                   return false;
+                               }
+                               bias = statedBias.value();
+                           }
+                           else if ( delta && offset != 0.0 )
+                           {
+                               report.Refused.push_back( std::format(
+                                    "{}: a prefab override states PostProcessVolume.Settings.AutoExposureKey {} "
+                                    "without AutoExposureBias - state the bias it inherits, then migrate",
+                                    who, key.value() ) );
+                               return false;
+                           }
+                           DropKey( settings, "AutoExposureKey" );
+                           if ( offset != 0.0 )
+                           {
+                               DropKey( settings, "AutoExposureBias" );
+                               settings["AutoExposureBias"] = rfl::Generic( bias + offset );
+                           }
+                           ++report.Folded;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            fold( entity.Components, who, false );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    fold( override_.Components, who, true );
+        }
+        return report;
+    }
 
     ReflectedAssetRefsReport MigrateReflectedAssetRefsV0ToV1( std::vector<Assets::EntityData>& entities,
                                                               const MaterialGuidLookup&        materialGuid )
@@ -808,6 +904,16 @@ namespace Desert::Core
         {
             report.TubeSourceLengthRaised  = true;
             report.TubeSourceLengthsStated = MigrateTubeSourceLengthV76ToV77( entities );
+        }
+        if ( from.Scene < kSceneVersionExposureBiasOnly )
+        {
+            report.ExposureKeyRaised = true;
+            report.ExposureKey       = MigrateExposureKeyV77ToV78( entities );
+            if ( !report.ExposureKey.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( name, report.ExposureKey.Refused );
+                return report;
+            }
         }
 
         // World Partition's own chain above its floor: additive only.

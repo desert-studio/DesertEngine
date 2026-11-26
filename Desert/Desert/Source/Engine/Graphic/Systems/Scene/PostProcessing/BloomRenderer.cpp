@@ -1,6 +1,7 @@
 #include "BloomRenderer.hpp"
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 #include <Engine/Graphic/PostProcessing/BloomConvolutionRules.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
@@ -167,7 +168,7 @@ namespace Desert::Graphic::System
              glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
              first ? 1 : 0,
              m_Threshold * m_PreExposure,
-             m_ExposureKey,
+             kExposureMiddleGrey,
              m_AutoExposure ? 1 : 0,
              m_ManualExposure,
              1.0f / std::max( m_PreExposure, 1e-30f ),

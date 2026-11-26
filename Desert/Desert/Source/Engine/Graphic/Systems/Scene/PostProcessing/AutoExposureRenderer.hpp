@@ -139,11 +139,10 @@ namespace Desert::Graphic::System
         }
         // Local exposure (UE PostProcessEyeAdaptation.usf:202-248): the Average pass also resolves the histogram's
         // AverageLocalExposure into the readback; pre-exposure multiplies by it (UE EyeAdaptation.cpp:1559,1587).
-        void SetLocalExposure( const LocalExposureParams& params, float logMiddleGrey, float key )
+        void SetLocalExposure( const LocalExposureParams& params, float logMiddleGrey )
         {
             m_LocalExposure        = params;
             m_LocalExposureLogGrey = logMiddleGrey;
-            m_LocalExposureKey     = key;
         }
         // The AverageLocalExposure read back with the adapted luminance (1 when none was written or identity).
         [[nodiscard]] float GetLastAverageLocalExposure() const
@@ -199,7 +198,6 @@ namespace Desert::Graphic::System
         float m_PreExposure        = 1.0f;
         LocalExposureParams m_LocalExposure;
         float               m_LocalExposureLogGrey     = -2.4739312f;
-        float               m_LocalExposureKey         = 0.18f;
         float               m_CompensationBias         = 0.0f;
         int                 m_CurveKeys                = 0;
         glm::vec4           m_CurveEV100{ 0.0f };

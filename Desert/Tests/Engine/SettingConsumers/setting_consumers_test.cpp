@@ -577,7 +577,6 @@ namespace
          { "Exposure", kSceneRenderer },
          { "WhitePoint", kSceneRenderer },
          { "AutoExposure", kSceneRenderer },
-         { "AutoExposureKey", kSceneRenderer },
          { "AutoExposureSpeed", kSceneRenderer },
          { "AutoExposureMinEV100", kSceneRenderer },
          { "AutoExposureMaxEV100", kSceneRenderer },

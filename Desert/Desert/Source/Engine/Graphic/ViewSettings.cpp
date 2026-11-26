@@ -117,7 +117,6 @@ namespace Desert::Graphic
         target.ColorCorrectionHighlightsMax =
              Lerp( target.ColorCorrectionHighlightsMax, volume.ColorCorrectionHighlightsMax, weight );
         target.AutoExposureBias = Lerp( target.AutoExposureBias, volume.AutoExposureBias, weight );
-        target.AutoExposureKey   = Lerp( target.AutoExposureKey, volume.AutoExposureKey, weight );
         target.AutoExposureSpeed = Lerp( target.AutoExposureSpeed, volume.AutoExposureSpeed, weight );
         // EV100 blends linearly (UE), i.e. the luminance clamps blend geometrically.
         target.AutoExposureMinEV100 = Lerp( target.AutoExposureMinEV100, volume.AutoExposureMinEV100, weight );

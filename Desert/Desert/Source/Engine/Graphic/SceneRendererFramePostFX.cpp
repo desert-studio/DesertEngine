@@ -288,7 +288,6 @@ namespace Desert::Graphic
         const RDG::TextureRef adapted = adaptedImport.IsValid() ? adaptedImport : textures.System.White;
         const System::LocalExposureRenderer::FusionExposure exposure{
              .ManualExposure = tonemap.GetExposure(),
-             .ExposureKey    = tonemap.GetExposureKey(),
              .AutoExposure   = tonemap.IsAutoExposureEnabled() && adaptedImport.IsValid(),
              .Reinhard       = tonemap.GetTonemapOperator() == Core::TonemapOperator::Reinhard };
         auto* lePtr = &le;

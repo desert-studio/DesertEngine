@@ -14,7 +14,9 @@
 //            hit lighting (LumenHardwareRayTracingCommon.ush CalculateRayTracedLighting):
 //     direct   the sun and the point/spot lights of the world light grid's cell at the hit
 //              (Mesh/LightGrid.glslh LightGridWorldLightsAt), each with a visibility ray (GITraceVisibility, the
-//              permutation's tracer) leaving the hit by the tracer's GIRayBias; Lambert for a guessed material,
+//              permutation's tracer) leaving the hit by the tracer's GIRayBias - none for a light whose own
+//              CastShadows is off (DesertLightCastsShadows, the payload's kLightShadowCasts: unoccluded, as in
+//              the raster and the path tracer, UE's rule); Lambert for a guessed material,
 //              the hit's own shading model for a closest-hit material (GIHitLightResponse: the generated dispatch
 //              the deferred composite calls, so ClearCoat, Cloth, Anisotropic... light as in the raster, UE's
 //              hit lighting evaluating the hit's BxDF);
@@ -415,29 +417,37 @@ vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, GIHitSurface surface )
         DesertLight light;
         vec3        lightPosition;
         float       sourceRadius;
+        int         shadowFlags;
         if ( index < lightGrid.counts.x )
         {
             light         = DesertPointLightAt( pointLights[index], hit.position );
             lightPosition = pointLights[index].position;
             sourceRadius  = pointLights[index].sourceRadius;
+            shadowFlags   = pointLights[index].shadowFlags;
         }
         else
         {
             light         = DesertSpotLightAt( spotLights[index - lightGrid.counts.x], hit.position );
             lightPosition = spotLights[index - lightGrid.counts.x].position;
             sourceRadius  = spotLights[index - lightGrid.counts.x].sourceRadius;
+            shadowFlags   = spotLights[index - lightGrid.counts.x].shadowFlags;
         }
         if ( ( dot( N, light.L ) <= 0.0 && !transmits ) || max( light.Radiance.r, max( light.Radiance.g, light.Radiance.b ) ) <= 0.0 )
             continue;
-        // The ray ends on the light's emitter sphere, not at its centre: a caster inside the emitter (the bulb of
-        // its fixture) does not shadow it, as in the path tracer and the ray-traced local shadows.
-        const vec3  side    = GIHitLitSide( N, light.L );
-        const vec3  origin  = hit.position + side * bias.nearOffset;
-        const float toLight = LightSourceSphereAxisReach( distance( lightPosition, origin ), sourceRadius );
-        const vec3 toward = normalize( lightPosition - origin );
-        direct += GIHitLightResponse(
-             surface, hit.position, N, V, light.L,
-             light.Radiance * GITraceVisibility( origin, toward, GIFarFieldTMin( bias, side, toward ), toLight ) );
+        // A light with CastShadows off is unoccluded here, as in the raster and the path tracer (UE skips its
+        // shadow ray everywhere). The ray of a casting one ends on the light's emitter sphere, not at its centre: a
+        // caster inside the emitter (the bulb of its fixture) does not shadow it, as in the path tracer and the
+        // ray-traced local shadows.
+        float visibility = 1.0;
+        if ( DesertLightCastsShadows( shadowFlags ) )
+        {
+            const vec3  side    = GIHitLitSide( N, light.L );
+            const vec3  origin  = hit.position + side * bias.nearOffset;
+            const float toLight = LightSourceSphereAxisReach( distance( lightPosition, origin ), sourceRadius );
+            const vec3  toward  = normalize( lightPosition - origin );
+            visibility          = GITraceVisibility( origin, toward, GIFarFieldTMin( bias, side, toward ), toLight );
+        }
+        direct += GIHitLightResponse( surface, hit.position, N, V, light.L, light.Radiance * visibility );
     }
 
     return direct + GIHitBounce( surface, hit.position, N, V ) + surface.Emissive;

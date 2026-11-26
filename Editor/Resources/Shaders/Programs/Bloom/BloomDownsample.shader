@@ -35,8 +35,8 @@ Shader "BloomDownsample"
             int   FirstPass;    // 1 => scene -> mip0 (Karis average + threshold)
             float Threshold;    // bright-pass cutoff (first pass only), raw luminance unless AutoExposure,
                                   // x ViewFrame::PreExposure (BloomRenderer: the scene is stored pre-exposed)
-            float ExposureKey;  // auto-exposure key — the composite's ExposureKey
-            int   AutoExposure; // 1 => Threshold is after exposure: divide by key / adapted luminance
+            float MiddleGrey;   // Graphic::kExposureMiddleGrey — the composite's MiddleGrey
+            int   AutoExposure; // 1 => Threshold is after exposure: divide by middle grey / adapted luminance
             float Exposure;     // manual exposure (the composite's Exposure) when AutoExposure is 0
             float InversePreExposure;     // 1 / ViewFrame::PreExposure
             vec4  LocalExposureContrast;  // the composite's four local-exposure vectors (TonemapRenderer::FillMaterial)
@@ -102,7 +102,7 @@ Shader "BloomDownsample"
             {
                 float exposure = Exposure;
                 if ( AutoExposure == 1 )
-                    exposure = ExposureKey / max( textureLod( AdaptedLuminanceTexture, vec2( 0.5 ), 0.0 ).g, 1e-4 );
+                    exposure = MiddleGrey / max( textureLod( AdaptedLuminanceTexture, vec2( 0.5 ), 0.0 ).g, 1e-4 );
                 logExposure = log2( max( exposure, 1.0e-10 ) );
             }
 
@@ -147,12 +147,12 @@ Shader "BloomDownsample"
                 // Bright-pass: keep only the energy above the threshold (preserves hue).
                 // With auto-exposure the authored threshold is in EXPOSED units, as the manual path states it
                 // (SceneRenderer divides it by the manual scale on the CPU): the exposure lives on the GPU here,
-                // so it is divided here, by the composite's own key / adapted luminance. Without this a
+                // so it is divided here, by the composite's own middle grey / adapted luminance. Without this a
                 // physical scene (a 100 000 lux sun, ~10^4 cd/m^2 everywhere) was bloom from edge to edge.
                 float threshold = Threshold;
                 if ( AutoExposure == 1 )
                     threshold *= max( textureLod( AdaptedLuminanceTexture, vec2( 0.5 ), 0.0 ).g, 1e-4 ) /
-                                 max( ExposureKey, 1e-4 );
+                                 max( MiddleGrey, 1e-4 );
                 float brightness   = max( color.r, max( color.g, color.b ) );
                 float contribution = max( brightness - threshold, 0.0 ) / max( brightness, 1e-4 );
                 color *= contribution;
