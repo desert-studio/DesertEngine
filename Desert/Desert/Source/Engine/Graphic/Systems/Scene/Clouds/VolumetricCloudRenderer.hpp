@@ -575,11 +575,32 @@ namespace Desert::Graphic::System
         };
         using MediumPipelineBuild = Common::ResultStr<MediumPipelineSet>;
 
-        /// The job body: everything it reads is captured by value (the variant, the shader service), nothing of
-        /// this renderer, so it is safe on any worker. A refusal is the error value; the fallbacks of a variant
-        /// that does not compile (the shipped program) are logged inside, once per (program, variant).
+        /**
+         * The cancel handshake between the renderer and its one medium build (UE FShaderCompilingManager:
+         * a pending compile is cancelled at shutdown, never waited on unbounded). One atomic, three states,
+         * each transition a single exchange, so the destructor and the job cannot both believe they own it:
+         *   Queued -> Running   the job, when a worker picks it up (it does nothing if it reads Cancelled);
+         *   Queued -> Cancelled the destructor, before any worker did: the job will build nothing and hold
+         *                       no pipeline, so the future is dropped without a wait;
+         *   Running -> Cancelled the destructor, mid-build: the job stops at the next program boundary and
+         *                       the destructor waits for that, so the pipelines it did build are released
+         *                       on this thread.
+         */
+        enum class MediumBuildState : uint8_t
+        {
+            Queued,
+            Running,
+            Cancelled,
+        };
+        using MediumBuildControl = std::shared_ptr<std::atomic<MediumBuildState>>;
+
+        /// The job body: everything it reads is captured by value (the variant, the shader service, the
+        /// control), nothing of this renderer, so it is safe on any worker. A refusal is the error value; the
+        /// fallbacks of a variant that does not compile (the shipped program) are logged inside, once per
+        /// (program, variant). A cancelled build returns the error "cancelled" before its next program.
         static MediumPipelineBuild BuildMediumPipelineSet( Core::ShaderVariant variant, uint64_t hash,
-                                                           bool withFrameStatics ) noexcept;
+                                                           bool withFrameStatics,
+                                                           const std::atomic<MediumBuildState>& control ) noexcept;
 
         /// Adopts a landed m_MediumBuild, if one landed. Game thread, start of frame (ResolveMedium).
         void AdoptLandedMediumBuild();
@@ -617,6 +638,8 @@ namespace Desert::Graphic::System
         // while it runs waits for it to land and is started then: one set compiling at a time.
         std::future<MediumPipelineBuild> m_MediumBuild;
         uint64_t                         m_MediumBuildHash = 0;
+        // The cancel handshake of m_MediumBuild (MediumBuildState); shared with the job, set by the destructor.
+        MediumBuildControl m_MediumBuildControl;
         // The hash whose build was refused, so a medium that cannot be built is reported once and not rebuilt
         // every frame; cleared when the material's medium moves on.
         std::optional<uint64_t> m_MediumRefusedHash;
