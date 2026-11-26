@@ -26,4 +26,21 @@
 Когда --subject viewport set Camera.Position 0,0,3000
 Когда advance 2
 Тогда high_30 control: at 30 m under High the origin figure is unchanged vs dev
+# WP-FAR-10E / WP-FAR-10F (proof added by WP-PROOF-1126): a follower mesh (ModularCharacter attachFollowerMesh -
+# Animation::LeaderPoseLink, a runtime component, so it is attached in Play) takes its leader's frame in
+# MeshRenderer::SelectSkinnedLods: the leader's LOD clamped to its own levels, the leader's VAT hand-off (same clip,
+# same time) and the leader's MinScreenScale about the leader's feet. The follower here is a second CesiumMan.skmesh
+# on the origin figure 'CesiumMan', so a correct follower lies exactly on its leader (one figure, never two).
+# Readout: editor.log "[SkinnedLOD] entity F: LOD l/n skins ... influences, the level of its leader L[ (vertex
+# animation)]" (F = the follower, L = CesiumMan's entity) - a follower line never states "screen size".
+Когда lua "local f = World.find('CesiumMan'):attachFollowerMesh('Meshes/Displace/CesiumMan.skmesh'); assert(f ~= nil, 'attachFollowerMesh returned nothing'); print(string.format('WP-PROOF follower id %s', tostring(f)))"
+Когда advance 2
+Тогда follower_30 WP-FAR-10F at 30 m under High: one walking origin figure, the follower exactly on it (no second figure, no offset, no z-fight flicker); log: "[SkinnedLOD] entity F: LOD l/n ... the level of its leader L" with l = the leader's own LOD in its last "[SkinnedLOD] entity L" line
+Когда --subject viewport set Camera.Position 0,0,30000
+Когда advance 2
+Тогда follower_300 WP-FAR-10E + 10F at 300 m under High: the origin figure is grown to the min screen size (as high_300) and the follower is grown with it - same size, same feet, no small figure inside or beside a big one; log: the follower's line "LOD n/n ... the level of its leader L (vertex animation)" (the leader's coarsest level, VAT), "[Crowd] ... grown to min screen size G" with G counting the follower too (G = high_300's G + 1)
+Когда --subject viewport set Camera.FOV 10
+Когда advance 2
+Тогда follower_zoom WP-FAR-10F FOV 10 at 300 m: leader and follower large and skeletal again, together; log: the follower's new line without "(vertex animation)", its LOD = the leader's new LOD
+Когда --subject viewport set Camera.FOV 90
 Когда run Action "Stop"

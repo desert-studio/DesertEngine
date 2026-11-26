@@ -10,3 +10,8 @@
 Дано --subject viewport set Camera.Position 0,1500,-1500
 Дано --subject viewport set Camera.Direction 0,-0.98,0.2
 Тогда-вид 3_above без видимой плитки, цвет воды по глубине
+# LAND-BACKLOG3 (proof by WP-PROOF-1126): the lake is drawn by the SingleLayerWater shading model
+# (ShadingModels/SingleLayerWater.shadingmodel, Pass_SingleLayerWater in module Desert/Water) after the batch landing.
+Дано --subject viewport set Camera.Position 0,400,-3000
+Дано --subject viewport set Camera.Direction 0,-0.15,1
+Тогда-вид 4_slw LAND-BACKLOG3 SingleLayerWater: the lake surface present (not missing, not black, not opaque grey), the bottom seen through near water, colour by depth further out, the sky reflected; editor.log has no shader compile error naming SingleLayerWater
