@@ -1,5 +1,7 @@
 #include "EditorHLODs.hpp"
 
+#include <Editor/Core/WorldPartitionHLODBuilder.hpp>
+
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/EntityPackages.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
@@ -88,7 +90,6 @@ namespace Desert::Editor
         // ids (StoredCellRecords checks its file against them), so the test needs no proxy file.
         const std::unordered_set<std::uint64_t> worldIds( m_World->RowIds.begin(), m_World->RowIds.end() );
         std::vector<std::size_t>                units;
-        std::size_t                             missing = 0;
         std::size_t                             records = 0;
         const auto refuse = [&]( const std::string& why )
         {
@@ -97,13 +98,11 @@ namespace Desert::Editor
         };
         for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < Rules::ResidencyUnitCount( plan ); ++unit )
         {
-            const std::string name = Rules::DescribeResidencyUnit( plan, unit );
+            // The row's key is the node's name (HLODRowName: a cell of runtime data layers carries their suffix).
+            const std::string name = Rules::HLODRowName( *partition, plan, unit );
             const auto        row  = rows.find( name );
             if ( row == rows.end() )
-            {
-                ++missing;
                 continue;
-            }
             // A row without a file, or whose file lists no record, stands in for nothing (as in Play).
             if ( !row->second->File.has_value() || row->second->Ids.empty() )
                 continue;
@@ -128,8 +127,15 @@ namespace Desert::Editor
         m_Runtime = runtime.ExtractValue();
         m_Reader  = std::move( stored.GetValue().Reader );
         m_Assets  = assets;
-        m_Status  = std::format( "{} saved HLOD(s), {} record(s), each read when drawn; {} cell(s) have no saved HLOD.",
-                                 m_HLODs.size(), records, missing );
+        // Whether what is drawn is current is the one answer's (SavedHLODStatus via HLODStatusOf), not a count
+        // here.
+        const auto        status = HLODStatusOf( path );
+        const std::string current =
+             status ? std::format( "{} wanted HLOD(s), {} outdated", status.GetValue().World.Wanted(),
+                                   status.GetValue().World.Outdated() )
+                    : std::format( "HLOD status: {}", status.GetError() );
+        m_Status = std::format( "{} saved HLOD(s), {} record(s), each read when drawn; {}.", m_HLODs.size(),
+                                records, current );
         LOG_INFO( "[WorldPartition] Editor HLODs of '{0}': {1}", path.string(), m_Status );
         return SyncHeld( scene, layerLoaded );
     }

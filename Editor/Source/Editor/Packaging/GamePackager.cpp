@@ -284,8 +284,8 @@ namespace Desert::Editor
                 auto hlods = ::Desert::Core::WorldCells::ReadBuiltHLODs( source );
                 std::optional<::Desert::Core::WorldCells::HLODsToPack> toPack;
                 if ( hlods )
-                    toPack.emplace(
-                         ::Desert::Core::WorldCells::HLODsToPack{ hlods.GetValue(), ::Desert::Core::HLODBuilders() } );
+                    toPack.emplace( ::Desert::Core::WorldCells::HLODsToPack{ hlods.GetValue(),
+                                                                             ::Desert::Core::HLODBuilders() } );
                 auto cooked = ::Desert::Core::WorldCells::CookWorld(
                      scene.GetValue().Scene, registries, ::Desert::Core::WorldCells::PrefabFileReader(),
                      toPack.has_value() ? &*toPack : nullptr );

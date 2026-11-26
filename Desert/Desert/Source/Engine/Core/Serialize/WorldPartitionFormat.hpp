@@ -472,7 +472,7 @@ namespace Desert::Core
     // loads the world one BuilderCellSize square at a time, captures each from straight above through an
     // orthographic camera - the G-buffer's BaseColor, UE's SCS_BaseColor capture - and stitches them into one
     // texture, `<stem>_MiniMap.detex` beside the scene. The World Partition map draws it under its cell grid.
-    // Editor-only, as UE's minimap actor is: nothing at runtime reads it, and HLODBuildChecksum leaves it out, so
+    // Editor-only, as UE's minimap actor is: nothing at runtime reads it, and SavedHLODStatus leaves it out, so
     // building a minimap never makes an HLOD stale.
     struct WorldPartitionMiniMapSerialized
     {

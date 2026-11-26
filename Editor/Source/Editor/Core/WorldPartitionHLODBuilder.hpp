@@ -70,7 +70,7 @@ namespace Desert::Editor
         bool Built = false; // the world has a saved HLOD index
         // The saved index World's rows point into (HLODNodeStatus::Row), shared so a copy keeps them valid.
         std::shared_ptr<const ::Desert::Core::WorldCells::BuiltHLODIndex> Index;
-        ::Desert::Core::WorldCells::HLODWorldStatus                       World; // the one answer (SavedHLODStatus)
+        ::Desert::Core::WorldCells::HLODWorldStatus World; // the one answer (SavedHLODStatus)
     };
 
     class WorldPartitionHLODBuilder
@@ -168,9 +168,10 @@ namespace Desert::Editor
         std::string                       m_Summary;
     };
 
-    /// Which of the HLOD nodes of the world saved at @p scenePath are missing, stale or orphaned (UE's World Partition
-    /// editor "HLODs need to be rebuilt"). Refused, by name, for a world the build would refuse. THE one reader of a
-    /// world's HLOD state (UE: one HLOD state per cell): the panel's HLODs section and its map overlay both ask it.
+    /// Which of the HLOD nodes of the world saved at @p scenePath are missing, stale or orphaned (UE's World
+    /// Partition editor "HLODs need to be rebuilt"). Refused, by name, for a world the build would refuse. THE one
+    /// reader of a world's HLOD state (UE: one HLOD state per cell): the panel's HLODs section and its map overlay
+    /// both ask it.
     [[nodiscard]] Common::ResultStr<HLODStatus> HLODStatusOf( const std::filesystem::path& scenePath );
 
     /// UE's -DeleteHLODs: removes everything Build HLODs saved beside the world at @p scenePath - the index, every

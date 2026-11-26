@@ -333,14 +333,15 @@ namespace Desert::Core
                                                                HLODBuilders() );
                     if ( !judged )
                     {
-                        LOG_ERROR( "[WorldPartition] Play of '{0}' runs WITHOUT HLODs: {1}. Run Build > Build HLODs.",
-                                   snapshot->SceneName, judged.GetError() );
+                        LOG_ERROR(
+                             "[WorldPartition] Play of '{0}' runs WITHOUT HLODs: {1}. Run Build > Build HLODs.",
+                             snapshot->SceneName, judged.GetError() );
                         hlodIssues.push_back( WorldCells::MissingHLODsIssue( judged.GetError() ) );
                     }
                     else
                     {
                         const WorldCells::HLODWorldStatus& status = judged.GetValue();
-                        hlodIssues                               = WorldCells::OutdatedHLODIssues( status );
+                        hlodIssues                                = WorldCells::OutdatedHLODIssues( status );
                         // One line for every node without a current HLOD, not one per node: an edit that dirties a
                         // layer leaves hundreds of them, and the count with the first names says the same.
                         if ( const std::vector<std::string> outdated = status.OutdatedNames(); !outdated.empty() )
@@ -348,12 +349,13 @@ namespace Desert::Core
                             std::string named;
                             for ( std::size_t i = 0; i < outdated.size() && i < 8; ++i )
                                 named += ( i == 0 ? "" : ", " ) + outdated[i];
-                            LOG_ERROR( "[WorldPartition] Play of '{0}': {1} saved HLOD node(s) are outdated, so they "
-                                       "have none ({2}{3}). Run Build > Build HLODs.",
-                                       snapshot->SceneName, outdated.size(), named, outdated.size() > 8 ? ", ..." : "" );
+                            LOG_ERROR(
+                                 "[WorldPartition] Play of '{0}': {1} saved HLOD node(s) are outdated, so they "
+                                 "have none ({2}{3}). Run Build > Build HLODs.",
+                                 snapshot->SceneName, outdated.size(), named, outdated.size() > 8 ? ", ..." : "" );
                         }
-                        // The saved row a node is drawn from: its own when Current, none otherwise (no HLOD wanted,
-                        // or outdated and named above).
+                        // The saved row a node is drawn from: its own when Current, none otherwise (no HLOD
+                        // wanted, or outdated and named above).
                         std::unordered_map<std::string, const WorldCells::BuiltHLODCell*> rows;
                         for ( const WorldCells::HLODNodeStatus& node : status.Nodes )
                             if ( node.State == WorldCells::HLODNodeState::Current )
@@ -375,13 +377,15 @@ namespace Desert::Core
                                     continue;
                                 }
                                 if ( !node.ForHLODCell )
-                                    for ( const WorldCells::IndexNotInstanced& missing : row->second->NotInstanced )
+                                    for ( const WorldCells::IndexNotInstanced& missing :
+                                          row->second->NotInstanced )
                                         holes.push_back( missing.Reason );
                                 for ( const std::uint64_t id : row->second->Ids )
                                     if ( byId.contains( Common::UUID( id ) ) )
-                                        return Common::MakeError<Result>(
-                                             "world streaming of '" + snapshot->SceneName + "': an HLOD record of " +
-                                             node.Name + " has a record's id; rename the world" );
+                                        return Common::MakeError<Result>( "world streaming of '" +
+                                                                          snapshot->SceneName +
+                                                                          "': an HLOD record of " + node.Name +
+                                                                          " has a record's id; rename the world" );
                                 nodeRows.push_back( row->second->File.has_value() && !row->second->Ids.empty()
                                                          ? row->second
                                                          : nullptr );
@@ -392,10 +396,10 @@ namespace Desert::Core
                                  snapshot->SceneName,
                                  std::ranges::count_if( nodeRows, []( const WorldCells::BuiltHLODCell* row )
                                                         { return row != nullptr; } ),
-                                 hierarchy.GetValue().Cells.size(), WorldCells::BuiltHLODDirectory( scenePath ).string(),
-                                 status.Outdated() );
-                            // The HLOD residency over the saved rows' record counts, and per unit its nodes' rows in
-                            // composite order (ResidencyUnitMembers' order) for the source.
+                                 hierarchy.GetValue().Cells.size(),
+                                 WorldCells::BuiltHLODDirectory( scenePath ).string(), status.Outdated() );
+                            // The HLOD residency over the saved rows' record counts, and per unit its nodes' rows
+                            // in composite order (ResidencyUnitMembers' order) for the source.
                             std::vector<std::size_t>               counts;
                             std::vector<std::vector<Common::UUID>> nodeIds;
                             for ( const WorldCells::BuiltHLODCell* row : nodeRows )
@@ -444,8 +448,8 @@ namespace Desert::Core
                             // A row without a file, or whose file lists no record, stands in for nothing.
                             if ( !row->second->File.has_value() || row->second->Ids.empty() )
                                 continue;
-                            // Read when BeginHLODs makes it, not now (CellHLOD): the read shares `held` (this block
-                            // ends before that call); `byId` and `snapshot` outlive it.
+                            // Read when BeginHLODs makes it, not now (CellHLOD): the read shares `held` (this
+                            // block ends before that call); `byId` and `snapshot` outlive it.
                             const WorldCells::BuiltHLODCell* cell = row->second;
                             streamer->NoteImpostorPair( cell->ImpostorCards, cell->ImpostorFallbacks );
                             hlods.push_back( CellHLOD{
@@ -457,8 +461,8 @@ namespace Desert::Core
                                      auto records  = WorldCells::StoredCellRecords( *held, *cell );
                                      if ( !records )
                                          return Common::MakeError<Records>( "world streaming of '" +
-                                                                            snapshot->SceneName + "', " + name + ": " +
-                                                                            records.GetError() );
+                                                                            snapshot->SceneName + "', " + name +
+                                                                            ": " + records.GetError() );
                                      for ( const Assets::EntityData& record : records.GetValue() )
                                          if ( byId.contains( *record.id ) )
                                              return Common::MakeError<Records>(
@@ -469,9 +473,10 @@ namespace Desert::Core
                                  } } );
                         }
                         if ( !streamed )
-                            LOG_INFO( "[WorldPartition] Play of '{0}': {1} saved HLOD(s) from {2}, {3} stale cell(s)",
-                                      snapshot->SceneName, hlods.size(),
-                                      WorldCells::BuiltHLODDirectory( scenePath ).string(), status.Outdated() );
+                            LOG_INFO(
+                                 "[WorldPartition] Play of '{0}': {1} saved HLOD(s) from {2}, {3} stale cell(s)",
+                                 snapshot->SceneName, hlods.size(),
+                                 WorldCells::BuiltHLODDirectory( scenePath ).string(), status.Outdated() );
                     }
                 }
             }

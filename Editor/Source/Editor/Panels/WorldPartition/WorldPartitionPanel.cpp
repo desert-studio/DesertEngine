@@ -324,7 +324,7 @@ namespace Desert::Editor
         // No Build HLODs yet: the world has no HLOD to show, built or stale.
         if ( !status.GetValue().Built )
             return;
-        m_HLODCells = Map::HLODCellStates( *m_EditPlan, status.GetValue().BuiltUnits, status.GetValue().Stale );
+        m_HLODCells = Map::HLODCellStates( *m_EditPlan, m_EditPartition, status.GetValue().World );
     }
 
     void WorldPartitionPanel::OnUIRender()
@@ -2219,10 +2219,10 @@ namespace Desert::Editor
             m_HLODStatusError = status.GetError();
             return;
         }
-        const std::size_t stale = status.GetValue().Stale.size();
-        // The notification (UE: "HLODs need to be rebuilt"): more rows stale than the last count said.
+        const std::size_t stale = status.GetValue().World.Outdated();
+        // The notification (UE: "HLODs need to be rebuilt"): more nodes outdated than the last count said.
         if ( stale > m_StaleNotified )
-            ToastManager::Push( std::format( "World Partition: {} stale HLOD - Build HLODs", stale ),
+            ToastManager::Push( std::format( "World Partition: {} outdated HLOD - Build HLODs", stale ),
                                 ToastLevel::Warning, 6.0f );
         m_StaleNotified = stale;
         m_HLODStatus    = status.ExtractValue();
@@ -2246,13 +2246,14 @@ namespace Desert::Editor
                 else if ( !m_HLODStatusError.empty() )
                     ImGui::TextWrapped( "HLOD status: %s", m_HLODStatusError.c_str() );
                 else if ( m_HLODStatus && !m_HLODStatus->Built )
-                    ImGui::Text( "HLODs not built: %zu stale HLOD", m_HLODStatus->Stale.size() );
+                    ImGui::Text( "HLODs not built: %zu wanted HLOD", m_HLODStatus->World.Wanted() );
                 else if ( m_HLODStatus )
-                    ImGui::Text( "%zu stale HLOD", m_HLODStatus->Stale.size() );
-                if ( m_HLODStatus && !m_HLODStatus->Stale.empty() && ImGui::IsItemHovered() )
+                    ImGui::Text( "%zu wanted HLOD, %zu outdated", m_HLODStatus->World.Wanted(),
+                                 m_HLODStatus->World.Outdated() );
+                if ( m_HLODStatus && m_HLODStatus->World.Outdated() > 0 && ImGui::IsItemHovered() )
                 {
                     ImGui::BeginTooltip();
-                    for ( const std::string& unit : m_HLODStatus->Stale )
+                    for ( const std::string& unit : m_HLODStatus->World.OutdatedNames() )
                         ImGui::TextUnformatted( unit.c_str() );
                     ImGui::EndTooltip();
                 }

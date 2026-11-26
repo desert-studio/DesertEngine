@@ -601,13 +601,13 @@ namespace Desert::Core::WorldCells
     // The status of every HLOD node of the EXPANDED @p scene (no record states a prefab; @p descriptors are its
     // records', one for one) against @p index (null = nothing saved: every wanted node is Missing). A depth-1 node
     // is wanted when a member of its cell is HLOD-relevant (Rules::ReadHLODMember), a parent when any source cell
-    // is. A node's checksum (UE ComputeHLODHash) folds, per part: the layer's Name, Type, builder and its builder's
-    // SettingsKey; each relevant member's id, the hex bits of its TRS chain, its holes, its batch keys and
-    // instances, its module's Inputs text and the TRS chains of the records they place by; whether the landscape
-    // builders are registered; the node's MinVisibleDistance bits, row and cooked names; the content hash of every
-    // asset key the members name (the registry's dependency closure, else the file's own SavedContentHash); and
-    // kHLODBuilderVersion. Errors, by name: a member that does not read, a layer whose builder is not registered
-    // or refuses its settings, a plan or hierarchy refusal. The status holds pointers into @p index.
+    // is. A node's checksum (UE ComputeHLODHash) folds, per part: the layer's Name, Type, builder and its
+    // builder's SettingsKey; each relevant member's id, the hex bits of its TRS chain, its holes, its batch keys
+    // and instances, its module's Inputs text and the TRS chains of the records they place by; the node's
+    // MinVisibleDistance bits, row and cooked names; the content hash of every asset key the members name (the
+    // registry's dependency closure, else the file's own SavedContentHash); and kHLODBuilderVersion. Errors, by
+    // name: a member that does not read, a layer whose builder is not registered or refuses its settings, a plan
+    // or hierarchy refusal. The status holds pointers into @p index.
     [[nodiscard]] Common::ResultStr<HLODWorldStatus>
     SavedHLODStatus( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                      const BuiltHLODIndex* index, std::span<const Common::Utils::AssetRegistry> registries,

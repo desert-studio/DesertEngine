@@ -131,9 +131,9 @@ namespace Desert::Core::Rules
     // ignored.
     // What one module-drawn record (a landscape tile, a spline) hands its HLOD builder, stated by the module
     // (HLODBuilderComponent::Inputs; UE ULandscapeHLODBuilder::ComputeHLODHash). Text is canonical and the same on
-    // every platform (hex floats); Placed are the OTHER records the builder reads (the tile's root), whose TRS chain
-    // the saved-HLOD checksum folds; Content are the asset keys whose bytes the builder reads, registered or not
-    // (a height file): a registry GUID text, a "handle:<decimal>" asset handle, or a project path.
+    // every platform (hex floats); Placed are the OTHER records the builder reads (the tile's root), whose TRS
+    // chain the saved-HLOD checksum folds; Content are the asset keys whose bytes the builder reads, registered or
+    // not (a height file): a registry GUID text, a "handle:<decimal>" asset handle, or a project path.
     struct HLODModuleInputs
     {
         std::string              Text;
@@ -149,8 +149,8 @@ namespace Desert::Core::Rules
         // the records it names (@p world indexed like @p records). Required: a row without it is refused at
         // registration.
         Common::ResultStr<HLODModuleInputs> ( *Inputs )( std::span<const Assets::EntityData> records,
-                                                          std::span<const glm::mat4> world,
-                                                          std::size_t                index ) = nullptr;
+                                                         std::span<const glm::mat4>          world,
+                                                         std::size_t                         index ) = nullptr;
     };
 
     namespace Detail

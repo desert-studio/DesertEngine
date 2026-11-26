@@ -81,7 +81,8 @@ namespace Desert::Core::Rules
         // settings struct read by ReadHLODBuilderSettings and written back (HLODBuilderSettingsKey), so key order
         // and number spelling make no saved HLOD stale. A builder that reads none answers "". Called only with
         // settings ValidateSettings accepted.
-        [[nodiscard]] virtual Common::ResultStr<std::string> SettingsKey( const Common::Json::Value* settings ) const
+        [[nodiscard]] virtual Common::ResultStr<std::string>
+        SettingsKey( const Common::Json::Value* settings ) const
         {
             (void)settings;
             return Common::MakeSuccess( std::string{} );
@@ -106,8 +107,8 @@ namespace Desert::Core::Rules
         return read;
     }
 
-    // The settings @p T canonical (IHLODBuilder::SettingsKey): read strictly, written back with Common::Json::Write
-    // (one key order, one number spelling).
+    // The settings @p T canonical (IHLODBuilder::SettingsKey): read strictly, written back with
+    // Common::Json::Write (one key order, one number spelling).
     template <typename T>
     [[nodiscard]] Common::ResultStr<std::string> HLODBuilderSettingsKey( const Common::Json::Value* settings )
     {
