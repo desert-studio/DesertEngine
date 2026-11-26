@@ -47,6 +47,7 @@
 Когда run Quality "Quality: GlobalIllumination.RadiosityHemisphereProbeResolution 2"
 Когда run Quality "Quality: ViewDistance.DrawDistanceScalePercent 80"
 Когда run Quality "Quality: ViewDistance.LandscapeGridErrorPercent 200"
+Когда run Panel "Open Scalability"
 Когда run Quality "Quality: Foliage.InstanceDensityScalePercent 40"
 Когда run Quality "Quality: Effects.CloudLightMarchSamples 8"
 Когда run Quality "Quality: Effects.CloudShadowMapScalePercent 50"
