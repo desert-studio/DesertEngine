@@ -63,6 +63,8 @@ namespace Desert::Graphic
         ECS::HeroCloudData Data;
         glm::mat4          WorldTransform{ 1.0f };
         std::string        Name;
+    };
+
     inline constexpr uint32_t kCloudAuthoredPayloadBytes = sizeof( CloudAuthoredPayload );
 
     /**
