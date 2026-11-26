@@ -3,6 +3,7 @@
 // THE FOAM OF ONE VIEW (Water/WaterFoamField.glslh, Programs/Water/WaterFoamUpdate.shader): a clipmap that remembers
 // where the waves broke, where the beach is wet and what the currents carried.
 
+#include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -111,11 +112,17 @@ namespace Desert::Graphic::System
                 const auto pipeline    = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
                 const auto valid       = m_FoamLayout.Validate( shader, WaterFoamShaderParameters::kAll );
                 if ( !pipeline )
+                {
                     LOG_ERROR( "[Water] WaterFoamUpdate does not build: {}", pipeline.GetError() );
+                }
                 else if ( !valid )
+                {
                     LOG_ERROR( "[Water] WaterFoamUpdate: {}", valid.GetError() );
+                }
                 else
+                {
                     m_FoamPipeline = pipeline.GetValue();
+                }
             }
             else
                 LOG_ERROR( "[Water] the foam's shader 'WaterFoamUpdate' is missing: no foam" );

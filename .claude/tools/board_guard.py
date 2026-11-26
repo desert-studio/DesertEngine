@@ -68,8 +68,12 @@ def norm(page_id):
 
 
 def code_from_text(text):
-    m = re.search(r"You are agent (" + CODE_RE + r")", text) or \
-        re.search(r"/private/tmp/claude-501/(" + CODE_RE + r")/BRIEF\.md", text)
+    # 11-26: «You are agent CODE. ХВОСТ: SCAL-COVER» registered several features as one card «CODE»; the literal
+    # placeholder yields to the ХВОСТ code.
+    m = re.search(r"You are agent (" + CODE_RE + r")", text)
+    if m and m.group(1) == "CODE":
+        m = re.search(r"ХВОСТ:\s*(" + CODE_RE + r")", text)
+    m = m or re.search(r"/private/tmp/claude-501/(" + CODE_RE + r")/BRIEF\.md", text)
     return m.group(1) if m else None
 
 

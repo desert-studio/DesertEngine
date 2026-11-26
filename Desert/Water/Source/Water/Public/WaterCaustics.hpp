@@ -6,6 +6,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/Systems/Scene/SingleLayerWaterPass.hpp>
 #include <Water/Public/WaterQuadTree.hpp>
 
 #include <glm/glm.hpp>
