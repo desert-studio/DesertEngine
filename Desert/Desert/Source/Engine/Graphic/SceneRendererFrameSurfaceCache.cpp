@@ -79,14 +79,17 @@ namespace Desert::Graphic
         return m_FrameLocalLighting;
     }
 
+    // A capture face never sees the scene's surface cache: it is raised by the viewports, and a baked capture
+    // must not depend on whether one is open.
     SurfaceCache::SurfaceCacheRenderer* SceneRendererImpl::ReadSurfaceCache() const
     {
-        return m_FrameSurfaceCache != nullptr && m_FrameSurfaceCache->IsInitialized() ? m_FrameSurfaceCache : nullptr;
+        const SurfaceCache::SurfaceCacheRenderer* const cache = BoundSurfaceCache();
+        return cache != nullptr && cache->IsInitialized() ? m_FrameSurfaceCache : nullptr;
     }
 
     SurfaceCache::SurfaceCacheRenderer* SceneRendererImpl::BoundSurfaceCache() const
     {
-        return m_FrameSurfaceCache;
+        return m_ViewProfile.SceneCapture ? nullptr : m_FrameSurfaceCache;
     }
 
     const SurfaceCache::SurfaceCacheRenderer::FrameViews* SceneRendererImpl::SurfaceCacheFrameViews() const

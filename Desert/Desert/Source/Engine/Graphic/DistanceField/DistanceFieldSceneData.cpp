@@ -248,7 +248,9 @@ namespace Desert::Graphic::DistanceField
              std::max( 1u, ( needSlices + kDfAtlasGrowSlices - 1 ) / kDfAtlasGrowSlices ) * kDfAtlasGrowSlices;
         // At least x1.5 the current depth: a scene loading in field by field does not re-create the atlas each
         // frame.
-        const uint32_t atLeast = ( m_AtlasSlices * 3u + 1u ) / 2u;
+        // Rounded up to the growth step, so every atlas size stays a whole number of 8 MiB steps.
+        const uint32_t atLeast = ( ( m_AtlasSlices * 3u + 1u ) / 2u + kDfAtlasGrowSlices - 1u ) /
+                                 kDfAtlasGrowSlices * kDfAtlasGrowSlices;
         const uint32_t slices  = std::min( std::max( stepped, atLeast ), capSlices );
         if ( slices <= m_AtlasSlices )
             return;
