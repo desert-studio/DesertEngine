@@ -417,6 +417,12 @@ namespace Desert::Animation
             Graph::BlendSpaceTriangulation             Triangulation;
             std::array<Graph::BlendSpaceAxisFilter, 2> Filters;
             std::array<float, 2>                       Input = { 0.0F, 0.0F }; ///< filtered, for the editor plot
+            /// The trace of each axis's smoothing (one debug line per input change, one when the filtered
+            /// value arrives): the clamped input last seen, the seconds since it changed, and whether the
+            /// arrival is still to be logged.
+            std::array<float, 2>                       TracedInput    = { 0.0F, 0.0F };
+            std::array<float, 2>                       SinceChange    = { 0.0F, 0.0F };
+            std::array<bool, 2>                        ArrivalPending = { false, false };
             std::vector<const AnimationClip*>          Clips; ///< per sample; null while its clip is not resolved
             std::vector<float>                         Weights;
             /// Per-update scratch kept across ticks so an update allocates nothing once sized (UE: the anim

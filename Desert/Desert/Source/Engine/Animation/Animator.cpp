@@ -76,13 +76,51 @@ namespace Desert::Animation
                  { return state.Name == key.Name && state.Tick == key.Tick && state.Duration == key.Duration; } );
         }
 
+        /// The debug trace of one axis's smoothing: a line when the clamped input changes (with the filtered
+        /// value it starts from), and a line when the filtered value arrives at it (with the seconds it took) --
+        /// the evidence that a smoothed axis travels over its SmoothingTime instead of jumping.
+        void TraceBlendAxis( const Graph::BlendSpaceAxis& axis, Animator::BlendSpaceRun& run, const size_t a,
+                             const float input, const bool first, const float deltaTime,
+                             const std::string_view label )
+        {
+            constexpr std::array<char, 2> kAxisName{ 'X', 'Y' };
+            const float                   filtered = run.Input[a];
+            if ( first )
+            {
+                run.TracedInput[a]    = input;
+                run.SinceChange[a]    = 0.0F;
+                run.ArrivalPending[a] = false;
+                return;
+            }
+            if ( input != run.TracedInput[a] )
+            {
+                LOG_DEBUG(
+                     "[Animator] blend space '{}' axis {}: input {:.3f} -> {:.3f}, filtered {:.3f} (smoothing "
+                     "{:.2f} s)",
+                     label, kAxisName[a], run.TracedInput[a], input, filtered, axis.SmoothingTime );
+                run.TracedInput[a]    = input;
+                run.SinceChange[a]    = 0.0F;
+                run.ArrivalPending[a] = true;
+            }
+            else
+                run.SinceChange[a] += std::max( deltaTime, 0.0F );
+            if ( run.ArrivalPending[a] && std::abs( filtered - input ) <= 1e-3F * ( axis.Max - axis.Min ) )
+            {
+                LOG_DEBUG( "[Animator] blend space '{}' axis {}: filtered {:.3f} reached the input {:.3f} after "
+                           "{:.3f} s",
+                           label, kAxisName[a], filtered, input, run.SinceChange[a] );
+                run.ArrivalPending[a] = false;
+            }
+        }
+
         /// UE FAnimNode_BlendSpacePlayer::UpdateAssetPlayer for one blend space, 1D or 2D, at the raw axis values
         /// `raw` (one per axis): each axis clamped or wrapped and filtered (UE FBlendFilter), the weights toward
         /// the filtered point's target (the first update takes the target), then the shared phase advanced over
         /// the weighted samples' lengths at `playRate` x the scale axis's multiplier. The one step a
         /// blend-space node and a blend-space state both take.
         void AdvanceBlendRun( const Graph::BlendSpaceSetup& space, Animator::BlendSpaceRun& run,
-                              const std::span<const float> raw, const float playRate, const float deltaTime )
+                              const std::span<const float> raw, const float playRate, const float deltaTime,
+                              const std::string_view label )
         {
             const size_t         axes = std::min( space.Axes.size(), run.Filters.size() );
             std::array<float, 2> clamped{ 0.0F, 0.0F };
@@ -90,7 +128,9 @@ namespace Desert::Animation
             {
                 const float value = a < raw.size() ? raw[a] : 0.0F;
                 clamped[a]        = Graph::ClampBlendSpaceAxis( space.Axes[a], value );
+                const bool first  = !run.Filters[a].Initialised;
                 run.Input[a]      = Graph::FilterBlendSpaceAxis( space.Axes[a], run.Filters[a], value, deltaTime );
+                TraceBlendAxis( space.Axes[a], run, a, clamped[a], first, deltaTime, label );
             }
             std::vector<float>& target = run.TargetScratch; // reused across ticks: assign keeps its capacity
             Graph::BlendSpaceTargetWeights( space, run.Triangulation,
@@ -753,7 +793,7 @@ namespace Desert::Animation
             const float playRate =
                  Graph::PoseGraphInstance::PinValue( node, Graph::kBlendSpacePlayRatePin, 1.0F, parameter );
             AdvanceBlendRun( space, run, std::span<const float>( raw.data(), space.Axes.size() ), playRate,
-                             deltaTime );
+                             deltaTime, node.Name );
             ClipPlayback& source = state.Sources[n];
             source.Loop          = space.Loop;
             FollowHeaviestSample( run, space.Loop, source.Clip, source.Time, source.StepFrom, source.StepWrapped,
@@ -987,7 +1027,7 @@ namespace Desert::Animation
             raw[a] = GraphParameter( names[a] );
         const size_t axes = std::min( playback.BlendSpace.Space.Axes.size(), raw.size() );
         AdvanceBlendRun( playback.BlendSpace.Space, playback.Blend, std::span<const float>( raw.data(), axes ),
-                         1.0F, deltaTime );
+                         1.0F, deltaTime, "a state machine state" );
         // The heaviest resolved sample is the clock the rest of the Animator reads (exit time, notifies).
         FollowHeaviestSample( playback.Blend, playback.Loop, playback.Clip, playback.Time, playback.StepFrom,
                               playback.StepWrapped, playback.StepBackward );
