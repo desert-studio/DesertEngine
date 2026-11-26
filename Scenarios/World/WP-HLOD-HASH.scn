@@ -29,11 +29,11 @@
 Когда wait-idle 120
 Когда --subject viewport set Camera.Position -6000,3000,5124
 Когда --subject viewport set Camera.Direction 1,-0.02,0
-Когда advance 2
+Когда frames 120
 Тогда hlod_hash_editor_near reference: the real houses and bushes 2.5 km along X from house 200414, every cell loaded
 Когда --subject viewport set Camera.Position 0,40000,-60000
 Когда --subject viewport set Camera.Direction 0,-0.6,1
-Когда advance 2
+Когда frames 120
 Тогда hlod_hash_editor_far reference: WP_Protocol from 400 m up, every cell loaded - houses, bushes, foliage, landscape to the horizon
 Когда run Scene "World Partition: Unload All"
 Когда wait-idle 60
