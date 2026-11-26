@@ -1910,6 +1910,7 @@ namespace Desert::Graphic::System
     bool GrassRenderer::BufferPool::Allocate( PoolRange& range, const uint64_t bytes )
     {
         Release( range );
+        ReclaimRetired();
         const uint64_t size =
              ( std::max( bytes, uint64_t{ 1u } ) + m_Alignment - 1u ) & ~( m_Alignment - 1u );
         for ( auto run = m_Free.begin(); run != m_Free.end(); ++run )
@@ -1934,11 +1935,32 @@ namespace Desert::Graphic::System
     {
         if ( range.Bytes == 0u )
             return;
+        m_Retired.push_back(
+             RetiredRange{ .Range = range, .Frame = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() } );
+        range = PoolRange{};
+    }
+
+    void GrassRenderer::BufferPool::ReclaimRetired()
+    {
+        const ::Desert::Engine::FrameManager& frames = ::Desert::Engine::FrameManager::GetInstance();
+        const uint64_t      now    = frames.GetAbsoluteFrameCount();
+        const uint64_t      margin = frames.GetMaxFramesInFlight();
+        std::erase_if( m_Retired,
+                       [&]( const RetiredRange& retired )
+                       {
+                           if ( retired.Frame + margin > now )
+                               return false;
+                           FreeNow( retired.Range );
+                           return true;
+                       } );
+    }
+
+    void GrassRenderer::BufferPool::FreeNow( const PoolRange& range )
+    {
         auto run = std::lower_bound( m_Free.begin(), m_Free.end(), range.Offset,
                                      []( const PoolRange& free, const uint64_t offset ) noexcept
                                      { return free.Offset < offset; } );
         run      = m_Free.insert( run, range );
-        range    = PoolRange{};
         if ( const auto next = std::next( run ); next != m_Free.end() && run->Offset + run->Bytes == next->Offset )
         {
             run->Bytes += next->Bytes;
