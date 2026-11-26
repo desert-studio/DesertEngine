@@ -2638,12 +2638,16 @@ namespace Desert::Editor
         {
             const std::string error = m_Capture.FinishWindowPng( m_ShotWrite->Write );
             if ( !error.empty() )
+            {
                 LOG_WARN( "[Control] the editor is closing; shot {}'s window PNG was not written: {}",
                           m_ShotWrite->Id, error );
+            }
             else
+            {
                 LOG_INFO(
                      "[Control] the editor is closing; shot {}'s window PNG is written, its reply is not sent.",
                      m_ShotWrite->Id );
+            }
             m_ShotWrite.reset();
         }
         m_ControlGate.Disarm();
