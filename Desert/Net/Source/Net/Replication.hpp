@@ -9,7 +9,8 @@
 //            ServerMove resent until ClientAckGoodMove, Overwatch-style full resend).
 //   Snapshot server -> client, State lane (unreliable): the server step, the last input step the server has
 //            PROCESSED for this connection (the ack the client's prediction replays from, NET-4 §5.1), and the
-//            transform of every replicated pawn relevant to the connection.
+//            transform of every replicated pawn relevant to the connection that is DUE this step (WP-FAR-15: near
+//            pawns every snapshot, far ones every N-th, each entry stamped with its period; Relevancy.hpp).
 //   Spawn    server -> client, Rpc lane (reliable, ordered): a pawn entered the connection's view; `Owned` marks
 //            the connection's own pawn (UE: the PlayerController's possessed pawn, autonomous proxy).
 //   Destroy  server -> client, Rpc lane: the pawn left (its player disconnected, or it is no longer relevant).
@@ -50,10 +51,12 @@ namespace Desert::Net
     // One input step's length - the move both the server and the predicting client simulate (the game's
     // Net::IPawnMover, MovePrediction.hpp).
     inline constexpr float kNetStepSeconds = static_cast<float>( 1.0 / kNetStepHz );
-    // Snapshots go out every second step: 30 Hz per connection (§2). A project setting once §3.6 lands.
-    inline constexpr int kSnapshotEverySteps = 2;
-    // How far behind the server clock remote pawns are drawn at least: three snapshot intervals, so one lost
-    // snapshot still interpolates between two received ones (UE / Source default 100 ms at 30 Hz).
+    // WP-FAR-15: the snapshot cadence and every pawn's send period are the project's Net settings
+    // (Relevancy.hpp RelevancySettings::Bands, Project::NetSettings); each snapshot entry says the period it went
+    // at (SnapshotEntry::PeriodSteps). There is no fixed snapshot step in code.
+    // How far behind the server clock remote pawns are drawn at least: three 30 Hz snapshot intervals, so one lost
+    // snapshot still interpolates between two received ones (UE / Source default 100 ms at 30 Hz). A pawn sent at
+    // a longer period is drawn farther behind (Relevancy.hpp PawnInterpolationDelay).
     inline constexpr double kInterpolationDelaySeconds = 0.1;
     // NET-5 (§5.3): the adaptive delay (ReplicationClient) - two snapshot intervals plus the measured arrival
     // jitter, never below kInterpolationDelaySeconds nor above kMaxInterpolationDelaySeconds; past the newest
@@ -75,6 +78,10 @@ namespace Desert::Net
         // cells the client has resident (UE DestroyedStartupOrDormantActors, replayed when the level streams in).
         CellResidency  = kFirstSessionMessage + 22,
         StableDestroy  = kFirstSessionMessage + 23,
+        // WP-FAR-15 (§3.5, §3.6): client -> server, State lane, the shape the client looks through (its streaming
+        // source's: facing, sector angle, range) - the server's relevancy and send periods are measured from the
+        // own pawn's position through it (Relevancy.hpp ViewReport). Sent when the shape changes and once a second.
+        ViewReport = kFirstSessionMessage + 24,
     };
 
     struct NetVec3
@@ -151,6 +158,15 @@ namespace Desert::Net
         state.Mode     = static_cast<std::uint8_t>( flags >> 1 );
     }
 
+    // One pawn in a snapshot and the period, in server steps, the gateway sends it to this connection at now
+    // (Relevancy.hpp SendPeriodSteps / DormantEverySteps): the client's interpolation delay for the pawn follows
+    // it (two of its intervals + jitter), so a 6 Hz pawn never runs out of samples and extrapolates into a hold.
+    struct SnapshotEntry
+    {
+        PawnState    Pawn;
+        std::uint8_t PeriodSteps = 2; // >= 1; one byte on the wire (a period is at most 255 steps = 4.25 s)
+    };
+
     struct SnapshotMessage
     {
         std::uint32_t          ServerStep   = 0;
@@ -159,9 +175,12 @@ namespace Desert::Net
         // With the ack: the own pawn's state after AckInputStep, and how many of this connection's input steps
         // wait in the server's queue - the client's clock sync dilates its step rate to keep it at a small target
         // (Overwatch / Rocket League input buffer feedback).
-        PawnMoveState          OwnState;
-        std::uint8_t           InputBuffered = 0;
-        std::vector<PawnState> Pawns;
+        PawnMoveState              OwnState;
+        std::uint8_t               InputBuffered = 0;
+        // The pawns DUE for this connection on this step (WP-FAR-15): a near pawn is in every snapshot, a far one
+        // in every N-th, a dormant one in every DormantEverySteps-th; the budget cut defers the least urgent to the
+        // next snapshot. A pawn absent from a snapshot is not gone - Destroy says that; it was not due.
+        std::vector<SnapshotEntry> Pawns;
     };
 
     struct SpawnMessage
@@ -226,7 +245,10 @@ namespace Desert::Net
     {
     public:
         void                    Push( double serverSeconds, const PawnState& state );
-        [[nodiscard]] PawnState Sample( double serverSeconds ) const;
+        // @p extrapolationCap: how far past the newest sample the path is extrapolated before it holds - a pawn
+        // received every N steps gets a longer cap (WP-FAR-15, Relevancy.hpp PawnExtrapolationCap).
+        [[nodiscard]] PawnState Sample( double serverSeconds,
+                                        double extrapolationCap = kMaxExtrapolationSeconds ) const;
         // The newest snapshot's state as the server sent it (never extrapolated); {} when empty.
         [[nodiscard]] PawnState Newest() const
         {
