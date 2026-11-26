@@ -741,7 +741,7 @@ namespace Desert::Editor
     {
         // THE IMPORT TEMPLATES ARE THE ASSET REGISTRY'S SHADERS (MAT1b), not a second scan of the shader
         // directory: whatever the editor loaded as a ShaderAsset, and only that, can take an imported material.
-        // Published once the shaders are loaded (EditorLayer, after CompileEngineShaders) and read by every
+        // Published once the shaders are loaded (EditorLayer, after CompileShaders) and read by every
         // importer — the on-demand cook's per-thread ones included — so the snapshot is swapped under a lock.
         std::mutex                                         s_TemplatesMutex;
         std::shared_ptr<const std::vector<ImportTemplate>> s_Templates;

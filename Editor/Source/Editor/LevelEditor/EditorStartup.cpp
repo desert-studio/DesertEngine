@@ -160,10 +160,10 @@ namespace Desert::Editor
         // start, and one call: the splash says what it is before it begins, and cannot say more during it.
         BeginShaderStage();
         // The splash's close button, pressed during this one long call, stops it between programs.
-        if ( const auto shaders = Assets::CompileEngineShaders( m_AssetManager, SplashItems(),
-                                                                [this]() { return CloseRequested(); } );
+        if ( const auto shaders =
+                  Assets::CompileShaders( m_AssetManager, SplashItems(), [this]() { return CloseRequested(); } );
              !shaders )
-            return Common::MakeFormattedError( "the engine shaders: {}", shaders.GetError() );
+            return Common::MakeFormattedError( "the shaders: {}", shaders.GetError() );
         // The imported materials choose among these shaders' Import blocks; every cook below comes after.
         LOG_INFO( "[Import] {} import template(s) published from the loaded shaders",
                   ImportManager::PublishImportTemplates( *m_AssetManager ) );
@@ -447,8 +447,7 @@ namespace Desert::Editor
     // lines below; a machine twice as fast halves every stage alike and the shares do not move.
     void EditorStartup::MakeSplashPlan()
     {
-        m_ShaderStage =
-             m_Progress.AddStage( "Compiling shaders...", kSecondsPerShader, Assets::EngineShaderCount() );
+        m_ShaderStage = m_Progress.AddStage( "Compiling shaders...", kSecondsPerShader, Assets::ShaderCount() );
         for ( StartupStage& stage : m_StartupStages )
             stage.ProgressStage =
                  stage.ItemCosts ? m_Progress.AddStage( stage.Label, stage.SecondsPerItem, stage.ItemCosts() )

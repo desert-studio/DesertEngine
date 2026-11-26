@@ -26,6 +26,9 @@ namespace Desert::Runtime
     class ShaderService
     {
     public:
+        // Refuses a program whose stem another registered file already owns: programs are found by stem
+        // (GetByName, a material's CompileName), so two files of one stem - an engine one and a project
+        // one - would silently shadow each other. The refusal names both files.
         Common::BoolResultStr            Register( const std::shared_ptr<Assets::ShaderAsset>& shaderAsset );
         std::shared_ptr<Graphic::Shader> Get( const Assets::AssetHandle& handle ) const;
         std::shared_ptr<Graphic::Shader> GetByName( const std::string& name ) const;
@@ -234,6 +237,8 @@ namespace Desert::Runtime
         // The lock-held halves of the public calls of the same name (the caller holds m_Lock as stated).
         std::shared_ptr<Graphic::Shader> GetLocked( const Assets::AssetHandle& handle ) const; // shared or more
         void ForgetRefusalsOfLocked( const Assets::AssetHandle& handle );                     // exclusive
+        // The file a registered program name belongs to, for Register's stem-collision refusal (shared or more).
+        std::string DescribeOwnerLocked( const Assets::AssetHandle& owner ) const;
         // The steady frame's answer under the SHARED lock: a live variant or a standing compile refusal, or
         // nullopt when only BeginVariantLocked (exclusive) can answer.
         std::optional<Common::ResultStr<VariantLookup>>

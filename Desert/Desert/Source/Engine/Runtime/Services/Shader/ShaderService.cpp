@@ -96,10 +96,23 @@ namespace Desert::Runtime
         {
             return Common::MakeError( "Shader asset is invalid" );
         }
-        // A (re-)registered file answers afresh: a refusal that named it, or named its name before it existed,
-        // is no longer the service's answer. Done under the same exclusive hold as the write it belongs to.
         const Assets::AssetHandle handle = shaderAsset->GetMetadata().Handle;
         const std::string         stem   = shaderAsset->GetMetadata().Filepath.stem().string();
+
+        // ONE FILE PER PROGRAM NAME (UE: a shader's identity is its virtual path). Programs are found by stem,
+        // so with two roots of the Shader kind (the engine's and the project's Content/Shaders/) a project file
+        // named like an engine one would silently replace it. Refused here, before anything is compiled or
+        // written; a re-Register of the same file (hot reload) owns its name already and passes.
+        {
+            const std::unique_lock check( m_Lock );
+            if ( const auto it = m_NameToHandleMap.find( stem );
+                 it != m_NameToHandleMap.end() && it->second != handle )
+                return Common::MakeFormattedError(
+                     "shader program '{}' ({}) is already {}; a program name is one file", stem,
+                     shaderAsset->GetMetadata().Filepath.generic_string(), DescribeOwnerLocked( it->second ) );
+        }
+        // A (re-)registered file answers afresh: a refusal that named it, or named its name before it existed,
+        // is no longer the service's answer. Done under the same exclusive hold as the write it belongs to.
         const auto                adopt  = [this, &handle, &stem]()
         {
             ForgetRefusalsOfLocked( handle );
@@ -275,6 +288,14 @@ namespace Desert::Runtime
     {
         const std::shared_lock read( m_Lock );
         return GetLocked( handle );
+    }
+
+    std::string ShaderService::DescribeOwnerLocked( const Assets::AssetHandle& owner ) const
+    {
+        if ( const auto it = m_ShaderAssets.find( owner ); it != m_ShaderAssets.end() )
+            if ( const auto asset = it->second.lock() )
+                return std::format( "the program of {}", asset->GetMetadata().Filepath.generic_string() );
+        return std::format( "registered by handle {}", static_cast<uint64_t>( owner ) );
     }
 
     std::shared_ptr<Graphic::Shader> ShaderService::GetLocked( const Assets::AssetHandle& handle ) const

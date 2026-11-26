@@ -181,6 +181,9 @@ namespace Common::Constants
             Input,
             PhysicsAsset,
             LandscapeGrassType,
+            // The project's own shader programs (UE's /Project shader mapping). The engine's programs stay
+            // under SHADERDIR_PATH; this slot is the second root of ContentKind::Shader, never a second list.
+            ProjectShader,
             Cooked,
             COUNT
         };
@@ -295,6 +298,8 @@ namespace Common::Constants
              // Landscape grass types (`.degrasstype`, UE ULandscapeGrassType) sit beside the layer infos that
              // name them, as UE keeps them.
              /* LandscapeGrassType */ { "Landscape/Grass/", DirRoot::Assets },
+             // The project's own shader programs (`.shader`), UE AddShaderSourceDirectoryMapping("/Project").
+             /* ProjectShader      */ { "Shaders/", DirRoot::Assets },
              /* Cooked        */ { "", DirRoot::Cooked },
         } };
 
@@ -653,6 +658,7 @@ namespace Common::Constants
         inline const std::filesystem::path& PHYSICS_ASSET_PATH  = Detail::Slot( ContentDir::PhysicsAsset );
         inline const std::filesystem::path& LANDSCAPE_GRASS_TYPE_PATH =
              Detail::Slot( ContentDir::LandscapeGrassType );
+        inline const std::filesystem::path& PROJECT_SHADER_PATH = Detail::Slot( ContentDir::ProjectShader );
         inline const std::filesystem::path& COOKED_PATH         = Detail::Slot( ContentDir::Cooked );
         // Empty while no project is open (a read of an empty path finds nothing, the reader refuses by name).
         inline const std::filesystem::path& PROJECT_CONFIG_PATH = Detail::s_ProjectConfig;
