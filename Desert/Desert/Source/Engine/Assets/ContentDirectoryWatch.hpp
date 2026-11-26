@@ -155,7 +155,7 @@ namespace Desert::Assets
                 {
                     if ( row.Path.parent_path().lexically_normal() != dir.lexically_normal() )
                         continue;
-                    if ( std::filesystem::exists( row.Path, ec ) )
+                    if ( ContentRegistry::AssetOnDisk( row.Path ) )
                         continue;
                     ContentRegistry::Update( row.Path );
                     ++updated;

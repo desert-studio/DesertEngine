@@ -611,7 +611,11 @@ namespace Desert::Editor
                     // COMBINED: the one mesh every placed entity names (CookPaths::MeshAsset, the path its
                     // registry row keys), refreshed by the caller like a node mesh (UE FReimportManager ->
                     // PostReimport). Left out, a reimport rebuilt nothing that draws it (GAME-SHADER-DIR).
-                    writtenMeshes.push_back( CookPaths::MeshAsset( sourcePath ) );
+                    // Its row is re-described from the record the write just stated (box, options) under the
+                    // record's GUID, as a node mesh's is below: the asset has no file, the record stands for it.
+                    const std::filesystem::path combined = CookPaths::MeshAsset( sourcePath );
+                    Assets::ContentRegistry::NoteFile( combined );
+                    writtenMeshes.push_back( combined );
                 }
                 else
                 {
