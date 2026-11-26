@@ -1,4 +1,5 @@
 #include "Net/MeshLink.hpp"
+#include "Net/InputWire.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -122,6 +123,14 @@ namespace Desert::Net
                          }
                      },
                      value );
+            }
+            // An input step with its number and every field (InputWire.hpp) - the handover's pending list. False
+            // when the wire does not carry the step (AppendInputStepFull appended nothing).
+            [[nodiscard]] bool InputStepFull( const InputStep& step )
+            {
+                const std::size_t before = m_Out.size();
+                AppendInputStepFull( m_Out, step );
+                return m_Out.size() != before;
             }
             std::vector<std::byte> Take()
             {
@@ -250,6 +259,14 @@ namespace Desert::Net
             {
                 return m_In.subspan( m_At );
             }
+            bool InputStepFull( InputStep& step )
+            {
+                std::span<const std::byte> rest = Rest();
+                if ( !ReadInputStepFull( rest, step ) )
+                    return false;
+                m_At = m_In.size() - rest.size();
+                return true;
+            }
             [[nodiscard]] bool Done() const
             {
                 return m_At == m_In.size();
@@ -322,15 +339,6 @@ namespace Desert::Net
             std::uint32_t From = 0, Epoch = 0, To = 0, Step = 0, Gateway = 0;
         };
 
-        void WriteInputStep( Writer& w, const InputStep& input )
-        {
-            w.U32( input.Step );
-            w.F32( input.Move.X );
-            w.F32( input.Move.Y );
-            w.F32( input.Move.Z );
-            w.F32( input.Yaw );
-        }
-
         void WriteMoveState( Writer& w, const PawnMoveState& move )
         {
             w.F32( move.Position.X );
@@ -354,12 +362,6 @@ namespace Desert::Net
             return true;
         }
 
-        bool ReadInputStep( Reader& r, InputStep& input )
-        {
-            return r.U32( input.Step ) && r.F32( input.Move.X ) && r.F32( input.Move.Y ) &&
-                   r.F32( input.Move.Z ) && r.F32( input.Yaw );
-        }
-
         std::vector<std::byte> EncodeHandover( EMesh type, const HandoverHeader& h,
                                                const PawnSimulation::HandoverPawn& pawn )
         {
@@ -378,7 +380,8 @@ namespace Desert::Net
             WriteMoveState( w, pawn.Move );
             w.U32( static_cast<std::uint32_t>( pawn.Pending.size() ) );
             for ( const InputStep& input : pawn.Pending )
-                WriteInputStep( w, input );
+                if ( !w.InputStepFull( input ) )
+                    return {}; // the refusal: the caller reports it and sends nothing
             return w.Take();
         }
 
@@ -397,7 +400,7 @@ namespace Desert::Net
                 pawn.LastProcessed = processed;
             pawn.Pending.resize( pending );
             for ( InputStep& input : pawn.Pending )
-                if ( !ReadInputStep( r, input ) )
+                if ( !r.InputStepFull( input ) )
                     return false;
             return true;
         }
@@ -1040,8 +1043,27 @@ namespace Desert::Net
                 h.To    = from;
                 h.Epoch = record->second.Epoch;
                 if ( const auto back = m_Endpoint.PeerConnection( EMeshRole::Sim, from ) )
-                    m_Endpoint.Send( *back, EncodeHandover( EMesh::Adopt, h, pawn ) );
+                {
+                    std::vector<std::byte> adopt = EncodeHandover( EMesh::Adopt, h, pawn );
+                    if ( adopt.empty() )
+                        m_Log( std::format( "store: pawn net id {} cannot go back to sim {} - a pending input step "
+                                            "is not one the wire carries (InputWire.hpp)",
+                                            id, from ) );
+                    else
+                        m_Endpoint.Send( *back, std::move( adopt ) );
+                }
             }
+            return;
+        }
+        HandoverHeader adopt = h;
+        adopt.Epoch          = h.Epoch + 1;
+        std::vector<std::byte> adoptMessage = EncodeHandover( EMesh::Adopt, adopt, pawn );
+        if ( adoptMessage.empty() )
+        {
+            // Decoded through the same codec, so this is a defect, not data: the record stays with the sender.
+            m_Log( std::format( "store: handover of pawn net id {} from sim {} to sim {} refused - a pending input "
+                                "step is not one the wire carries (InputWire.hpp)",
+                                id, from, h.To ) );
             return;
         }
         record->second = { h.To, h.Epoch + 1 };
@@ -1054,9 +1076,7 @@ namespace Desert::Net
              "handed to sim {}",
              id, pawn.Player, h.Gateway, from, h.Epoch, h.To, h.Epoch + 1, h.Step, pawn.State.Position.X,
              pawn.State.Position.Y, pawn.State.Position.Z, pawn.Pending.size(), h.To ) );
-        HandoverHeader adopt = h;
-        adopt.Epoch          = h.Epoch + 1;
-        m_Endpoint.Send( *target, EncodeHandover( EMesh::Adopt, adopt, pawn ) );
+        m_Endpoint.Send( *target, adoptMessage );
         Writer changed( EMesh::AuthorityChanged );
         changed.U32( id );
         changed.U32( h.To );
@@ -1487,9 +1507,17 @@ namespace Desert::Net
                  m_Sim, source.Id, source.Player, source.Position.X, source.Position.Z,
                  region->Depth( source.Position.X, source.Position.Z ), region->Name, *target,
                  m_Map.HandoverMargin, step, epoch, pawn->Pending.size() ) );
-            m_Endpoint.SendToRole(
-                 EMeshRole::Store,
-                 EncodeHandover( EMesh::Handover, { m_Sim, epoch, *target, step, *gateway }, *pawn ) );
+            std::vector<std::byte> handover =
+                 EncodeHandover( EMesh::Handover, { m_Sim, epoch, *target, step, *gateway }, *pawn );
+            if ( handover.empty() )
+            {
+                m_Log( std::format( "sim {}: handover of pawn net id {} (player {}) refused - a pending input step "
+                                    "is not one the wire carries (InputWire.hpp); the pawn stays on this sim",
+                                    m_Sim, source.Id, source.Player ) );
+                sim.Adopt( std::move( *pawn ), 0 );
+                continue;
+            }
+            m_Endpoint.SendToRole( EMeshRole::Store, handover );
             gateways.ForwardInputs( source.Player, *target );
             replica.Forget( source.Id );
             m_Epoch.erase( source.Player );

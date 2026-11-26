@@ -6,9 +6,10 @@
 //
 // After the handshake (NetHandshake.hpp) a session speaks four messages:
 //   Input    client -> server, State lane (unreliable): every fixed step of input the server has not acked yet
-//            (all of them, up to kMaxUnackedInputSteps), each with the client's fixed-step number, under a
-//            sequence id - a lost packet loses no input: its steps ride in every later one until the ack (§2; UE
-//            ServerMove resent until ClientAckGoodMove, Overwatch-style full resend).
+//            (all of them, up to kMaxUnackedInputSteps) as one consecutive run from the first step's number, under
+//            a sequence id (the run's layout and quantization: InputWire.hpp) - a lost packet loses no input: its
+//            steps ride in every later one until the ack (§2; UE ServerMove resent until ClientAckGoodMove,
+//            Overwatch-style full resend).
 //   Snapshot server -> client, State lane (unreliable): the server step, the last input step the server has
 //            PROCESSED for this connection (the ack the client's prediction replays from, NET-4 §5.1), and the
 //            transform of every replicated pawn relevant to the connection that is DUE this step (WP-FAR-15: near
@@ -94,11 +95,13 @@ namespace Desert::Net
     // One fixed step of a player's input. Net numbers it, carries it, acks it and resends it; it never reads what
     // it says. Move and Yaw are the pawn's movement intent (UE ServerMove's Acceleration + View; Mover's
     // MoveInput + OrientationIntent): the world-space direction the player asks to move in (length 0..1, already
-    // turned by its view on the client) and the yaw it faces, in degrees. Everything else is the PAWN'S DECLARED
-    // ACTION SET, opaque here (Mover 2.0: the game declares the input struct the net layer carries): bit i of
-    // Actions is the pawn's i-th declared digital action, Axes[j] its j-th declared analog one - the game's
-    // movement (Engine/Gameplay/PawnActions.hpp) names them and maps them to what they do. There is no sprint or
-    // jump here: a pawn that declares a new action sends it without a change to this file.
+    // turned by its view on the client) and the yaw it faces, in RADIANS about +Y (0 faces -Z; PawnState::Yaw).
+    // On the wire every field is quantized (InputWire.hpp OnWireLattice): a sent step is on that lattice.
+    // Everything else is the PAWN'S DECLARED ACTION SET, opaque here (Mover 2.0: the game declares the input
+    // struct the net layer carries): bit i of Actions is the pawn's i-th declared digital action, Axes[j] its j-th
+    // declared analog one - the game's movement (Engine/Gameplay/PawnActions.hpp) names them and maps them to
+    // what they do. There is no sprint or jump here: a pawn that declares a new action sends it without a change
+    // to this file.
     inline constexpr std::size_t kMaxInputActions = 32; // the bits of InputStep::Actions
     inline constexpr std::size_t kMaxInputAxes    = 8;
 
@@ -192,6 +195,8 @@ namespace Desert::Net
         std::uint32_t Player = 0; // the server's player index (its PlayerController), for names and logs
     };
 
+    // Empty when the steps are not a run the wire carries (InputWire.hpp AppendInputRun: not consecutive, none, more
+    // than kMaxUnackedInputSteps, too many axes) - the caller reports it and sends nothing.
     std::vector<std::byte> EncodeInput( const InputMessage& message );
     std::vector<std::byte> EncodeSnapshot( const SnapshotMessage& message );
     std::vector<std::byte> EncodeSpawn( const SpawnMessage& message );
