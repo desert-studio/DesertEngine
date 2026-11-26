@@ -564,6 +564,10 @@ namespace
          { "Priority", kViewSettings }, { "BlendWeight", kViewSettings }, { "Settings", kViewSettings },
     };
 
+    // RENDER-BLOOM-UE: the six Gaussian stages are read where the stage list is built (BloomGaussian::Stages).
+    constexpr const char* kBloomRules =
+         "Desert/Desert/Source/Engine/Graphic/PostProcessing/BloomGaussianRules.hpp";
+
     constexpr Row kPostProcessSettingsRows[] = {
          { "EnableSSAO", kSceneRenderer },
          { "GlobalIlluminationMethod", kRenderMethods },
@@ -578,10 +582,31 @@ namespace
          { "WhitePoint", kSceneRenderer },
          { "AutoExposure", kSceneRenderer },
          { "AutoExposureKey", kSceneRenderer },
-         { "AutoExposureSpeed", kSceneRenderer },
+         { "AutoExposureSpeedUp", kSceneRenderer },
+         { "AutoExposureSpeedDown", kSceneRenderer },
+         { "AutoExposureLowPercent", kSceneRenderer },
+         { "AutoExposureHighPercent", kSceneRenderer },
          { "AutoExposureMinEV100", kSceneRenderer },
          { "AutoExposureMaxEV100", kSceneRenderer },
-         { "EnableBloom", kSceneRenderer },
+         { "BloomMethod", kSceneRenderer },
+         { "BloomGaussianIntensity", kBloomRules },
+         { "BloomSizeScale", kBloomRules },
+         { "Bloom1Tint", kBloomRules },
+         { "Bloom1Size", kBloomRules },
+         { "Bloom2Tint", kBloomRules },
+         { "Bloom2Size", kBloomRules },
+         { "Bloom3Tint", kBloomRules },
+         { "Bloom3Size", kBloomRules },
+         { "Bloom4Tint", kBloomRules },
+         { "Bloom4Size", kBloomRules },
+         { "Bloom5Tint", kBloomRules },
+         { "Bloom5Size", kBloomRules },
+         { "Bloom6Tint", kBloomRules },
+         { "Bloom6Size", kBloomRules },
+         { "BloomDirtMask", kSceneRenderer },
+         { "BloomDirtMaskIntensity", kSceneRenderer },
+         { "BloomDirtMaskTint", kSceneRenderer },
+         { "BloomConvolutionIntensity", kSceneRenderer },
          { "BloomThreshold", kSceneRenderer },
          { "BloomIntensity", kSceneRenderer },
          { "LensDispersion", kSceneRenderer },

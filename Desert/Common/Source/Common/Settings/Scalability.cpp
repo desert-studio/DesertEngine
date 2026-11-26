@@ -71,11 +71,11 @@ namespace Common::Scalability
                Vis::Advanced },
              { P::AmbientOcclusionSamples, G::PostProcess, "PostProcess.AmbientOcclusionSamples", 4, 32, CL::None,
                "SSAORenderer GTAO horizon taps per direction (SSAO.shader kMaxTaps = 32)", 24, Vis::Advanced },
-             { P::BloomMips, G::PostProcess, "PostProcess.BloomMips", 2, 6, CL::None,
-               "BloomRenderer::SetMaxMips (SceneRenderer::BeginScene)", 6, Vis::Advanced },
-             { P::BloomMethod, G::PostProcess, "PostProcess.BloomMethod", 0, LastOf( kBloomMethodNames.size() ),
-               CL::None, "BloomRenderer::SetMethod (SceneRenderer::BeginScene -> SceneRenderer::AddFrameBloom)",
-               Of( BloomMethod::Convolution ), Vis::Advanced },
+             { P::BloomQuality, G::PostProcess, "PostProcess.BloomQuality", 2, 6, CL::None,
+               "BloomFrameParams::StageCount (SceneRenderer::BeginScene -> "
+               "BloomRenderer::AddGaussianPasses): the Gaussian stages kept, the coarsest first - "
+               "a lower quality drops the finest stages (UE r.BloomQuality)",
+               6, Vis::Advanced },
              { P::MotionBlurQuality, G::PostProcess, "PostProcess.MotionBlurQuality", 0, 2, CL::None,
                "Graphic::MotionBlurSamplesForQuality (SceneRenderer::BeginScene -> MotionBlur gather taps)", 2,
                Vis::Advanced },
@@ -468,8 +468,8 @@ namespace Common::Scalability
                "tenths of a pixel)",
                10, Vis::Advanced },
              { P::VirtualGeometrySoftwareRaster, G::ViewDistance, "VirtualGeometry.SoftwareRaster", 0, 1, CL::None,
-               "SceneRenderer::AddFrameVirtualGeometry -> ClusterCullView::SwRasterMaxEdgePixels (the HW/SW split) "
-               "-> VirtualGeometryRenderer::AddSoftwareRaster",
+               "SceneRenderer::AddFrameVirtualGeometry -> ClusterCullView::SwRasterMaxEdgePixels "
+               "(the HW/SW split) -> VirtualGeometryRenderer::AddSoftwareRaster",
                0, Vis::Advanced },
              { P::AsyncCompute, G::Effects, "RenderPipeline.AsyncCompute", 0, 1, CL::AsyncCompute,
                "SceneRenderer::OnUpdate -> RDG::Builder::SetAsyncCompute (the view graph's AsyncCompute passes on "
@@ -544,8 +544,8 @@ namespace Common::Scalability
                "Distance, this) when the sun reads the distance-field shadow past them)",
                8000, Vis::Advanced },
              { P::ShadowFarDistance, G::Shadows, "Shadows.FarDistance", 0, 400000, CL::None,
-               "SceneRenderer::OnUpdate -> RebudgetShadowsFor (ShadowQualityOf: ShadowQuality::FarDistance, the far "
-               "shadow map's reach past the cascades; 0 = none)",
+               "SceneRenderer::OnUpdate -> RebudgetShadowsFor (ShadowQualityOf: "
+               "ShadowQuality::FarDistance, the far shadow map's reach past the cascades; 0 = none)",
                100000, Vis::Advanced },
              { P::RenderPipelineTileClassify, G::Effects, "RenderPipeline.TileClassify", 0, 1, CL::None,
                "SceneRenderer::AddFrameComposite -> DeferredLightingRenderer (the 8x8 tile lists the "
@@ -665,8 +665,6 @@ namespace Common::Scalability
                 return kScreenProbeGatherMethodNames;
             if ( parameter == Parameter::EarlyZPass )
                 return kEarlyZPassNames;
-            if ( parameter == Parameter::BloomMethod )
-                return kBloomMethodNames;
             if ( parameter >= Parameter::DlssPresetNative && parameter <= Parameter::DlssPresetUltraPerformance )
                 return kDlssPresetNames;
             if ( parameter >= Parameter::DlssRRPresetNative &&

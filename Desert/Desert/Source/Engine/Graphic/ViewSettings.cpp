@@ -64,10 +64,11 @@ namespace Desert::Graphic
         target.AutoExposureCurveBias     = volume.AutoExposureCurveBias;
         target.AutoExposure        = volume.AutoExposure;
         target.LocalExposureMethod = volume.LocalExposureMethod;
-        target.EnableBloom         = volume.EnableBloom;
-        // The convolution kernel is an image: taken whole, like the compensation curve (UE blends the texture by
-        // its weight > 0.5 rule; one image per view is what the spectrum is built from).
+        target.BloomMethod               = volume.BloomMethod;
+        // The convolution kernel and the dirt mask are images: taken whole, like the compensation curve (UE blends
+        // a texture by its weight > 0.5 rule; one image per view is what the pass reads).
         target.BloomConvolutionKernel = volume.BloomConvolutionKernel;
+        target.BloomDirtMask          = volume.BloomDirtMask;
         target.EnableLensFlare     = volume.EnableLensFlare;
         target.LensFlareGhostCount = volume.LensFlareGhostCount;
         target.SubsurfaceScattering = volume.SubsurfaceScattering;
@@ -118,7 +119,12 @@ namespace Desert::Graphic
              Lerp( target.ColorCorrectionHighlightsMax, volume.ColorCorrectionHighlightsMax, weight );
         target.AutoExposureBias = Lerp( target.AutoExposureBias, volume.AutoExposureBias, weight );
         target.AutoExposureKey   = Lerp( target.AutoExposureKey, volume.AutoExposureKey, weight );
-        target.AutoExposureSpeed = Lerp( target.AutoExposureSpeed, volume.AutoExposureSpeed, weight );
+        target.AutoExposureSpeedUp   = Lerp( target.AutoExposureSpeedUp, volume.AutoExposureSpeedUp, weight );
+        target.AutoExposureSpeedDown = Lerp( target.AutoExposureSpeedDown, volume.AutoExposureSpeedDown, weight );
+        target.AutoExposureLowPercent =
+             Lerp( target.AutoExposureLowPercent, volume.AutoExposureLowPercent, weight );
+        target.AutoExposureHighPercent =
+             Lerp( target.AutoExposureHighPercent, volume.AutoExposureHighPercent, weight );
         // EV100 blends linearly (UE), i.e. the luminance clamps blend geometrically.
         target.AutoExposureMinEV100 = Lerp( target.AutoExposureMinEV100, volume.AutoExposureMinEV100, weight );
         target.AutoExposureMaxEV100 = Lerp( target.AutoExposureMaxEV100, volume.AutoExposureMaxEV100, weight );
@@ -134,6 +140,26 @@ namespace Desert::Graphic
         target.LocalExposureShadowThresholdStrength = Lerp( target.LocalExposureShadowThresholdStrength, volume.LocalExposureShadowThresholdStrength, weight );
         target.BloomThreshold    = Lerp( target.BloomThreshold, volume.BloomThreshold, weight );
         target.BloomIntensity    = Lerp( target.BloomIntensity, volume.BloomIntensity, weight );
+        target.BloomGaussianIntensity =
+             Lerp( target.BloomGaussianIntensity, volume.BloomGaussianIntensity, weight );
+        target.BloomSizeScale = Lerp( target.BloomSizeScale, volume.BloomSizeScale, weight );
+        target.Bloom1Tint     = Lerp( target.Bloom1Tint, volume.Bloom1Tint, weight );
+        target.Bloom2Tint     = Lerp( target.Bloom2Tint, volume.Bloom2Tint, weight );
+        target.Bloom3Tint     = Lerp( target.Bloom3Tint, volume.Bloom3Tint, weight );
+        target.Bloom4Tint     = Lerp( target.Bloom4Tint, volume.Bloom4Tint, weight );
+        target.Bloom5Tint     = Lerp( target.Bloom5Tint, volume.Bloom5Tint, weight );
+        target.Bloom6Tint     = Lerp( target.Bloom6Tint, volume.Bloom6Tint, weight );
+        target.Bloom1Size     = Lerp( target.Bloom1Size, volume.Bloom1Size, weight );
+        target.Bloom2Size     = Lerp( target.Bloom2Size, volume.Bloom2Size, weight );
+        target.Bloom3Size     = Lerp( target.Bloom3Size, volume.Bloom3Size, weight );
+        target.Bloom4Size     = Lerp( target.Bloom4Size, volume.Bloom4Size, weight );
+        target.Bloom5Size     = Lerp( target.Bloom5Size, volume.Bloom5Size, weight );
+        target.Bloom6Size     = Lerp( target.Bloom6Size, volume.Bloom6Size, weight );
+        target.BloomDirtMaskIntensity =
+             Lerp( target.BloomDirtMaskIntensity, volume.BloomDirtMaskIntensity, weight );
+        target.BloomDirtMaskTint = Lerp( target.BloomDirtMaskTint, volume.BloomDirtMaskTint, weight );
+        target.BloomConvolutionIntensity =
+             Lerp( target.BloomConvolutionIntensity, volume.BloomConvolutionIntensity, weight );
         target.LensDispersion    = Lerp( target.LensDispersion, volume.LensDispersion, weight );
         target.BloomConvolutionScale = Lerp( target.BloomConvolutionScale, volume.BloomConvolutionScale, weight );
         target.DepthOfFieldFocalDistance =

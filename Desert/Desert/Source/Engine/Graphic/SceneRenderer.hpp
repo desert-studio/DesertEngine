@@ -15,6 +15,7 @@
 #include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/SunLightFx.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
+#include <Engine/Graphic/PostProcessing/ExposureReadout.hpp>
 #include <Engine/Graphic/WindGust.hpp>
 #include <Common/Core/Timestep.hpp>
 
@@ -563,6 +564,9 @@ namespace Desert::Graphic
             uint32_t SwClusters = 0;
         };
         [[nodiscard]] virtual VirtualGeometryCounts GetVirtualGeometryCounts() const = 0;
+        /// render.exposure (RENDER-BLOOM-UE): the view's exposure as its last BeginScene read it - manual or the
+        /// meter's read-back (adapted and measured EV100, the multiplier, the clamped percentiles).
+        [[nodiscard]] virtual ExposureReadout GetExposureReadout() const = 0;
         /// This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps). Public
         /// for MeshRenderer: the VSM's own pass table (MeshPass::VirtualShadow) is resolved only while it is.
         [[nodiscard]] virtual bool SunShadowIsVirtual() const = 0;

@@ -2528,8 +2528,9 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "PostFX: AutoExposureClear",
          "PostFX: AutoExposureHistogram",
          "PostFX: AutoExposureAverage",
+         "PostFX: BloomSetup",
          "PostFX: BloomDownsample{}",
-         "PostFX: BloomUpsample{}",
+         "PostFX: BloomBlur{}{}",
          "PostFX: LightShaftMask",
          "PostFX: LightShaftBlur{}",
          "PostFX: LensFlareBright{}",
@@ -2763,8 +2764,9 @@ TEST( RenderGraphCompile, PostFxPassesAreRealGraphNodesWithDeclaredAccess )
             EXPECT_NE( declarations.find( "pass.ColorTarget(" ), std::string::npos )
                  << name << " is a Raster node without a colour target: the graph has no render pass to open";
     }
-    // JumpFlood 3, AutoExposure 3, Bloom 2, LightShafts 2, LensFlare 2, Tonemap 1, FXAA 1, SMAA 3, BackdropBlur 1.
-    EXPECT_EQ( nodes, 18u );
+    // JumpFlood 3, AutoExposure 3, LocalExposure 8, Bloom 3 (setup, downsample, blur), LightShafts 2, LensFlare 2,
+    // Tonemap 1, FXAA 1, SMAA 3, BackdropBlur 1.
+    EXPECT_EQ( nodes, 27u );
 
     // The frame's post-FX recorder (already read above) and every renderer in the PostProcessing folder.
     constexpr std::string_view dir = "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing";

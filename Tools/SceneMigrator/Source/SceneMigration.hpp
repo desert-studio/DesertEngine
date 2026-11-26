@@ -583,13 +583,17 @@ namespace Desert::Migration
     using Core::kWorldPartitionVersionHLODBuilderSettings;
     using Core::kWorldPartitionVersionImpostorLayers;
 
-    // THE ASSET-REFERENCE AND LIGHT CHAINS (kAssetRefVersionReflected, kLightVersionRotation) are the engine's
+    // THE ASSET-REFERENCE, LIGHT AND POST-PROCESS CHAINS (kAssetRefVersionReflected, kLightVersionRotation,
+    // kPostProcessVersionBloom) are the engine's
     // whole (SceneUpgrade.hpp): Core::UpgradeSceneRecords runs them, this tool hands it a MaterialGuidLookup over
     // its assets root.
     using Core::kAssetRefVersionReflected;
     using Core::kLightVersionRotation;
+    using Core::kPostProcessVersionBloom;
     using Core::MigrateLightRotationV0ToV1;
+    using Core::MigratePostProcessBloomV0ToV1;
     using Core::MigrateReflectedAssetRefsV0ToV1;
+    using Core::PostProcessBloomReport;
     using Core::ReflectedAssetRefsReport;
     using Core::SunRotationReport;
 

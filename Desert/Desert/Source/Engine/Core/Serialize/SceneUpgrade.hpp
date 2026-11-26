@@ -22,7 +22,8 @@
 // data between FILES (prefab files, landscape tiles, mesh headers, .defoliage / .desound / .vfx assets minted
 // beside the scene) or read shapes the engine's tree no longer has a member for; they stay in
 // Tools/SceneMigrator, and a file below the floor is refused by name with that one command. Every step at or
-// above a floor - the scene's v71..v77, World Partition's v13/v14, the asset-reference and light chains whole -
+// above a floor - the scene's v71..v77, World Partition's v13/v14, the asset-reference, light and post-process
+// chains whole -
 // is HERE and only here: the migrator runs its below-floor chain, then this one (UpgradeSceneRecords).
 //
 // A STEP THAT NEEDS ANOTHER FILE'S CONTENT DOES NOT OPEN IT. The asset-reference step reads a material's header
@@ -35,9 +36,14 @@
 // TimelineInterpShift.hpp). A file NEWER than
 // this engine (any tag above the head) is refused as before: nothing is ever loaded "as best we can".
 //
-// ADDING A STEP. Raise Core::kSceneVersion (or the subsystem's own number), add a kSceneVersion<Name> below
-// equal to it, the step function here, and one `if` in UpgradeSceneRecords. Nothing else: the loader, the
-// prefab reader and the migrator all reach it through that one function.
+// ADDING A STEP. A change that belongs to one subsystem raises THAT subsystem's own number, as UE counts a
+// subsystem's changes under its own FCustomVersion (MIGRATE-SUBSYS, owner decision 10-22): the lights'
+// Core::kLightVersion, the post-process settings' Core::kPostProcessVersion, the asset references', World
+// Partition's - and a subsystem that has none yet gets its own tag (Assets/TextAssetHeaderStamp.hpp), its number
+// in SceneFormat.hpp and a field in SceneGenerations, never a bump of the shared scene number. Only a change to
+// the scene's own shape raises Core::kSceneVersion. Either way: a k<Subsystem>Version<Name> below equal to the
+// new number, the step function here, and one `if` in UpgradeSceneRecords. Nothing else: the loader, the prefab
+// reader and the migrator all reach it through that one function.
 namespace Desert::Core
 {
     //  70 - the floor: the oldest scene generation this engine raises in memory (kSceneUpgradeFloor). The steps
@@ -83,8 +89,7 @@ namespace Desert::Core
     inline constexpr int kSceneVersionLandscapeSplineEntities = 76;
 
     //  77 - TUBE LIGHTS (NG-AREA-LIGHTS; UE ULocalLightComponent::SourceLength). Every PointLight / SpotLight
-    //  record
-    //       that does not state SourceLength states 0 - a sphere, the meaning every older light had
+    //       record that does not state SourceLength states 0 - a sphere, the meaning every older light had
     //       (MigrateTubeSourceLengthV76ToV77). A prefab override is a delta and is left alone.
     inline constexpr int kSceneVersionTubeSourceLength = 77;
 
@@ -131,12 +136,26 @@ namespace Desert::Core
     static_assert( kLightVersionRotation == kLightVersion,
                    "the light version moved: its step belongs in SceneUpgrade (UpgradeSceneRecords)" );
 
-    // THE FLOORS: the oldest generation of each tag this engine raises in memory. The asset-reference and light
-    // chains are here whole (floor 0: a file that states no number).
+    // THE POST-PROCESS SETTINGS' OWN CHAIN (Assets::kPostProcessSchemaTag), run after the light chain.
+    //   1 - BLOOM AND AUTO EXPOSURE AS UE (RENDER-BLOOM-UE). A PostProcessVolume's Settings lose EnableBloom
+    //       (false -> BloomIntensity 0, true keeps the intensity, or states the old 0.8 where none is stated) and
+    //       AutoExposureSpeed (-> AutoExposureSpeedUp = AutoExposureSpeedDown); BloomThreshold <= 0 -> -1. A
+    //       record (one without Settings too) also states what the v0 defaults gave it (bloom off, threshold 2,
+    //       speed 1.5, auto exposure off) and the 0 / 95 histogram window it was graded under; an override is a
+    //       delta and re-states only its own keys. A Settings that is not an object, or a key of the wrong type,
+    //       is refused (MigratePostProcessBloomV0ToV1). This step is the PostProcessVolume block's upgrade from
+    //       COMPONENT Version 1 to Version( 2 ) (ECS/PostProcessVolumeComponent.hpp). Scenes and prefabs alike.
+    inline constexpr int kPostProcessVersionBloom = 1;
+    static_assert( kPostProcessVersionBloom == kPostProcessVersion,
+                   "the post-process version moved: its step belongs in SceneUpgrade (UpgradeSceneRecords)" );
+
+    // THE FLOORS: the oldest generation of each tag this engine raises in memory. The asset-reference, light and
+    // post-process chains are here whole (floor 0: a file that states no number).
     inline constexpr int kSceneUpgradeFloor          = kSceneVersionRootSiblingIndex;
     inline constexpr int kWorldPartitionUpgradeFloor = kWorldPartitionVersionHLODBuilderSettings;
     inline constexpr int kAssetRefUpgradeFloor       = 0;
     inline constexpr int kLightUpgradeFloor          = 0;
+    inline constexpr int kPostProcessUpgradeFloor    = 0;
 
     // The header GUID (text) of the material an asset key ("assets:Materials/M.demat") names, or nullopt when
     // that file states none. Where the file is read from is the caller's: the step never opens a file.
@@ -199,6 +218,14 @@ namespace Desert::Core
         std::vector<std::string> Refused;      // a Settings block that is not an object, or a non-bool value
     };
 
+    // What MigratePostProcessBloomV0ToV1 did to one file.
+    struct PostProcessBloomReport
+    {
+        std::size_t              Restated = 0; // Settings blocks re-stated
+        std::size_t              BloomOff = 0; // EnableBloom false re-stated as BloomIntensity 0
+        std::vector<std::string> Refused;      // a Settings block that is not an object, or a mistyped key
+    };
+
     // The steps. Each is PURE (no filesystem, no globals) and edits the records in place.
     TracedRequestReport   MigrateTracedRequestV71ToV72( std::vector<Assets::EntityData>& entities );
     ComposedGIReport      MigrateComposedGIV72ToV73( std::vector<Assets::EntityData>& entities );
@@ -213,6 +240,7 @@ namespace Desert::Core
     ReflectedAssetRefsReport MigrateReflectedAssetRefsV0ToV1( std::vector<Assets::EntityData>& entities,
                                                               const MaterialGuidLookup&        materialGuid );
     SunRotationReport        MigrateLightRotationV0ToV1( std::vector<Assets::EntityData>& entities );
+    PostProcessBloomReport   MigratePostProcessBloomV0ToV1( std::vector<Assets::EntityData>& entities );
 
     // The generations a file states (absent = 0), one per tag.
     struct SceneGenerations
@@ -222,6 +250,7 @@ namespace Desert::Core
         int WorldPartition = 0;
         int AssetRef       = 0;
         int Light          = 0;
+        int PostProcess    = 0;
 
         [[nodiscard]] bool operator==( const SceneGenerations& ) const = default;
     };
@@ -261,6 +290,8 @@ namespace Desert::Core
         ReflectedAssetRefsReport      ReflectedAssetRefs;
         bool                          SunRotationRaised = false;
         SunRotationReport             SunRotation;
+        bool                          PostProcessBloomRaised = false;
+        PostProcessBloomReport        PostProcessBloom;
 
         std::string Refused;
 
@@ -268,7 +299,8 @@ namespace Desert::Core
         {
             return VolumetricFogRaised || TracedRequestRaised || ComposedGIRaised || FilmicDefaultRaised ||
                    GrassRasterPathRaised || LandscapeSplineEntitiesRaised || TubeSourceLengthRaised ||
-                   EntityHLODLayerRaised || ImpostorLayersRaised || ReflectedAssetRefsRaised || SunRotationRaised;
+                   EntityHLODLayerRaised || ImpostorLayersRaised || ReflectedAssetRefsRaised ||
+                   SunRotationRaised || PostProcessBloomRaised;
         }
     };
 

@@ -18,7 +18,11 @@ namespace Desert::Graphic::ShaderPush
     struct AEAverage
     {
         float DeltaTime{};
-        float AdaptationSpeed{};
+        float SpeedUp{};
+        float SpeedDown{};
+        float ExponentialUpM{};
+        float ExponentialDownM{};
+        float TransitionDistance{};
         float MinLuma{};
         float MaxLuma{};
         float MinLogLuminance{};
@@ -34,24 +38,28 @@ namespace Desert::Graphic::ShaderPush
         glm::vec4 CurveEV100{};
         glm::vec4 CurveBias{};
     };
-    static_assert( sizeof( AEAverage ) == 112u, "AEAverage: std430 push block size" );
+    static_assert( sizeof( AEAverage ) == 128u, "AEAverage: std430 push block size" );
     template <> inline constexpr bool IsBlock<AEAverage> = true;
     static_assert( offsetof( AEAverage, DeltaTime ) == 0u, "AEAverage::DeltaTime: std430 offset" );
-    static_assert( offsetof( AEAverage, AdaptationSpeed ) == 4u, "AEAverage::AdaptationSpeed: std430 offset" );
-    static_assert( offsetof( AEAverage, MinLuma ) == 8u, "AEAverage::MinLuma: std430 offset" );
-    static_assert( offsetof( AEAverage, MaxLuma ) == 12u, "AEAverage::MaxLuma: std430 offset" );
-    static_assert( offsetof( AEAverage, MinLogLuminance ) == 16u, "AEAverage::MinLogLuminance: std430 offset" );
-    static_assert( offsetof( AEAverage, LogLuminanceRange ) == 20u, "AEAverage::LogLuminanceRange: std430 offset" );
-    static_assert( offsetof( AEAverage, LowPercent ) == 24u, "AEAverage::LowPercent: std430 offset" );
-    static_assert( offsetof( AEAverage, HighPercent ) == 28u, "AEAverage::HighPercent: std430 offset" );
-    static_assert( offsetof( AEAverage, LocalExposureContrast ) == 32u, "AEAverage::LocalExposureContrast: std430 offset" );
-    static_assert( offsetof( AEAverage, LocalExposureThreshold ) == 48u, "AEAverage::LocalExposureThreshold: std430 offset" );
-    static_assert( offsetof( AEAverage, LocalExposureLogMiddleGrey ) == 64u, "AEAverage::LocalExposureLogMiddleGrey: std430 offset" );
-    static_assert( offsetof( AEAverage, ExposureKey ) == 68u, "AEAverage::ExposureKey: std430 offset" );
-    static_assert( offsetof( AEAverage, CompensationBias ) == 72u, "AEAverage::CompensationBias: std430 offset" );
-    static_assert( offsetof( AEAverage, CompensationKeys ) == 76u, "AEAverage::CompensationKeys: std430 offset" );
-    static_assert( offsetof( AEAverage, CurveEV100 ) == 80u, "AEAverage::CurveEV100: std430 offset" );
-    static_assert( offsetof( AEAverage, CurveBias ) == 96u, "AEAverage::CurveBias: std430 offset" );
+    static_assert( offsetof( AEAverage, SpeedUp ) == 4u, "AEAverage::SpeedUp: std430 offset" );
+    static_assert( offsetof( AEAverage, SpeedDown ) == 8u, "AEAverage::SpeedDown: std430 offset" );
+    static_assert( offsetof( AEAverage, ExponentialUpM ) == 12u, "AEAverage::ExponentialUpM: std430 offset" );
+    static_assert( offsetof( AEAverage, ExponentialDownM ) == 16u, "AEAverage::ExponentialDownM: std430 offset" );
+    static_assert( offsetof( AEAverage, TransitionDistance ) == 20u, "AEAverage::TransitionDistance: std430 offset" );
+    static_assert( offsetof( AEAverage, MinLuma ) == 24u, "AEAverage::MinLuma: std430 offset" );
+    static_assert( offsetof( AEAverage, MaxLuma ) == 28u, "AEAverage::MaxLuma: std430 offset" );
+    static_assert( offsetof( AEAverage, MinLogLuminance ) == 32u, "AEAverage::MinLogLuminance: std430 offset" );
+    static_assert( offsetof( AEAverage, LogLuminanceRange ) == 36u, "AEAverage::LogLuminanceRange: std430 offset" );
+    static_assert( offsetof( AEAverage, LowPercent ) == 40u, "AEAverage::LowPercent: std430 offset" );
+    static_assert( offsetof( AEAverage, HighPercent ) == 44u, "AEAverage::HighPercent: std430 offset" );
+    static_assert( offsetof( AEAverage, LocalExposureContrast ) == 48u, "AEAverage::LocalExposureContrast: std430 offset" );
+    static_assert( offsetof( AEAverage, LocalExposureThreshold ) == 64u, "AEAverage::LocalExposureThreshold: std430 offset" );
+    static_assert( offsetof( AEAverage, LocalExposureLogMiddleGrey ) == 80u, "AEAverage::LocalExposureLogMiddleGrey: std430 offset" );
+    static_assert( offsetof( AEAverage, ExposureKey ) == 84u, "AEAverage::ExposureKey: std430 offset" );
+    static_assert( offsetof( AEAverage, CompensationBias ) == 88u, "AEAverage::CompensationBias: std430 offset" );
+    static_assert( offsetof( AEAverage, CompensationKeys ) == 92u, "AEAverage::CompensationKeys: std430 offset" );
+    static_assert( offsetof( AEAverage, CurveEV100 ) == 96u, "AEAverage::CurveEV100: std430 offset" );
+    static_assert( offsetof( AEAverage, CurveBias ) == 112u, "AEAverage::CurveBias: std430 offset" );
 
     // Programs/AutoExposure/AEHistogram.shader (Compute)
     struct AEHistogram
@@ -111,12 +119,14 @@ namespace Desert::Graphic::ShaderPush
         glm::vec2 ContentSize{};
         std::int32_t Width{};
         float InverseCount{};
+        float Intensity{};
     };
-    static_assert( sizeof( BloomConvolutionUnpack ) == 16u, "BloomConvolutionUnpack: std430 push block size" );
+    static_assert( sizeof( BloomConvolutionUnpack ) == 20u, "BloomConvolutionUnpack: std430 push block size" );
     template <> inline constexpr bool IsBlock<BloomConvolutionUnpack> = true;
     static_assert( offsetof( BloomConvolutionUnpack, ContentSize ) == 0u, "BloomConvolutionUnpack::ContentSize: std430 offset" );
     static_assert( offsetof( BloomConvolutionUnpack, Width ) == 8u, "BloomConvolutionUnpack::Width: std430 offset" );
     static_assert( offsetof( BloomConvolutionUnpack, InverseCount ) == 12u, "BloomConvolutionUnpack::InverseCount: std430 offset" );
+    static_assert( offsetof( BloomConvolutionUnpack, Intensity ) == 16u, "BloomConvolutionUnpack::Intensity: std430 offset" );
 
     // Programs/Bloom/BloomConvolve.shader (Compute)
     struct BloomConvolve
@@ -135,30 +145,10 @@ namespace Desert::Graphic::ShaderPush
     struct BloomDownsample
     {
         glm::vec2 SourceTexelSize{};
-        std::int32_t FirstPass{};
-        float Threshold{};
-        float ExposureKey{};
-        std::int32_t AutoExposure{};
-        float Exposure{};
-        float InversePreExposure{};
-        glm::vec4 LocalExposureContrast{};
-        glm::vec4 LocalExposureThreshold{};
-        glm::vec4 LocalExposureUV{};
-        glm::vec4 LocalExposureSlice{};
     };
-    static_assert( sizeof( BloomDownsample ) == 96u, "BloomDownsample: std430 push block size" );
+    static_assert( sizeof( BloomDownsample ) == 8u, "BloomDownsample: std430 push block size" );
     template <> inline constexpr bool IsBlock<BloomDownsample> = true;
     static_assert( offsetof( BloomDownsample, SourceTexelSize ) == 0u, "BloomDownsample::SourceTexelSize: std430 offset" );
-    static_assert( offsetof( BloomDownsample, FirstPass ) == 8u, "BloomDownsample::FirstPass: std430 offset" );
-    static_assert( offsetof( BloomDownsample, Threshold ) == 12u, "BloomDownsample::Threshold: std430 offset" );
-    static_assert( offsetof( BloomDownsample, ExposureKey ) == 16u, "BloomDownsample::ExposureKey: std430 offset" );
-    static_assert( offsetof( BloomDownsample, AutoExposure ) == 20u, "BloomDownsample::AutoExposure: std430 offset" );
-    static_assert( offsetof( BloomDownsample, Exposure ) == 24u, "BloomDownsample::Exposure: std430 offset" );
-    static_assert( offsetof( BloomDownsample, InversePreExposure ) == 28u, "BloomDownsample::InversePreExposure: std430 offset" );
-    static_assert( offsetof( BloomDownsample, LocalExposureContrast ) == 32u, "BloomDownsample::LocalExposureContrast: std430 offset" );
-    static_assert( offsetof( BloomDownsample, LocalExposureThreshold ) == 48u, "BloomDownsample::LocalExposureThreshold: std430 offset" );
-    static_assert( offsetof( BloomDownsample, LocalExposureUV ) == 64u, "BloomDownsample::LocalExposureUV: std430 offset" );
-    static_assert( offsetof( BloomDownsample, LocalExposureSlice ) == 80u, "BloomDownsample::LocalExposureSlice: std430 offset" );
 
     // Programs/Bloom/BloomFFT.shader (Compute)
     struct BloomFFT
@@ -177,16 +167,49 @@ namespace Desert::Graphic::ShaderPush
     static_assert( offsetof( BloomFFT, Direction ) == 12u, "BloomFFT::Direction: std430 offset" );
     static_assert( offsetof( BloomFFT, Width ) == 16u, "BloomFFT::Width: std430 offset" );
 
-    // Programs/Bloom/BloomUpsample.shader (Compute)
-    struct BloomUpsample
+    // Programs/Bloom/BloomGaussianBlur.shader (Compute)
+    struct BloomGaussianBlur
+    {
+        glm::vec4 Tint{};
+        glm::vec2 Direction{};
+        std::int32_t SampleCount{};
+        std::int32_t UseAdditive{};
+    };
+    static_assert( sizeof( BloomGaussianBlur ) == 32u, "BloomGaussianBlur: std430 push block size" );
+    template <> inline constexpr bool IsBlock<BloomGaussianBlur> = true;
+    static_assert( offsetof( BloomGaussianBlur, Tint ) == 0u, "BloomGaussianBlur::Tint: std430 offset" );
+    static_assert( offsetof( BloomGaussianBlur, Direction ) == 16u, "BloomGaussianBlur::Direction: std430 offset" );
+    static_assert( offsetof( BloomGaussianBlur, SampleCount ) == 24u, "BloomGaussianBlur::SampleCount: std430 offset" );
+    static_assert( offsetof( BloomGaussianBlur, UseAdditive ) == 28u, "BloomGaussianBlur::UseAdditive: std430 offset" );
+
+    // Programs/Bloom/BloomSetup.shader (Compute)
+    struct BloomSetup
     {
         glm::vec2 SourceTexelSize{};
-        float FilterRadius{};
+        float Threshold{};
+        float ExposureKey{};
+        std::int32_t AutoExposure{};
+        float Exposure{};
+        float InversePreExposure{};
+        std::uint32_t Std430Pad0[1]{};
+        glm::vec4 LocalExposureContrast{};
+        glm::vec4 LocalExposureThreshold{};
+        glm::vec4 LocalExposureUV{};
+        glm::vec4 LocalExposureSlice{};
     };
-    static_assert( sizeof( BloomUpsample ) == 12u, "BloomUpsample: std430 push block size" );
-    template <> inline constexpr bool IsBlock<BloomUpsample> = true;
-    static_assert( offsetof( BloomUpsample, SourceTexelSize ) == 0u, "BloomUpsample::SourceTexelSize: std430 offset" );
-    static_assert( offsetof( BloomUpsample, FilterRadius ) == 8u, "BloomUpsample::FilterRadius: std430 offset" );
+    static_assert( sizeof( BloomSetup ) == 96u, "BloomSetup: std430 push block size" );
+    template <> inline constexpr bool IsBlock<BloomSetup> = true;
+    static_assert( offsetof( BloomSetup, SourceTexelSize ) == 0u, "BloomSetup::SourceTexelSize: std430 offset" );
+    static_assert( offsetof( BloomSetup, Threshold ) == 8u, "BloomSetup::Threshold: std430 offset" );
+    static_assert( offsetof( BloomSetup, ExposureKey ) == 12u, "BloomSetup::ExposureKey: std430 offset" );
+    static_assert( offsetof( BloomSetup, AutoExposure ) == 16u, "BloomSetup::AutoExposure: std430 offset" );
+    static_assert( offsetof( BloomSetup, Exposure ) == 20u, "BloomSetup::Exposure: std430 offset" );
+    static_assert( offsetof( BloomSetup, InversePreExposure ) == 24u, "BloomSetup::InversePreExposure: std430 offset" );
+    static_assert( offsetof( BloomSetup, Std430Pad0 ) == 28u, "BloomSetup::Std430Pad0: std430 offset" );
+    static_assert( offsetof( BloomSetup, LocalExposureContrast ) == 32u, "BloomSetup::LocalExposureContrast: std430 offset" );
+    static_assert( offsetof( BloomSetup, LocalExposureThreshold ) == 48u, "BloomSetup::LocalExposureThreshold: std430 offset" );
+    static_assert( offsetof( BloomSetup, LocalExposureUV ) == 64u, "BloomSetup::LocalExposureUV: std430 offset" );
+    static_assert( offsetof( BloomSetup, LocalExposureSlice ) == 80u, "BloomSetup::LocalExposureSlice: std430 offset" );
 
     // Programs/Clouds/CloudRaymarch.shader (Compute)
     struct CloudRaymarch

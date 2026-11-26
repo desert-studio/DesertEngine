@@ -43,6 +43,33 @@ namespace Desert::Graphic
         }
     };
 
+    // The meter's window: what it can see, in log2 luminance - UE's histogram range (Histogram Log Min/Max -10 ..
+    // 20 EV100 with "Extend default luminance range"), log2 luminance -13 .. 17 (EV100ToLuminance), 30 stops =
+    // 0.118 EV per bin. The sky's clamp must stay inside it (AutoExposureRules' assertion, the tests).
+    inline constexpr float kAutoExposureMinLogLum = -13.0f;
+    inline constexpr float kAutoExposureMaxLogLum = 17.0f;
+
+    // The window this frame meters with: the volume's percentiles (UE AutoExposureLowPercent / HighPercent, in %),
+    // clamped as UE clamps them (PostProcessEyeAdaptation.cpp:607-608): each to [1, 99], Low no higher than High,
+    // stored as fractions.
+    [[nodiscard]] constexpr AutoExposureWindow MakeAutoExposureWindow( float lowPercent, float highPercent )
+    {
+        const float high = std::clamp( highPercent, 1.0f, 99.0f ) * 0.01f;
+        const float low  = std::min( std::clamp( lowPercent, 1.0f, 99.0f ) * 0.01f, high );
+        return AutoExposureWindow{ kAutoExposureMinLogLum, kAutoExposureMaxLogLum, low, high };
+    }
+
+    // UE's eye adaptation slope match (PostProcessEyeAdaptation.cpp:695-711): the exponential leg's multiplier M
+    // so its step equals the linear leg's at TransitionDistance stops from the target; kTransitionDistance is UE
+    // r.EyeAdaptation.ExponentialTransitionDistance.
+    inline constexpr float     kAutoExposureTransitionDistance = 1.5f;
+    [[nodiscard]] inline float AutoExposureExponentialM( float speed )
+    {
+        constexpr float kFrameTimeEps = 1.0f / 60.0f;
+        const float     startTime     = kAutoExposureTransitionDistance / std::max( speed, 0.001f );
+        return kFrameTimeEps / ( ( 1.0f - std::exp2( -kFrameTimeEps * speed ) ) * startTime );
+    }
+
     // EV100 <-> luminance (cd/m^2), the reflected-light meter law with K = 12.5: L = 2^(EV100 - 3). One law for
     // the exposure range (PostProcessSettings::AutoExposureMin/MaxEV100) and for a light's EV100 units
     // (ECS::LightPhotometry), so an EV means the same brightness wherever it is written.
@@ -97,7 +124,7 @@ namespace Desert::Graphic
         if ( bins == 0 )
             return 0;
         if ( !( luminance >= 1e-5f ) )
-            return 0; // near-black (and NaN) go in the bottom bin, as the shader does
+            return 0; // near-black (and NaN) map to bin 0, which the shader does not count (UE: bin 0 weight 0)
 
         const float last = static_cast<float>( bins - 1 );
         const float t    = ( std::log2( luminance ) - window.MinLogLum ) / window.Range();

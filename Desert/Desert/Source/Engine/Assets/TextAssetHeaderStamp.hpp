@@ -30,6 +30,10 @@ namespace Desert::Assets
     // above are (MIGRATE-SUBSYS). v1 (PORT-SUN-ROTATION): a directional light is aimed by its Rotation (forward
     // -Z), as UE's ULightComponent::GetDirection; its Translation is only where the editor draws it.
     inline constexpr uint32_t kLightSchemaTag = Common::Content::FourCC( "LGHT" );
+    // How a PostProcessVolume's Settings state bloom and auto exposure (Core::kPostProcessVersion), counted under
+    // its own tag as the lights are (MIGRATE-SUBSYS). v1 (RENDER-BLOOM-UE): UE's Gaussian bloom and histogram
+    // eye adaptation - EnableBloom and AutoExposureSpeed are gone.
+    inline constexpr uint32_t kPostProcessSchemaTag = Common::Content::FourCC( "PPRO" );
     // A .demat: the material schema, numbered for the first time by AF6f (v1). v2 (AF7c): the payload's
     // MaterialId is gone - the header GUID is the one identity - and an instance names its parent by that
     // GUID (`Parent`), stated again as the header's Dependency. v3 (T6c): every texture and cloud-asset

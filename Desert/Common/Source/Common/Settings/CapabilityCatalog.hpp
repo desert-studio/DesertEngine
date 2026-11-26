@@ -360,19 +360,6 @@ namespace Common::Scalability
     inline constexpr std::array<std::string_view, 3> kEarlyZPassNames{ "Off", "Masked", "All" };
     static_assert( static_cast<std::size_t>( EarlyZPassMode::All ) + 1 == kEarlyZPassNames.size() );
 
-    // HOW THE BLOOM IS MADE (Parameter::BloomMethod; UE r.Bloom.Method / PostProcessFFTBloom). Stored by name.
-    // Gaussian: the compute mip-chain (BloomDownsample / BloomUpsample). Convolution: the half-resolution
-    // thresholded scene convolved in the frequency domain with the post-process volume's kernel image (UE
-    // Convolution Bloom: BloomConvolutionTexture / BloomConvolutionSize). Every device runs both (compute only),
-    // so no catalog list narrows it; the cost (two full-screen FFTs) is what the tier pays.
-    enum class BloomMethod : int
-    {
-        Gaussian    = 0,
-        Convolution = 1,
-    };
-    inline constexpr std::array<std::string_view, 2> kBloomMethodNames{ "Gaussian", "Convolution" };
-    static_assert( static_cast<std::size_t>( BloomMethod::Convolution ) + 1 == kBloomMethodNames.size() );
-
     // THE CATALOG. Filled once per device (VulkanCapabilityCatalog::Build), then immutable for the device's
     // life; a device loss rebuilds it with the new device. Every list is ordered BEST FIRST where an order
     // exists, so "the best this device offers" is front() and a fallback walks the list.

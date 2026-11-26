@@ -15,40 +15,8 @@ namespace Desert::Graphic::System
     {
         constexpr uint32_t kGroupSize = 16; // matches AEHistogram local_size
 
-        // What the meter can SEE, in log2 luminance. The ceiling is not a taste value: the procedural
-        // sky writes the sun disc at up to kSkyLuminanceCeilingMax (AutoExposureRules.hpp, ~2^15), and
-        // a meter whose top bin means 4 cannot tell that disc from a merely bright sky — it was eight
-        // stops blind at the top, and every pixel above 4 metered as though it were 4. AutoExposureRules
-        // asserts this covers the sky's clamp, so the two cannot drift apart again.
-        //
-        // Widening the window costs bin resolution: 20 stops over 256 bins is 0.078 EV per bin against
-        // the old 0.047. The metered average is reconstructed from each bin's own log-luminance, not from
-        // the window, so ordinary scenes move by at most that quantisation — measured at under 0.02 EV.
-        //
-        // PHYSICAL UNITS (LIGHT-UNITS). With lights in lux / candelas a sunlit scene meters ~2^12.5 cd/m^2 and a
-        // street at night ~2^-2: the window is UE's histogram range (Histogram Log Min/Max -10 .. 20 EV100), i.e.
-        // log2 luminance -13 .. 17 (EV100ToLuminance), 30 stops = 0.118 EV per bin; an ordinary scene's
-        // average moves by at most half a bin against the former 20-stop window.
-        constexpr float kMinLogLum = -13.0f;
-        constexpr float kMaxLogLum = 17.0f;
-
-        // Outlier rejection, UNCHANGED. It was the obvious suspect for "the sun does not move the
-        // exposure" and it is not the cause, so it keeps its values — see AutoExposureRules.hpp for the
-        // measurement. The short version: the sun disc subtends half a degree, which at this field of
-        // view is about forty PIXELS, four thousandths of one percent of the frame. A pixel-count
-        // weighted average of log luminance shifts by (that fraction) x (its excess in stops), i.e. by
-        // ten-thousandths of a stop. Widening this tail to 99.5% was tried and measured: the metered
-        // background moved by one 8-bit level. The tail is not what is stopping the response; the
-        // disc's solid angle is, and no percentile can change that.
-        constexpr float kLowPercent  = 0.0f;
-        constexpr float kHighPercent = 0.95f;
-
-        // The one description of the meter's window, shared with the tests that pin it against the sky's
-        // own luminance clamp. The dispatch below reads its fields rather than the constants above, so
-        // there is no second copy to drift.
-        constexpr AutoExposureWindow kWindow{ kMinLogLum, kMaxLogLum, kLowPercent, kHighPercent };
-
-
+        // The meter's window is the frame's (SetParams -> MakeAutoExposureWindow, AutoExposureRules.hpp): UE's
+        // histogram range and the volume's percentiles. The tests pin the range against the sky's own clamp.
 
         inline uint32_t GroupCount( uint32_t dim )
         {
@@ -161,7 +129,7 @@ namespace Desert::Graphic::System
     {
         if ( !m_HistogramPipeline )
             return Common::MakeError( "PostFX: AutoExposureHistogram: the histogram pipeline is not initialised" );
-        const ShaderPush::AEHistogram hp{ kWindow.MinLogLum, 1.0f / kWindow.Range(), 1.0f / m_PreExposure };
+        const ShaderPush::AEHistogram hp{ m_Window.MinLogLum, 1.0f / m_Window.Range(), 1.0f / m_PreExposure };
         RDG::PassBindings   bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( hp );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_HistogramPipeline, GroupCount( width ),
@@ -191,26 +159,46 @@ namespace Desert::Graphic::System
             return Common::MakeError( "PostFX: AutoExposureAverage: the average pipeline is not initialised" );
         // 3) Resolve: percentile-clipped weighted average + temporal adaptation -> newLum (1x1).
         //
-        // kSnapAdaptSpeed makes `1 - exp(-dt * speed)` exactly 1 in float for any dt this engine produces,
-        // so the shader's mix lands on the measured luminance with no ramp at all. Consumed here, once, so
-        // a scene load costs one instant adaptation and every frame after it adapts normally.
+        // kSnapAdaptSpeed makes `1 - exp2(-dt * speed)` exactly 1 in float and the linear step longer than any
+        // window, and an exponential slope of 1 makes that leg land too, so the shader reaches the measured
+        // luminance with no ramp at all. Consumed here, once, so a scene load costs one instant adaptation and
+        // every frame after it adapts normally (UE ComputeEyeAdaptation, the slope M matched at 1.5 stops).
         constexpr float kSnapAdaptSpeed = 1.0e6f;
 
-        const float adaptSpeed = m_SnapNextAdaptation ? kSnapAdaptSpeed : m_AdaptSpeed;
+        const bool  snap      = m_SnapNextAdaptation;
+        const float speedUp   = snap ? kSnapAdaptSpeed : m_Params.SpeedUp;
+        const float speedDown = snap ? kSnapAdaptSpeed : m_Params.SpeedDown;
+        const float upM       = snap ? 1.0f : AutoExposureExponentialM( m_Params.SpeedUp );
+        const float downM     = snap ? 1.0f : AutoExposureExponentialM( m_Params.SpeedDown );
         // A snap needs a step to act through: a frozen world's step is 0, and `1 - exp(-0 * speed)` is 0 —
         // the new scene would keep the old scene's exposure until time moved.
         const float deltaSeconds = m_SnapNextAdaptation ? 1.0f : m_DeltaSeconds;
         m_SnapNextAdaptation     = false;
 
         const LocalExposureParams& le = m_LocalExposure;
-        const ShaderPush::AEAverage ap{ deltaSeconds,      adaptSpeed,      m_MinLuma,          m_MaxLuma,
-                              kWindow.MinLogLum, kWindow.Range(), kWindow.LowPercent, kWindow.HighPercent,
-                              glm::vec4( le.HighlightContrast, le.ShadowContrast, 0.0f,
-                                         IsLocalExposureIdentity( le ) ? 0.0f : 1.0f ),
-                              glm::vec4( le.HighlightThreshold, le.ShadowThreshold, le.HighlightThresholdStrength,
-                                         le.ShadowThresholdStrength ),
-                              m_LocalExposureLogGrey, m_LocalExposureKey, m_CompensationBias,
-                              static_cast<float>( m_CurveKeys ), m_CurveEV100, m_CurveBias };
+        ShaderPush::AEAverage      ap;
+        ap.DeltaTime                  = deltaSeconds;
+        ap.SpeedUp                    = speedUp;
+        ap.SpeedDown                  = speedDown;
+        ap.ExponentialUpM             = upM;
+        ap.ExponentialDownM           = downM;
+        ap.TransitionDistance         = kAutoExposureTransitionDistance;
+        ap.MinLuma                    = m_Params.MinLuma;
+        ap.MaxLuma                    = m_Params.MaxLuma;
+        ap.MinLogLuminance            = m_Window.MinLogLum;
+        ap.LogLuminanceRange          = m_Window.Range();
+        ap.LowPercent                 = m_Window.LowPercent;
+        ap.HighPercent                = m_Window.HighPercent;
+        ap.LocalExposureContrast      = glm::vec4( le.HighlightContrast, le.ShadowContrast, 0.0f,
+                                              IsLocalExposureIdentity( le ) ? 0.0f : 1.0f );
+        ap.LocalExposureThreshold     = glm::vec4( le.HighlightThreshold, le.ShadowThreshold,
+                                                   le.HighlightThresholdStrength, le.ShadowThresholdStrength );
+        ap.LocalExposureLogMiddleGrey = m_LocalExposureLogGrey;
+        ap.ExposureKey                = m_LocalExposureKey;
+        ap.CompensationBias           = m_CompensationBias;
+        ap.CompensationKeys           = static_cast<float>( m_CurveKeys );
+        ap.CurveEV100                 = m_CurveEV100;
+        ap.CurveBias                  = m_CurveBias;
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( ap );
         // One group of kBins threads, one per bin (AEAverage LocalSize(256, 1, 1): a parallel scan + reduce).
@@ -244,7 +232,8 @@ namespace Desert::Graphic::System
         // samples.
         LOG_TRACE(
              "[PreExposure] read-back: adapted {} (written {}), measured {}, histogram samples {}, clamp [{}, {}]",
-             value[0], value[1], value[2], value[3], m_MinLuma, m_MaxLuma );
+             value[0], value[1], value[2], value[3], m_Params.MinLuma, m_Params.MaxLuma );
+        m_LastMeasuredLuminance = value[1] == 1.0f && value[2] > 0.0f && value[2] < 3.0e38f ? value[2] : 0.0f;
         // [4] = AverageLocalExposure (UE readback [1].X), 1 at identity.
         m_LastAverageLocalExposure = value[1] == 1.0f && value[4] > 0.0f && value[4] < 3.0e38f ? value[4] : 1.0f;
         // y == 1: the Average pass wrote this copy; otherwise it is the buffer's first frames.

@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <format>
 #include <map>
+#include <optional>
 #include <unordered_map>
 #include <span>
 #include <utility>
@@ -64,8 +65,8 @@ namespace Desert::Core
         std::string GenerationsText( const SceneGenerations& g )
         {
             return std::format( "scene v{} / world units v{} / world partition v{} / asset references v{} / "
-                                "lights v{}",
-                                g.Scene, g.Unit, g.WorldPartition, g.AssetRef, g.Light );
+                                "lights v{} / post process v{}",
+                                g.Scene, g.Unit, g.WorldPartition, g.AssetRef, g.Light, g.PostProcess );
         }
 
         // The step numbers, frozen: a step restates the numbers of ITS generation, so a later renumbering of an
@@ -74,6 +75,25 @@ namespace Desert::Core
         constexpr int kTonemapFilmic               = 2; // Core::TonemapOperator::Filmic at v74
         constexpr int kGrassRasterScalability      = 0; // Core::GrassRasterPath::Scalability at v75
         constexpr int kGrassRasterVisibilityBuffer = 2; // Core::GrassRasterPath::VisibilityBuffer at v75
+        // The post-process v0 PostProcessSettings defaults a record that did not state a key rendered with (v1
+        // states them).
+        constexpr double kPostProcessV0BloomIntensity    = 0.8;
+        constexpr double kPostProcessV0BloomThreshold    = 2.0;
+        constexpr double kPostProcessV0AutoExposureSpeed = 1.5;
+        // The histogram window every post-process v0 file was graded under (AutoExposureRenderer's constants
+        // then).
+        constexpr double kPostProcessV0LowPercent  = 0.0;
+        constexpr double kPostProcessV0HighPercent = 95.0;
+
+        // A JSON number, whichever of int or double it was read as.
+        std::optional<double> NumberOf( const rfl::Generic& value )
+        {
+            if ( const auto d = value.to_double(); d.has_value() )
+                return d.value();
+            if ( const auto i = value.to_int64(); i.has_value() )
+                return static_cast<double>( i.value() );
+            return std::nullopt;
+        }
     } // namespace
 
 
@@ -335,6 +355,143 @@ namespace Desert::Core
             if ( entity.PrefabOverrides )
                 for ( auto& override_ : *entity.PrefabOverrides )
                     restate( override_.Components, who );
+        }
+        return report;
+    }
+
+    PostProcessBloomReport MigratePostProcessBloomV0ToV1( std::vector<Assets::EntityData>& entities )
+    {
+        PostProcessBloomReport report;
+
+        // @p record: the entity's own block (absent keys meant the post-process v0 defaults, which this states);
+        // an override is a delta, so only the keys it states are re-stated.
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who, bool record )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           // A record without Settings had every post-process v0 default: it is restated from an
+                           // empty object.
+                           const auto           stated = block.get( "Settings" );
+                           rfl::Generic::Object settings;
+                           if ( stated.has_value() )
+                           {
+                               auto fields = stated.value().to_object();
+                               if ( !fields.has_value() )
+                               {
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                     rfl::json::write( stated.value() ) ) );
+                                   return false;
+                               }
+                               settings = std::move( fields.value() );
+                           }
+                           else if ( !record )
+                               return false;
+                           const auto number = [&]( const char*           key,
+                                                    std::optional<double> fallback ) -> std::optional<double>
+                           {
+                               const auto value = settings.get( key );
+                               if ( !value.has_value() )
+                                   return fallback;
+                               const auto parsed = NumberOf( value.value() );
+                               if ( !parsed.has_value() )
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings.{} {} is not a number", who,
+                                                     key, rfl::json::write( value.value() ) ) );
+                               return parsed;
+                           };
+                           const auto put = [&]( const char* key, rfl::Generic value )
+                           {
+                               DropKey( settings, key );
+                               settings[key] = std::move( value );
+                           };
+                           const std::size_t refusedBefore = report.Refused.size();
+                           bool              changed       = false;
+
+                           // EnableBloom false -> Intensity 0 (UE has no switch); true keeps the intensity.
+                           const auto          enable = settings.get( "EnableBloom" );
+                           std::optional<bool> enabled;
+                           if ( enable.has_value() )
+                           {
+                               const auto flag = enable.value().to_bool();
+                               if ( !flag.has_value() )
+                               {
+                                   report.Refused.push_back(
+                                        std::format( "{}: PostProcessVolume.Settings.EnableBloom {} is not a bool",
+                                                     who, rfl::json::write( enable.value() ) ) );
+                                   return false;
+                               }
+                               enabled = flag.value();
+                           }
+                           else if ( record )
+                               enabled = false; // the post-process v0 default
+                           if ( enabled.has_value() )
+                           {
+                               if ( !enabled.value() )
+                               {
+                                   put( "BloomIntensity", rfl::Generic( 0.0 ) );
+                                   ++report.BloomOff;
+                               }
+                               else
+                               {
+                                   // An override switching bloom on over a base this step set to 0 states the
+                                   // intensity it meant: its own, or the post-process v0 default.
+                                   const auto intensity = number( "BloomIntensity", kPostProcessV0BloomIntensity );
+                                   if ( intensity.has_value() )
+                                       put( "BloomIntensity", rfl::Generic( intensity.value() ) );
+                               }
+                               DropKey( settings, "EnableBloom" );
+                               changed = true;
+                           }
+                           // Threshold <= 0 bloomed every pixel: UE's -1. Above 0 the number is kept.
+                           const auto threshold = number(
+                                "BloomThreshold",
+                                record ? std::optional<double>( kPostProcessV0BloomThreshold ) : std::nullopt );
+                           if ( threshold.has_value() )
+                           {
+                               put( "BloomThreshold",
+                                    rfl::Generic( threshold.value() <= 0.0 ? -1.0 : threshold.value() ) );
+                               changed = true;
+                           }
+                           // One speed -> both directions at it.
+                           const auto speed = number(
+                                "AutoExposureSpeed",
+                                record ? std::optional<double>( kPostProcessV0AutoExposureSpeed ) : std::nullopt );
+                           if ( speed.has_value() )
+                           {
+                               DropKey( settings, "AutoExposureSpeed" );
+                               put( "AutoExposureSpeedUp", rfl::Generic( speed.value() ) );
+                               put( "AutoExposureSpeedDown", rfl::Generic( speed.value() ) );
+                               changed = true;
+                           }
+                           if ( record )
+                           {
+                               // The former defaults where the record did not state them: auto exposure off and
+                               // the 0 / 95 histogram window the scene was graded under.
+                               if ( !settings.get( "AutoExposure" ).has_value() )
+                                   put( "AutoExposure", rfl::Generic( false ) );
+                               put( "AutoExposureLowPercent", rfl::Generic( kPostProcessV0LowPercent ) );
+                               put( "AutoExposureHighPercent", rfl::Generic( kPostProcessV0HighPercent ) );
+                               changed = true;
+                           }
+                           if ( report.Refused.size() != refusedBefore || !changed )
+                               return false;
+                           ++report.Restated;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who, true );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who, false );
         }
         return report;
     }
@@ -708,13 +865,14 @@ namespace Desert::Core
                                  Assets::StatedVersion( header, Assets::kUnitSchemaTag ),
                                  Assets::StatedVersion( header, Assets::kWorldPartitionSchemaTag ),
                                  Assets::StatedVersion( header, Assets::kAssetRefSchemaTag ),
-                                 Assets::StatedVersion( header, Assets::kLightSchemaTag ) };
+                                 Assets::StatedVersion( header, Assets::kLightSchemaTag ),
+                                 Assets::StatedVersion( header, Assets::kPostProcessSchemaTag ) };
     }
 
     SceneGenerations CurrentGenerations()
     {
-        return SceneGenerations{ kSceneVersion, kUnitVersion, kWorldPartitionVersion, kAssetRefVersion,
-                                 kLightVersion };
+        return SceneGenerations{ kSceneVersion,    kUnitVersion,  kWorldPartitionVersion,
+                                 kAssetRefVersion, kLightVersion, kPostProcessVersion };
     }
 
     SceneUpgradeReport UpgradeSceneRecords( std::vector<Assets::EntityData>& entities, const SceneGenerations& from,
@@ -727,7 +885,7 @@ namespace Desert::Core
 
         // NEWER than this engine: written by a later build. Nothing is read "as best we can".
         if ( from.Scene > head.Scene || from.Unit > head.Unit || from.WorldPartition > head.WorldPartition ||
-             from.AssetRef > head.AssetRef || from.Light > head.Light )
+             from.AssetRef > head.AssetRef || from.Light > head.Light || from.PostProcess > head.PostProcess )
         {
             report.Refused = std::format(
                  "'{}' is at {}, NEWER than this engine ({}): it was written by a later build. Open it with that "
@@ -736,10 +894,10 @@ namespace Desert::Core
             return report;
         }
         // OLDER than the oldest generation raised in memory: the steps below the floors move data between files.
-        const SceneGenerations floor{ kSceneUpgradeFloor, kUnitVersion, kWorldPartitionUpgradeFloor,
-                                      kAssetRefUpgradeFloor, kLightUpgradeFloor };
+        const SceneGenerations floor{ kSceneUpgradeFloor,    kUnitVersion,       kWorldPartitionUpgradeFloor,
+                                      kAssetRefUpgradeFloor, kLightUpgradeFloor, kPostProcessUpgradeFloor };
         if ( from.Scene < floor.Scene || from.Unit != head.Unit || from.WorldPartition < floor.WorldPartition ||
-             from.AssetRef < floor.AssetRef || from.Light < floor.Light )
+             from.AssetRef < floor.AssetRef || from.Light < floor.Light || from.PostProcess < floor.PostProcess )
         {
             report.Refused = std::format(
                  "'{}' is at {}, older than the oldest generation this engine upgrades as it loads ({}). Its steps "
@@ -831,6 +989,17 @@ namespace Desert::Core
             report.SunRotationRaised = true;
             report.SunRotation       = MigrateLightRotationV0ToV1( entities );
         }
+        // The post-process chain, after the light chain: its numbers are its tag's.
+        if ( from.PostProcess < kPostProcessVersionBloom )
+        {
+            report.PostProcessBloomRaised = true;
+            report.PostProcessBloom       = MigratePostProcessBloomV0ToV1( entities );
+            if ( !report.PostProcessBloom.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( name, report.PostProcessBloom.Refused );
+                return report;
+            }
+        }
         return report;
     }
 
@@ -875,6 +1044,8 @@ namespace Desert::Core
             scene += std::format( " (asset references v{}->v{})", report.From.AssetRef, head.AssetRef );
         if ( report.From.Light != head.Light )
             scene += std::format( " (lights v{}->v{})", report.From.Light, head.Light );
+        if ( report.From.PostProcess != head.PostProcess )
+            scene += std::format( " (post process v{}->v{})", report.From.PostProcess, head.PostProcess );
         return std::format( "'{}': upgraded {} in memory, save to keep", source, scene );
     }
 } // namespace Desert::Core

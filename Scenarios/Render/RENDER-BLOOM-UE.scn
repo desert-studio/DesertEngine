@@ -1,0 +1,42 @@
+# RENDER-BLOOM-UE: UE six-stage Gaussian bloom (BM_SOG) + UE eye adaptation (log2, linear>1.5 stops, percentiles) + render.exposure.
+# Scene Starter (Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce); PPV 17921165617746467452, EmissiveCube (250,50,50; emissive 60).
+# Run only through play_scenario.py.
+Дано --subject viewport set Camera.Position -150,80,50
+Дано --subject viewport set Camera.Direction 1,-0.05,0
+Дано run View "View mode: Lit"
+Дано set 7437228965709132698 StaticMeshComponent.MaterialSlots[0] assets:Materials/Bloom_Emissive60.demat
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposure false
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomIntensity 0
+Тогда-вид bloom_off куб без ореола, база для сравнения
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomIntensity 0.675
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomThreshold -1
+# Bloom cost: the sum of the [GpuProfile] lines starting with "PostFX: Bloom" (per encoder on Apple, approximate there).
+Когда run Debug "GPU profiling: On"
+Когда 60 frames render
+Когда run Debug "Log GPU pass timings"
+Когда run Debug "GPU profiling: Off"
+Тогда-вид bloom_default заметный мягкий ореол вокруг куба, небо вдали как в bloom_off
+# Threshold above the exposed sky (~1) so only the emissive-60 cube blooms; Bloom2 carries the 5-24 px halo at this width.
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomThreshold 1.5
+Тогда-вид bloom_tints_base только куб светится: ореол вокруг куба, небо и земля без ореола
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.Bloom2Tint 0,0,0
+Тогда-вид bloom_tints ореол в 0–24 px от края куба слабее, чем в bloom_tints_base (гауссиана Bloom2 сильнее всего у самого края); дальний (64+ px) тот же в пределах шума частиц
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.Bloom2Tint 0.138,0.138,0.138
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.BloomThreshold -1
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposure true
+Дано --subject viewport set Camera.Direction 0.9,0.2,0
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposureLowPercent 10
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposureHighPercent 90
+Когда 60 frames render
+Когда state render
+Тогда-вид ae_10_90 небо и земля в кадре; render.exposure.auto = true
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposureLowPercent 80
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposureHighPercent 98.3
+Когда 60 frames render
+Когда state render
+Тогда-вид ae_percent кадр темнее ae_10_90: EV100 выше, его определяет яркое небо
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposureLowPercent 0
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposureHighPercent 95
+Когда 60 frames render
+Когда state render
+Тогда-вид ae_0_95 старые зашитые 0/95 (Low зажат до 1): EV100 ниже, чем в ae_percent

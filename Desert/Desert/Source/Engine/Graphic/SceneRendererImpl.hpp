@@ -283,6 +283,10 @@ namespace Desert::Graphic
             return m_RadianceCache ? &m_RadianceCache->LastUpdateCounts() : nullptr;
         }
         [[nodiscard]] VirtualGeometryCounts              GetVirtualGeometryCounts() const override;
+        [[nodiscard]] ExposureReadout                    GetExposureReadout() const override
+        {
+            return m_ExposureReadout;
+        }
         [[nodiscard]] bool                               SunShadowIsVirtual() const override;
         [[nodiscard]] const GpuDriven::DrawCommandCache* GetDrawCommandCache() const override;
         [[nodiscard]] uint32_t                           GetStandInDraws() const override;
@@ -640,6 +644,8 @@ namespace Desert::Graphic
         void CheckWriteBetweenRecordings( std::string_view site ) const;
         // ScenePreExposure's source this frame (ViewInputs::LastExposure); 0 = none known.
         float m_LastExposure = 0.0f;
+        // render.exposure: this view's exposure as BeginScene last read it (GetExposureReadout).
+        ExposureReadout m_ExposureReadout;
         // The AverageLocalExposure the eye adaptation read back with it (1 = none): pre-exposure follows it.
         float m_LastAverageLocalExposure = 1.0f;
         // Scene::GetGeneration() of the scene BeginScene was handed (a reload at the same address is a new
@@ -1570,7 +1576,6 @@ namespace Desert::Graphic
         Common::Scalability::PathAntiAliasing m_RenderedAntiAliasing;
         // The vendor-method fallback last logged (ReplaceUnavailableVendorMethods::Why): logged when it changes.
         std::string m_VendorFallbackSaid;
-        bool        m_BloomEnabled = false;
 
         // Lens flare, refreshed from SceneSettings each BeginScene. The tint is held apart from the rest
         // because the pass never sees it — the tonemap applies it, the way the shafts' tint works.

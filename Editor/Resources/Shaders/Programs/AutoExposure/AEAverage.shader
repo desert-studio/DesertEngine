@@ -7,7 +7,9 @@ Shader "AEAverage"
         // PostProcessEyeAdaptation's group-parallel histogram reduce). A shared-memory prefix scan gives every bin
         // its cumulative range, so the darkest/brightest percentile tails are discarded (outlier rejection) per bin
         // in parallel; a tree reduction weighted-averages the surviving bins into a log-luminance; invocation 0
-        // temporally adapts toward it (read the previous 1x1 luminance, lerp) and writes the new 1x1 value that
+        // temporally adapts toward it in log2 (UE ComputeEyeAdaptation, PostProcessHistogramCommon.ush:206-240:
+        // linear SpeedUp / SpeedDown stops per second while farther than TransitionDistance stops, exponential
+        // inside it) and writes the new 1x1 value that
         // tonemap turns into exposure; a second tree reduction averages the local exposure over the bins.
 
         LocalSize(256, 1, 1);
@@ -36,13 +38,17 @@ Shader "AEAverage"
         PushConstant PushConstants
         {
             float DeltaTime;
-            float AdaptationSpeed;
+            float SpeedUp;            // UE AutoExposureSpeedUp: stops per second toward a brighter target
+            float SpeedDown;          // UE AutoExposureSpeedDown: toward a darker one
+            float ExponentialUpM;     // UE ExponentialUpM / DownM (PostProcessEyeAdaptation.cpp:710-711): the
+            float ExponentialDownM;   // exponential's slope matched to the linear one at TransitionDistance
+            float TransitionDistance; // UE r.EyeAdaptation.ExponentialTransitionDistance (1.5 stops)
             float MinLuma;
             float MaxLuma;
             float MinLogLuminance;
             float LogLuminanceRange;
-            float LowPercent;  // discard this fraction of the darkest samples
-            float HighPercent; // keep up to this cumulative fraction (discard the brightest tail above it)
+            float LowPercent;  // discard this fraction of the darkest samples (UE AutoExposureLowPercent / 100)
+            float HighPercent; // keep up to this cumulative fraction (UE AutoExposureHighPercent / 100)
             vec4  LocalExposureContrast;  // highlight, shadow, detail (0: a bucket is its own base), enabled
             vec4  LocalExposureThreshold; // hi thr, sh thr, hi strength, sh strength
             float LocalExposureLogMiddleGrey;
@@ -72,6 +78,21 @@ Shader "AEAverage"
                     return mix( CurveBias[i - 1], CurveBias[i], t );
                 }
             return CurveBias[count - 1];
+        }
+
+        // UE ComputeEyeAdaptation in log2 luminance: linear while the target is farther than TransitionDistance
+        // stops, exponential inside it; no clamp here (the target is clamped).
+        float AdaptLog2( float logCurrent, float logTarget )
+        {
+            const float diff   = logTarget - logCurrent;
+            const float speed  = diff > 0.0 ? SpeedUp : SpeedDown;
+            const float m      = diff > 0.0 ? ExponentialUpM : ExponentialDownM;
+            const float factor = 1.0 - exp2( -DeltaTime * speed );
+            const float exponential = logCurrent + diff * factor * m;
+            const float offset      = DeltaTime * speed;
+            const float linear      = logCurrent < logTarget ? min( logTarget, logCurrent + offset )
+                                                             : max( logTarget, logCurrent - offset );
+            return abs( diff ) > TransitionDistance ? linear : exponential;
         }
 
         shared uint  s_Scan[256];     // inclusive prefix sum of the bin counts (exact integers)
@@ -148,7 +169,7 @@ Shader "AEAverage"
                 if ( !( prev > 0.0 ) ) // first frame / NaN / uninitialised
                     prev = avgLum;
 
-                const float adapted = mix( prev, avgLum, 1.0 - exp( -DeltaTime * AdaptationSpeed ) );
+                const float adapted = exp2( AdaptLog2( log2( prev ), log2( avgLum ) ) );
                 // UE's exposure compensation (AutoExposureBias + the curve at the adapted average's EV100; EV100 =
                 // log2(L) + 3, Graphic::LuminanceToEV100): the exposure is computed from adapted / 2^compensation,
                 // kept in .g and in the read-back; .r stays the smoothing state, so a bias change does not ramp.

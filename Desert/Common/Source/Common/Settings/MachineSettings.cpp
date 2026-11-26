@@ -123,6 +123,8 @@ namespace Common::Settings
             // WARN lines (a group the file does not name) and whether Quality.Levels was migrated to this build's
             // form (the positional list, or a missing group): the host then writes the file back.
             std::vector<std::string> Warnings;
+            // INFO lines: a retired key the load migrated (renamed or removed), one per key.
+            std::vector<std::string> Notes;
             bool                     LevelsMigrated = false;
         };
 
@@ -189,6 +191,7 @@ namespace Common::Settings
         {
             std::vector<Rejection>&       Rejections;
             std::vector<std::string>&     Warnings;
+            std::vector<std::string>&     Notes;
             MachineSettings::LevelGroups& Unread;
             bool&                         Migrated;
         };
@@ -434,6 +437,80 @@ namespace Common::Settings
             return Json::Value( std::move( kept ) );
         }
 
+        // THE BLOOM MIGRATION (RENDER-BLOOM-UE). An older build stored PostProcess.BloomMips (the mips of the
+        // retired chain, 2..6) and PostProcess.BloomMethod (the method, now the post-process volume's
+        // Core::PostProcessSettings::BloomMethod). A file holding either is rewritten once (`migrated`):
+        //   PostProcess.BloomMips   -> PostProcess.BloomQuality, the same value (dropped when the file already
+        //                              sets BloomQuality: that override stands);
+        //   PostProcess.BloomMethod -> removed (no quality parameter chooses the method).
+        // Each retired key is one INFO line in @p notes. Empty when the file holds neither (screened as written).
+        std::optional<Json::Value> MigrateBloomOverrides( const Json::Node&         overrides,
+                                                          std::vector<std::string>& notes, bool& migrated )
+        {
+            if ( overrides.GetKind() != Json::Kind::Array )
+                return std::nullopt;
+
+            constexpr std::string_view kOldMipsKey   = "PostProcess.BloomMips";
+            constexpr std::string_view kOldMethodKey = "PostProcess.BloomMethod";
+            constexpr std::string_view kQualityKey   = "PostProcess.BloomQuality";
+
+            Json::Value::Array                          unread;
+            std::vector<Scalability::ParameterOverride> read;
+            bool                                        retired      = false;
+            bool                                        namesQuality = false;
+            overrides.ForEachElement(
+                 [&]( std::size_t, const Json::Node& entry )
+                 {
+                     auto value = entry.As<Scalability::ParameterOverride>();
+                     if ( !value )
+                     {
+                         unread.push_back( entry.Raw() );
+                         return;
+                     }
+                     const std::string& key = value.GetValue().Key;
+                     retired                = retired || key == kOldMipsKey || key == kOldMethodKey;
+                     namesQuality           = namesQuality || key == kQualityKey;
+                     read.push_back( value.ExtractValue() );
+                 } );
+            if ( !retired )
+                return std::nullopt;
+
+            std::vector<Scalability::ParameterOverride> kept;
+            for ( Scalability::ParameterOverride& o : read )
+            {
+                if ( o.Key == kOldMethodKey )
+                {
+                    notes.push_back(
+                         std::format( "override '{}' = {} removed: the bloom method is the post-process "
+                                      "volume's BloomMethod, no quality parameter chooses it",
+                                      o.Key, o.Value ) );
+                    continue;
+                }
+                if ( o.Key == kOldMipsKey )
+                {
+                    if ( namesQuality )
+                    {
+                        notes.push_back(
+                             std::format( "override '{}' = {} removed: renamed to '{}', which the file "
+                                          "already sets",
+                                          o.Key, o.Value, kQualityKey ) );
+                        continue;
+                    }
+                    notes.push_back( std::format( "override '{}' = {} renamed to '{}' (the Gaussian stages kept)",
+                                                  o.Key, o.Value, kQualityKey ) );
+                    o.Key = std::string( kQualityKey );
+                }
+                kept.push_back( std::move( o ) );
+            }
+
+            Json::Value::Array rewritten = std::move( unread );
+            for ( const Scalability::ParameterOverride& o : kept )
+                rewritten.push_back(
+                     Json::Value( Json::ObjectBuilder().Set( "Key", o.Key ).Set( "Value", o.Value ).Build() ) );
+            migrated = true;
+            return Json::Value( std::move( rewritten ) );
+        }
+
         // The Quality member with its Levels and Overrides screened. A Quality that is not an object comes back as
         // written: the member check refuses it whole.
         Json::Value ScreenQuality( const Json::Node& quality, std::vector<Rejection>& rejections,
@@ -450,8 +527,14 @@ namespace Common::Settings
                          rebuilt.Set( name, ScreenLevels( member, levelsOut ) );
                      else if ( name == "Overrides" )
                      {
-                         const std::optional<Json::Value> migrated =
+                         std::optional<Json::Value> migrated =
                               MigrateTemporalOverrides( member, levelsOut.Warnings, levelsOut.Migrated );
+                         std::optional<Json::Value> bloom =
+                              migrated ? MigrateBloomOverrides( Json::Root( *migrated, member.Where() ),
+                                                                levelsOut.Notes, levelsOut.Migrated )
+                                       : MigrateBloomOverrides( member, levelsOut.Notes, levelsOut.Migrated );
+                         if ( bloom )
+                             migrated = std::move( bloom );
                          rebuilt.Set( name, migrated ? ScreenOverrides( Json::Root( *migrated, member.Where() ),
                                                                         rejections )
                                                      : ScreenOverrides( member, rejections ) );
@@ -527,9 +610,10 @@ namespace Common::Settings
                          return;
                      }
                      const Json::Value value =
-                          name == "Quality"       ? ScreenQuality( member, screened.Rejections,
-                                                                   { screened.Rejections, screened.Warnings,
-                                                                     screened.UnreadLevels, screened.LevelsMigrated } )
+                          name == "Quality"
+                               ? ScreenQuality( member, screened.Rejections,
+                                                { screened.Rejections, screened.Warnings, screened.Notes,
+                                                  screened.UnreadLevels, screened.LevelsMigrated } )
                           : name == "Recommended" ? ScreenRecommended( member, screened.LevelsMigrated )
                                                   : member.Raw();
                      const Json::Value alone( Json::ObjectBuilder().Set( name, value ).Build() );
@@ -740,6 +824,8 @@ namespace Common::Settings
         s_LevelsMigrated      = screened.LevelsMigrated && screened.Settings.Quality.has_value();
         for ( const std::string& warning : screened.Warnings )
             LOG_WARN( "[Machine] {}: {}", s_File.string(), warning );
+        for ( const std::string& note : screened.Notes )
+            LOG_INFO( "[Machine] {}: {}", s_File.string(), note );
         for ( const Rejection& rejection : screened.Rejections )
             LOG_ERROR( "[Machine] {}: {}{}", s_File.string(), rejection.Problem,
                        rejection.Dropped ? " — the next saved change writes the file without it." : "." );

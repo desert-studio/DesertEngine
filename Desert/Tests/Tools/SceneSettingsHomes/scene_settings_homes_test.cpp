@@ -7,6 +7,7 @@
 #include <SceneMigration.hpp>
 
 #include <Engine/Core/PostProcessSettings.hpp>
+#include <Engine/Graphic/PostProcessing/BloomGaussianRules.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
@@ -117,14 +118,16 @@ namespace
         return e;
     }
 
-    ECS::PostProcessVolumeData Volume( bool unbound, float priority, float weight, float exposure, bool bloom )
+    // @p convolution: the volume's bloom method (UE BloomMethod), the switch these tests blend - taken whole.
+    ECS::PostProcessVolumeData Volume( bool unbound, float priority, float weight, float exposure,
+                                       bool convolution )
     {
         ECS::PostProcessVolumeData d;
         d.Unbound              = unbound;
         d.Priority             = priority;
         d.BlendWeight          = weight;
         d.Settings.ManualExposureEV100 = exposure;
-        d.Settings.EnableBloom = bloom;
+        d.Settings.BloomMethod = convolution ? Core::BloomMethod::Convolution : Core::BloomMethod::Gaussian;
         return d;
     }
 } // namespace
@@ -284,9 +287,10 @@ TEST( SceneSettingsHomesMigration, TheMigratedSceneResolvesToThePreviousValues )
     // shadow maps (GI-PROBE-SW); EnableSSR true as the screen-space method.
     EXPECT_EQ( v.Post.GlobalIlluminationMethod, Common::Scalability::GIRequest::ProbeVolume );
     EXPECT_EQ( v.Post.ReflectionsMethod, Common::Scalability::ReflectionRequest::ScreenSpace );
-    EXPECT_TRUE( v.Post.EnableBloom );
+    EXPECT_TRUE( Graphic::BloomGaussian::BloomOn( v.Post ) )
+         << "EnableBloom true keeps the intensity (post process v1)";
     EXPECT_TRUE( v.Post.AutoExposure );
-    EXPECT_EQ( v.Post.BloomThreshold, Core::PostProcessSettings{}.BloomThreshold ) << "unstated = old default";
+    EXPECT_EQ( v.Post.BloomThreshold, 2.0f ) << "unstated = the post process v0 default, stated by its v1 step";
     EXPECT_FALSE( v.Shadows.Enabled );
     EXPECT_EQ( v.Shadows.Bias.BiasCm, Migration::kShadowBiasCentimetresDefault );
     EXPECT_EQ( v.Shadows.CascadeSplitLambda, 0.85f );
@@ -299,7 +303,7 @@ TEST( PostProcessVolume, NoVolumeIsTheDefaultGrade )
     const entt::registry reg;
     const auto           v = Graphic::ResolveViewSettings( reg, glm::vec3( 0.0f ) );
     EXPECT_EQ( v.Post.ManualExposureEV100, Core::PostProcessSettings{}.ManualExposureEV100 );
-    EXPECT_FALSE( v.Post.EnableBloom );
+    EXPECT_EQ( v.Post.BloomMethod, Core::BloomMethod::Gaussian );
     EXPECT_TRUE( v.Shadows.Enabled );
 }
 
@@ -323,7 +327,7 @@ TEST( PostProcessVolume, TheHigherPriorityWinsWhateverTheRegistryOrder )
             AddVolume( reg, glm::vec3( 0.0f ), Volume( true, 5.0f, 1.0f, 4.0f, false ) );
         const auto v = Graphic::ResolveViewSettings( reg, glm::vec3( 0.0f ) );
         EXPECT_EQ( v.Post.ManualExposureEV100, 4.0f ) << "highFirst=" << highFirst;
-        EXPECT_FALSE( v.Post.EnableBloom ) << "highFirst=" << highFirst;
+        EXPECT_EQ( v.Post.BloomMethod, Core::BloomMethod::Gaussian ) << "highFirst=" << highFirst;
     }
 }
 
@@ -334,11 +338,12 @@ TEST( PostProcessVolume, BlendWeightLerpsValuesAndTakesSwitchesWhole )
     AddVolume( reg, glm::vec3( 0.0f ), Volume( true, 1.0f, 0.25f, 6.0f, true ) );
     const auto v = Graphic::ResolveViewSettings( reg, glm::vec3( 0.0f ) );
     EXPECT_FLOAT_EQ( v.Post.ManualExposureEV100, 3.0f ); // 2 * 0.75 + 6 * 0.25
-    EXPECT_TRUE( v.Post.EnableBloom );
+    EXPECT_EQ( v.Post.BloomMethod, Core::BloomMethod::Convolution );
 
     entt::registry zero;
     AddVolume( zero, glm::vec3( 0.0f ), Volume( true, 0.0f, 0.0f, 6.0f, true ) );
-    EXPECT_FALSE( Graphic::ResolveViewSettings( zero, glm::vec3( 0.0f ) ).Post.EnableBloom )
+    EXPECT_EQ( Graphic::ResolveViewSettings( zero, glm::vec3( 0.0f ) ).Post.BloomMethod,
+               Core::BloomMethod::Gaussian )
          << "a volume of weight 0 contributes nothing, not even its switches";
 }
 
@@ -357,7 +362,7 @@ TEST( PostProcessVolume, ABoundedVolumeAppliesInsideFadesAcrossItsRadiusAndNotBe
     EXPECT_FLOAT_EQ( fringe.Post.ManualExposureEV100, base * 0.5f + 5.0f * 0.5f );
     const auto outside = Graphic::ResolveViewSettings( reg, glm::vec3( 1400.0f, 0.0f, 0.0f ) );
     EXPECT_EQ( outside.Post.ManualExposureEV100, base );
-    EXPECT_FALSE( outside.Post.EnableBloom );
+    EXPECT_EQ( outside.Post.BloomMethod, Core::BloomMethod::Gaussian );
     EXPECT_EQ( Graphic::ResolveViewSettings( reg, std::nullopt ).Post.ManualExposureEV100, base )
          << "a view with no camera has no position to be inside anything";
 }

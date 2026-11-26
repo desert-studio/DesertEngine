@@ -2300,6 +2300,13 @@ namespace Desert::Editor
                                             .Cells            = prepass.Cells,
                                             .GpuSections      = prepass.GpuSections,
                                             .DepthWriteInBase = prepass.DepthWriteInBase };
+                const Graphic::ExposureReadout exposure       = primary->GetExposureReadout();
+                snapshot.Exposure                             = { .Auto          = exposure.Auto,
+                                                                  .AdaptedEV100  = exposure.AdaptedEV100,
+                                                                  .MeasuredEV100 = exposure.MeasuredEV100,
+                                                                  .Exposure      = exposure.Exposure,
+                                                                  .LowPercent    = exposure.LowPercent,
+                                                                  .HighPercent   = exposure.HighPercent };
                 const Graphic::System::VsmPageStats& vsmPages = primary->GetVirtualShadowPageStats();
                 snapshot.VsmPagesDrawn                        = vsmPages.Drawn;
                 snapshot.VsmPagesStaticRedrawn                = vsmPages.StaticRedrawn;

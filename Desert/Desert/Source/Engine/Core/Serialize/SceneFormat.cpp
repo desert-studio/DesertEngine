@@ -8,18 +8,18 @@ namespace Desert::Core
 {
     std::string RefuseSceneVersion( std::string_view source, int foundSceneVersion, int foundUnitVersion,
                                     int foundWorldPartitionVersion, int foundAssetRefVersion,
-                                    int foundLightVersion )
+                                    int foundLightVersion, int foundPostProcessVersion )
     {
         return fmt::format(
-             "[SceneSerializer] '{0}' is at scene schema v{1} / world units v{2} / world partition v{3} / asset references "
-             "v{8} / lights v{10}, and this engine loads scene schema v{4} / world units v{5} / world partition v{6} / "
-             "asset references v{9} / lights v{11}, and upgrades in memory from scene v{7} / world partition "
-             "v{12} up. NOTHING WAS LOADED - no entity, no setting and no scene name was taken from this file, and "
-             "the scene is exactly as it was. A NEWER file was written by a later build; an older one is "
-             "converted once by Tools/SceneMigrator.",
+             "[SceneSerializer] '{0}' is at scene schema v{1} / world units v{2} / world partition v{3} / asset "
+             "references v{8} / lights v{10} / post process v{13}, and this engine loads scene schema v{4} / "
+             "world units v{5} / world partition v{6} / asset references v{9} / lights v{11} / post process "
+             "v{14}, and upgrades in memory from scene v{7} / world partition v{12} up. NOTHING WAS LOADED - no "
+             "entity, no setting and no scene name was taken from this file, and the scene is exactly as it was. "
+             "A NEWER file was written by a later build; an older one is converted once by Tools/SceneMigrator.",
              source, foundSceneVersion, foundUnitVersion, foundWorldPartitionVersion, kSceneVersion, kUnitVersion,
              kWorldPartitionVersion, kSceneUpgradeFloor, foundAssetRefVersion, kAssetRefVersion, foundLightVersion,
-             kLightVersion, kWorldPartitionUpgradeFloor );
+             kLightVersion, kWorldPartitionUpgradeFloor, foundPostProcessVersion, kPostProcessVersion );
     }
 
     std::string RefuseSceneVersion( std::string_view source, const SceneSerialized& scene )
@@ -28,7 +28,8 @@ namespace Desert::Core
                                    Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ),
                                    Assets::StatedVersion( scene.Header, Assets::kWorldPartitionSchemaTag ),
                                    Assets::StatedVersion( scene.Header, Assets::kAssetRefSchemaTag ),
-                                   Assets::StatedVersion( scene.Header, Assets::kLightSchemaTag ) );
+                                   Assets::StatedVersion( scene.Header, Assets::kLightSchemaTag ),
+                                   Assets::StatedVersion( scene.Header, Assets::kPostProcessSchemaTag ) );
     }
 
     Common::ResultStr<LoadableScene> ParseLoadableScene( std::string_view source, const std::string& json )

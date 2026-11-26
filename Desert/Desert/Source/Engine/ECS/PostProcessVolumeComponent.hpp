@@ -45,9 +45,14 @@ namespace Desert::ECS
         Core::PostProcessSettings Settings;
     };
 
+    // Version 2 (RENDER-BLOOM-UE): Settings lost EnableBloom and AutoExposureSpeed. The upgrade step from 1 is
+    // the post-process settings' v1 step, Core::MigratePostProcessBloomV0ToV1 (Core/Serialize/SceneUpgrade.hpp) -
+    // the one copy of the mapping: EnableBloom false -> BloomIntensity 0, AutoExposureSpeed -> AutoExposureSpeedUp
+    // and AutoExposureSpeedDown. Every file at post process v0 (Assets::kPostProcessSchemaTag) stores this block
+    // at Version 1.
     struct PostProcessVolumeComponent
     {
-        COMPONENT( Key( "PostProcessVolume" ), Block( Data ), Run( SkyAndAtmosphere ) )
+        COMPONENT( Key( "PostProcessVolume" ), Block( Data ), Run( SkyAndAtmosphere ), Version( 2 ) )
         PostProcessVolumeData Data;
     };
 } // namespace Desert::ECS

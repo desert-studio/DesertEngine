@@ -437,7 +437,8 @@ namespace Desert::Graphic
             }
             case 7:
             {
-                // Bloom reads the HDR scene color and produces a compute mip-chain glow that tonemap adds in.
+                // Bloom reads the HDR scene color and produces UE's six-Gaussian (or convolution) glow the tonemap
+                // adds in.
                 RegisterSystem<System::BloomRenderer>( m_Systems.Bloom, this, m_TargetFramebuffer );
                 const auto& bloomSystem = m_Systems.Bloom;
                 if ( !bloomSystem->Initialize() )
@@ -1534,6 +1535,15 @@ namespace Desert::Graphic
         // frames ago (0 until the first copy is written). A capture view keeps 0 -> 1.0: its output is stored
         // absolute.
         m_LastExposure = 0.0f;
+        // render.exposure (state render): what this view's exposure was, from the same read-back.
+        const AutoExposureWindow meterWindow =
+             MakeAutoExposureWindow( post.AutoExposureLowPercent, post.AutoExposureHighPercent );
+        m_ExposureReadout = ExposureReadout{ .Auto          = post.AutoExposure,
+                                             .AdaptedEV100  = post.ManualExposureEV100,
+                                             .MeasuredEV100 = post.ManualExposureEV100,
+                                             .Exposure      = manualExposure,
+                                             .LowPercent    = meterWindow.LowPercent * 100.0f,
+                                             .HighPercent   = meterWindow.HighPercent * 100.0f };
         if ( !m_ViewProfile.SceneCapture )
         {
             if ( !post.AutoExposure )
@@ -1542,6 +1552,10 @@ namespace Desert::Graphic
             {
                 const float lum = ae->ReadBackAdaptedLuminance();
                 m_LastExposure  = lum > 0.0f ? post.AutoExposureKey / std::max( lum, 1e-4f ) : 0.0f;
+                const float measured            = ae->GetLastMeasuredLuminance();
+                m_ExposureReadout.AdaptedEV100  = lum > 0.0f ? LuminanceToEV100( lum ) : 0.0f;
+                m_ExposureReadout.MeasuredEV100 = measured > 0.0f ? LuminanceToEV100( measured ) : 0.0f;
+                m_ExposureReadout.Exposure      = m_LastExposure;
                 LOG_TRACE( "[PreExposure] {}: read-back adapted luminance {} -> exposure {}",
                            m_ViewResources.GetName(), lum, m_LastExposure );
                 // UE UpdatePreExposure x AverageLocalExposure (PostProcessEyeAdaptation.cpp:1559,1587): the
@@ -1596,45 +1610,41 @@ namespace Desert::Graphic
         // The texture filter and anisotropy are NOT pushed from here: they are global sampler state, written once
         // per change by QualityBoot's QualityState listener, not by every view each frame.
 
-        // THE TWO BRIGHT-PASS THRESHOLDS ARE AUTHORED IN THE EXPOSED IMAGE AND COMPARED IN THE RAW ONE,
-        // and until this line they were simply handed across that boundary unchanged.
-        //
-        // SceneComposite computes `(scene + bloom + shafts + flare) * exposure`, so `exposure` is the only
-        // thing standing between scene radiance and what the tonemapper sees. Both bright passes run
-        // UPSTREAM of it and threshold the raw HDR: BloomDownsample takes `max(brightness - threshold, 0)`
-        // on the scene image, LensFlareBrightPass does the same. An authored 2.5 therefore means "2.5" in
-        // a scene at Exposure 1.0 and "0.55" in one at Exposure 0.22 — one knob with two meanings, decided
-        // by an unrelated field, which is the disagreement §2.3.1 of the contract is about.
-        //
-        // Measured, Clouds_Demo (Exposure 0.22), zenith looking into the sun, with the shadow ray
-        // converged: bloom and the flare added 1.389 of linear scene radiance on top of 0.989 — they MORE
-        // THAN DOUBLED the highlight, and took a frame that landed on the UE reference's p95 (0.802
-        // against 0.800) up to 0.922. At the authored 2.5 the effective cutoff was 0.55 of a normalised
-        // unit, so ordinary daylight sky was a bloom source. Dividing here puts the comparison back in the
-        // space the number was written in; neither authored number was retuned.
-        //
-        // AUTO-EXPOSURE does the same division on the GPU: the exposure there is `key / adaptedLuminance` from a
-        // 1x1 image the CPU never reads, so the bloom pass binds that image and divides the threshold itself
-        // (BloomRenderer::SetAutoExposure, BloomDownsample.shader) — here it is left in exposed units.
+        // THE LENS FLARE'S BRIGHT PASS IS AUTHORED IN THE EXPOSED IMAGE AND COMPARED IN THE RAW ONE.
+        // SceneComposite computes `(scene + bloom + shafts + flare) * exposure`, and LensFlareBrightPass
+        // thresholds the raw HDR upstream of it, so the authored number is divided by the manual exposure here
+        // (auto-exposure: left in exposed units). Bloom does not take this route: BloomSetup compares UE's way,
+        // the luminance brought to exposed space in the shader (manual exposure or key / adapted luminance,
+        // pre-exposure undone).
         const float exposureNormalisation = post.AutoExposure ? 1.0f : std::max( manualExposure, 1e-30f );
 
-        m_BloomEnabled = post.EnableBloom;
-        m_Systems.Bloom->SetThreshold( post.BloomThreshold / exposureNormalisation );
-        // PostProcess.BloomMips (Scalability; High 6 = the former BloomRenderer::kMaxBloomMips).
-        m_Systems.Bloom->SetMaxMips(
-             static_cast<uint32_t>( m_Quality.As<int>( Common::Scalability::Parameter::BloomMips ) ) );
-        // PostProcess.BloomMethod (Scalability: Convolution at Epic / Cinematic, Gaussian below) and the view's kernel
-        // (UE r.Bloom.Method + BloomConvolutionTexture / BloomConvolutionSize). AddFrameBloom asks PrepareConvolution.
-        m_Systems.Bloom->SetMethod(
-             m_Quality.As<Common::Scalability::BloomMethod>( Common::Scalability::Parameter::BloomMethod ) );
+        // UE bloom (RENDER-BLOOM-UE): the volume's method, threshold, six Gaussian stages and convolution
+        // intensity, and the tier's stage count (PostProcess.BloomQuality, UE r.BloomQuality). AddFrameBloom reads
+        // them whole.
+        {
+            System::BloomFrameParams bloomFrame;
+            bloomFrame.On         = BloomGaussian::BloomOn( post );
+            bloomFrame.Method     = post.BloomMethod;
+            bloomFrame.Threshold  = post.BloomThreshold;
+            bloomFrame.StageCount = static_cast<uint32_t>(
+                 std::clamp( m_Quality.As<int>( Common::Scalability::Parameter::BloomQuality ), 0,
+                             static_cast<int>( BloomGaussian::kStageCount ) ) );
+            bloomFrame.Stages               = BloomGaussian::Stages( post );
+            bloomFrame.ConvolutionIntensity = post.BloomIntensity * post.BloomConvolutionIntensity;
+            bloomFrame.AutoExposure         = post.AutoExposure;
+            bloomFrame.ExposureKey          = post.AutoExposureKey;
+            m_Systems.Bloom->SetFrameParams( bloomFrame );
+        }
         m_Systems.Bloom->SetConvolutionKernel( post.BloomConvolutionKernel, post.BloomConvolutionScale );
-        // The view's memory census lists the convolution's two spectra only for a view that runs it: the tier's
+        // The view's memory census lists the convolution's two spectra only for a view that runs it: the volume's
         // Convolution with a kernel named (a kernel still loading is a frame or two, not what the view holds).
-        m_ViewProfile.BloomConvolution =
-             post.EnableBloom && m_Systems.Bloom->GetMethod() == Common::Scalability::BloomMethod::Convolution &&
-             static_cast<uint64_t>( post.BloomConvolutionKernel ) != 0;
-        m_Systems.Tonemap->SetBloomIntensity( post.EnableBloom ? post.BloomIntensity : 0.0f );
-        m_Systems.Tonemap->SetChromaticBloom( post.EnableBloom ? post.LensDispersion : 0.0f );
+        m_ViewProfile.BloomConvolution = BloomGaussian::BloomOn( post ) &&
+                                         post.BloomMethod == Core::BloomMethod::Convolution &&
+                                         static_cast<uint64_t>( post.BloomConvolutionKernel ) != 0;
+        // UE BloomDirtMask / Intensity / Tint, applied by the composite to the bloom term.
+        m_Systems.Tonemap->SetBloomDirtMask( post.BloomDirtMask, post.BloomDirtMaskIntensity,
+                                             post.BloomDirtMaskTint );
+        m_Systems.Tonemap->SetChromaticBloom( BloomGaussian::BloomOn( post ) ? post.LensDispersion : 0.0f );
         // The lens stage (LENS-POST): the resolved volume's values, applied by the composite.
         m_Systems.Tonemap->SetLens( { .FilmGrainIntensity             = post.FilmGrainIntensity,
                                       .FilmGrainTexelSize             = post.FilmGrainTexelSize,
@@ -1684,14 +1694,17 @@ namespace Desert::Graphic
              .Rings =
                   DofRingsForQuality( m_Quality.As<int>( Common::Scalability::Parameter::DepthOfFieldQuality ) ) };
 
-        m_Systems.AutoExposure->SetParams( post.AutoExposureSpeed, EV100ToLuminance( post.AutoExposureMinEV100 ),
-                                           EV100ToLuminance( post.AutoExposureMaxEV100 ) );
+        m_Systems.AutoExposure->SetParams( { .SpeedUp     = post.AutoExposureSpeedUp,
+                                             .SpeedDown   = post.AutoExposureSpeedDown,
+                                             .MinLuma     = EV100ToLuminance( post.AutoExposureMinEV100 ),
+                                             .MaxLuma     = EV100ToLuminance( post.AutoExposureMaxEV100 ),
+                                             .LowPercent  = post.AutoExposureLowPercent,
+                                             .HighPercent = post.AutoExposureHighPercent } );
         m_Systems.AutoExposure->SetCompensation( post.AutoExposureBias, post.AutoExposureCurveKeyCount,
                                                  post.AutoExposureCurveEV100, post.AutoExposureCurveBias );
         m_Systems.Tonemap->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
         // The view's buffer visualization is drawn display-referred, whatever the view's exposure (GP1 p8).
         m_Systems.Tonemap->SetVisualizeBuffer( IsDisplayReferredView( m_DebugView.DeferredDebug ) );
-        m_Systems.Bloom->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
 
         return BOOLSUCCESS;
     }
@@ -3376,10 +3389,7 @@ namespace Desert::Graphic
             const RDG::TextureRef outlined   = AddFrameJumpFlood( graph, textures, postSource );
             AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
             AddFrameLocalExposure( graph, textures, postInput );
-            if ( m_BloomEnabled )
-            {
-                AddFrameBloom( graph, textures, postInput );
-            }
+            AddFrameBloom( graph, textures, postInput );
             AddFrameLightShafts( graph, textures, postInput, values );
             AddFrameLensFlare( graph, textures, postInput, values );
             AddFrameTonemap( graph, textures, outlined.IsValid() ? outlined : postSource, frame );
