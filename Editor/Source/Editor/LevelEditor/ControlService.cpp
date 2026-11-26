@@ -13,6 +13,7 @@
 #include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp"
 #include "Editor/Core/Control/InputInjection.hpp"
+#include <Engine/Graphic/SceneRenderState.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include "Editor/Core/Control/PointerDrag.hpp"
@@ -2376,9 +2377,9 @@ namespace Desert::Editor
             for ( const ::Desert::Core::Scene* scene : ::Desert::Core::Scene::LiveScenes() )
             {
                 ++snapshot.Scenes;
-                if ( scene->GetDistanceFields().GetBrickAtlas() != nullptr )
+                if ( Graphic::RenderStateOf( *scene ).GetDistanceFields().GetBrickAtlas() != nullptr )
                     ++snapshot.DistanceFieldPools;
-                if ( scene->GetSurfaceCache().IsConfigured() )
+                if ( Graphic::RenderStateOf( *scene ).GetSurfaceCache().IsConfigured() )
                     ++snapshot.SurfaceCaches;
             }
         }

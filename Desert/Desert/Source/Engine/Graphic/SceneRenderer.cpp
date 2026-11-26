@@ -1,3 +1,4 @@
+#include <Engine/Graphic/SceneRenderState.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/Systems/Scene/SceneFXSystem.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -1128,9 +1129,9 @@ namespace Desert::Graphic
 
         skyboxSystem->PrepareCamera( m_SceneInfo.ActiveCamera );
         // The scene's one sky light: this view reads it, and captures it when it is the frame's first view.
-        skyboxSystem->SetSceneSkyLight( scene.GetSkyLight() );
+        skyboxSystem->SetSceneSkyLight( RenderStateOf( scene ).GetSkyLight() );
         // ...and the scene's atmosphere LUTs, recorded by that same first view, read by this one and the capture.
-        skyboxSystem->SetSceneAtmosphere( scene.GetAtmosphere() );
+        skyboxSystem->SetSceneAtmosphere( RenderStateOf( scene ).GetAtmosphere() );
 
         // Grid & other authoring aids hide while the game runs - not while it is simulated (UE: Simulate In
         // Editor keeps the editor's viewport and its overlays).
@@ -1163,16 +1164,16 @@ namespace Desert::Graphic
         m_DebugDraw->SetWorld( &scene.GetDebugDraw() );
 #endif
         // The scene's reflection captures, published into this frame's graph (SceneViewInputs).
-        m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
+        m_FrameReflectionCaptures = &RenderStateOf( scene ).GetReflectionCaptures();
         // The scene's ray-tracing geometry (skin cache, BLAS variants), shared by this frame's views.
-        m_FrameRayTracingCache = &scene.GetRayTracingCache();
+        m_FrameRayTracingCache = &RenderStateOf( scene ).GetRayTracingCache();
         // The scene's GPU scene (primitives, instances, palettes), synced and read by this frame's views.
-        m_FrameGpuScene = &scene.GetGpuScene();
+        m_FrameGpuScene = &RenderStateOf( scene ).GetGpuScene();
         m_SceneLedgerInstance  = scene.GetLedgerInstance();
         // The scene's local-light shadow cache, which this view's lights draw into and read (UpdateLocalShadows).
-        m_FrameLocalShadows = &scene.GetLocalShadows();
+        m_FrameLocalShadows = &RenderStateOf( scene ).GetLocalShadows();
         // The scene's mesh distance fields, which this view's global distance field composites from.
-        m_FrameDistanceFields = &scene.GetDistanceFields();
+        m_FrameDistanceFields = &RenderStateOf( scene ).GetDistanceFields();
         // The scene's deformation contacts this view's field has not taken, copied by value here (the game thread,
         // after the scene's Join): the job applies the copy while the next tick submits to the log. A reflection
         // capture's face keeps no field (AddFrameDeformationField), so it copies nothing.
@@ -1180,7 +1181,7 @@ namespace Desert::Graphic
             m_DeformationField.CaptureContacts( scene.GetDeformation() );
         m_FrameDeformationCaptured = true;
         // The scene's surface cache, which every view of the scene reads and the frame's first view updates.
-        m_FrameSurfaceCache = &scene.GetSurfaceCache();
+        m_FrameSurfaceCache = &RenderStateOf( scene ).GetSurfaceCache();
 
         const auto& sceneSettings = scene.GetSettings();
 

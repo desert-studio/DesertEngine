@@ -4,8 +4,10 @@
 // plugin's subsystems, component classes and asset types; the engine then calls through these, never naming the
 // module). The registration point is Engine/Core/Modules.cpp; the lists are read by the engine code named per hook.
 
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Common/Core/Math/Ray.hpp>
+#include <Engine/Core/SceneRenderState.hpp>
 #include <Engine/Core/WorldSystems.hpp>
 
 #include <Common/Core/Entt.hpp>
@@ -26,6 +28,11 @@ namespace Desert::Assets
     class AssetManager;
     class AssetRootSet;
 } // namespace Desert::Assets
+
+namespace Desert::Assets::Serialization
+{
+    struct FoliageTypeData;
+} // namespace Desert::Assets::Serialization
 
 namespace Desert::Core::Rules
 {
@@ -132,6 +139,14 @@ namespace Desert::Core
     using SceneSaveWriter =
          std::function<std::optional<std::string>( Scene& scene, const std::filesystem::path& scenePath )>;
 
+    /// Once per scene update, before the systems tick: a module brings what it owns in the world up to date
+    /// for them to read (Scene::OnUpdate; UE: a plugin's world tick in TG_PrePhysics) - the foliage module
+    /// realizes its prefab foliage.
+    using ScenePreSystems = void ( * )( Scene& scene );
+    /// A foliage type's data by its asset handle, null while it is being read or when it failed (the module's
+    /// service says why once); read by the engine's foliage collision and instanced-mesh fade.
+    using FoliageTypeLookup = const Assets::Serialization::FoliageTypeData* ( * )( const Common::AssetHandle& handle );
+
     struct ModuleHookLists
     {
         std::vector<ModuleService>   Services;
@@ -150,6 +165,13 @@ namespace Desert::Core
         /// A module's shared tables brought up to date serially before each parallel system group, so the
         /// group's readers only read them (Scene's update; the landscape's tile table).
         std::vector<RegistryPrepare> BeforeParallelGroup;
+        std::vector<ScenePreSystems> PreSystems;
+        /// The renderer's state of each scene (Core/SceneRenderState.hpp), made by the Renderer module's
+        /// StartupModule; one renderer per process, so one maker. A process without it (the dedicated server)
+        /// makes scenes without renderer state.
+        SceneRenderStateMaker SceneRenderState = nullptr;
+        /// See FoliageTypeLookup: set by the foliage module's StartupModule, the one owner of foliage types.
+        FoliageTypeLookup FoliageTypes = nullptr;
     };
 
     ModuleHookLists& ModuleHooks();

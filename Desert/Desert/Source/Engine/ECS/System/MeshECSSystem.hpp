@@ -14,7 +14,8 @@
 #include <Engine/ECS/RenderStateDelta.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Engine/Runtime/Services/Foliage/FoliageTypeService.hpp>
+#include <Engine/Core/ModuleHooks.hpp>
+#include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Modular/LeaderPoseLink.hpp>
 
@@ -1394,7 +1395,7 @@ namespace Desert::ECS
             Graphic::Render::InstancedSceneFrame& frame   = AcquireInstancedFrame();
             size_t                                rows    = 0;
             bool                                  changed = false;
-            auto*                                 types   = Runtime::ResourceRegistry::GetFoliageTypeService();
+            const Core::FoliageTypeLookup         types   = Core::ModuleHooks().FoliageTypes;
             const float                           density = DrawnInstanceDensity( registry );
             for ( IsmRecord& record : m_IsmRecords )
             {
@@ -1409,8 +1410,8 @@ namespace Desert::ECS
                 Graphic::InstanceCullDistance cullDistance;
                 Graphic::InstanceWind         wind;
                 float                         drawn = 1.0f; // the share of the instances drawn
-                if ( record.FoliageType )
-                    if ( const auto* type = types->Get( record.FoliageType ) )
+                if ( types && record.FoliageType )
+                    if ( const auto* type = types( record.FoliageType ) )
                     {
                         cullDistance = { type->CullDistance.Min, type->CullDistance.Max };
                         if ( type->EnableDensityScaling )
