@@ -923,7 +923,9 @@ namespace Desert::Editor
     void ViewportPanel::DrawPilotOverlay()
     {
         m_PilotOverlayHovered = false;
-        if ( !m_Pilot.IsActive() )
+        // Over the editor camera only: PIE looks through the game's camera, and neither label nor button apply.
+        auto* const editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( ViewCamera().get() );
+        if ( !m_Pilot.IsActive() || editorCam == nullptr )
             return;
 
         // Where the preset caption normally sits, because it answers the same question — what is this
@@ -942,12 +944,10 @@ namespace Desert::Editor
         {
             EditorPreferences::Get().SequencerLockViewportToCameraCuts = false; // UE's camera icon off
             EditorPreferences::Save();
+            m_Pilot.SetCinematic( std::nullopt ); // at once, even with the Sequencer tab hidden (UE: Unlock)
         }
         else if ( !m_Pilot.IsCinematic() && ::ImGui::SmallButton( ICON_MDI_EJECT " Eject" ) )
-        {
-            const auto camera = ViewCamera();
-            m_Pilot.Eject( dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() ) );
-        }
+            m_Pilot.Eject( editorCam );
         m_PilotOverlayHovered = ::ImGui::IsItemHovered();
         if ( m_PilotOverlayHovered )
             ::ImGui::SetTooltip( "Stop looking through the camera: the viewport returns to where it was." );

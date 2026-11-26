@@ -231,7 +231,9 @@ namespace Desert::Editor
     {
         const std::optional<Common::UUID> want =
              EditorPreferences::Get().SequencerLockViewportToCameraCuts ? m_LevelCutCamera : std::nullopt;
-        if ( want == m_LevelCutPushed )
+        // Every frame while locked (UE re-applies the cut each tick): a view opened later, or one that re-ticked,
+        // picks the cut up; SetCinematic skips a repeat, so this costs one compare per view.
+        if ( !want && !m_LevelCutPushed )
             return;
         const auto scene = m_Scene.lock();
         if ( !scene )
