@@ -503,17 +503,7 @@ namespace Desert::Animation::Timeline
                     SampleSubsequences( sequence, ti, step, out.Subsequences );
                     break;
                 case TrackKind::CameraCut:
-                    // The last section in fold order wins — on one row cuts never overlap (Validate).
-                    ForEachCovering( track, at,
-                                     [&]( const Section& section )
-                                     {
-                                         if ( const auto* cut =
-                                                   std::get_if<CameraCutSectionContent>( &section.Content ) )
-                                         {
-                                             out.ActiveCamera = cut->Camera;
-                                         }
-                                     } );
-                    break;
+                    break; // below, from the one camera-cut track FindCameraCutTrack names
                 case TrackKind::Animation:
                     ForEachCovering(
                          track, at,
@@ -573,6 +563,21 @@ namespace Desert::Animation::Timeline
                     break;
                 }
             }
+        }
+
+        // THE CAMERA IN FORCE (UE GetCameraCutTrack): read from the one camera-cut track, the same lookup the
+        // authoring and the timeline use. The last section in fold order wins — on one row cuts never overlap
+        // (Validate).
+        if ( const Track* cuts = FindCameraCutTrack( sequence ); cuts != nullptr && !cuts->Muted )
+        {
+            ForEachCovering( *cuts, at,
+                             [&]( const Section& section )
+                             {
+                                 if ( const auto* cut = std::get_if<CameraCutSectionContent>( &section.Content ) )
+                                 {
+                                     out.ActiveCamera = cut->Camera;
+                                 }
+                             } );
         }
 
         CollectFired( sequence, step, out.Events );

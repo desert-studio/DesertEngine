@@ -103,6 +103,15 @@ namespace Desert::Animation::Timeline
                                             std::string_view property );
 
     /**
+     * @brief THE CAMERA CUT TRACK (UE UMovieScene::GetCameraCutTrack): the one CameraCut track of the sequence,
+     * found by its ROLE - its Kind, on a Sequence-kind binding - never by a binding id. A minted master binding
+     * GUID is as legal as `BindingGuid::ForMaster()`. `Validate` refuses a second one, so this is the only lookup
+     * every reader (authoring, playback, the timeline panel) uses. Null when the sequence has no cuts yet.
+     */
+    [[nodiscard]] const Track* FindCameraCutTrack( const Sequence& sequence );
+    [[nodiscard]] Track*       FindCameraCutTrack( Sequence& sequence );
+
+    /**
      * @brief UE's "+ Track > Audio": an Audio track on the master binding with ONE section over the playback
      * range playing @p sound (a `.desound` GUID, as `AudioSectionContent::Sound` names it).
      *
