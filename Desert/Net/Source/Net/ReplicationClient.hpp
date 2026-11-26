@@ -134,11 +134,13 @@ namespace Desert::Net
         void ReportResidency( const CellResidencyMessage& change, std::span<const StableNetId> gone );
         // WP-FAR-15 THE VIEW (UE APlayerController::ServerUpdateCamera): the shape this client looks through - its
         // streaming source's - sent on the State lane (unreliable) when it changed by kViewAngleStepDeg /
-        // kViewRangeStepCm or kViewResendSeconds passed, so a lost report is repeated. Nothing before the session.
+        // kViewRangeStepCm (a circle's yaw never counts) or kViewResendSeconds passed, so a lost report is
+        // repeated; never more often than kViewMinIntervalSeconds. Nothing before the session.
         void ReportView( const ViewReport& view );
-        static constexpr float  kViewAngleStepDeg  = 1.0f;
-        static constexpr float  kViewRangeStepCm   = 100.0f;
-        static constexpr double kViewResendSeconds = 1.0;
+        static constexpr float  kViewAngleStepDeg       = 1.0f;
+        static constexpr float  kViewRangeStepCm        = 100.0f;
+        static constexpr double kViewResendSeconds      = 1.0;
+        static constexpr double kViewMinIntervalSeconds = 0.5;
         // A remote pawn's whole interpolation delay (the connection's + its own, seconds), for the log; nullopt
         // for a pawn this client does not have. Its period is RemotePawn::PeriodSteps.
         [[nodiscard]] std::optional<double> PawnDelay( NetId id ) const;
@@ -171,6 +173,7 @@ namespace Desert::Net
         void                 AdvanceRenderClock();
         // The snapshot cadence as received: the median interval between the server times of the snapshots in the
         // jitter window (the server's first band's period; nothing in code says it). Nullopt below two snapshots.
+        // Computed once per arrival (MeasureArrival) into m_SnapshotInterval.
         [[nodiscard]] std::optional<double> SnapshotInterval() const;
 
         INetTransport&               m_Transport;
@@ -206,6 +209,7 @@ namespace Desert::Net
         Clock::time_point                        m_Epoch = Clock::now();
         std::deque<std::pair<double, double>>    m_Arrivals; // (local seconds, local - server seconds)
         double                                   m_FastestOffset = 0.0, m_Jitter = 0.0;
+        std::optional<double>                    m_SnapshotInterval; // SnapshotInterval() at the newest arrival
         double                                   m_Delay         = kInterpolationDelaySeconds;
         std::optional<double>                    m_RenderSeconds;
         double                                   m_LastAdvance = 0.0, m_NextDelayLog = 0.0;

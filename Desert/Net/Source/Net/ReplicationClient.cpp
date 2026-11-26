@@ -48,6 +48,7 @@ namespace Desert::Net
         m_FastestOffset = offsets.front();
         m_Jitter = offsets[static_cast<std::size_t>( 0.95 * static_cast<double>( offsets.size() - 1 ) )] -
                    m_FastestOffset;
+        m_SnapshotInterval = SnapshotInterval();
     }
 
     std::optional<double> ReplicationClient::SnapshotInterval() const
@@ -83,25 +84,25 @@ namespace Desert::Net
         // snapshot floor; the delay grows quickly (a late snapshot is a visible hold) and shrinks slowly. The
         // interval is the cadence measured (the project's Net settings set it on the server); until two snapshots
         // have come the delay stays where it starts, at the floor.
-        const std::optional<double> interval = SnapshotInterval();
-        const double                target =
+        const std::optional<double>& interval = m_SnapshotInterval;
+        const double                 target =
              interval ? std::clamp( 2.0 * *interval + m_Jitter, kInterpolationDelaySeconds,
                                     kMaxInterpolationDelaySeconds )
                       : m_Delay;
         m_Delay += std::clamp( target - m_Delay, -0.05 * dt, 0.5 * dt );
         // WP-FAR-15: a pawn sent every N-th step is drawn two of ITS intervals behind (Relevancy.hpp
-        // PawnInterpolationDelay), the part beyond the connection's delay sliding at the same rates. A pawn whose
-        // newest sample stands still needs none: holding that sample is exact, and a dormant pawn's keep-alive
-        // period must not leave it seconds behind when it walks again.
+        // PawnInterpolationDelay), the part beyond the connection's delay sliding at the same rates. While the
+        // newest sample stands still the extra part is held where it is (UE's per-actor interpolation buffer keeps
+        // its delay through an idle actor): a dormant pawn is sent at its band's period, so its target does not
+        // move, and sliding it toward zero would make the pawn hitch while the delay grows back when it walks.
         constexpr double kStandingCmPerS2 = 1.0; // below 1 cm/s
         for ( auto& [id, pawn] : m_Pawns )
         {
             const NetVec3 velocity = pawn.History.Newest().Velocity;
-            const bool     standing =
-                 velocity.X * velocity.X + velocity.Y * velocity.Y + velocity.Z * velocity.Z < kStandingCmPerS2;
+            if ( velocity.X * velocity.X + velocity.Y * velocity.Y + velocity.Z * velocity.Z < kStandingCmPerS2 )
+                continue;
             const double extra =
-                 standing ? 0.0
-                          : std::max( PawnInterpolationDelay( pawn.PeriodSteps, m_Jitter, m_Delay ) - m_Delay, 0.0 );
+                 std::max( PawnInterpolationDelay( pawn.PeriodSteps, m_Jitter, m_Delay ) - m_Delay, 0.0 );
             pawn.ExtraDelay += std::clamp( extra - pawn.ExtraDelay, -0.05 * dt, 0.5 * dt );
         }
         const double wanted = local - m_FastestOffset - m_Delay;
@@ -335,16 +336,22 @@ namespace Desert::Net
         if ( m_State != EState::InSession )
             return;
         const double local = LocalSeconds();
-        // The yaw's change is taken around the circle (359 -> 1 is two degrees).
+        // The yaw's change is taken around the circle (359 -> 1 is two degrees); a circle has no axis, so its
+        // yaw never counts as a change.
         const auto changed = [&]( const ViewReport& sent )
         {
-            const float yaw = std::abs( std::remainder( view.FacingYawDeg - sent.FacingYawDeg, 360.0f ) );
-            return yaw >= kViewAngleStepDeg ||
+            const bool  circle = view.SectorAngleDeg >= 360.0f && sent.SectorAngleDeg >= 360.0f;
+            const float yaw    = std::abs( std::remainder( view.FacingYawDeg - sent.FacingYawDeg, 360.0f ) );
+            return ( !circle && yaw >= kViewAngleStepDeg ) ||
                    std::abs( view.SectorAngleDeg - sent.SectorAngleDeg ) >= kViewAngleStepDeg ||
                    std::abs( view.RangeCm - sent.RangeCm ) >= kViewRangeStepCm;
         };
-        if ( m_SentView && !changed( *m_SentView ) && local - m_ViewSentAt < kViewResendSeconds )
-            return;
+        if ( m_SentView )
+        {
+            const double since = local - m_ViewSentAt;
+            if ( since < kViewMinIntervalSeconds || ( !changed( *m_SentView ) && since < kViewResendSeconds ) )
+                return;
+        }
         m_Transport.Send( m_Connection, EncodeViewReport( view ), ENetLane::State );
         m_SentView   = view;
         m_ViewSentAt = local;

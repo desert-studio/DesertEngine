@@ -10,6 +10,7 @@
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/CookHash.hpp>
+#include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/ReflectedComponents.hpp>
@@ -371,14 +372,22 @@ namespace Desert::Core
         if ( own == pawns.end() || own->second.History.Empty() )
             return; // no own pawn yet: no distance to state
         const Net::NetVec3 from = own->second.History.Newest().Position;
+        // The nearest kLoggedPawns only: a crowd would flood the log every second.
+        constexpr std::size_t kLoggedPawns = 4;
+        std::vector<std::pair<float, Net::NetId>> nearest;
         for ( const auto& [id, pawn] : pawns )
+            if ( !pawn.Owned && !pawn.History.Empty() )
+                nearest.emplace_back( Net::GroundDistanceCm( from, pawn.History.Newest().Position ), id );
+        const auto end = nearest.begin() + static_cast<std::ptrdiff_t>( std::min( kLoggedPawns, nearest.size() ) );
+        std::partial_sort( nearest.begin(), end, nearest.end() );
+        for ( auto it = nearest.begin(); it != end; ++it )
         {
-            if ( pawn.Owned || pawn.History.Empty() )
-                continue;
+            const auto& [distance, id] = *it;
+            const auto&         pawn   = pawns.at( id );
             const std::uint32_t period = pawn.PeriodSteps;
             LOG_INFO( "[Net] pawn {} (player {}): {:.0f} m, period {} ({:.3g} Hz), delay {:.2f} s", id, pawn.Player,
-                      Net::GroundDistanceCm( from, pawn.History.Newest().Position ) / 100.0f, period,
-                      Net::kNetStepHz / static_cast<double>( period ), m_Client->PawnDelay( id ).value_or( 0.0 ) );
+                      distance / 100.0f, period, Net::kNetStepHz / static_cast<double>( period ),
+                      m_Client->PawnDelay( id ).value_or( 0.0 ) );
         }
     }
 
@@ -661,27 +670,22 @@ namespace Desert::Core
         if ( of == nullptr || of->Streamer == nullptr || of->Streamer->LastSources().empty() )
             return; // the played world is not streamed: the server's circle alone
         const Rules::StreamingSource& source = of->Streamer->LastSources().front();
-        // The source's forward on the ground; none (an instrument) is the world's -Z, as the rules read it.
-        glm::vec2 forward = source.Facing ? glm::vec2( source.Facing->x, source.Facing->z ) : glm::vec2( 0.0f, -1.0f );
-        if ( glm::length( forward ) < 1e-6f )
-            forward = { 0.0f, -1.0f };
+        // The source's view as the streaming query itself sees it (Rules::SourceSectors: RangeScale, AngleScale,
+        // the grid's loading range, the targeted grids): the sector reaching farthest over the source's grids.
+        std::optional<Rules::SourceSector> farthest;
+        for ( const Core::RuntimePartitionSerialized& grid : of->Streamer->Partition().RuntimePartitions )
+            for ( const Rules::SourceSector& sector : Rules::SourceSectors( source, grid ) )
+                if ( !farthest || sector.Radius > farthest->Radius )
+                    farthest = sector;
+        if ( !farthest )
+            return; // the source reaches no grid: the server's circle alone
         // Yaw about +Y, 0 facing -Z, counter-clockwise seen from above (Rules::Detail::TurnAboutUp): the axis
         // (-sin, -cos).
         Net::ViewReport view;
-        view.FacingYawDeg = glm::degrees( std::atan2( -forward.x, -forward.y ) );
-        if ( source.Shapes.empty() )
-            view.RangeCm = source.LoadingRange.value_or( 0.0f ); // its own circle; none = the grid's
-        else
-        {
-            // The first shape: a sector turned by its yaw, reaching its own radius. One on the grid's range states
-            // none of its own - the server's circle already reaches the main grid's loading range.
-            const Rules::StreamingSourceShape& shape = source.Shapes.front();
-            view.FacingYawDeg += shape.Yaw;
-            const bool sector    = shape.IsSector && shape.SectorAngle > 0.0f && shape.SectorAngle < 360.0f;
-            view.SectorAngleDeg  = sector ? shape.SectorAngle : 360.0f;
-            view.RangeCm         = shape.UseGridLoadingRange ? 0.0f : shape.Radius;
-        }
-        view.FacingYawDeg = std::remainder( view.FacingYawDeg, 360.0f );
+        view.FacingYawDeg   = static_cast<float>(
+             std::remainder( glm::degrees( std::atan2( -farthest->Axis.x, -farthest->Axis.y ) ), 360.0 ) );
+        view.SectorAngleDeg = farthest->IsCircle() ? 360.0f : static_cast<float>( farthest->Angle );
+        view.RangeCm        = static_cast<float>( farthest->Radius );
         m_Client->ReportView( view );
     }
 
