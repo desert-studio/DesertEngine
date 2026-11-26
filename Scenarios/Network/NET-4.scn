@@ -44,6 +44,7 @@
 Ждать server 30 \[Net\] player 1: pawn \d+ teleported to
 Ждать A 60 \[Net\] correction 1 at .*drawn at once
 Тогда A clientA_teleport the FIRST frame drawn after the «drawn at once» correction (the frame whose net tick logged it): A's own mannequin body - grey-brown capsule, ~40-50 px wide, ~230 px tall - stands out against the sky and the slope at x ~880-940, between rows ~40 and ~400, in front of the fence's right end, whole (top and bottom caps inside the frame); a frame with only sky/grass at those pixels FAILS, whatever the log says; no second mannequin; the client keeps drawing
+Тогда A clientA_teleport_next E1 (DESIGN_REVIEW): the frame after clientA_teleport - the same mannequin body at x ~880-940, rows ~40-400, whole; only sky/grass there FAILS
 # Тогда [net4_teleport_ground]: landed, server = client drawn; 10 s later both unchanged (< 1 cm); one correction.
 Ждать A 60 8x \[Net\] t=
 Ждать server 30 2x player 1 account 1 \(
