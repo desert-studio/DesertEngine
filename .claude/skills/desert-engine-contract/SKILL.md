@@ -43,6 +43,12 @@ This file owns four things: what cannot ship, what "done" means, how old data an
 6. The report says what was done, what was decided and why, what differs from the design and for what reason, and what only the build or a frame can prove. A divergence you name is a discussion; one found on review is a return.
 7. The owner's audit, answered in writing for the questions the task deserves: Is this the right shape or the easiest one from here? Is it convenient for the person who uses it daily? What can be fixed cheaply while we are here? What is unfinished? What does it open up? "Landed with a named remainder" is not done: the remainder is closed, or it is filed and the parent stays open until it lands.
 
+## Scenarios run through a queue, one runner per machine (owner 11-26, SCN-QUEUE)
+As UE Gauntlet/Horde: a scenario run is a job in a queue, not a wait in the lead's head.
+- The lead, or the agent handing in a branch, only adds a job: card code, tree, `.scn`. Waiting for the editor, or waking the lead because "the editor is free", is not allowed.
+- Each machine has one runner (`acceptance`). It takes jobs in order without pauses, plays `play_scenario.py`, looks at the frames and writes the verdict to the card. There is still one editor per machine.
+- Windows is the second runner with its own queue. Render scenarios with HW RT, and anything a Windows frame must prove, go there; the rest go to the first free machine.
+
 ## A measured refusal counts as done
 If the work does not earn its cost, the deliverable is the measurement and the refusal. The rules that make it a refusal and not a shrug:
 - Numbers, not impressions: what was measured, on what, and the noise floor.
