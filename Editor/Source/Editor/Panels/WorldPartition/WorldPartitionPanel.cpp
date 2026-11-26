@@ -280,7 +280,7 @@ namespace Desert::Editor
             m_EditTags.reserve( index.GetValue().Index.Entities.size() );
             for ( const ::Desert::Core::DescriptorIndex::DescriptorRow& row : index.GetValue().Index.Entities )
                 m_EditTags.push_back( row.Descriptor.Tag );
-            ReadHLODOverlay( *m_Scene->Packages()->BaselinePath() );
+            ReadHLODOverlay();
             m_EditPlanStatus.clear(); // the view stays: a region load replans the same world
             return;
         }
@@ -311,20 +311,15 @@ namespace Desert::Editor
         m_FocusPending = true;
     }
 
-    void WorldPartitionPanel::ReadHLODOverlay( const std::filesystem::path& scenePath )
+    void WorldPartitionPanel::ReadHLODOverlay()
     {
         m_HLODCells.clear();
         m_HLODOverlayStatus.clear();
-        auto status = HLODStatusOf( scenePath );
-        if ( !status )
-        {
-            m_HLODOverlayStatus = "HLOD overlay: " + status.GetError();
-            return;
-        }
-        // No Build HLODs yet: the world has no HLOD to show, built or stale.
-        if ( !status.GetValue().Built )
-            return;
-        m_HLODCells = Map::HLODCellStates( *m_EditPlan, status.GetValue().BuiltUnits, status.GetValue().Stale );
+        const HLODStatus* status = PanelHLODStatus();
+        if ( status == nullptr )
+            m_HLODOverlayStatus = "HLOD overlay: " + m_HLODStatusError;
+        else if ( status->Built ) // no Build HLODs yet: the world has no HLOD to show, built or stale
+            m_HLODCells = Map::HLODCellStates( *m_EditPlan, m_EditPartition, status->World );
     }
 
     void WorldPartitionPanel::OnUIRender()
@@ -1818,7 +1813,13 @@ namespace Desert::Editor
         if ( m_EditorHLODsStale && !IsBuildingHLODs() )
         {
             m_EditorHLODsStale = false;
-            if ( const auto made = m_EditorHLODs.Make( *m_Scene, m_Assets, EditorLayersLoaded() ); !made )
+            // The panel's one status, for a world with HLODs only, refreshed (with its error) before the call.
+            const auto&       partition = m_Scene->GetWorldPartition();
+            const HLODStatus* status =
+                 partition && ::Desert::Core::Rules::AnyGridHLODLayer( *partition ) ? PanelHLODStatus() : nullptr;
+            if ( const auto made =
+                      m_EditorHLODs.Make( *m_Scene, m_Assets, EditorLayersLoaded(), status, m_HLODStatusError );
+                 !made )
                 LOG_ERROR( "[WorldPartition] {0}", made.GetError() );
         }
         const EditorPreferences& prefs = EditorPreferences::Get();
@@ -2219,10 +2220,10 @@ namespace Desert::Editor
             m_HLODStatusError = status.GetError();
             return;
         }
-        const std::size_t stale = status.GetValue().Stale.size();
-        // The notification (UE: "HLODs need to be rebuilt"): more rows stale than the last count said.
+        const std::size_t stale = status.GetValue().World.Outdated();
+        // The notification (UE: "HLODs need to be rebuilt"): more nodes outdated than the last count said.
         if ( stale > m_StaleNotified )
-            ToastManager::Push( std::format( "World Partition: {} stale HLOD - Build HLODs", stale ),
+            ToastManager::Push( std::format( "World Partition: {} outdated HLOD - Build HLODs", stale ),
                                 ToastLevel::Warning, 6.0f );
         m_StaleNotified = stale;
         m_HLODStatus    = status.ExtractValue();
@@ -2236,8 +2237,7 @@ namespace Desert::Editor
             // A mesh, material or texture saved since the last status may have made rows stale.
             if ( ::Desert::Assets::ContentRegistry::WriteSerial() != m_RegistrySerial )
                 m_HLODStatusStale = true;
-            if ( m_HLODStatusStale && !m_Builder )
-                RefreshHLODStatus();
+            (void)PanelHLODStatus();
             if ( ImGui::CollapsingHeader( "HLODs", ImGuiTreeNodeFlags_DefaultOpen ) )
             {
                 if ( m_Builder )
@@ -2246,13 +2246,14 @@ namespace Desert::Editor
                 else if ( !m_HLODStatusError.empty() )
                     ImGui::TextWrapped( "HLOD status: %s", m_HLODStatusError.c_str() );
                 else if ( m_HLODStatus && !m_HLODStatus->Built )
-                    ImGui::Text( "HLODs not built: %zu stale HLOD", m_HLODStatus->Stale.size() );
+                    ImGui::Text( "HLODs not built: %zu wanted HLOD", m_HLODStatus->World.Wanted() );
                 else if ( m_HLODStatus )
-                    ImGui::Text( "%zu stale HLOD", m_HLODStatus->Stale.size() );
-                if ( m_HLODStatus && !m_HLODStatus->Stale.empty() && ImGui::IsItemHovered() )
+                    ImGui::Text( "%zu wanted HLOD, %zu outdated", m_HLODStatus->World.Wanted(),
+                                 m_HLODStatus->World.Outdated() );
+                if ( m_HLODStatus && m_HLODStatus->World.Outdated() > 0 && ImGui::IsItemHovered() )
                 {
                     ImGui::BeginTooltip();
-                    for ( const std::string& unit : m_HLODStatus->Stale )
+                    for ( const std::string& unit : m_HLODStatus->World.OutdatedNames() )
                         ImGui::TextUnformatted( unit.c_str() );
                     ImGui::EndTooltip();
                 }

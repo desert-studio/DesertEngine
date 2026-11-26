@@ -1,6 +1,7 @@
 #pragma once
 // Ported from UE 5.8 Engine/Source/Runtime/Engine/Private/WorldPartition/HLOD/HLODBuilder.cpp:164-260
-// (UHLODBuilder::BatchInstances, the static-mesh half), adapted: records of a cooked cell instead of
+// (UHLODBuilder::BatchInstances, the static-mesh half; BuildInstancingHLOD and its per-record read ReadHLODMember
+// live in WorldPartitionHLODMember.hpp), adapted: records of a cooked cell instead of
 // UActorComponents, a batch keyed by the canonical text of its InstancedStaticMesh block instead of
 // FISMComponentDescriptor::GetTypeHash, and every source that cannot be batched returned with its reason instead
 // of logged as a warning.
@@ -128,10 +129,28 @@ namespace Desert::Core::Rules
     // the instancing leaves it out under its Reason and BuildCellHLOD hands it to that builder. Registered at the
     // module's StartupModule (the terrain module: its tile and its spline); a second row for a component is
     // ignored.
+    // What one module-drawn record (a landscape tile, a spline) hands its HLOD builder, stated by the module
+    // (HLODBuilderComponent::Inputs; UE ULandscapeHLODBuilder::ComputeHLODHash). Text is canonical and the same on
+    // every platform (hex floats); Placed are the OTHER records the builder reads (the tile's root), whose TRS
+    // chain the saved-HLOD checksum folds; Content are the asset keys whose bytes the builder reads, registered or
+    // not (a height file): a registry GUID text, a "handle:<decimal>" asset handle, or a project path.
+    struct HLODModuleInputs
+    {
+        std::string              Text;
+        std::vector<std::size_t> Placed;  // indices into the world's records
+        std::vector<std::string> Content; // asset keys
+    };
+
     struct HLODBuilderComponent
     {
         std::string_view Component;
         HLODExclusion    Reason = HLODExclusion::Unreadable;
+        // UE UHLODBuilder::ComputeHLODHash override: what this record's builder reads, from @p records[index] and
+        // the records it names (@p world indexed like @p records). Required: a row without it is refused at
+        // registration.
+        Common::ResultStr<HLODModuleInputs> ( *Inputs )( std::span<const Assets::EntityData> records,
+                                                         std::span<const glm::mat4>          world,
+                                                         std::size_t                         index ) = nullptr;
     };
 
     namespace Detail
@@ -145,6 +164,11 @@ namespace Desert::Core::Rules
 
     inline void RegisterHLODBuilderComponent( const HLODBuilderComponent& row )
     {
+        // A row whose builder's inputs nobody states would leave its records out of every saved-HLOD checksum: a
+        // defect of the registering module's code, stopped by name at its StartupModule.
+        DESERT_VERIFY( row.Inputs != nullptr,
+                       "HLOD builder component '{}' registers no Inputs: its records' HLODs could never go stale",
+                       row.Component );
         for ( const HLODBuilderComponent& known : Detail::HLODBuilderComponentList() )
             if ( known.Component == row.Component )
                 return;
@@ -246,165 +270,6 @@ namespace Desert::Core::Rules
             return visible;
         }
     } // namespace Detail
-
-    // THE INSTANCING HLOD of the records @p members (one cell's, in ResidencyUnitMembers order). @p world is
-    // every record's world matrix (Detail::ComposeWorld over the whole file, indexed like @p records).
-    [[nodiscard]] inline InstancingHLOD
-    BuildInstancingHLOD( std::span<const Assets::EntityData> records, std::span<const glm::mat4> world,
-                         std::span<const std::size_t> members, const CustomShaderSource& customShader,
-                         Common::Json::Issues& issues, const FoliageHLODSource& foliage = {} )
-    {
-        InstancingHLOD                     hlod;
-        std::map<std::string, std::size_t> batchOf; // canonical text of the batch key -> index into Batches
-
-        const auto add = [&]( Assets::InstancedStaticMeshComponentSer key, std::size_t record,
-                              std::vector<std::array<float, 16>> instances )
-        {
-            if ( instances.empty() )
-                return;
-            key.InstanceTransforms.reset();
-            const std::string text    = Common::Json::Write( key );
-            const auto [where, fresh] = batchOf.emplace( text, hlod.Batches.size() );
-            if ( fresh )
-            {
-                HLODBatch batch;
-                batch.Block                    = std::move( key );
-                batch.Block.InstanceTransforms = std::vector<std::array<float, 16>>{};
-                hlod.Batches.push_back( std::move( batch ) );
-            }
-            HLODBatch& batch = hlod.Batches[where->second];
-            if ( batch.Sources.empty() || batch.Sources.back() != record )
-                batch.Sources.push_back( record );
-            hlod.Instances += instances.size();
-            batch.Block.InstanceTransforms->insert( batch.Block.InstanceTransforms->end(), instances.begin(),
-                                                    instances.end() );
-        };
-
-        for ( const std::size_t index : members )
-        {
-            const Assets::EntityData& record = records[index];
-            if ( !Detail::AuthoredVisible( record, issues ) )
-                continue;
-
-            // FO-6: a foliage field whose type is left out of the HLOD (UE bIncludeInHLOD false).
-            if ( const auto type = Detail::PayloadOf( record, kFoliageComponent ); type.has_value() && foliage )
-            {
-                std::string guid;
-                std::string path;
-                type->ReadInto( "FoliageTypeGuid", guid, issues );
-                type->ReadInto( "FoliageTypePath", path, issues );
-                const auto included = foliage( guid, path );
-                if ( !included )
-                {
-                    hlod.NotInstanced.push_back( { index, HLODExclusion::Unreadable } );
-                    continue;
-                }
-                if ( !included.GetValue() )
-                {
-                    hlod.FoliageLeftOut++;
-                    continue;
-                }
-            }
-
-            // A prefab instance never reaches here: the cook, Build HLODs and Play all build from the world
-            // ExpandPrefabInstances made (WP21, WP21-PLAY). One that does is a caller that skipped the expansion -
-            // named, not turned into a hole.
-            if ( record.PrefabPath.has_value() && !record.PrefabPath->empty() )
-            {
-                issues.push_back( Common::Json::Issue{
-                     record.id.has_value()
-                          ? std::format( "Entities[id={}]", static_cast<std::uint64_t>( *record.id ) )
-                          : std::format( "Entities[{}]", index ),
-                     "a record of an expanded world (ExpandPrefabInstances)",
-                     "an unexpanded instance of '" + *record.PrefabPath + "'" } );
-                continue;
-            }
-            // A record its module's own HLOD builder draws (HLODBuilderComponents: a tile's terrain from its
-            // height file, a spline's meshes bent along it), not a mesh block (the reasons above).
-            const HLODBuilderComponent* ownBuilder = nullptr;
-            for ( const HLODBuilderComponent& row : HLODBuilderComponents() )
-                if ( Detail::PayloadOf( record, row.Component ).has_value() )
-                {
-                    ownBuilder = &row;
-                    break;
-                }
-            if ( ownBuilder != nullptr )
-            {
-                hlod.NotInstanced.push_back( { index, ownBuilder->Reason } );
-                continue;
-            }
-            if ( Detail::PayloadOf( record, kSkinnedMeshComponent ).has_value() )
-                hlod.NotInstanced.push_back( { index, HLODExclusion::SkinnedMesh } );
-
-            if ( const auto block = Detail::PayloadOf( record, kPrimitiveComponent ); block.has_value() )
-            {
-                Assets::StaticMeshComponentSer mesh;
-                const std::size_t              before = issues.size();
-                block->ReadValue( mesh, issues );
-                if ( issues.size() != before )
-                    hlod.NotInstanced.push_back( { index, HLODExclusion::Unreadable } );
-                else if ( mesh.EditMesh.has_value() )
-                    hlod.NotInstanced.push_back( { index, HLODExclusion::EditorMesh } );
-                else if ( mesh.HiddenSubmeshes.value_or( 0 ) != 0 )
-                    hlod.NotInstanced.push_back( { index, HLODExclusion::HiddenSubmeshes } );
-                else if ( ( mesh.MeshHandle.has_value() &&
-                            ( !mesh.MeshHandle->Guid.empty() || !mesh.MeshHandle->Path.empty() ) ) ||
-                          mesh.Primitive.has_value() )
-                {
-                    // The Static Mesh states {Guid, Path} pairs (asset references v1); the instanced key keeps
-                    // its own GUID / path fields.
-                    Assets::InstancedStaticMeshComponentSer key;
-                    if ( mesh.MeshHandle.has_value() && !mesh.MeshHandle->Guid.empty() )
-                        key.MeshGuid = mesh.MeshHandle->Guid;
-                    if ( mesh.MeshHandle.has_value() && !mesh.MeshHandle->Path.empty() )
-                        key.MeshPath = mesh.MeshHandle->Path;
-                    if ( mesh.MaterialSlots.has_value() && !mesh.MaterialSlots->empty() )
-                    {
-                        key.MaterialGuids = std::vector<std::string>{};
-                        key.MaterialPaths = std::vector<std::string>{};
-                        for ( const Assets::AssetGuidRef& slot : *mesh.MaterialSlots )
-                        {
-                            key.MaterialGuids->push_back( slot.Guid );
-                            key.MaterialPaths->push_back( slot.Path );
-                        }
-                    }
-                    key.Primitive     = mesh.Primitive;
-                    // Absent = true on both sides; written only when false, as the registry writes it.
-                    if ( !mesh.CastShadows.value_or( true ) )
-                        key.CastShadows = false;
-                    if ( Detail::DrawsOnlyWithCustomShaders( key, customShader ) )
-                        hlod.NotInstanced.push_back( { index, HLODExclusion::CustomShaderMaterial } );
-                    else
-                        add( std::move( key ), index, { Detail::Flatten( world[index] ) } );
-                }
-            }
-
-            if ( const auto block = Detail::PayloadOf( record, kInstancePointsComponent ); block.has_value() )
-            {
-                Assets::InstancedStaticMeshComponentSer ism;
-                const std::size_t                       before = issues.size();
-                block->ReadValue( ism, issues );
-                if ( issues.size() != before )
-                {
-                    hlod.NotInstanced.push_back( { index, HLODExclusion::Unreadable } );
-                    continue;
-                }
-                if ( !ism.MeshGuid.has_value() && !ism.MeshPath.has_value() && !ism.Primitive.has_value() )
-                    continue;
-                std::vector<std::array<float, 16>> instances =
-                     ism.InstanceTransforms.value_or( std::vector<std::array<float, 16>>{} );
-                if ( ism.CastShadows.value_or( true ) )
-                    ism.CastShadows.reset();
-                if ( Detail::DrawsOnlyWithCustomShaders( ism, customShader ) )
-                {
-                    hlod.NotInstanced.push_back( { index, HLODExclusion::CustomShaderMaterial } );
-                    continue;
-                }
-                add( std::move( ism ), index, std::move( instances ) );
-            }
-        }
-        return hlod;
-    }
 
     // ── HLOD LAYERS (WP-FAR-7) ───────────────────────────────────────────────────────────────────────
 

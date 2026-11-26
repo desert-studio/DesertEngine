@@ -35,8 +35,9 @@ namespace Desert::Editor
         void OnUIRender() override;
 
         // Tools > Check World Partition (WP-MAP-CHECK; UE Map Check of a World Partition world): the findings of
-        // WorldCells::CheckWorldPartition over the world as the editor holds it (EditorRegions::HeldWorld), listed
-        // here, a click selecting the record each one is about.
+        // WorldCells::CheckWorldPartition over the world as the editor holds it (EditorRegions::HeldWorld), its
+        // prefab instances expanded as the cook expands them (ExpandWorldForCook), listed here, a click selecting
+        // the record each one is about.
         Common::BoolResultStr CheckWorldPartition();
 
     private:

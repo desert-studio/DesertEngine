@@ -9,6 +9,7 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Serialize/EditorRegions.hpp>
+#include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 
 #include <ImGui/imgui.h>
@@ -119,10 +120,17 @@ namespace Desert::Editor
             ToastManager::Push( "Check World Partition: the scene is not a partitioned world", ToastLevel::Warning );
             return Common::MakeSuccess( true );
         }
+        // The world the cook cuts and Play streams: prefab instances expanded (WP21), so the check judges the
+        // records the HLODs are built from.
+        namespace WC = ::Desert::Core::WorldCells;
+        auto cut     = WC::ExpandWorldForCook( world, ::Desert::Core::Rules::DescribeEntities( world.Entities ),
+                                               WC::PrefabFileReader() );
+        if ( !cut )
+            return Common::MakeError( "Check World Partition: " + cut.GetError() );
         const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
-        auto       check      = ::Desert::Core::WorldCells::CheckWorldPartition(
-             world, ::Desert::Core::Rules::DescribeEntities( world.Entities ), registries,
-             m_Scene->Packages()->BaselinePath().value_or( std::filesystem::path() ) );
+        auto       check =
+             WC::CheckWorldPartition( cut.GetValue(), registries, ::Desert::Core::HLODBuilders(),
+                                      m_Scene->Packages()->BaselinePath().value_or( std::filesystem::path() ) );
         if ( !check )
             return Common::MakeError( "Check World Partition: " + check.GetError() );
         const ::Desert::Core::WorldCells::WorldPartitionCheck& checked = check.GetValue();
