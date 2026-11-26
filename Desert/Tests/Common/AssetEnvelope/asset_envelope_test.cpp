@@ -13,6 +13,7 @@
 #include <sstream>
 #include <vector>
 #include "../../TestSupport/scratch_dir.hpp"
+#include <Common/Content/ContentPaths.hpp>
 
 namespace
 {

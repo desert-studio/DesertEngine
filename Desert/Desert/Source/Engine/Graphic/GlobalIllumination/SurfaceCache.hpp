@@ -11,7 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 // THE SURFACE CACHE — the interface (GI-CACHE-IFACE; owner 10-15 "surface cache — БЕРЁМ"). Port of UE Lumen's
 // Lumen Scene: LumenSceneData.h (FLumenCard, FLumenMeshCards), LumenSurfaceCache.cpp (atlases), MeshCardBuild /

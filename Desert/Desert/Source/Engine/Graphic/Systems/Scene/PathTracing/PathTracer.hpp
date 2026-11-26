@@ -46,7 +46,7 @@
 #include <utility>
 #include <vector>
 #include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Graphic::System
 {

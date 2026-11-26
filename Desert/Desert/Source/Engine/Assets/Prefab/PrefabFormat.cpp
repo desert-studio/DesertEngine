@@ -1,5 +1,7 @@
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 

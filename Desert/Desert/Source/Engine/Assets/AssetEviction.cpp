@@ -18,6 +18,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <Common/Json/Document.hpp>
 
 namespace Desert::Assets
 {

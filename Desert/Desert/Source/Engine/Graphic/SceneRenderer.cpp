@@ -80,7 +80,7 @@
 #include <Engine/Runtime/Services/Lights/RectLightLtcService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Core/WorldTime.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Graphic
 {

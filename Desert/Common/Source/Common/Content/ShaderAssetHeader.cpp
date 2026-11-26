@@ -1,5 +1,7 @@
 #include "ShaderAssetHeader.hpp"
 
+#include <Common/Content/AssetEnvelope.hpp>
+
 #include <Common/Json/Json.hpp>
 
 #include <algorithm>

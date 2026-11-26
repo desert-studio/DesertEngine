@@ -1,6 +1,6 @@
 #include <Common/Content/AssetMove.hpp>
 
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Content/ExternalEntitiesFolder.hpp>
 #include <Common/Core/AssetHandle.hpp>

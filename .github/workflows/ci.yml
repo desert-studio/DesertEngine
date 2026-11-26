@@ -242,11 +242,64 @@ jobs:
       - name: clang-tidy the changed lines
         run: ./scripts/CI/CheckTidy.sh --shard "${{ matrix.shard }}/${{ needs.tidy-plan.outputs.shards }}" "${{ github.event.pull_request.base.sha || github.event.before }}"
 
+  # THE SAME SHARDS ON WINDOWS (STUDIO-AUDIT B-GATES): the MSVC compile lines of build/cmake/windows-msvc-ninja,
+  # read by clang-tidy in clang-cl driver mode, see what macOS never compiles (#ifdef _WIN32, DX12, WinSock).
+  # CheckTidy.sh picks the Windows tree by uname; LLVM 18 is pinned as on macOS (the verdict is release-bound).
+  tidy-windows:
+    name: clang-tidy Windows ${{ matrix.shard }}/${{ needs.tidy-plan.outputs.shards }}
+    # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it -- reports only.
+    continue-on-error: true
+    needs: [ tidy-plan ]
+    if: needs.tidy-plan.outputs.shards != '0'
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.tidy-plan.outputs.matrix) }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0 # merge-base needs history
+          filter: blob:none
+
+      - name: Restore Vulkan SDK
+        id: vulkan-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: C:\VulkanSDK
+          key: vulkan-sdk-${{ env.VULKAN_SDK_VERSION }}-debuglibs-loader
+
+      - name: Ensure Vulkan SDK
+        shell: pwsh
+        run: ./scripts/CI/EnsureVulkanSdk.ps1 -Version ${{ env.VULKAN_SDK_VERSION }}
+
+      - name: MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup dependencies
+        shell: cmd
+        run: scripts\Windows\Setup.bat
+
+      - name: Install clang-tidy 18
+        shell: pwsh
+        run: choco install llvm --version=18.1.8 -y --no-progress
+
+      - name: clang-tidy the changed lines
+        shell: bash
+        env:
+          DESERT_CLANG_TIDY: C:/Program Files/LLVM/bin/clang-tidy.exe
+        run: ./scripts/CI/CheckTidy.sh --shard "${{ matrix.shard }}/${{ needs.tidy-plan.outputs.shards }}" "${{ github.event.pull_request.base.sha || github.event.before }}"
+
   tidy-verdict:
     name: clang-tidy (changed lines)
     # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it -- reports only.
     continue-on-error: true
-    needs: [ tidy-plan, tidy ]
+    needs: [ tidy-plan, tidy, tidy-windows ]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -258,15 +311,18 @@ jobs:
           PLAN: ${{ needs.tidy-plan.result }}
           SHARDS: ${{ needs.tidy-plan.outputs.shards }}
           TIDY: ${{ needs.tidy.result }}
+          TIDY_WINDOWS: ${{ needs.tidy-windows.result }}
         run: |
-          echo "plan: $PLAN (shards: ${SHARDS:-?}), shards: $TIDY"
+          echo "plan: $PLAN (shards: ${SHARDS:-?}), shards: macOS $TIDY, Windows $TIDY_WINDOWS"
           [ "$PLAN" = success ] || { echo "::error::the clang-tidy plan ended '$PLAN'"; exit 1; }
           if [ "$SHARDS" = 0 ]; then
             [ "$TIDY" = skipped ] || { echo "::error::no C++ changed, yet the shards ended '$TIDY'"; exit 1; }
+            [ "$TIDY_WINDOWS" = skipped ] || { echo "::error::no C++ changed, yet the Windows shards ended '$TIDY_WINDOWS'"; exit 1; }
             echo "no C++ files changed — nothing to analyse"
             exit 0
           fi
           [ "$TIDY" = success ] || { echo "::error::a clang-tidy shard ended '$TIDY'"; exit 1; }
+          [ "$TIDY_WINDOWS" = success ] || { echo "::error::a Windows clang-tidy shard ended '$TIDY_WINDOWS'"; exit 1; }
 
   # Dynamic checks: the whole workspace builds with ASan+UBSan (CMake takes env CXXFLAGS/OBJCXXFLAGS/
   # LDFLAGS as the initial flags of a FRESH build tree -- this job's checkout has none) and the full
@@ -837,6 +893,12 @@ jobs:
           CCACHE_DIR: ${{ runner.temp }}/ccache
         run: ./scripts/MacOS/BuildMacOS.sh ${{ matrix.config }} ${{ matrix.projects }}
 
+      # THE ARCHITECTURE RATCHET (STUDIO-AUDIT C4): code and #include rules, and with --build the build-cost rules
+      # (header-fanout against scripts/Dev/header_fanout_budget.txt, tu-time, duplicate-compile) over the tree this
+      # job just built. Exit 2 = a rise; the place and the rule's reason are printed.
+      - name: Architecture census
+        run: python3 scripts/Dev/arch_census.py --build build/cmake/macos-clang-ninja --config ${{ matrix.config }}
+
       # After the build and before the tests, `always()`, `continue-on-error` — see the sanitizers job.
       - name: Save ccache
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
@@ -1291,6 +1353,13 @@ jobs:
         run: |
           "%CCACHE_EXE%" --zero-stats || exit /b 1
           scripts\Windows\BuildWindows.bat ${{ matrix.config }} --no-tests --launcher "%CCACHE_EXE%"
+
+      # THE ARCHITECTURE RATCHET (STUDIO-AUDIT C4): code and #include rules, and with --build the build-cost rules
+      # (header-fanout against scripts/Dev/header_fanout_budget.txt, tu-time, duplicate-compile) over the tree this
+      # job just built. Exit 2 = a rise; the place and the rule's reason are printed.
+      - name: Architecture census
+        shell: bash
+        run: python scripts/Dev/arch_census.py --build build/cmake/windows-msvc-ninja-unity --config ${{ matrix.config }}
 
       # Right after the build, `always()`: a build cancelled at the ceiling still leaves every object
       # it finished, and that is what lets the next run get past the point this one stopped at. The
@@ -1845,6 +1914,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive # the server configure reads cmake/ThirdParty/*.cmake, which fail on an empty submodule
+
+      # Code and #include rules only: the Linux objects are compiled inside the image, whose tree is not kept.
+      - name: Architecture census
+        run: python3 scripts/Dev/arch_census.py
 
       - name: Build the image
         run: docker build --platform linux/amd64 -f Server/Dockerfile -t desert-server .

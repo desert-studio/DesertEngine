@@ -1,6 +1,7 @@
 // TextTemplate: the Jinja-shaped text template engine in Common/Json/Template (TPL1). One test per construct, the
 // whitespace-control rules byte for byte, every error kind with its name:line:col, include, nesting depth
 // and a large template as an upper time bound (a guard, not a benchmark).
+#include <Common/Json/Document.hpp>
 #include <Common/Json/Template.hpp>
 
 #include <gtest/gtest.h>

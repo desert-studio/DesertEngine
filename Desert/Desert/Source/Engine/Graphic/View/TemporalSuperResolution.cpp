@@ -16,7 +16,7 @@
 #include <format>
 #include <set>
 #include <span>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Graphic
 {

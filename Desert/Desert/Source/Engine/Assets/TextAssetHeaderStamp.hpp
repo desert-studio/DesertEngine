@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Common/Content/TextAssetHeader.hpp>
+#include <Common/Content/ContentFwd.hpp>
+#include <Common/Content/SubsystemVersion.hpp>
 
 #include <cstdint>
 #include <optional>

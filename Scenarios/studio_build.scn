@@ -63,3 +63,18 @@
 #   <project>/Saved/Crashes or %LOCALAPPDATA%/DesertEngine/Crashes; `bash scripts/Dev/sym.sh --dump <that crash.dmp>`
 #   fetches win-<SHA7> symbols (python scripts/Dev/artifacts.py fetch win-<SHA7> ... --symbols) and prints a stack
 #   with function names (module DLL PDBs in Development); the artifact win-<SHA7> carries Editor.pdb in its -symbols.zip.
+#
+# B-HEADERS / C-CENSUS / B-GATES rows, on the same build (build/cmake/win-dev):
+# [census_rules] python scripts/Dev/arch_census.py --build build/cmake/win-dev -> prints 20 rules, exit 0;
+#              python scripts/Dev/arch_census.py --list include-cycle -> no place beyond the baseline's 4.
+# [header_fanout] header-fanout lines of that run: ContentKinds.hpp <= 540, ContentPaths.hpp <= 290, AssetEnvelope.hpp
+#              <= 490, Document.hpp <= 470, AssetGuidRef.hpp <= 590, TextTemplate.hpp <= 230, rfl/Object.hpp <= 650
+#              objects (scripts/Dev/header_fanout_budget.txt). touch ContentPaths.hpp + build -> .ninja_log <= 290 obj.
+# [gate]       a commit adding #include <rflcpp/rfl.hpp> to ContentKinds.hpp -> census exit 2 locally (header-fanout
+#              ContentKinds.hpp over 540) and the 'Architecture census' step red on macOS and Windows CI.
+# [build_cost] configure with -DDESERT_TIME_TRACE=ON, build, then python scripts/Dev/build_cost.py --build <tree>
+#              --log <build output> -> the slowest objects, the /Bt+ front/back-end tables, the /d2cgsummary
+#              functions, and TOTAL_TOP_SECONDS.
+# [0_smoke]    in the editor (below, the only played step): the headers split changed no behaviour - assets load by kind and path as on dev.
+Дано state
+Тогда 0_smoke Редактор открыл проект как на dev: сцена, Content Browser с ассетами по папкам, без падения и диалога ошибки; в editor.log нет отказа загрузки ассета или заголовка

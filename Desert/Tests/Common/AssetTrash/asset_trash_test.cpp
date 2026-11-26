@@ -3,7 +3,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/AssetTrash.hpp>
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Content/ImportRecord.hpp>
 #include <Common/Core/AssetHandle.hpp>

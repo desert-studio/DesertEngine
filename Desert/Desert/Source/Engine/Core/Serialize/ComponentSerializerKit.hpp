@@ -90,7 +90,7 @@
 #include <Engine/World/Partition/AlwaysLoadedComponent.hpp>
 #include <UI/Args/UIImageArgs.hpp>
 #include <Common/Json/ReadWrite.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 #include <Engine/Core/Serialize/BuiltinComponentSerializers.hpp>
 

@@ -31,7 +31,7 @@
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 #include <Engine/Assets/Serialization/EnvironmentStaging.hpp>
 
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>
 

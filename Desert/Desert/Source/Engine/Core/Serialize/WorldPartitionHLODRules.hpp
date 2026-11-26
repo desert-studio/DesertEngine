@@ -87,7 +87,7 @@
 #include <vector>
 #include <Common/Core/Core.hpp>
 #include <Common/Json/ReadWrite.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Core::Rules
 {

@@ -1,6 +1,7 @@
 #include <Common/Json/Template.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
 #include <Common/Core/AssetHandle.hpp>

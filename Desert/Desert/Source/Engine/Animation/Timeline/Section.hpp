@@ -30,7 +30,7 @@
 #include <Engine/Animation/Timeline/Binding.hpp>
 #include <Engine/Animation/Timeline/Channel.hpp>
 
-#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetGuid.hpp>
 
 #include <cstdint>
 #include <optional>

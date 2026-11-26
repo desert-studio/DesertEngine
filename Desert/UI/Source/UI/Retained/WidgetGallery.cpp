@@ -10,7 +10,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::UI
 {

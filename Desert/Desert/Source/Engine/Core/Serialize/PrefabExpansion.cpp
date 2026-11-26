@@ -27,7 +27,7 @@
 #include <string>
 #include <unordered_set>
 #include <utility>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Core::WorldCells
 {

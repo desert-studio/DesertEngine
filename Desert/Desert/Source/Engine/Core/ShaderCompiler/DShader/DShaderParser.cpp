@@ -20,6 +20,7 @@
 #include <sstream>
 #include <string_view>
 #include <vector>
+#include <Common/Json/Document.hpp>
 
 namespace Desert::Core::Preprocess
 {

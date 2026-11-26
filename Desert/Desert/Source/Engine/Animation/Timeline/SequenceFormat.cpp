@@ -20,6 +20,7 @@
 
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Json/Json.hpp>

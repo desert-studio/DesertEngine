@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetGuid.hpp>
 
 #include <vector>
 #include <array>

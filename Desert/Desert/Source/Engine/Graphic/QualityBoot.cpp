@@ -15,7 +15,7 @@
 
 #include <format>
 #include <memory>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Graphic::QualityBoot
 {

@@ -18,7 +18,7 @@
 
 #include <Common/Content/ChunkSchemeSession.hpp>
 #include <Common/Content/ContentChunks.hpp>
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Content/ImportRecord.hpp>
 #include <Common/Core/AssetHandle.hpp>

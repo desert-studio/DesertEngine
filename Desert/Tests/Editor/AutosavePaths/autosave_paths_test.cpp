@@ -5,6 +5,7 @@
 // These tests hold the relation that ends it — every recovery copy is OUTSIDE the assets root, under the
 // project's Saved/ — and the round trip recovery depends on: copy -> the scene it stands for.
 #include <Editor/Core/AutosavePaths.hpp>
+#include <Common/Content/SubsystemVersion.hpp>
 
 #include <gtest/gtest.h>
 

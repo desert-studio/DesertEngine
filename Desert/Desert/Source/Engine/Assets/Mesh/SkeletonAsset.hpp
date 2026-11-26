@@ -5,7 +5,8 @@
 
 #include <Engine/Animation/Skeleton.hpp>
 
-#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetGuid.hpp>
+#include <Common/Core/ResultStr.hpp>
 
 #include <span>
 #include <vector>

@@ -17,6 +17,7 @@
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 
 #include <Common/Json/Json.hpp>
+#include <Common/Content/ContentKinds.hpp>
 
 #include <gtest/gtest.h>
 

@@ -1,6 +1,7 @@
 #pragma once
 
-#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetGuid.hpp>
+#include <Common/Core/ResultStr.hpp>
 #include <Common/Json/Document.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
 

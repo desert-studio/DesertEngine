@@ -25,7 +25,7 @@
 //   * a second extension map in the panel, answering the question the chain answers;
 //   * a painted producer that stops producing, or starts producing a uniform square.
 
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 
 #include <Editor/Widgets/CloudThumbnail.hpp>
 #include <Editor/Widgets/ThumbnailFormats.hpp>
