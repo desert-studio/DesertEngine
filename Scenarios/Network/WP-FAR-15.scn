@@ -26,13 +26,18 @@
 #       "left: 700 m past 625 m" and Destroy NotRelevant; back at 480 m -> one Spawn.
 # Когда: B stops for 5 s, then walks.
 # Тогда [far15_dormant] far15/dormant.png: the server log "pawn <B> dormant" and the counter "dormant 1"; B's entries
-#       go every 60 steps (A's log "period 60 (1 Hz)"); A's frame: B stands with no drift; on B's first moving step
-#       A's log shows "period 2" again within <= 2 steps.
-# Когда: the budget is lowered to 2048 B/s (platform layer Config/Mac/Engine.json in the runner's working copy,
-#       Net.BudgetBytesPerSecond), 8 bots at 20-40 m.
+#       leave every 60 steps but carry the period of B's band (A's log "period 2"; B's delay in A's log does not
+#       grow while B stands - review 11-26: a period of 60 in the entry drove the client's delay up to 2 s); A's
+#       frame: B stands with no drift; on B's first moving step B walks with no lag and no jump (A's log: B's delay
+#       is the same as before the stop).
+# Когда: the budget is lowered to 2048 B/s (platform layer Config/<Platform>/Engine.json in the runner's working
+#       copy - Config/Mac/Engine.json on macOS, Config/Windows/Engine.json on Windows - Net.BudgetBytesPerSecond),
+#       8 bots at 20-40 m.
 # Тогда [far15_budget] far15/budget.png: the server starts (validation passed) and its "[Server]" line shows
 #       "deferred > 0"; A's log - the nearest bot still "period 2", the farthest of the eight skip snapshots; all 8
 #       players are visible in A's frame; with Bands of descending ToCm in the same file the server refuses to start
-#       with the text of ValidateRelevancySettings (exit code 7).
+#       with the text of ValidateNetSettings (exit code 7). None of the eight starves: each gets an entry at least
+#       once a second (A's log for every bot - "period" <= 60; review 11-26: with no "Sent" record for a bot not yet
+#       sent, its priority did not grow).
 # Numbers that must agree: 300 m -> period 10; 20 m -> period 2; exit only past 625 m; C's delay = 2 x 167 ms +
 # jitter ~ 0.35-0.50 s; 0 snap; server step <= 16.6 ms with 8 bots.

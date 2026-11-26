@@ -4,7 +4,9 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 
+#include <Common/Core/SimulationStep.hpp>
 #include <Projects/EngineConfig.hpp>
+#include <Projects/NetSettings.hpp>
 #include <Projects/ProjectContext.hpp>
 
 #include <algorithm>
@@ -12,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cfloat>
 #include <filesystem>
 #include <format>
 #include <string_view>
@@ -72,6 +75,14 @@ namespace Desert::Editor
             m_EditWorldPartition = ::Desert::Project::ProjectWorldPartitionSettings();
             m_EditNet            = ::Desert::Project::ProjectNetSettings();
             m_Problem.clear();
+            // A Net section the server would refuse is reported as soon as the panel shows it, not at the next
+            // edit: the project layer first, then what this platform's layer makes of it.
+            if ( const auto invalid = ::Desert::Project::ValidateNetSettings( m_EditNet ) )
+                m_Problem = std::format( "the project's Net section is refused: {}", *invalid );
+            else if ( const auto effective =
+                           ::Desert::Project::ValidateNetSettings( ::Desert::Project::CurrentNetSettings() ) )
+                m_Problem = std::format( "the Net section with {}'s layer is refused: {}",
+                                         ::Desert::Project::PlatformConfigName(), *effective );
         }
 
         ImGui::TextDisabled( "%s",
@@ -420,6 +431,15 @@ namespace Desert::Editor
                 CommitNet();
         };
         const std::uint32_t step = 1;
+        // Steps shown as a rate: the server runs at Common::kSimulationStepHz.
+        const auto hz = []( std::uint32_t everySteps )
+        {
+            if ( everySteps == 0 )
+                ImGui::TextDisabled( "-" );
+            else
+                ImGui::TextDisabled( "%s",
+                                     std::format( "{:.3g} Hz", Common::kSimulationStepHz / everySteps ).c_str() );
+        };
 
         Utils::ImGuiUtilities::ResetPropertyRows();
         Utils::ImGuiUtilities::BeginPropertyRow(
@@ -429,10 +449,12 @@ namespace Desert::Editor
              "everything farther, and the first band's period is the snapshot cadence." );
         bool       removeBand = false;
         std::size_t removeAt  = 0;
-        if ( ImGui::BeginTable( "##NetBands", 3, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp ) )
+        if ( ImGui::BeginTable( "##NetBands", 4,
+                                ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp ) )
         {
             ImGui::TableSetupColumn( "To (cm)" );
             ImGui::TableSetupColumn( "Every (steps)" );
+            ImGui::TableSetupColumn( "Rate", ImGuiTableColumnFlags_WidthFixed );
             ImGui::TableSetupColumn( "##Remove", ImGuiTableColumnFlags_WidthFixed );
             ImGui::TableHeadersRow();
             for ( std::size_t i = 0; i < edit.Bands.size(); ++i )
@@ -447,13 +469,15 @@ namespace Desert::Editor
                 else
                 {
                     ImGui::SetNextItemWidth( -FLT_MIN );
-                    ImGui::DragFloat( "##ToCm", &band.ToCm, 100.0f, 0.0f, edit.MaxViewRangeCm, "%.0f" );
+                    ImGui::DragFloat( "##ToCm", &band.ToCm, 100.0f, 0.0f, FLT_MAX, "%.0f" );
                     commitOnEdit();
                 }
                 ImGui::TableNextColumn();
                 ImGui::SetNextItemWidth( -FLT_MIN );
                 ImGui::InputScalar( "##EverySteps", ImGuiDataType_U32, &band.EverySteps, &step, &step );
                 commitOnEdit();
+                ImGui::TableNextColumn();
+                hz( band.EverySteps );
                 ImGui::TableNextColumn();
                 if ( edit.Bands.size() > 1 && ImGui::SmallButton( ICON_MDI_CLOSE ) )
                 {
@@ -479,33 +503,35 @@ namespace Desert::Editor
         }
         endRow( "Bands" );
 
-        Utils::ImGuiUtilities::BeginPropertyRow(
-             "Dormant Every (steps)",
-             "UE NetDormancy / MinNetUpdateFrequency: a pawn whose state has not changed since the connection last "
-             "received it is sent this often (>= the last band's period)." );
+        Utils::ImGuiUtilities::BeginPropertyRow( "Dormant Every (steps)",
+                                                 "UE NetDormancy / MinNetUpdateFrequency: a pawn whose state has "
+                                                 "not changed since the connection last "
+                                                 "received it is sent this often." );
         ImGui::InputScalar( "##DormantEverySteps", ImGuiDataType_U32, &edit.DormantEverySteps, &step, &step );
         commitOnEdit();
+        ImGui::SameLine();
+        hz( edit.DormantEverySteps );
         endRow( "DormantEverySteps" );
 
         Utils::ImGuiUtilities::BeginPropertyRow(
              "Pawn Cull Range (cm)",
              "UE NetCullDistance of the pawn: every connection sees pawns within this circle. A pawn leaves only "
              "past it widened by World Partition's Unload Margin." );
-        ImGui::DragFloat( "##PawnCullRangeCm", &edit.PawnCullRangeCm, 100.0f, 0.0f, edit.MaxViewRangeCm, "%.0f" );
+        ImGui::DragFloat( "##PawnCullRangeCm", &edit.PawnCullRangeCm, 100.0f, 0.0f, FLT_MAX, "%.0f" );
         commitOnEdit();
         endRow( "PawnCullRangeCm" );
 
         Utils::ImGuiUtilities::BeginPropertyRow(
              "Max View Range (cm)",
              "The farthest a client's reported view (its scope sector) may ask the server to replicate." );
-        ImGui::DragFloat( "##MaxViewRangeCm", &edit.MaxViewRangeCm, 100.0f, 0.0f, 1000000.0f, "%.0f" );
+        ImGui::DragFloat( "##MaxViewRangeCm", &edit.MaxViewRangeCm, 100.0f, 0.0f, FLT_MAX, "%.0f" );
         commitOnEdit();
         endRow( "MaxViewRangeCm" );
 
         Utils::ImGuiUtilities::BeginPropertyRow(
              "Budget (bytes/s)",
              "Pawn state written into snapshots per connection per second; due pawns beyond it wait, most overdue "
-             "and nearest first (>= 1024)." );
+             "and nearest first." );
         const std::uint32_t budgetStep = 1024;
         ImGui::InputScalar( "##BudgetBytesPerSecond", ImGuiDataType_U32, &edit.BudgetBytesPerSecond, &budgetStep,
                             &budgetStep );
@@ -515,10 +541,8 @@ namespace Desert::Editor
 
     void ProjectSettingsPanel::CommitNet()
     {
-        // SaveEngineConfig refuses with ValidateNetSettings' reason and leaves the file as it was.
-        ::Desert::Project::EngineConfig project = ::Desert::Project::CurrentEngineConfig().Project;
-        project.Net                             = m_EditNet;
-        const auto saved                        = ::Desert::Project::SaveEngineConfig( project );
+        // SaveNetSettings refuses with ValidateNetSettings' reason and leaves the file as it was.
+        const auto saved = ::Desert::Project::SaveNetSettings( m_EditNet );
         if ( saved )
             m_Problem.clear();
         else
