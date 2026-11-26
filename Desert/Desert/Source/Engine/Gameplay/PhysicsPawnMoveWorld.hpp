@@ -67,7 +67,7 @@ namespace Desert::Gameplay
         PhysicsPawnMoveWorld& operator=( const PhysicsPawnMoveWorld& ) = delete;
 
         Outcome Move( const PawnMoveState& from, const NetVec3& velocity, const PawnCapsule& capsule,
-                      float gravity, float dtSeconds ) override
+                      float gravity, float followFloorCm, float dtSeconds ) override
         {
             // The step's capsule (standing or crouched): the shape changes before the move, the feet stay.
             if ( ( capsule.Radius != m_Capsule.Radius || capsule.HalfHeight != m_Capsule.HalfHeight ) &&
@@ -83,7 +83,7 @@ namespace Desert::Gameplay
             // scene pawns (its own drawn capsule first: it overlaps the probe at every step) would push the
             // prediction off the server. A scene's own capsule meets the other characters too.
             m_World.UpdateCharacter( m_Character, { velocity.X, velocity.Y, velocity.Z }, gravity, dtSeconds,
-                                     m_Contacts );
+                                     m_Contacts, from.Grounded ? followFloorCm : 0.0f );
             const glm::vec3 end = m_World.GetCharacterPosition( m_Character );
             // The velocity after the walls: what the capsule actually travelled (UE: Velocity after the slide
             // is the moved delta over the step).
@@ -94,6 +94,8 @@ namespace Desert::Gameplay
             outcome.Grounded = m_World.IsCharacterOnGround( m_Character );
             return outcome;
         }
+
+        float Gravity() const override { return m_World.GetGravity(); }
 
         // A probe 1 cm smaller (radius and half height) than @p capsule, so the floor it stands on does not count
         // as an obstacle; a character's own capsule body is never found by the query.

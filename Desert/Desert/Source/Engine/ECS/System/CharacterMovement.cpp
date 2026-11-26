@@ -47,7 +47,7 @@ namespace Desert::ECS::CharacterMovement
             return;
         Gameplay::PawnMovement movement = Gameplay::PrefabMovement::ToPawnMovement( cc.Data );
         // The scene's gravity (Scene Settings), the one the world presses the floor's bodies with.
-        movement.Settings.Gravity = world.GetGravity() * cc.Data.GravityScale;
+        movement.Settings.GravityScale = cc.Data.GravityScale; // times the scene's (PhysicsPawnMoveWorld::Gravity)
 
         const Gameplay::PawnCapsule    capsule = Gameplay::CapsuleOf( movement.Settings, cc.IsCrouched );
         Gameplay::PhysicsPawnMoveWorld moveWorld( world, cc.RuntimeCharacter, capsule );

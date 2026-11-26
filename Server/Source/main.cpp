@@ -103,7 +103,9 @@ namespace Desert::Server
             ServerCollision collision;
             collision.Physics = std::make_unique<Physics::PhysicsWorld>();
             const Gameplay::PawnMoveSettings& movement = pawn.Settings;
-            if ( !collision.Physics->Init( movement.Gravity, std::move( profiles.GetValue() ) ) )
+            // The world's gravity is the cooked world's Scene Settings, set by ServerWorld::Begin (UE: the server's
+            // AWorldSettings::GlobalGravityZ, the one every side's CharacterMovement reads); none until then.
+            if ( !collision.Physics->Init( 0.0f, std::move( profiles.GetValue() ) ) )
                 return Common::MakeError<ServerCollision>( std::string( "the physics world did not initialise" ) );
             auto pawnMove = Gameplay::PhysicsPawnMoveWorld::Create( *collision.Physics, movement );
             if ( !pawnMove )

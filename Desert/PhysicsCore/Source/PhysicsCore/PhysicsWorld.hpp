@@ -374,8 +374,13 @@ namespace Desert::Physics
         // caller integrated into @p velocity (GetGravity() times its Gravity Scale, UE
         // UCharacterMovementComponent::GetGravityZ): Jolt presses the floor's bodies with that same value.
         // @p contacts: WorldOnly ignores every character's inner body (the client's own pawn capsule among them).
+        // @p followFloorCm > 0: the capsule stood on a walkable floor before this move (the caller's state, not
+        // the capsule's last contacts - a probe moves many pawns) and walks on: a move that leaves the floor
+        // without rising sticks back onto a walkable floor up to that far below (UE PhysWalking -> FindFloor,
+        // whose sweep reaches MaxStepHeight below a walking pawn; Jolt StickToFloor). 0: no floor following.
         void UpdateCharacter( CharacterHandle handle, const glm::vec3& velocity, float gravityCmPerS2, float dt,
-                              ECharacterContacts contacts = ECharacterContacts::WithCharacters );
+                              ECharacterContacts contacts      = ECharacterContacts::WithCharacters,
+                              float              followFloorCm = 0.0f );
         glm::vec3       GetCharacterPosition( CharacterHandle handle ) const; // capsule center
         /// The kinematic capsule body that follows the character (Jolt's CharacterVirtual inner body), in the
         /// character's profile: what a trigger sees of it, and the body its contact events name. Queries
