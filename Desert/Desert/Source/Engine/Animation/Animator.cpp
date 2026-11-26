@@ -88,11 +88,13 @@ namespace Desert::Animation
             }
             else
                 Graph::InterpolateBlendWeights( run.Weights, target, space.WeightSpeed, deltaTime );
-            // An unresolved sample has no length: it neither stretches nor shrinks the shared cycle.
+            // An unresolved sample has no length: it neither stretches nor shrinks the shared cycle. A sample's
+            // length is its clip's over its RateScale (UE FBlendSample::RateScale; > 0, BlendSpace1DError).
             std::vector<float> lengths( space.Samples.size(), 0.0F );
             for ( size_t i = 0; i < run.Clips.size() && i < lengths.size(); ++i )
                 if ( run.Clips[i] != nullptr )
-                    lengths[i] = static_cast<float>( run.Clips[i]->DurationSeconds() );
+                    lengths[i] =
+                         static_cast<float>( run.Clips[i]->DurationSeconds() ) / space.Samples[i].RateScale;
             run.Phase = Graph::AdvanceSyncedPhase( run.Phase, run.Weights, lengths, deltaTime, space.Loop );
         }
 
@@ -105,7 +107,7 @@ namespace Desert::Animation
                    std::equal( a.Space.Samples.begin(), a.Space.Samples.end(), b.Space.Samples.begin(),
                                b.Space.Samples.end(),
                                []( const Graph::BlendSample& x, const Graph::BlendSample& y )
-                               { return x.Clip == y.Clip && x.Value == y.Value; } );
+                               { return x.Clip == y.Clip && x.Value == y.Value && x.RateScale == y.RateScale; } );
         }
     } // namespace
 

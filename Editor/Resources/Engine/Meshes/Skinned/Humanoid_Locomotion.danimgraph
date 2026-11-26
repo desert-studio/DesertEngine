@@ -3,7 +3,7 @@
         "Kind": "AnimGraph",
         "Guid": "ebe752e8c0064ca198e19774936005c7",
         "Versions": {
-            "ANGR": 4
+            "ANGR": 5
         },
         "Dependencies": []
     },
@@ -63,15 +63,18 @@
                                 "Samples": [
                                     {
                                         "Clip": "Idle",
-                                        "Value": 0.0
+                                        "Value": 0.0,
+                                        "RateScale": 1.0
                                     },
                                     {
                                         "Clip": "Walk",
-                                        "Value": 300.0
+                                        "Value": 300.0,
+                                        "RateScale": 1.0
                                     },
                                     {
                                         "Clip": "Run",
-                                        "Value": 600.0
+                                        "Value": 600.0,
+                                        "RateScale": 1.0
                                     }
                                 ],
                                 "WeightSpeed": 4.0,

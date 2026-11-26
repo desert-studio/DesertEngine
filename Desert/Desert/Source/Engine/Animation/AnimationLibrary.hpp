@@ -179,6 +179,16 @@ namespace Desert::Animation
         /// entered later finds its clip resident, as the per-tick prefetch it replaces guaranteed.
         void RefreshEvicted( const AnimationLibrary& library, const MeshSkeletonIdentity& rig );
 
+        /// Every clip a binding holds, by asset handle (UE: the AnimBP's hard references keep its sequences
+        /// loaded). SceneAssetRoots marks them, so an eviction sweep never drops a clip a state can enter.
+        template <typename Visit>
+        void ForEachHeldClip( Visit&& visit ) const
+        {
+            for ( const Binding& binding : m_Bindings )
+                if ( binding.Asset )
+                    visit( binding.Asset->GetMetadata().Handle );
+        }
+
     private:
         void ResolveInto( Binding& binding, const AnimationLibrary& library, const MeshSkeletonIdentity& rig );
 

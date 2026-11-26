@@ -2,9 +2,11 @@
 # WP_Protocol names no Default Pawn (WP_Protocol.desce Settings.DefaultPawn empty -> PlayerStart.cpp SpawnDefaultPawn spawns
 # nothing, GetPlayerPawn() null, no "[Gameplay] local pawn" line) and has no PlayerStart: the run names Pawn_Player as the
 # level's Default Pawn through World Settings (as Details would) and plays from the editor camera (UE Play from Here).
+# PAWN-MANNEQUIN: Pawn_Player's Body is the Quaternius mannequin (Characters/Mannequin) driven by Mannequin_Locomotion
+# (Speed / IsFalling / IsCrouched from the CharacterController's movement state, LocomotionSystem the one publisher).
 # IMC_Default maps LeftShift -> IA_Sprint; the pawn's CharacterController names IA_Sprint as its Sprint Action, so the held key reaches the step as the Sprint bit.
 # editor.log prints "[Gameplay] local pawn (Gameplay::StepPawnMove): speed N cm/s, actions ..., capsule centre (x, y, z)" once a second: about 600 walking,
-# about 1000 sprinting, 300 crouched. [netgm_local_sprint] each frame is read against the last such line before its "[Shot] wrote": the
+# about 1000 sprinting, 150 crouched (UE MaxWalkSpeedCrouched; the mannequin's crouch walk is authored for it). [netgm_local_sprint] each frame is read against the last such line before its "[Shot] wrote": the
 # centre advances walk -> sprint (faster) -> walk again; crouch (W up: in place) -> crouch walk (advances) -> uncrouch (W and C up together:
 # the pawn stands up where the crouch walk left it, so netgm_uncrouch shows the scene as near as netgm_crouch_walk, not as netgm_crouch).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
@@ -19,10 +21,11 @@
 Когда advance 1.5
 Когда advance 1.5
 Тогда-вид netgm_local_walk the Spring Arm camera behind the capsule on the landscape, the pawn moved forward from the spawn; editor.log reads "local pawn (Gameplay::StepPawnMove): speed 600 cm/s, actions none, grounded, capsule centre (...)", the centre moving from line to line
+Тогда-вид pawn_mannequin_walk a human pawn in front of the Spring Arm camera - grey body, dark joints, head, arms, legs; it runs FACING the way it moves (its back to the camera, not its face, not its side); its feet touch the landscape, none sunk below it, none hanging above it; the legs in a jog cycle, no foot sliding visible to the eye; no capsule anywhere
 Когда input keydown - - leftshift
 Когда advance 1.5
 Когда advance 1.5
-Тогда-вид netgm_local_sprint the capsule is further along than in netgm_local_walk; editor.log reads "speed 1000 cm/s, actions IA_Sprint#1, grounded" after the walk lines, the centre moving about 1000 cm a line
+Тогда-вид netgm_local_sprint the same mannequin sprinting (long stride, arms pumping), further along than in netgm_local_walk; no capsule anywhere; editor.log reads "speed 1000 cm/s, actions IA_Sprint#1, grounded" after the walk lines, the centre moving about 1000 cm a line
 Когда input keyup - - leftshift
 Когда advance 1.0
 Тогда-вид netgm_local_walk_again editor.log is back to "speed 600 cm/s, actions none, grounded", the centre still advancing, about 600 cm a line
@@ -32,10 +35,11 @@
 Когда input keydown - - c
 Когда advance 0.5
 Тогда-вид netgm_crouch the body keeps its full height with its feet on the landscape - as many rows tall as in netgm_local_walk_again, its lowest row where the ground starts, nothing of it sunk into the ground (UE ACharacter: the mesh is lifted by the 28 cm half-height difference while the capsule shrinks); the Spring Arm camera rides the capsule's centre, 28 cm lower, so the body and the ground sit a little higher in the frame; editor.log reads ", crouched" with the centre where the walk stopped (W released) and 28 lower
+Тогда-вид pawn_mannequin_crouch the mannequin squats in place - pelvis visibly lower than in netgm_local_walk_again, knees bent - its feet ON the landscape: not sunk, not hanging (the 28 cm MeshLift)
 Когда input keydown - - w
 Когда advance 1.5
-Тогда-вид netgm_crouch_walk the crouched pawn moved forward, its body whole with its feet on the ground; editor.log reads "speed 300 cm/s, actions IA_Crouch#2, grounded, crouched", the centre advancing about 300 cm a line
+Тогда-вид netgm_crouch_walk the crouched mannequin walks forward in a crouch step, facing its walk, its feet on the ground; editor.log reads "speed 150 cm/s, actions IA_Crouch#2, grounded, crouched", the centre advancing about 150 cm a line
 Когда input keyup - - w
 Когда input keyup - - c
 Когда advance 1.0
-Тогда-вид netgm_uncrouch the capsule stands again at full height; editor.log no longer reads "crouched"; the centre where netgm_crouch_walk left it, only higher (it stands up in place)
+Тогда-вид netgm_uncrouch the mannequin stands again at full height, its feet on the ground; editor.log no longer reads "crouched"; the centre where netgm_crouch_walk left it, only higher (it stands up in place)

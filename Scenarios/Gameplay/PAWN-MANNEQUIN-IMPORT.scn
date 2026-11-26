@@ -1,0 +1,15 @@
+# PAWN-MANNEQUIN-IMPORT: import the Quaternius Universal Animation Library mannequin (CC0, Characters/Mannequin/Mannequin.glb,
+# 6 671 104 B: one mesh, 2 primitives M_Main + M_Joints, 53 bones, 46 clips), imported once through the Import Options
+# window as DISPLACE-IMPORT does; this run proves the committed result. The scene is not saved.
+# The import was run once (11-26) and its outputs are committed content in Characters/Mannequin: Mannequin.glb.deimport,
+# Mannequin.skeleton (GUID d350f6f4...), Mannequin.skmesh (b358cba8...) and the 10 clips the pawn and its successors
+# use (Idle/Walk/Jog_Fwd/Sprint/Crouch_Idle/Crouch_Fwd/Swim_Idle _Loop, Jump_Start/Loop/Land; 36 MB with the glb - the
+# design caps the folder at 30 MB of clips). Mannequin_Locomotion.danimgraph (TargetSkeleton = the .skeleton GUID) and
+# Pawn_Player.deprefab's Body (MeshGuid = the .skmesh GUID) are authored content. The pawn's materials are
+# M_Mannequin + M_Mannequin_Joints; the import's own M_Main / M_Joints .demat were not kept.
+# With the .deimport present a drop places the committed mesh without the Import Options window (the source is
+# already imported). [pawn_mannequin_placed] after the run `git status Projects/Desert/Content/Characters/Mannequin`
+# is clean: placing the committed mannequin rewrites none of its files.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Когда run Assets "Drop into the viewport: Characters/Mannequin/Mannequin.glb"
+Тогда-вид pawn_mannequin_placed the mannequin placed in the viewport, standing at full height (about 183 cm against the editor grid), grey body (M_Mannequin, albedo 0.42) with dark-grey joints (M_Mannequin_Joints, albedo 0.12), no Import Options window; editor.log 0 import errors

@@ -86,6 +86,9 @@ namespace Desert::Libraries
         FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "isOnGround" ) )
         static bool IsOnGround( ECS::Entity entity );
 
+        // The swim INTENT (UE: SetMovementMode(MOVE_Swimming) on the authority): the next CharacterMovement::Step
+        // reads it as its starting mode and ApplyMoveState writes back what the step decided. A net pawn's mode
+        // is the predictor's / the server's, so the intent reaches it through the server, not this call.
         FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "setSwimming" ) )
         static void SetSwimming( ECS::Entity entity, bool swimming );
 

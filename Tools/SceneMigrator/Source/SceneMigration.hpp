@@ -1085,6 +1085,13 @@ namespace Desert::Migration
     // ANGR 2, or whose body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateAnimGraphV2ToV3( const std::string& text );
 
+    // The ANGR 5 text of an ANGR 4 `.danimgraph` (PAWN-MANNEQUIN): every Blend Space 1D sample - of a node's
+    // BlendSpace and of a state's BlendSpace.Space, in the graph and every layer graph - states RateScale 1.0 (UE
+    // FBlendSample::RateScale: the clip plays at its own rate, as every ANGR 4 sample did). Re-read and re-written
+    // by the engine's own reader and writer. A file that does not state ANGR 4 is an error naming what it states.
+    // PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateAnimGraphV4ToV5( const std::string& text );
+
     // The current VFXS text of a VFXS 1 .. 5 `.dfx`: one step per generation, each on the UNTYPED body (no step
     // reads a typed struct of a later layout), then the engine's reader, validator and writer (current header,
     // GUID kept, Dependencies stamped from the stacks).

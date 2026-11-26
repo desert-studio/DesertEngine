@@ -1,0 +1,203 @@
+{
+    "Header": {
+        "Kind": "AnimGraph",
+        "Guid": "d8b10d8894994f29b2ae8a5b595cd531",
+        "Versions": {
+            "ANGR": 5
+        },
+        "Dependencies": []
+    },
+    "Name": "Mannequin_Locomotion",
+    "TargetSkeleton": {
+        "Guid": "d350f6f47bba6d96ba10759cab6e15ea",
+        "Path": "assets:Characters/Mannequin/Mannequin.skeleton"
+    },
+    "Parameters": [
+        {
+            "Name": "Speed",
+            "Type": 2,
+            "Default": 0.0
+        },
+        {
+            "Name": "IsFalling",
+            "Type": 0,
+            "Default": 0.0
+        },
+        {
+            "Name": "IsCrouched",
+            "Type": 0,
+            "Default": 0.0
+        }
+    ],
+    "Nodes": [
+        {
+            "Name": "Locomotion",
+            "Kind": 0,
+            "PoseInputs": [],
+            "ParameterInputs": [],
+            "Machine": {
+                "Entry": "Locomotion",
+                "States": [
+                    {
+                        "Name": "Locomotion",
+                        "Clip": "",
+                        "Loop": true,
+                        "Speed": 1.0,
+                        "X": 0.0,
+                        "Y": 0.0,
+                        "Transitions": [
+                            {
+                                "To": "Crouch",
+                                "Blend": 0.2,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "IsCrouched",
+                                        "Op": 6,
+                                        "Value": 0.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            },
+                            {
+                                "To": "Jump",
+                                "Blend": 0.1,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "IsFalling",
+                                        "Op": 6,
+                                        "Value": 0.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            }
+                        ],
+                        "BlendSpace": {
+                            "Axis": "Speed",
+                            "Space": {
+                                "Samples": [
+                                    {
+                                        "Clip": "Idle_Loop",
+                                        "Value": 0.0,
+                                        "RateScale": 1.0
+                                    },
+                                    {
+                                        "Clip": "Walk_Loop",
+                                        "Value": 150.0,
+                                        "RateScale": 1.4
+                                    },
+                                    {
+                                        "Clip": "Jog_Fwd_Loop",
+                                        "Value": 600.0,
+                                        "RateScale": 1.1
+                                    },
+                                    {
+                                        "Clip": "Sprint_Loop",
+                                        "Value": 1000.0,
+                                        "RateScale": 1.2
+                                    }
+                                ],
+                                "WeightSpeed": 4.0,
+                                "Loop": true
+                            }
+                        }
+                    },
+                    {
+                        "Name": "Crouch",
+                        "Clip": "",
+                        "Loop": true,
+                        "Speed": 1.0,
+                        "X": 300.0,
+                        "Y": 0.0,
+                        "Transitions": [
+                            {
+                                "To": "Locomotion",
+                                "Blend": 0.2,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "IsCrouched",
+                                        "Op": 7,
+                                        "Value": 0.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            },
+                            {
+                                "To": "Jump",
+                                "Blend": 0.1,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "IsFalling",
+                                        "Op": 6,
+                                        "Value": 0.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            }
+                        ],
+                        "BlendSpace": {
+                            "Axis": "Speed",
+                            "Space": {
+                                "Samples": [
+                                    {
+                                        "Clip": "Crouch_Idle_Loop",
+                                        "Value": 0.0,
+                                        "RateScale": 1.0
+                                    },
+                                    {
+                                        "Clip": "Crouch_Fwd_Loop",
+                                        "Value": 150.0,
+                                        "RateScale": 2.2
+                                    }
+                                ],
+                                "WeightSpeed": 4.0,
+                                "Loop": true
+                            }
+                        }
+                    },
+                    {
+                        "Name": "Jump",
+                        "Clip": "Jump_Loop",
+                        "Loop": true,
+                        "Speed": 1.0,
+                        "X": 0.0,
+                        "Y": 200.0,
+                        "Transitions": [
+                            {
+                                "To": "Locomotion",
+                                "Blend": 0.2,
+                                "HasExitTime": false,
+                                "ExitTime": 1.0,
+                                "Conditions": [
+                                    {
+                                        "Parameter": "IsFalling",
+                                        "Op": 7,
+                                        "Value": 0.0
+                                    }
+                                ],
+                                "BlendCurve": 0,
+                                "CanInterrupt": true
+                            }
+                        ]
+                    }
+                ]
+            },
+            "X": 0.0,
+            "Y": 0.0
+        }
+    ],
+    "OutputPose": "Locomotion",
+    "OutputPoseX": 800.0,
+    "OutputPoseY": 0.0
+}

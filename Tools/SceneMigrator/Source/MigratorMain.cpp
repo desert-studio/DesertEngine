@@ -1655,7 +1655,11 @@ namespace Desert::Migration
                         continue;
                     }
                     out << ( check ? "would raise " : "raised " ) << path.string() << " " << tag << " " << from
-                        << " -> " << ( tag == "CRIG" ? 4u : from + 1 ) << " (TargetSkeleton)\n";
+                        << " -> "
+                        << ( tag == "CRIG"   ? 4u
+                             : tag == "ANGR" ? Desert::Assets::kAnimGraphSchemaVersion
+                                             : from + 1 )
+                        << " (TargetSkeleton)\n";
                     if ( !check && !WriteText( path, raised.GetValue(), err ) )
                         ++failed;
                     continue;
@@ -1704,8 +1708,27 @@ namespace Desert::Migration
             }
             if ( path.extension() == ".danimgraph" )
             {
-                // ANGR 2 -> 3 (TAIL-ANIM): the Output Pose node's canvas position.
+                // ANGR 4 -> 5 (PAWN-MANNEQUIN): every blend sample states its RateScale.
                 const auto stated = ReadStatedVersion( path, text, "ANGR" );
+                if ( stated && stated.GetValue() == 4u )
+                {
+                    const auto raised = Desert::Migration::MigrateAnimGraphV4ToV5( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — ANGR 4 -> 5: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " ANGR 4 -> 5\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++animGraphsRaised;
+                    continue;
+                }
+                // ANGR 2 -> 3 (TAIL-ANIM): the Output Pose node's canvas position.
                 if ( stated && stated.GetValue() == 2u )
                 {
                     const auto raised = Desert::Migration::MigrateAnimGraphV2ToV3( text );

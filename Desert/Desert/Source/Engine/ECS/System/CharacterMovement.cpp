@@ -68,11 +68,16 @@ namespace Desert::ECS::CharacterMovement
         const Net::NetVec3       root{ cc.RootMotionVelocity.x, cc.RootMotionVelocity.y, cc.RootMotionVelocity.z };
         const Net::PawnMoveState to =
              Gameplay::StepPawnMove( from, input, movement, moveWorld, dt, cc.HasRootMotion ? &root : nullptr );
+        ApplyMoveState( cc, to );
+    }
 
-        cc.IsCrouched   = ( to.Mode & Gameplay::kModeCrouched ) != 0;
-        cc.JumpHeld     = ( to.Mode & Gameplay::kModeJumpHeld ) != 0;
-        cc.OnGround     = to.Grounded;
-        cc.Velocity     = glm::vec3( to.Velocity.X, to.Velocity.Y, to.Velocity.Z );
+    void ApplyMoveState( CharacterControllerComponent& cc, const Net::PawnMoveState& state )
+    {
+        cc.IsCrouched   = ( state.Mode & Gameplay::kModeCrouched ) != 0;
+        cc.Swimming     = ( state.Mode & Gameplay::kModeSwimming ) != 0;
+        cc.JumpHeld     = ( state.Mode & Gameplay::kModeJumpHeld ) != 0;
+        cc.OnGround     = state.Grounded;
+        cc.Velocity     = glm::vec3( state.Velocity.X, state.Velocity.Y, state.Velocity.Z );
         cc.CurrentSpeed = glm::length( glm::vec2( cc.Velocity.x, cc.Velocity.z ) );
     }
 
