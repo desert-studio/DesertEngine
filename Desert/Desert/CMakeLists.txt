@@ -151,7 +151,12 @@ function(_desert_engine_module_library name)
         ${DESERT_COMMON_INCLUDE_DIRS}
         ${DESERT_DESERTSPECIFIC_INCLUDE_DIRS})
 
-    foreach(dep IN LISTS DESERT_MODULE_${name}_DEPS)
+    # The dependency CLOSURE, not only the named deps: a module compiles against its closure's headers
+    # (desert_module_includes), so it calls its closure's code, and a module DLL resolves every symbol it uses at its
+    # own link -- a PRIVATE dep of a dep is not on its link line (TextCore -> ImageCore -> Common left TextCore's Common
+    # calls unresolved, build #8 of B-INT).
+    desert_module_closure(${name} _link_closure)
+    foreach(dep IN LISTS _link_closure)
         target_link_libraries(${target} PRIVATE ${DESERT_MODULE_${dep}_LIBRARIES})
     endforeach()
     if(DEFINED _thirdparty_${name})

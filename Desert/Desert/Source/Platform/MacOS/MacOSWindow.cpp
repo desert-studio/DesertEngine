@@ -10,7 +10,7 @@
 #include <Engine/Core/GlfwVulkan.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
 #include <Engine/Graphic/ViewMemory.hpp>
-#include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/RendererContext.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 namespace Desert::Platform::MacOS
@@ -474,14 +474,13 @@ namespace Desert::Platform::MacOS
         return Graphic::Renderer::GetInstance().PresentFinalImage();
     }
 
-    Common::BoolResultStr MacOSWindow::PrepareNextFrame() const
+    Common::BoolResultStr MacOSWindow::PrepareNextFrame( const Graphic::RendererContext& context ) const
     {
-        return EngineContext::GetInstance().GetRendererContext()->BeginFrame();
+        return context.BeginFrame();
     }
 
-    Common::ResultStr<bool> MacOSWindow::SetupSwapChain()
+    Common::ResultStr<bool> MacOSWindow::SetupSwapChain( const std::shared_ptr<Engine::Device>& device )
     {
-        const auto device = EngineContext::GetInstance().GetDevice();
         return m_SwapChain->CreateSwapChain( device, &m_Data.Specification.Width, &m_Data.Specification.Height );
     }
 

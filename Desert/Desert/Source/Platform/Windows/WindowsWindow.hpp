@@ -65,7 +65,7 @@ namespace Desert::Platform::Windows
         }
         [[nodiscard]] virtual const void* GetNativeWindow() const override;
 
-        [[nodiscard]] virtual Common::BoolResultStr PrepareNextFrame() const override;
+        [[nodiscard]] virtual Common::BoolResultStr PrepareNextFrame( const Graphic::RendererContext& context ) const override;
         [[nodiscard]] virtual Common::BoolResultStr PresentFinalImage() const override;
 
         virtual std::shared_ptr<Graphic::SwapChain> GetWindowSwapChain() override
@@ -86,7 +86,7 @@ namespace Desert::Platform::Windows
             return m_Data.Events;
         }
 
-        virtual Common::ResultStr<bool> SetupSwapChain() override;
+        virtual Common::ResultStr<bool> SetupSwapChain( const std::shared_ptr<Engine::Device>& device ) override;
 
     private:
         /// Refill the cached Width/Height from the OS after a call that resized the window without going
