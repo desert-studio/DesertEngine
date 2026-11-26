@@ -362,6 +362,10 @@ namespace Desert::Runtime
             else
                 ++it;
         }
+        // The evicted file's variants and generation are derived state it owns: a replacing file with the same
+        // name must never be served a variant compiled from the evicted source.
+        std::erase_if( m_Variants, [&owner]( const auto& entry ) { return entry.second.Handle == owner; } );
+        m_FileGenerations.erase( owner );
         m_ShaderAssets.erase( owner );
         m_Media.erase( owner );
         m_Stamps.erase( stem );
