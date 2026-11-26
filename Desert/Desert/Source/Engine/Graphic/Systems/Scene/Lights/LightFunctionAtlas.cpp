@@ -32,7 +32,7 @@ namespace Desert::Graphic::System
         constexpr uint32_t    kQuadVertexCount                = 6u;
         // Both stages share the engine push block (Common/MaterialTransport.glslh, 128 bytes): the material's
         // values as its executor pushed them, the draw's first row in PrimitiveIndex (offset 72).
-        constexpr std::size_t kLightFunctionPushBytes  = 128u;
+        constexpr std::size_t kLightFunctionPushBytes       = 128u;
         constexpr std::size_t kLightFunctionMaxPushBytes    = 128u;
         constexpr std::size_t kLightFunctionFirstRowAt = 72u;
         constexpr std::size_t kInitialTiles           = 64u;
