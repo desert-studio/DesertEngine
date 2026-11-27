@@ -1125,8 +1125,10 @@ namespace Desert::Graphic
         const System::MeshRenderer::GlassFrontLayer glassFront{
              .Reflection = frontLayer.Reflection.IsValid() ? frontLayer.Reflection : black,
              .Depth      = frontLayer.Depth.IsValid() ? frontLayer.Depth : black,
-             // No traced refraction: black, a = 0, the glass bends the scene copy (the ScreenSpace tier).
-             .Refraction = frontLayer.Refraction.IsValid() ? frontLayer.Refraction : black };
+             // No traced refraction: transparent black (a = 0: the glass bends the scene copy, the ScreenSpace
+             // tier); `black` is opaque, its a = 1 would read as a traced answer of black.
+             .Refraction = frontLayer.Refraction.IsValid() ? frontLayer.Refraction
+                                                           : textures.GraphRefs().System.TransparentBlack };
         AddRaster(
              graph, "Deferred: Glass", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr

@@ -30,6 +30,7 @@ namespace Desert::Graphic::API::Vulkan
         virtual const std::shared_ptr<Image3D>&
         GetFallbackStorageImage3D( Core::Formats::ImageFormat format ) const override;
         virtual const std::shared_ptr<Image3D>& GetBlackTexture3D() const override;
+        virtual const std::shared_ptr<Image2D>& GetTransparentBlackTexture2D() const override;
 
     private:
         void CreateFallbackTexture2D( Core::Formats::ImageFormat format );
@@ -38,6 +39,7 @@ namespace Desert::Graphic::API::Vulkan
         void CreateFallbackTexture3D( Core::Formats::ImageFormat format );
         void CreateFallbackStorageImage3D( Core::Formats::ImageFormat format );
         void CreateBlackTexture3D();
+        void CreateTransparentBlackTexture2D();
 
     private:
         std::unordered_map<Core::Formats::ImageFormat, std::shared_ptr<Image2D>>   m_FallbackTextures2D;
@@ -47,5 +49,6 @@ namespace Desert::Graphic::API::Vulkan
         std::unordered_map<Core::Formats::ImageFormat, std::shared_ptr<Image3D>>   m_FallbackTextures3D;
         std::unordered_map<Core::Formats::ImageFormat, std::shared_ptr<Image3D>>   m_FallbackStorageImages3D;
         std::shared_ptr<Image3D>                                                   m_BlackTexture3D;
+        std::shared_ptr<Image2D>                                                   m_TransparentBlackTexture2D;
     };
 } // namespace Desert::Graphic::API::Vulkan
