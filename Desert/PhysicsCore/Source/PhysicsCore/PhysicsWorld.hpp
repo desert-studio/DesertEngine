@@ -294,9 +294,10 @@ namespace Desert::Physics
                                                      float maxDistance ) const;
 
         /// UE LineTraceSingleByChannel: the nearest body within @p maxDistance whose profile BLOCKS
-        /// @p traceChannel (CollisionProfiles::QueryResponse); Overlap and Ignore bodies are passed through.
-        /// DECLARED BY THE AI-STATETREE CONTRACT (Q8), implemented by CHANNELS, which also moves every caller of
-        /// the channel-less CastRay above to this form (Visibility) and removes it - one ray query, not two.
+        /// @p traceChannel (CollisionProfiles::QueryResponse); Overlap and Ignore bodies are passed through, and
+        /// a character's inner body is never found. @p traceChannel may be an object channel: a query made as
+        /// that kind of body (the teleport floor ray traces by the pawn's channel, so triggers and volumes the
+        /// pawn overlaps are no floor). CHANNELS moves the channel-less CastRay's callers to this form.
         [[nodiscard]] std::optional<RayHit> CastRay( const glm::vec3& origin, const glm::vec3& direction,
                                                      float maxDistance, CollisionChannelId traceChannel ) const;
 
@@ -405,6 +406,8 @@ namespace Desert::Physics
         /// The character's capsule now - the one record of its shape (standing or crouched): what
         /// SetCharacterCapsule last accepted, else the CharacterDesc's. Zero for no character.
         [[nodiscard]] CharacterCapsule GetCharacterCapsule( CharacterHandle handle ) const;
+        /// The character's collision profile (CharacterDesc::Profile); kNoProfile for no character.
+        [[nodiscard]] CollisionProfileId GetCharacterProfile( CharacterHandle handle ) const;
         /// Moves the capsule centre to @p position and stops it (its velocity zero); see TeleportBody.
         void TeleportCharacter( CharacterHandle handle, const glm::vec3& position );
 

@@ -228,8 +228,12 @@ namespace Desert::Gameplay
             // velocity; the vertical stays gravity's and the jump's.
             if ( rootMotionVelocity != nullptr )
                 velocity = { rootMotionVelocity->X, rootMotionVelocity->Z };
+            // UE PhysFalling: gravity, then the fall capped at the terminal velocity (GetMaxSpeed while falling).
             if ( !state.Grounded )
-                state.Velocity.Y -= ( world.Gravity() * settings.GravityScale ) * dtSeconds;
+            {
+                const float fallen = state.Velocity.Y - ( world.Gravity() * settings.GravityScale ) * dtSeconds;
+                state.Velocity.Y   = std::max( fallen, -kTerminalVelocityCmPerS );
+            }
             // A grounded walk keeps pressing the floor (UE: the walking move follows the floor; Jolt sticks the
             // capsule to it), so a step off a ledge is a fall from the next move on, not a hover. A grounded pawn
             // with no planar velocity does not press: UE PhysWalking moves nothing along a walkable floor and only
