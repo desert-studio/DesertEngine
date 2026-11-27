@@ -424,6 +424,9 @@ namespace Common::Scalability
                "SceneRenderer::TranslucentFrontLayerReflections -> \"Translucency: Front Layer G-buffer\" + "
                "\"Translucency: Front Layer Reflections\" -> Pass_Forward_Translucent.glslh",
                1, Vis::Advanced },
+             // A placeholder (no reader) until "Translucency: Ray Traced Refraction" reads it (NG-RT-REFRACTION).
+             { P::TranslucencyRefraction, G::Reflections, "Translucency.Refraction", 0,
+               LastOf( kTranslucencyRefractionMethodNames.size() ), CL::None, std::nullopt, 0, Vis::Advanced },
              { P::ShadingParallaxMinSteps, G::Shading, "Shading.ParallaxMinSteps", 1, 64, CL::None,
                "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxMinSteps "
                "(Mesh/Surface/SurfaceParallax.glslh)",
@@ -690,6 +693,8 @@ namespace Common::Scalability
                 return kShadowMethodNames;
             if ( parameter == Parameter::EffectsWaterWaveMethod )
                 return kWaterWaveMethodNames;
+            if ( parameter == Parameter::TranslucencyRefraction )
+                return kTranslucencyRefractionMethodNames;
             if ( parameter == Parameter::PathTracingRadianceCache )
                 return kPathTracingRadianceCacheNames;
             if ( parameter == Parameter::ScreenProbeGatherMethod )
