@@ -421,14 +421,21 @@ namespace Common::Scalability
                Vis::Advanced },
              { P::ReflectionsTranslucentFrontLayer, G::Reflections, "Reflections.TranslucentFrontLayer", 0, 1,
                CL::None,
-               "SceneRenderer::TranslucentFrontLayerReflections -> \"Translucency: Front Layer G-buffer\" + "
-               "\"Translucency: Front Layer Reflections\" -> Pass_Forward_Translucent.glslh",
+               "SceneRenderer::TranslucentFrontLayerReflections -> TranslucentFrontLayerRequired -> "
+               "\"Translucency: Front Layer G-buffer\" + \"Translucency: Front Layer Reflections\" -> "
+               "Pass_Forward_Translucent.glslh",
                1, Vis::Advanced },
              { P::TranslucencyRefraction, G::Reflections, "Translucency.Refraction", 0,
                LastOf( kTranslucencyRefractionMethodNames.size() ), CL::None,
-               "SceneRenderer::AddFrameRayTracedRefraction -> \"Translucency: Ray Traced Refraction\" -> "
-               "Pass_Forward_Translucent.glslh",
+               "SceneRenderer::RefractionIsHardwareTraced -> AddFrameRayTracedRefraction -> "
+               "\"Translucency: Ray Traced Refraction\" -> Pass_Forward_Translucent.glslh",
                0, Vis::Advanced },
+             { P::TranslucencyRefractionMaxInterfaces, G::Reflections, "Translucency.RefractionMaxInterfaces", 1, 8,
+               CL::None, "SceneRenderer::AddFrameRayTracedRefraction -> ShaderPush::RayTracedTranslucencyPush",
+               4, Vis::Advanced },
+             { P::TranslucencyRefractionComposite, G::Reflections, "Translucency.RefractionComposite", 0, 1,
+               CL::None, "SceneRenderer::AddFrameRayTracedRefraction -> ShaderPush::RayTracedTranslucencyPush",
+               1, Vis::Advanced },
              { P::ShadingParallaxMinSteps, G::Shading, "Shading.ParallaxMinSteps", 1, 64, CL::None,
                "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxMinSteps "
                "(Mesh/Surface/SurfaceParallax.glslh)",
@@ -1114,6 +1121,15 @@ namespace Common::Scalability
         };
 
         constexpr std::string_view kNotOffered = "not offered by this device";
+        // Translucency.Refraction's two values by their names' index (kTranslucencyRefractionMethodNames); the
+        // engine's enum (System::TranslucencyRefractionMethod) is a layer above and not named here.
+        constexpr ParameterValue kTranslucencyRefractionScreenSpace    = 0;
+        constexpr ParameterValue kTranslucencyRefractionHardwareTraced = 1;
+        static_assert( kTranslucencyRefractionMethodNames[static_cast<std::size_t>(
+                            kTranslucencyRefractionScreenSpace )] == "ScreenSpace" &&
+                            kTranslucencyRefractionMethodNames[static_cast<std::size_t>(
+                                 kTranslucencyRefractionHardwareTraced )] == "HardwareTraced",
+                       "Translucency.Refraction's value names moved: Resolve's device narrowing reads them by index" );
         // CapabilityCatalog::RefusedAtRuntime: the device offered it, its vendor runtime then refused it (the
         // runtime's own reason is in its log line, e.g. "[Streamline] ... is not offered: ...").
         constexpr std::string_view kRefusedAtRuntime = "refused by its runtime on this device";
@@ -1459,6 +1475,13 @@ namespace Common::Scalability
             NarrowMethod<GIMethod>( Parameter::GlobalIlluminationMethod, rayQuery, catalog.FragmentStores, r );
             NarrowMethod<ReflectionMethod>( Parameter::ReflectionsMethod, rayQuery, catalog.FragmentStores, r );
             NarrowMethod<ShadowMethod>( Parameter::ShadowsMethod, rayQuery, catalog.FragmentStores, r );
+            // Translucency.Refraction HardwareTraced is a ray tracing pipeline (its hit groups are the surface
+            // templates'), not ray query: a device without one renders ScreenSpace, the reason said as every
+            // narrowed method's. The one owner of "this device cannot trace the refraction"; the renderer does not
+            // ask the device again (SceneRendererImpl::RefractionIsHardwareTraced).
+            if ( r.Get( Parameter::TranslucencyRefraction ) == kTranslucencyRefractionHardwareTraced &&
+                 !CapabilityCatalog::Offers( catalog.RayTracingModes, RayTracingMode::RayTracingPipeline ) )
+                r.Set( Parameter::TranslucencyRefraction, kTranslucencyRefractionScreenSpace, kNotOffered );
         }
 
         // 5. The two axes meet in two places only (UE: r.AntiAliasingMethod is valid at any r.ScreenPercentage up
