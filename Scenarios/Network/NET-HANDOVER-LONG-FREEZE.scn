@@ -37,9 +37,9 @@
 Ждать sim2 30 offer \(sim 1, #1\).*accepted \(catch-up \d+ step
 Ждать store 30 offer \(sim 1, #1\).*committed \(sim 1, epoch 1\) -> \(sim 2, epoch 2\)
 Ждать sim2 30 offer \(sim 1, #1\).*committed: incoming pawn promoted at epoch 2 .*frozen at step \d+, this sim is at step \d+: (3\d|[4-9]\d|1[01]\d|120) catch-up step\(s\)
+Ждать gw 30 player \d+ pawn net id \d+ - authority \(sim 2, epoch 2\) from step \d+: its inputs re-routed to sim 2
 Сигнал sim1 CONT
 Ждать sim1 30 offer #1 .*committed by the store \(epoch 2\): released, \d+ queued input\(s\) forwarded
-Ждать gw 30 player \d+ pawn net id \d+ - authority \(sim 2, epoch 2\) from step \d+: its inputs re-routed to sim 2
 Нет sim1 offer #1 .*Withdraw sent
 Нет sim2 offer \(sim 1, #1\).*refused -
 # D4 on the receiver, strict: >= 30 mesh steps since the freeze, the queued inputs applied at most 2 per step, each

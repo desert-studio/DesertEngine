@@ -63,6 +63,14 @@ namespace Desert::Net
         // was one of them. @p step: the last mesh step this sim ran.
         bool OnStoreMessage( std::uint8_t type, std::span<const std::byte> body, PawnSimulation& sim,
                              RemoteGatewayLink& gateways, RemoteReplicationStore& replica, std::uint32_t step );
+        // The host read its inbox: @p readStart is NetClock::now() taken just BEFORE that Poll. Every wall-time
+        // wait of this class (kOfferDeadline, kInDoubtWait) is judged against the READ HORIZON - the start of the
+        // PREVIOUS read, not the clock: a message the transport's socket thread had in hand at that instant has
+        // been delivered by the read that just ended (it had the whole loop iteration in between to take it off
+        // the socket). So a deadline fires only on silence the inbox has been read through: a process that wakes
+        // after a stall reads the answers that queued meanwhile before any wait is judged (the first read after
+        // the stall moves the horizon only up to the stall's start).
+        void InboxRead( NetClock::time_point readStart );
         // After mesh step @p step: withdraws offers past their deadline, offers the pawns that crossed into a
         // neighbour's region.
         void AfterStep( std::uint32_t step, PawnSimulation& sim, RemoteGatewayLink& gateways,
@@ -103,8 +111,8 @@ namespace Desert::Net
                     std::uint32_t gateway, PawnSimulation& sim, RemoteGatewayLink& gateways );
         void OnOffer( std::span<const std::byte> body, PawnSimulation& sim, std::uint32_t step );
         // As receiver, after a step: an incoming copy with no decision for kInDoubtWait of wall time asks the
-        // store again. @p now: NetClock::now() of this step.
-        void AskInDoubt( std::uint32_t step, NetClock::time_point now, bool storeLinked );
+        // store again. @p horizon: the read horizon (InboxRead).
+        void AskInDoubt( std::uint32_t step, NetClock::time_point horizon, bool storeLinked );
         void OnDecision( Handover::EMessage type, std::span<const std::byte> body, PawnSimulation& sim,
                          RemoteGatewayLink& gateways, RemoteReplicationStore& replica, std::uint32_t step );
         void Resume( PlayerId player, const Handover::Refusal& why, std::uint32_t step, PawnSimulation& sim );
@@ -117,6 +125,8 @@ namespace Desert::Net
         std::map<PlayerId, OpenOffer>      m_Offers;     // as sender: held pawns awaiting the store
         std::map<PlayerId, Incoming>       m_Incoming;   // as receiver: accepted, awaiting Commit
         std::map<PlayerId, std::uint32_t>  m_BackoffEnd; // as sender: no new offer before this step
+        NetClock::time_point               m_LastRead;    // the start of the latest inbox read (InboxRead)
+        NetClock::time_point               m_ReadHorizon; // the start of the one before: waits are judged on it
         Handover::OfferSerial              m_NextSerial = 1;
         Stats                              m_Stats;
     };
