@@ -117,8 +117,7 @@ namespace Desert::Graphic
              Lerp( target.ColorCorrectionHighlightsMin, volume.ColorCorrectionHighlightsMin, weight );
         target.ColorCorrectionHighlightsMax =
              Lerp( target.ColorCorrectionHighlightsMax, volume.ColorCorrectionHighlightsMax, weight );
-        target.AutoExposureBias = Lerp( target.AutoExposureBias, volume.AutoExposureBias, weight );
-        target.AutoExposureKey   = Lerp( target.AutoExposureKey, volume.AutoExposureKey, weight );
+        target.AutoExposureBias      = Lerp( target.AutoExposureBias, volume.AutoExposureBias, weight );
         target.AutoExposureSpeedUp   = Lerp( target.AutoExposureSpeedUp, volume.AutoExposureSpeedUp, weight );
         target.AutoExposureSpeedDown = Lerp( target.AutoExposureSpeedDown, volume.AutoExposureSpeedDown, weight );
         target.AutoExposureLowPercent =

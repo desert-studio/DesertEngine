@@ -42,7 +42,7 @@ Shader "SceneComposite"
         Uniform(0) TonemapUB
         {
             float Exposure;
-            float ExposureKey;          // middle-grey target for auto-exposure
+            float MiddleGrey;           // Graphic::kExposureMiddleGrey, the auto-exposure target
             float AutoExposureEnabled;  // > 0.5 -> use measured luminance instead of manual exposure
             float ChromaticBloom;       // lens dispersion strength on the bloom halo (0 = off)
             float TonemapOperator;      // Core::TonemapOperator (0 ACES, 1 Reinhard, 2 Filmic); 3 = buffer visualization
@@ -123,13 +123,13 @@ Shader "SceneComposite"
                 return;
             }
 
-            // Auto-exposure: scale so the adapted average luminance maps to the key value; else manual exposure.
+            // Auto-exposure: scale so the adapted average luminance maps to middle grey; else manual exposure.
             float exposure = Exposure;
             if (AutoExposureEnabled > 0.5)
             {
                 // .g: the adapted average over 2^compensation (AEAverage.shader) - UE's exposure compensation.
                 float adaptedLum = texture(AverageLuminanceTexture, vec2(0.5)).g;
-                exposure = ExposureKey / max(adaptedLum, 1e-4);
+                exposure = MiddleGrey / max(adaptedLum, 1e-4);
             }
 
             // THE LENS'S GEOMETRY (LENS-POST): with Panini on every input below is read through the one remapped UV,

@@ -83,8 +83,7 @@ namespace Desert::Graphic::System
         uint32_t                                                     StageCount = BloomGaussian::kStageCount;
         std::array<BloomGaussian::Stage, BloomGaussian::kStageCount> Stages{}; // BloomGaussian::Stages
         float ConvolutionIntensity = 0.0f; // BloomIntensity x BloomConvolutionIntensity
-        bool  AutoExposure         = false;
-        float ExposureKey          = 0.18f;
+        bool  AutoExposure         = false; // the threshold divides by kExposureMiddleGrey / adapted luminance
     };
 
     // Convolution bloom (UE PostProcessFFTBloom): the five programs' parameters, one spelling each.

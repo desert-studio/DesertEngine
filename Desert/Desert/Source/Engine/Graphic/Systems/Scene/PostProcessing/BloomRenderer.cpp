@@ -1,6 +1,7 @@
 #include "BloomRenderer.hpp"
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 #include <Engine/Graphic/PostProcessing/BloomConvolutionRules.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
@@ -167,7 +168,7 @@ namespace Desert::Graphic::System
         push.SourceTexelSize    = glm::vec2( 1.0f / static_cast<float>( scene->GetFramebufferWidth() ),
                                              1.0f / static_cast<float>( scene->GetFramebufferHeight() ) );
         push.Threshold          = m_Frame.Threshold;
-        push.ExposureKey        = m_Frame.ExposureKey;
+        push.MiddleGrey         = kExposureMiddleGrey;
         push.AutoExposure       = m_Frame.AutoExposure ? 1 : 0;
         push.Exposure           = m_ManualExposure;
         push.InversePreExposure = 1.0f / std::max( m_PreExposure, 1e-30f );

@@ -194,7 +194,7 @@ namespace Desert::Graphic::System
         ap.LocalExposureThreshold     = glm::vec4( le.HighlightThreshold, le.ShadowThreshold,
                                                    le.HighlightThresholdStrength, le.ShadowThresholdStrength );
         ap.LocalExposureLogMiddleGrey = m_LocalExposureLogGrey;
-        ap.ExposureKey                = m_LocalExposureKey;
+        ap.MiddleGrey                 = kExposureMiddleGrey;
         ap.CompensationBias           = m_CompensationBias;
         ap.CompensationKeys           = static_cast<float>( m_CurveKeys );
         ap.CurveEV100                 = m_CurveEV100;

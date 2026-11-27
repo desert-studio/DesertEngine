@@ -3,6 +3,7 @@
 #include <Common/Settings/CapabilityCatalog.hpp>
 #include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 
 namespace Desert::Graphic
 {
@@ -18,7 +19,6 @@ namespace Desert::Graphic
             // caller can be wrong about which number meant which operator.
             Core::TonemapOperator Operator;
             float                 Exposure;
-            float                 ExposureKey;
             bool                  AutoExposure;
             float                 ChromaticBloom; // lens dispersion strength on the bloom halo (0 = off)
             float     LightShaftIntensity; // Bloom Scale x screen fade of the sun light's shafts (0 = off)
@@ -50,7 +50,8 @@ namespace Desert::Graphic
         void BindValues( const Params& params );
 
         MPROPERTY( float, Exposure, "Exposure", 1.0f )
-        MPROPERTY( float, ExposureKey,         "ExposureKey",         0.18f )
+        // Graphic::kExposureMiddleGrey, the exposure law's constant (auto: middle grey / adapted luminance).
+        MPROPERTY( float, MiddleGrey,          "MiddleGrey",          kExposureMiddleGrey )
         MPROPERTY( float, AutoExposureEnabled, "AutoExposureEnabled", 0.0f )
         MPROPERTY( float, ChromaticBloom,      "ChromaticBloom",      0.0f )
         // Core::TonemapOperator's numbering (0 ACES, 1 Reinhard, 2 Filmic), 3 = the buffer visualization.
