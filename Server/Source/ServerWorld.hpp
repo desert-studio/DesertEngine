@@ -9,6 +9,7 @@
 #include <Engine/Core/Serialize/CookedWorld.hpp>
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
+#include <Engine/Gameplay/TeleportSpot.hpp>
 
 #include <Net/PawnTeleport.hpp>
 
@@ -41,10 +42,12 @@ namespace Desert::Server
         // loading what the sources want). @p settings: the project's World Partition settings. @p physics: the
         // server's collision world - every record the server holds that collides on the client (a static collider,
         // a landscape tile) is a body in it while it is held (ServerCellCollision), so the pawns sweep the cells
-        // the client draws.
+        // the client draws. @p search: the game placer's search (the one main.cpp gives Gameplay::PawnTeleporter) -
+        // ResidencyAt counts a cell by the column it reaches. An index whose cell states Bounds but no Height is
+        // refused, naming the cell.
         [[nodiscard]] static Common::ResultStr<std::unique_ptr<ServerWorld>>
         Begin( Core::CookedWorldStart world, const Core::Rules::ResidencySettings& settings,
-               Physics::PhysicsWorld& physics );
+               Physics::PhysicsWorld& physics, const Gameplay::TeleportSearch& search );
 
         // One server step: collect the reads that finished, step the residency from @p sources, apply it.
         [[nodiscard]] Common::ResultStr<Core::Rules::ResidencyTick>
@@ -89,9 +92,10 @@ namespace Desert::Server
         [[nodiscard]] std::vector<Core::Rules::LoadOutcome> TakeLoadOutcomes() override;
 
     private:
-        explicit ServerWorld( Core::CookedWorldStart world );
+        ServerWorld( Core::CookedWorldStart world, const Gameplay::TeleportSearch& search );
 
         Core::CookedWorldStart                        m_World;
+        Gameplay::TeleportSearch                      m_Search; // the placer's search (Begin's @p search)
         std::optional<Core::Rules::ResidencyExecutor> m_Executor;
         std::unique_ptr<Core::WorldCellLoader>        m_Loader;
         std::vector<bool>                             m_Held; // per world record: held by an activated unit

@@ -12,13 +12,14 @@
 
 namespace Desert::Server
 {
-    ServerWorld::ServerWorld( Core::CookedWorldStart world ) : m_World( std::move( world ) )
+    ServerWorld::ServerWorld( Core::CookedWorldStart world, const Gameplay::TeleportSearch& search )
+         : m_World( std::move( world ) ), m_Search( search )
     {
     }
 
     Common::ResultStr<std::unique_ptr<ServerWorld>>
     ServerWorld::Begin( Core::CookedWorldStart world, const Core::Rules::ResidencySettings& settings,
-                        Physics::PhysicsWorld& physics )
+                        Physics::PhysicsWorld& physics, const Gameplay::TeleportSearch& search )
     {
         using Result = std::unique_ptr<ServerWorld>;
         // Every read of `world` is resolved before the plan is moved out of it: an argument list is not
@@ -27,7 +28,7 @@ namespace Desert::Server
         auto              observations = world.Indexed.Observations;
         auto              plan         = std::move( world.Indexed.Plan );
         auto              partition    = world.Index->WorldPartition;
-        Result            server( new ServerWorld( std::move( world ) ) );
+        Result            server( new ServerWorld( std::move( world ), search ) );
         auto              begun = Core::Rules::ResidencyExecutor::BeginFromAlwaysLoaded(
              std::move( plan ), std::move( partition ), settings, recordCount, observations );
         if ( !begun )
@@ -35,6 +36,14 @@ namespace Desert::Server
                                               "': " + begun.GetError() );
         server->m_Executor.emplace( begun.ExtractValue() );
         server->m_Held.assign( recordCount, false );
+        // A cell unit states its content's height span with its bounds (ResidencyAt reads both): an index whose cell
+        // has Bounds but no Height is malformed and refused here, by the cell's name - never skipped per query.
+        const auto& indexUnits = server->m_World.Index->Units;
+        for ( std::size_t unit = server->m_Executor->Plan().AlwaysLoaded.size(); unit < indexUnits.size(); ++unit )
+            if ( indexUnits[unit].Bounds && !indexUnits[unit].Height )
+                return Common::MakeError<Result>(
+                     std::format( "server world '{}': cell '{}' states Bounds but no Height",
+                                  server->m_World.Index->SceneName, indexUnits[unit].Name ) );
         server->m_Collision = std::make_unique<ServerCellCollision>( physics );
         // The always-loaded units are resident from the start (their records came with the index, never through
         // Activate): their collision - the landscape's root, a level-wide wall - is held for the server's life,
@@ -105,19 +114,21 @@ namespace Desert::Server
         // A CELL'S BOUNDS ARE 3D (UE UWorldPartitionRuntimeCell::GetContentBounds): what the placer can touch from
         // `position` is the column it searches - up to LiftCm above the point (an encroached capsule is lifted) and
         // DropCm below it (a free one needs a floor) - so a cell counts only when its content's height span, grown
-        // by those distances, reaches the point's Y. The distances are the search the game's placer is built with
-        // (Gameplay::PawnTeleporter's default TeleportSearch, Server/Source/main.cpp MakeServerCollision).
-        const Gameplay::TeleportSearch search;
-        bool                           any = false;
-        bool                           all = true;
+        // by those distances, reaches the point's Y. The distances are the one search main.cpp builds and gives both
+        // the game's placer (Gameplay::PawnTeleporter) and this world (MakeServerCollision's Search).
+        bool any = false;
+        bool all = true;
         // Cell units only: an always-loaded unit is resident for the server's life and states no Bounds or Height.
+        // A cell with Bounds has a Height (refused at Begin otherwise).
         for ( std::size_t unit = m_Executor->Plan().AlwaysLoaded.size(); unit < indexUnits.size(); ++unit )
         {
             const std::optional<Core::Rules::CellBounds>& bounds = indexUnits[unit].Bounds;
-            const std::optional<Core::Rules::HeightSpan>& height = indexUnits[unit].Height;
-            if ( !bounds || !height || position.X < bounds->MinX || position.X > bounds->MaxX ||
+            if ( !bounds )
+                continue;
+            const Core::Rules::HeightSpan& height = *indexUnits[unit].Height;
+            if ( position.X < bounds->MinX || position.X > bounds->MaxX ||
                  position.Z < bounds->MinZ || position.Z > bounds->MaxZ ||
-                 position.Y < height->MinY - search.LiftCm || position.Y > height->MaxY + search.DropCm )
+                 position.Y < height.MinY - m_Search.LiftCm || position.Y > height.MaxY + m_Search.DropCm )
                 continue;
             any = true;
             all = all && unit < units.size() && units[unit].State == Core::Rules::Residency::Activated;

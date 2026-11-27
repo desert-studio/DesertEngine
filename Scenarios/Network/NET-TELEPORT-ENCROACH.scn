@@ -38,10 +38,11 @@
 # The residency union 5 s later holds the same spot; the pawn never fell.
 Ждать server 400 player 1 account 1 \(40000, 5[6-9]\d, 3000\)
 Нет server teleported to \(40000, -
-# 3. Teleport over nothing: (200000, 3000) is in no cell of the world's grid. The simulation's placer finds no floor
-# and refuses with the reason (Net/MeshOfOne.cpp), the pawn stays.
+# 3. Teleport over nothing: (200000, 3000) is in no cell of the world's grid. PawnSimulation::Teleport refuses it at
+# the request (Net/MeshOfOne.cpp) - nothing is queued, the placer is never asked - and the console prints the reason.
 Консоль server teleport 1 200000 300 3000
-Ждать server 120 player 1: teleport of pawn 1 to \(200000, 300, 3000\) cm refused:
+Ждать server 120 console 'teleport 1 200000 300 3000': no cell of the world's grid at \(200000, 3000\) cm: the pawn stays at \(40000, 5[6-9]\d, 3000\) cm
+Нет server teleport of pawn 1 to \(200000
 Ждать server 400 player 1 account 1 \(40000, 5[6-9]\d, 3000\)
 Ждать A 60 fresh \[Shot\] recorded frame_
 Тогда A tp_refused A's frame after the server line: the same ground and horizon as tp_ground_next; no cut, no correction
