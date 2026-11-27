@@ -1,0 +1,29 @@
+#ifndef DESERT_TRANSLUCENCY_REFRACTION_GLSLH
+#define DESERT_TRANSLUCENCY_REFRACTION_GLSLH
+
+// THE FRONT LAYER'S TRACED REFRACTION (UE RayTracedTranslucency; System::RayTracedTranslucencyRenderer, the pass
+// "Translucency: Ray Traced Refraction", Programs/Translucency/RayTracedTranslucency.shader): rgb = the pre-exposed
+// radiance seen THROUGH the nearest translucent surface of the pixel, already multiplied by the transmittance of
+// every interface the path crossed; a = 1 where the trace answered, 0 where it did not (the ScreenSpace tier's
+// scene copy answers then). The graph's black texture when the view does not trace: a = 0 everywhere.
+// Bound by name (System::kTranslucencyRefractionTexture); the program numbers it. Read by texel through the
+// includer's LinearClampSampler, after Mesh/Surface/FrontLayerReflection.glslh (its depth and threshold).
+Uniform texture2D TranslucencyRefractionTexture;
+#define TranslucencyRefractionTexture sampler2D(TranslucencyRefractionTexture, LinearClampSampler)
+
+// The traced refraction of the fragment at @p fragCoord (gl_FragCoord.xy) with device depth @p fragDepth
+// (gl_FragCoord.z) where it is the front layer - the same test as DesertFrontLayerTracedReflection, since the trace
+// started at the front layer's depth; vec4( 0.0 ) for a surface behind the nearest one or outside the target.
+vec4 DesertTranslucencyRefraction( vec2 fragCoord, float fragDepth )
+{
+    const ivec2 texel = ivec2( fragCoord );
+    if ( any( greaterThanEqual( texel, textureSize( TranslucencyRefractionTexture, 0 ) ) ) ||
+         any( greaterThanEqual( texel, textureSize( FrontLayerDepthTexture, 0 ) ) ) )
+        return vec4( 0.0 );
+    const float frontDepth = texelFetch( FrontLayerDepthTexture, texel, 0 ).r;
+    if ( abs( floatBitsToInt( frontDepth ) - floatBitsToInt( fragDepth ) ) > kFrontLayerDepthThresholdUlps )
+        return vec4( 0.0 );
+    return texelFetch( TranslucencyRefractionTexture, texel, 0 );
+}
+
+#endif // DESERT_TRANSLUCENCY_REFRACTION_GLSLH
