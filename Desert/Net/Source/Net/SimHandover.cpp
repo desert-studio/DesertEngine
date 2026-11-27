@@ -1,6 +1,7 @@
 #include "Net/SimHandover.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <format>
 #include <utility>
 #include <vector>
@@ -108,7 +109,7 @@ namespace Desert::Net
                                                                  StepsSince( step, offer.Step ) ) } ) ) );
         }
 
-        AskInDoubt( step, storeLinked );
+        AskInDoubt( step, NetClock::now(), storeLinked );
 
         for ( const PawnSimulation::Source& source : sim.Sources() )
         {
@@ -293,7 +294,7 @@ namespace Desert::Net
         }
         const std::size_t pending = pawn.Pending.size();
         sim.Expect( std::move( pawn ), header.Gateway );
-        m_Incoming[player] = Incoming{ header.Key, id, header.Key.From, header.Step, step };
+        m_Incoming[player] = Incoming{ header.Key, id, header.Key.From, header.Step, step, NetClock::now() };
         m_Endpoint.SendToRole( EMeshRole::Store, Handover::EncodeAccept( verdict ) );
         m_Log(
              std::format( "{} accepted (catch-up {} steps) - held as incoming with {} unacked input(s) until the "
@@ -301,27 +302,32 @@ namespace Desert::Net
                           name, behind, pending ) );
     }
 
-    void SimHandover::AskInDoubt( std::uint32_t step, bool storeLinked )
+    void SimHandover::AskInDoubt( std::uint32_t step, NetClock::time_point now, bool storeLinked )
     {
         // THE PARTICIPANT IN DOUBT ASKS THE COORDINATOR: the Accept is re-sent under the same key and the store
         // answers with the offer's outcome (HandoverLedger.hpp); OnDecision acts on it as on the first answer.
         // Without a link to the store no answer can come: the copy waits, and asks on the first step the link is
-        // back (the store may have committed - dropping it here could leave the pawn with no owner).
+        // back (the store may have committed - dropping it here could leave the pawn with no owner). The wait is
+        // wall time (kInDoubtWait), not steps: the ticks that queued while this process stalled run in one burst,
+        // and the store's answer to the Accept sent inside that burst has had no time to arrive.
         if ( !storeLinked )
             return;
         for ( auto& [player, held] : m_Incoming )
         {
-            if ( StepsSince( step, held.AskedAt ) < Handover::kInDoubtSteps )
+            const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>( now - held.AskedWhen );
+            if ( waited < Handover::kInDoubtWait )
                 continue;
             m_Endpoint.SendToRole( EMeshRole::Store,
                                    Handover::EncodeAccept( Handover::Verdict{ held.Key, m_Sim, step } ) );
             ++m_Stats.InDoubtAsks;
-            m_Log( std::format( "sim {}: offer (sim {}, #{}) of pawn net id {} (player {}) accepted at step {}, no "
-                                "Commit or Refused for {} steps - in doubt: Accept sent again, the store's answer "
-                                "decides",
-                                m_Sim, held.Key.From, held.Key.Serial, held.Id, player, held.AskedAt,
-                                StepsSince( step, held.AskedAt ) ) );
-            held.AskedAt = step;
+            m_Log(
+                 std::format( "sim {}: offer (sim {}, #{}) of pawn net id {} (player {}) accepted at step {}, no "
+                              "Commit or Refused for {} ms ({} steps) - in doubt: Accept sent again, the store's "
+                              "answer decides",
+                              m_Sim, held.Key.From, held.Key.Serial, held.Id, player, held.AskedAt, waited.count(),
+                              StepsSince( step, held.AskedAt ) ) );
+            held.AskedAt   = step;
+            held.AskedWhen = now;
         }
     }
 
