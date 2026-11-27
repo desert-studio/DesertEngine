@@ -1007,6 +1007,9 @@ namespace
             return 1;
         const std::string tag = name;
         const NetLogSink  log = [tag]( std::string_view line ) { Log( "[{}] {}", tag, line ); };
+        // Declared before everything it feeds, so it is destroyed last: the detached reader thread outlives it
+        // only from std::_Exit on (Common::StdinConsole's exit rule), never while the transport shuts down.
+        ::Common::StdinConsole         console;
         std::unique_ptr<INetTransport> transport = CreateGnsTransport( log );
         std::string                    error;
         if ( !transport || !transport->SetSimulator( simulator, error ) )
@@ -1097,11 +1100,14 @@ namespace
                 Log( "[{}] console: walk resumed at step {}, {:.0f} cm to go", name, step, cm );
                 return {};
             }
-            // Every other line is a fault command, or nothing this console knows.
-            std::string error;
-            return faults.ArmFromConsole( line, error ) ? std::string() : error;
+            if ( verb == MessageFaultName( EMessageFault::Drop ) ||
+                 verb == MessageFaultName( EMessageFault::Corrupt ) )
+            {
+                std::string error;
+                return faults.ArmFromConsole( line, error ) ? std::string() : error;
+            }
+            return std::format( "unknown command '{}'", verb );
         };
-        Desert::Common::StdinConsole console;
         console.Start();
         for ( ;; ++step )
         {
@@ -1344,7 +1350,7 @@ namespace
             Log( "probe: --store '{}': {}", store, error );
             return 1;
         }
-        Desert::Common::StdinConsole console;
+        ::Common::StdinConsole console;
         console.Start();
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>( seconds );
         while ( !lost && std::chrono::steady_clock::now() < deadline )
