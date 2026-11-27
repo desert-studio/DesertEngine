@@ -1,12 +1,14 @@
-# NG-RT-REFRACTION-B - remainder (context limit hit)
+# NG-RT-REFRACTION-B - remainder (context limit hit, run 2)
 
-Done (commit on task/NG-RT-REFRACTION-B):
-- Mesh/Surface/TranslucencyRefraction.glslh (new): TranslucencyRefractionTexture (auto-numbered, by name) + DesertTranslucencyRefraction(fragCoord, fragDepth), front-layer ULP test of FrontLayerReflection.glslh.
-- Mesh/Surface/Pass_Forward_Translucent.glslh: ScreenSpace tier = Snell-bent view ray to the opaque depth behind, reprojected, depth-checked (D1, D3, D4 screen part); constant 0.35 and N.xy deleted; refracted = mix(screen*tint, traced.rgb, traced.a).
+Done (task/NG-RT-REFRACTION-B):
+- Mesh/Surface/TranslucencyRefraction.glslh, Mesh/Surface/Pass_Forward_Translucent.glslh (run 1): screen tier on Snell with depth check, traced read (D1, D3, D4 screen part).
+- Programs/Translucency/RayTracedTranslucency.shader (run 2): raygen per front-layer pixel, Snell + TIR + Beer + Fresnel per interface after the first, MaxInterfaces, GGX VNDF rough normal, opaque hit GIHitRadianceLit, miss sky, budget spent -> SceneCopy at last interface (D2, D5-D9 traced tier).
+- Common/GIHitLitReads.glslh (new, nobody owns): the hit-lit reads, same names/numbers as SSRTrace.glslh's traced block.
 
-Left: Editor/Resources/Shaders/Programs/Translucency/RayTracedTranslucency.shader (new), closes D2, D5-D9 on the traced tier.
-- Pattern: Programs/Deferred/SSR.shader Pass "HitLighting" (:583-619) + Common/SSRTrace.glslh :199-300 (traceRayEXT into hit groups, payload, GIHitRadianceLit).
-- Raygen per front-layer pixel: params = PushConstant block with RayTracedTranslucencyParams members in order (mat4 InvJitteredViewProjection; vec4 CameraPosition (w PreExposure); float MaxRayDistance; float MaxRoughness; uint MaxInterfaces; uint FrameIndex).
-- Reads by name: front-layer depth/normal(a=roughness), SceneCopy, output image TranslucencyRefractionTexture (rgba16f), SceneTlas, CameraUB + Common/RayTracingSceneReads.glslh for the hit groups.
-- Loop: origin just before front depth on the camera ray; payload.Transmission=0 per ray; Transmission>0 = interface: eta = front ? 1/Ior : Ior, Fresnel dielectric (PathTracer.shader PathTracingFresnelDielectric), TIR -> reflect; thin (Ior<=1) tint per crossing, solid Beer absorption (kPathTracingAbsorptionDistance 100 cm); first interface's Fresnel NOT applied (the glass cell applies its own). Up to MaxInterfaces; exhausted or roughness > MaxRoughness -> a=0. Rough: one GGX VNDF normal sample keyed FrameIndex (Common/MonteCarlo.glslh). Opaque hit -> GIHitRadianceLit + Emissive, * PreExposure; miss -> sky.
-- CONTRACT-BREAK (report it): RayTracedTranslucency.hpp Inputs carry only front-layer depth/normal, TLAS, metadata, SceneCopy. The hit-group pipeline also needs the hit group table, CameraUB, RayTracingSceneReadsInputs, and the in-place hit-lighting reads (SSRRenderer::TracedReads: GIFrame, lights, light grid, radiance cache, EnvSpecular, GBufferA/Emissive/ShadingWord, tracer). The shader should declare them by the SSRShaderParameters names so package A can bind them like SSRRenderer::DeclareTracedReads, once the contract carries them.
+Left for a fresh agent:
+1. Re-read RayTracedTranslucency.shader once as the compiler would (includes order: GIHitLitReads needs LinearClampSampler, PointClampSampler, GBufferDepthTexture before it; hash12/SampleGGXVNDF from Common/MonteCarlo.glslh; cameraUB.Projection / JitteredViewProjection names).
+2. python scripts/Dev/arch_census.py; reviewer chain per brief; studio.py accept.
+3. Report lines:
+   - CONTRACT-BREAK: RayTracedTranslucency.hpp RayTracedTranslucencyInputs - needs the hit-lit reads (SSRRenderer::TracedReads: GIFrame, lights, light grid, radiance cache, EnvSpecular, GBufferA/Emissive/ShadingWord, tracer), the opaque GBufferDepth, CameraUB and RayTracingSceneReads; the shader binds them by the names in Common/GIHitLitReads.glslh and RayTracedTranslucency.shader:20-30.
+   - NEEDS: Common/SSRTrace.glslh:103-165 - replace its traced block (minus cascades) with #include <Common/GIHitLitReads.glslh> (one copy).
+   - Program binding names for package A: FrontLayerNormalTexture(1), GBufferDepthTexture(2), SceneCopyTexture(3), TranslucencyRefractionTexture(4, rgba16f storage), FrontLayerDepthTexture(5), push constant block RayTracedTranslucencyParams; pass "Refraction".

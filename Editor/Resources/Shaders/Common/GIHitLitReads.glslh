@@ -1,0 +1,72 @@
+#ifndef DESERT_GI_HIT_LIT_READS_GLSLH
+#define DESERT_GI_HIT_LIT_READS_GLSLH
+
+// THE READS OF A HIT LIT IN PLACE (Common/GIHitLighting.glslh GIHitRadianceLit under DESERT_GI_HIT_LIGHTING_IN_PLACE on
+// the hardware tracer): the GI frame record, the lights and the world light grid, the radiance cache's read, the sky,
+// the G-buffer's material (its shading word in set 1), then the tracer (23..33). The same names and numbers as
+// Common/SSRTrace.glslh's traced block (System::SSRRenderer::DeclareTracedReads binds them), so one C++ declaration
+// binds both programs. Slots 1..9 stay the includer's. The includer declares LinearClampSampler, PointClampSampler and
+// GBufferDepthTexture (the opaque scene's device depth) before this file.
+#include <Generated/SceneBindings.glslh> // kSsrFrontLayerSet / kSsrShadingWordBinding: set 1's shading word slot
+#include <Common/GIFrame.glslh>
+#include <Common/RadianceCache.glslh>
+#include <Mesh/LightSources.glslh>
+#include <Mesh/LightGrid.glslh>
+layout(std430, binding = 10) readonly buffer GIFrameUB
+{
+	GIFrame giFrame;
+};
+layout(std430, binding = 11) readonly buffer PointLightsUB
+{
+	PointLight pointLights[];
+};
+layout(std430, binding = 12) readonly buffer SpotLightsUB
+{
+	SpotLight spotLights[];
+};
+layout(std430, binding = 13) readonly buffer LightGridParamsUB
+{
+	LightGridParams lightGrid;
+};
+layout(std430, binding = 14) readonly buffer LightGridWorldCellsUB
+{
+	uint lightGridWorldCells[];
+};
+#define LIGHT_GRID_WORLD_CELLS lightGridWorldCells
+#include <Mesh/LightGrid.glslh>
+layout(std430, binding = 15) readonly buffer RadianceCacheParamsUB
+{
+	RadianceCacheParams radianceCache;
+};
+layout(std430, binding = 16) readonly buffer RadianceCacheIndirectionUB
+{
+	uint radianceCacheIndirection[];
+};
+layout(std430, binding = 17) readonly buffer RadianceCacheProbesUB
+{
+	RadianceCacheProbe radianceCacheProbes[];
+};
+layout(binding = 18) uniform texture2D RadianceCacheIrradianceTexture;
+#define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
+layout(binding = 19) uniform texture2D RadianceCacheDepthTexture;
+#define RadianceCacheDepthTexture sampler2D(RadianceCacheDepthTexture, LinearClampSampler)
+layout(binding = 20) uniform textureCube EnvironmentSpecularTexture;
+#define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
+layout(binding = 21) uniform texture2D GBufferATexture;
+#define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
+layout(binding = 22) uniform texture2D GBufferEmissiveTexture;
+#define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
+layout(set = kSsrFrontLayerSet, binding = kSsrShadingWordBinding) uniform utexture2D GBufferShadingWordTexture;
+#define GBufferShadingWordTexture usampler2D(GBufferShadingWordTexture, PointClampSampler)
+layout(binding = 41) uniform texture2D RadianceCacheRadianceAtlasTexture;
+#define RadianceCacheRadianceAtlasTexture sampler2D(RadianceCacheRadianceAtlasTexture, LinearClampSampler)
+#define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
+#define RADIANCE_CACHE_PROBES radianceCacheProbes
+#define RADIANCE_CACHE_RADIANCE_ATLAS RadianceCacheRadianceAtlasTexture
+#include <Common/RadianceCache.glslh>
+#define GI_TRACER_BINDING 23
+#include <Common/GITracer.glslh>
+#define GI_SURFACE_CACHE_BINDING 34
+#include <Common/GIHitLighting.glslh>
+
+#endif // DESERT_GI_HIT_LIT_READS_GLSLH
