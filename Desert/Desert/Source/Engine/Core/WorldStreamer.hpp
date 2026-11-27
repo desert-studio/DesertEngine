@@ -3,13 +3,18 @@
 // A PARTITIONED WORLD IN PLAY: ONLY THE NEIGHBOURHOOD OF ITS STREAMING SOURCES IS IN THE ECS, AND ITS CELLS ARE
 // READ OFF THE MAIN THREAD.
 //
-// THE SOURCES (WP24, UE's UWorldPartitionStreamingSourceComponent). Every entity with an enabled
-// ECS::StreamingSourceComponent, the player's pawn among them (Core::SpawnDefaultPawn gives it one), plus
-// whatever an instrument hands Begin/Tick (the editor's --flight camera — UE's streaming source providers).
-// A player WITHOUT a pawn is a source at its view point (Scene::PlayerViewPoint) — UE's APlayerController is a
-// streaming source provider located at GetPlayerViewPoint, which is how a pawn-less PIE (Play from Here, a
-// spectator, an Auto Activate camera) streams the world it looks at. Residency follows their UNION. No other
-// camera is a source: the editor's view in Edit, a preview, a Sequencer camera that is not the player's view.
+// THE SOURCES (WP24, WP-STREAM-SOURCE-VIEW; UE's UWorldPartitionStreamingSourceComponent and providers). The
+// player is a source WHERE IT LOOKS FROM (Core::PlayerStreamingViewOf, PlayerStreamingView.hpp): UE's
+// APlayerController is a streaming source provider located at GetPlayerViewPoint, so the view target camera - the
+// pawn's, an Auto Activate camera, Play from Here's, a camera a scenario pins - streams the world it looks at,
+// pawn or none. Beside it every entity with an enabled ECS::StreamingSourceComponent - a pawn only when its prefab
+// authors one (Pawn_Player.deprefab: the ground under the body while the view is elsewhere), as UE's character
+// carries its own - the scripts' providers, and whatever an instrument hands Begin/Tick (the editor's --flight
+// camera). Residency follows their UNION. No other camera is a source: the editor's view in Edit, a preview, a
+// Sequencer camera that is not the player's view.
+//
+// A TELEPORT (kStreamingTeleportDistanceCm) resets the jumped source's velocity and holds the cells it left
+// until the cell under it is resident: the destination is made before the origin is let go (see Tick).
 // A Play with no source at all streams nothing beyond the always-loaded part and says so once, by name — the
 // origin standing in would stream the wrong neighbourhood in silence.
 //
@@ -195,8 +200,8 @@ namespace Desert::Core
         // the server has acknowledged it - the acknowledgement carries the cell's world delta, applied first, so a
         // record the server destroyed is never seen for a frame. Always-loaded units are not gated. An unload
         // forgets the acknowledgement: the cell's next load is acknowledged again. Released (everything reveals as
-        // usual) when the session closes. While held, the only streaming source is the client's own player (its
-        // possessed pawn, or its view point) - see Tick.
+        // usual) when the session closes. While held, the only streaming sources are the client's own player's:
+        // its view and the components of its pawn and the pawn's descendants - see Tick.
         void SetNetRevealHold( bool hold );
         void AcknowledgeUnitsForNet( std::span<const std::uint32_t> units );
         [[nodiscard]] const WorldPartitionSerialized& Partition() const
@@ -208,17 +213,25 @@ namespace Desert::Core
             return m_Settings;
         }
         // The sources the last Begin/Tick streamed around; empty before BeginCooked's first Tick and in a Play
-        // with no source.
+        // with no source. The origins a teleport holds (see THE SOURCES) are not among them.
         [[nodiscard]] const std::vector<Rules::StreamingSource>& LastSources() const
         {
             return m_LastSources;
         }
+        // The keys of the last Tick's first LastSources(): a component source's entity (entt id), or
+        // kPlayerViewSourceKey for the player's view (PlayerStreamingView.hpp). The sources past them - the
+        // scripts' providers and the instruments - have none. Empty before the first Tick.
+        [[nodiscard]] const std::vector<std::uint32_t>& LastSourceKeys() const
+        {
+            return m_LastSourceKeys;
+        }
 
         // Every enabled StreamingSourceComponent of @p scene, at its entity's world position and facing its
-        // forward, with the component's one shape; then the player's view point when the player has no pawn
-        // (see THE SOURCES); then @p instruments. A disabled one is not a source; an
-        // override range is the shape's own radius. @p entities, when given, receives each component source's
-        // entity, in order. Velocity is zero here: only a Tick knows the time between two positions.
+        // forward, with the component's one shape; then the player's view (PlayerViewStreamingSource) whenever
+        // Play has one (see THE SOURCES); then the scripts' providers; then @p instruments. A disabled one is not
+        // a source; an override range is the shape's own radius. @p entities, when given, receives the key of each
+        // leading source, in order: each component source's entity, then kPlayerViewSourceKey for the view.
+        // Velocity is zero here: only a Tick knows the time between two positions.
         // A sector with Angle From Camera is as wide as its entity's camera sees across (CameraViewAngle);
         // @p withoutCamera, when given, receives each such entity that has no camera to read (its source keeps
         // the authored Sector Angle, and the Tick names it).
@@ -270,9 +283,23 @@ namespace Desert::Core
         void UseSources( std::vector<Rules::StreamingSource> sources );
         // Compares each unit's residency with what the last call saw and sets WorldPartitionStreamingEvents.
         void PublishStreamingEvents();
-        // Gives each of the first @p entities.size() sources the velocity its entity moved at since the last Tick.
-        void StampVelocities( std::vector<Rules::StreamingSource>& sources,
-                              std::span<const std::uint32_t> entities, double nowSeconds );
+        // A keyed source that moved kStreamingTeleportDistanceCm or more since the last Tick: a teleport.
+        struct SourceJump
+        {
+            std::uint32_t Key   = 0; // entt id, or kPlayerViewSourceKey
+            std::size_t   Index = 0; // into this Tick's sources
+            glm::vec3     From{ 0.0f };
+            float         Distance = 0.0f; // cm
+        };
+        // Gives each of the first @p keys.size() sources the velocity it moved at since the last Tick, by key;
+        // a teleport gets velocity 0 and is returned.
+        [[nodiscard]] std::vector<SourceJump> StampVelocities( std::vector<Rules::StreamingSource>& sources,
+                                                               std::span<const std::uint32_t>       keys,
+                                                               double                               nowSeconds );
+        // The resident cells @p origins want that no source keeps - outside every source's range grown by
+        // UnloadMargin, the band StepResidency keeps anyway: what the hold alone keeps. A refused query is an error.
+        [[nodiscard]] Common::ResultStr<std::size_t>
+        CellsHeldByTeleport( std::span<const Rules::StreamingSource> origins ) const;
 
         // One HLOD as the streamer takes it: the cell unit it stands in for and the read of its records.
         // A READ, NOT THE RECORDS (WP22-LIT): a landscape HLOD record carries its built mesh inline (four
@@ -391,13 +418,24 @@ namespace Desert::Core
         Rules::ResidencySettings              m_Settings;
         WorldPartitionSerialized              m_Partition;
         std::vector<Rules::StreamingSource>   m_LastSources;
+        std::vector<std::uint32_t>            m_LastSourceKeys; // LastSourceKeys()
         bool                                  m_SaidNoSource = false;
+        // "the player's view is a streaming source", said when the view source appears; cleared while it is gone.
+        bool m_SaidPlayerView = false;
+        // THE TELEPORT HOLD (see THE SOURCES): where each source that jumped stood before the hold, as a source
+        // of its own (unmoving, last in the order) that the residency steps over beside the sources, until a Tick
+        // that does not wait for the cell under a source; one origin per source key (m_TeleportOriginKeys, same
+        // index) - a held source's later jumps add none; the frames it waited and the cells it said.
+        std::vector<Rules::StreamingSource> m_TeleportOrigins;
+        std::vector<std::uint32_t>          m_TeleportOriginKeys;
+        std::uint32_t                       m_TeleportHoldFrames = 0;
+        std::size_t                         m_TeleportHeldSaid   = 0;
         // Per unit of runtime data layers: the effective state and residency last said in the log (SayDataLayerUnits).
         std::vector<std::uint8_t> m_SaidLayerUnit;
         void                      SayDataLayerUnits();
         // Entities whose Angle From Camera found no camera, already named in the log.
         std::unordered_set<std::uint32_t> m_SaidWithoutCamera;
-        // Where each entity source stood on the last Tick, and when: what its velocity is measured from.
+        // Where each keyed source stood on the last Tick, and when: what its velocity is measured from.
         std::unordered_map<std::uint32_t, glm::vec3> m_SourcePositions;
         double                                       m_SourcesAt = 0.0;
         // What each unit's residency was when PublishStreamingEvents last looked, and its publication count.

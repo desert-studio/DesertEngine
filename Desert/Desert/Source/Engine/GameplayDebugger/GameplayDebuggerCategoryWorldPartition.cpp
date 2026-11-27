@@ -1,6 +1,7 @@
 #include <Engine/GameplayDebugger/GameplayDebuggerCategoryWorldPartition.hpp>
 
 #if DESERT_DEV_INSTRUMENTS
+#include <Engine/Core/PlayerStreamingView.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
@@ -204,6 +205,13 @@ namespace Desert::Debug
         const Rules::ResidencyState&          residency = streamer->Residency();
         const Core::WorldPartitionSerialized& partition = streamer->Partition();
         const std::vector<Rules::StreamingSource>& sources = streamer->LastSources();
+        // A source by what it is: the player's view (PlayerStreamingView.hpp), or by its place in the list.
+        const std::vector<std::uint32_t>& keys       = streamer->LastSourceKeys();
+        const auto                        sourceName = [&keys]( const std::size_t s )
+        {
+            return s < keys.size() && keys[s] == Core::kPlayerViewSourceKey ? std::string( "player view" )
+                                                                            : std::format( "source {}", s );
+        };
         const std::size_t                     firstCell = plan.AlwaysLoaded.size();
         m_LevelCount                                    = plan.LevelCount;
         const auto shown = [this]( const Rules::PlannedCell& cell )
@@ -256,7 +264,7 @@ namespace Desert::Debug
                                                      .A           = source.Position,
                                                      .Radius      = 6.0f,
                                                      .Color       = kSourceColor,
-                                                     .Description = std::format( "source {}", s ) } );
+                                                     .Description = sourceName( s ) } );
                 for ( const Core::RuntimePartitionSerialized& grid : partition.RuntimePartitions )
                     for ( const Rules::SourceSector& sector : Rules::SourceSectors( source, grid ) )
                     {
@@ -311,7 +319,7 @@ namespace Desert::Debug
         if ( m_View.CellDetails )
         {
             for ( std::size_t s = 0; s < sources.size(); ++s )
-                probes.push_back( { std::format( "source {}", s ), sources[s].Position } );
+                probes.push_back( { sourceName( s ), sources[s].Position } );
             if ( target != nullptr )
                 probes.push_back( { "target", glm::vec3( target->GetWorldTransform()[3] ) } );
         }

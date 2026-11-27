@@ -25,10 +25,12 @@
 namespace Desert::ECS
 {
     // UE's UWorldPartitionStreamingSourceComponent: what makes an entity a point a partitioned world loads
-    // around in Play and in the game. Residency follows the union of every enabled source (Core::WorldStreamer);
-    // the camera is not one by itself. The player's pawn gets one when its prefab has none
-    // (Core::SpawnDefaultPawn), as UE's player controller is a source. Its entity loads Global
-    // (WorldPartitionRules), so a source never streams itself out.
+    // around in Play and in the game. Residency follows the union of every enabled source (Core::WorldStreamer).
+    // The player streams from where it LOOKS without one (Core::PlayerStreamingViewOf, PlayerStreamingView.hpp -
+    // UE's player controller at GetPlayerViewPoint); a pawn is a source only when its prefab authors this
+    // component, as UE's character carries its own (Pawn_Player.deprefab: the ground under the body while the view
+    // is away). No other camera is a source by itself. Its entity loads Global (WorldPartitionRules), so a source
+    // never streams itself out.
     struct StreamingSourceData
     {
         REFLECT()
