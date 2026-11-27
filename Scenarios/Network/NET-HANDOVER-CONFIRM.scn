@@ -34,17 +34,20 @@
 Нет sim1 adopted .*from sim 1
 Ждать B 60 fresh \[Shot\] recorded frame_
 Тогда B confirm_cross B's view down on the cut: ONE A capsule just east of X = 300, moving continuously along +X (about 5 px per frame against confirm_cross_next), no jump back, no second A at the old place; clientA.log own-pawn x grows monotonically through the handover (no step back > 5 cm)
-# Когда: sim 2 stops answering (SIGSTOP); A2 walks the parallel line 200 cm off A's and crosses X = 300.
-Сигнал sim2 STOP
+# Когда: A2 walks the parallel line 200 cm off A's; only when it is ~1 s short of X = 300 does sim 2 stop answering
+# (SIGSTOP). The stop must stay under the 10 s link timeout - a longer one closes sim 2's links (ReceiverLost, no retry).
 Роль A2 bot account=2 --seconds 900 --walk-cm 2000 --dir 0.15,0,0
-Ждать sim1 120 held and offered to sim 2 \(offer #2, epoch 1, frozen at step \d+\)
+Ждать A2 120 \] t=\S+ pawns.* \d+\*=\((2[0-6]\d),
+Сигнал sim2 STOP
+Ждать sim1 10 held and offered to sim 2 \(offer #2, epoch 1, frozen at step \d+\)
 Ждать sim1 5 offer #2 .*ReceiverSilent: sim 2 answered nothing for 30 steps - withdrawn; the pawn resumes on sim 1 with \d+ queued input\(s\), next offer not before step \d+
 Ждать store 10 offer \(sim 1, #2\).*withdrawn by sim 1 at step \d+
 Ждать A2 10 2x \] t=
 Ждать B 60 fresh \[Shot\] recorded frame_
 Тогда B lost_receiver_silent B's view with sim 2 stopped: the A2 capsule east of X = 300 still walks along +X under sim 1 (one capsule; clientA2.log moves >= 40 cm per second after a stall <= 0.6 s, no snap back); A's capsule stands still (its sim is stopped)
-# Когда: sim 2 resumes after 4 s stopped (8 lines of A2 at two a second): its stale offer #2 is refused or dropped.
-Ждать A2 10 6x \] t=
+# Когда: sim 2 resumes after ~4 s stopped (about 1 s to X = 300, 0.5 s to the withdrawal, 4 lines of A2 at two a
+# second): its stale offer #2 is refused or dropped.
+Ждать A2 10 2x \] t=
 Сигнал sim2 CONT
 Ждать sim2 30 (offer \(sim 1, #2\).*refused - CatchUpTooLarge|Refused by the store - OfferUnknown.*incoming copy dropped)
 Нет store offer \(sim 1, #2\).*committed \(sim 1, epoch

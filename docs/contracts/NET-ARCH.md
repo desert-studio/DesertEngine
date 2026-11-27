@@ -161,13 +161,37 @@ All mesh links run over GNS too (encrypted, lanes), inside the datacentre.
   current epoch may publish its state; a publish with an older epoch is rejected by the store.
 - **Trigger**: the owner sees the entity inside a neighbour's region beyond a hysteresis margin (half a cell —
   no ping-pong on the line).
-- **Protocol** (at a mesh step N): the owner publishes full state + the entity's unacked client inputs and
-  in-flight Luau timers at N, then compare-and-swaps the authority record to `(newSim, epoch+1)`. The new owner
-  already has the entity as a proxy (it is in its border band), so it promotes the proxy to authoritative at
-  N+1 with the published state — no spawn, no gap.
+- **Protocol** — a two-phase commit, the store the coordinator (`Net/HandoverWire.hpp`, `HandoverLedger.hpp`,
+  `SimHandover.hpp`; Gray 1978 prepare/vote/commit, SpatialOS `AuthorityLossImminent`). Every outcome is an
+  explicit message with an `ERefusal` reason; no transition happens "because it was sent".
+  1. **Offer** (after mesh step N): the owner encodes the entity's full state + its unacked client inputs at N
+     (the wire is checked BEFORE anything is held), HOLDS the entity (not stepped, not written, new inputs
+     queue on it) and sends `Offer` to the store. It stays the authority — the only writer — until `Committed`.
+  2. The store checks its record (`simId == sender`, epoch equal, receiver linked, no other open offer for the
+     entity) and forwards the offer to the receiver, or answers `Refused(reason)` at once.
+  3. The **receiver** checks the offer (the region is its own in the authority map, the world has a cell
+     there, the catch-up `step − N` is at most `kMaxCatchUpSteps`, the player is not already held) and holds
+     the entity as *incoming* (inputs the gateway re-routes early queue on it), answering `Accept`; or answers
+     `Refuse(reason)` and holds nothing.
+  4. Only an `Accept` of the open offer moves the record to `(newSim, epoch+1)`: `Commit` to the receiver,
+     `Committed` to the sender, `AuthorityChanged` to the gateways. A `Refuse` becomes `Refused(reason)` to the
+     sender; an `Accept`/`Refuse`/`Withdraw` of an offer the store no longer has open is `OfferUnknown` to the
+     speaker and moves nothing.
+  5. The sender on `Committed` releases the entity and forwards the inputs that queued while it was held (and
+     every later one) through the store; on `Refused`, or with no answer for `kOfferDeadlineSteps` (it sends
+     `Withdraw`, reason `ReceiverSilent`), it resumes the entity with its queued inputs and does not offer it
+     again for `kRetryBackoffSteps` unless the authority map changes.
+  6. The receiver on `Commit` promotes the incoming entity and catches it up to its own step — no spawn, no
+     gap; on `Refused` it drops the incoming copy with the reason.
+  7. A sim lost to the store: its open offers as receiver are `ReceiverLost` to the sender (which never let the
+     entity go); as sender, an open offer is `SenderLost` to the receiver, an accepted one commits to the
+     receiver (the offered state is the record's best state). Removing an entity with an open offer is
+     `PawnRemoved` to both sides.
+  Each sim's `stat` prints its counts: offered, committed, adopted, refused by store / by receiver, withdrawn,
+  incoming refused / dropped, open as sender / incoming.
 - **Client side**: nothing happens. Same gateway, same NetId, same handle, same stream. The gateway routes the
-  client's next inputs by the new authority record; inputs that reached the old owner after step N are
-  forwarded to the new one by step number. The client's prediction (§5.1) sees an ordinary ack stream.
+  client's next inputs by the new authority record (on `AuthorityChanged`); inputs that reached the old owner
+  while it held the entity or after `Committed` are forwarded to the new one by step number. The client's prediction (§5.1) sees an ordinary ack stream.
 - Physics islands hand over as a whole (§2M.5).
 - **Mesh clock**: all sims step the same global step number (mesh epoch time ÷ 1/60 s, kept by the coordinator,
   sims time-dilate like clients in §2). The net frame (§2) is this global step, so handover, input and lag
