@@ -2,6 +2,7 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
+#include <Engine/Core/WorkSink.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 
 #include <Common/Content/ContentScan.hpp>
@@ -24,7 +25,7 @@ namespace Desert::Assets::ContentRegistry
                             Rows, Added, Removed, Edges, Bounded, Written ? "written" : "unchanged, not written" );
     }
 
-    Common::ResultStr<RefreshOutcome> Refresh( AssetManager& manager )
+    Common::ResultStr<RefreshOutcome> Refresh( AssetManager& manager, Core::WorkSink* const sink )
     {
         RefreshOutcome outcome;
 
@@ -36,7 +37,18 @@ namespace Desert::Assets::ContentRegistry
         // Through `Common::Content::ScanContentRoots`, which is the SAME walk the tool, the CI gate
         // and the packager use. It had three copies for about an hour of this task's life, which is
         // one hour more than the shape deserves.
-        const std::map<std::string, Common::Content::ContentFile> onDisk = Common::Content::ScanContentRoots();
+        // Each file is an item of @p sink while its header is read: on a cold disk that read is the cook.
+        uint64_t                      reading = 0;
+        Common::Content::ScanProgress progress;
+        if ( sink )
+        {
+            progress.Listed = [sink]( const std::size_t files ) { sink->Expect( files ); };
+            progress.Begin  = [sink, &reading]( const std::filesystem::path& file )
+            { reading = sink->BeginItem( file.filename().string() ); };
+            progress.End = [sink, &reading] { sink->FinishItem( reading ); };
+        }
+        const std::map<std::string, Common::Content::ContentFile> onDisk =
+             Common::Content::ScanContentRoots( progress );
 
         {
             Detail::State&                    state = Detail::Get_();

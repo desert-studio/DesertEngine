@@ -4,7 +4,8 @@
 // hands it down: the Application and EditorStartup write it (phases, items), the splash reads it on its own thread
 // (Sample) so the text moves while the main thread is blocked. Phases are weighted by the seconds they took on the
 // previous start on this machine (the host's history file); a phase in progress is re-estimated from its measured
-// rate; the shown fraction is monotonic and rises while work runs (see Sample). Thread-safe: one mutex.
+// rate. The bar is done weight / planned weight (the phases' expected seconds), monotonic, rising while work runs;
+// the time left is the estimate's, never rising (see Sample). Thread-safe: one mutex.
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Core/WorkSink.hpp>
@@ -72,9 +73,9 @@ namespace Desert::Core
         uint64_t                    Done        = 0;
         uint64_t                    Total       = 0; // 0 = uncounted
         std::vector<ActiveWork>     Active;          // oldest first, at most kActiveShown (wait reasons in scene.reveal)
-        double                      Fraction         = 0.0; // 0..1, monotonic across samples, 1 only after Finish
+        double                      Fraction         = 0.0; // done weight / planned weight, monotonic, 1 only after Finish
         double                      ElapsedSeconds   = 0.0;
-        double                      RemainingSeconds = 0.0; // what Fraction implies, elapsed*(1-f)/f; never rises
+        double                      RemainingSeconds = 0.0; // the running phase's estimate + the phases ahead; never rises
         std::vector<StartupLogLine> Log; // newest last, at most kLogShown
         bool                        StopRequested = false;
         bool                        Finished      = false;
@@ -154,6 +155,8 @@ namespace Desert::Core
         StartupClock::time_point        m_LastSample{};
         double                          m_Shown    = 0.0;
         double                          m_ShownRemaining = 0.0; // the last sample's RemainingSeconds (never rises)
+        std::optional<size_t>           m_SharePhase;     // the phase m_PhaseShare is of
+        double                          m_PhaseShare = 0.0; // its shown share done, monotonic, below 1
         bool                            m_Finished = false;
         std::atomic<bool>               m_Stop{ false };
     };

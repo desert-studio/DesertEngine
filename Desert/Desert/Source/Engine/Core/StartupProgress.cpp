@@ -31,6 +31,9 @@ namespace Desert::Core
         // The floor of the current phase's estimate: an ETA of 0 while work runs would be a lie, and it would
         // let the bar reach 1 before Finish.
         constexpr double kRemainingFloorSeconds = 0.5;
+        // A phase's weight in the bar is its expected seconds, at least this: a phase that took no time on the
+        // last start is still a step of the plan.
+        constexpr double kMinPhaseWeight = 0.01;
 
         // An uncounted phase's seconds left after @p elapsed of its @p expected: linear down to its knee (half of
         // it), then the hyperbola knee^2 / elapsed -- equal value and slope at the knee, a quarter of the
@@ -201,9 +204,10 @@ namespace Desert::Core
             return view;
         }
 
-        // R = the current phase's estimate + every phase still ahead at its expected seconds.
-        double remaining = 0.0;
-        size_t ahead     = 0;
+        // The running phase: the current one, or before the first BeginPhase the plan's first phase still to run.
+        std::optional<size_t> running;
+        double                phaseElapsed = 0.0;
+        double                phaseLeft    = 0.0;
         if ( !m_Current )
         {
             // Before the first BeginPhase the process is already doing the plan's first phase's work (the
@@ -215,8 +219,9 @@ namespace Desert::Core
             {
                 view.Phase       = next->Spec.Label;
                 view.PhaseNumber = static_cast<size_t>( next - m_Phases.begin() ) + 1;
-                remaining        = ExpectedLeft( next->Expected, view.ElapsedSeconds );
-                ahead            = view.PhaseNumber;
+                running          = view.PhaseNumber - 1;
+                phaseElapsed     = view.ElapsedSeconds;
+                phaseLeft        = ExpectedLeft( next->Expected, phaseElapsed );
             }
         }
         else
@@ -228,47 +233,65 @@ namespace Desert::Core
             view.Done             = count.Done;
             view.Total            = count.Total;
             view.Active           = count.Active;
-            remaining             = RemainingOf( phase, count, now );
-            ahead                 = *m_Current + 1;
+            running               = m_Current;
+            phaseElapsed          = SecondsBetween( phase.Begin, now );
+            phaseLeft             = RemainingOf( phase, count, now );
         }
-        for ( size_t index = ahead; index < m_Phases.size(); ++index )
-            if ( !m_Phases[index].Ended )
-                remaining += m_Phases[index].Expected;
+        // R = the running phase's estimate + every phase still ahead at its expected seconds; W = every phase's
+        // weight, D = the ended phases' (a skipped phase ended at zero: its step is behind the start).
+        double remaining = phaseLeft;
+        double planned   = 0.0;
+        double done      = 0.0;
+        for ( size_t index = 0; index < m_Phases.size(); ++index )
+        {
+            const Phase& phase  = m_Phases[index];
+            const double weight = std::max( phase.Expected, kMinPhaseWeight );
+            planned += weight;
+            if ( phase.Ended )
+                done += weight;
+            else if ( running && index > *running )
+                remaining += phase.Expected;
+        }
 
-        // THE SHOWN FRACTION (R3): elapsed over elapsed + left. When a re-plan raised what is left, the bar does
-        // not go back: the share still to do is crossed at the rate the new estimate gives, so it rises while
-        // time passes and reaches 1 only at Finish.
-        const double elapsed  = view.ElapsedSeconds;
-        const double raw      = elapsed + remaining > 0.0 ? elapsed / ( elapsed + remaining ) : 0.0;
+        // THE BAR (UE FScopedSlowTask): done weight / planned weight. The running phase adds its weight times its
+        // share done, elapsed / (elapsed + its seconds left) -- its count's done / total when the left is the
+        // measured rate's, rising with time when it is the expectation's. The share never goes back (a re-plan
+        // that raised the total holds it) and, while the estimate gives nothing newer, it keeps rising by
+        // step / (step + max(left, elapsed)) of what is still open: a phase running over its plan slows its
+        // part of the bar to the rate it has shown, it never fills it. The bar reaches 1 only at Finish.
         const bool   sampled  = m_LastSample != StartupClock::time_point{};
         const double step     = sampled ? std::max( SecondsBetween( m_LastSample, now ), 0.0 ) : 0.0;
         const double maxShown = std::nextafter( 1.0, 0.0 );
-        if ( raw >= m_Shown )
-            m_Shown = raw;
-        else if ( sampled )
-            m_Shown += ( 1.0 - m_Shown ) * step / ( step + std::max( remaining, kRemainingFloorSeconds ) );
+        double       bar      = done;
+        if ( running )
+        {
+            if ( m_SharePhase != running )
+            {
+                m_SharePhase = running;
+                m_PhaseShare = 0.0;
+            }
+            const double target = phaseElapsed + phaseLeft > 0.0 ? phaseElapsed / ( phaseElapsed + phaseLeft ) : 0.0;
+            if ( target > m_PhaseShare )
+                m_PhaseShare = target;
+            else if ( sampled )
+                m_PhaseShare += ( 1.0 - m_PhaseShare ) * step /
+                                ( step + std::max( { phaseLeft, phaseElapsed, kRemainingFloorSeconds } ) );
+            m_PhaseShare = std::min( m_PhaseShare, maxShown );
+            bar += std::max( m_Phases[*running].Expected, kMinPhaseWeight ) * m_PhaseShare;
+        }
+        if ( planned > 0.0 )
+            m_Shown = std::max( m_Shown, bar / planned );
         m_Shown = std::min( m_Shown, maxShown );
 
-        // THE SHOWN TIME LEFT IS THE BAR'S: the seconds the shown fraction implies at the elapsed time,
-        // elapsed * (1 - f) / f -- one source for both, so the number never says "0:16 left" beside a bar at
-        // 97 %. It never rises: each sample it is at most the last one less step * S / (S + elapsed), so it falls
-        // in every sample (faster early, slower late, never 0); when that cap binds (an overrun, a re-plan that
-        // raised R, a counted phase whose first item was slow) the bar is moved to the fraction the capped time
-        // implies, which is above where it was, so the bar stays monotonic and reaches near 1 at the reveal.
-        double left = m_Shown > 0.0 ? std::max( elapsed * ( 1.0 - m_Shown ) / m_Shown, kRemainingFloorSeconds )
-                                    : std::max( remaining, kRemainingFloorSeconds );
+        // THE TIME LEFT is R, never rising: each sample it is at most the last one less step * S / (S + elapsed),
+        // so it falls in every sample (faster early, slower late) and stays positive. It is not derived from the
+        // bar any more: coupling the two pushed the bar to 99.99 % while an overrun phase still ran.
+        double left = std::max( remaining, kRemainingFloorSeconds );
         if ( sampled )
-        {
-            const double cap =
-                 std::max( m_ShownRemaining - step * m_ShownRemaining /
-                                                   std::max( m_ShownRemaining + elapsed, kRemainingFloorSeconds ),
-                           kRemainingFloorSeconds );
-            if ( left > cap && elapsed > 0.0 )
-            {
-                left    = cap;
-                m_Shown = std::min( std::max( m_Shown, elapsed / ( elapsed + left ) ), maxShown );
-            }
-        }
+            left = std::min( left, std::max( m_ShownRemaining - step * m_ShownRemaining /
+                                                                    std::max( m_ShownRemaining + view.ElapsedSeconds,
+                                                                              kRemainingFloorSeconds ),
+                                             kRemainingFloorSeconds ) );
         m_ShownRemaining      = left;
         m_LastSample          = now;
         view.Fraction         = m_Shown;
@@ -343,12 +366,13 @@ namespace Desert::Core
     {
         const double elapsed = SecondsBetween( phase.Begin, now );
         // Counted and started: the measured rate (Unity's rule). A cache miss that raised the total raised this.
-        if ( count.Total > 0 && count.Done >= 1 )
-        {
-            const double left = count.Total > count.Done ? static_cast<double>( count.Total - count.Done ) : 0.0;
-            return std::max( elapsed * left / static_cast<double>( count.Done ), kRemainingFloorSeconds );
-        }
-        // Otherwise the expectation, decaying through an overrun.
+        if ( count.Total > count.Done && count.Done >= 1 )
+            return std::max( elapsed * static_cast<double>( count.Total - count.Done ) /
+                                  static_cast<double>( count.Done ),
+                             kRemainingFloorSeconds );
+        // Otherwise the expectation, decaying through an overrun -- also when every counted item is done and the
+        // phase still runs (its main-thread tail, items not asked yet): a count at its total is not a phase at
+        // its end, and the floor there sat the time left at 0:01 for 40 s (STARTUP-PROGRESS acceptance #39).
         return ExpectedLeft( phase.Expected, elapsed );
     }
 

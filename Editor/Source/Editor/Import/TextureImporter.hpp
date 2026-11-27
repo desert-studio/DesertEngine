@@ -53,6 +53,12 @@ namespace Desert::Editor
     // cooks, in the order it cooks them. Public so a gate can ask "is this referenced texture one the
     // cook reaches" of the cook's own enumeration rather than of a copy of its filter.
     std::vector<std::filesystem::path> LooseTextureSources();
+    // The same walk in its two halves, so the cook can count and name each file while it runs (the reading half
+    // is the slow one: it opens files). Candidates: every file under the roots whose extension is a texture
+    // source's or the asset's, sorted; nothing is read. IsLooseTextureSource: whether a candidate is one of
+    // LooseTextureSources() (it reads the asset header the candidate is or stands beside).
+    std::vector<std::filesystem::path> LooseTextureCandidates();
+    [[nodiscard]] bool                 IsLooseTextureSource( const std::filesystem::path& candidate );
 
     class TextureImporter
     {

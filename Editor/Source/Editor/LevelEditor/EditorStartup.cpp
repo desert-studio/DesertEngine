@@ -395,7 +395,7 @@ namespace Desert::Editor
                 // read, and failing to write the next boot's copy is a reason to say so loudly, not
                 // a reason to stop editing.
                 BeginPhase( "content.refresh" );
-                if ( const auto cooked = Assets::ContentRegistry::Refresh( *m_AssetManager ); !cooked )
+                if ( const auto cooked = Assets::ContentRegistry::Refresh( *m_AssetManager, m_Startup.get() ); !cooked )
                 {
                     LOG_ERROR( "[ContentRegistry] the content registry could not be cooked: {}",
                                cooked.GetError() );
@@ -463,14 +463,13 @@ namespace Desert::Editor
         const auto&                pipelines     = Graphic::PipelineBuilds::Get();
         const uint64_t             pipesStarted  = pipelines.Started( Graphic::PipelineRole::Engine );
         const uint64_t             pipesFinished = pipelines.Finished( Graphic::PipelineRole::Engine );
-        // What the item line ages: the read named now and since when, and when anything was last in flight. The
-        // source is called under the progress's mutex only (the splash's samples, the phase's end), so this
-        // per-source state needs no lock of its own.
+        // What the item line ages: the read named now and since when. The source is called under the progress's
+        // mutex only (the splash's samples, the phase's end), so this per-source state needs no lock of its own.
+        // The main thread's own step (the open's, SceneFiles::LoadSceneInternal) is an item of the progress.
         struct Watch
         {
             std::string                            Read;
             ::Desert::Core::StartupClock::time_point ReadSince{};
-            ::Desert::Core::StartupClock::time_point LastInFlight = ::Desert::Core::StartupClock::now();
         };
         return [readsBase, readsStarted, pipesStarted, pipesFinished,
                 watch = Watch{}]( const ::Desert::Core::StartupClock::time_point now ) mutable
@@ -503,14 +502,6 @@ namespace Desert::Editor
                                     std::filesystem::path( reads.Current ).filename().string() ),
                        std::max( std::chrono::duration<double>( now - watch.ReadSince ).count(), 0.0 ) } );
             }
-            // Nothing on a worker or in the driver while the phase runs: the main thread is doing the scene's work
-            // (instancing what landed, asking the next reads). Said as that, aged from the last thing in flight.
-            if ( count.Active.empty() )
-                count.Active.push_back(
-                     { "Main thread, nothing in flight",
-                       std::max( std::chrono::duration<double>( now - watch.LastInFlight ).count(), 0.0 ) } );
-            else
-                watch.LastInFlight = now;
             return count;
         };
     }
@@ -522,6 +513,11 @@ namespace Desert::Editor
             ShowContentLine( Assets::ContentProgressSince(
                  now, finishedBefore, Graphic::PipelineBuilds::Get().Pending( Graphic::PipelineRole::Engine ) ) );
         };
+    }
+
+    ::Desert::Core::WorkSink* EditorStartup::SceneLoadSink() const
+    {
+        return m_SceneLoadPhase && !m_RevealPhase && !m_StartupFinished ? m_Startup.get() : nullptr;
     }
 
     void EditorStartup::BeginContentSettle( const uint64_t finishedBefore )

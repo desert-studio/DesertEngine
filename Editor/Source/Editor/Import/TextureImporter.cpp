@@ -1250,11 +1250,11 @@ namespace Desert::Editor
         return { &Common::Constants::Path::TEXTUREDIR_PATH, &Common::Constants::Path::MESH_PATH };
     }
 
-    std::vector<std::filesystem::path> LooseTextureSources()
+    std::vector<std::filesystem::path> LooseTextureCandidates()
     {
         namespace fs = std::filesystem;
 
-        std::vector<fs::path> sources;
+        std::vector<fs::path> candidates;
         for ( const fs::path* root : LooseTextureRoots() )
         {
             std::error_code ec;
@@ -1270,25 +1270,33 @@ namespace Desert::Editor
                 std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
                 // THE ONE ORDERED LIST, asked rather than re-spelled -- see TextureSourceFormats.hpp for the
                 // two hand-written copies that had already drifted before it existed.
-                if ( ext == Assets::kTextureAssetExtension )
-                {
-                    // A `.detex` that is not a texture asset (the pre-asset JSON sidecar) is not listed: its
-                    // image is, and that image's import refuses it by path (ImportSourceAsset).
-                    if ( Assets::IsTextureSourceAssetFile( entry.path() ) )
-                        sources.push_back( entry.path() );
-                    continue;
-                }
-                if ( TextureSourceFormatRank( ext ) == kTextureSourceExtensionCount )
-                    continue;
-                // An image whose asset exists is that asset's provenance, not a second texture.
-                if ( Assets::IsTextureSourceAssetFile( TextureIntentPath( entry.path() ) ) )
-                    continue;
-
-                sources.push_back( entry.path() );
+                if ( ext == Assets::kTextureAssetExtension ||
+                     TextureSourceFormatRank( ext ) != kTextureSourceExtensionCount )
+                    candidates.push_back( entry.path() );
             }
         }
         // Sorted, so two runs over the same tree cook — and log — in the same order on every platform.
-        std::sort( sources.begin(), sources.end() );
+        std::sort( candidates.begin(), candidates.end() );
+        return candidates;
+    }
+
+    bool IsLooseTextureSource( const std::filesystem::path& candidate )
+    {
+        // A `.detex` that is not a texture asset (the pre-asset JSON sidecar) is not listed: its image is, and
+        // that image's import refuses it by path (ImportSourceAsset).
+        std::string ext = candidate.extension().string();
+        std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
+        if ( ext == Assets::kTextureAssetExtension )
+            return Assets::IsTextureSourceAssetFile( candidate );
+        // An image whose asset exists is that asset's provenance, not a second texture.
+        return !Assets::IsTextureSourceAssetFile( TextureIntentPath( candidate ) );
+    }
+
+    std::vector<std::filesystem::path> LooseTextureSources()
+    {
+        std::vector<std::filesystem::path> sources = LooseTextureCandidates();
+        std::erase_if( sources, []( const std::filesystem::path& candidate )
+                       { return !IsLooseTextureSource( candidate ); } );
         return sources;
     }
 

@@ -541,11 +541,34 @@ namespace Common::Content
         constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 7";
     } // namespace
 
-    std::map<std::string, ContentFile> ScanContentRoots()
+    std::map<std::string, ContentFile> ScanContentRoots( const ScanProgress& progress )
     {
+        // The walk first (directories only), then the headers: so the count is known before the slow half runs.
+        // A key the walk reaches twice is the first visit's, as it always was.
+        struct Listed
+        {
+            std::filesystem::path File;
+            ContentKind           Kind;
+            std::string           Key;
+        };
+        std::vector<Listed>                listed;
         std::map<std::string, ContentFile> found;
-        ForEachContentFile( [&found]( const std::filesystem::path& file, ContentKind kind, const std::string& key )
-                            { found.emplace( key, DescribeContentFile( file, kind ) ); } );
+        ForEachContentFile(
+             [&listed, &found]( const std::filesystem::path& file, ContentKind kind, const std::string& key )
+             {
+                 if ( found.try_emplace( key ).second )
+                     listed.push_back( { file, kind, key } );
+             } );
+        if ( progress.Listed )
+            progress.Listed( listed.size() );
+        for ( const Listed& file : listed )
+        {
+            if ( progress.Begin )
+                progress.Begin( file.File );
+            found[file.Key] = DescribeContentFile( file.File, file.Kind );
+            if ( progress.End )
+                progress.End();
+        }
         return found;
     }
 

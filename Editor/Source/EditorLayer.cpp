@@ -564,12 +564,12 @@ namespace Desert::Editor
                      if ( const auto presented = Engine::PresentInterimFrame( *window ); !presented.IsSuccess() )
                          LOG_ERROR( "[Editor] the scene-open loading frame: {}", presented.GetError() );
                  } );
-            if ( m_SceneFiles.ServiceLoadRequest() )
+            if ( m_SceneFiles.ServiceLoadRequest( m_Startup.SceneLoadSink() ) )
             {
                 m_Startup.BeginContentSettle( readsFinishedBefore );
                 m_SceneFiles.InitializeIfLoadRefused();
             }
-            m_SceneFiles.ServiceNewRequest();
+            m_SceneFiles.ServiceNewRequest( m_Startup.SceneLoadSink() );
         }
 
         // Opening an extra scene view, a second angle or the four-up grid allocates a SceneRenderer + Init()

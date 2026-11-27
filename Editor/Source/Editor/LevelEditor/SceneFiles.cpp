@@ -101,13 +101,13 @@ namespace Desert::Editor
 
     // Between frames, after the startup stages: the deferred load. True when a load ran — the host starts
     // the content settle then, BEFORE InitializeIfLoadRefused and New Scene (the order OnUpdate always had).
-    bool SceneFiles::ServiceLoadRequest()
+    bool SceneFiles::ServiceLoadRequest( Desert::Core::WorkSink* const sink )
     {
         if ( !m_SceneLoadRequested )
             return false;
         auto path = m_SceneLoadRequested.value();
         m_SceneLoadRequested.reset();
-        LoadSceneInternal( path );
+        LoadSceneInternal( path, OpenAs::File, sink );
         return true;
     }
 
@@ -134,12 +134,12 @@ namespace Desert::Editor
     }
 
     // New (empty) scene — deferred like a load so it never tears down resources mid-frame.
-    void SceneFiles::ServiceNewRequest()
+    void SceneFiles::ServiceNewRequest( Desert::Core::WorkSink* const sink )
     {
         if ( !m_NewSceneRequested )
             return;
         m_NewSceneRequested = false;
-        NewSceneInternal();
+        NewSceneInternal( sink );
     }
 
     void SceneFiles::RequestLoad( const Common::Filepath& path )
@@ -313,16 +313,17 @@ namespace Desert::Editor
         m_Workspace.ActiveScene()->SetFilePath( path.string() );
     }
 
-    void SceneFiles::NewSceneInternal()
+    void SceneFiles::NewSceneInternal( Desert::Core::WorkSink* const sink )
     {
         // A new scene is the Basic level template opened as an untitled scene — content, not entities made
         // here. The load's own refusals (a missing template is "Scene file does not exist: <path>") leave the
         // editor as it was; InitializeIfLoadRefused covers the first boot, whose Init was deferred to this.
-        LoadSceneInternal( BasicLevelTemplate(), OpenAs::Untitled );
+        LoadSceneInternal( BasicLevelTemplate(), OpenAs::Untitled, sink );
         InitializeIfLoadRefused();
     }
 
-    void SceneFiles::LoadSceneInternal( const Common::Filepath& requested, const OpenAs openAs )
+    void SceneFiles::LoadSceneInternal( const Common::Filepath& requested, const OpenAs openAs,
+                                        Desert::Core::WorkSink* const sink )
     {
         // The old path of a moved scene opens the scene where it now lives (the registry follows the
         // redirector the move left); only a redirector the registry cannot resolve reaches the refusal below.
@@ -341,6 +342,15 @@ namespace Desert::Editor
         // scene they had and given them nothing. So an unloadable file leaves the editor exactly as it is
         // and says why, with the command that fixes the file.
         Desert::Core::SceneLoadPhases phases( fmt::format( "Open '{}'", path.filename().string() ) );
+        // THE STEP IN FLIGHT, named to @p sink while it runs (the laps are named when they end): the splash says
+        // which part of the open holds the main thread, with its seconds.
+        std::optional<Desert::Core::ScopedWorkItem> step;
+        const auto stepTo = [&step, sink]( const std::string_view name )
+        {
+            step.reset();
+            step.emplace( sink, name );
+        };
+        stepTo( "Reading the scene file" );
 
         // A PARTITIONED WORLD OPENS WITH WHAT THE USER HAD LOADED (WP20/WP19-REST, owner's decision O3 - UE's
         // World Partition editor): its always-loaded part and the regions of the last region load in this
@@ -402,6 +412,7 @@ namespace Desert::Editor
 
         phases.Lap( "version gate before tearing down the open scene", content.size() );
 
+        stepTo( "Clearing the open scene" );
         // Wait for GPU to be idle before destroying resources mid-frame
         EngineContext::GetInstance().GetDevice()->WaitIdle();
 
@@ -423,6 +434,7 @@ namespace Desert::Editor
         m_Workspace.ReleaseActiveWorld();
         phases.Lap( "release the old world's GPU resources, drain deferred deletions", outgoing );
 
+        stepTo( "Deserializing the scene" );
         const Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(), m_Assets.get() );
         // Cannot fire - the same text passed the same check above, before anything was torn down. It is
         // reported and NOT returned from on purpose: the scene is already cleared by this point, so the
@@ -439,11 +451,13 @@ namespace Desert::Editor
         // THE SCENE'S DEPENDENCY CLOSURE, from the registry's `deps` column, is read by the loader's workers
         // while the open waits — meshes, their materials, parents and textures in one batch — so its first
         // frame is whole and no read happens in a frame (AL1-8b).
+        stepTo( "Waiting for the scene's dependency closure" );
         const Runtime::ClosureResidency closure = Runtime::AwaitSceneClosure( *m_Workspace.ActiveScene() );
         phases.Lap( "wait for the scene's dependency closure (rows)", closure.Rows );
         LOG_INFO( "[SceneLoad] closure: {} row(s), {} worker read(s) awaited, {} drawable mesh(es)", closure.Rows,
                   closure.Reads, closure.DrawableMeshes );
 
+        stepTo( "Initialising the scene (its views and renderers)" );
         if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
         {
             LOG_ERROR( "[EditorLayer] loaded scene failed to initialise: {}", inited.GetError() );
@@ -454,8 +468,10 @@ namespace Desert::Editor
 
         // Destroy the old registry FIRST: its destructor unregisters the editor passes by name, and
         // assignment would run it after the new registry already re-registered them.
+        stepTo( "Rebuilding the render registry" );
         m_Workspace.ActiveSceneReplaced();
         phases.Lap( "rebuild the render registry, drop the old world's selection", incoming );
+        step.reset();
         phases.LogSummary();
         m_Workspace.SampleSceneOpenMeasure();
 

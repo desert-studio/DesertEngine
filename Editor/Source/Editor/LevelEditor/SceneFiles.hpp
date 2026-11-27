@@ -10,6 +10,7 @@
 // (SceneFileDialogs.cpp). A member of EditorLayer BY VALUE, declared after SceneWorkspace and ViewportCapture.
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Core/WorkSink.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include "Editor/Core/CommandPalette.hpp"
 
@@ -62,11 +63,12 @@ namespace Desert::Editor
         // Drains Core::SceneOpenRequest through the unsaved-changes gate.
         void ConsumeOpenRequest();
         // Between frames, in this order: ServiceLoadRequest (true when a load ran — the host begins the
-        // content settle there), InitializeIfLoadRefused after a load, then ServiceNewRequest.
-        [[nodiscard]] bool ServiceLoadRequest();
+        // content settle there), InitializeIfLoadRefused after a load, then ServiceNewRequest. @p sink (null:
+        // nobody watches) names each step of the open while it runs (the start's splash).
+        [[nodiscard]] bool ServiceLoadRequest( Desert::Core::WorkSink* sink );
         // A refused load left the scene uninitialised (OnAttach skipped Init for it): Init + registry here.
         void InitializeIfLoadRefused();
-        void ServiceNewRequest();
+        void ServiceNewRequest( Desert::Core::WorkSink* sink );
 
         // Serializes the active scene to @p path (startup content). False when the bytes did not land.
         [[nodiscard]] bool SaveSceneTo( const std::string& path );
@@ -110,8 +112,8 @@ namespace Desert::Editor
             File,
             Untitled
         };
-        void LoadSceneInternal( const Common::Filepath& requested, OpenAs openAs = OpenAs::File );
-        void NewSceneInternal();
+        void LoadSceneInternal( const Common::Filepath& requested, OpenAs openAs, Desert::Core::WorkSink* sink );
+        void NewSceneInternal( Desert::Core::WorkSink* sink );
         // The open scene is this file from now on (empty: no file); the world is told, for its crash line.
         void SetOpenPath( const Common::Filepath& path );
         // Drops the scene's text header when `destination` is not the file it was opened as (a copy is a new

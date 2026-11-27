@@ -117,6 +117,8 @@ namespace Desert::Editor
         /// A scene has just loaded; whatever it asks for has not been asked for yet. Starts the wait.
         /// @p finishedBefore is `AsyncAssetLoader::Progress().Finished` taken before the load asked for anything.
         void BeginContentSettle( uint64_t finishedBefore );
+        /// The start's progress while its scene.load phase runs (the open names its steps into it), else null.
+        [[nodiscard]] ::Desert::Core::WorkSink* SceneLoadSink() const;
         /// What a scene load that BLOCKS reports while it waits for its reads (LOAD-SHOW-b, UE's
         /// FScopedSlowTask shape): installed around the load with Assets::ScopedWaitFeedback, it turns each read
         /// landing inside AsyncAssetLoader::AwaitOne into the settle's line, counted since @p finishedBefore —

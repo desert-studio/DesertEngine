@@ -26,6 +26,11 @@
 #include <unordered_map>
 #include <vector>
 
+namespace Desert::Core
+{
+    class WorkSink;
+}
+
 namespace Desert::Assets
 {
     class AssetManager;
@@ -143,7 +148,8 @@ namespace Desert::Assets
 
         // THE COOK. Walks every content root, enters files that have no row, drops rows whose file is
         // gone, and re-reads dependency edges from `manager` for every asset it holds. Writes the file
-        // when anything changed. Editor only.
+        // when anything changed. Editor only. @p sink (null: nobody watches) counts and names each file
+        // while its header is read.
         struct RefreshOutcome
         {
             std::size_t               Rows    = 0;
@@ -154,7 +160,7 @@ namespace Desert::Assets
             bool                      Written = false;
             [[nodiscard]] std::string Describe() const;
         };
-        [[nodiscard]] Common::ResultStr<RefreshOutcome> Refresh( AssetManager& manager );
+        [[nodiscard]] Common::ResultStr<RefreshOutcome> Refresh( AssetManager& manager, Core::WorkSink* sink );
 
         // Writes the current rows to `Common::Utils::AssetRegistry::DefaultPath()`. Separate from
         // `Refresh` so the editor can flush rows that `NoteAsset` added during a session without
