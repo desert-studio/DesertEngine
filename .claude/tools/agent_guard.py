@@ -386,6 +386,12 @@ def lead_launch_refusal(tin, s, disk_gb=None):
         return "sonnet не запускать (владелец 09-29: на задачу он дороже основной модели). Разведка — haiku Explore."
     if kind in P.NOT_COUNTED:
         return None
+    if kind == "acceptance":
+        runs = set(re.findall(r"[\w./-]+\.scn\b", prompt))
+        repeats = re.findall(r"(?:\bx\s*\d|\b\d+\s*x\b|×\s*\d|\btwice\b|дважд)", prompt, re.I)
+        if len(runs) > limits.ACCEPTANCE_RUNS or repeats:
+            return (f"одна приёмка = limits.ACCEPTANCE_RUNS ({limits.ACCEPTANCE_RUNS}) прогон сценария (SPEND 11-27: два прогона в одном "
+                    "агенте = 88-95k контекста кадров). Второй прогон или сценарий — свежий агент acceptance; отчёт таблицей.")
     code = code_of(prompt)
     if code and kind == "general-purpose":
         return ("одна правка идёт агентом fixer (SPEND-TOTAL-5X: у general-purpose полный набор инструментов, +22k на каждый запрос) — "
@@ -878,6 +884,13 @@ def self_check():
             verdict = decide(dict(case, hook_event_name="PreToolUse", cwd=tmp), s)
             if verdict:
                 failed.append("REFUSED a legal call: " + name + " — " + verdict[1][:120])
+        two = {"subagent_type": "acceptance", "prompt": "You are agent F-ACC\nplay Scenarios/F/A.scn and Scenarios/F/B.scn"}
+        if "ACCEPTANCE_RUNS" not in (lead_launch_refusal(two, s) or ""):
+            failed.append("acceptance with two scenario runs")
+        if "ACCEPTANCE_RUNS" not in (lead_launch_refusal(dict(two, prompt="You are agent F-ACC\nplay Scenarios/F/A.scn x2"), s) or ""):
+            failed.append("acceptance with a repeated run")
+        if "ACCEPTANCE_RUNS" in (lead_launch_refusal(dict(two, prompt="You are agent F-ACC\nplay Scenarios/F/A.scn"), s) or ""):
+            failed.append("REFUSED a legal call: acceptance with one run")
         if not lead_launch_refusal(launch("F-B", brief("F-B", good))["tool_input"], s, disk_gb=1.0):
             failed.append("launch on a full disk")
         os.makedirs(f"{tmp}/wt/F-B/Desert/B", exist_ok=True)

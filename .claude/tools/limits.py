@@ -115,3 +115,6 @@ CHAIN_REVIEWS = 2         # reviewer runs one worker may launch (second only aft
 # The lead /clears (not /compacts) at a batch boundary above this context: the state is on disk (studio.py digest).
 LEAD_FLOOR = 30_000        # TOKEN-AUDIT2 11-27: the lead context right after /clear (system + tools + CLAUDE.md + MEMORY.md); re-measure after a tool change
 CLEAR_AT = LEAD_FLOOR + 25_000  # TOKEN-AUDIT2: /clear when the history passes 25k above the floor; one /clear (~49k) pays back in ~11 requests
+
+# SPEND 11-27: one acceptance agent plays one scenario run; a repeat or a second scenario is a fresh agent.
+ACCEPTANCE_RUNS = 1

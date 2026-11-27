@@ -13,3 +13,6 @@ The lead decides the cheapest path before every launch. A hook enforces the rule
 | Search | haiku Explore or grep digest (<= 60 lines) | whole-file reads into the lead |
 | Agent count | 2 by default; more only for small disjoint packages | filling slots because they are free |
 | Brief to an agent | spend conditions copied in: read budget, no whole-file reads of files > 2000 lines, at 100k context commit, push and write REMAINDER.md | an open-ended brief |
+| Lead fixes a defect himself | before the build, write the defect arithmetic against the scenario statement: units (per frame / per repaint / per second), cold and warm run, the worst sample; build and accept only when the arithmetic closes it | a fix proven only by the next acceptance (SP-MODEL ETA: three acceptances, ~0.6M) |
+| Acceptance | one scenario run per agent; a repeat or a second scenario is a fresh agent [hook, limits.ACCEPTANCE_RUNS]; report = the table, frames compared by numbers first, a frame opened once | two runs in one agent (88-95k of frames in context) |
+| Lead context > limits threshold (55k) | handover into memory at the task boundary, then /clear typed by auto_compact.py [hook] | carrying a 60k+ lead context through more requests |
