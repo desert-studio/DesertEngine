@@ -29,10 +29,10 @@ Per directory: files, lines, the classes its headers declare.
 - `Assets/Shader` — 2 files, 325 lines: ShaderAsset
 - `Assets/Skybox` — 2 files, 123 lines: SkyboxAsset
 - `Assets/StaticLighting` — 3 files, 263 lines: AtlasPlacement, BakedLightRecord, BakedPrimitiveRecord, LightingBuildDataAsset, MeshLightmapUVSettings, StaticLightingInput, StaticLightingInputs, VolumetricLightmapData
-- `Core` — 82 files, 18,968 lines: Application, ApplicationInfo, ApproximateShell, AssetAnnouncer, AssetParamLabel, AssetReferenceVisitor, AxisRow, BootTimeline, Camera, CameraEntityView, CameraSourceTicket, CellHLOD, … (+104)
+- `Core` — 83 files, 19,258 lines: Application, ApplicationInfo, ApproximateShell, AssetAnnouncer, AssetParamLabel, AssetReferenceVisitor, AxisRow, BootTimeline, Camera, CameraEntityView, CameraSourceTicket, CellHLOD, … (+106)
 - `Core/Formats` — 11 files, 3,568 lines: BC6HCeilingCensus, BlockEncodeSettings, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MaterialLayout, MaterialLayoutBindings, MaterialLayoutParam, MaterialLayoutPushField, MaterialLayoutTexture, MipLevelSpan, … (+9)
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
-- `Core/Serialize` — 79 files, 24,194 lines: ActivationCostModel, ActivationDone, ActivationFrame, ActivationJob, ActivationKindComponent, AxisSpan, BuiltHLODCell, BuiltHLODIndex, CellBounds, CellCoord, CellHLODPart, CellPayload, … (+170)
+- `Core/Serialize` — 79 files, 24,200 lines: ActivationCostModel, ActivationDone, ActivationFrame, ActivationJob, ActivationKindComponent, AxisSpan, BuiltHLODCell, BuiltHLODIndex, CellBounds, CellCoord, CellHLODPart, CellPayload, … (+170)
 - `Core/ShaderCompiler` — 19 files, 3,629 lines: BindlessShaderDefine, CookedProgramVariant, DxilDescriptorRange, DxilHlslProgram, DxilHlslStage, DxilRootParameter, DxilVertexInput, RootSignatureDesc, SceneBindingName, ScopedShaderPhase, ShaderBinaryDXIL, ShaderCacheCounts, … (+10)
 - `Core/ShaderCompiler/DShader` — 2 files, 4,260 lines: DShaderParseResult, DShaderParser, DShaderPass, SurfaceTemplateInfo
 - `Core/ShaderCompiler/Includer` — 2 files, 457 lines: ShaderIncluder
@@ -40,9 +40,9 @@ Per directory: files, lines, the classes its headers declare.
 - `Core/ShaderCompiler/ShadingModels` — 6 files, 1,188 lines: LoadedShadingModels, PayloadSlot, ShadingModelEntry, ShadingModelManifest, ShadingModelRegistry, ShadingWordField
 - `Core/Traits` — 1 files, 17 lines
 - `ECS` — 82 files, 11,570 lines: AnimationComponent, AppliedLayerLink, AtmosphereSunPick, Attached, AudioSourceComponent, AudioSourceData, BoneSectionBlend, Bound, CameraComponent, CameraData, Channel, Cloth, … (+130)
-- `ECS/System` — 42 files, 9,583 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, BonePalette, ColliderMesh, ComponentEventCursor, ComponentEventSystem, DecalECSSystem, … (+39)
-- `Gameplay` — 5 files, 833 lines: CharacterControllerRecord, CharacterPawnMover, DrawnPawn, Frame, IPawnMoveWorld, Outcome, PawnActions, PawnCapsule, PawnMoveSettings, PawnMovement, PhysicsPawnMoveWorld, PrefabRecords, … (+2)
-- `GameplayDebugger` — 13 files, 1,805 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerCategoryPhysics, GameplayDebuggerCategoryRendering, GameplayDebuggerCategoryScript, GameplayDebuggerCategoryWorldPartition, GameplayDebuggerShape, IGameplayDebuggerCategory, SeenContact, View
+- `ECS/System` — 42 files, 9,591 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, BonePalette, ColliderMesh, ComponentEventCursor, ComponentEventSystem, DecalECSSystem, … (+39)
+- `Gameplay` — 7 files, 1,318 lines: CharacterControllerRecord, CharacterPawnMover, DrawnPawn, Frame, IPawnMoveWorld, LiveCharacter, Outcome, PawnActions, PawnCapsule, PawnMoveSettings, PawnMovement, PawnTeleporter, … (+7)
+- `GameplayDebugger` — 13 files, 1,813 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerCategoryPhysics, GameplayDebuggerCategoryRendering, GameplayDebuggerCategoryScript, GameplayDebuggerCategoryWorldPartition, GameplayDebuggerShape, IGameplayDebuggerCategory, SeenContact, View
 - `GameplayTags` — 1 files, 113 lines: GameplayTag, GameplayTagContainer, GameplayTagRegistry
 - `Generated` — 65 files, 5,396 lines: AEAverage, AEHistogram, BakeProceduralSky, BloomConvolutionKernel, BloomConvolutionPack, BloomConvolutionUnpack, BloomConvolve, BloomDownsample, BloomFFT, BloomGaussianBlur, BloomSetup, CloudRaymarch, … (+112)
 - `Geometry` — 94 files, 23,581 lines: AutoUVSettings, BakeOptions, BakeSurface, BoneBounds, BooleanOutcome, Cell, ClusterDag, ClusterDagBuild, ClusterDagSettings, ClusterGroupRecord, ClusterHierarchyNode, ClusterPageRecord, … (+126)
@@ -111,7 +111,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Graphic/Systems/Scene/PostProcessing` — 23 files, 19,147 lines: AutoExposureAverageShaderParameters, AutoExposureClearShaderParameters, AutoExposureHistogramShaderParameters, AutoExposureParams, AutoExposureRenderer, BackdropBlurDownsampleShaderParameters, BackdropBlurRenderer, BloomConvolutionKernelShaderParameters, BloomConvolutionPackShaderParameters, BloomConvolutionUnpackShaderParameters, BloomConvolveShaderParameters, BloomDownsampleShaderParameters, … (+40)
 - `Graphic/Systems/Scene/Shadows` — 7 files, 3,538 lines: DistanceFieldShadowCullOffsetsShaderParameters, DistanceFieldShadowCullShaderParameters, DistanceFieldShadowGpuParams, DistanceFieldShadowInputs, DistanceFieldShadowRenderer, DistanceFieldShadowSlotNames, DistanceFieldShadowTraceShaderParameters, DistanceFieldShadowUpsampleShaderParameters, HistorySlot, KernelProgram, LightState, LocalPlacement, … (+44)
 - `Graphic/Systems/Scene/Skybox` — 8 files, 3,627 lines: AtmosphereLutFingerprint, Program, RouteImage, SceneAtmosphere, SceneSkyLight, SkyCapture, SkyCaptureFaceSlice, SkyCaptureFrameReads, SkyCapturePanorama, SkyCaptureSource, SkyDraw, SkyLightStamps, … (+4)
-- `Graphic/Systems/Scene/Terrain` — 9 files, 7,257 lines: BoundTextures, BuildKey, DiceCullCensus, DiceCullJob, DiceOcclusion, DicePoolJob, DicePoolKey, FeedbackSlot, FrameDraw, FrameGroup, GroupExecutorRange, Iterator, … (+36)
+- `Graphic/Systems/Scene/Terrain` — 9 files, 7,286 lines: BoundTextures, BuildKey, DiceCullCensus, DiceCullJob, DiceOcclusion, DicePoolJob, DicePoolKey, FeedbackSlot, FrameDraw, FrameGroup, GroupExecutorRange, Iterator, … (+36)
 - `Graphic/Systems/Scene/Translucency` — 2 files, 440 lines: TranslucencyLightingVolumeGpuPayload, TranslucencyLightingVolumeQuality, TranslucencyLightingVolumeRenderer, TranslucencyLightingVolumeShaderParameters
 - `Graphic/Systems/Scene/Weather` — 2 files, 190 lines: RainStreakRenderer, RainStreaksFrameInputs, RainStreaksShaderParameters, RainStreaksUniforms
 - `Graphic/Upscalers/DLSS` — 2 files, 828 lines: DLSSUpscaler, Guides
@@ -122,7 +122,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Libraries` — 34 files, 3,818 lines: AnimatorLibrary, AudioLibrary, CharacterLibrary, DebugDrawLibrary, DeformCall, EntityLibrary, GameModeLibrary, GameplayDebuggerLibrary, HitResult, InputLibrary, LanguageInfo, LevelLibrary, … (+15)
 - `Localization` — 10 files, 2,112 lines: CalendarDate, CurrencyRow, FormatArguments, FormattedText, LocaleRow, Localization, LocalizedEntry, PluralOperands, Resolved, Row, RowTable, Snapshot, … (+2)
 - `Media` — 12 files, 2,430 lines: Av1VideoDecoder, ClusterEntry, CueEntry, IMediaAudioSink, MediaAudioOutput, MediaColorCoefficients, MediaPacket, MediaPlane, MediaPlayer, MediaSource, MediaTexture, OpusAudioDecoder, … (+6)
-- `Net` — 3 files, 1,246 lines: ClientNetDriver, ClientNetOptions, NetPredictionStats, NetRoleComponent
+- `Net` — 3 files, 1,268 lines: ClientNetDriver, ClientNetOptions, NetPredictionStats, NetRoleComponent
 - `Physics` — 10 files, 1,122 lines: CharacterControllerComponent, CharacterControllerData, ColliderComponent, ColliderData, PhysicsAssetGenerationSettings, ProjectileComponent, ProjectileData, RigidBodyComponent, RigidBodyData
 - `Reflection` — 14 files, 2,741 lines: AssetResolver, Callable, EntityRef, EnumBits, EnumValue, EventInfo, EventMetadata, EventSignature, FieldInfo, FunctionInfo, FunctionMetadata, Map, … (+14)
 - `Runtime` — 6 files, 1,340 lines: AssetHotReload, ImageHandle, Probe, ResourceRegistry, SelectionContext
@@ -159,7 +159,7 @@ Per directory: files, lines, the classes its headers declare.
 - `World/Deformation` — 2 files, 127 lines: DeformContact, DeformStampParams, DeformationWorld
 - `World/Foliage` — 6 files, 513 lines: FoliageCellField, FoliageComponent, FoliageGathered, PrefabFoliageHost, PrefabFoliagePlan, PrefabRealization
 - `World/Foliage/Procedural` — 10 files, 1,477 lines: Box2, BroadphaseOverlap, Entry, InstanceRadii, Node, ProceduralFoliageBlocker, ProceduralFoliageBox, ProceduralFoliageBroadphase, ProceduralFoliageDesired, ProceduralFoliageExistingField, ProceduralFoliageFieldPlan, ProceduralFoliageGround, … (+7)
-- `World/Partition` — 7 files, 402 lines: AlwaysLoadedComponent, DataLayersComponent, DataLayersData, HLODLayerComponent, HLODLayerData, HiddenByDataLayersComponent, LocationVolumeComponent, LocationVolumeData, RuntimeGridComponent, RuntimeGridData, StreamingSourceComponent, StreamingSourceData
+- `World/Partition` — 7 files, 404 lines: AlwaysLoadedComponent, DataLayersComponent, DataLayersData, HLODLayerComponent, HLODLayerData, HiddenByDataLayersComponent, LocationVolumeComponent, LocationVolumeData, RuntimeGridComponent, RuntimeGridData, StreamingSourceComponent, StreamingSourceData
 
 ## Common — `Desert/Common/Source/Common`
 - `Content` — 28 files, 6,546 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, AssetTrashRecord, ChunkFolderRow, ChunkManifest, ChunkPlan, ChunkRule, … (+27)
@@ -197,14 +197,14 @@ Per directory: files, lines, the classes its headers declare.
 - `LandscapeCore/Public` — 10 files, 1,338 lines: LandscapeEditLayer, LandscapeEditLayerStack, LandscapeEditLayerTarget, LandscapeEditLayerTileData, LandscapeFrame, LandscapeLayerRule, LandscapeRect, LandscapeRoot, LandscapeSplineControlPoint, LandscapeSplineCurve, LandscapeSplineInterpPoint, LandscapeSplineMeshEntry, … (+6)
 
 ## Net — `Desert/Net/Source`
-- `Net` — 24 files, 7,442 lines: AckedMove, Authority, Cell, CellResidencyMessage, ConnectToken, ConnectTokenVerifier, Connection, ConnectionStats, DestroyMessage, DisconnectInfo, FieldUpdate, Gateway, … (+76)
+- `Net` — 31 files, 9,921 lines: AckedMove, Authority, CatchUpRun, Cell, CellResidencyMessage, Committed, CommittedOffer, ConnectToken, ConnectTokenVerifier, Connection, ConnectionStats, Decision, … (+99)
 
 ## PhysicsCore — `Desert/PhysicsCore/Source`
-- `PhysicsCore` — 12 files, 3,966 lines: BodyDesc, CharacterCapsule, CharacterDesc, CollisionChannelConfig, CollisionProfileConfig, CollisionProfiles, CollisionProfilesConfig, CollisionResponseConfig, CompoundBodyDesc, ContactEvent, ContactImpulse, ConvexHullGeometry, … (+16)
+- `PhysicsCore` — 12 files, 4,061 lines: BodyDesc, CharacterCapsule, CharacterDesc, CollisionChannelConfig, CollisionProfileConfig, CollisionProfiles, CollisionProfilesConfig, CollisionResponseConfig, CompoundBodyDesc, ContactEvent, ContactImpulse, ConvexHullGeometry, … (+16)
 - `PhysicsCore/Cloth` — 2 files, 261 lines: ClothCapsuleCollider, ClothConfig, ClothMeshBinding, ClothPhysicalMesh, ClothSimulationOutput, ClothSphereCollider, ClothStepContext, ClothVertexMaps, ClothingAsset, ClothingSimulationFactoryRegistry, IClothingSimulation, IClothingSimulationFactory
 
 ## Projects — `Desert/Projects/Source`
-- `Projects` — 16 files, 1,602 lines: EngineConfig, EngineConfigLayers, EngineDirLookup, EngineRootLookup, GameSettings, NetRateBand, NetSettings, ProjectContext, RendererSettings, TextureEncodingSettings, WorldPartitionSettings
+- `Projects` — 16 files, 1,618 lines: EngineConfig, EngineConfigLayers, EngineDirLookup, EngineRootLookup, GameSettings, NetRateBand, NetSettings, ProjectContext, RendererSettings, TextureEncodingSettings, WorldPartitionSettings
 
 ## Render2DCore — `Desert/Render2DCore/Source`
 - `.` — 2 files, 26 lines
@@ -272,7 +272,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Panels/NodeGraph` — 8 files, 3,377 lines: NodeGraphPanel, NodeSpec, PinSpec, ShadowRayScope, VolumeParam, VolumeParamOutOfScope
 - `Panels/Photogrammetry` — 2 files, 1,295 lines: PhotogrammetryPanel
 - `Panels/PhysicsAssetEditor` — 5 files, 1,272 lines: PhysicsAssetEditCommand, PhysicsAssetEditorBase, PhysicsAssetEditorDocument, PhysicsAssetPreviewSimulation
-- `Panels/ProjectSettings` — 2 files, 607 lines: ProjectSettingsPanel
+- `Panels/ProjectSettings` — 2 files, 619 lines: ProjectSettingsPanel
 - `Panels/PropertyEditor` — 10 files, 3,368 lines: ComponentEditContext, ComponentEditorEntry, ComponentWidgetRegistry, PropertyEditSignals, PropertyEditorBuilder, ReflectedFieldRow
 - `Panels/Retarget` — 4 files, 1,184 lines: RetargetDocument, RetargetDocumentModel, Side
 - `Panels/Scalability` — 6 files, 963 lines: ScalabilityPanel
@@ -383,7 +383,7 @@ Per directory: files, lines, the classes its headers declare.
 - `DesertCtl/mcp` — 1 files, 396 lines
 - `DesertHeaderTool` — 1 files, 2,035 lines
 - `DesertHeaderTool/Source` — 12 files, 2,138 lines: ComponentBlock, Diagnostic, HeaderModel, ModuleInfo, ModulePlacement, ModuleTable, ReflectedTypeName, RoutedEventName, ScannedFile, SchemaBlock, SchemaField, SchemaLockVerdict, … (+5)
-- `DesertNetProbe/Source` — 1 files, 1,191 lines
+- `DesertNetProbe/Source` — 1 files, 1,415 lines
 - `DomeSheet/Source` — 2 files, 699 lines: DomeSample, Image, SheetGeometry
 - `FbxMeshSplitter` — 3 files, 620 lines: FbxSplitResult
 - `GamePackager/Source` — 1 files, 208 lines
