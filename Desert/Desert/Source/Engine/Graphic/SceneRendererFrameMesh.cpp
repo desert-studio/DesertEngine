@@ -1136,6 +1136,20 @@ namespace Desert::Graphic
         };
         if ( !TranslucentFrontLayerReflections() )
             return refuse( "the trace starts from the front layer, which Reflections.TranslucentFrontLayer turns off" );
+        // The front layer is the screen-trace reflections' second surface (SceneRenderer.cpp: the SSR renderer
+        // runs it under ScreenSpace, SoftwareTraced and HardwareTraced alone); under any other method it is never
+        // drawn and its absence is a refusal, not "no glass".
+        if ( const ReflectionMethod reflections = m_RenderMethods.Reflections.Effective;
+             reflections != ReflectionMethod::ScreenSpace && reflections != ReflectionMethod::SoftwareTraced &&
+             reflections != ReflectionMethod::HardwareTraced )
+            return refuse( "the trace starts from the front layer, which only the screen-trace reflections draw "
+                           "(Reflections.Method ScreenSpace, SoftwareTraced or HardwareTraced)" );
+        if ( !m_ViewProfile.ScreenSpaceReflections )
+            return refuse( "the trace starts from the front layer, which this view's profile does not draw (no "
+                           "screen-trace reflections)" );
+        // The SSR renderer failing to come up was reported where it failed (EnsureSSRResources).
+        if ( m_SSRResourcesFailed )
+            return {};
         // No translucent surface visible this frame (or its reflections refused, said by AddFrameSSR): nothing to
         // refract through.
         if ( !frontLayer.Depth.IsValid() || !frontLayer.Normal.IsValid() )
