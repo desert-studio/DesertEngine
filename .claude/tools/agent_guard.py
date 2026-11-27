@@ -386,6 +386,9 @@ def lead_launch_refusal(tin, s, disk_gb=None):
         return "sonnet не запускать (владелец 09-29: на задачу он дороже основной модели). Разведка — haiku Explore."
     if kind in P.NOT_COUNTED:
         return None
+    if kind == "reviewer":
+        return ("лид reviewer не запускает (владелец 11-27: двойное ревью запрещено). Ревью одно — его зовёт сам engineer/fixer "
+                "в «## Цепочке» брифа; лид читает итог в отчёте автора.")
     if kind == "acceptance":
         runs = set(re.findall(r"[\w./-]+\.scn\b", prompt))
         repeats = re.findall(r"(?:\bx\s*\d|\b\d+\s*x\b|×\s*\d|\btwice\b|дважд)", prompt, re.I)
@@ -549,8 +552,9 @@ def worker_pre(data, agent, agent_type, state, s):
         if chain:  # owner 11-27: the worker drives its own chain, the lead wakes once (limits.CHAIN_REVIEWS)
             if tin.get("run_in_background"):
                 return "Свой reviewer/acceptance — на переднем плане (без run_in_background): иначе уведомление будит лида."
-            state["reviews"] = state.get("reviews", 0) + 1
-            if state["reviews"] > limits.CHAIN_REVIEWS:
+            if kind == "reviewer":
+                state["reviews"] = state.get("reviews", 0) + 1
+            if kind == "reviewer" and state["reviews"] > limits.CHAIN_REVIEWS:
                 return f"Больше limits.CHAIN_REVIEWS ({limits.CHAIN_REVIEWS}) ревью за заход: сдай как есть, accept stuck."
             return None
         if kind != "explore":
@@ -831,7 +835,8 @@ def self_check():
         "edit of another package's file": sub("Edit", file_path=f"{tmp}/wt/F-B/Desert/A/X.cpp"),
         "edit of a contract header": sub("Write", file_path=f"{tmp}/wt/F-B/Desert/F/Api.hpp"),
         "second run with a live code": launch("F-A", brief("F-A", good)),
-        "launch without a code": {"tool_name": "Agent", "tool_input": {"subagent_type": "reviewer", "prompt": "review it"}},
+        "launch without a code": {"tool_name": "Agent", "tool_input": {"subagent_type": "fixer", "prompt": "review it"}},
+        "lead launches a second reviewer": {"tool_name": "Agent", "tool_input": {"subagent_type": "reviewer", "prompt": "You are agent F-A-REV. Review."}},
         "launch without a brief": {"tool_name": "Agent", "tool_input": {"subagent_type": "fixer", "prompt": "You are agent X-1. Do it."}},
         "fat fix brief": launch("X-2", fix("X-2", "1. a\n2. b\n3. c\n"), "fixer"),
         "fix brief without a scenario": launch("X-3", write("X-3-BRIEF.md", "## Сделать\n1. a\n"), "fixer"),
@@ -861,7 +866,6 @@ def self_check():
     legal = {
         "engineer on a planned package": launch("F-B", brief("F-B", good)),
         "small fix brief": launch("X-5", fix("X-5", "1. a\n"), "fixer"),
-        "reviewer with a code": {"tool_name": "Agent", "tool_input": {"subagent_type": "reviewer", "prompt": "You are agent F-A-REV. Review."}},
         "lead launches the board agent": {"tool_name": "Agent", "tool_input": {"subagent_type": "board", "prompt": "tails"}},
         "board agent queries Notion": {"tool_name": "mcp__notion__notion-query-data-sources", "tool_input": {"query": "SELECT 1"},
                                        "agent_id": "b", "agent_type": "board"},

@@ -111,7 +111,7 @@ SILENT_TEXT_MAX = 20
 
 # Owner 11-27 «сократить в 5 раз» (LEAD-SPEND-5X PLAN.md): the worker owns its chain - code, its own reviewer in the
 # foreground, fixes in its warm context, `studio.py accept` - so the lead wakes once per task, not ~10 times.
-CHAIN_REVIEWS = 2         # reviewer runs one worker may launch (second only after a fix diff over 150 lines)
+CHAIN_REVIEWS = 1         # reviewer runs one worker may launch (owner 11-27: one review, never a second)
 # The lead /clears (not /compacts) at a batch boundary above this context: the state is on disk (studio.py digest).
 LEAD_FLOOR = 30_000        # TOKEN-AUDIT2 11-27: the lead context right after /clear (system + tools + CLAUDE.md + MEMORY.md); re-measure after a tool change
 CLEAR_AT = LEAD_FLOOR + 25_000  # TOKEN-AUDIT2: /clear when the history passes 25k above the floor; one /clear (~49k) pays back in ~11 requests

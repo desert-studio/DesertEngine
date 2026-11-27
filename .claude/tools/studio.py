@@ -88,7 +88,7 @@ def CHAIN(code, branch, tree, brief):
             "1. Код, коммит «wip: <КОД> код готов», push.",
             f'2. Agent(subagent_type: "reviewer", prompt: "You are agent {code}-REV. Review branch {branch} in {tree} against {brief}; '
             'ACCEPT or RETURN with at most 2 defects.") — на переднем плане, не run_in_background (limits.CHAIN_REVIEWS).',
-            "3. RETURN или MINOR — чини в этом же заходе, коммит, push; второе ревью только если дифф правки > 150 строк.",
+            "3. RETURN или MINOR — чини в этом же заходе, коммит, push; второго ревью нет (владелец 11-27).",
             f"4. python .claude/tools/studio.py accept {code} done|stuck",
             "5. Отчёт: вердикт последнего ревью, коммит, что докажет только сборка пачки или кадр.", ""]
 

@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Independent review of ONE package branch for architecture and correctness before the batch merge. Use on every engineer package, in parallel (one reviewer per package), and on every fix diff over 150 lines.
+description: Independent review of ONE package branch for architecture and correctness before the batch merge. Launched ONLY by the package's own engineer or fixer from «## Цепочка»; the lead never launches it (one review per package).
 model: opus
 effort: high
 tools: Read, Grep, Glob, Bash
