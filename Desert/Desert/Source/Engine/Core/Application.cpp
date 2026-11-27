@@ -2,6 +2,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/RenderTask.hpp>
+#include <Engine/Core/StartupProgress.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 
@@ -34,8 +35,31 @@
 
 namespace Desert::Engine
 {
+    // THE ENGINE'S HALF OF THE START'S PLAN: the phases this constructor begins, in order. The seconds are the
+    // expectation with no history (the 11-26 warm Bistro start on Windows); a start with history uses its own.
+    std::vector<Core::StartupPhaseSpec> ApplicationStartupPhases()
+    {
+        return {
+             { "app.window", "Opening the window", 0.7 },
+             { "app.instance", "Starting Vulkan", 3.0 },
+             { "app.device", "Creating the device", 1.3 },
+             { "app.renderer", "Starting the renderer", 1.8 },
+        };
+    }
+
     Application::Application( const ApplicationInfo& appInfo ) : m_ApplicationInfo( appInfo )
     {
+        // The host's progress, when it watches the start (the editor's splash; the Runtime passes none). A phase
+        // the host's plan does not hold is a defect of the plan, said here; the start goes on.
+        const auto beginPhase = [startup = appInfo.Startup]( const std::string_view key )
+        {
+            if ( !startup )
+                return;
+            if ( const auto begun = startup->BeginPhase( key ); !begun )
+                LOG_ERROR( "[Startup] phase '{}' refused: {}", key, begun.GetError() );
+        };
+        beginPhase( "app.window" );
+
         // Which heap the process allocates from (DESERT_MIMALLOC): the A/B of the allocator reads this line.
         LOG_INFO( "[Memory] {}", Common::Utils::ReadProcessAllocator().Describe() );
         // THE GAME THREAD is the thread that builds the application and runs its loop (UE: GGameThreadId, the
@@ -71,11 +95,13 @@ namespace Desert::Engine
         m_Window->Init();
 
         // 1. Create RendererContext (Vulkan Instance)
+        beginPhase( "app.instance" );
         m_RendererContext = Graphic::RendererContext::Create( m_Window );
         
         // 2. Partially initialize EngineContext
         EngineContext::CreateInstance().Initialize( m_Window, nullptr, m_RendererContext );
 
+        beginPhase( "app.device" );
         // 3. The machine's store, then the device: the device is created from what machine.json withholds
         // (HideRayTracing), so the store cannot wait for QualityBoot, which runs after the device exists.
         if ( !appInfo.MachineSettingsFile.empty() )
@@ -103,6 +129,7 @@ namespace Desert::Engine
         m_RendererContext->Init();
 
         // 6. Setup SwapChain
+        beginPhase( "app.renderer" );
         auto swapChainResult = m_Window->SetupSwapChain();
         DESERT_VERIFY( swapChainResult.IsSuccess(), "Failed to setup SwapChain" );
 
