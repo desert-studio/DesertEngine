@@ -1265,7 +1265,10 @@ namespace Desert::Server
             if ( transport )
                 console.Start();
 
-            // THE SOURCES: the server's own + every player's pawn (§4.1 - the residency union of all of them).
+            // THE SOURCES: the server's own + every player's pawn (§4.1 - the residency union of all of them) +
+            // every player's reported view, resolved against its pawn (Gateway::ViewSources,
+            // WP-STREAM-SOURCE-VIEW: the ground under the body AND what the player looks at; UE
+            // ServerUpdateCamera).
             Core::Rules::StreamingSource serverSource;
             serverSource.Position = options.source;
             std::vector<Core::Rules::StreamingSource> sources{ serverSource };
@@ -1286,6 +1289,14 @@ namespace Desert::Server
                     sourceNames.push_back( std::format( "player {} account {} ({:.0f}, {:.0f}, {:.0f})", player.Player,
                                                         player.Account, player.Position.X, player.Position.Y,
                                                         player.Position.Z ) );
+                }
+                for ( const Net::Gateway::ViewSource& view : gateway->ViewSources() )
+                {
+                    Core::Rules::StreamingSource source;
+                    source.Position = { view.Position.X, view.Position.Y, view.Position.Z };
+                    sources.push_back( source );
+                    sourceNames.push_back( std::format( "player {} view ({:.0f}, {:.0f}, {:.0f})", view.Player,
+                                                        view.Position.X, view.Position.Y, view.Position.Z ) );
                 }
             };
             const auto logUnion = [&]( std::string_view why )
@@ -1329,8 +1340,10 @@ namespace Desert::Server
                     // Every step: the gateway decides which pawns are due (their periods, the cadence).
                     gateway->SendSnapshots( static_cast<std::uint32_t>( step ) );
                 }
-                const std::size_t playersBefore = sources.size() - 1;
+                const std::size_t playersBefore = sim ? sim->Sources().size() : 0;
+                const std::size_t unionBefore   = sources.size();
                 gatherSources();
+                const std::size_t playersNow = sim ? sim->Sources().size() : 0;
                 auto ticked = server->Step( sources, static_cast<double>( step ) / kStepHz );
                 if ( !ticked )
                 {
@@ -1342,9 +1355,11 @@ namespace Desert::Server
                 totalMs += ms;
                 activated += ticked.GetValue().UnitsActivated;
                 deactivated += ticked.GetValue().UnitsDeactivated;
-                // The union is logged when a player joins or leaves and every 5 s while players are in.
-                if ( sources.size() - 1 != playersBefore )
-                    logUnion( std::format( "step {}: {} player(s)", step, sources.size() - 1 ) );
+                // The union is logged when a player joins or leaves, a player's view starts or stops being a
+                // source of its own, and every 5 s while players are in.
+                if ( playersNow != playersBefore || sources.size() != unionBefore )
+                    logUnion( std::format( "step {}: {} player(s), {} view(s)", step, playersNow,
+                                           sources.size() - 1 - playersNow ) );
                 else if ( sources.size() > 1 && step % 300 == 0 )
                     logUnion( std::format( "step {}", step ) );
                 if ( transport && sources.size() > 1 && step % 300 == 0 )

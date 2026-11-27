@@ -79,11 +79,13 @@ namespace Desert::Net
         // NET-3 (§3.3, §4.3): client -> server, the WP cell units that became resident / unloaded on the client
         // (UE ServerUpdateLevelVisibility); server -> client, the world delta table's destroyed stable ids of the
         // cells the client has resident (UE DestroyedStartupOrDormantActors, replayed when the level streams in).
-        CellResidency  = kFirstSessionMessage + 22,
-        StableDestroy  = kFirstSessionMessage + 23,
-        // WP-FAR-15 (§3.5, §3.6): client -> server, State lane, the shape the client looks through (its streaming
-        // source's: facing, sector angle, range) - the server's relevancy and send periods are measured from the
-        // own pawn's position through it (Relevancy.hpp ViewReport). Sent when the shape changes and once a second.
+        CellResidency = kFirstSessionMessage + 22,
+        StableDestroy = kFirstSessionMessage + 23,
+        // WP-FAR-15 (§3.5, §3.6), WP-STREAM-SOURCE-VIEW: client -> server, State lane, the view point and its
+        // shape (the player's eye and its view streaming source's facing, sector angle, range) - the server's
+        // relevancy, send periods and per-player residency are measured from that eye, bounded by the own pawn
+        // (Relevancy.hpp ViewReport, ResolveViewPosition). Sent when the eye or the shape changes and once a
+        // second.
         ViewReport = kFirstSessionMessage + 24,
     };
 

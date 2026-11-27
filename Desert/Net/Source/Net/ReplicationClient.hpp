@@ -159,15 +159,18 @@ namespace Desert::Net
         // forgets so the full state the server sends when they return applies again. Nothing is sent before the
         // session or for an empty change.
         void ReportResidency( const CellResidencyMessage& change, std::span<const StableNetId> gone );
-        // WP-FAR-15 THE VIEW (UE APlayerController::ServerUpdateCamera): the shape this client looks through - its
-        // streaming source's - sent on the State lane (unreliable) when it changed by kViewAngleStepDeg /
-        // kViewRangeStepCm (a circle's yaw never counts) or kViewResendSeconds passed, so a lost report is
-        // repeated; never more often than kViewMinIntervalSeconds. Nothing before the session.
+        // WP-FAR-15 THE VIEW (UE APlayerController::ServerUpdateCamera): the point this client's player looks from
+        // and the shape it looks through - its view streaming source's - sent on the State lane (unreliable) when
+        // the eye moved by kViewPositionStepCm or the shape changed by kViewAngleStepDeg / kViewRangeStepCm (a
+        // circle's yaw never counts), or kViewResendSeconds passed, so a lost report is repeated; never more often
+        // than kViewMinIntervalSeconds (a teleported eye reaches the server within it plus half the RTT). Nothing
+        // before the session.
         void ReportView( const ViewReport& view );
+        static constexpr float  kViewPositionStepCm     = 100.0f;
         static constexpr float  kViewAngleStepDeg       = 1.0f;
         static constexpr float  kViewRangeStepCm        = 100.0f;
         static constexpr double kViewResendSeconds      = 1.0;
-        static constexpr double kViewMinIntervalSeconds = 0.5;
+        static constexpr double kViewMinIntervalSeconds = 0.1;
         // A remote pawn's whole interpolation delay (the connection's + its own, seconds), for the log; nullopt
         // for a pawn this client does not have. Its period is RemotePawn::PeriodSteps.
         [[nodiscard]] std::optional<double> PawnDelay( NetId id ) const;
@@ -250,7 +253,7 @@ namespace Desert::Net
         InputMessageSize m_LargestInput, m_LongestInput;
         // The first step of the last refused run: a refusal is logged once per run start, not every frame.
         std::optional<std::uint32_t> m_RefusedFrom;
-        // The last view shape sent (ReportView) and when, in local seconds.
+        // The last view (eye and shape) sent (ReportView) and when, in local seconds.
         std::optional<ViewReport>                m_SentView;
         double                                   m_ViewSentAt = 0.0;
     };

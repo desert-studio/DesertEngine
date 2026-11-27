@@ -384,7 +384,10 @@ namespace Desert::Net
         {
             const bool  circle = view.SectorAngleDeg >= 360.0f && sent.SectorAngleDeg >= 360.0f;
             const float yaw    = std::abs( std::remainder( view.FacingYawDeg - sent.FacingYawDeg, 360.0f ) );
-            return ( !circle && yaw >= kViewAngleStepDeg ) ||
+            const float dx = view.Position.X - sent.Position.X, dy = view.Position.Y - sent.Position.Y,
+                        dz = view.Position.Z - sent.Position.Z;
+            return dx * dx + dy * dy + dz * dz >= kViewPositionStepCm * kViewPositionStepCm ||
+                   ( !circle && yaw >= kViewAngleStepDeg ) ||
                    std::abs( view.SectorAngleDeg - sent.SectorAngleDeg ) >= kViewAngleStepDeg ||
                    std::abs( view.RangeCm - sent.RangeCm ) >= kViewRangeStepCm;
         };

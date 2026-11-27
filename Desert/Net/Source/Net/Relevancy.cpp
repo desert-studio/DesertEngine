@@ -12,6 +12,9 @@ namespace Desert::Net
     std::vector<std::byte> EncodeViewReport( const ViewReport& report )
     {
         Wire::Writer out( EReplicationMessage::ViewReport );
+        out.F32( report.Position.X );
+        out.F32( report.Position.Y );
+        out.F32( report.Position.Z );
         out.F32( report.FacingYawDeg );
         out.F32( report.SectorAngleDeg );
         out.F32( report.RangeCm );
@@ -22,9 +25,13 @@ namespace Desert::Net
     {
         Wire::Reader in( data, EReplicationMessage::ViewReport );
         ViewReport   report;
-        if ( !in.F32( report.FacingYawDeg ) || !in.F32( report.SectorAngleDeg ) || !in.F32( report.RangeCm ) ||
+        if ( !in.F32( report.Position.X ) || !in.F32( report.Position.Y ) || !in.F32( report.Position.Z ) ||
+             !in.F32( report.FacingYawDeg ) || !in.F32( report.SectorAngleDeg ) || !in.F32( report.RangeCm ) ||
              !in.Done() )
             return std::nullopt;
+        if ( !std::isfinite( report.Position.X ) || !std::isfinite( report.Position.Y ) ||
+             !std::isfinite( report.Position.Z ) )
+            return std::nullopt; // not a point: refused like any malformed message
         if ( !( report.SectorAngleDeg > 0.f && report.SectorAngleDeg <= 360.f ) || report.RangeCm < 0.f )
             return std::nullopt; // not a shape: refused like any malformed message
         return report;
@@ -42,6 +49,21 @@ namespace Desert::Net
             shape.FacingYawDeg   = report->FacingYawDeg;
         }
         return shape;
+    }
+
+    NetVec3 ResolveViewPosition( const RelevancySettings& settings, const NetVec3& ownPawn,
+                                 const std::optional<ViewReport>& report )
+    {
+        if ( !report )
+            return ownPawn;
+        const NetVec3 eye      = report->Position;
+        const float   distance = GroundDistanceCm( ownPawn, eye );
+        if ( distance <= settings.MaxViewRangeCm )
+            return eye;
+        // Pulled back along the pawn->eye ground direction onto the MaxViewRangeCm circle; the eye's height stays.
+        const float scale = settings.MaxViewRangeCm / distance;
+        return NetVec3{ ownPawn.X + ( eye.X - ownPawn.X ) * scale, eye.Y,
+                        ownPawn.Z + ( eye.Z - ownPawn.Z ) * scale };
     }
 
     float GroundDistanceCm( const NetVec3& a, const NetVec3& b )

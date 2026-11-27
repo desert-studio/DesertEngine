@@ -412,8 +412,9 @@ namespace Desert::Net
         }
         if ( type == EReplicationMessage::ViewReport )
         {
-            // The client's view shape (APlayerController::ServerUpdateCamera): the newest wins (State lane,
-            // unordered and lossy - the client resends it once a second).
+            // The client's view point and shape (APlayerController::ServerUpdateCamera): the newest wins (State
+            // lane, unordered and lossy - the client resends it once a second). The eye is resolved against the
+            // own pawn where the pawn's position is the step's (UpdateRelevancy, ViewSources), and logged there.
             if ( const std::optional<ViewReport> view = DecodeViewReport( data ) )
             {
                 // The shape the gateway will use, logged whenever it changes (the clamps included).
@@ -442,6 +443,26 @@ namespace Desert::Net
         }
         if ( m_Sim != nullptr )
             m_Sim->PlayerInput( peer.Player, *input );
+    }
+
+    std::vector<Gateway::ViewSource> Gateway::ViewSources() const
+    {
+        std::vector<ViewSource> views;
+        for ( const PawnState& pawn : m_Store.All() )
+        {
+            const auto info = m_PawnInfo.find( pawn.Id );
+            if ( info == m_PawnInfo.end() )
+                continue;
+            const auto connection = m_Connections.find( info->second.Owner );
+            if ( connection == m_Connections.end() )
+                continue;
+            const auto peer = m_Peers.find( connection->second );
+            if ( peer == m_Peers.end() || !peer->second.Admitted || !peer->second.View )
+                continue; // never reported: its eye is its pawn, already the sim's source
+            views.push_back(
+                 { info->second.Owner, ResolveViewPosition( m_Relevancy, pawn.Position, peer->second.View ) } );
+        }
+        return views;
     }
 
     // The own pawn is relevant to its owner from the start (§3.5 rule 1); every other connection gets it when it
@@ -508,12 +529,34 @@ namespace Desert::Net
     std::optional<NetVec3> Gateway::UpdateRelevancy( ConnectionId connection, Peer& peer,
                                                      const std::vector<PawnState>& pawns, std::uint32_t serverStep )
     {
-        // The viewer is the client's own pawn (its streaming source): without one only its own pawn is relevant.
+        // The viewer is the client's reported eye, bounded by its own pawn (UE FNetViewer from
+        // GetPlayerViewPoint; Relevancy.hpp ResolveViewPosition): without a pawn only its own pawn is relevant.
         std::optional<NetVec3> viewer;
         for ( const PawnState& pawn : pawns )
             if ( const auto info = m_PawnInfo.find( pawn.Id );
                  info != m_PawnInfo.end() && info->second.Owner == peer.Player )
-                viewer = pawn.Position;
+            {
+                viewer = ResolveViewPosition( m_Relevancy, pawn.Position, peer.View );
+                if ( peer.View )
+                {
+                    const bool pulledBack =
+                         GroundDistanceCm( pawn.Position, peer.View->Position ) > m_Relevancy.MaxViewRangeCm;
+                    const float moved = peer.LoggedView ? std::hypot( viewer->X - peer.LoggedView->X,
+                                                                      viewer->Y - peer.LoggedView->Y,
+                                                                      viewer->Z - peer.LoggedView->Z )
+                                                        : 0.f;
+                    if ( !peer.LoggedView || moved > kViewLogStepCm || pulledBack != peer.LoggedPulledBack )
+                    {
+                        m_Log( std::format( "player {}: view at ({:.0f}, {:.0f}, {:.0f}) cm{}", peer.Player,
+                                            viewer->X, viewer->Y, viewer->Z,
+                                            pulledBack ? std::format( ", pulled back to {:.0f} m from the pawn",
+                                                                      m_Relevancy.MaxViewRangeCm / 100.f )
+                                                       : std::string() ) );
+                        peer.LoggedView       = viewer;
+                        peer.LoggedPulledBack = pulledBack;
+                    }
+                }
+            }
         const ViewShape shape = ResolveViewShape( m_Relevancy, m_Grid.MainGridLoadingRangeCm, peer.View );
         std::set<NetId> now;
         for ( const PawnState& pawn : pawns )

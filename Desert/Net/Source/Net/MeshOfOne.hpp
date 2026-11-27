@@ -292,6 +292,17 @@ namespace Desert::Net
             return m_Relevancy;
         }
 
+        // THE PLAYERS' VIEWS for the server's residency union (§2M.3, UE ServerUpdateCamera): per admitted
+        // connection with a pawn and a ViewReport, its eye resolved against that pawn (ResolveViewPosition: at
+        // most MaxViewRangeCm from it). A connection that never reported has none - its eye is its pawn, which
+        // the sim's sources already hold.
+        struct ViewSource
+        {
+            PlayerId Player = 0;
+            NetVec3  Position;
+        };
+        [[nodiscard]] std::vector<ViewSource> ViewSources() const;
+
     private:
         // PER CONNECTION x STABLE OBJECT: the version each field was last acked at (the baseline) and the version
         // in flight (0 = none), by the field's index in the store's object.
@@ -330,8 +341,12 @@ namespace Desert::Net
             std::set<NetId>                       Relevant;     // pawns this client has (Spawn sent, no Destroy)
             std::set<StableNetId>                 DeltaSent;    // destroyed stable ids replayed to it
             std::set<std::uint32_t>               AwaitingAck;  // units reported resident, not yet acknowledged
-            // WP-FAR-15: the newest view shape the client reported (nullopt = never: the cull circle alone).
+            // WP-FAR-15, WP-STREAM-SOURCE-VIEW: the newest view (eye + shape) the client reported (nullopt =
+            // never: the eye is the own pawn, the cull circle alone).
             std::optional<ViewReport> View;
+            // The resolved eye last logged and whether it was pulled back then ("view at" line, kViewLogStepCm).
+            std::optional<NetVec3> LoggedView;
+            bool                   LoggedPulledBack = false;
             // Per relevant remote pawn: what this connection last received of it (UE
             // FConnectionReplicationActorInfo); made when the pawn becomes relevant (UpdateRelevancy).
             std::map<NetId, SentPawn> Sent;
@@ -351,8 +366,9 @@ namespace Desert::Net
         [[nodiscard]] bool StableRelevant( const Peer& peer, StableNetId id ) const;
         // The resident cell of @p peer the position stands in, or nullptr.
         void OnCellResidency( ConnectionId connection, Peer& peer, const CellResidencyMessage& message );
-        // The relevant set by point in the view shape, with the exit margin; returns the viewer (own pawn)
-        // position. A remote pawn that enters gets its Sent entry, one band period old at @p serverStep.
+        // The relevant set by point in the view shape, with the exit margin; returns the viewer position (the
+        // reported eye resolved against the own pawn, ResolveViewPosition; nullopt without an own pawn). A remote
+        // pawn that enters gets its Sent entry, one band period old at @p serverStep.
         std::optional<NetVec3> UpdateRelevancy( ConnectionId connection, Peer& peer,
                                                 const std::vector<PawnState>& pawns, std::uint32_t serverStep );
         // The snapshot of one connection: the pawns due on this step by period, the budget cut, the stats.
