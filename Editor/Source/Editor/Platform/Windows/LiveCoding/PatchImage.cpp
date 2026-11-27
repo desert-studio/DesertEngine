@@ -191,10 +191,12 @@ namespace Desert::Editor::LiveCoding
             return symbol.StorageClass == kClassStatic && !symbol.Name.empty() && symbol.Name[0] == '.';
         }
 
-        /// One object per type, which objects and the runtime compare by address: a vtable, an RTTI record.
+        /// One object per type, which objects and the runtime compare by address: a vtable and its complete
+        /// object locator (vtable[-1], ADDR64). The other RTTI records (??_R0..??_R3) are compared by name and
+        /// reached image-relative, so the patch keeps its own copy of them.
         bool IsIdentityConstant( const std::string& name )
         {
-            return name.starts_with( "??_7" ) || name.starts_with( "??_R" );
+            return name.starts_with( "??_7" ) || name.starts_with( "??_R4" );
         }
 
         /// The addend the compiler stored at the relocation's place.
@@ -681,12 +683,18 @@ namespace Desert::Editor::LiveCoding
                 const bool imageRelative = relocation.Kind == Coff::RelocationKind::Addr32Nb;
                 const bool rel32         = relocation.Kind >= Coff::RelocationKind::Rel32 &&
                                    relocation.Kind <= Coff::RelocationKind::Rel32_5;
-                if ( decision.Place == Where::Image && imageRelative && decision.DefSymbol != kNoSymbol &&
-                     m_Kinds[decision.DefObject]
-                            [std::uint32_t( m_Objects[decision.DefObject].Symbols()[decision.DefSymbol].Section ) -
-                             1] == Kind::Data )
+                const Kind targetKind =
+                     decision.DefSymbol == kNoSymbol
+                          ? Kind::Code
+                          : m_Kinds[decision.DefObject]
+                                   [std::uint32_t(
+                                         m_Objects[decision.DefObject].Symbols()[decision.DefSymbol].Section ) -
+                                    1];
+                if ( decision.Place == Where::Image && imageRelative &&
+                     ( targetKind == Kind::Data || targetKind == Kind::ReadOnly ) )
                 {
-                    // Image-relative from the patch's base (EH tables -> TypeDescriptor): the patch's own copy.
+                    // Image-relative from the patch's base (EH tables -> TypeDescriptor, ??_R2 -> ??_R1 of a
+                    // base class): the image is out of reach, so the patch keeps its own copy.
                     m_LocalCopies.emplace( decision.DefObject, decision.DefSymbol );
                     decision.Place = Where::Patch;
                 }
