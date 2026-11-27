@@ -136,7 +136,11 @@ namespace Common::Content
     [[nodiscard]] ResultStr<Utils::AssetRegistryEntry> RegistryRowFor( const std::string& key,
                                                                        const ContentFile& file );
 
+    // The second form says what it does while it runs (ScanProgress.hpp): Listed( the files the walk found ) once
+    // before the first cache check, then Begin/End around each file's cache check or header read. The first is
+    // a gather nobody watches. Same rows, same refusals, either way.
     [[nodiscard]] GatheredRegistry GatherContentRegistry( const RegistryCache& cache );
+    [[nodiscard]] GatheredRegistry GatherContentRegistry( const RegistryCache& cache, const ScanProgress& progress );
 
     // THE KINDS A RUNNING PROCESS CREATES ON DEMAND, from their registry row, when something names them by
     // handle (AL1-2): the noise volumes, the hero-cloud bodies and the painted layouts. No boot stage walks

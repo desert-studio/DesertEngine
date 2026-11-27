@@ -26,6 +26,59 @@ namespace Desert::Assets::ContentRegistry
                             Rows, Added, Removed, Edges, Bounded, Written ? "written" : "unchanged, not written" );
     }
 
+    // THE EDITOR'S REGISTRY BUILDS ITSELF, as UE's asset registry does at editor start: a walk of the content
+    // roots reading each file's header only (`Common::Content::GatherContentRegistry`), with this machine's cache
+    // (`RegistryCachePath`, outside git) sparing the headers of unchanged files. No cache is the ordinary first
+    // start, not a warning. The cache is written back when the gather read anything. `refused`, when given,
+    // receives the sentence of every file that could not enter (the packager refuses on them; the editor only
+    // reports them). `meshesWithoutHeaderBounds`, when given, receives the keys of meshes whose header states no
+    // box (cooked before it did): the engine-linking caller reads those bodies once and hands the boxes back
+    // through `NoteBounds`, and the cache keeps them. @p sink, when given, is told the files the walk listed
+    // (Expect, once) and each file as an item around its cache check or header read.
+    Common::ResultStr<std::size_t> GatherWatched( std::vector<std::string>* const refused,
+                                                  std::vector<std::string>* const meshesWithoutHeaderBounds,
+                                                  Core::WorkSink* const           sink )
+    {
+        Common::Content::RegistryCache cache;
+        const std::filesystem::path    cachePath = Common::Content::RegistryCachePath();
+        if ( Common::Utils::FileSystem::Exists( cachePath ) )
+        {
+            const auto text   = Common::Utils::FileSystem::ReadFileContent( cachePath );
+            auto       parsed = text ? Common::Content::ParseRegistryCache( text.GetValue() )
+                                     : Common::MakeError<Common::Content::RegistryCache>( text.GetError() );
+            if ( parsed )
+                cache = parsed.GetValue();
+            else
+                LOG_WARN( "[ContentRegistry] the local cache '{}' is unusable and is rebuilt from the content: {}",
+                          cachePath.string(), parsed.GetError() );
+        }
+
+        uint64_t                      checking = 0;
+        Common::Content::ScanProgress progress;
+        if ( sink )
+        {
+            progress.Listed = [sink]( const std::size_t files ) { sink->Expect( files ); };
+            progress.Begin  = [sink, &checking]( const std::filesystem::path& file )
+            { checking = sink->BeginItem( file.filename().string() ); };
+            progress.End = [sink, &checking] { sink->FinishItem( checking ); };
+        }
+        Common::Content::GatheredRegistry gathered = Common::Content::GatherContentRegistry( cache, progress );
+        for ( const std::string& refusal : gathered.Refused )
+            LOG_ERROR( "[ContentRegistry] a content file could not enter the registry: {}", refusal );
+        if ( refused )
+            *refused = gathered.Refused;
+        if ( meshesWithoutHeaderBounds )
+            *meshesWithoutHeaderBounds = gathered.MeshesWithoutHeaderBounds;
+        LOG_INFO( "[ContentRegistry] gathered {} row(s): {} from the local cache, {} header(s) read",
+                  gathered.Registry.Count(), gathered.FromCache, gathered.Read );
+
+        const bool        changed = gathered.Read > 0 || gathered.Registry.Count() != cache.Registry.Count();
+        const std::size_t bound   = Detail::Publish( std::move( gathered.Registry ) );
+        if ( changed )
+            Detail::Get_().Dirty = true;
+        return Common::MakeSuccess( bound );
+    }
+
     Common::ResultStr<RefreshOutcome> Refresh( AssetManager& manager, Core::WorkSink* const sink )
     {
         RefreshOutcome outcome;
