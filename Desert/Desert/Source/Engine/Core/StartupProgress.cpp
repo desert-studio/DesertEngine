@@ -25,6 +25,8 @@ namespace Desert::Core
         {
             int Version = 0;
         };
+        DESERT_JSON_PARTIAL( StartupHistoryVersion,
+                             "the startup history file: only its Version is read, to pick the reader" )
         struct StartupHistoryFileV1
         {
             int                           Version = 1;
