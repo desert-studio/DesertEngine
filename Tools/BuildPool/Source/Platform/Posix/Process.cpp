@@ -358,7 +358,9 @@ namespace buildpool
 
     // ---- SpawnDetached
     // ---------------------------------------------------------------------------------------------
-    Status SpawnDetached( const std::vector<std::string>& argv, const std::filesystem::path& logFile ) noexcept
+    Status SpawnDetached( const std::vector<std::string>&                         argv,
+                          const std::vector<std::pair<std::string, std::string>>& environment,
+                          const std::filesystem::path&                            logFile ) noexcept
     {
         if ( argv.empty() )
         {
@@ -377,8 +379,10 @@ namespace buildpool
             return Fail( posix::ErrnoText( "open /dev/null", errno ) );
         }
         // Everything the forked side uses is prepared here: after fork only async-signal-safe calls are made.
-        std::vector<std::string> strings  = argv;
-        std::vector<char*>       pointers = PointersTo( strings );
+        std::vector<std::string> strings    = argv;
+        std::vector<char*>       pointers   = PointersTo( strings );
+        std::vector<std::string> envStrings = EnvironmentOf( environment );
+        std::vector<char*>       envp       = PointersTo( envStrings );
         struct rlimit limit
         {
         };
@@ -411,6 +415,9 @@ namespace buildpool
             {
                 close( fd ); // nothing of the build (its output pipe above all) may stay open in the daemon
             }
+            // macOS has no execvpe: the prepared block becomes this process's environment (a pointer store),
+            // then execvp searches PATH and passes `environ` on.
+            environ = envp.data();
             execvp( pointers[0], pointers.data() );
             // Only async-signal-safe calls here: the errno is written as decimal digits by hand.
             char digits[16];

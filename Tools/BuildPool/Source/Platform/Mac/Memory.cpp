@@ -71,7 +71,7 @@ namespace buildpool
             return Fail( posix::ErrnoText( "sysctl kern.memorystatus_vm_pressure_level", errno ) );
         }
         state.osPressure = level >= kPressureWarning;
-        // commitFree stays empty: the macOS kernel has no commit limit.
+        // commitFree and commitLimit stay empty: the macOS kernel has no commit limit.
         return state;
     }
 

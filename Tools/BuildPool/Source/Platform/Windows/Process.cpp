@@ -652,7 +652,9 @@ namespace buildpool
 
     // ---- SpawnDetached
     // ---------------------------------------------------------------------------------------------
-    Status SpawnDetached( const std::vector<std::string>& argv, const std::filesystem::path& logFile ) noexcept
+    Status SpawnDetached( const std::vector<std::string>&                         argv,
+                          const std::vector<std::pair<std::string, std::string>>& environment,
+                          const std::filesystem::path&                            logFile ) noexcept
     {
         if ( argv.empty() )
         {
@@ -677,6 +679,10 @@ namespace buildpool
 
         Launch launch;
         launch.commandLine = win::QuoteCommandLine( argv );
+        if ( !environment.empty() )
+        {
+            launch.environment = EnvironmentBlock( environment );
+        }
         launch.input       = nul.Get();
         launch.output      = log.Get();
         launch.error       = log.Get();

@@ -104,7 +104,8 @@ namespace buildpool
             {
                 return Fail( "/proc/meminfo has no CommitLimit or Committed_AS" );
             }
-            state.commitFree = *limit > *committed ? *limit - *committed : 0;
+            state.commitFree  = *limit > *committed ? *limit - *committed : 0;
+            state.commitLimit = *limit;
         }
 
         // A kernel without PSI (CONFIG_PSI off) has no pressure file: the kernel then raises no alarm.

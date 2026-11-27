@@ -232,6 +232,7 @@ namespace buildpool
             else if constexpr ( std::is_same_v<T, Heartbeat> )
             {
                 io.Field( m.currentBytes );
+                io.Field( m.cpuMs );
             }
             else if constexpr ( std::is_same_v<T, Released> )
             {
@@ -258,6 +259,7 @@ namespace buildpool
             {
                 io.Field( m.lease );
                 io.Field( m.priority );
+                io.Field( m.sampleMs );
             }
             else if constexpr ( std::is_same_v<T, Await> )
             {
@@ -300,6 +302,13 @@ namespace buildpool
                 if ( !reader.ErrorText().empty() )
                 {
                     return Fail( reader.ErrorText() );
+                }
+                if constexpr ( std::is_same_v<std::variant_alternative_t<I, Message>, Grant> )
+                {
+                    if ( message.sampleMs == 0 )
+                    {
+                        return Fail( "Grant with sampleMs 0" );
+                    }
                 }
                 return Message( std::in_place_index<I>, std::move( message ) );
             }

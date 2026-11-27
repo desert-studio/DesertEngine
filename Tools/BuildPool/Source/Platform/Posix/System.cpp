@@ -44,6 +44,25 @@ namespace buildpool
         return std::string( value );
     }
 
+    Status WriteStdout( std::span<const std::byte> bytes ) noexcept
+    {
+        size_t written = 0;
+        while ( written < bytes.size() )
+        {
+            const ssize_t done = ::write( STDOUT_FILENO, bytes.data() + written, bytes.size() - written );
+            if ( done < 0 )
+            {
+                if ( errno == EINTR )
+                {
+                    continue;
+                }
+                return Fail( posix::ErrnoText( "write stdout", errno ) );
+            }
+            written += static_cast<size_t>( done );
+        }
+        return Ok();
+    }
+
     std::string EndpointFor( const std::filesystem::path& home )
     {
         std::error_code       ec;

@@ -44,6 +44,7 @@ namespace buildpool
         state.physicalTotal     = status.ullTotalPhys;
         state.physicalAvailable = status.ullAvailPhys;
         state.commitFree        = status.ullAvailPageFile;
+        state.commitLimit       = status.ullTotalPageFile;
         state.osPressure        = low != FALSE;
         return state;
     }
@@ -135,6 +136,27 @@ namespace buildpool
         const DWORD  length = GetEnvironmentVariableW( wideName.c_str(), value.data(), size );
         value.resize( length < size ? length : 0 );
         return win::Narrow( value );
+    }
+
+    Status WriteStdout( std::span<const std::byte> bytes ) noexcept
+    {
+        const HANDLE out = GetStdHandle( STD_OUTPUT_HANDLE );
+        if ( out == INVALID_HANDLE_VALUE || out == nullptr )
+        {
+            return Fail( win::LastErrorText( "write stdout" ) );
+        }
+        size_t at = 0;
+        while ( at < bytes.size() )
+        {
+            const DWORD chunk = static_cast<DWORD>( std::min<size_t>( bytes.size() - at, 1u << 30 ) );
+            DWORD       written = 0;
+            if ( !WriteFile( out, bytes.data() + at, chunk, &written, nullptr ) )
+            {
+                return Fail( win::LastErrorText( "write stdout" ) );
+            }
+            at += written;
+        }
+        return Ok();
     }
 
     ProcessIdentity SelfProcess() noexcept
