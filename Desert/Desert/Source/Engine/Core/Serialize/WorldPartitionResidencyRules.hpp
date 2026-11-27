@@ -381,6 +381,21 @@ namespace Desert::Core::Rules
         return std::min( grown, settings.MaxRetryDelaySeconds );
     }
 
+    // The shape a source keeps resident: its range, sector edge (UE's ExtraAngle) and look-ahead tip grown by
+    // UnloadMargin - the band a cell stays in after no source wants it (UE's ExtendedBounds). The sweep
+    // (speed x LookAheadTime, capped at MaxLookAhead) grows by the same factor, so a speed that jitters less
+    // than the margin does not unload the cell the path's tip has just loaded.
+    [[nodiscard]] inline StreamingSource KeptStreamingSource( StreamingSource          source,
+                                                              const ResidencySettings& settings )
+    {
+        const float grow = 1.0f + settings.UnloadMargin;
+        source.RangeScale *= grow;
+        source.AngleScale *= grow;
+        source.LookAheadTime *= grow;
+        source.MaxLookAhead *= grow;
+        return source;
+    }
+
     namespace Detail
     {
         [[nodiscard]] inline Common::ResultStr<bool> CheckResidencySettings( const ResidencySettings& s )
@@ -507,16 +522,7 @@ namespace Desert::Core::Rules
             return Common::MakeError<ResidencyStep>( "StepResidency: " + wished.GetError() );
         std::vector<StreamingSource> widened( sources.begin(), sources.end() );
         for ( StreamingSource& source : widened )
-        {
-            source.RangeScale *= 1.0f + settings.UnloadMargin;
-            source.AngleScale *=
-                 1.0f + settings.UnloadMargin; // a sector's edge has the same band (UE's ExtraAngle)
-            // The look-ahead's tip has the same band: the sweep (speed x LookAheadTime, capped at MaxLookAhead)
-            // grows by the same factor, so a speed that jitters less than the margin does not unload the cell
-            // the path's tip has just loaded.
-            source.LookAheadTime *= 1.0f + settings.UnloadMargin;
-            source.MaxLookAhead *= 1.0f + settings.UnloadMargin;
-        }
+            source = KeptStreamingSource( source, settings );
         auto keptWish = QueryStreamingCells( plan, partition, widened );
         if ( !keptWish.IsSuccess() )
             return Common::MakeError<ResidencyStep>( "StepResidency: " + keptWish.GetError() );

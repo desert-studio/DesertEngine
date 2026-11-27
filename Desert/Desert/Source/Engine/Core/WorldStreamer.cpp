@@ -937,12 +937,7 @@ namespace Desert::Core
         const Rules::WorldPartitionPlan& plan = Plan();
         std::vector<Rules::StreamingSource> kept( m_LastSources.begin(), m_LastSources.end() );
         for ( Rules::StreamingSource& source : kept ) // the widening StepResidency's keptWish applies
-        {
-            source.RangeScale *= 1.0f + m_Settings.UnloadMargin;
-            source.AngleScale *= 1.0f + m_Settings.UnloadMargin;
-            source.LookAheadTime *= 1.0f + m_Settings.UnloadMargin;
-            source.MaxLookAhead *= 1.0f + m_Settings.UnloadMargin;
-        }
+            source = Rules::KeptStreamingSource( source, m_Settings );
         auto origin = Rules::QueryStreamingCells( plan, m_Partition, origins );
         if ( !origin.IsSuccess() )
             return Common::MakeError<std::size_t>( "the teleport origins' cells: " + origin.GetError() );
