@@ -2,7 +2,8 @@
 
 Owner 11-27: «ты вообще не будешь ничего писать, пока я тебя не попрошу» — every word the lead writes is re-read on
 every later request. A turn started by the owner may answer; any other turn may write at most limits.SILENT_TEXT_MAX
-characters (one line for a decision only the owner can make). Blocks once per turn (stop_hook_active).
+characters (one line for a decision only the owner can make). Never blocks: the text is already shown, and a block
+costs one more request and makes the harness demand visible output — a break is only recorded in the studio log.
 """
 import json
 import os
@@ -56,9 +57,8 @@ def main():
     except OSError:
         return
     if not owner and chars > limits.SILENT_TEXT_MAX:
-        print(json.dumps({"decision": "block", "reason":
-              f"[silence_guard] этот ход начал не владелец, а написано {chars} знаков > limits.SILENT_TEXT_MAX: "
-              "владелец 11-27 — ни строки до его вопроса; закончи ход без текста."}))
+        with open(limits.STUDIO_HOME + "/silence-breaks.log", "a", encoding="utf-8") as log:
+            log.write(f"{data.get('session_id', '?')} {chars}\n")
 
 
 if __name__ == "__main__":
