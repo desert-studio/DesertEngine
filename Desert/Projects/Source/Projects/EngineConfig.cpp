@@ -21,6 +21,10 @@ namespace Desert::Project
         // save). Shared with SaveEngineConfig so a save is what the next read returns.
         std::optional<std::string> engineLoadedFor;
         EngineConfigLayers         engineLayers;
+        // THE COMMAND-LINE LAYER (SetEngineConfigOverrides), verified when set: each item's key path and its value
+        // nested under that path as an object, in the order given. Applied by CurrentEngineConfig over the file
+        // layers; SaveEngineConfig never writes it.
+        std::vector<std::pair<std::string, Common::Json::Value>> overrides;
 
         std::filesystem::path ProjectLayerFile( const std::string& projectDirectory )
         {
@@ -90,6 +94,122 @@ namespace Desert::Project
                 return Common::MakeError<EngineConfig>( std::format( "{}: {}", file.string(), read.GetError() ) );
             return read;
         }
+
+        // @p value under the dotted @p path as nested objects: "Net.BudgetBytesPerSecond" and 2048 give
+        // {"Net": {"BudgetBytesPerSecond": 2048}}. Refuses a path with an empty key ("Net..X", ".X", "X.").
+        Common::ResultStr<Common::Json::Value> NestedAt( std::string_view path, Common::Json::Value value )
+        {
+            std::vector<std::string_view> names;
+            for ( std::size_t at = 0;; )
+            {
+                const std::size_t dot  = path.find( '.', at );
+                const auto        name = path.substr( at, dot - at ); // npos - at: to the end
+                if ( name.empty() )
+                    return Common::MakeError<Common::Json::Value>(
+                         std::format( "the key path '{}' has an empty key", path ) );
+                names.push_back( name );
+                if ( dot == std::string_view::npos )
+                    break;
+                at = dot + 1;
+            }
+            for ( auto name = names.rbegin(); name != names.rend(); ++name )
+            {
+                Common::Json::ObjectBuilder level;
+                level.Set( *name, value );
+                value = Common::Json::Value( level.Build() );
+            }
+            return Common::MakeSuccess( std::move( value ) );
+        }
+
+        // The file layers of @p directory into @p layers (Project, Effective, PlatformFile, PlatformKeys), each
+        // refusal logged; returns the JSON that layers.Effective was read from - the base the command-line layer
+        // goes over ({} = the defaults).
+        Common::Json::Value ReadFileLayers( const std::string& directory, EngineConfigLayers& layers )
+        {
+            Common::Json::Value base = Common::Json::Value( Common::Json::Object{} );
+
+            const std::filesystem::path projectFile = ProjectLayerFile( directory );
+            auto                        project     = ReadLayer( projectFile );
+            if ( !project )
+            {
+                LOG_ERROR( "[Project] {} does not parse, the project runs the engine defaults: {}",
+                           projectFile.string(), project.GetError() );
+                return base;
+            }
+            if ( project.GetValue().has_value() )
+            {
+                auto read = AsConfig( *project.GetValue(), projectFile );
+                if ( !read )
+                {
+                    LOG_ERROR( "[Project] the project runs the engine defaults: {}", read.GetError() );
+                    return base;
+                }
+                layers.Project = read.GetValue();
+                base           = *project.GetValue();
+            }
+            layers.Effective = layers.Project;
+
+            const std::filesystem::path platformFile = PlatformLayerFile( directory );
+            auto                        platform     = ReadLayer( platformFile );
+            if ( !platform )
+            {
+                LOG_ERROR( "[Project] {} does not parse, this platform runs the project layer: {}",
+                           platformFile.string(), platform.GetError() );
+                return base;
+            }
+            if ( !platform.GetValue().has_value() )
+                return base;
+
+            std::vector<std::string>  keys;
+            Common::Json::Value layered = Overlay(
+                 Common::Json::Root( base ), Common::Json::Root( *platform.GetValue() ), std::string{}, keys );
+            auto effective = AsConfig( layered, platformFile );
+            if ( !effective )
+            {
+                LOG_ERROR( "[Project] this platform runs the project layer: {}", effective.GetError() );
+                return base;
+            }
+            layers.Effective    = effective.GetValue();
+            layers.PlatformFile = platformFile.string();
+            layers.PlatformKeys = std::move( keys );
+            std::string list;
+            for ( const std::string& key : layers.PlatformKeys )
+                list += std::format( "{}{}", list.empty() ? "" : ", ", key );
+            LOG_INFO( "[Project] {} sets {} key(s) on this platform: {}", layers.PlatformFile,
+                      layers.PlatformKeys.size(), list );
+            return layered;
+        }
+
+        // The command-line layer over @p layered, item by item, into layers.Effective and layers.OverrideKeys.
+        // Every item was read strictly over the defaults when it was set, and an item replaces whole what its
+        // path names, so the read here is the same read: a failure is logged as the one it would be.
+        void ApplyOverrides( Common::Json::Value layered, EngineConfigLayers& layers )
+        {
+            if ( overrides.empty() )
+                return;
+            for ( const auto& item : overrides )
+            {
+                std::vector<std::string>  replaced; // OverrideKeys are the items' own paths, below
+                const Common::Json::Value over = Overlay( Common::Json::Root( layered ),
+                                                          Common::Json::Root( item.second ), std::string{}, replaced );
+                layered = over;
+            }
+            auto effective = Common::Json::Root( layered ).As<EngineConfig>();
+            if ( !effective )
+            {
+                LOG_ERROR( "[Project] the --config layer does not read, this host runs the file layers: {}",
+                           effective.GetError() );
+                return;
+            }
+            layers.Effective = effective.GetValue();
+            std::string list;
+            for ( const auto& item : overrides )
+            {
+                layers.OverrideKeys.push_back( item.first );
+                list += std::format( "{}{}", list.empty() ? "" : ", ", item.first );
+            }
+            LOG_INFO( "[Project] --config sets {} key(s): {}", layers.OverrideKeys.size(), list );
+        }
     } // namespace
 
     std::string_view PlatformConfigName()
@@ -112,60 +232,50 @@ namespace Desert::Project
             return engineLayers;
         engineLoadedFor = directory;
         engineLayers    = {};
-        if ( directory.empty() )
-            return engineLayers;
-
-        const std::filesystem::path projectFile = ProjectLayerFile( directory );
-        auto                        project     = ReadLayer( projectFile );
-        if ( !project )
-        {
-            LOG_ERROR( "[Project] {} does not parse, the project runs the engine defaults: {}",
-                       projectFile.string(), project.GetError() );
-            return engineLayers;
-        }
-        Common::Json::Value base = Common::Json::Value( Common::Json::Object{} );
-        if ( project.GetValue().has_value() )
-        {
-            auto read = AsConfig( *project.GetValue(), projectFile );
-            if ( !read )
-            {
-                LOG_ERROR( "[Project] the project runs the engine defaults: {}", read.GetError() );
-                return engineLayers;
-            }
-            engineLayers.Project = read.GetValue();
-            base                 = *project.GetValue();
-        }
-        engineLayers.Effective = engineLayers.Project;
-
-        const std::filesystem::path platformFile = PlatformLayerFile( directory );
-        auto                        platform     = ReadLayer( platformFile );
-        if ( !platform )
-        {
-            LOG_ERROR( "[Project] {} does not parse, this platform runs the project layer: {}",
-                       platformFile.string(), platform.GetError() );
-            return engineLayers;
-        }
-        if ( !platform.GetValue().has_value() )
-            return engineLayers;
-
-        std::vector<std::string>  keys;
-        const Common::Json::Value layered = Overlay(
-             Common::Json::Root( base ), Common::Json::Root( *platform.GetValue() ), std::string{}, keys );
-        auto effective = AsConfig( layered, platformFile );
-        if ( !effective )
-        {
-            LOG_ERROR( "[Project] this platform runs the project layer: {}", effective.GetError() );
-            return engineLayers;
-        }
-        engineLayers.Effective    = effective.GetValue();
-        engineLayers.PlatformFile = platformFile.string();
-        engineLayers.PlatformKeys = std::move( keys );
-        std::string list;
-        for ( const std::string& key : engineLayers.PlatformKeys )
-            list += std::format( "{}{}", list.empty() ? "" : ", ", key );
-        LOG_INFO( "[Project] {} sets {} key(s) on this platform: {}", engineLayers.PlatformFile,
-                  engineLayers.PlatformKeys.size(), list );
+        // No project: the defaults, with the command-line layer over them (it belongs to the process, not to a
+        // project).
+        Common::Json::Value layered = directory.empty() ? Common::Json::Value( Common::Json::Object{} )
+                                                        : ReadFileLayers( directory, engineLayers );
+        ApplyOverrides( std::move( layered ), engineLayers );
         return engineLayers;
+    }
+
+    Common::BoolResultStr SetEngineConfigOverrides( std::span<const std::string> items )
+    {
+        std::vector<std::pair<std::string, Common::Json::Value>> parsed;
+        parsed.reserve( items.size() );
+        // Each item is read strictly over the defaults and the items before it: the same read the file layers get,
+        // so a key the struct does not declare, or a value of the wrong type, is refused here, at the start.
+        Common::Json::Value checked = Common::Json::FromStruct( EngineConfig{} );
+        for ( const std::string& item : items )
+        {
+            const std::size_t equals = item.find( '=' );
+            if ( equals == std::string::npos )
+                return Common::MakeError<bool>(
+                     std::format( "'{}': no '=' between the key path and its JSON value", item ) );
+            const std::string path = item.substr( 0, equals );
+            if ( path.empty() )
+                return Common::MakeError<bool>( std::format( "'{}': the key path before '=' is empty", item ) );
+            auto value = Common::Json::Parse( std::string_view( item ).substr( equals + 1 ) );
+            if ( !value )
+                return Common::MakeError<bool>(
+                     std::format( "'{}': the value is not JSON (a string is written in quotes): {}", item,
+                                  value.GetError() ) );
+            auto nested = NestedAt( path, value.ExtractValue() );
+            if ( !nested )
+                return Common::MakeError<bool>( std::format( "'{}': {}", item, nested.GetError() ) );
+            std::vector<std::string>  replaced;
+            const Common::Json::Value over =
+                 Overlay( Common::Json::Root( checked ), Common::Json::Root( nested.GetValue() ), std::string{},
+                          replaced );
+            if ( auto read = Common::Json::Root( over ).As<EngineConfig>(); !read )
+                return Common::MakeError<bool>( std::format( "'{}': {}", item, read.GetError() ) );
+            checked = over;
+            parsed.emplace_back( path, nested.ExtractValue() );
+        }
+        overrides = std::move( parsed );
+        engineLoadedFor.reset(); // the next read applies them
+        return Common::MakeSuccess( true );
     }
 
     Common::BoolResultStr SaveEngineConfig( const EngineConfig& projectLayer )

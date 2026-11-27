@@ -417,6 +417,10 @@ namespace Desert::Net
                 std::vector<std::uint32_t> ByBand;       // non-dormant remote pawns per band, Bands' order
                 std::uint32_t              Dormant  = 0; // remote pawns at the dormant period
                 std::uint32_t              Deferred = 0; // due entries the budget deferred in the last snapshot
+                // The longest wait, in server steps since its last send, among the non-dormant remote pawns
+                // relevant to this connection at its last snapshot - taken before the budget cut, so a deferred
+                // pawn's wait is in it: the number that proves no pawn starves under the budget (NET-SCN-VERBS).
+                std::uint32_t LongestWaitSteps = 0;
             };
             std::vector<Connection> Connections; // by player
         };
@@ -480,7 +484,7 @@ namespace Desert::Net
             // As of the last snapshot (the stat line).
             std::uint64_t              BytesPerSecond = 0;
             std::vector<std::uint32_t> ByBand;
-            std::uint32_t              Dormant = 0, Deferred = 0;
+            std::uint32_t              Dormant = 0, Deferred = 0, LongestWaitSteps = 0;
         };
         struct PawnInfo
         {

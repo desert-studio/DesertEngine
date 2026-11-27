@@ -981,7 +981,8 @@ namespace Desert::Net
         };
         std::vector<Due> due;
         peer.ByBand.assign( m_Relevancy.Bands.size(), 0 );
-        peer.Dormant = 0;
+        peer.Dormant          = 0;
+        peer.LongestWaitSteps = 0;
         for ( const PawnState& pawn : pawns )
         {
             if ( !peer.Relevant.contains( pawn.Id ) )
@@ -1022,6 +1023,8 @@ namespace Desert::Net
                                            peer.Player, pawn.Id, period, HzOf( period ), distance / 100.f ) );
             }
             const std::uint32_t since = serverStep - sent->second.LastSentStep;
+            if ( !dormant ) // a dormant pawn waits by design (its keep-alive period), not for the budget
+                peer.LongestWaitSteps = std::max( peer.LongestWaitSteps, since );
             if ( since < every )
                 continue;
             due.push_back( { &pawn, period, SendPriority( since, every, distance ) } );
@@ -1081,7 +1084,8 @@ namespace Desert::Net
             if ( peer == m_Peers.end() )
                 continue;
             stats.Connections.push_back( { player, peer->second.BytesPerSecond, peer->second.ByBand,
-                                           peer->second.Dormant, peer->second.Deferred } );
+                                           peer->second.Dormant, peer->second.Deferred,
+                                           peer->second.LongestWaitSteps } );
         }
         return stats;
     }

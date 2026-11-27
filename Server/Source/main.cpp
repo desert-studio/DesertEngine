@@ -17,6 +17,10 @@
 //           (ServerPreLogin.hpp) decides on the token's claims: --refuse-account <id> refuses that account. The
 //           sim spawns a pawn for an admitted player at the next --spawn point; every pawn is a streaming source
 //           of the residency union (NET-ARCH §4.1).
+// --config  <Section>.<Key>=<JSON value>, repeatable, every role: the command-line layer of the project's engine
+//           settings (Projects/EngineConfig.hpp SetEngineConfigOverrides; UE -ini:Engine:[Section]:Key=Value) over
+//           Config/Engine.json and its platform layer, for this run only - `--config Net.BudgetBytesPerSecond=2048`.
+//           An item that does not parse or names no declared key is refused (exit 7) before anything listens.
 
 #if !DESERT_SERVER
 #error "DesertServer is compiled only by its own target (Server/CMakeLists.txt), which defines DESERT_SERVER"
@@ -40,6 +44,7 @@
 #include <ToolMain.hpp>
 #include <ToolProject.hpp>
 
+#include <Projects/EngineConfig.hpp>
 #include <Projects/NetSettings.hpp>
 #include <Projects/WorldPartitionSettings.hpp>
 
@@ -190,6 +195,8 @@ namespace Desert::Server
             // --lag-ms / --jitter-ms / --loss: the development link simulator on what the server sends its clients
             // (GNS FakePacketLag/Jitter/Loss_Send) - the snapshots a scenario's remote smoothing has to absorb.
             Net::NetSimulator simulator;
+            // --config <Section>.<Key>=<JSON value>, in the order given: the engine config's command-line layer.
+            std::vector<std::string> configItems;
         };
 
         constexpr double kStepHz = 60.0;
@@ -200,7 +207,9 @@ namespace Desert::Server
                    "--world <scene.desce> --source <x,y,z> [--steps <n>] "
                    "[--port <p> --audience <world id> --issuer-key <public key file> [--issuer-key ...] "
                    "[--refuse-account <id> ...] --pawn <assets:...deprefab> --spawn <x,y,z> "
-                   "[--spawn ...] [--lag-ms <ms> --jitter-ms <ms> --loss <pct>]]\n"
+                   "[--spawn ...] [--lag-ms <ms> --jitter-ms <ms> --loss <pct>]] "
+                   "[--config <Section>.<Key>=<json> ...]\n"
+                   "       (--config is taken by every role below as well)\n"
                    "       DesertServer --project <p> --role coordinator --mesh-port <p> --mesh-ca <dir> [--steps "
                    "<n>] "
                    "[--region <name>:<sim>:<minX>,<minZ>,<maxX>,<maxZ> ... --border-band <cm> --handover-margin "
@@ -391,6 +400,8 @@ namespace Desert::Server
                     options.issuerKeys.push_back( value );
                 else if ( flag == "--pawn" )
                     options.pawn = value;
+                else if ( flag == "--config" ) // judged by SetEngineConfigOverrides once the log is open (Run)
+                    options.configItems.push_back( value );
                 else if ( flag == "--port" || flag == "--audience" || flag == "--mesh-port" || flag == "--index" ||
                           flag == "--refuse-account" )
                 {
@@ -572,17 +583,44 @@ namespace Desert::Server
             return out;
         }
 
+        // THE NET SETTINGS THIS RUN PLAYS (NET-SCN-VERBS): read from the effective config after its check, so a
+        // scenario compares against what the server runs, never a number copied from a file. The line's text is a
+        // contract with Scenarios/Network/*.scn (net settings: ... budget {B} B/s ... --config sets {K} key(s)).
+        void LogNetSettings( const Project::NetSettings& net )
+        {
+            std::string bands;
+            for ( std::size_t i = 0; i < net.Bands.size(); ++i )
+            {
+                const Project::NetRateBand& band = net.Bands[i];
+                const double                hz   = Net::kNetStepHz / band.EverySteps;
+                bands += i + 1 < net.Bands.size()
+                              ? std::format( "{:g} m every {} steps ({:g} Hz); ", band.ToCm / 100.0, band.EverySteps,
+                                             hz )
+                              : std::format( "beyond every {} steps ({:g} Hz)", band.EverySteps, hz );
+            }
+            const std::vector<std::string>& overridden = Project::CurrentEngineConfig().OverrideKeys;
+            std::string                     keys;
+            for ( const std::string& key : overridden )
+                keys += std::format( "{}{}", keys.empty() ? "" : ", ", key );
+            LOG_INFO( "[Server] net settings: {} band(s) [{}], dormant every {} steps, cull {:g} m, view cap {:g} m, "
+                      "budget {} B/s, stationary input every {} steps; --config sets {} key(s): {}",
+                      net.Bands.size(), bands, net.DormantEverySteps, net.PawnCullRangeCm / 100.0,
+                      net.MaxViewRangeCm / 100.0, net.BudgetBytesPerSecond, net.StationaryInputEverySteps,
+                      overridden.size(), keys.empty() ? std::string( "none" ) : keys );
+        }
+
         // The project's Net settings for this session, or the refusal logged (the server exits 7).
         std::optional<Net::RelevancySettings> ProjectRelevancy()
         {
             const Project::NetSettings& net = Project::CurrentNetSettings();
             if ( const std::optional<std::string> refusal = Project::ValidateNetSettings( net ) )
             {
-                LOG_ERROR( "[Server] ValidateNetSettings: {} (the \"Net\" section of Config/Engine.json and its "
-                           "platform layer) - not starting",
+                LOG_ERROR( "[Server] ValidateNetSettings: {} (the \"Net\" section of Config/Engine.json, its "
+                           "platform layer and --config) - not starting",
                            *refusal );
                 return std::nullopt;
             }
+            LogNetSettings( net );
             return RelevancySettingsOf( net, Project::CurrentWorldPartitionSettings() );
         }
 
@@ -624,7 +662,8 @@ namespace Desert::Server
         }
 
         // What each connection gets now (UE `stat net` per connection): remote pawn bytes per second, the relevant
-        // remote pawns by send band, the dormant ones and the due entries the budget deferred last snapshot.
+        // remote pawns by send band, the dormant ones, the due entries the budget deferred last snapshot and the
+        // longest any awake relevant pawn had waited for its send then (no pawn starves under the budget).
         void LogNetRates( const Net::Gateway& gateway, std::string_view who )
         {
             const Net::Gateway::Stats     stats = gateway.ReplicationStats();
@@ -636,8 +675,9 @@ namespace Desert::Server
                 for ( std::size_t i = 0; i < net.Bands.size(); ++i )
                     bands += std::format( "{}{:g} Hz {}", i ? ", " : "", Net::kNetStepHz / net.Bands[i].EverySteps,
                                           i < c.ByBand.size() ? c.ByBand[i] : 0u );
-                players += std::format( "; player {}: {} B/s, pawns by band [{}], dormant {}, deferred {}",
-                                        c.Player, c.PawnBytesPerSecond, bands, c.Dormant, c.Deferred );
+                players += std::format(
+                     "; player {}: {} B/s, pawns by band [{}], dormant {}, deferred {}, longest wait {} step(s)",
+                     c.Player, c.PawnBytesPerSecond, bands, c.Dormant, c.Deferred, c.LongestWaitSteps );
             }
             LOG_INFO(
                  "[Server] net rates{}: players {}{}; {} entry(ies) deferred by the budget in all, {} pawn entry "
@@ -1216,6 +1256,14 @@ namespace Desert::Server
             {
                 std::cerr << "DesertServer: " << opened.Refused << "\n";
                 return 3;
+            }
+            // THE COMMAND-LINE LAYER of the engine settings (--config), every role, before anything reads them and
+            // once the log is open, so a refusal is in the role's log: a run never plays a typo as the defaults.
+            // Its values are judged where the file layers' are - ValidateNetSettings in ProjectRelevancy.
+            if ( auto overridden = Project::SetEngineConfigOverrides( options.configItems ); !overridden )
+            {
+                LOG_ERROR( "[Server] --config {} - not starting", overridden.GetError() );
+                return 7;
             }
             if ( options.role != Role::All )
                 return RunMeshRole( options );
