@@ -1110,6 +1110,25 @@ namespace Desert::Graphic
              [meshRenderer, view]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGenericDraws( pass, view ); } );
     }
 
+    bool SceneRendererImpl::RefractionIsHardwareTraced() const
+    {
+        using namespace Common::Scalability;
+        return QualityState::Resolved().As<int>( Parameter::TranslucencyRefraction ) ==
+                    static_cast<int>( System::TranslucencyRefractionMethod::HardwareTraced ) &&
+               m_RenderPath == Core::RenderPath::Deferred && m_GBuffer && !PathTraced( m_RenderMethods ) &&
+               m_ViewProfile.ScreenSpaceReflections;
+    }
+
+    bool SceneRendererImpl::TranslucentFrontLayerRequired() const
+    {
+        return TranslucentFrontLayerReflections() || RefractionIsHardwareTraced();
+    }
+
+    bool SceneRendererImpl::ViewRayTracingSceneRequired() const
+    {
+        return RayTracing::RayTracingSceneRequired( m_RenderMethods ) || RefractionIsHardwareTraced();
+    }
+
     RDG::TextureRef SceneRendererImpl::AddFrameRayTracedRefraction( RDG::Builder& graph, FrameTextures& textures,
                                                                     const std::vector<RDG::TextureRef>& gbuffer,
                                                                     const FrameFrontLayer&              frontLayer,

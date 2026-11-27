@@ -2772,25 +2772,6 @@ namespace Desert::Graphic
         return QualityState::Resolved().As<int>( Parameter::ReflectionsTranslucentFrontLayer ) != 0;
     }
 
-    bool SceneRendererImpl::RefractionIsHardwareTraced() const
-    {
-        using namespace Common::Scalability;
-        return QualityState::Resolved().As<int>( Parameter::TranslucencyRefraction ) ==
-                    static_cast<int>( System::TranslucencyRefractionMethod::HardwareTraced ) &&
-               m_RenderPath == Core::RenderPath::Deferred && m_GBuffer && !PathTraced( m_RenderMethods ) &&
-               m_ViewProfile.ScreenSpaceReflections;
-    }
-
-    bool SceneRendererImpl::TranslucentFrontLayerRequired() const
-    {
-        return TranslucentFrontLayerReflections() || RefractionIsHardwareTraced();
-    }
-
-    bool SceneRendererImpl::ViewRayTracingSceneRequired() const
-    {
-        return RayTracing::RayTracingSceneRequired( m_RenderMethods ) || RefractionIsHardwareTraced();
-    }
-
     SceneRendererImpl::FrameFrontLayer SceneRendererImpl::AddFrameTranslucentFrontLayer(
          RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
          const std::vector<RDG::TextureRef>& gbuffer, const FrameScreenTrace& screenTrace, const ViewFrame& frame,
@@ -2804,8 +2785,7 @@ namespace Desert::Graphic
              prepared == nullptr ? BuildFrontLayerWriters( meshRenderer ) : FrontLayerWriters{};
         if ( prepared == nullptr && !writers.Any() )
             return {};
-        // The reflections' renderer comes up on the first frame that reflects; its failure is said once and turns
-        // the layer's reflections off for the view, never the surface the traced refraction starts from.
+        // Its failure turns the layer's reflections off for the view, never the surface the refraction traces from.
         if ( reflect && !m_FrontLayerReflectionsFailed && !m_Systems.FrontLayerReflections )
         {
             Renderer::GetInstance().WaitDeviceIdle();
@@ -2820,7 +2800,6 @@ namespace Desert::Graphic
                 m_FrontLayerReflectionsFailed = true;
             }
         }
-
         // The same surface the virtual shadow map's receivers were marked from, or this frame's own.
         const std::optional<FrontLayerSurface> drawn =
              prepared != nullptr ? std::optional<FrontLayerSurface>( *prepared )
@@ -2832,11 +2811,8 @@ namespace Desert::Graphic
         if ( !reflect || m_FrontLayerReflectionsFailed )
             return layer;
 
-        // A refused trace is said by AddFrameSSR; the surface stays for the traced refraction.
         const FrameSSR traced = AddFrameSSR( graph, textures, *m_Systems.FrontLayerReflections, gbuffer, screenTrace,
-                                             frame, &surface );
-        if ( !traced.Resolved.IsValid() )
-            return layer;
+                                             frame, &surface ); // a refused trace is said by AddFrameSSR
         return FrameFrontLayer{ .Reflection = traced.Resolved, .Normal = surface.Normal, .Depth = surface.Depth };
     }
 
