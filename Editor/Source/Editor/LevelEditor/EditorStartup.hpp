@@ -19,6 +19,7 @@
 #include <Engine/Core/WorkSink.hpp>
 #include <Common/Core/ResultStr.hpp>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -118,7 +119,8 @@ namespace Desert::Editor
         /// A scene has just loaded; whatever it asks for has not been asked for yet. Starts the wait.
         /// @p finishedBefore is `AsyncAssetLoader::Progress().Finished` taken before the load asked for anything.
         void BeginContentSettle( uint64_t finishedBefore );
-        /// The start's progress while its scene.load phase runs (the open names its steps into it), else null.
+        /// The start's progress while the start's scene opens (the open begins scene.read and scene.init through
+        /// it, and names its steps), else null: a scene opened after the start reports nothing.
         [[nodiscard]] ::Desert::Core::WorkSink* SceneLoadSink() const;
         /// What a scene load that BLOCKS reports while it waits for its reads (LOAD-SHOW-b, UE's
         /// FScopedSlowTask shape): installed around the load with Assets::ScopedWaitFeedback, it turns each read
@@ -157,10 +159,13 @@ namespace Desert::Editor
         // took on the previous start on this machine, the phase running now by its measured rate. This class
         // only begins the phases at the points the start reaches them; a key the plan lacks is a defect, logged.
         void BeginPhase( std::string_view key, ::Desert::Core::LiveSource source = {} );
-        // scene.load's count, pulled on the splash thread: the loader's reads plus the engine pipelines, both
-        // counted from this call.
-        [[nodiscard]] static ::Desert::Core::LiveSource SceneLoadSource();
-        // Per presented frame until the reveal: begins scene.reveal once the scene's content has settled, and
+        // The Discovered counts of the scene phases, pulled on the splash thread; bases taken now, on the main
+        // thread. scene.read: the loader's reads. scene.settle: the reads plus the engine pipelines.
+        [[nodiscard]] static ::Desert::Core::LiveSource SceneReadSource();
+        [[nodiscard]] static ::Desert::Core::LiveSource SceneSettleSource();
+        // scene.stream: the textures streaming, counted on the main thread into m_Stream.
+        [[nodiscard]] ::Desert::Core::LiveSource StreamSource() const;
+        // Per presented frame until the reveal: begins scene.stream once the scene's content has settled, and
         // names what the reveal still waits for.
         void ReportRevealWait( const Splash::RevealState& state );
         // At the reveal (or, with no splash, when it would have been): the progress's table, and the history the
@@ -188,12 +193,41 @@ namespace Desert::Editor
 
         // The start's progress, shared with the host (its owner) and the splash (its reader).
         std::shared_ptr<::Desert::Core::StartupProgress> m_Startup;
-        bool m_SceneLoadPhase  = false; // scene.load has begun (the stages are done)
-        bool m_RevealPhase     = false; // scene.reveal has begun
         bool m_StartupFinished = false; // StartupProgress::Finish was called
-        // The content settle's item in m_Startup, from BeginContentSettle until the gate opens (after m_Startup:
-        // it finishes the item, so it is destroyed first).
-        std::optional<::Desert::Core::ScopedWorkItem> m_SettleItem;
+        // THE SCENE PHASE THIS HOST BEGAN LAST (the open's own scene.read / scene.init are begun by the open
+        // through m_SceneWatch): Opening until BeginContentSettle, then Settling, then Streaming.
+        enum class StartupScene : uint8_t
+        {
+            Opening,
+            Settling,
+            Streaming,
+        };
+        StartupScene m_StartupScene = StartupScene::Opening;
+        // THE OPEN'S SINK (GoF Decorator over m_Startup): forwards the items, and gives scene.read its count
+        // source when the open enters that step -- the open names its steps, this host owns their counts.
+        class SceneOpenWatch final : public ::Desert::Core::WorkSink
+        {
+        public:
+            explicit SceneOpenWatch( ::Desert::Core::StartupProgress& progress ) : m_Progress( progress ) {}
+            void                   BeginStep( std::string_view key ) noexcept override;
+            void                   Expect( uint64_t items ) noexcept override;
+            [[nodiscard]] uint64_t BeginItem( std::string_view name ) noexcept override;
+            void                   FinishItem( uint64_t token ) noexcept override;
+            [[nodiscard]] bool     StopRequested() const noexcept override;
+
+        private:
+            ::Desert::Core::StartupProgress& m_Progress;
+        };
+        SceneOpenWatch m_SceneWatch;
+        // THE TEXTURES STREAMING, counted on the main thread (TextureService is main-thread) and read by
+        // StreamSource on the splash thread; shared so the source outlives nothing it reads.
+        struct StreamCount
+        {
+            std::atomic<uint64_t> Done{ 0 };     // completions seen between frames since scene.stream began
+            std::atomic<uint64_t> InFlight{ 0 }; // streaming now
+        };
+        std::shared_ptr<StreamCount> m_Stream = std::make_shared<StreamCount>();
+        uint64_t                     m_StreamLast = 0; // InFlight at the previous frame (main thread)
         // Reads the loader had finished when the scene load began: the settle counts only the rest.
         uint64_t                    m_SettleBase = 0;
         Assets::ContentProgressLine m_ContentProgress; // the line the settle shows now

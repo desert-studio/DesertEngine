@@ -183,14 +183,21 @@ namespace Desert::Editor::Splash
         return { rect.X, kHeight - rect.Y - rect.H, rect.W, rect.H };
     }
 
+    /// The smallest change of the bar's fraction a window can show: one device pixel of the bar's width
+    /// (kWidth - 2 kMargin points at @p pixelsPerPoint), in (0, 0.1] as StartupProgress::Sample takes it.
+    [[nodiscard]] inline double BarMinVisibleStep( const float pixelsPerPoint )
+    {
+        const double pixels = static_cast<double>( kWidth - 2.0f * kMargin ) * static_cast<double>( pixelsPerPoint );
+        return pixels > 10.0 ? 1.0 / pixels : 0.1;
+    }
+
     // ===== What the lines say, from one sample of the start's progress =====
 
     // U+00B7 in UTF-8: the separator of every live line.
     inline constexpr const char* kDot = "\xC2\xB7";
-    // A running item shows its age once it has run this long; a shorter one is just its name.
-    inline constexpr double kAgeShownSeconds = 1.0;
 
-    /// "Loading the scene · phase 13 / 14 · 1240 / 1910" (the count only for a counted phase); "Closing..."
+    /// "Indexing content · phase 5 / 17 · 1240 / 1910" for a Planned phase once its N is given, "· 812 done" for a
+    /// Discovered one, nothing for a Timed one; "Closing..."
     /// once a person asked the start to stop; empty only for a plan without phases (before the first BeginPhase
     /// the sample names the plan's first phase).
     [[nodiscard]] inline std::string StageText( const Desert::Core::StartupView& view )
@@ -201,9 +208,19 @@ namespace Desert::Editor::Splash
             return {};
         std::string text = view.Phase + "  " + kDot + "  phase " + std::to_string( view.PhaseNumber ) + " / " +
                            std::to_string( view.PhaseCount );
-        if ( view.Total > 0 )
-            text += std::string( "  " ) + kDot + "  " + std::to_string( view.Done ) + " / " +
-                    std::to_string( view.Total );
+        switch ( view.Count )
+        {
+            case Desert::Core::PhaseCountKind::Planned:
+                if ( view.Total > 0 )
+                    text += std::string( "  " ) + kDot + "  " + std::to_string( view.Done ) + " / " +
+                            std::to_string( view.Total );
+                break;
+            case Desert::Core::PhaseCountKind::Discovered:
+                text += std::string( "  " ) + kDot + "  " + std::to_string( view.Done ) + " done";
+                break;
+            case Desert::Core::PhaseCountKind::Timed:
+                break;
+        }
         return text;
     }
 
@@ -217,19 +234,20 @@ namespace Desert::Editor::Splash
         return std::to_string( static_cast<int>( std::floor( clamped * 100.0 ) ) ) + " %";
     }
 
-    /// One running item: "DeferredLighting Direct · 12.4 s", or just the name while it is younger than
-    /// kAgeShownSeconds.
+    /// One running item: "textures streaming · 357 in flight  12.4 s" -- its name, its detail when it has one,
+    /// and its seconds, always (an item without its seconds cannot be told from a hang).
     [[nodiscard]] inline std::string ActiveText( const Desert::Core::ActiveWork& work )
     {
-        if ( work.Seconds < kAgeShownSeconds )
-            return work.Name;
         char seconds[32];
-        std::snprintf( seconds, sizeof( seconds ), "%.1f s", work.Seconds );
-        return work.Name + " " + kDot + " " + seconds;
+        std::snprintf( seconds, sizeof( seconds ), "%.1f s", work.Seconds < 0.0 ? 0.0 : work.Seconds );
+        std::string text = work.Name;
+        if ( !work.Detail.empty() )
+            text += std::string( " " ) + kDot + " " + work.Detail;
+        return text + "  " + seconds;
     }
 
-    /// The running items, oldest first (the sample holds at most kActiveShown); in `scene.reveal` they are
-    /// what the reveal waits for. Empty once a person asked to stop.
+    /// The running items (the sample holds at most kActiveShown); in `scene.stream` the first are what the
+    /// reveal waits for. Empty once a person asked to stop.
     [[nodiscard]] inline std::string ItemText( const Desert::Core::StartupView& view )
     {
         if ( view.StopRequested )
@@ -244,7 +262,14 @@ namespace Desert::Editor::Splash
         return text;
     }
 
-    /// "3:12 · about 1:05 left"; only the elapsed time once the start is over; empty before the first phase.
+    /// The ETA rounded UP to a whole second: the shown number is never below the model's.
+    [[nodiscard]] inline double EtaShownSeconds( const Desert::Core::StartupView& view )
+    {
+        return std::ceil( view.EtaSeconds < 0.0 ? 0.0 : view.EtaSeconds );
+    }
+
+    /// "3:12 · about 1:05 left" while the ETA is known, "3:12 · longer than expected" once the start has overrun
+    /// it; only the elapsed time once the start is over; empty before the first phase.
     [[nodiscard]] inline std::string TimeText( const Desert::Core::StartupView& view )
     {
         if ( view.Phase.empty() && !view.Finished )
@@ -252,7 +277,9 @@ namespace Desert::Editor::Splash
         const std::string elapsed = Desert::Core::FormatDuration( view.ElapsedSeconds );
         if ( view.Finished )
             return elapsed;
-        return elapsed + " " + kDot + " about " + Desert::Core::FormatDuration( view.RemainingSeconds ) + " left";
+        if ( !view.EtaKnown )
+            return elapsed + " " + kDot + " longer than expected";
+        return elapsed + " " + kDot + " about " + Desert::Core::FormatDuration( EtaShownSeconds( view ) ) + " left";
     }
 
     /// One line of the detail log: "0:31  Building shader maps  2254 items  95.4 s" — the time since the
@@ -273,7 +300,23 @@ namespace Desert::Editor::Splash
 
     // ===== --splash-capture's progress.csv: one row per sample, the same on both platforms =====
 
-    inline constexpr const char* kCaptureCsvHeader = "ms,fraction,phase,done,total,remaining,active0";
+    inline constexpr const char* kCaptureCsvHeader =
+         "ms,fraction,phase,kind,done,total,eta,eta_known,active0,active0_seconds";
+
+    /// The count kind's column value.
+    [[nodiscard]] inline const char* CountKindName( const Desert::Core::PhaseCountKind kind )
+    {
+        switch ( kind )
+        {
+            case Desert::Core::PhaseCountKind::Planned:
+                return "planned";
+            case Desert::Core::PhaseCountKind::Discovered:
+                return "discovered";
+            case Desert::Core::PhaseCountKind::Timed:
+                break;
+        }
+        return "timed";
+    }
 
     /// One CSV field, quoted: phase labels and item names may hold commas.
     [[nodiscard]] inline std::string CsvField( const std::string& text )
@@ -288,17 +331,20 @@ namespace Desert::Editor::Splash
         return quoted + "\"";
     }
 
-    /// The row of one sample, without the line end: ms since the process started, the fraction, the phase,
-    /// its count, the seconds left and the oldest running item.
+    /// The row of one sample, without the line end: ms since the process started, the fraction, the phase, its
+    /// count kind and count, the ETA as shown (whole seconds, rounded up) and whether it is known, the first
+    /// active item and its seconds -- the acceptance reads every number of the picture from here.
     [[nodiscard]] inline std::string CaptureCsvRow( const Desert::Core::StartupView& view )
     {
         char head[64];
         std::snprintf( head, sizeof( head ), "%.0f,%.6f,", view.ElapsedSeconds * 1000.0,
                        static_cast<double>( view.Fraction ) );
-        char remaining[32];
-        std::snprintf( remaining, sizeof( remaining ), "%.3f,", view.RemainingSeconds );
-        return std::string( head ) + CsvField( view.Phase ) + "," + std::to_string( view.Done ) + "," +
-               std::to_string( view.Total ) + "," + remaining +
-               CsvField( view.Active.empty() ? std::string{} : view.Active.front().Name );
+        char eta[48];
+        std::snprintf( eta, sizeof( eta ), ",%.0f,%d,", EtaShownSeconds( view ), view.EtaKnown ? 1 : 0 );
+        char seconds[32];
+        std::snprintf( seconds, sizeof( seconds ), ",%.3f", view.Active.empty() ? 0.0 : view.Active.front().Seconds );
+        return std::string( head ) + CsvField( view.Phase ) + "," + CountKindName( view.Count ) + "," +
+               std::to_string( view.Done ) + "," + std::to_string( view.Total ) + eta +
+               CsvField( view.Active.empty() ? std::string{} : view.Active.front().Name ) + seconds;
     }
 } // namespace Desert::Editor::Splash

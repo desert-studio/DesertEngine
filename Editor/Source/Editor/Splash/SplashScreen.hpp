@@ -44,7 +44,7 @@ namespace Desert::Editor::Splash
         // live text on a plain dark background and the log says why, once (see SplashImage.hpp).
         std::filesystem::path CookedImage;
         // --splash-capture <dir>: the splash writes its painted canvas as splash-<ms>.png every second and one
-        // row per repaint into progress.csv (ms,fraction,phase,done,total,remaining,active0). Empty = off.
+        // row per repaint into progress.csv (kCaptureCsvHeader in SplashLayout.hpp). Empty = off.
         std::filesystem::path CaptureDir;
     };
 

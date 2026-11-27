@@ -27,7 +27,8 @@ namespace
         view.PhaseCount       = 14;
         view.Fraction         = 0.627;
         view.ElapsedSeconds   = 192.4;
-        view.RemainingSeconds = 65.2;
+        view.EtaSeconds       = 65.2;
+        view.Count            = Core::PhaseCountKind::Planned;
         return view;
     }
 
@@ -68,18 +69,18 @@ TEST( SplashText, ThePercentageIsRoundedDownSoOneHundredMeansDone )
     EXPECT_EQ( Splash::PercentText( view ), "100 %" );
 }
 
-TEST( SplashText, ARunningItemShowsItsAgeOnceItIsASecondOld )
+TEST( SplashText, ARunningItemAlwaysShowsItsSeconds )
 {
     Core::StartupView view = PhaseView();
-    view.Active            = { { "DeferredLighting Direct", 12.43 }, { "Sky", 0.2 } };
-    EXPECT_EQ( Splash::ItemText( view ), "DeferredLighting Direct \xC2\xB7 12.4 s,  Sky" );
+    view.Active            = { { "DeferredLighting Direct", {}, 12.43 }, { "Sky", {}, 0.2 } };
+    EXPECT_EQ( Splash::ItemText( view ), "DeferredLighting Direct  12.4 s,  Sky  0.2 s" );
 }
 
 TEST( SplashText, TheTimeLineSaysWhatWasSpentAndWhatIsLeft )
 {
     Core::StartupView view = PhaseView();
     EXPECT_EQ( Splash::TimeText( view ),
-               Core::FormatDuration( 192.4 ) + " \xC2\xB7 about " + Core::FormatDuration( 65.2 ) + " left" );
+               Core::FormatDuration( 192.4 ) + " \xC2\xB7 about " + Core::FormatDuration( 66.0 ) + " left" );
     view.Finished = true;
     EXPECT_EQ( Splash::TimeText( view ), Core::FormatDuration( 192.4 ) );
 }
@@ -87,7 +88,7 @@ TEST( SplashText, TheTimeLineSaysWhatWasSpentAndWhatIsLeft )
 TEST( SplashText, ClosingReplacesTheStageAndClearsTheItems )
 {
     Core::StartupView view = PhaseView();
-    view.Active            = { { "Sky", 3.0 } };
+    view.Active            = { { "Sky", {}, 3.0 } };
     view.StopRequested     = true;
     EXPECT_EQ( Splash::StageText( view ), "Closing..." );
     EXPECT_EQ( Splash::ItemText( view ), "" );
@@ -109,11 +110,11 @@ TEST( SplashText, TheCaptureRowQuotesWhatMayHoldACommaAndKeepsItsColumns )
     view.Phase             = "Loading \"the\" scene, part 1";
     view.Done              = 7;
     view.Total             = 9;
-    view.Active            = { { "a,b", 2.0 } };
+    view.Active            = { { "a,b", {}, 2.0 } };
     EXPECT_EQ( Splash::CaptureCsvRow( view ),
-               "192400,0.627000,\"Loading \"\"the\"\" scene, part 1\",7,9,65.200,\"a,b\"" );
+               "192400,0.627000,\"Loading \"\"the\"\" scene, part 1\",planned,7,9,66,1,\"a,b\",2.000" );
     view.Active.clear();
-    EXPECT_EQ( Splash::CaptureCsvRow( view ).substr( Splash::CaptureCsvRow( view ).size() - 3 ), ",\"\"" );
+    EXPECT_EQ( Splash::CaptureCsvRow( view ).substr( Splash::CaptureCsvRow( view ).size() - 9 ), ",\"\",0.000" );
 }
 
 TEST( SplashText, SampledAsTheSplashSamplesItTheLinesFollowThePhasesAndTheBarNeverGoesBack )
@@ -126,7 +127,7 @@ TEST( SplashText, SampledAsTheSplashSamplesItTheLinesFollowThePhasesAndTheBarNev
     {
         now +=
              std::chrono::duration_cast<Core::StartupClock::duration>( std::chrono::duration<double>( seconds ) );
-        const Core::StartupView view = progress.Sample( now );
+        const Core::StartupView view = progress.Sample( now, 0.001 );
         EXPECT_GE( view.Fraction, shown );
         shown = view.Fraction;
         return view;
@@ -165,7 +166,7 @@ TEST( SplashText, AKeyOutsideThePlanIsRefusedAndTheSplashKeepsTheLastPhase )
     Core::StartupProgress                progress = TwoPhaseProgress( start );
     ASSERT_TRUE( progress.BeginPhase( "first" ).IsSuccess() );
     EXPECT_FALSE( progress.BeginPhase( "not.in.the.plan" ).IsSuccess() );
-    EXPECT_EQ( Splash::StageText( progress.Sample( start ) ), "First  \xC2\xB7  phase 1 / 2" );
+    EXPECT_EQ( Splash::StageText( progress.Sample( start, 0.001 ) ), "First  \xC2\xB7  phase 1 / 2" );
 }
 
 TEST( SplashText, TheCloseButtonsStopIsWhatTheNextSampleSays )
@@ -175,5 +176,5 @@ TEST( SplashText, TheCloseButtonsStopIsWhatTheNextSampleSays )
     ASSERT_TRUE( progress.BeginPhase( "first" ).IsSuccess() );
     progress.RequestStop();
     EXPECT_TRUE( progress.StopRequested() );
-    EXPECT_EQ( Splash::StageText( progress.Sample( start ) ), "Closing..." );
+    EXPECT_EQ( Splash::StageText( progress.Sample( start, 0.001 ) ), "Closing..." );
 }
