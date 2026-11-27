@@ -94,6 +94,7 @@ class Role:
         self.lines, self.cursor, self.partial, self.drawn = [], 0, "", []
         self.hold = False  # a Тогда is choosing its frame: nothing announced is deleted meanwhile
         self.claimed = {}  # sequence frame number -> the «Тогда» statement that took it
+        self.frames = 0  # the line after the last frame a «Тогда» took; Ждать never reads it
         self.reader = open(logpath, encoding="utf-8", errors="replace")
 
     def pump(self):
@@ -436,13 +437,14 @@ class Run:
         # `wrote ... frame_N.png` written from that frame's own copy. Frame N+1 is kept beside it as <name>_next.png
         # (D2: the next frame is judged, not assumed). Never "the first file written after the Тогда": with the
         # render pipelined a frame is written after the next tick, so that file was the frame BEFORE.
-        # CONSUMED OFFSET (NET-SCN-FRAME-CLAIMED): once frames N/N+1 are taken, r.cursor moves past the line that
+        # CONSUMED OFFSET (NET-SCN-FRAME-CLAIMED): once frames N/N+1 are taken, r.frames moves past the line that
         # announced frame N+1, so the next «Тогда» on this role waits for a newer frame - never re-reads these.
+        # r.cursor stays Ждать's: a one-shot line logged while «Тогда» waited for its frames is still matched.
         name, what = parts[1], parts[2] if len(parts) > 2 else ""
         stmt = f"«Тогда {r.name} {name}»"
         r.hold = True
         try:
-            start, deadline, n, game, got, after = r.cursor, time.time() + 120, None, None, {}, None
+            start, deadline, n, game, got, after = max(r.cursor, r.frames), time.time() + 120, None, None, {}, None
             while time.time() < deadline:
                 for index in range(start, len(r.lines)):
                     line = r.lines[index]
@@ -475,7 +477,7 @@ class Run:
                 start = len(r.lines)
                 if n is not None and len(got) == 2 and after is not None:
                     r.claimed[n] = r.claimed[n + 1] = stmt
-                    r.cursor = max(r.cursor, after)
+                    r.frames = max(r.frames, after)
                     return (f"{name}.png\t(frame_{n:05d}, game frame {game}) {what}\n"
                             f"{name}_next.png\t(frame_{n + 1:05d}) the frame after {name}")
                 if r.proc.poll() is not None:
