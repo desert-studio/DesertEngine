@@ -1,11 +1,12 @@
 #ifndef DESERT_RAY_TRACED_TRANSLUCENCY_PUSH_GLSLH
 #define DESERT_RAY_TRACED_TRANSLUCENCY_PUSH_GLSLH
 
-// NG-RT-REFRACTION contract: THE PUSH BLOCK of "Translucency: Ray Traced Refraction"
+// NG-RT-REFRACTION3A contract: THE PUSH BLOCK of "Translucency: Ray Traced Refraction"
 // (Programs/Translucency/RayTracedTranslucency.shader, Pass "Trace"). The one declaration: DesertHeaderTool generates
 // ShaderPush::RayTracedTranslucencyPush from this block on every build (Engine/Generated/ShaderPushConstants.gen.hpp),
 // which RayTracedTranslucencyRenderer::AddPass takes (Graphic/Systems/Scene/Translucency/RayTracedTranslucency.hpp).
-// 96 bytes, std430.
+// 112 bytes, std430 (under the 128 every Vulkan device guarantees). The view-projection the hit's screen test needs
+// is NOT here: it is giFrame.viewProjection (GIFrameUB, this frame's jittered one), already bound for the hit lighting.
 PushConstant RayTracedTranslucencyPush
 {
 	mat4  InvJitteredViewProjection; // clip (jittered) -> world, the front layer pixel's position from its depth
@@ -13,7 +14,11 @@ PushConstant RayTracedTranslucencyPush
 	float MaxRayDistance;            // cm, each segment (kRayTracedTranslucencyMaxRayDistance)
 	float MaxRoughness;              // a front layer rougher than this is not traced: a = 0
 	uint  MaxInterfaces;             // dielectric interfaces followed before the path stops: a = 0 when exhausted
-	uint  FrameIndex;                // the rough lobe's GGX sample sequence
+	uint  FrameIndex;                // the rough lobe's GGX sample sequence; & 3 = the quad's pixel traced this frame
+	uint  Composite;                 // Translucency.RefractionComposite: 0 = same rays, the answer's a is written 0
+	uint  Pad0;                      // the block's size in whole vec4s, spelled out for the generated C++ twin
+	uint  Pad1;
+	uint  Pad2;
 };
 
 #endif
