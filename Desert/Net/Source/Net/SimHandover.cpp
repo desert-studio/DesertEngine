@@ -108,6 +108,8 @@ namespace Desert::Net
                                                                  StepsSince( step, offer.Step ) ) } ) ) );
         }
 
+        AskInDoubt( step, storeLinked );
+
         for ( const PawnSimulation::Source& source : sim.Sources() )
         {
             if ( m_Offers.contains( source.Player ) || m_Incoming.contains( source.Player ) )
@@ -291,12 +293,36 @@ namespace Desert::Net
         }
         const std::size_t pending = pawn.Pending.size();
         sim.Expect( std::move( pawn ), header.Gateway );
-        m_Incoming[player] = Incoming{ header.Key, id, header.Key.From, header.Step };
+        m_Incoming[player] = Incoming{ header.Key, id, header.Key.From, header.Step, step };
         m_Endpoint.SendToRole( EMeshRole::Store, Handover::EncodeAccept( verdict ) );
         m_Log(
              std::format( "{} accepted (catch-up {} steps) - held as incoming with {} unacked input(s) until the "
                           "store commits",
                           name, behind, pending ) );
+    }
+
+    void SimHandover::AskInDoubt( std::uint32_t step, bool storeLinked )
+    {
+        // THE PARTICIPANT IN DOUBT ASKS THE COORDINATOR: the Accept is re-sent under the same key and the store
+        // answers with the offer's outcome (HandoverLedger.hpp); OnDecision acts on it as on the first answer.
+        // Without a link to the store no answer can come: the copy waits, and asks on the first step the link is
+        // back (the store may have committed - dropping it here could leave the pawn with no owner).
+        if ( !storeLinked )
+            return;
+        for ( auto& [player, held] : m_Incoming )
+        {
+            if ( StepsSince( step, held.AskedAt ) < kInDoubtSteps )
+                continue;
+            m_Endpoint.SendToRole( EMeshRole::Store,
+                                   Handover::EncodeAccept( Handover::Verdict{ held.Key, m_Sim, step } ) );
+            ++m_Stats.InDoubtAsks;
+            m_Log( std::format( "sim {}: offer (sim {}, #{}) of pawn net id {} (player {}) accepted at step {}, no "
+                                "Commit or Refused for {} steps - in doubt: Accept sent again, the store's answer "
+                                "decides",
+                                m_Sim, held.Key.From, held.Key.Serial, held.Id, player, held.AskedAt,
+                                StepsSince( step, held.AskedAt ) ) );
+            held.AskedAt = step;
+        }
     }
 
     // ------------------------------------------------------------------------------------- the store decides
@@ -379,7 +405,7 @@ namespace Desert::Net
             if ( !gateway )
             {
                 m_Log( std::format( "sim {}: offer (sim {}, #{}) of pawn net id {} (player {}) committed, but its "
-                                    "incoming pawn is gone (its player left)",
+                                    "player left while it was incoming - removed from the store, not adopted",
                                     m_Sim, held.Key.From, held.Key.Serial, held.Id, player ) );
                 return;
             }
@@ -438,9 +464,9 @@ namespace Desert::Net
     {
         return std::format(
              "handovers: {} offered, {} committed, {} adopted; refused {} by store, {} by receiver; {} "
-             "withdrawn; incoming {} refused, {} dropped; {} open as sender, {} incoming",
+             "withdrawn; incoming {} refused, {} dropped; {} open as sender, {} incoming; {} in-doubt ask(s)",
              m_Stats.Offered, m_Stats.Committed, m_Stats.Adopted, m_Stats.RefusedByStore,
              m_Stats.RefusedByReceiver, m_Stats.Withdrawn, m_Stats.IncomingRefused, m_Stats.IncomingDropped,
-             m_Offers.size(), m_Incoming.size() );
+             m_Offers.size(), m_Incoming.size(), m_Stats.InDoubtAsks );
     }
 } // namespace Desert::Net

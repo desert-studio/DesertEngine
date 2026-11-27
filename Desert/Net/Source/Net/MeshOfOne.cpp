@@ -103,6 +103,16 @@ namespace Desert::Net
         if ( it == m_Pawns.end() )
             return;
         const NetId id = it->second.State.Id;
+        // An INCOMING copy is not this simulation's to remove: the record is the sender's until the store decides.
+        // It waits for the decision (SimHandover: Commit, Refused, or the store's answer to a receiver in doubt).
+        if ( it->second.Hold == EHold::Incoming )
+        {
+            it->second.Left = true;
+            m_Log( std::format( "player {}: left while its pawn net id {} is incoming - kept until the store "
+                                "decides the handover",
+                                player, id ) );
+            return;
+        }
         m_Log( std::format( "player {}: left, pawn net id {} destroyed", player, id ) );
         m_Pawns.erase( it );
         m_Store.Remove( id );
@@ -384,7 +394,19 @@ namespace Desert::Net
         if ( it == m_Pawns.end() || it->second.Hold != EHold::Incoming )
             return std::nullopt;
         Pawn& pawn = it->second;
-        pawn.Hold  = EHold::Owned;
+        if ( pawn.Left )
+        {
+            // The record is this simulation's now and its player is gone: the leave it waited with ends here.
+            const NetId id = pawn.State.Id;
+            m_Log( std::format( "player {}: left while incoming; the store committed pawn net id {} here - "
+                                "destroyed",
+                                player, id ) );
+            m_Pawns.erase( it );
+            m_Store.Remove( id );
+            m_Gateway.PawnDestroyed( id );
+            return std::nullopt;
+        }
+        pawn.Hold = EHold::Owned;
         for ( std::uint32_t i = 0; i < catchUpSteps; ++i )
             StepOne( player, pawn );
         m_Store.Write( pawn.State );
@@ -430,8 +452,9 @@ namespace Desert::Net
     {
         std::vector<Source> sources;
         for ( const auto& [player, pawn] : m_Pawns )
-            sources.push_back(
-                 { player, pawn.Account, pawn.State.Id, pawn.Placement ? pawn.Placement->Feet : pawn.State.Position } );
+            if ( pawn.Hold != EHold::Incoming )
+                sources.push_back( { player, pawn.Account, pawn.State.Id,
+                                     pawn.Placement ? pawn.Placement->Feet : pawn.State.Position } );
         return sources;
     }
 

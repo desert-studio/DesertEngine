@@ -167,7 +167,10 @@ namespace Desert::Net
         // One fixed step of every pawn (its queued input steps); writes the moved states to the store.
         void Step();
         // The pawns' positions: the server's streaming sources (NET-ARCH §4.1), with the player they belong to; a
-        // pawn whose placement is pending reports its destination (the cells there stream first).
+        // pawn whose placement is pending reports its destination (the cells there stream first). Only the pawns
+        // whose record this simulation holds (owned and offered): an INCOMING copy is the sender's until the
+        // commit and is counted there, so every capsule is in exactly one simulation's Sources (its ground here
+        // is its proxy's - the store streams it to this simulation as a proxy of the border band).
         struct Source
         {
             PlayerId      Player  = 0;
@@ -212,8 +215,8 @@ namespace Desert::Net
         // THE HELD PAWN of a confirmed handover (SimHandover.hpp): a pawn is OWNED (stepped, written), OFFERED
         // (this simulation still holds the authority, the store has not committed the offer: not stepped, not
         // written, its inputs queue, its ack stands at the last applied step) or INCOMING (offered to this
-        // simulation and accepted, not committed: not stepped, not written, not acked, its inputs queue; its
-        // position is a streaming source so the ground under it loads before the commit).
+        // simulation and accepted, not committed: not stepped, not written, not acked, its inputs queue; the
+        // ground under it loads as its proxy's before the commit).
         //
         // The pawn as it would be handed out now; nullopt when this simulation has no owned pawn for @p player.
         [[nodiscard]] std::optional<HandoverPawn> HandoverOf( PlayerId player ) const;
@@ -233,7 +236,8 @@ namespace Desert::Net
         bool Expect( HandoverPawn pawn, std::uint32_t gateway );
         // Incoming -> Owned (the store committed it here): runs @p catchUpSteps steps of it, the mesh steps that
         // passed here since the offer froze it, and writes its state. Returns the gateway given to Expect; nullopt
-        // when @p player's pawn is not incoming.
+        // when @p player's pawn is not incoming, or when its player left while it was incoming - then this
+        // simulation, the holder now, removes it (PawnRemove to the store, PawnDestroyed to the gateways).
         std::optional<std::uint32_t> Commit( PlayerId player, std::uint32_t catchUpSteps );
         // Incoming -> gone (the store refused the offer): the copy is dropped, nothing written. False when
         // @p player's pawn is not incoming.
@@ -250,6 +254,9 @@ namespace Desert::Net
         {
             EHold                              Hold    = EHold::Owned;
             std::uint32_t                      Gateway = 0; // Incoming: the gateway the player is connected through
+            // Incoming: its player left before the store decided. The copy waits for the decision like any other
+            // (Commit makes this simulation the holder, so it removes the pawn; Refused drops it).
+            bool                               Left    = false;
             std::uint64_t                      Account = 0;
             std::uint32_t                      Index   = 0;
             PawnState                          State;

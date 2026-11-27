@@ -18,7 +18,11 @@
 //     to the side that still holds something (the sender keeps its authority; the receiver drops its copy); a
 //     sender lost AFTER the receiver accepted is a commit (the offered state is the best state of record);
 //   - an Accept / Refuse / Withdraw for an offer the ledger does not hold is answered with Refused(OfferUnknown),
-//     so a stale Accept after a withdrawal never moves a record.
+//     so a stale Accept after a withdrawal never moves a record - with ONE exception: an Accept of the offer that
+//     last moved a pawn's record, from the sim that record names, is answered with that Commit again (nothing
+//     moves). A receiver IN DOUBT (it accepted and heard no decision: a Commit or Refused lost) re-sends its vote
+//     (SimHandover kInDoubtSteps); the coordinator's answer to every vote is the offer's outcome - the
+//     participant-asks-the-coordinator rule of the two-phase commit.
 
 #include <Net/HandoverWire.hpp>
 #include <Net/MeshLink.hpp>
@@ -117,6 +121,15 @@ namespace Desert::Net::Handover
         std::map<NetId, Authority>           m_Records;
         std::map<OfferKey, Offer>            m_Offers;
         std::map<NetId, OfferKey>            m_OfferOfPawn; // one open offer per pawn
+        // The offer that last moved each pawn's record (at most one per record; erased with it), so the vote of a
+        // receiver in doubt is answered with its Commit again: key -> (pawn, frozen step).
+        struct CommittedOffer
+        {
+            NetId         Id   = kInvalidNetId;
+            std::uint32_t Step = 0;
+        };
+        std::map<OfferKey, CommittedOffer> m_CommitOf;
+        std::map<NetId, OfferKey>          m_CommitOfPawn;
         std::uint64_t                        m_CommittedCount = 0;
         std::map<ERefusal, std::uint64_t>    m_RefusedCount;
     };

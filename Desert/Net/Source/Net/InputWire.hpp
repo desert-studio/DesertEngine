@@ -70,8 +70,8 @@ namespace Desert::Net
     [[nodiscard]] bool ReadInputRun( std::span<const std::byte>& in, std::vector<InputStep>& out );
 
     // One step WITH its number, full fields: U32 Step + the FULL layout. For lists that are not consecutive - the
-    // mesh handover's pending steps (MeshLink.cpp HandoverPawn::Pending, a map with holes while a step is in
-    // flight). Carries Actions and Axes: the handed-over pawn keeps its held sprint / jump / swim axis.
+    // mesh handover's pending steps (HandoverWire.cpp EncodeOffer: HandoverPawn::Pending, a map with holes while
+    // a step is in flight). Carries Actions and Axes: the handed-over pawn keeps its held sprint / jump / swim axis.
     void               AppendInputStepFull( std::vector<std::byte>& out, const InputStep& step );
     [[nodiscard]] bool ReadInputStepFull( std::span<const std::byte>& in, InputStep& step );
 

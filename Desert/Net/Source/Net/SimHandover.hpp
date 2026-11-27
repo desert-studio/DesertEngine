@@ -17,7 +17,12 @@
 // PawnSimulation (not stepped; inputs the gateway already re-routed here queue on it - no input is dropped)
 // while Accept goes to the store; Commit -> the incoming pawn becomes owned and catches up to this sim's step;
 // Refused -> the copy is dropped with the reason. An Offer that fails a check is answered with Refuse(reason) and
-// nothing is held.
+// nothing is held. A receiver IN DOUBT - accepted, and no Commit or Refused for kInDoubtSteps (one was lost) - asks
+// the coordinator: it re-sends its Accept, and the store answers every vote with the offer's outcome (Commit again
+// when the record already names this sim, Refused(OfferUnknown) when the offer ended any other way, the commit
+// itself when the offer is still open); it asks again every kInDoubtSteps until an answer comes. Dropping the copy
+// on a timer alone would leave a committed pawn with no owner. A player that leaves while its pawn is incoming
+// waits for the same decision (PawnSimulation::PlayerLeft).
 //
 // Lives in Server/Source/main.cpp's sim role next to PawnSimulation, RemoteGatewayLink and the store replica;
 // the mesh handler routes the store's handover messages (IsHandoverMessage) and the coordinator's map here.
@@ -36,6 +41,11 @@ namespace Desert::Net
     class SimHandover
     {
     public:
+        // A receiver that accepted and heard no decision for this many mesh steps asks the store (re-sends its
+        // Accept): twice the sender's deadline, so the sender's own Withdraw has been decided by then and the
+        // answer is final; then again every as many steps while no answer comes.
+        static constexpr std::uint32_t kInDoubtSteps = 2 * Handover::kOfferDeadlineSteps;
+
         struct Stats
         {
             std::uint64_t Offered       = 0; // offers sent
@@ -46,6 +56,7 @@ namespace Desert::Net
             std::uint64_t Withdrawn     = 0; // deadline passed, offer withdrawn
             std::uint64_t IncomingRefused = 0; // as receiver: this sim said no to an offer
             std::uint64_t IncomingDropped = 0; // as receiver: an incoming copy dropped on Refused
+            std::uint64_t InDoubtAsks     = 0; // as receiver: Accepts re-sent after kInDoubtSteps without a decision
         };
 
         SimHandover( MeshEndpoint& endpoint, std::uint32_t sim, NetLogSink log );
@@ -70,7 +81,7 @@ namespace Desert::Net
             return m_Stats;
         }
         // "handovers: N offered, N committed, N adopted; refused N by store, N by receiver; N withdrawn; incoming
-        // N refused, N dropped; N open as sender, N incoming" for the sim's stat line.
+        // N refused, N dropped; N open as sender, N incoming; N in-doubt ask(s)" for the sim's stat line.
         [[nodiscard]] std::string Describe() const;
 
     private:
@@ -85,13 +96,16 @@ namespace Desert::Net
         {
             Handover::OfferKey Key;
             NetId              Id   = kInvalidNetId;
-            std::uint32_t      From = 0;
-            std::uint32_t      Step = 0; // frozen at
+            std::uint32_t      From    = 0;
+            std::uint32_t      Step    = 0; // frozen at
+            std::uint32_t      AskedAt = 0; // this sim's step of the Accept, or of the last in-doubt ask
         };
 
         void Offer( std::uint32_t step, const PawnSimulation::Source& source, std::uint32_t target,
                     std::uint32_t gateway, PawnSimulation& sim, RemoteGatewayLink& gateways );
         void OnOffer( std::span<const std::byte> body, PawnSimulation& sim, std::uint32_t step );
+        // As receiver, after a step: an incoming copy with no decision for kInDoubtSteps asks the store again.
+        void AskInDoubt( std::uint32_t step, bool storeLinked );
         void OnDecision( Handover::EMessage type, std::span<const std::byte> body, PawnSimulation& sim,
                          RemoteGatewayLink& gateways, RemoteReplicationStore& replica, std::uint32_t step );
         void Resume( PlayerId player, const Handover::Refusal& why, std::uint32_t step, PawnSimulation& sim );

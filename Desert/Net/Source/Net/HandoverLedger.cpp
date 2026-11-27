@@ -72,6 +72,11 @@ namespace Desert::Net::Handover
         }
         if ( record != m_Records.end() )
             m_Records.erase( record );
+        if ( const auto last = m_CommitOfPawn.find( id ); last != m_CommitOfPawn.end() )
+        {
+            m_CommitOf.erase( last->second );
+            m_CommitOfPawn.erase( last );
+        }
         return true;
     }
 
@@ -190,6 +195,26 @@ namespace Desert::Net::Handover
         // Accept and Refuse come from the offer's receiver, Withdraw from its sender.
         const auto speakerOf = [type]( const Offer& o )
         { return type == EMessage::Withdraw ? o.Header.Key.From : o.Header.To; };
+
+        if ( decoded && offer == m_Offers.end() && type == EMessage::Accept && verdict.Sim == sim )
+        {
+            // THE VOTE OF A RECEIVER IN DOUBT: the offer that last moved the record to this very sim is answered
+            // with its Commit again; nothing moves, nothing is counted.
+            const auto committed = m_CommitOf.find( verdict.Key );
+            const auto record =
+                 committed != m_CommitOf.end() ? m_Records.find( committed->second.Id ) : m_Records.end();
+            if ( record != m_Records.end() && record->second.Sim == sim )
+            {
+                const Decision decision{ verdict.Key, committed->second.Id, record->second.Epoch,
+                                         committed->second.Step };
+                SendToSim( effects, sim, EncodeCommit( decision ) );
+                effects.Log.push_back( std::format(
+                     "store: accept from sim {} at its step {} of {}, which committed pawn net id {} to it (sim "
+                     "{}, epoch {}) before - Commit sent again, nothing moves",
+                     sim, verdict.Step, NameOf( verdict.Key ), decision.Id, sim, decision.Epoch ) );
+                return effects;
+            }
+        }
 
         std::optional<Refusal> refusal;
         if ( !decoded )
@@ -328,6 +353,10 @@ namespace Desert::Net::Handover
         const std::uint32_t epoch = h.Epoch + 1;
         // THE ONE PLACE A RECORD MOVES: the receiver accepted an offer that was still open.
         m_Records[id] = Authority{ h.To, epoch };
+        if ( const auto last = m_CommitOfPawn.find( id ); last != m_CommitOfPawn.end() )
+            m_CommitOf.erase( last->second );
+        m_CommitOf[h.Key]  = CommittedOffer{ id, h.Step };
+        m_CommitOfPawn[id] = h.Key;
         const Decision decision{ h.Key, id, epoch, h.Step };
         SendToSim( effects, h.To, EncodeCommit( decision ) );
         SendToSim( effects, h.Key.From, EncodeCommitted( decision ) );
