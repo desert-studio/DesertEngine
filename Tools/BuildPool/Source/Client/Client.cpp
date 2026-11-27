@@ -211,7 +211,19 @@ namespace buildpool
             return mode == "cc" ? RunFront( options ) : RunLink( options );
         }
         if ( mode == "daemon" )
-            return RunDaemon( options.home );
+        {
+            // A daemon lives in its own home: the spawner's directory (ninja's build dir, the tree) would stay
+            // open for the daemon's whole life and block deleting or renaming it.
+            std::error_code       error;
+            std::filesystem::path home = std::filesystem::absolute( options.home, error );
+            if ( !error )
+                std::filesystem::create_directories( home, error );
+            if ( !error )
+                std::filesystem::current_path( home, error );
+            if ( error )
+                return Report( "cannot enter the pool home " + PathText( options.home ) + ": " + error.message() );
+            return RunDaemon( home );
+        }
         if ( mode == "status" )
             return RunControl( Query::What::Status, options.home );
         if ( mode == "window" )

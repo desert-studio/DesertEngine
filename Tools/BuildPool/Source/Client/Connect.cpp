@@ -40,10 +40,12 @@ namespace buildpool::client
                                   home / kConsoleLog );
         }
 
-        // The protocol number a version refusal names ("... protocol <n> ..."), when it names one.
+        // The daemon's own protocol number a version refusal names, when it names one. The reason reads
+        // "the client speaks protocol <client>, this daemon protocol <daemon>" (Daemon/Scheduler.cpp), so the
+        // number after "daemon protocol " is the daemon's; the first "protocol <n>" is this client's own.
         std::optional<uint64_t> RefusedProtocol( std::string_view reason )
         {
-            constexpr std::string_view kWord = "protocol ";
+            constexpr std::string_view kWord = "daemon protocol ";
             const size_t               at    = reason.find( kWord );
             if ( at == std::string_view::npos )
                 return std::nullopt;
