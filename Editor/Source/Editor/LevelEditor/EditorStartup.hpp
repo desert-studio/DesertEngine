@@ -1,7 +1,8 @@
 #pragma once
 
 // THE EDITOR'S START (UE: FEditorLoadingScreen + the EditorInit staging). The staged boot that runs one heavy
-// stage per frame behind the splash, the splash's progress weighed in work, the content settle the first scene
+// stage per frame behind the splash, its phases reported to the start's progress (Engine/Core/StartupProgress.hpp,
+// which the splash samples on its own thread), the content settle the first scene
 // asks for, the thumbnails the hand-over waits on, and the reveal itself: the moment the hidden main window is
 // shown and the splash crossfades out.
 //
@@ -10,22 +11,20 @@
 // still running (StartupLoading, ContentSettling) and calls it at the frame's fixed points.
 
 #include "Editor/Splash/RevealGate.hpp"
-#include "Editor/Splash/SplashProgress.hpp"
 #include "Editor/Splash/SplashScreen.hpp"
 
 #include <Engine/Assets/ContentGate.hpp>
 #include <Engine/Assets/ContentWork.hpp>
-#include <Engine/Assets/ItemProgress.hpp>
-#include <Engine/Core/BootTimeline.hpp>
+#include <Engine/Core/StartupProgress.hpp>
+#include <Engine/Core/WorkSink.hpp>
 #include <Common/Core/ResultStr.hpp>
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Assets
@@ -52,18 +51,25 @@ namespace Desert::Editor
     class SceneWorkspace;
     class ShotDirector;
 
+    // THE HOST'S PHASES, in start order, after the engine's (Engine::ApplicationStartupPhases). The one list of
+    // what the editor's start does; CreateApplication concatenates the two into the progress's plan. The default
+    // seconds are the 11-26 warm Bistro start, used only until this machine has a history.
+    [[nodiscard]] std::vector<::Desert::Core::StartupPhaseSpec> EditorStartupPhases();
+
     class EditorStartup
     {
     public:
-        // @p splash is the start-up splash CreateApplication put up before the renderer existed; this reports its
-        // steps to it and takes it down on the first real frame (RevealWhenReady). The stages are planned here;
-        // the objects they fill (@p importManager, @p animationLibrary) are created by the layer before the first
-        // runs.
+        // @p splash is the start-up splash CreateApplication put up before the renderer existed; it is taken down
+        // on the first real frame (RevealWhenReady). @p startup is the start's progress the host made before the
+        // splash (never null): this begins its phases, reports their items and finishes it at the reveal. The
+        // stages are planned here; the objects they fill (@p importManager, @p animationLibrary) are created by
+        // the layer before the first runs.
         EditorStartup( Engine::Application* application, std::shared_ptr<Assets::AssetManager>& assetManager,
                        std::unique_ptr<ImportManager>&               importManager,
                        std::unique_ptr<Animation::AnimationLibrary>& animationLibrary, SceneWorkspace& workspace,
                        SceneFiles& sceneFiles, AssetCompiling& assetCompiling, const bool& realFrameDrawn,
-                       std::unique_ptr<Splash::SplashScreen> splash );
+                       std::unique_ptr<Splash::SplashScreen>            splash,
+                       std::shared_ptr<::Desert::Core::StartupProgress> startup );
 
         // The editor's thumbnail pool the hand-over's pictures go through (UE: the editor's
         // FAssetThumbnailPool, which the Content Browser only draws from); null until OnAttach builds it and
@@ -93,15 +99,6 @@ namespace Desert::Editor
         {
             return m_Splash != nullptr && !m_Revealed;
         }
-        // The splash's close button was pressed.
-        [[nodiscard]] bool CloseRequested() const
-        {
-            return m_Splash && m_Splash->CloseRequested();
-        }
-
-        // OnAttach: the splash plan, made once the cooked registry is read, and the engine shader compile's stage
-        // begun — the longest single wait of the start, and one call (not a stage: the render systems resolve
-        // their shaders in their constructors).
         // THE FIRST LEVEL (UE: UEditorEngine::InitEditor's EditorStartupMap). Screenshot mode names its own scene;
         // a project queues its DefaultScene (missing on disk = an error naming it, never a scene built in code);
         // with nothing queued the Basic level template opens as an untitled scene. A capture whose scene is
@@ -109,10 +106,9 @@ namespace Desert::Editor
         void ChooseInitialLevel( ShotDirector& shots );
         // THE CONTENT THE FIRST FRAME NEEDS (UE: FLevelEditorModule::StartupModule): the cooked asset registry,
         // the engine shaders and their import templates, then the primary scene's systems. A refusal ends the run.
+        // Begins content.gather; the shader compile (one call, not a stage: the render systems resolve their
+        // shaders in their constructors) begins the three shader phases itself.
         [[nodiscard]] Common::BoolResultStr BootContent();
-        void BeginShaderStage();
-        // The item line of the stage running now, for an engine call that works through a list.
-        Assets::ItemProgress SplashItems();
 
         // Staged startup loading: runs ONE heavy stage per frame. True when this frame belongs to the start (a
         // stage ran; the scene is not rendered); false once the stages are done or the splash was closed.
@@ -143,32 +139,31 @@ namespace Desert::Editor
         void RevealWhenReady();
 
     private:
-        // Staged startup loading: the heavy boot work (mesh cooking, asset preload) runs one stage per
-        // frame from OnUpdate, each announced on the splash, with the main window still hidden.
+        // Staged startup loading: the heavy boot work runs one stage per frame from OnUpdate, each one phase of
+        // the progress (its key in EditorStartupPhases, which owns the label), with the main window still hidden.
+        // The stage reports its own items into the sink it is handed.
         struct StartupStage
         {
-            std::string           Label;
-            std::function<void()> Run;
-            // What one item of this stage costs on the splash's bar, in measured seconds per item, and how
-            // many items there are — asked when the plan is made, before any stage runs. Empty = one item.
-            double                       SecondsPerItem = 0.01;
-            std::function<std::size_t()> CountItems;
-            // Instead of CountItems, for a stage whose items do not cost alike: each item's own cost, in
-            // the order the stage works through them.
-            std::function<std::vector<double>()> ItemCosts;
-            std::size_t                          ProgressStage = 0; // its id in m_Progress
+            std::string                                      Key;
+            std::function<void( ::Desert::Core::WorkSink* )> Run;
         };
 
-        // ===== The splash's progress, and the moment the editor is shown =====
+        // ===== The start's progress, and the moment the editor is shown =====
         //
-        // THE BAR IS WEIGHED IN WORK (Splash/SplashProgress.hpp): the engine shader compile (OnAttach — not a
-        // stage, because the render systems resolve their shaders in their constructors), every entry of
-        // m_StartupStages and the settle wait after them, each weighted by its item count times a measured
-        // cost per item. The plan is made once the cooked registry is read, which is what counts the items.
-        void MakeSplashPlan();
-        void BeginSplashStage( std::size_t stage, std::optional<std::size_t> items = std::nullopt );
-        void PushSplash();
-        // The settle's line (m_ContentProgress) as the splash's item; pushed when it differs from what was shown.
+        // THE BAR IS THE PROGRESS'S (Engine/Core/StartupProgress.hpp): every phase is weighed by the seconds it
+        // took on the previous start on this machine, the phase running now by its measured rate. This class
+        // only begins the phases at the points the start reaches them; a key the plan lacks is a defect, logged.
+        void BeginPhase( std::string_view key, ::Desert::Core::LiveSource source = {} );
+        // scene.load's count, pulled on the splash thread: the loader's reads plus the engine pipelines, both
+        // counted from this call.
+        [[nodiscard]] static ::Desert::Core::LiveSource SceneLoadSource();
+        // Per presented frame until the reveal: begins scene.reveal once the scene's content has settled, and
+        // names what the reveal still waits for.
+        void ReportRevealWait( const Splash::RevealState& state );
+        // At the reveal (or, with no splash, when it would have been): the progress's table, and the history the
+        // next start weighs its phases by.
+        void FinishStartup();
+        // The settle's line (m_ContentProgress), read by the overlay a scene opened after the reveal draws.
         void ShowContentLine( const Assets::ContentProgressLine& line );
         // Every condition the splash hand-over depends on, for Splash::MayReveal.
         [[nodiscard]] Splash::RevealState CurrentRevealState() const;
@@ -188,10 +183,11 @@ namespace Desert::Editor
         std::vector<StartupStage> m_StartupStages;
         size_t                    m_StartupNext = 0;
 
-        Splash::ProgressModel                 m_Progress;
-        std::chrono::steady_clock::time_point m_ProgressEpoch = std::chrono::steady_clock::now();
-        std::size_t                           m_ShaderStage   = 0;
-        std::size_t                           m_SettleStage   = 0;
+        // The start's progress, shared with the host (its owner) and the splash (its reader).
+        std::shared_ptr<::Desert::Core::StartupProgress> m_Startup;
+        bool m_SceneLoadPhase  = false; // scene.load has begun (the stages are done)
+        bool m_RevealPhase     = false; // scene.reveal has begun
+        bool m_StartupFinished = false; // StartupProgress::Finish was called
         // Reads the loader had finished when the scene load began: the settle counts only the rest.
         uint64_t                    m_SettleBase = 0;
         Assets::ContentProgressLine m_ContentProgress; // the line the settle shows now
@@ -202,10 +198,6 @@ namespace Desert::Editor
         bool                                  m_Revealed = false;
         // The splash's close was acted on (Application::Close asked once, not every frame until it lands).
         bool m_QuitFromSplash = false;
-        // WHERE THE ELAPSED TOTAL LIVES: `Core::BootTimeline` (sum of the stages, NOT wall clock between the first
-        // and the last, because a stage runs one per frame), shared with the shipping runtime so the two boots'
-        // numbers mean the same thing. The per-frame scheduler is this class's own.
-        ::Desert::Core::BootTimeline m_Boot{ "Editor" };
 
         // ===== Demand-driven content: the wait that replaced the eager preload =====
         //
