@@ -1,3 +1,4 @@
+// DesertAsset {"Kind":"Shader","Guid":"7ac1660e38214ace8f30d756072b5951","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "RayTracedTranslucency"
 {
     // RAY-TRACED REFRACTION (Translucency.Refraction HardwareTraced; UE RayTracedTranslucency, MaxPrimaryHitEvents;
