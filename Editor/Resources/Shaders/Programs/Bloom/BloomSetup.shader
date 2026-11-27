@@ -32,8 +32,8 @@ Shader "BloomSetup"
         {
             vec2  SourceTexelSize;    // 1 / size(scene colour)
             float Threshold;          // UE BloomThreshold: exposed luminance; <= -1 keeps every pixel
-            float ExposureKey;        // auto-exposure key - the composite's ExposureKey
-            int   AutoExposure;       // 1 => exposure = key / adapted luminance, else Exposure
+            float MiddleGrey;         // Graphic::kExposureMiddleGrey - the composite's MiddleGrey
+            int   AutoExposure;       // 1 => exposure = middle grey / adapted luminance, else Exposure
             float Exposure;           // manual exposure (the composite's Exposure)
             float InversePreExposure; // 1 / ViewFrame::PreExposure
             vec4  LocalExposureContrast;  // the composite's four local-exposure vectors (TonemapRenderer::FillMaterial)
@@ -87,10 +87,10 @@ Shader "BloomSetup"
             vec2 uv = ( vec2( dstCoord ) + 0.5 ) / vec2( dstSize );
             vec2 t  = SourceTexelSize;
 
-            // The composite's exposure (SceneComposite.shader): manual, or key / adapted luminance.
+            // The composite's exposure (SceneComposite.shader): manual, or middle grey / adapted luminance.
             float exposure = Exposure;
             if ( AutoExposure == 1 )
-                exposure = ExposureKey / max( textureLod( AdaptedLuminanceTexture, vec2( 0.5 ), 0.0 ).g, 1e-4 );
+                exposure = MiddleGrey / max( textureLod( AdaptedLuminanceTexture, vec2( 0.5 ), 0.0 ).g, 1e-4 );
             const bool  applyLE     = LocalExposureSlice.w > 0.5;
             const float logExposure = log2( max( exposure, 1.0e-10 ) );
 

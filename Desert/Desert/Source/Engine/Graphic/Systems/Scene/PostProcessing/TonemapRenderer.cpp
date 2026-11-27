@@ -128,10 +128,10 @@ namespace Desert::Graphic::System
         const float lightShaftIntensity = inputs.LightShaftsProduced ? m_LightShaftIntensity : 0.0f;
         const float lensFlareIntensity  = inputs.LensFlareProduced ? m_LensFlareIntensity : 0.0f;
 
-        MaterialTonemap::Params params{ m_TonemapOperator,     m_Exposure,          m_ExposureKey,
-                                        m_AutoExposureEnabled, m_ChromaticBloom,    lightShaftIntensity,
-                                        m_LightShaftTint,      lensFlareIntensity,  m_LensFlareTint,
-                                        m_PreExposure,         m_BloomDirtMaskTint, dirtMaskIntensity };
+        MaterialTonemap::Params params{ m_TonemapOperator,     m_Exposure,         m_AutoExposureEnabled,
+                                        m_ChromaticBloom,      lightShaftIntensity, m_LightShaftTint,
+                                        lensFlareIntensity,    m_LensFlareTint,     m_PreExposure,
+                                        m_BloomDirtMaskTint,   dirtMaskIntensity };
         // Local exposure: identity values + enabled 0 when its nodes did not run (the inputs are then black).
         const LocalExposureFrame& le = m_LocalExposure;
         const LocalExposureParams  p  = le.Produced ? le.Params : LocalExposureParams{};
