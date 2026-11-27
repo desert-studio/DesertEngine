@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Json/Json.hpp>
 
+#include <cassert>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -153,8 +154,10 @@ namespace Desert::Physics
         }
 
         /// The object channel @p id's bodies are (CollisionProfileConfig::ObjectChannel; UE GetObjectType).
+        /// @p id is a profile of this register: kNoProfile (a dead character's) is the caller's to refuse.
         [[nodiscard]] CollisionChannelId ObjectChannelOf( CollisionProfileId id ) const
         {
+            assert( id < m_Profiles.size() && "ObjectChannelOf: not a profile of this register" );
             return m_Profiles[id].Channel;
         }
 

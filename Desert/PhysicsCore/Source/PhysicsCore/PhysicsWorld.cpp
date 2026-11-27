@@ -1767,6 +1767,22 @@ namespace Desert::Physics
         return collector.HadHit();
     }
 
+    bool PhysicsWorld::OverlapsCapsule( const glm::vec3& center, float radius, float halfHeight,
+                                        CollisionChannelId channel ) const
+    {
+        if ( !m_Impl || !( radius > 0.0f ) )
+            return false;
+        const JPH::RefConst<JPH::Shape> capsule = new JPH::CapsuleShape( glm::max( halfHeight, 0.01f ), radius );
+        JPH::CollideShapeSettings       settings;
+        JPH::AnyHitCollisionCollector<JPH::CollideShapeCollector> collector;
+        const ChannelBlockLayerFilter                             blocking( m_Impl->Profiles, channel );
+        m_Impl->System.GetNarrowPhaseQuery().CollideShape(
+             capsule, JPH::Vec3::sReplicate( 1.0f ),
+             JPH::RMat44::sTranslation( JPH::RVec3( center.x, center.y, center.z ) ), settings,
+             JPH::RVec3::sZero(), collector, {}, blocking, NotCharacterBodyFilter{} );
+        return collector.HadHit();
+    }
+
     glm::vec3 PhysicsWorld::GetPosition( BodyHandle handle ) const
     {
         if ( !m_Impl || handle == kInvalidBody )

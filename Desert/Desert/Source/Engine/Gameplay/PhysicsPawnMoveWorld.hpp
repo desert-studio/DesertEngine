@@ -56,14 +56,21 @@ namespace Desert::Gameplay
         // Standalone Play: the pawn's OWN capsule in the scene's world (UE: the CharacterMovementComponent's
         // UpdatedComponent), in the shape the world holds for it (standing or crouched - the world's record is
         // the one; a view made every step keeps no copy of it). It moves where it stands, against the world and
-        // the other characters, and is not removed with this view. @p character is a live character of @p world:
-        // its profile (CreateCharacter refused none) gives the floor ray's channel.
-        PhysicsPawnMoveWorld( Physics::PhysicsWorld& world, Physics::CharacterHandle character )
-             : PhysicsPawnMoveWorld(
-                    world, character, CapsuleIn( world, character ),
-                    world.GetCollisionProfiles().ObjectChannelOf( world.GetCharacterProfile( character ) ),
-                    Physics::ECharacterContacts::WithCharacters, false )
+        // the other characters, and is not removed with this view. Its profile (CreateCharacter refused none)
+        // gives the floor ray's channel; a @p character @p world does not hold (removed, or never made) has none
+        // and is refused by its handle.
+        [[nodiscard]] static Common::ResultStr<std::unique_ptr<PhysicsPawnMoveWorld>>
+        ForCharacter( Physics::PhysicsWorld& world, Physics::CharacterHandle character )
         {
+            using Result                              = std::unique_ptr<PhysicsPawnMoveWorld>;
+            const Physics::CollisionProfileId profile = world.GetCharacterProfile( character );
+            if ( profile == Physics::kNoProfile )
+                return Common::MakeError<Result>( std::format(
+                     "pawn move world: character {} is not a live character of this world", character ) );
+            return Common::MakeSuccess(
+                 Result( new PhysicsPawnMoveWorld( world, character, CapsuleIn( world, character ),
+                                                   world.GetCollisionProfiles().ObjectChannelOf( profile ),
+                                                   Physics::ECharacterContacts::WithCharacters, false ) ) );
         }
         ~PhysicsPawnMoveWorld() override
         {
@@ -114,19 +121,20 @@ namespace Desert::Gameplay
         float Gravity() const override { return m_World.GetGravity(); }
 
         // A probe 1 cm smaller (radius and half height) than @p capsule, so the floor it stands on does not count
-        // as an obstacle; a character's own capsule body is never found by the query.
+        // as an obstacle; a character's own capsule body is never found by the query. By the pawn's object
+        // channel, as the floor ray (UE ComponentEncroachesBlockingGeometry): only bodies that BLOCK the pawn
+        // make it not fit - a trigger or volume it overlaps does not.
         bool Fits( const NetVec3& feet, const PawnCapsule& capsule ) const override
         {
             constexpr float kInset = 1.0f;
             const glm::vec3 center = Center( feet, capsule );
             return !m_World.OverlapsCapsule( center, std::max( capsule.Radius - kInset, 1.0f ),
-                                             std::max( capsule.HalfHeight - kInset, 0.01f ) );
+                                             std::max( capsule.HalfHeight - kInset, 0.01f ), m_FloorChannel );
         }
 
         // The first body straight below @p start that BLOCKS the pawn's object channel (UE FindTeleportSpot
         // traces by the pawn's channel): triggers and volumes the pawn overlaps are passed through, characters'
-        // inner bodies are never found - the bodies the capsule stands on. Fits sees more: any queryable body,
-        // an overlapped volume included, makes the capsule not fit. The hit's Y is the floor's.
+        // inner bodies are never found - the bodies the capsule stands on. The hit's Y is the floor's.
         std::optional<float> FloorBelow( const NetVec3& start, float downCm ) const override
         {
             return CastFloorRay( start, { 0.0f, -1.0f, 0.0f }, downCm );

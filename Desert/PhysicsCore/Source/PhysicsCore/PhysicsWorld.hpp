@@ -315,6 +315,10 @@ namespace Desert::Physics
         /// @p radius and cylinder @p halfHeight (excluding the caps) centred at @p center? A character's inner
         /// body is never found (GetCharacterBody), so a character never overlaps itself here.
         [[nodiscard]] bool OverlapsCapsule( const glm::vec3& center, float radius, float halfHeight ) const;
+        /// The same test by an object channel (UE ComponentEncroachesBlockingGeometry: the pawn's own channel):
+        /// only bodies whose profile BLOCKS @p channel count - a trigger or volume it overlaps does not.
+        [[nodiscard]] bool OverlapsCapsule( const glm::vec3& center, float radius, float halfHeight,
+                                            CollisionChannelId channel ) const;
 
         // Read simulated transform (body origin, not center-of-mass).
         glm::vec3 GetPosition( BodyHandle handle ) const;

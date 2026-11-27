@@ -54,8 +54,9 @@ namespace Desert::Gameplay
         // traces go by the pawn's channel, an unresolved spot is refused - never pushed onto whatever is above).
         //  Under: a DOWNWARD ray from LiftCm above finds a floor above the point and an UPWARD ray from the point
         //    to it misses - the point is under a one-sided surface (a heightfield or a mesh floor seen from below,
-        //    whose faces a ray from under them passes): the feet are lifted onto it. A roof or a ceiling above is
-        //    found by the upward ray, so the pawn under it is not put on it.
+        //    whose faces a ray from under them passes) - or hits within SkinCm of it - the point is inside a
+        //    solid: the feet are lifted onto it. A roof or a ceiling well above is found by the upward ray, so
+        //    the pawn under it is not put on it.
         //  Otherwise the floor straight below within DropCm: a free point keeps its height unless that floor is
         //    within the step height (snapped onto it); an encroached point (feet in the floor) is set onto a floor
         //    within the step height, else it is blocked. No floor below a free point: refused.
@@ -87,7 +88,11 @@ namespace Desert::Gameplay
                       world.FloorBelow( Raised( point, search.LiftCm ), search.LiftCm );
                  above && *above > point.Y )
             {
-                if ( !world.CeilingAbove( point, *above - point.Y ) )
+                // The upward ray misses (a one-sided surface above), or it hits within the skin of the point:
+                // the point is inside a solid, whose top the downward ray found (UE: encroached geometry is
+                // pushed out onto its top). A hit farther up is a roof or a ceiling: the pawn is not put on it.
+                const std::optional<float> ceiling = world.CeilingAbove( point, *above - point.Y );
+                if ( !ceiling || *ceiling - point.Y <= search.SkinCm )
                 {
                     if ( const std::optional<Stand> stand = StandOn( point, *above, capsule, world, search ) )
                         return { Probed{ *stand, EProbed::Under, point.Y - *above }, {} };
@@ -138,15 +143,19 @@ namespace Desert::Gameplay
         if ( const std::optional<Probed>& probed = centre.Stood )
         {
             const float moved = DistanceCm( probed->Where.Feet, feet );
-            const char* way   = probed->Where.Feet.Y >= feet.Y ? "lifted" : "lowered";
+            const bool  up    = probed->Where.Feet.Y > feet.Y;
+            const char* way   = up ? "lifted" : "lowered";
+            // Lifted is a raise onto the floor above (TeleportSpot.hpp); feet set down onto a floor are Free.
+            const ETeleportSpot raised = up ? ETeleportSpot::Lifted : ETeleportSpot::Free;
             switch ( probed->Case )
             {
                 case EProbed::Under:
                     return landed(
-                         *probed, ETeleportSpot::Lifted,
-                         std::format( "capsule under the ground, lifted {:.0f} cm onto its surface", moved ) );
+                         *probed, raised,
+                         std::format( "capsule under or inside the ground, {} {:.0f} cm onto its surface", way,
+                                      moved ) );
                 case EProbed::Encroached:
-                    return landed( *probed, ETeleportSpot::Lifted,
+                    return landed( *probed, raised,
                                    std::format( "capsule in the floor, {} {:.0f} cm onto it", way, moved ) );
                 case EProbed::Snapped:
                     return landed( *probed, ETeleportSpot::Free,
