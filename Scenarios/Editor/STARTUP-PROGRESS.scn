@@ -1,6 +1,6 @@
 # STARTUP-PROGRESS: the splash names every item of the start, counts it, shows elapsed and time left, keeps a log of
 # finished work, and its bar rises without a stop from the first phase to the reveal; then the editor is on screen.
-Проект F:/BistroFoliageProj/Desert.deproj --splash-capture C:/aftmp/STARTUP-PROGRESS/splash
+Проект F:/BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce --splash-capture C:/aftmp/STARTUP-PROGRESS/splash
 Дано state
 Когда frames 30
 Тогда startup_progress the splash frames in C:/aftmp/STARTUP-PROGRESS/splash (splash-<ms>.png, progress.csv): every frame shows a phase name with "phase k / K", a counted phase shows "n / N", the item line names what runs now (pipeline names with seconds during scene loading, shader names during shader maps), the right of the item line "m:ss · about m:ss left", the right-half panel lists finished phases and long items; the bar is longer in each later frame; then the editor UI is on screen with Bistro in the viewport
