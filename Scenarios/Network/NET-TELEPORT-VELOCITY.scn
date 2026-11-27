@@ -1,0 +1,77 @@
+# NET-TELEPORT-VELOCITY: velocity and smoothing across a pawn teleport, on the own client and on the proxies.
+# UE: the adjustment carries velocity (ClientAdjustPosition(TimeStamp, NewLoc, NewVel, ...)); the client keeps the
+# newest acknowledged move (FNetworkPredictionData_Client_Character::LastAckedMove), so a later server verdict on it
+# is read at the next exchange; a snapped mesh has its pose evaluated in that tick; LogNetPlayerMovement records
+# every correction. Ours: the own client takes the server's whole state on a correction (Net/MovePrediction.cpp
+# Reconcile) and keeps the last acked move (MovePredictor::m_LastAcked) - a re-acked step whose state the server
+# changed is a correction named " (re-acked)"; a proxy across a teleport runs on along its earlier sample's velocity
+# until the later sample's time, then cuts (Net/Replication.cpp InterpolationBuffer::Sample); the editor client marks
+# a proxy's pose teleported at its cut and logs it (Engine/Net/ClientNetDriver.cpp); the bot logs each proxy cut
+# with the sample's motion over the steps before it (Tools/DesertNetProbe --bot).
+# Before this feature (scn-1127-084232): the at-rest teleport reached A 416 ms after the server's line (the re-acked
+# step was dropped as Unknown); a proxy straddling a teleport was held at the old place with its old running
+# velocity for the whole cut window; a proxy's cut kept the old place's pose/LOD for one frame; nothing logged a cut.
+# Played by scripts/Dev/net_scenario.py. A's frames come from its pawn camera (--shot-player-view). A sprints +X for
+# 600 m (server position); B is a bot standing at its spawn, so B's proxy of pawn 1 is 200-400 m away, in the 6 Hz
+# band: the cut window is 167 ms, longer than the bot's ~100 ms measuring span.
+# Net coordinates are Y-up (X, Y, Z), cm.
+Мир Content/Scenes/WP_Protocol.desce
+# The spawn points are the ground (feet, cm): see NET-TELEPORT-ENCROACH.scn.
+Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-398,1150 --spawn 500,-427,-200 --steps 864000
+Ждать server 60 \[Server\] listening on port
+Роль A editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --shot-player-view --quality PostProcess.MotionBlurQuality=0 --net-walk-cm 60000 --net-walk-dir 1,0,0 --net-walk-mode sprint
+Ждать A 1800 \[Net\] in session
+Роль B bot account=2 lag=75 loss=2 --seconds 1500
+Ждать server 120 player 2 \(account 2\): pawn net id 2 spawned
+# A is 200+ m from B, sprinting at 965 cm/s.
+Ждать server 120 player 1 account 1 \(2\d{4},
+# 1. Sprint teleport - the velocity is the server's, on the own client and on the proxy.
+# (40000, 300, 3000) is under the landscape (576 cm): the placer lifts the capsule onto the surface.
+Консоль server teleport 1 40000 300 3000
+Ждать server 120 player 1: pawn 1 teleported to \(40000, 5[6-9]\d, 3000\) cm
+# The client predicted a 9xx cm/s sprint; the server's state after the landing step's one or two inputs is 0-68 cm/s
+# (MaxAcceleration of Pawn_Player: 34 cm/s per input step), and that is what the client takes.
+Ждать A 120 correction \d+ at input step \d+: the server has the own pawn at \(40000\.0, 5[6-9]\d\.\d, 3000\.0\) cm.*beyond the smoothing distance.*v \(9\d\d, -?\d+, -?\d+\) \S+ vs server v \(-?[0-6]?\d, -?\d+, -?[0-6]?\d\)
+Тогда A tp_sprint the frame of that correction tick from A's pawn camera: the landscape surface under the camera and the horizon in front at standing height - not the terrain's underside, not a void; the pawn is at the destination, not somewhere along its old sprint line
+# The proxy's first post-teleport snapshot carries the landed velocity: no slide along 965 cm/s.
+Ждать B 120 \] pawn 1 teleport cut at t=\S+: sampled \(\S+, \S+, \S+\) -> \(40000, 5[6-9]\d, 3000\) cm;.*the newest snapshot's velocity \(-?[0-6]?\d, -?\d+, -?[0-6]?\d\) cm/s
+# Over the ~100 ms before the cut the proxy's drawn displacement matches its locomotion speed (before: moved 0 vs
+# ~96 cm accounted at a sprint - the proxy ran on the spot).
+Запомнить moved B pawn 1 teleport cut .* the sample moved (-?\d+) cm,
+Запомнить accounted B pawn 1 teleport cut .* accounts for (-?\d+) cm;
+Сверить moved accounted 40
+# 2. At-rest teleport - the own client learns it at the next snapshot. The scripted sprint ends (600 m of server
+# position); one second at rest turns the stationary input rate on.
+Ждать A 900 \[Net\] walked \d+ cm \(server position\): stopping
+Ждать A 60 fresh 60x \[Shot\] recorded frame_
+# Three teleports 0.7 s apart (not a multiple of the 0.5 s stationary period, so at least one lands in the idle half
+# of the window). By the lines' own stamps each correction is <= 350 ms after its server line (lag 75 + a 33 ms ack +
+# one ~200 ms shot frame; scn-1127-084232 measured 416 ms); at least one of the three correction lines carries
+# " (re-acked)" - the acceptance agent reads both from A.log and server.log (a run where none does is repeated once;
+# a second such run means the design is wrong).
+Консоль server teleport 1 42000 300 3000
+Ждать server 120 player 1: pawn 1 teleported to \(42000, -?\d+, 3000\)
+Ждать A 120 correction \d+ at input step \d+( \(re-acked\))?: the server has the own pawn at \(42000\.0,
+Порядок server teleported to \(42000, < A correction \d+ at input step \d+.*\(42000\.0,
+Ждать A 30 fresh 42x \[Shot\] recorded frame_
+Консоль server teleport 1 44000 300 3000
+Ждать server 120 player 1: pawn 1 teleported to \(44000, -?\d+, 3000\)
+Ждать A 120 correction \d+ at input step \d+( \(re-acked\))?: the server has the own pawn at \(44000\.0,
+Порядок server teleported to \(44000, < A correction \d+ at input step \d+.*\(44000\.0,
+Ждать A 30 fresh 42x \[Shot\] recorded frame_
+Консоль server teleport 1 46000 300 3000
+Ждать server 120 player 1: pawn 1 teleported to \(46000, -?\d+, 3000\)
+Ждать A 120 correction \d+ at input step \d+( \(re-acked\))?: the server has the own pawn at \(46000\.0,
+Тогда A tp_rest the frame of the third correction tick: ground and horizon at the new place, standing height, no motion blur or trail from the old place
+Порядок server teleported to \(46000, < A correction \d+ at input step \d+.*\(46000\.0,
+Ждать A 30 fresh 42x \[Shot\] recorded frame_
+# 3. A proxy's cut in view - pose refreshed in the tick, no stale record. B's pawn goes 10 m ahead of A, who faces +X
+# after its sprint.
+Консоль server teleport 2 47000 300 3000
+Ждать server 120 player 2: pawn 2 teleported to \(47000, -?\d+, 3000\)
+Ждать A 120 \[Net\] pawn 2 \(player \d+\) teleport cut: drawn \(\S+, \S+, \S+\) -> \(47000, -?\d+, 3000\) cm, \d+ cm; sampled velocity \(-?0, -?\d+, -?0\) cm/s; pose re-evaluated this tick
+Ждать A 5 \[SkinnedLOD\] entity \d+ anim: teleported - the old place's level and baked crowd dropped
+Тогда A proxy_cut the first frame after that line: B's pawn ~10 m ahead of A, whole body, skeletal, standing on the ground at the destination - not missing, not a far-LOD/baked silhouette, not at the horizon where it stood
+Тогда A proxy_cut_next the next frame: the same pawn at the same spot (it stands; no slide, no second cut)
+# Exactly four own-pawn corrections: one sprint, three at rest; B's teleport corrects nothing on A.
+Нет A correction 5 at

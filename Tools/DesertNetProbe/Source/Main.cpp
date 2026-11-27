@@ -44,6 +44,7 @@
 #include <cmath>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -68,6 +69,40 @@ using namespace Desert::Net;
 
 namespace
 {
+    // The bot's record of one remote pawn's sampled path (--bot): the last kSteps steps' sample and the teleport
+    // count it last sampled. A count change is a teleport cut, logged once with the sample's motion over the steps
+    // before it (UE LogNetPlayerMovement: one record per correction). Over those steps the drawn displacement and
+    // the sampled velocity must agree - a proxy held still while its velocity says it runs is the defect.
+    struct BotSampledStep
+    {
+        double  Time = 0.0; // seconds since the bot started
+        NetVec3 Position;   // the interpolated sample, cm
+        NetVec3 Velocity;   // the sample's velocity, cm/s
+    };
+    struct BotCutWatch
+    {
+        static constexpr std::size_t       kSteps = 12;
+        std::array<BotSampledStep, kSteps> Ring{};
+        std::size_t                        Count         = 0;
+        std::size_t                        Next          = 0;
+        std::uint8_t                       TeleportCount = 0;
+        void                               Push( const BotSampledStep& entry )
+        {
+            Ring[Next] = entry;
+            Next       = ( Next + 1 ) % kSteps;
+            Count      = std::min( Count + 1, kSteps );
+        }
+        // back = 0 is the newest entry; back < Count.
+        [[nodiscard]] const BotSampledStep& Back( std::size_t back ) const
+        {
+            return Ring[( Next + kSteps - 1 - back ) % kSteps];
+        }
+    };
+    // The cut line measures this many steps back from the last pre-cut sample (~100 ms at 60 Hz): shorter than the
+    // nearest band's send period, so the whole span lies inside one cut window.
+    constexpr std::size_t kCutSpanSteps = 6;
+    static_assert( kCutSpanSteps < BotCutWatch::kSteps );
+
     enum class ESessionMessage : std::uint8_t
     {
         Name = kFirstSessionMessage, // client -> server (Control): the client's display name
@@ -995,6 +1030,10 @@ namespace
         const auto distance = []( const NetVec3& a, const NetVec3& b )
         { return std::sqrt( ( a.X - b.X ) * ( a.X - b.X ) + ( a.Y - b.Y ) * ( a.Y - b.Y ) + ( a.Z - b.Z ) * ( a.Z - b.Z ) ); };
         std::map<NetId, NetVec3> firstSeen;
+        // Per remote pawn: what this client sampled over its last steps and the count it last sampled
+        // (BotCutWatch).
+        std::map<NetId, BotCutWatch> cutWatch;
+        const auto               planar = []( const NetVec3& v ) { return std::sqrt( v.X * v.X + v.Z * v.Z ); };
         bool                     walking      = walkCm > 0.0 || !waypoints.empty();
         const float              shuttleSpeed = std::sqrt( dir.X * dir.X + dir.Y * dir.Y + dir.Z * dir.Z );
         std::size_t              target       = 0;
@@ -1025,6 +1064,40 @@ namespace
                 if ( !firstSeen.contains( id ) )
                     if ( const auto sample = client.Sample( id ) )
                         firstSeen[id] = sample->Position;
+            std::erase_if( cutWatch,
+                           [&client]( const auto& entry ) { return !client.Pawns().contains( entry.first ); } );
+            for ( const auto& [id, pawn] : client.Pawns() )
+            {
+                if ( pawn.Owned )
+                    continue;
+                const auto sample = client.Sample( id );
+                if ( !sample )
+                    continue;
+                const BotSampledStep current{
+                     .Time = now, .Position = sample->Position, .Velocity = sample->Velocity };
+                BotCutWatch& watch = cutWatch[id];
+                if ( watch.Count > 0 && sample->TeleportCount != watch.TeleportCount )
+                {
+                    const BotSampledStep& last = watch.Back( 0 );
+                    const BotSampledStep& back = watch.Back( std::min( kCutSpanSteps, watch.Count - 1 ) );
+                    const double          span = last.Time - back.Time;
+                    const NetVec3 shift{ last.Position.X - back.Position.X, 0.f, last.Position.Z - back.Position.Z };
+                    const float   moved  = planar( shift );
+                    const float   speed  = planar( back.Velocity );
+                    const NetVec3 newest = pawn.History.Newest().Velocity;
+                    Log( "[{}] pawn {} teleport cut at t={:.1f}s: sampled ({:.0f}, {:.0f}, {:.0f}) -> "
+                         "({:.0f}, {:.0f}, {:.0f}) cm; over the {:.0f} ms before the cut the sample moved {:.0f} cm, "
+                         "its sampled velocity {:.0f} cm/s accounts for {:.0f} cm; "
+                         "the newest snapshot's velocity ({:.0f}, {:.0f}, {:.0f}) cm/s",
+                         name, id, now, last.Position.X, last.Position.Y, last.Position.Z, sample->Position.X,
+                         sample->Position.Y, sample->Position.Z, span * 1000.0, moved, speed, speed * span,
+                         newest.X, newest.Y, newest.Z );
+                    watch.Count = 0;
+                    watch.Next  = 0;
+                }
+                watch.TeleportCount = sample->TeleportCount;
+                watch.Push( current );
+            }
             // The SERVER's newest position of the own pawn (the snapshot, not the interpolated one) ends the walk.
             if ( walking && waypoints.empty() && client.OwnPawn() != kInvalidNetId &&
                  firstSeen.contains( client.OwnPawn() ) )
