@@ -55,6 +55,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Core/StdinConsole.hpp>
 
 #include <glm/gtc/quaternion.hpp>
 
@@ -67,7 +68,6 @@
 #include <filesystem>
 #include <format>
 #include <iostream>
-#include <mutex>
 #include <set>
 #include <sstream>
 #include <unordered_set>
@@ -502,41 +502,14 @@ namespace Desert::Server
             return Common::MakeSuccess( std::move( options ) );
         }
 
-        // THE SERVER CONSOLE (UE's server console commands): lines on stdin, read on their own thread and run on
-        // the step thread between two steps. NET-2's commands write the replicated state of stable objects (§3.2):
+        // THE SERVER CONSOLE (UE's server console commands): lines on stdin, read by Common::StdinConsole and run
+        // on the step thread between two steps. NET-2's commands write the replicated state of stable objects (§3.2):
         //   set <record id> <Component>.<Field> <true|false|int|float>   a reflected field marked Replicated
         //   transform <record id> <x> <y> <z> [<rx> <ry> <rz>]            the transform fragment, cm and degrees
         //   destroy <record id>                                          NET-3: the world delta table's destroyed
         //                                                                id, replayed to every client with its cell
         //   teleport <player> <x> <y> <z>                                NET-3: server authority moves a pawn, cm
         //   stat                                                         the replication stat line
-        class ServerConsole
-        {
-        public:
-            void Start()
-            {
-                std::thread(
-                     [this]
-                     {
-                         std::string line;
-                         while ( std::getline( std::cin, line ) )
-                         {
-                             const std::scoped_lock lock( m_Mutex );
-                             m_Lines.push_back( line );
-                         }
-                     } )
-                     .detach();
-            }
-            std::vector<std::string> Take()
-            {
-                const std::scoped_lock lock( m_Mutex );
-                return std::exchange( m_Lines, {} );
-            }
-
-        private:
-            std::mutex               m_Mutex;
-            std::vector<std::string> m_Lines;
-        };
 
         // true / false, an int, or a float (strtof: libc++ has no floating from_chars); nullopt = none of them.
         std::optional<Net::ReplicatedValue> ParseReplicatedValue( const std::string& text )
@@ -1136,7 +1109,7 @@ namespace Desert::Server
             std::unordered_set<std::uint64_t> records;
             for ( const auto& unit : server->World().Index->Units )
                 records.insert( unit.Ids.begin(), unit.Ids.end() );
-            ServerConsole console;
+            Common::StdinConsole console;
             console.Start();
             Core::Rules::StreamingSource serverSource;
             serverSource.Position = options.source;
@@ -1383,7 +1356,7 @@ namespace Desert::Server
             std::unordered_set<std::uint64_t> records;
             for ( const auto& unit : server->World().Index->Units )
                 records.insert( unit.Ids.begin(), unit.Ids.end() );
-            ServerConsole console;
+            Common::StdinConsole console;
             if ( transport )
                 console.Start();
 
