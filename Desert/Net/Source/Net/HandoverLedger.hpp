@@ -80,7 +80,8 @@ namespace Desert::Net::Handover
         // The record of a pawn; nullopt before its first write.
         [[nodiscard]] std::optional<Authority> Of( NetId id ) const;
         // A PawnWrite from @p sim: true when it holds the record (created at epoch 1 when there is none); false
-        // when another sim holds it - the store refuses the write (and logs it once per (id, sim)).
+        // when another sim holds it - the store refuses the write (and logs it once per (id, sim)). An admitted
+        // write of the new holder forgets the commit that moved the record (its adoption is proven).
         [[nodiscard]] bool AdmitWrite( NetId id, std::uint32_t sim );
         // A PawnRemove from @p sim: the record is erased when @p sim holds it (true); an open offer of that pawn
         // ends with Refused(PawnRemoved) to both sides through @p effects.
@@ -96,7 +97,8 @@ namespace Desert::Net::Handover
         {
             return m_Offers.size();
         }
-        // "records N, open offers N; committed N, refused N (<name> N, ...)" for the store's stat and log.
+        // "records N, open offers N, unadopted commits N; committed N, refused N (<name> N, ...); withdrawn N" for
+        // the store's stat and log (unadopted: committed, and no write of the new holder yet).
         [[nodiscard]] std::string Describe() const;
 
     private:
@@ -121,8 +123,9 @@ namespace Desert::Net::Handover
         std::map<NetId, Authority>           m_Records;
         std::map<OfferKey, Offer>            m_Offers;
         std::map<NetId, OfferKey>            m_OfferOfPawn; // one open offer per pawn
-        // The offer that last moved each pawn's record (at most one per record; erased with it), so the vote of a
-        // receiver in doubt is answered with its Commit again: key -> (pawn, frozen step).
+        // The offer that last moved each pawn's record, until the new holder's first admitted write proves the
+        // adoption (or the record is removed, or a restarted sender reuses the key for another pawn), so the vote
+        // of a receiver in doubt is answered with its Commit again: key -> (pawn, frozen step).
         struct CommittedOffer
         {
             NetId         Id   = kInvalidNetId;

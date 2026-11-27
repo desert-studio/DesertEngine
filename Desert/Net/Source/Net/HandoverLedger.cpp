@@ -48,7 +48,17 @@ namespace Desert::Net::Handover
     bool Ledger::AdmitWrite( NetId id, std::uint32_t sim )
     {
         const auto [record, created] = m_Records.emplace( id, Authority{ sim, 1 } );
-        return created || record->second.Sim == sim;
+        if ( !created && record->second.Sim != sim )
+            return false;
+        // THE ADOPTION IS PROVEN by the new holder's first admitted write: no vote of it can be in doubt any more,
+        // so the commit it would have been answered with is forgotten (2PC: the coordinator keeps a decision until
+        // the participant acknowledges it).
+        if ( const auto last = m_CommitOfPawn.find( id ); last != m_CommitOfPawn.end() )
+        {
+            m_CommitOf.erase( last->second );
+            m_CommitOfPawn.erase( last );
+        }
+        return true;
     }
 
     bool Ledger::Remove( NetId id, std::uint32_t sim, Effects& effects )
@@ -180,6 +190,18 @@ namespace Desert::Net::Handover
                                             NameOf( h.Key ), id, offer.Pawn.Player, h.Gateway, h.Step, h.To, sim,
                                             h.Epoch, offer.Pawn.Pending.size() ) );
         const OfferKey key = h.Key;
+        // A KEY AND ITS PAWN: an Accept names only the key, so the commit row a vote is answered from must name the
+        // pawn the key names now. A sender that restarted numbers its offers from 1 again; a row whose key this
+        // offer reuses for another pawn could answer a vote with that other pawn - it is forgotten, and a vote
+        // under the key is Refused(OfferUnknown).
+        if ( const auto reused = m_CommitOf.find( key ); reused != m_CommitOf.end() && reused->second.Id != id )
+        {
+            effects.Log.push_back( std::format( "store: {} now names pawn net id {}; its commit of pawn net id {} "
+                                                "is forgotten (the sender reuses its offer serials)",
+                                                NameOf( key ), id, reused->second.Id ) );
+            m_CommitOfPawn.erase( reused->second.Id );
+            m_CommitOf.erase( reused );
+        }
         m_OfferOfPawn.emplace( id, key );
         m_Offers.emplace( key, std::move( offer ) );
         return effects;
@@ -308,24 +330,6 @@ namespace Desert::Net::Handover
             m_OfferOfPawn.erase( id );
             offer = m_Offers.erase( offer );
         }
-        // A lost sender's commits are forgotten: a restarted sim numbers its offers from 1 again, so its old keys
-        // must not answer the votes of its new offers.
-        std::size_t forgotten = 0;
-        for ( auto commit = m_CommitOf.begin(); commit != m_CommitOf.end(); )
-        {
-            if ( commit->first.From != sim )
-            {
-                ++commit;
-                continue;
-            }
-            m_CommitOfPawn.erase( commit->second.Id );
-            commit = m_CommitOf.erase( commit );
-            ++forgotten;
-        }
-        if ( forgotten != 0 )
-            effects.Log.push_back( std::format( "store: sim {} left the mesh - {} commit(s) of its offers "
-                                                "forgotten (a restarted sim reuses its offer serials)",
-                                                sim, forgotten ) );
         return effects;
     }
 
@@ -343,8 +347,8 @@ namespace Desert::Net::Handover
             refused += count;
             reasons += std::format( "{}{} {}", reasons.empty() ? "" : ", ", RefusalName( code ), count );
         }
-        return std::format( "records {}, open offers {}; committed {}, refused {}{}; withdrawn {}",
-                            m_Records.size(), m_Offers.size(), m_CommittedCount, refused,
+        return std::format( "records {}, open offers {}, unadopted commits {}; committed {}, refused {}{}; withdrawn {}",
+                            m_Records.size(), m_Offers.size(), m_CommitOf.size(), m_CommittedCount, refused,
                             reasons.empty() ? std::string() : std::format( " ({})", reasons ), withdrawn );
     }
 

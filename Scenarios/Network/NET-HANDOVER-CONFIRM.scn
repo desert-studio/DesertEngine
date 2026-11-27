@@ -69,8 +69,8 @@
 Ждать sim1 10 handovers: ([3-9]|\d\d+) offered, 2 committed, 0 adopted; refused \d+ by store, \d+ by receiver; [1-9]\d* withdrawn; .*0 open as sender
 Консоль sim2 stat
 Ждать sim2 10 handovers: .*2 adopted; .*incoming ([1-9]\d* refused, \d+|\d+ refused, [1-9]\d*) dropped; 0 open as sender, 0 incoming
-Ждать store 30 records 3, open offers 0; committed 2, refused \d+( \([^)]*\))?; withdrawn [1-9]\d*
+Ждать store 30 records 3, open offers 0, unadopted commits 0; committed 2, refused \d+( \([^)]*\))?; withdrawn [1-9]\d*
 Нет sim1 adopted .*from sim 1
 Нет sim2 but the incoming copy under that key is pawn net id
 Ждать B 60 fresh \[Shot\] recorded frame_
-Тогда B stat_counts B's view at the end: A and A2 each ONE capsule east of X = 300 (A2 200 cm off A's line), no double anywhere; sim1.log "handovers: >= 3 offered, 2 committed, 0 adopted ... >= 1 withdrawn ... 0 open as sender"; sim2.log "2 adopted" with >= 1 incoming refused or dropped and "0 open as sender, 0 incoming" (no copy left in doubt), and no Commit naming a pawn other than the held copy; store.log "records 3, open offers 0; committed 2 ... withdrawn >= 1"
+Тогда B stat_counts B's view at the end: A and A2 each ONE capsule east of X = 300 (A2 200 cm off A's line), no double anywhere; sim1.log "handovers: >= 3 offered, 2 committed, 0 adopted ... >= 1 withdrawn ... 0 open as sender"; sim2.log "2 adopted" with >= 1 incoming refused or dropped and "0 open as sender, 0 incoming" (no copy left in doubt), and no Commit naming a pawn other than the held copy; store.log "records 3, open offers 0, unadopted commits 0; committed 2 ... withdrawn >= 1"
