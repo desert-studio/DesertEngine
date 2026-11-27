@@ -299,7 +299,8 @@ namespace Desert::Core
         }
         else
         {
-            // dE/dt = -(1 + (E - R') / kEtaCatchUpSeconds) solved over dt, at least kEtaMinRate.
+            // dE/dt = -(1 + (E - R') / kEtaCatchUpSeconds) solved over dt with R' falling one second per second
+            // across the gap (so the gap decays as exp(-dt / kEtaCatchUpSeconds)), at least kEtaMinRate.
             const double gap  = m_ShownEta - etaRemaining;
             const double fall = dt + gap * ( 1.0 - std::exp( -dt / kEtaCatchUpSeconds ) );
             m_ShownEta -= std::max( fall, kEtaMinRate * dt );

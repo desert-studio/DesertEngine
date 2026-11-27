@@ -16,8 +16,10 @@
 //     R = r + the expected time of every phase ahead. It reaches 0 when the last phase's work is done.
 //  4. ETA (shown). Its target R' is R with the running phase's r raised to the reserve
 //     max(kReserveSeconds, kReserveShare * elapsed), so the number never claims the end while work runs.
-//     E starts at R' and only falls: dE/dt = -max(1 + (E - R') / kEtaCatchUpSeconds, kEtaMinRate), integrated
-//     exactly over the sample gap, so an over-estimate decays in a few kEtaCatchUpSeconds whatever its size.
+//     E starts at R' and only falls: dE/dt = -max(1 + (E - R') / kEtaCatchUpSeconds, kEtaMinRate), solved over
+//     the sample gap in closed form on the assumption that R' falls in real time across it (one second per
+//     second), so an over-estimate decays in a few kEtaCatchUpSeconds whatever its size and a long gap does
+//     not overshoot below R'.
 //     At kEtaMinRate a whole-second ETA changes at least every 4 s. When E reaches kEtaFloorSeconds before
 //     Finish, EtaKnown turns false for the rest of the start (the splash says "longer than expected" in place
 //     of the number); 0:01 and 0:00 are never shown while work remains.
