@@ -49,8 +49,11 @@
 Тогда A net_zero_corrections_late A stands past the fence (x >= 2500), still; the fence intact; one mannequin of A
 # Тогда [net_stand]: A stands 5 s more (15 s after stopping): the uplink runs at the stationary rate (UE
 # ClientNetSendMoveDeltaTimeStationary; Net StationaryInputEverySteps, default 30 = 2 messages/s) - A's `input … B/s`
-# <= 50 (today 140-170 B/s at 4 messages/s, NET-INPUT-PACK run 1127-003407) - and still no correction while standing.
+# <= 125 (today 140-170 B/s at 4 messages/s, NET-INPUT-PACK run 1127-003407; computed 2 x (10 head + 5 run + 10 full
+# step + 29 unchanged steps x 1 B) = 108 B/s, +15 %) - and still no correction while standing.
+# The 1 B per unchanged step is the floor here (60 steps/s); NET-INPUT-RUNLENGTH codes a run of them in 2 B and brings
+# this bound to <= 50 B/s.
 Ждать A 30 5x \[Net\] t=
-Ждать A 30 \[Net\] t=.*corrections 0;.*; input ([0-9]|[1-4][0-9]|50) B/s
+Ждать A 30 \[Net\] t=.*corrections 0;.*; input ([0-9]{1,2}|1[01][0-9]|12[0-5]) B/s
 Нет A \[Net\] correction \d+ at
 Тогда A net_stand A stands past the fence (x >= 2500), still, upright; the fence intact; one mannequin of A
