@@ -38,8 +38,8 @@ namespace Desert::Core
     // a jump beyond its teleport distance clears the velocity history). A sprinting avatar covers ~20 cm per 60 Hz
     // tick, ~600 cm per 1 s hitch; 10 m in one tick is a relocation, never travel. The streamer then stamps velocity
     // 0 (no look-ahead sweep along the jump, no velocity in the order), and - while BlockOnSlowStreaming holds play
-    // for the cell under the jumped source - releases none of the cells the source left (ResidencyGate::MayRelease),
-    // so the destination is made before the origin drops.
+    // for the cell under the jumped source - keeps the jump origin as a stationary lowest-priority source
+    // (WorldStreamer's teleport hold), so the destination is made before the origin drops.
     inline constexpr float kStreamingTeleportDistanceCm = 1000.0f;
 
     // The key the view source has in the streamer's per-source velocity history (WorldStreamer::StampVelocities keys
