@@ -243,23 +243,59 @@ namespace Desert::Net
             return true;
         }
 
+        // What @p count unchanged steps in a row cost: one mask-0 byte alone, one repeat record from two on.
+        std::size_t UnchangedRunBytes( std::size_t count )
+        {
+            return count >= kMinRepeatSteps ? kRepeatRecordBytes : count * kUnchangedStepBytes;
+        }
+
+        // Appends @p count unchanged steps in a row as UnchangedRunBytes prices them (count < 256: a run holds at
+        // most kMaxUnackedInputSteps steps).
+        void PutUnchangedRun( std::vector<std::byte>& out, std::size_t count )
+        {
+            if ( count >= kMinRepeatSteps )
+            {
+                PutU8( out, kDeltaRepeat );
+                PutU8( out, static_cast<std::uint8_t>( count ) );
+                return;
+            }
+            for ( std::size_t i = 0; i < count; ++i )
+                PutU8( out, 0 );
+        }
+
         // The size of the run of @p steps, 0 when the run is refused (InputWire.hpp AppendInputRun).
         std::size_t RunBytes( std::span<const InputStep> steps )
         {
             if ( steps.empty() || steps.size() > kMaxUnackedInputSteps )
                 return 0;
-            std::size_t   bytes = kRunHeadBytes;
+            std::size_t   bytes     = kRunHeadBytes;
+            std::size_t   unchanged = 0; // the open run of unchanged steps, not yet counted
             QuantizedStep previous;
             for ( std::size_t i = 0; i < steps.size(); ++i )
             {
                 QuantizedStep q;
                 if ( steps[i].Step != steps[0].Step + static_cast<std::uint32_t>( i ) || !Quantize( steps[i], q ) )
                     return 0;
-                bytes += i == 0 ? kFullStepBytes + q.AxisCount
-                                : kUnchangedStepBytes + FieldBytes( q, DeltaMask( previous, q ) );
+                if ( i == 0 )
+                {
+                    bytes += kFullStepBytes + q.AxisCount;
+                }
+                else
+                {
+                    const std::uint8_t mask = DeltaMask( previous, q );
+                    if ( mask == 0 )
+                    {
+                        ++unchanged;
+                    }
+                    else
+                    {
+                        bytes += UnchangedRunBytes( unchanged ) + kUnchangedStepBytes + FieldBytes( q, mask );
+                        unchanged = 0;
+                    }
+                }
                 previous = q;
             }
-            return bytes;
+            return bytes + UnchangedRunBytes( unchanged );
         }
     } // namespace
 
@@ -281,6 +317,7 @@ namespace Desert::Net
         out.reserve( out.size() + bytes );
         PutU32( out, steps[0].Step );
         PutU8( out, static_cast<std::uint8_t>( steps.size() ) );
+        std::size_t   unchanged = 0; // the open run of unchanged steps, not yet written
         QuantizedStep previous;
         for ( std::size_t i = 0; i < steps.size(); ++i )
         {
@@ -293,11 +330,21 @@ namespace Desert::Net
             else
             {
                 const std::uint8_t mask = DeltaMask( previous, q );
-                PutU8( out, mask );
-                PutFields( out, q, mask );
+                if ( mask == 0 )
+                {
+                    ++unchanged;
+                }
+                else
+                {
+                    PutUnchangedRun( out, unchanged );
+                    unchanged = 0;
+                    PutU8( out, mask );
+                    PutFields( out, q, mask );
+                }
             }
             previous = q;
         }
+        PutUnchangedRun( out, unchanged );
         return true;
     }
 
@@ -313,12 +360,26 @@ namespace Desert::Net
         if ( !TakeFields( in, q, kDeltaKnown ) )
             return false;
         out.push_back( Dequantize( q, first ) );
-        for ( std::uint32_t i = 1; i < count; ++i )
+        for ( std::uint32_t i = 1; i < count; )
         {
             std::uint8_t mask = 0;
-            if ( !TakeU8( in, mask ) || ( mask & ~kDeltaKnown ) != 0 || !TakeFields( in, q, mask ) )
+            if ( !TakeU8( in, mask ) )
+                return false;
+            if ( mask == kDeltaRepeat )
+            {
+                // A repeat record: 2 .. (steps still to come) copies of the step before it. A shorter record is
+                // not canonical, a longer one runs past the run's count - both are malformed.
+                std::uint8_t repeat = 0;
+                if ( !TakeU8( in, repeat ) || repeat < kMinRepeatSteps || repeat > count - i )
+                    return false;
+                for ( std::uint32_t r = 0; r < repeat; ++r, ++i )
+                    out.push_back( Dequantize( q, first + i ) );
+                continue;
+            }
+            if ( ( mask & ~kDeltaKnown ) != 0 || !TakeFields( in, q, mask ) )
                 return false;
             out.push_back( Dequantize( q, first + i ) );
+            ++i;
         }
         return true;
     }
