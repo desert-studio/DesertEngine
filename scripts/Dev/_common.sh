@@ -87,16 +87,16 @@ dev_drop_foreign_pch() {
     done < <(find "$DEV_BUILD" -path "*/$DEV_CONFIG/*" -name '*.pch' 2>/dev/null)
 }
 
-# dev_build <log> <target...> — build the DEV_CONFIG targets (and what they link) with the compiler cache, after any other
-# build on this machine finished: two parallel builds share the CPU and both slow down by more than they gain.
+# dev_build <log> <target...> — build the DEV_CONFIG targets (and what they link) as one build of the machine's build
+# pool (scripts/Dev/pool.sh run): the pool, not this script, decides how many compiles and links run at once, so builds
+# of several trees run side by side. BUILDPOOL_CLASS, when set, names the pool.ini class of this build.
 dev_build() {
     local log="$1"; shift
-    local args=() t
+    local args=() t class=()
     for t in "$@"; do args+=(--target "$t"); done
-    if command -v pgrep >/dev/null 2>&1; then
-        while pgrep -x ninja >/dev/null; do sleep 10; done
-    fi
-    # The compile cache's settings (base_dir, PCH digests) are the build's own: scripts/Dev/ccache_launcher.sh.
+    [ -n "${BUILDPOOL_CLASS:-}" ] && class=(--class "$BUILDPOOL_CLASS")
+    # The compile cache's settings are the build's own: buildpool_enable in CMakeLists.txt (Tools/BuildPool/cmake).
     dev_drop_foreign_pch >>"$log"
-    cmake --build "$DEV_BUILD" --config "$DEV_CONFIG" -j "${DEV_JOBS:-4}" "${args[@]}" >>"$log" 2>&1
+    bash "$DEV_ROOT/scripts/Dev/pool.sh" run ${class[@]+"${class[@]}"} --label "$(basename "$DEV_ROOT") ${args[*]}" --\
+        cmake --build "$DEV_BUILD" --config "$DEV_CONFIG" "${args[@]}" >>"$log" 2>&1
 }
