@@ -28,8 +28,9 @@ endif()
 #                      header outside the PCH could be served stale (11-04). Preprocessor mode reads the #line output.
 #   CCACHE_MAXSIZE     an MSVC PCH result is ~1 GB raw / ~180 MB compressed; at 3 GB the cache evicted itself (9095
 #                      cleanups), at 20 GB still 352 cleanups and 7 % hits on a batch build (11-24).
-#   CCACHE_BASEDIR, CCACHE_NOHASHDIR  paths under the repository root are hashed relative to it, and the working
-#                      directory not at all: two worktrees share one result (STUDIO-AUDIT B-CACHE).
+#   CCACHE_NOHASHDIR   the working directory is not hashed. No CCACHE_BASEDIR: with base_dir ccache 4.14.1 rewrites
+#                      the /showIncludes lines, and the CP866 lines of the Russian cl abort it (std::filesystem
+#                      "Illegal byte sequence", code 3) on every cache miss (build #35, 11-27).
 #   CCACHE_SLOPPINESS  a header's ctime/mtime (a checkout touches every file), the PCH's defines, __TIME__/__DATE__ and
 #                      system headers do not decide a hit; the contents do.
 # Outside Windows the cache runs behind scripts/Dev/ccache_launcher.sh, which owns base_dir, sloppiness and the
@@ -37,7 +38,7 @@ endif()
 include(Tools/BuildPool/cmake/BuildPool.cmake)
 if(WIN32)
     buildpool_enable(CACHE ccache CACHE_ENV
-        CCACHE_NODEPEND=1 CCACHE_MAXSIZE=100G "CCACHE_BASEDIR=${CMAKE_SOURCE_DIR}" CCACHE_NOHASHDIR=1
+        CCACHE_NODEPEND=1 CCACHE_MAXSIZE=100G CCACHE_NOHASHDIR=1
         "CCACHE_SLOPPINESS=include_file_ctime,include_file_mtime,pch_defines,time_macros,system_headers")
 else()
     buildpool_enable(CACHE ccache CACHE_WRAPPER "${CMAKE_SOURCE_DIR}/scripts/Dev/ccache_launcher.sh"
