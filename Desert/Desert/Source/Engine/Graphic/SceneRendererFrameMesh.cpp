@@ -1110,14 +1110,44 @@ namespace Desert::Graphic
              [meshRenderer, view]( RDG::PassBuilder& pass ) { meshRenderer->DeclareGenericDraws( pass, view ); } );
     }
 
+    bool SceneRendererImpl::RefractionIsHardwareTraced() const
+    {
+        using namespace Common::Scalability;
+        return QualityState::Resolved().As<int>( Parameter::TranslucencyRefraction ) ==
+                    static_cast<int>( System::TranslucencyRefractionMethod::HardwareTraced ) &&
+               m_RenderPath == Core::RenderPath::Deferred && m_GBuffer && !PathTraced( m_RenderMethods ) &&
+               m_ViewProfile.ScreenSpaceReflections;
+    }
+
+    bool SceneRendererImpl::TranslucentFrontLayerRequired() const
+    {
+        // The layer's reflections are on only where they can run: the view traces the screen with one of the
+        // three screen-trace methods (the SSR renderer's, SceneRenderer.cpp `ssr`); a preview, thumbnail or
+        // Captures view draws no layer nobody reads.
+        using Common::Scalability::ReflectionMethod;
+        const ReflectionMethod method = m_RenderMethods.Reflections.Effective;
+        const bool             screenTrace =
+             m_ViewProfile.ScreenSpaceReflections &&
+             ( method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced ||
+               method == ReflectionMethod::HardwareTraced );
+        return ( screenTrace && TranslucentFrontLayerReflections() ) || RefractionIsHardwareTraced();
+    }
+
+    bool SceneRendererImpl::ViewRayTracingSceneRequired() const
+    {
+        return RayTracing::RayTracingSceneRequired( m_RenderMethods ) || RefractionIsHardwareTraced();
+    }
+
     RDG::TextureRef SceneRendererImpl::AddFrameRayTracedRefraction( RDG::Builder& graph, FrameTextures& textures,
                                                                     const std::vector<RDG::TextureRef>& gbuffer,
                                                                     const FrameFrontLayer&              frontLayer,
+                                                                    const RDG::TextureRef               sceneCopy,
                                                                     const ViewFrame&                    frame )
     {
         using namespace Common::Scalability;
-        if ( QualityState::Resolved().As<int>( Parameter::TranslucencyRefraction ) !=
-             static_cast<int>( System::TranslucencyRefractionMethod::HardwareTraced ) )
+        // The front layer and the TLAS were asked for by the same predicate (TranslucentFrontLayerRequired,
+        // ViewRayTracingSceneRequired); a device without a ray tracing pipeline never resolves HardwareTraced.
+        if ( !RefractionIsHardwareTraced() )
         {
             m_ReportedRayTracedRefraction.clear();
             return {};
@@ -1134,31 +1164,11 @@ namespace Desert::Graphic
             }
             return {};
         };
-        if ( !TranslucentFrontLayerReflections() )
-            return refuse( "the trace starts from the front layer, which Reflections.TranslucentFrontLayer turns off" );
-        // The front layer is the screen-trace reflections' second surface (SceneRenderer.cpp: the SSR renderer
-        // runs it under ScreenSpace, SoftwareTraced and HardwareTraced alone); under any other method it is never
-        // drawn and its absence is a refusal, not "no glass".
-        if ( const ReflectionMethod reflections = m_RenderMethods.Reflections.Effective;
-             reflections != ReflectionMethod::ScreenSpace && reflections != ReflectionMethod::SoftwareTraced &&
-             reflections != ReflectionMethod::HardwareTraced )
-            return refuse( "the trace starts from the front layer, which only the screen-trace reflections draw "
-                           "(Reflections.Method ScreenSpace, SoftwareTraced or HardwareTraced)" );
-        if ( !m_ViewProfile.ScreenSpaceReflections )
-            return refuse( "the trace starts from the front layer, which this view's profile does not draw (no "
-                           "screen-trace reflections)" );
-        // The SSR renderer failing to come up was reported where it failed (EnsureSSRResources).
-        if ( m_SSRResourcesFailed )
-            return {};
-        // No translucent surface visible this frame (or its reflections refused, said by AddFrameSSR): nothing to
-        // refract through.
+        // No translucent surface visible this frame: nothing to refract through.
         if ( !frontLayer.Depth.IsValid() || !frontLayer.Normal.IsValid() )
             return {};
-        if ( !CapabilityCatalog::Offers( QualityState::Catalog().RayTracingModes, RayTracingMode::RayTracingPipeline ) )
-            return refuse( "the device offers no ray tracing pipeline" );
-        if ( !m_RayTracingScene.GetFrame().Built )
-            return refuse( "it traces the view's TLAS, which this frame did not build (no method of the view traces "
-                           "in hardware: RayTracingSceneRequired)" );
+        if ( !sceneCopy.IsValid() )
+            return refuse( "a hit the view sees is lit from this frame's scene copy, which this frame did not make" );
         if ( const Common::BoolResultStr built = BuildReflectionHitGroups(); !built )
             return refuse( built.GetError() );
         if ( const Common::BoolResultStr made =
@@ -1177,20 +1187,28 @@ namespace Desert::Graphic
                                                                         "Translucency.RayTracedRefraction.CameraUB" );
         graph.QueueBufferUpload( camera, std::as_bytes( std::span<const ShaderProtocols::Camera>( &cameraBlock, 1 ) ) );
 
+        const uint32_t                            fullWidth  = desc.GetValue().Size.Width;
+        const uint32_t                            fullHeight = desc.GetValue().Size.Height;
         const System::RayTracedTranslucencyInputs inputs{
              .FrontLayer  = { .Normal = frontLayer.Normal, .Depth = frontLayer.Depth },
              .Camera      = camera,
              .OpaqueDepth = textures.Depth( m_GBuffer, "GBuffer" ),
              .HitLighting = reads.ExtractValue(),
-             .Width       = desc.GetValue().Size.Width,
-             .Height      = desc.GetValue().Size.Height };
+             .SceneCopy   = sceneCopy,
+             .FullWidth   = fullWidth,
+             .FullHeight  = fullHeight,
+             .Width       = System::RayTracedTranslucencyLaunchSize( fullWidth ),
+             .Height      = System::RayTracedTranslucencyLaunchSize( fullHeight ) };
         const ShaderPush::RayTracedTranslucencyPush push{
              .InvJitteredViewProjection = frame.InvJitteredViewProjection,
              .CameraPosition            = glm::vec4( frame.CameraPosition, frame.PreExposure ),
              .MaxRayDistance            = System::kRayTracedTranslucencyMaxRayDistance,
              .MaxRoughness              = System::kRayTracedTranslucencyMaxRoughness,
-             .MaxInterfaces             = System::kRayTracedTranslucencyMaxInterfaces,
-             .FrameIndex                = static_cast<uint32_t>( frame.FrameIndex ) };
+             .MaxInterfaces             = static_cast<uint32_t>(
+                  QualityState::Resolved().As<int>( Parameter::TranslucencyRefractionMaxInterfaces ) ),
+             .FrameIndex = static_cast<uint32_t>( frame.FrameIndex ),
+             .Composite  = static_cast<uint32_t>(
+                  QualityState::Resolved().As<int>( Parameter::TranslucencyRefractionComposite ) ) };
         auto traced = m_RayTracedTranslucency.AddPass( graph, inputs, push );
         if ( !traced )
             return refuse( traced.GetError() );

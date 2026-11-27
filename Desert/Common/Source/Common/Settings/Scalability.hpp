@@ -333,8 +333,18 @@ namespace Common::Scalability
                                           // r.Lumen.TranslucencyReflections.FrontLayer.Enable)
         // What answers the glass's refraction, kTranslucencyRefractionMethodNames by value (index = the value of
         // System::TranslucencyRefractionMethod, RayTracedTranslucency.hpp): ScreenSpace = the scene copy bent on
-        // screen, HardwareTraced = "Translucency: Ray Traced Refraction" (UE r.RayTracedTranslucency).
+        // screen, HardwareTraced = "Translucency: Ray Traced Refraction" (UE r.RayTracedTranslucency). Resolve
+        // lowers HardwareTraced to ScreenSpace, with the reason, on a device that offers no ray tracing pipeline.
         TranslucencyRefraction,
+        // "Translucency.RefractionMaxInterfaces", group Reflections, 1..8, Default 4 (the Epic value; Low to High
+        // are 2 in Scalability.json): the dielectric interfaces a refraction ray follows before it gives up
+        // (ShaderPush::RayTracedTranslucencyPush::MaxInterfaces; UE r.RayTracedTranslucency.MaxPrimaryHitEvents).
+        TranslucencyRefractionMaxInterfaces,
+        // "Translucency.RefractionComposite", group Reflections, 0/1, Default 1: 1 = the glass composites the
+        // traced answer; 0 = the pass runs with the same rays and reads but answers "no trace" (a = 0), so the
+        // glass bends the scene copy - the pass's cost and graph reads without its picture (the A/B of
+        // NG-RT-REFRACTION3 D9 / D11). A number, no value names. ShaderPush::RayTracedTranslucencyPush::Composite.
+        TranslucencyRefractionComposite,
         // Parallax occlusion mapping (Mesh/Surface/SurfaceParallax.glslh), through ViewFrame::Parallax and the
         // view block: march steps head-on and at grazing view, and the self-shadow steps toward the sun (0 = no
         // relief self-shadow).

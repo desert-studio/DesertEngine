@@ -2169,8 +2169,7 @@ namespace Desert::Graphic
                                                     ? m_DeformationField.TrampledBox( frame.CameraPosition )
                                                     : System::GrassRenderer::NoTrampleWindow() );
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
-            m_Systems.Grass->PrepareFrame( frame, *m_Systems.Mesh.get(),
-                                           RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion,
+            m_Systems.Grass->PrepareFrame( frame, *m_Systems.Mesh.get(), ViewRayTracingSceneRequired(), occlusion,
                                            parallelSetup );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
             auto* const grass = m_Systems.Grass.get();
@@ -2411,8 +2410,7 @@ namespace Desert::Graphic
             const float     lensScale =
                  camera != nullptr ? DrawDistanceScale( meshes->MainLODView( *camera ) ) : 1.0f;
             // The view's methods, or the scene's cards this view relights this frame with ray query.
-            const bool required =
-                 RayTracing::RayTracingSceneRequired( m_RenderMethods ) || SurfaceCacheUpdateTracesRayQuery();
+            const bool required = ViewRayTracingSceneRequired() || SurfaceCacheUpdateTracesRayQuery();
 
             // The landscape tiles first: their vertex compute, then their BLAS requests join the RT scene's
             // dynamic-geometry pass, which the TLAS pass reads (orders it after the builds).
@@ -3156,14 +3154,16 @@ namespace Desert::Graphic
                 const FrameSSR ssrFrame = ssr != nullptr
                                                ? AddFrameSSR( graph, textures, *ssr, gbuffer, screenTrace, frame )
                                                : FrameSSR{};
-                // The translucent front layer (Reflections.TranslucentFrontLayer, UE Lumen front layer
-                // translucency reflections): its G-buffer, then its rays through the opaque reflections' method -
-                // the same screen trace (HZB, last frame's scene), tracer, hit lighting and denoiser - for the
-                // glass below to read.
+                // The translucent front layer (UE FFrontLayerTranslucencyData): its G-buffer whenever a consumer
+                // asks for it (TranslucentFrontLayerRequired: its reflections, or the traced refraction that
+                // starts from it), then - Reflections.TranslucentFrontLayer under a screen-trace method - its rays
+                // through the opaque reflections' method (UE Lumen front layer translucency reflections): the same
+                // screen trace (HZB, last frame's scene), tracer, hit lighting and denoiser, for the glass below.
                 FrameFrontLayer frontLayer =
-                     ssr != nullptr && TranslucentFrontLayerReflections()
-                          ? AddFrameTranslucentFrontLayer( graph, textures, meshRenderer, gbuffer, screenTrace,
-                                                           frame, frontLayerSurface ? &*frontLayerSurface : nullptr )
+                     TranslucentFrontLayerRequired()
+                          ? AddFrameTranslucentFrontLayer( graph, textures, meshRenderer, gbuffer, screenTrace, frame,
+                                                           ssr != nullptr && TranslucentFrontLayerReflections(),
+                                                           frontLayerSurface ? &*frontLayerSurface : nullptr )
                           : FrameFrontLayer{};
 
                 // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
@@ -3245,7 +3245,8 @@ namespace Desert::Graphic
                 // The water after the copy (the scene without water, which its refraction reads) and before the
                 // glass.
                 AddFrameWater( graph, textures, sceneCopy, frontLayer );
-                frontLayer.Refraction = AddFrameRayTracedRefraction( graph, textures, gbuffer, frontLayer, frame );
+                frontLayer.Refraction =
+                     AddFrameRayTracedRefraction( graph, textures, gbuffer, frontLayer, sceneCopy, frame );
                 AddFrameGlass( graph, textures, sceneCopy, meshRenderer, frontLayer );
             }
         }
