@@ -81,6 +81,7 @@ namespace buildpool::daemon
             uint64_t estimate      = 0; // planned bytes, fixed at Grant
             uint64_t currentBytes  = 0; // last Heartbeat
             uint64_t observedBytes = 0; // largest Heartbeat
+            uint64_t cpuMs         = 0; // last Heartbeat; a lease counts from 0
             uint32_t preemptions   = 0;
             bool     preemptSent   = false;
         };

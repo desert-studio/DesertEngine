@@ -149,6 +149,7 @@ namespace buildpool::daemon
             {
                 client.action->currentBytes  = heartbeat->currentBytes;
                 client.action->observedBytes = std::max( client.action->observedBytes, heartbeat->currentBytes );
+                client.action->cpuMs         = heartbeat->cpuMs;
             }
         }
         else if ( const auto* released = std::get_if<Released>( &message ) )
@@ -344,6 +345,7 @@ namespace buildpool::daemon
             action.order         = m_nextHead--; // the head of the queue
             action.queuedSinceMs = now.ms;
             action.currentBytes  = 0;
+            action.cpuMs         = 0;
             if ( build != nullptr )
                 build->run.preemptions += 1;
             out.log.push_back(
@@ -581,6 +583,7 @@ namespace buildpool::daemon
         action.grantMs         = now.ms;
         action.estimate        = estimate;
         action.currentBytes    = 0;
+        action.cpuMs           = 0;
         action.preemptSent     = false;
         m_leases[action.lease] = id;
         m_running += 1;
@@ -591,7 +594,7 @@ namespace buildpool::daemon
             build->run.waitedMsTotal += now.ms - action.queuedSinceMs;
             priority = ClassOf( *build ).osPriority;
         }
-        out.sends.emplace_back( id, Message{ buildpool::Grant{ action.lease, priority } } );
+        out.sends.emplace_back( id, Message{ buildpool::Grant{ action.lease, priority, m_config.sampleMs } } );
         ObserveAllBuilds();
     }
 
@@ -644,6 +647,30 @@ namespace buildpool::daemon
         std::vector<Candidate> candidates;
         const uint32_t         guaranteeCap = std::max<uint32_t>( 1, m_slots / 2 );
 
+        // Order: a Queued leader of an inflightKey is served at min(own class priority, the best class priority
+        // among that key's Awaiting waiters), so dedup never inverts the order. Read from the waiter list on
+        // every pass; only the priority term is lent.
+        const auto orderPriority = [&]( const Client& client, int ownPriority )
+        {
+            const std::string& key = client.action->request.inflightKey;
+            if ( key.empty() || client.session == 0 )
+                return ownPriority;
+            const auto entry = m_inflight.find( key );
+            if ( entry == m_inflight.end() || entry->second.leaderSession != client.session )
+                return ownPriority;
+            int best = ownPriority;
+            for ( const ClientId waiterId : entry->second.waiters )
+            {
+                const auto waiter = m_clients.find( waiterId );
+                if ( waiter == m_clients.end() )
+                    continue;
+                const Build* waiterBuild = FindBuild( waiter->second.buildKey );
+                if ( waiterBuild != nullptr )
+                    best = std::min( best, ClassOf( *waiterBuild ).priority );
+            }
+            return best;
+        };
+
         while ( m_running < m_slots )
         {
             uint32_t guaranteedInUse = 0;
@@ -666,7 +693,7 @@ namespace buildpool::daemon
                 candidate.id           = id;
                 candidate.client       = &client;
                 candidate.guaranteed   = build->running < policy.guaranteedSlots && guaranteedInUse < guaranteeCap;
-                candidate.priority     = policy.priority;
+                candidate.priority     = orderPriority( client, policy.priority );
                 candidate.buildRunning = build->running;
                 candidate.order        = client.action->order;
                 candidate.estimate     = m_ledger.Estimate( costKey );
@@ -771,7 +798,8 @@ namespace buildpool::daemon
 
         Client*  victim         = nullptr;
         int      victimPriority = 0;
-        uint64_t victimAgeMs    = 0;
+        uint64_t victimCpuMs    = 0;
+        ClientId victimId       = 0;
         for ( const auto& [lease, id] : m_leases )
         {
             const auto it = m_clients.find( id );
@@ -784,15 +812,14 @@ namespace buildpool::daemon
                 continue;
             const Build* build    = FindBuild( it->second.buildKey );
             const int    priority = build != nullptr ? ClassOf( *build ).priority : 0;
-            // "Least cpuMs spent": a Heartbeat carries no CPU time, so the time since Grant ranks the leases.
-            const uint64_t ageMs  = now.ms - action.grantMs;
-            const bool     better = victim == nullptr || priority > victimPriority ||
-                                ( priority == victimPriority && ageMs < victimAgeMs );
+            const bool better = victim == nullptr || priority > victimPriority ||
+                                ( priority == victimPriority && action.cpuMs < victimCpuMs );
             if ( better )
             {
                 victim         = &it->second;
                 victimPriority = priority;
-                victimAgeMs    = ageMs;
+                victimCpuMs    = action.cpuMs;
+                victimId       = id;
             }
         }
         if ( victim == nullptr )
@@ -805,13 +832,12 @@ namespace buildpool::daemon
             }
             return;
         }
-        Action& action      = *victim->action;
-        action.preemptSent  = true;
-        const auto victimId = m_leases.at( action.lease );
+        Action& action     = *victim->action;
+        action.preemptSent = true;
         out.sends.emplace_back( victimId, Message{ Preempt{ action.lease } } );
         out.log.push_back( "preempt lease " + std::to_string( action.lease ) + ": " + action.request.costKey +
-                           " (class priority " + std::to_string( victimPriority ) + ", running " +
-                           std::to_string( victimAgeMs ) + " ms, now " + Mb( action.currentBytes ) +
+                           " (class priority " + std::to_string( victimPriority ) + ", cpu " +
+                           std::to_string( victimCpuMs ) + " ms, now " + Mb( action.currentBytes ) +
                            " MB, planned " + Mb( action.estimate ) + " MB); free " + Mb( free ) +
                            " MB below reserve/2 " + Mb( m_config.reserveBytes / 2 ) + " MB" );
     }
