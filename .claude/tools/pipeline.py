@@ -397,7 +397,8 @@ def run_of(s, code):
     Two runs under one code (a fix, then its reviewer) are accepted one per call, oldest pending first never hidden."""
     runs = [(r.get("t0", 0), a) for a, r in s["runs"].items() if r.get("code") == code]
     pending = [h for h in runs if not s["runs"][h[1]].get("accepted")]
-    hits = sorted(pending or runs)
+    stopped = [h for h in pending if s["runs"][h[1]].get("t1")]  # a reviewer still running must not take the engineer's accept
+    hits = sorted(stopped or pending or runs)
     return (hits[-1][1], s["runs"][hits[-1][1]]) if hits else (None, None)
 
 
