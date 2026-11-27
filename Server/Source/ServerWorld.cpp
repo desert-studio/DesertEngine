@@ -97,6 +97,27 @@ namespace Desert::Server
         return cells;
     }
 
+    Net::EPointResidency ServerWorld::ResidencyAt( const Net::NetVec3& position ) const
+    {
+        const auto& indexUnits = m_World.Index->Units;
+        const auto& units      = m_Executor->State().Units;
+        bool        any        = false;
+        bool        all        = true;
+        // Cell units only: an always-loaded unit is resident for the server's life and states no Bounds.
+        for ( std::size_t unit = m_Executor->Plan().AlwaysLoaded.size(); unit < indexUnits.size(); ++unit )
+        {
+            const std::optional<Core::Rules::CellBounds>& bounds = indexUnits[unit].Bounds;
+            if ( !bounds || position.X < bounds->MinX || position.X > bounds->MaxX || position.Z < bounds->MinZ ||
+                 position.Z > bounds->MaxZ )
+                continue;
+            any = true;
+            all = all && unit < units.size() && units[unit].State == Core::Rules::Residency::Activated;
+        }
+        if ( !any )
+            return Net::EPointResidency::NoCell;
+        return all ? Net::EPointResidency::Resident : Net::EPointResidency::Loading;
+    }
+
     Common::BoolResultStr ServerWorld::Activate( std::size_t unit, std::size_t firstMember,
                                                  std::span<const std::size_t> records )
     {
