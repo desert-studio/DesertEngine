@@ -11,6 +11,8 @@
 #include <Engine/Core/SceneUpgrade/Steps/V76LandscapeSplineEntities.hpp>
 #include <Engine/Core/SceneUpgrade/Steps/V77TubeSourceLength.hpp>
 #include <Engine/Core/SceneUpgrade/Steps/V78ExposureBiasOnly.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V79UnbuiltLightmaps.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V80WaterBodyRetiredKeys.hpp>
 #include <Engine/Core/SceneUpgrade/Steps/WP13EntityHLODLayer.hpp>
 #include <Engine/Core/SceneUpgrade/Steps/WP14ImpostorLayers.hpp>
 
@@ -35,6 +37,10 @@ namespace Desert::Core
                           &RunTubeSourceLength },
              UpgradeStep{ UpgradeChain::Scene, kSceneVersionExposureBiasOnly, "ExposureBiasOnly",
                           &RunExposureBiasOnly },
+             UpgradeStep{ UpgradeChain::Scene, kSceneVersionUnbuiltLightmaps, "UnbuiltLightmaps",
+                          &RunUnbuiltLightmaps },
+             UpgradeStep{ UpgradeChain::Scene, kSceneVersionWaterBodyRetiredKeys, "WaterBodyRetiredKeys",
+                          &RunWaterBodyRetiredKeys },
              UpgradeStep{ UpgradeChain::WorldPartition, kWorldPartitionVersionEntityHLODLayer, "EntityHLODLayer",
                           &RunEntityHLODLayer },
              UpgradeStep{ UpgradeChain::WorldPartition, kWorldPartitionVersionImpostorLayers, "ImpostorLayers",
