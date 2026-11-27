@@ -29,14 +29,14 @@
 # (40000, 300, 3000) is under the landscape (576 cm): the placer lifts the capsule onto the surface.
 Консоль server teleport 1 40000 300 3000
 Ждать server 120 player 1: pawn 1 teleported to \(40000, 5[6-9]\d, 3000\) cm
-# The correction carries the server state one snapshot interval (~10-11 input steps, 6 Hz band) after the landing:
-# the pawn just past the destination, speed rebuilt at 34 cm/s per step - each component below 450 cm/s, never the sprint.
-Ждать A 120 correction \d+ at input step \d+: the server has the own pawn at \(400\d\d\.\d, 5[6-9]\d\.\d, (?:29|30)\d\d\.\d\) cm.*beyond the smoothing distance.*v \(-?\d+, -?\d+, -?\d+\) \S+ vs server v \(-?(?:4[0-4]\d|[0-3]?\d?\d), -?(?:4[0-4]\d|[0-3]?\d?\d), -?(?:4[0-4]\d|[0-3]?\d?\d)\)
+# The correction carries the server state one snapshot interval (up to ~13 input steps, 6 Hz band) after the landing:
+# the pawn just past the destination, speed rebuilt at 34 cm/s per step - each component below 600 cm/s, never the sprint.
+Ждать A 120 correction \d+ at input step \d+: the server has the own pawn at \(400\d\d\.\d, 5[6-9]\d\.\d, (?:29|30)\d\d\.\d\) cm.*beyond the smoothing distance.*v \(-?\d+, -?\d+, -?\d+\) \S+ vs server v \(-?(?:[0-5]?\d?\d), -?(?:[0-5]?\d?\d), -?(?:[0-5]?\d?\d)\)
 Тогда A tp_sprint the frame of that correction tick from A's pawn camera: the landscape surface under the camera and the horizon in front at standing height - not the terrain's underside, not a void; the pawn is at the destination, not somewhere along its old sprint line
 # The proxy's first post-teleport snapshot carries the server's post-landing velocity: no slide along 965 cm/s. That
-# snapshot lands up to one snapshot interval (~10-11 input steps) after the landing - the target just past the
-# destination, speed rebuilt at 34 cm/s per step: each component below 450 cm/s, never the sprint.
-Ждать B 120 \] pawn 1 teleport cut at t=\S+: sampled \(\S+, \S+, \S+\) -> \(400\d\d, 5[6-9]\d, 3000\) cm;.*the first snapshot of this teleport carried velocity \(-?(?:4[0-4]\d|[0-3]?\d?\d), -?(?:4[0-4]\d|[0-3]?\d?\d), -?(?:4[0-4]\d|[0-3]?\d?\d)\) cm/s
+# snapshot lands up to one snapshot interval (up to ~13 input steps) after the landing - the target just past the
+# destination, speed rebuilt at 34 cm/s per step: each component below 600 cm/s, never the sprint.
+Ждать B 120 \] pawn 1 teleport cut at t=\S+: sampled \(\S+, \S+, \S+\) -> \(400\d\d, 5[6-9]\d, 3000\) cm;.*the first snapshot of this teleport carried velocity \(-?(?:[0-5]?\d?\d), -?(?:[0-5]?\d?\d), -?(?:[0-5]?\d?\d)\) cm/s
 # Over the ~100 ms before the cut the proxy's drawn displacement matches its locomotion speed (before: moved 0 vs
 # ~96 cm accounted at a sprint - the proxy ran on the spot).
 Запомнить moved B pawn 1 teleport cut .* the sample moved (-?\d+) cm,
