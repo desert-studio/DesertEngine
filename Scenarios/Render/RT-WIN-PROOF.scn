@@ -6,6 +6,7 @@
 # frame-wait verb outside Play. Log checks read the run's editor.log (play_scenario keeps only the last reply line
 # of a `state` step, so the ledger is read from the log's "ledger:" lines, RenderMethodsOverlay.hpp:32).
 # Every Quality / Anti-Aliasing override is saved to machine.json: the tail clears them.
+# Path tracing on Bistro (PT | raster pairs, day and night) is proven by Scenarios/Editor/PT-PROOF.scn, not here.
 # Pixel diffs named below run after the session: python scripts/Dev/frames_compare.py <a.png> <b.png>.
 Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
 Дано run View "View mode: Lit"
@@ -29,12 +30,6 @@
 Когда run View "View mode: Reflections"
 Тогда-вид rt_section_mats_hw RT-SECTION-MATS: traced reflections of the facades in the shop windows and wet cobbles show each section's own material (stone wall, wood shutters, glass, metal signs differ) - not one material smeared over the whole mesh, no black hits
 Когда run View "View mode: Lit"
-Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
-Когда run Quality "Quality: Reflections.Method PathTraced"
-Когда --subject viewport drag 600,40 600,40 64
-Тогда-вид rt_section_mats_pt RT-SECTION-MATS: the same street path-traced (GI + Reflections PathTraced: the tracer pairs them) - per-section materials as in rt_section_mats_hw (shutters, signs, awning fabric keep their colours)
-Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
-Когда run Quality "Quality: Reflections.Method HardwareTraced"
 # --- RT-SCENE-2: the ray-tracing scene overlay (drawn on every frame that built a TLAS, ViewportPanel.cpp:2268-2281)
 Тогда rt_scene_overlay RT-SCENE-2: the viewport's ray-tracing overlay lists the TLAS (instance count > 0, BLAS count > 0) and the render-methods overlay names Shadows HardwareTraced / Reflections HardwareTraced / GI HardwareTraced; editor.log "ledger:" rows for this view
 # --- MR6: DLSS (DLAA 100 / Quality 67 / Performance 50) and FSR Quality 67 against TAAU 67, same camera
