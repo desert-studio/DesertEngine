@@ -1,0 +1,6 @@
+# WATER-AFTER-LOADALL control: Water_Ocean opened directly, never WP_Protocol
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Ocean.desce
+Дано run View "View mode: Lit"
+Когда wait-idle 60
+Когда frames 330
+Тогда-вид c_direct330 вода
