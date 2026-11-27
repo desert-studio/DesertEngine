@@ -225,8 +225,10 @@ namespace Desert::Net
         // Offered -> gone (the store committed it to another simulation): the pawn with every input step that
         // queued, its net id lives on in the next owner. nullopt when @p player's pawn is not offered.
         [[nodiscard]] std::optional<HandoverPawn> Release( PlayerId player );
-        // Offered -> Owned (the offer was refused or withdrawn): the next Step applies the queued input steps.
-        // Returns how many are queued; nullopt when @p player's pawn is not offered.
+        // Offered -> Owned (the offer was refused or withdrawn): the steps that follow apply the queued input
+        // steps, at most kMaxInputsPerStep each (MeshOfOne.cpp; the catch-up is spread, never replayed in one
+        // step), and the largest authoritative step of that catch-up is logged when the queue is back at the
+        // sync's target. Returns how many are queued; nullopt when @p player's pawn is not offered.
         std::optional<std::size_t> Resume( PlayerId player );
         // Whether the world of this simulation can hold @p pawn: a cell of its grid under the pawn (or under its
         // pending placement). The error names the point.
@@ -273,6 +275,15 @@ namespace Desert::Net
             std::uint8_t QueuedAtStep = 0;
             // The spawn or teleport not landed yet; while set the pawn is HELD (its inputs acked, not applied).
             std::optional<PendingPlacement> Placement;
+            // The catch-up after Resume: the inputs that queued while the pawn was held, applied over the steps
+            // that follow. Measured per authoritative step (planar cm) until the queue is back at the target.
+            struct ResumeCatchUp
+            {
+                std::size_t   Queued      = 0; // at the resume
+                std::uint32_t Steps       = 0; // authoritative steps it has taken so far
+                float         LargestStep = 0.f;
+            };
+            std::optional<ResumeCatchUp> CatchUp;
         };
         // One fixed step of one pawn: its pending placement resolved first, then its queued input steps.
         void StepOne( PlayerId player, Pawn& pawn );

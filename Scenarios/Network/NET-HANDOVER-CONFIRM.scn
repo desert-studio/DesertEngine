@@ -3,7 +3,7 @@
 # region, a cell under it, the catch-up) and holds it as incoming; the receiver's Accept moves the authority record
 # (sim, epoch) -> (sim', epoch+1) and the store sends Commit to the receiver and Committed to the sender, which only
 # then releases the pawn and forwards the inputs that queued meanwhile. Refused, or no answer for 30 mesh steps
-# (Withdraw), resumes the pawn on the sender with its queued inputs and a 120-step backoff; a stale Accept after a
+# (Withdraw), resumes the pawn on the sender with its queued inputs (applied at most 2 per step) and a 120-step backoff; a stale Accept after a
 # Withdraw is OfferUnknown and moves nothing.
 # Played by scripts/Dev/net_scenario.py: five server roles (coordinator, store, sim 1 west, sim 2 east, gateway; the
 # runner makes the dev mesh CA and wires --mesh-port / --coordinator), editor B (account 3) watching the border from
@@ -45,8 +45,12 @@
 Ждать sim1 5 offer #2 .*Refused by the store - Withdrawn: sim 1 withdrew offer \(sim 1, #2\)
 Ждать sim1 5 offer #2 .*ended - Withdrawn: .* - withdrawn; the pawn resumes on sim 1 with \d+ queued input\(s\), next offer not before step \d+
 Ждать store 10 offer \(sim 1, #2\).*withdrawn by sim 1 at step \d+
+# D4, strict: the queued inputs are applied over the steps that follow (at most 2 per step), each authoritative
+# step measured by sim 1 itself - the largest <= 60 cm, read from the line, not from A2's 0.5 s samples.
+Ждать sim1 10 resume catch-up of \d+ queued input\(s\) done in \d+ step\(s\), at most 2 input\(s\) per step; largest step ([1-5]?\d\.\d|60\.0) cm
 Ждать A2 10 2x \] t=
 Ждать B 60 fresh \[Shot\] recorded frame_
+Тогда B resume_no_jump after the 0.5 s stall A2's pawn catches up with no single step over 60 cm (sim1.log "resume catch-up ... largest step <= 60.0 cm", the catch-up spread over at least half as many steps as inputs queued) and no snap back (A2.log own-pawn x never decreases by > 5 cm after the resume)
 Тогда B lost_receiver_silent B's view with sim 2 stopped: the A2 capsule east of X = 300 still walks along +X under sim 1 (one capsule; A2.log moves >= 40 cm per second after a stall <= 0.6 s, no snap back); A's capsule stands still (its sim is stopped)
 # Когда: sim 2 resumes after ~4 s stopped (about 1 s to X = 300, 0.5 s to the withdrawal, 4 lines of A2 at two a
 # second): its stale offer #2 is refused or dropped.
