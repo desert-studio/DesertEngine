@@ -26,7 +26,8 @@
 //  5. BAR (shown). T = elapsed / (elapsed + R), 1 after Finish. Per sample B moves to T by at most kBarMaxStep
 //     and by at least minRate * dt (minRate = kBarStepMargin * minVisibleStep / kBarMaxStallSeconds), so it
 //     follows the estimate without lag, never jumps, never stalls; B <= 1 - minVisibleStep until Finish, after
-//     which the same path carries it to 1.
+//     which the same path carries it to 1 with the per-sample limit raised to close the gap left at Finish in
+//     kBarFinishSeconds (the splash holds its fade out until the bar shows 1).
 //  6. ITEM. While a phase runs Active is never empty: the waits, the running items oldest first, the ambient
 //     work; when there is none, the phase itself (its label, its elapsed seconds).
 // Thread-safe: one mutex.
@@ -140,6 +141,7 @@ namespace Desert::Core
         static constexpr double kEtaFloorSeconds    = 2.0;
         static constexpr double kBarMaxStep         = 0.004; // of the bar per sample (rule 5): under a 0.5 % step
         static constexpr double kBarMaxStallSeconds = 2.0;
+        static constexpr double kBarFinishSeconds   = 0.3; // rule 5: after Finish the bar's gap closes in this
         static constexpr double kBarStepMargin      = 1.25;
 
         // @p plan is every phase in start order (the engine's then the host's); @p history the previous starts
@@ -220,6 +222,7 @@ namespace Desert::Core
         StartupClock::time_point    m_ProcessStart;
         StartupClock::time_point    m_LastSample{};
         double                      m_ShownFraction = 0.0;
+        double                      m_FinishGap     = 0.0; // 1 - the shown bar at Finish (rule 5)
         double                      m_ShownEta      = 0.0;
         bool                        m_EtaKnown      = true;
         bool                        m_Finished      = false;

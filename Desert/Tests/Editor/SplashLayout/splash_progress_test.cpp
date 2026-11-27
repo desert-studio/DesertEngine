@@ -154,8 +154,15 @@ TEST( SplashText, SampledAsTheSplashSamplesItTheLinesFollowThePhasesAndTheBarNev
     // The longest wait without a single number moving is what the splash exists to avoid.
     EXPECT_NE( Splash::TimeText( view ), "" );
 
+    // Finish does not snap the bar: the splash's samples (every 33 ms) carry it to 1 within
+    // kBarFinishSeconds, never backwards (sample checks that), and the splash holds its fade until then.
     progress.Finish();
-    view = sample( 0.5 );
+    constexpr double kFrame   = 0.033;
+    const int        maxSteps = static_cast<int>( Core::StartupProgress::kBarFinishSeconds / kFrame ) + 2;
+    int              steps    = 0;
+    do
+        view = sample( kFrame );
+    while ( view.Fraction < 1.0 && ++steps < maxSteps );
     EXPECT_DOUBLE_EQ( view.Fraction, 1.0 );
     EXPECT_EQ( Splash::PercentText( view ), "100 %" );
 }

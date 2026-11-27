@@ -59,6 +59,9 @@ namespace Desert::Editor::Splash
         constexpr UINT_PTR kFrameTimer      = 1;
         constexpr UINT     kFrameMs         = 33;
         constexpr int64_t  kCapturePeriodMs = 1000;
+        // After Finish the fade out waits for the bar to reach 1 (it closes its gap in
+        // StartupProgress::kBarFinishSeconds); past this hold it fades anyway, and says so.
+        constexpr float    kFinishHoldSeconds = 1.0f;
         constexpr wchar_t  kClassName[]     = L"DesertEngineSplash";
         constexpr COLORREF kBackground      = RGB( 20, 19, 18 );
         constexpr COLORREF kWhite           = RGB( 255, 255, 255 );
@@ -177,11 +180,12 @@ namespace Desert::Editor::Splash
                         self->Tick( window );
                     return 0;
                 case WM_CLOSE:
-                    // Not destroyed here: the fade out runs first, and Tick destroys it at the end.
-                    if ( self && !self->m_Closing )
+                    // Not destroyed here: Tick starts the fade out (after the bar reached 1 on a finished
+                    // start) and destroys the window at its end.
+                    if ( self && !self->m_CloseAsked )
                     {
-                        self->m_Closing   = true;
-                        self->m_ClosingAt = std::chrono::steady_clock::now();
+                        self->m_CloseAsked   = true;
+                        self->m_CloseAskedAt = std::chrono::steady_clock::now();
                     }
                     return 0;
                 case WM_DESTROY:
@@ -349,6 +353,21 @@ namespace Desert::Editor::Splash
         // Every kFrameMs: the fade, then one sample of the progress and a repaint with it.
         void Tick( HWND window )
         {
+            if ( m_CloseAsked && !m_Closing )
+            {
+                // A finished start fades once its bar shows 100 %; a stopped one (close clicked) at once.
+                const float held   = SecondsSince( m_CloseAskedAt );
+                const bool  landed = !m_View.Finished || m_View.Fraction >= 1.0;
+                if ( landed || held >= kFinishHoldSeconds )
+                {
+                    if ( !landed )
+                        LOG_WARN( "[Splash] the bar reached {:.1f} % in {:.1f} s after the start finished; the "
+                                  "splash fades without it",
+                                  m_View.Fraction * 100.0, held );
+                    m_Closing   = true;
+                    m_ClosingAt = std::chrono::steady_clock::now();
+                }
+            }
             const float opacity = m_Closing ? SplashOpacity( SecondsSince( m_ClosingAt ), true )
                                             : SplashOpacity( SecondsSince( m_ShownAt ), false );
             SetLayeredWindowAttributes( window, 0, static_cast<BYTE>( opacity * 255.0f + 0.5f ), LWA_ALPHA );
@@ -715,6 +734,8 @@ namespace Desert::Editor::Splash
         std::optional<SplashPixels> m_Picture;
         // Splash thread only.
         std::chrono::steady_clock::time_point m_ShownAt;
+        std::chrono::steady_clock::time_point m_CloseAskedAt;
+        bool                                  m_CloseAsked = false; // WM_CLOSE came; the fade may still wait
         std::chrono::steady_clock::time_point m_ClosingAt;
         bool                                  m_Closing = false;
         Desert::Core::StartupView             m_View;

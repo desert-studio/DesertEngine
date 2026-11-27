@@ -139,9 +139,11 @@ namespace Desert::Core
         EndCurrent( now );
         for ( Phase& phase : m_Phases )
             phase.Ended = true;
-        // The bar is not set here: the next samples carry it to 1 by the same per-sample limit (rule 5).
-        m_Finished = true;
-        m_ShownEta = 0.0;
+        // The bar is not set here: the next samples carry it to 1 on the same path, its gap closing in
+        // kBarFinishSeconds (rule 5).
+        m_Finished  = true;
+        m_FinishGap = 1.0 - m_ShownFraction;
+        m_ShownEta  = 0.0;
 
         // THE START'S TABLE: every phase that ran, then the total. The phases are back to back from the first
         // one's begin; what ran before the first phase is the process's own start (images, the splash).
@@ -305,7 +307,9 @@ namespace Desert::Core
             const double fall = dt + gap * ( 1.0 - std::exp( -dt / kEtaCatchUpSeconds ) );
             m_ShownEta -= std::max( fall, kEtaMinRate * dt );
             const double minBarRate = kBarStepMargin * step / kBarMaxStallSeconds;
-            const double move = std::min( std::max( target - m_ShownFraction, minBarRate * dt ), kBarMaxStep );
+            const double maxStep =
+                 m_Finished ? std::max( kBarMaxStep, m_FinishGap * dt / kBarFinishSeconds ) : kBarMaxStep;
+            const double move = std::min( std::max( target - m_ShownFraction, minBarRate * dt ), maxStep );
             m_ShownFraction   = std::min( m_ShownFraction + move, std::max( barCap, m_ShownFraction ) );
         }
         // Rule 4's floor: below it the number would be a lie while work remains; the rest of the start says
