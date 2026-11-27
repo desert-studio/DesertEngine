@@ -1,28 +1,41 @@
 #pragma once
 
-// THE AUTHORITY LEDGER of the store (NET-HANDOVER-CONFIRM; NET-ARCH §2M.4): the ONE owner of every pawn's
-// authority record (sim, epoch) and of every handover offer in flight. MeshStore (MeshLink.cpp) asks it before
-// it accepts a sim's write or remove, hands it every handover message a sim sends and every sim it loses, and
-// performs the Effects it returns. The ledger does no I/O and keeps no clock: a pure state machine over values
-// (GoF State over an offer: Open -> Accepted -> Committed | Refused), so the store's wire code and this decision
-// code are two units, and the decision can be read in one file.
+// THE AUTHORITY LEDGER of the store (NET-HANDOVER-CONFIRM, NET-HANDOVER-REFUSE; NET-ARCH §2M.4): the ONE owner of
+// every pawn's authority record (sim, epoch) and of every handover offer in flight. MeshStore (MeshLink.cpp) asks
+// it before it accepts a sim's write or remove, hands it every handover message a sim sends and every sim it
+// loses, and performs the Effects it returns. The ledger does no I/O and keeps no clock: a pure function of its
+// maps and the message, so the store's wire code and this decision code are two units, and the decision can be
+// read in one file.
+//
+// AN OFFER'S STATE IS THE MAP IT LIES IN: in m_Offers it is open (forwarded, no vote yet); its commit row in
+// m_CommitRows (keyed by the PAWN) says it committed and the new holder has not written yet; in neither it ended.
+// Nothing else names a phase.
 //
 // The rules it enforces (the two-phase commit of HandoverWire.hpp):
-//   - a write is admitted only from the record's holder; the first write of a pawn creates its record at epoch 1;
-//   - one open offer per pawn; an Offer is forwarded to the receiver only when the sender holds the record at
-//     the epoch it names and the receiver is linked - otherwise Refused(reason) goes back to the sender at once;
-//   - the record moves ONLY on the receiver's Accept of an offer that is still open: Commit to the receiver,
-//     Committed to the sender, and Effects::Committed for the store to write the frozen state and notify the
-//     gateways (AuthorityChanged, PawnWrite, proxies - the store's wire, not the ledger's);
-//   - a Refuse, a Withdraw, a lost receiver, a lost sender, a removed pawn each end the open offer with a Refused
-//     to the side that still holds something (the sender keeps its authority; the receiver drops its copy); a
-//     sender lost AFTER the receiver accepted is a commit (the offered state is the best state of record);
-//   - an Accept / Refuse / Withdraw for an offer the ledger does not hold is answered with Refused(OfferUnknown),
-//     so a stale Accept after a withdrawal never moves a record - with ONE exception: an Accept of the offer that
-//     last moved a pawn's record, from the sim that record names, is answered with that Commit again (nothing
-//     moves). A receiver IN DOUBT (it accepted and heard no decision: a Commit or Refused lost) re-sends its vote
-//     (kInDoubtWait); the coordinator's answer to every vote is the offer's outcome - the
-//     participant-asks-the-coordinator rule of the two-phase commit.
+//   0. a write is admitted only from the record's holder (the first write creates the record at epoch 1);
+//   1. an Offer is checked in this order and refused to the sender under (sender, #0) - a key no sender issues, so
+//      the refusal can resume nothing the sender holds open - when it did not decode (Malformed, the byte named),
+//      names another sender or no receiver (Malformed), names a pawn that already has an offer open
+//      (AlreadyOffered) or a key open for another pawn (SerialReused); then under its own key when the record
+//      refuses it (NoRecord, NotHolder, StaleEpoch) or the receiver is not linked; otherwise it is forwarded;
+//   2. a vote NAMES ITS PAWN (Verdict::Id). On an open offer: a speaker in the wrong role is refused OfferUnknown,
+//      an Accept or Withdraw naming another pawn PawnMismatch - both under (speaker, #0), the offer untouched (an
+//      Accept naming another pawn is first answered from that pawn's commit row, below, when it has one); an
+//      Accept commits (the ONE place a record moves: Commit to the receiver, Committed to the sender,
+//      Effects::Committed for the store's wire), a Refuse or Withdraw ends the offer with Refused to the side that
+//      still holds something. On an offer not open, the vote is answered with the OUTCOME of the pawn it names: an
+//      Accept from the sim the record names, under the key of the pawn's commit row, gets that Commit again; a
+//      Withdraw from the sender the record no longer names gets Committed again; anything else Refused
+//      (OfferUnknown) under its key, so a receiver in doubt drops its copy. Nothing moves on an answer. A vote
+//      that did not decode is refused Malformed under (speaker, #0);
+//   3. a message only the store sends (Commit, Committed, Refused) coming FROM a sim is refused WrongDirection
+//      under (speaker, #0);
+//   - a lost receiver, a lost sender, a removed pawn each end the open offer with a Refused to the side that still
+//     holds something; a sender lost AFTER the receiver accepted is a commit already (an Accept commits within the
+//     call that carries it);
+//   - a commit row lives until the new holder's first admitted write proves the adoption (2PC: the coordinator
+//     keeps a decision until the participant acknowledges it), or the record is removed. A later offer reusing the
+//     key for another pawn does not touch it: the row is found by the pawn a vote names, then its key compared.
 
 #include <Net/HandoverWire.hpp>
 #include <Net/MeshLink.hpp>
@@ -102,37 +115,36 @@ namespace Desert::Net::Handover
         [[nodiscard]] std::string Describe() const;
 
     private:
-        enum class EPhase : std::uint8_t
-        {
-            Open,     // forwarded to the receiver, no verdict yet
-            Accepted, // the receiver accepted: the record moved, Commit / Committed sent (kept until the store
-                      // has performed the effects; erased at the end of the call that produced them)
-        };
         struct Offer
         {
             OfferHeader                  Header;
             PawnSimulation::HandoverPawn Pawn;
-            EPhase                       Phase = EPhase::Open;
+        };
+        // The offer that last moved a pawn's record (its key, the step it was frozen at), kept until the new
+        // holder's first admitted write proves the adoption, so a vote in doubt is answered with its outcome.
+        struct CommitRow
+        {
+            OfferKey      Key;
+            std::uint32_t Step = 0;
         };
         [[nodiscard]] Effects Opened( std::uint32_t sim, std::span<const std::byte> body );
         [[nodiscard]] Effects Verdicted( std::uint32_t sim, EMessage type, std::span<const std::byte> body );
+        // A vote matched to no open offer: Commit / Committed again when the commit row of the pawn it names
+        // says so (rule 2); false when nothing answers it but Refused(OfferUnknown).
+        [[nodiscard]] bool AnsweredFromRow( Effects& effects, std::uint32_t sim, EMessage type,
+                                            const Verdict& verdict );
         void Refuse( Effects& effects, const Offer& offer, bool toSender, bool toReceiver, const Refusal& why );
+        // Refused to the sim that spoke, under @p key (a key it holds nothing under unless it is the offer's own),
+        // counted; the log line is the caller's.
+        void RefuseSpeaker( Effects& effects, std::uint32_t sim, const OfferKey& key, std::uint32_t step,
+                            const Refusal& why );
         void Commit( Effects& effects, Offer offer, std::uint32_t atStep );
 
         std::function<bool( std::uint32_t )> m_SimLinked;
         std::map<NetId, Authority>           m_Records;
         std::map<OfferKey, Offer>            m_Offers;
         std::map<NetId, OfferKey>            m_OfferOfPawn; // one open offer per pawn
-        // The offer that last moved each pawn's record, until the new holder's first admitted write proves the
-        // adoption (or the record is removed, or a restarted sender reuses the key for another pawn), so the vote
-        // of a receiver in doubt is answered with its Commit again: key -> (pawn, frozen step).
-        struct CommittedOffer
-        {
-            NetId         Id   = kInvalidNetId;
-            std::uint32_t Step = 0;
-        };
-        std::map<OfferKey, CommittedOffer> m_CommitOf;
-        std::map<NetId, OfferKey>          m_CommitOfPawn;
+        std::map<NetId, CommitRow>           m_CommitRows;  // committed, not yet adopted: one row per pawn
         std::uint64_t                        m_CommittedCount = 0;
         std::map<ERefusal, std::uint64_t>    m_RefusedCount;
     };

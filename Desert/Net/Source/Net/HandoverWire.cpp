@@ -27,19 +27,40 @@ namespace Desert::Net::Handover
             w.U8( static_cast<std::uint8_t>( refusal.Code ) );
             w.Str( refusal.Detail ); // at most 255 bytes, never empty (the Reader refuses an empty one)
         }
-        bool ReadRefusal( Wire::Reader& r, Refusal& refusal )
+        // A read that stopped at byte @p at: the first byte of a field that did not fit, or of a value past its
+        // range.
+        Decoded CutAt( std::size_t at, std::size_t size )
         {
-            std::uint8_t code = 0;
-            if ( !r.U8( code ) || code > static_cast<std::uint8_t>( ERefusal::WireStep ) )
-                return false; // a reason past the last one is a malformed record, not a guess
-            refusal.Code = static_cast<ERefusal>( code );
-            return r.Str( refusal.Detail );
+            return Decoded{ false, at, size };
+        }
+        // Every field read: Ok when nothing is left over, otherwise the byte the record ended at.
+        Decoded End( const Wire::Reader& r, std::size_t size )
+        {
+            return Decoded{ r.Done(), r.At(), size };
+        }
+
+        // The tail of a Verdict or Decision body: the refusal when @p refusal asks for one, then nothing left
+        // over. A code past kLastRefusal is a malformed record, not a guess: the read stops AT the code's byte.
+        Decoded ReadTail( Wire::Reader& r, std::size_t size, Refusal* refusal )
+        {
+            if ( refusal )
+            {
+                std::uint8_t      code = 0;
+                const std::size_t at   = r.At();
+                if ( !r.U8( code ) || code > static_cast<std::uint8_t>( kLastRefusal ) )
+                    return CutAt( at, size );
+                refusal->Code = static_cast<ERefusal>( code );
+                if ( !r.Str( refusal->Detail ) )
+                    return CutAt( r.At(), size );
+            }
+            return End( r, size );
         }
 
         std::vector<std::byte> EncodeVerdictAs( EMessage type, const Verdict& verdict, const Refusal* refusal )
         {
             Wire::Writer w( Code( type ) );
             WriteKey( w, verdict.Key );
+            w.U32( verdict.Id );
             w.U32( verdict.Sim );
             w.U32( verdict.Step );
             if ( refusal )
@@ -79,7 +100,7 @@ namespace Desert::Net::Handover
             case EMessage::Refused:
                 return "Refused";
         }
-        return "UnknownHandoverMessage";
+        return "UnknownHandoverMessage"; // a byte past IsHandoverMessage, named for the log line that refuses it
     }
 
     std::string_view RefusalName( ERefusal code )
@@ -118,13 +139,28 @@ namespace Desert::Net::Handover
                 return "Malformed";
             case ERefusal::WireStep:
                 return "WireStep";
+            case ERefusal::AlreadyOffered:
+                return "AlreadyOffered";
+            case ERefusal::SerialReused:
+                return "SerialReused";
+            case ERefusal::PawnMismatch:
+                return "PawnMismatch";
+            case ERefusal::WrongDirection:
+                return "WrongDirection";
         }
-        return "UnknownRefusal";
+        return "UnknownRefusal"; // never read off the wire: ReadTail stops at a code past kLastRefusal
     }
 
     std::string Describe( const Refusal& refusal )
     {
         return std::format( "{}: {}", RefusalName( refusal.Code ), refusal.Detail );
+    }
+
+    // Decoded carries no bit telling a record cut short from a whole record with bytes behind it (both stop at an
+    // At below or at Size): the byte is named either way, as the place the record stopped being readable.
+    std::string DescribeCut( const Decoded& read )
+    {
+        return std::format( "cut at byte {} of {}", read.At, read.Size );
     }
 
     std::vector<std::byte> EncodeOffer( const OfferHeader& header, const PawnSimulation::HandoverPawn& pawn )
@@ -160,41 +196,57 @@ namespace Desert::Net::Handover
         return w.Take();
     }
 
-    bool DecodeOffer( std::span<const std::byte> body, OfferHeader& header, PawnSimulation::HandoverPawn& pawn )
+    DecodedOffer DecodeOffer( std::span<const std::byte> body, OfferHeader& header,
+                              PawnSimulation::HandoverPawn& pawn )
     {
-        Wire::Reader  r( body );
+        // A field that does not fit leaves the reader at its first byte, so r.At() before a read is where the
+        // read stops whether the field did not fit or its value is past its range.
+        Wire::Reader      r( body );
+        const std::size_t size       = body.size();
+        bool              headerRead = false;
+        const auto        stop = [&]( std::size_t at ) { return DecodedOffer{ CutAt( at, size ), headerRead }; };
+        if ( !ReadKey( r, header.Key ) || !r.U32( header.Epoch ) || !r.U32( header.To ) || !r.U32( header.Step ) ||
+             !r.U32( header.Gateway ) )
+            return stop( r.At() );
+        headerRead = true; // the key to answer under is known from here on
+
         std::uint8_t  hasProcessed = 0;
         std::uint32_t processed = 0, pending = 0;
-        if ( !ReadKey( r, header.Key ) || !r.U32( header.Epoch ) || !r.U32( header.To ) || !r.U32( header.Step ) ||
-             !r.U32( header.Gateway ) || !r.U32( pawn.Player ) || !r.U64( pawn.Account ) || !r.U32( pawn.Index ) ||
-             !r.Pawn( pawn.State ) || !r.U8( hasProcessed ) || hasProcessed > 1 || !r.U32( processed ) ||
-             !r.Move( pawn.Move ) )
-            return false;
+        if ( !r.U32( pawn.Player ) || !r.U64( pawn.Account ) || !r.U32( pawn.Index ) || !r.Pawn( pawn.State ) )
+            return stop( r.At() );
+        if ( const std::size_t at = r.At(); !r.U8( hasProcessed ) || hasProcessed > 1 )
+            return stop( at );
+        if ( !r.U32( processed ) || !r.Move( pawn.Move ) )
+            return stop( r.At() );
         std::uint8_t hasPlacement = 0;
-        if ( !r.U8( hasPlacement ) || hasPlacement > 1 )
-            return false;
+        if ( const std::size_t at = r.At(); !r.U8( hasPlacement ) || hasPlacement > 1 )
+            return stop( at );
         pawn.Placement.reset();
         if ( hasPlacement )
         {
             using EWhy = PawnSimulation::PendingPlacement::EWhy;
             PawnSimulation::PendingPlacement placement;
             std::uint8_t                     why = 0;
-            if ( !r.Vec( placement.Feet ) || !r.U8( why ) || why > static_cast<std::uint8_t>( EWhy::Teleport ) ||
-                 !r.U32( placement.Waited ) )
-                return false; // a reason past the last one is a malformed record, not a guess
+            if ( !r.Vec( placement.Feet ) )
+                return stop( r.At() );
+            // A reason past the last one is a malformed record, not a guess.
+            if ( const std::size_t at = r.At(); !r.U8( why ) || why > static_cast<std::uint8_t>( EWhy::Teleport ) )
+                return stop( at );
+            if ( !r.U32( placement.Waited ) )
+                return stop( r.At() );
             placement.Why  = static_cast<EWhy>( why );
             pawn.Placement = placement;
         }
-        if ( !r.U32( pending ) || pending > InputRing::kCapacity )
-            return false;
+        if ( const std::size_t at = r.At(); !r.U32( pending ) || pending > InputRing::kCapacity )
+            return stop( at );
         pawn.LastProcessed.reset();
         if ( hasProcessed )
             pawn.LastProcessed = processed;
         pawn.Pending.resize( pending );
         for ( InputStep& input : pawn.Pending )
             if ( !r.InputStepFull( input ) )
-                return false;
-        return r.Done();
+                return stop( r.At() );
+        return DecodedOffer{ End( r, size ), headerRead };
     }
 
     std::vector<std::byte> EncodeAccept( const Verdict& verdict )
@@ -210,14 +262,13 @@ namespace Desert::Net::Handover
         return EncodeVerdictAs( EMessage::Withdraw, verdict, nullptr );
     }
 
-    bool DecodeVerdict( std::span<const std::byte> body, Verdict& verdict, Refusal* refusal )
+    Decoded DecodeVerdict( std::span<const std::byte> body, Verdict& verdict, Refusal* refusal )
     {
         Wire::Reader r( body );
-        if ( !ReadKey( r, verdict.Key ) || !r.U32( verdict.Sim ) || !r.U32( verdict.Step ) )
-            return false;
-        if ( refusal && !ReadRefusal( r, *refusal ) )
-            return false;
-        return r.Done();
+        if ( !ReadKey( r, verdict.Key ) || !r.U32( verdict.Id ) || !r.U32( verdict.Sim ) ||
+             !r.U32( verdict.Step ) )
+            return CutAt( r.At(), body.size() );
+        return ReadTail( r, body.size(), refusal );
     }
 
     std::vector<std::byte> EncodeCommit( const Decision& decision )
@@ -233,14 +284,12 @@ namespace Desert::Net::Handover
         return EncodeDecisionAs( EMessage::Refused, decision, &refusal );
     }
 
-    bool DecodeDecision( std::span<const std::byte> body, Decision& decision, Refusal* refusal )
+    Decoded DecodeDecision( std::span<const std::byte> body, Decision& decision, Refusal* refusal )
     {
         Wire::Reader r( body );
         if ( !ReadKey( r, decision.Key ) || !r.U32( decision.Id ) || !r.U32( decision.Epoch ) ||
              !r.U32( decision.Step ) )
-            return false;
-        if ( refusal && !ReadRefusal( r, *refusal ) )
-            return false;
-        return r.Done();
+            return CutAt( r.At(), body.size() );
+        return ReadTail( r, body.size(), refusal );
     }
 } // namespace Desert::Net::Handover

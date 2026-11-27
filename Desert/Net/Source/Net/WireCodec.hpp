@@ -191,6 +191,13 @@ namespace Desert::Net::Wire
         {
             return m_Data.subspan( m_At );
         }
+        // The bytes read so far: after a field that did not fit, the byte that field begins at (a value read whole
+        // and refused - a non-finite float, an empty string - is behind it). A decoder names it in a refusal
+        // ("cut at byte N of M", HandoverWire.hpp Decoded).
+        [[nodiscard]] std::size_t At() const
+        {
+            return m_At;
+        }
         // Whole message read, nothing left over.
         [[nodiscard]] bool Done() const
         {
