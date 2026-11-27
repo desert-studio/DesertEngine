@@ -272,15 +272,18 @@ namespace Desert::Physics
         inline JPH::Quat ToJolt( const glm::quat& q ) { return JPH::Quat( q.x, q.y, q.z, q.w ); }
         inline glm::vec3 ToGlm( JPH::RVec3Arg v ) { return glm::vec3( v.GetX(), v.GetY(), v.GetZ() ); }
         inline glm::quat ToGlm( JPH::QuatArg q ) { return glm::quat( q.GetW(), q.GetX(), q.GetY(), q.GetZ() ); }
-        // A narrow-phase ray result as a RayHit: the body, the distance along the ray, the point and its normal.
+        // A narrow-phase ray result as a RayHit: the body, the distance along the ray, the point and its normal
+        // (@p normalIfGone when the body can no longer be locked).
         [[nodiscard]] RayHit RayHitOf( const JPH::PhysicsSystem& system, const JPH::RRayCast& ray,
-                                       const JPH::RayCastResult& result, float maxDistance )
+                                       const JPH::RayCastResult& result, float maxDistance,
+                                       const glm::vec3& normalIfGone = { 0.0f, 1.0f, 0.0f } )
         {
             RayHit hit;
             hit.Body               = result.mBodyID.GetIndexAndSequenceNumber();
             hit.Distance           = result.mFraction * maxDistance;
             const JPH::RVec3 point = ray.GetPointOnRay( result.mFraction );
             hit.Point              = ToGlm( point );
+            hit.Normal             = normalIfGone;
             JPH::BodyLockRead lock( system.GetBodyLockInterface(), result.mBodyID );
             if ( lock.Succeeded() )
                 hit.Normal = ToGlm(
@@ -1721,7 +1724,9 @@ namespace Desert::Physics
         m_Impl->System.GetNarrowPhaseQuery().CastRay( ray, settings, collector, {}, blocking, notCharacter );
         if ( !collector.HadHit() )
             return std::nullopt;
-        return RayHitOf( m_Impl->System, ray, collector.mHit, maxDistance );
+        // Both: a body gone has no side (a zero normal), never a default "up" that reads as a back face.
+        return RayHitOf( m_Impl->System, ray, collector.mHit, maxDistance,
+                         faces == ERayFaces::Both ? glm::vec3( 0.0f ) : glm::vec3( 0.0f, 1.0f, 0.0f ) );
     }
 
     float PhysicsWorld::GetGravity() const

@@ -70,9 +70,12 @@ namespace Desert::Physics
     // Which sides of a surface a ray meets (UE FHitResult::bStartPenetrating: the query says which side it met).
     enum class ERayFaces : std::uint8_t
     {
-        Front, // only surfaces facing the ray; a ray starting inside a convex meets it at distance 0
+        Front, // only surfaces facing the ray; a ray starting inside a convex meets it at distance 0. A mesh or
+               // heightfield triangle facing away from the ray is passed: the downward FloorBelow ray does not
+               // meet a mesh triangle whose front faces down (the inside of a closed mesh, a flipped winding)
         Both   // back faces too, and a convex is hollow: a ray from inside meets its exit face, whose normal
-               // points along the ray - dot(RayHit::Normal, direction) > 0 tells a back face from a front one
+               // points along the ray - dot(RayHit::Normal, direction) > 0 tells a back face from a front one.
+               // A hit whose body can no longer be read has a zero normal: neither side
     };
 
     struct CharacterDesc

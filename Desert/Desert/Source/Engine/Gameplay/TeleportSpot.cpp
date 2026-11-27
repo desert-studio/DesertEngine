@@ -1,7 +1,9 @@
 #include <Engine/Gameplay/TeleportSpot.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <numbers>
@@ -52,12 +54,16 @@ namespace Desert::Gameplay
 
         // One probe's answer, the cases in order (UE FindTeleportSpot / ComponentEncroachesBlockingGeometry: the
         // traces go by the pawn's channel, an unresolved spot is refused - never pushed onto whatever is above).
-        //  Under: ONE upward ray from the point, back faces met (SurfaceAbove), meets the BACK of a surface first
-        //    - the point is under or inside that body (a heightfield, a mesh floor, a box): its top is a candidate.
-        //    The feet stand on a candidate only when the capsule fits there AND the ray from the stood feet meets
-        //    no back face (nothing, or a ceiling's underside): a landed pawn is never under a one-sided surface,
-        //    and never on a roof it was not inside. A candidate the capsule does not fit on, or a front face, is
-        //    passed and the walk goes on from the skin above it, up to LiftCm; no stand there: refused.
+        //  Under: ONE upward ray from the point, back faces met (SurfaceAbove), by ray parity per body: a front
+        //    face enters its body, a back face of a body the ray entered leaves it, and the first back face of a
+        //    body the ray has NOT entered says the point is under or inside that body (a heightfield, a mesh
+        //    floor, a box) - a buried mesh or rock passed on the way up does not make the point free. Its top is a
+        //    candidate, and so is every top above it (the back face of any body) while the walk lifts: front
+        //    faces are entered and passed. The feet stand on a candidate only when the capsule fits there AND the
+        //    same parity walk from the stood feet meets no back face of a body it has not entered: a landed pawn
+        //    is never under a one-sided surface, and never on a roof it was not inside. A candidate the capsule
+        //    does not fit on is passed and the walk goes on from the skin above it, up to LiftCm; no stand there,
+        //    or more bodies entered at once than the walk holds: refused.
         //  Otherwise the floor straight below within DropCm: a free point keeps its height unless that floor is
         //    within the step height (snapped onto it); an encroached point (feet in the floor) is set onto a floor
         //    within the step height, else it is blocked. No floor below a free point: refused.
@@ -81,30 +87,119 @@ namespace Desert::Gameplay
             std::string           Why;
         };
 
+        // The bodies whose front face one upward walk met and whose back face it has not met yet: the bodies the
+        // ray is inside of now (ray parity per body). A fixed few - a ray inside more at once is refused by name.
+        class EnteredBodies
+        {
+        public:
+            static constexpr std::size_t kMax = 8;
+
+            [[nodiscard]] bool Has( std::uint32_t body ) const
+            {
+                const auto end = m_Bodies.begin() + m_Count;
+                return std::find( m_Bodies.begin(), end, body ) != end;
+            }
+            // False when the walk holds kMax bodies already.
+            [[nodiscard]] bool Enter( std::uint32_t body )
+            {
+                if ( Has( body ) )
+                    return true;
+                if ( m_Count == kMax )
+                    return false;
+                m_Bodies[m_Count++] = body;
+                return true;
+            }
+            void Leave( std::uint32_t body )
+            {
+                const auto end = m_Bodies.begin() + m_Count;
+                const auto it  = std::find( m_Bodies.begin(), end, body );
+                if ( it == end )
+                    return;
+                *it = m_Bodies[--m_Count];
+            }
+
+        private:
+            std::array<std::uint32_t, kMax> m_Bodies{};
+            std::size_t                     m_Count = 0;
+        };
+
+        enum class EWalk : std::uint8_t
+        {
+            Under, // @p hit is the back face of a body the walk had not entered: the start is under or inside it
+            Free,  // up to the lift's top every body met was entered and left, or entered only (a ceiling)
+            Full   // more bodies entered at once than EnteredBodies holds
+        };
+        // The parity walk up the column of @p point from @p hit (the first surface the ray from the start met) to
+        // @p liftTop: front faces enter, back faces of entered bodies leave; stops at the back face of a body not
+        // entered, @p hit left on it.
+        [[nodiscard]] EWalk WalkToUnder( std::optional<SurfaceAbove>& hit, EnteredBodies& entered,
+                                         const NetVec3& point, float liftTop, const IPawnMoveWorld& world,
+                                         const TeleportSearch& search )
+        {
+            while ( hit )
+            {
+                if ( hit->Underside )
+                {
+                    if ( !entered.Enter( hit->Body ) )
+                        return EWalk::Full;
+                }
+                else if ( entered.Has( hit->Body ) )
+                    entered.Leave( hit->Body );
+                else
+                    return EWalk::Under;
+                const float from = hit->Y + search.SkinCm;
+                if ( from >= liftTop )
+                    return EWalk::Free;
+                hit = world.SurfaceAbove( Raised( point, from - point.Y ), liftTop - from );
+            }
+            return EWalk::Free;
+        }
+
+        [[nodiscard]] std::string FullWhy()
+        {
+            return std::format( "inside more than {} bodies at once on its upward ray", EnteredBodies::kMax );
+        }
+
         [[nodiscard]] ProbeResult Probe( const NetVec3& point, const PawnCapsule& capsule,
                                          const PawnMoveSettings& settings, const IPawnMoveWorld& world,
                                          const TeleportSearch& search )
         {
-            // A front face first (a ceiling) or nothing above: the point is free of surfaces above it.
-            std::optional<SurfaceAbove> hit = world.SurfaceAbove( point, search.LiftCm );
-            if ( hit && !hit->Underside )
+            const float                 liftTop = point.Y + search.LiftCm;
+            EnteredBodies               entered;
+            std::optional<SurfaceAbove> hit   = world.SurfaceAbove( point, search.LiftCm );
+            const EWalk                 first = WalkToUnder( hit, entered, point, liftTop, world, search );
+            if ( first == EWalk::Full )
+                return { std::nullopt, FullWhy() };
+            if ( first == EWalk::Under )
             {
-                const float liftTop = point.Y + search.LiftCm;
-                const float depth   = hit->Y - point.Y;
+                const float depth = hit->Y - point.Y;
                 while ( hit )
                 {
-                    const float from = hit->Y + search.SkinCm; // where the walk goes on when this surface is passed
-                    if ( !hit->Underside )
+                    if ( hit->Underside )
+                    {
+                        if ( !entered.Enter( hit->Body ) )
+                            return { std::nullopt, FullWhy() };
+                    }
+                    else
+                    {
+                        entered.Leave( hit->Body ); // a top: the walk is out of its body here
                         if ( const std::optional<Stand> stand = StandOn( point, hit->Y, capsule, world, search ) )
                         {
-                            const float upCm = liftTop - stand->Feet.Y;
-                            const std::optional<SurfaceAbove> over =
+                            const float                 upCm = liftTop - stand->Feet.Y;
+                            EnteredBodies               overEntered;
+                            std::optional<SurfaceAbove> over =
                                  upCm > 0.0f ? world.SurfaceAbove( stand->Feet, upCm ) : std::nullopt;
-                            if ( !over || over->Underside )
+                            const EWalk above = WalkToUnder( over, overEntered, point, liftTop, world, search );
+                            if ( above == EWalk::Full )
+                                return { std::nullopt, FullWhy() };
+                            if ( above == EWalk::Free )
                                 return { Probed{ *stand, EProbed::Under, point.Y - hit->Y }, {} };
-                            hit = over; // still under a one-sided surface: its top is the next candidate
+                            hit     = over; // still under a body: its top is the next candidate
+                            entered = overEntered;
                             continue;
                         }
+                    }
+                    const float from = hit->Y + search.SkinCm; // the walk goes on above this surface
                     if ( from >= liftTop )
                         break;
                     hit = world.SurfaceAbove( Raised( point, from - point.Y ), liftTop - from );
