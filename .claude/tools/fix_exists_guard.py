@@ -97,6 +97,8 @@ def main():
 if __name__ == "__main__":
     try:
         sys.exit(main())
+    except ValueError:  # a file on another drive is not a file of this tree: nothing to advise, nothing to print
+        pass
     except Exception as exc:  # a broken advisory hook must not block edits
         print(f"[fix_exists] skipped: {exc}", file=sys.stderr)
         sys.exit(0)

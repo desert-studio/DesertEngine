@@ -4,10 +4,13 @@
 # usage: build_land.sh <land tree> <log> [scn]
 [ $# -ge 2 ] || { echo "usage: build_land.sh <land tree> <log> [scn]"; exit 2; }
 rm -f "$2.rc"
-# The architecture ratchet (DEV_CONTRACT 00e) before the batch spends an hour of compile time.
+# The architecture ratchet (skill desert-engine-architecture) before the batch spends an hour of compile time.
 python3 "$1/scripts/Dev/arch_census.py" || { echo "build_land: the architecture census rose"; exit 2; }
 export DESERT_NINJA_ARGS="-k 0"   # one build shows every compile error of the batch, not the first one
-bash C:/aftmp/build_low_run.sh "$@"
+# play_scenario.py needs Editor and DesertCtl in build/Bin, and a network scenario also DesertServer and DesertNetProbe
+# (11-26: a stale server spoke protocol 7 to an Editor on 8, and WP-FAR-15 never joined).
+if [ "$(uname)" = Darwin ]; then bash ~/.claude/tools/build_quiet.sh "$1" "$2" Editor DesertCtl DesertServer DesertNetProbe
+else bash C:/aftmp/build_low_run.sh "$@"; fi
 rc=$?
 echo "$rc" > "$2.rc"
 exit $rc

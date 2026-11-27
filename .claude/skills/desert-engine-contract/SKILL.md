@@ -1,432 +1,88 @@
 ---
 name: desert-engine-contract
-description: >
-  The engineering contract this project is reviewed against — what may not ship (TODOs, stubs,
-  dead settings, silent fallbacks, legacy paths), what every change must do (interface first,
-  layers unmixed, one source of truth per value, centimetre units, per-frame renderer state),
-  how migrations are done (immediately, in the files, tested), and how work is delivered and
-  reviewed. Use this when starting or finishing a task, deciding whether something is ready to
-  hand over, adding a parameter or a component field, replacing an existing subsystem, changing a
-  serialized format, or working alongside other people on the same repo.
+description: The delivery contract of DesertEngine — what cannot ship, the definition of done, the no-legacy migration rule, the measured refusal, and which of the three settings files (editor.json, .deproj, .desce) owns a new field. Use before handing in any task, when reviewing a hand-in, when adding a serialized field or a setting, or when deciding whether a task is finished.
 ---
-
-**Владелец 10-29 — два параметра всегда: АРХИТЕКТУРА И NEXTGEN; вид — из ассетов, код — только размещение/LOD** (DEV_CONTRACT §00b).
-
-
 # The delivery contract
 
-**A feature goes whole and once** (`DEV_CONTRACT.md` 00e, owner 2026-11-25): skill `desert-engine-feature`.
+This file owns four things: what cannot ship, what "done" means, how old data and old paths die, and where a setting is stored. Everything else has its own owner and is not repeated here:
 
-**This applies to the whole repository, not to one programme.** The rules were first written down
-for the sky-and-clouds work, which is where the defects that motivate them were paid for, but every
-one of them is about how code is delivered here and none of them is about clouds.
+| Rule | Owner |
+|---|---|
+| layers, ownership, one source of truth, patterns | skill `desert-engine-architecture` |
+| how a feature runs (design, packages, file ownership, review, build, landing) | skill `desert-engine-feature` |
+| engine conventions and performance | skill `desert-engine-dev` |
+| scenarios, frames, measurements | skill `desert-engine-verify` |
+| calls, read ranges, brief and report sizes, waiting | `.claude/tools/limits.py`; the hook prints them at the start of every run |
+| who builds, who lands | `CLAUDE.md`, «Build and run» |
 
-The authority is the file bundled next to this one, **`DEV_CONTRACT.md`** (Russian) — read it when a
-rule's wording or its history matters, because it carries the specific defect behind each rule. This
-SKILL.md is its operative core.
+**Unfinished code does not exist in a branch.** If a task needs a dependency, write the dependency and then the task. A task ships whole or it does not ship; the size is counted honestly once, in the design.
 
-**The contract used to live at `Docs/Clouds/DEV_CONTRACT.md` and no longer does.** `Docs/` was taken
-out of version control on 2026-09-04 — it is a working directory for one person on one machine and
-is not shared. The bundled copy here is now the only tracked one, and it was promoted from the
-Docs copy at that moment because the bundle had gone stale: 260 lines against 343, missing among
-other things the MoltenVK environment variables without which the editor dies before its first
-frame. **If you edit the contract, edit it here.** Any surviving citation of `Docs/Clouds/DEV_CONTRACT.md`
-in a source comment points at a path a fresh clone does not have.
+## Cannot ship (any one is a return)
+1. `TODO`, `FIXME`, `XXX`, `HACK` in new code. What is out of scope is a line of the report, not a comment in the source.
+2. A stub: a function returning a constant "for now", an empty body "so it links", a parameter accepted and ignored.
+3. A dead setting. Every exposed parameter is wired end to end: component → serialization → editor UI → GPU → a visible effect.
+4. A silent fallback. A resource that did not load, a size that did not match, a shader that did not compile is logged with names and numbers and returned as an error; a default is never substituted quietly.
+5. An empty successful answer. "Zero results" and "not ready yet" must be distinguishable by the caller. The shape to look for: a container filled from the same source as the question asked of it (a census built from the keys the source still offers can never contain the removed one).
+6. A new third-party dependency without the owner's written yes.
+7. A second path beside the old one (see «No legacy»).
+8. A push to `dev`. An agent commits and pushes its own task branch; integration is the lead's.
 
-**How to use it:** the rules in §1 are absolute; a change that breaks one is returned regardless of
-how good the rest is. Everything else is judgement, and the contract says which way to lean.
+## Required
+- **Read the file, not the line.** Opening a file for one constant, also ask what the file's design is and whether it is right, and name what you find in the report even when it is outside the task. Architectural defects sit in files that work; a finding costs one line, not finding it costs the later rewrite.
+- **Text is formatted, never glued.** `std::format` / `std::format_to` into one buffer with a literal format string; a shape used twice is one named function or one `constexpr std::string_view`; text a user reads goes through Localization with named arguments; JSON and manifests go through their writer (`Common/Json/Json.hpp`); paths are `std::filesystem::path` joined with `/`. A glued line you touch is migrated in the same change.
+- **Per-frame renderer state.** A new uniform or storage buffer, material or descriptor set stores its state per (frame × renderer slot). Breaking this looks like "the preview shows the viewport's camera".
+- **Errors are values**: `Common::BoolResultStr` / `Common::ResultStr<T>` with `NO_DISCARD`, as in the neighbouring code; not a bare `bool`, not an `assert` standing in for handling.
+- **Comments say why, in English**: the symptom this solves and what the naive version would do. Naming and formatting follow the neighbouring code; clang-format is applied by the hook on every edit.
 
----
+## Definition of done
+1. The package is whole: every difference the design assigns to it (`Закрывает:`) is closed, with `file:line` in the report.
+2. Nothing from «Cannot ship»; no new compiler warning expected (re-read every changed file once as the compiler would: types, includes, both sides of every shader binding).
+3. `python scripts/Dev/arch_census.py` reports no rise.
+4. Serialized data the package owns is migrated in the files, in the same branch.
+5. The scenario of the feature exists and states every «Тогда [кадр]» of the design; the batch build and the frames are the lead's and the `acceptance` agent's proof, not the author's claim.
+6. The report says what was done, what was decided and why, what differs from the design and for what reason, and what only the build or a frame can prove. A divergence you name is a discussion; one found on review is a return.
+7. The owner's audit, answered in writing for the questions the task deserves: Is this the right shape or the easiest one from here? Is it convenient for the person who uses it daily? What can be fixed cheaply while we are here? What is unfinished? What does it open up? "Landed with a named remainder" is not done: the remainder is closed, or it is filed and the parent stays open until it lands.
 
-## 00. A R C H I T E C T U R E comes first (owner, 2026-09-29)
+## Scenarios run through a queue, one runner per machine (owner 11-26, SCN-QUEUE)
+As UE Gauntlet/Horde: a scenario run is a job in a queue, not a wait in the lead's head.
+- The lead, or the agent handing in a branch, only adds a job: card code, tree, `.scn`. Waiting for the editor, or waking the lead because "the editor is free", is not allowed.
+- Each machine has one runner (`acceptance`). It takes jobs in order without pauses, plays `play_scenario.py`, looks at the frames and writes the verdict to the card. There is still one editor per machine.
+- Windows is the second runner with its own queue. Render scenarios with HW RT, and anything a Windows frame must prove, go there; the rest go to the first free machine.
 
-The decision is **how it is structured correctly** (as UE does it or better: clear responsibilities, one source of truth, no legacy,
-no fallbacks) — not what is cheaper, faster or "enough for now". Not acceptable as a solution: a time budget instead of completeness,
-a reduced scope ("meshes only", "the scene only"), a guess ("the first pass", "if the texture is bigger than 1x1"), a bridge to the old
-path. A measurement PROVES the right structure works; it never selects a reduced one. Only the owner may reduce scope. Out of calls →
-hand over part of it with a REMAINDER, never a compromise in code.
+## A measured refusal counts as done
+If the work does not earn its cost, the deliverable is the measurement and the refusal. The rules that make it a refusal and not a shrug:
+- Numbers, not impressions: what was measured, on what, and the noise floor.
+- What it stands on: the nature of the task (does not age), our own content (we measured OUR input; such a refusal carries a return condition), or a premise that has since expired (the refusal is void).
+- Recorded where it will be found: the commit message, the card, a comment at the site.
+- A hypothesis you disproved gets the same treatment.
+- A refusal that is reviewed has two outcomes only: it is justified again in writing, or a task is filed. On a return the input is changed first and measured second; re-measuring the old input repeats the old answer.
 
+Still forbidden: shipping something that never fires, a knob that hides a defect, a budget constant raised until one camera angle looks acceptable.
 
-### 00a. UE is a reference, not the standard (owner, 2026-10-12)
-"If UE implements a feature in a way that is architecturally wrong, you must tell me." We do not copy UE verbatim where the architecture can be better. For every feature taken from UE, check responsibilities (what the engine knows vs. game/data/script), the single source of truth and coupling. Where UE mixes layers, hardcodes, keeps legacy or is shaped by its own history, say so to the owner BEFORE coding: "UE does X; architecturally better is Y, because ...". The owner decides; never copy UE silently and never deviate from it silently.
-**Chose UE's architecture → port the CODE, not just the logic (owner 2026-10-12):** C++ and shaders (.usf/.ush) from ~/Desktop/Programming/UE-reference, adapted to the project's style (std containers, our names, no UE shims). Epic waiver conditions (Docs/LICENCE_RECORD.md): no UNMODIFIED UE binaries in the product; valid until the current commercial project ends. Briefs name the exact UE files to port. Where we chose our own (better) architecture, the code is ours.
-**Primary platform is Windows; quality over effort (owner 2026-10-12).** Rendering is designed from Windows: Vulkan hardware ray tracing is the main quality path, a software path serves Mac and weak GPUs. Quality is never cut for Mac. A rendering feature is proven by a Windows frame.
+## No legacy — migrate at once, in the files
+1. The old path is deleted by the change that replaces it: a moved field is gone from the struct, the serialization, the UI and the shader. No "deprecated but still read", no flag, no `#ifdef`, no two branches in the renderer.
+2. No double writes to the old and the new place.
+3. Data migrates once: a file has a version, the migration raises N to N+1 explicitly, the runtime knows only the new model.
+4. The migration function is pure: old property tree in, new one out; no GPU, files or global state; missing and malformed fields are handled and logged.
+5. Scenes and assets in the repository (`Projects/*/Content/`) are converted by the same task through `scripts/Dev/migrate.sh` and committed.
+6. Migration code names the two versions it connects in a comment. It destroys the old format; it does not support it.
+7. A migration logs which file, from which version to which, and how many fields moved.
 
----
+Rolling back is `git revert`, never a kept copy of the old subsystem.
 
-## 0. The rule the rest follow from
+## Where a setting goes: three files, one question order
+- `~/.desertengine/editor.json` — one person's copy of the editor: what an installation remembers across projects, and what two people on one project may hold differently at the same moment. Never anything the shipped game needs: the packaged Runtime does not open this file.
+- `<Name>.deproj` — what the product is, for everybody: identity, where content lives, which level boots, the format version. Nothing that varies per level or per machine, nothing derivable.
+- `<Name>.desce` — what the world is: entities and the level-wide policy a designer authors (render path, shadows, grade, lens, wind, gravity). Not what a viewer draws on top, not what a machine can afford.
 
-**Unfinished code does not exist in a branch.** If a task needs a dependency to exist first, write
-the dependency and then the task. Not "a stub for now", not "we'll finish it later", not "left a
-TODO for whoever comes next". A task ships whole or it does not ship.
-
-That is expensive exactly once — at planning, when the size is counted honestly. After that it
-saves weeks, because nobody builds on sand.
-
----
-
-## 1. Cannot ship (any one of these is an automatic return)
-
-1. **`TODO`, `FIXME`, `XXX`, `HACK` in new code.** None. If something is not done, it is not
-   delivered. If something is deliberately out of scope, that is a line in the report, not a
-   comment in the source.
-2. **Stubs.** A function returning a constant "for now"; an empty body "so it links"; a parameter
-   accepted and ignored.
-3. **Dead settings.** Every parameter exposed to the outside must be wired end to end: component →
-   serialization → editor UI → GPU → a visible effect. A slider that moves nothing is a TODO
-   wearing a feature's clothes, and it is how systems end up where "half the settings don't work".
-4. **Silent fallbacks.** A resource that did not load, a size that did not match, a shader that did
-   not compile — log it with the reason and the actual numbers (`LOG_ERROR` with names and values).
-   Never substitute a default quietly. Debugging blind is the most expensive thing in graphics.
-   **An EMPTY SUCCESSFUL answer is a silent wrong answer, not a refusal.** Zero results and "not
-   ready yet" must be distinguishable by the caller, or the caller will read the first as the second
-   and be wrong with no way to tell. Two unrelated instances landed on one day: the control channel
-   answered `commands` with an empty `Open` group for the first ~90 seconds while the preloader ran,
-   and a client cannot tell "this project has no assets" from "ask again later"; and a content
-   census built its on-disk set from the keys the source was still offering, so the one file a
-   removal is about was the one it could never contain — every deletion became a no-op and **the
-   feature reported itself as working**. No test caught the second; a run of the real editor did.
-   The shape to watch for: a container whose contents are derived from the same source as the
-   question being asked of it.
-5. **New third-party dependencies without written agreement.** OpenVDB at runtime in particular: no.
-6. **Editing files another task owns.** Each task owns a file list. Need someone else's file — ask;
-   the answer is either to widen the ownership or to sequence the tasks. A conflict in a shared
-   header costs more than a minute of coordination.
-7. **`git push` and anything touching `dev`** when working as one of several developers —
-   integration is the lead's. Commits **inside your own worktree** are how work is handed over and
-   are expected. *(This one is conditional: when working solo with the user, they routinely ask for
-   commit-and-push directly. Follow what the user asks for now over the multi-developer default.)*
-8. **Keeping legacy alive.** See §4 — the old path is deleted by the same change that replaces it.
-
----
-
-## 2. Required
-
-### Read the file, not the line
-
-**Standing rule, added 2026-09-05 at the owner's insistence and after I earned it.** When you open a
-file for any reason — one constant, one call site, one grep hit — spend the extra minute on the
-question the visit did not ask: *what is this file's design, and is it right?* Then **say what you
-found**, even when it is outside your task. You are not required to fix it; you are required to name
-it.
-
-Why this is a rule and not a nicety: this project runs a defect-driven loop, where each task is born
-from what the last one found. That finds a great deal, and it is structurally blind to anything
-nobody has stumbled over yet. Architectural problems do not announce themselves — they sit in files
-that work.
-
-The failure this rule exists to stop, in the exact form it happened: I opened `AssetPreloader.cpp` to
-check one extension constant, looked at that one line, and reported the file fine. It walks the whole
-asset tree once *per asset type* (six passes over the mesh directory alone), `PreloadMeshes()` also
-loads textures, animations, skeletons and materials, `ReloadCooked()` calls `PreloadMeshes()` meaning
-"reload everything", a load-bearing ordering dependency is expressed only as statement order, and the
-extension→type mapping is twelve hand-written pairs with nothing asserting they agree. None of that
-was hidden. I read with a query instead of with judgement — the same "tool answering a different
-question" this document warns about elsewhere, applied to reading. The owner had to ask why they were
-finding these instead of me.
-
-A finding costs one paragraph in the report. Not finding it costs whatever it costs later.
-
-### Text is formatted, never glued (owner, 2026-09-29)
-A string built by `"[" + id + "] " + text` chains is returned. Text is made by a FORMAT, and a format has one home:
-- `std::format` / `std::format_to(std::back_inserter(out), …)` with a literal format string (checked at compile time);
-  in loops `format_to` into one buffer, not `+=` of temporaries.
-- A shape used more than once is ONE named function (`FormatNotifyLine(const Notify&)`) or one
-  `constexpr std::string_view k…Format` — never the same literal pieces repeated at two call sites.
-- Text a user reads in the UI goes through Localization (`LocaleFormat`, named arguments), not a literal in code.
-- Structured files (JSON, manifests) go through their writer (`Common/Json/Json.hpp`), never hand-built strings.
-- Paths are `std::filesystem::path` joined with `/`, never `dir + "/" + name`.
-- Existing glued lines (≈1,700 in 09-29) are migrated when a change touches them — the lines you change must follow
-  this rule; the changed-lines gate (FMT1) enforces it like clang-format.
-
-### Architecture
-
-- **Interface before implementation.** The header first: types, signatures, resource ownership,
-  invariants, with comments. Implementation after. If a task changes an agreed public interface,
-  say so before changing it.
-- **Layers do not mix.** `Engine/Core` knows nothing of Vulkan. `Engine/Graphic` knows nothing of
-  ImGui or the editor. The editor does not reach into the renderer's internals. Data (an ECS
-  component, serializable and POD-like) is separate from behaviour (a system or renderer).
-- **One source of truth per value.** A parameter that lives in a component is not duplicated into
-  `SceneSettings` "just in case". Duplicated state is a future desync bug.
-- **RAII for resources.** Anything created on the GPU is released deterministically, waiting for
-  device idle where that is required. Copy how the existing systems do it; do not invent a third way.
-- **1 world unit = 1 centimetre.** Layer altitudes, radii, distances — all centimetres. Numbers from
-  papers are almost always metres or kilometres: convert explicitly through `Common::Units::` and
-  write the original figure in the comment. Half the mystery bugs in this engine were metre-era
-  leftovers.
-
-### Conformance to the engine
-
-- **Per-frame renderer state is mandatory.** Any new uniform/storage buffer, material or descriptor
-  set stores its state per (frame × renderer slot) — see `Docs/RENDERER_FRAME_STATE.md`. Breaking it
-  looks like "the preview is peeking at the viewport camera" and takes days to find.
-- **Errors through `Common::BoolResultStr` / `NO_DISCARD`**, as in the neighbouring code. Not
-  exceptions, not a bare `bool`, not an `assert` standing in for handling.
-- **Comments say WHY, in English.** What symptom does this solve, and what would happen if it were
-  done naively. Not a restatement of the code.
-- **Naming and formatting follow the neighbouring code.** No new style per subsystem.
-
-### Verification
-
-Its own skill: **`desert-engine-verify`**. In one line — if the change alters what appears on
-screen, render a frame and look at it; "builds and tests pass" is not verification, and the four
-most expensive defects in this project all shipped built, tested and unseen.
-
----
-
-## 3. Definition of done
-
-1. `make Desert config=debug -j8` and `make Editor config=debug -j8` build clean. New files ⇒
-   `premake5 gmake` first (the generated makefiles list files explicitly, so new code silently
-   misses the build otherwise).
-2. No new compiler warnings.
-3. Formatting clean on changed lines under **llvm@18**:
-   `/opt/homebrew/opt/llvm@18/bin/git-clang-format --binary /opt/homebrew/opt/llvm@18/bin/clang-format`
-   (`git add` new files first — untracked files are skipped locally and checked by CI). Local v22
-   disagrees with CI. As a developer, check against **your branch's merge-base**, not `dev`;
-   checking against `dev` reformats other people's landed lines into your diff.
-3a. **Static analysis clean on changed lines under llvm@18**, the same keg as the formatter:
-   `scripts/CI/CheckTidy.sh <merge-base>` — 0 clean, 1 findings, **2 the gate could not run**, and 2
-   is never a pass. A macOS build runs it for you at the end unless you pass `--no-analyze`; CI runs
-   it as its own job. Changed lines and not the tree, for the same reason the formatter works that
-   way: `.clang-tidy` reports five figures of diagnostics over the workspace as it stands.
-3b. **How CheckTidy is run (owner, 2026-09-29 — measured, not taste).** One CheckTidy run takes
-   4+ minutes and they queue one after another on the machine; an agent that waits on it lets its
-   prompt cache expire and pays to re-read its whole context (L11c: 1.04 M units for 15 tidy lines,
-   247 k of them re-reading; ANV4f: 200 k). So:
-   - **Owner, 2026-09-30: suites, mutations, CheckTidy, CheckGluedText and the hand-off are run ONLY by the lead, ONCE, at
-     the end — on the integration branch before it goes to `dev`** (it may hold several features). An agent never runs
-     them (the guard refuses): it compiles its targets once at the end and lists "suites for the lead" and 2–3 mutations
-     (file:line → change → the test that must turn red) in its REMAINDER. Live checks stay with separate check-only agents.
-   - **A tidy-fix task gets the findings list (file:line + rule) and does NOT run CheckTidy at all.**
-     It fixes exactly those lines, runs the affected suite, formats the diff, commits. The re-check is
-     the hand-off's (`handoff_check.sh`), which runs tidy anyway. (M22c under this rule: 0 re-read.)
-   - **A tail of ≤ 25 mechanical findings after hand-off is fixed by the lead directly**, not by a new
-     agent: a separate agent for 20 lines cost 0.4 M and still skipped a file.
-   - Tidy on a **header alone** does not work (`'optional' file not found`); headers are checked
-     through a unit that includes them — that is what CheckTidy does, so don't improvise.
-   - After a **mutation** check, delete the suite's objects
-     (`build/Tests/Intermediates/Debug/Debug/<Suite>/*.o`) before the final run: a restored source
-     can leave the mutated object in place and turn the hand-off red (ANV4f, PreviewInput).
-3c. **No call longer than the prompt cache (owner, 2026-09-29 — measured).** An agent's cache lives 5 minutes; every
-   gap longer than that (a long foreground call, or ending the turn to wait for a background job) re-reads the whole
-   context at 1.25× (L10a2: 299 k of 996 k; gaps of 6–8 min, each ~100 k). A 4-minute blocking wait costs ~0.1× the
-   context. So: anything that can run past 4 minutes goes `run_in_background`, and is waited on with
-   `~/.claude/tools/wait_bg.sh <output-file>` (builds: `build_wait.sh <log>`), ≤ 4 minutes per call, turn not ended.
-   The guard refuses a foreground `timeout` above 280 s. Heavy FINAL checks (full suites, final Editor build, CheckTidy,
-   corpus migration check) are the lead's, in the background; their errors go to a FRESH agent with the error list and
-   the branch diff — returning the author costs a full cache rebuild anyway, unless the failure is about the design.
-4. No new TODOs, stubs or dead parameters.
-5. Tests on the pure logic, written and passing — **all suites, not the matching one**, and frames
-   if the render changed. See `desert-engine-verify`.
-6. **A report.** What was done; what was decided and why; **what differs from the requirements and
-   for what reason**; what was left out of scope deliberately. A divergence you name is a
-   discussion. A divergence found on review is a return.
-7. **The owner's audit, run on yourself before you call it done** (his standing rule, 2026-09-07).
-   A task is finished when **everything the owner said about it is closed**, or the work **captures
-   the essence** of what he asked — *and* when your own audit leaves no open question. The questions
-   are not a ritual; pick the ones the task deserves and **answer them in writing**:
-   - **Did we build it right?** Not "does it work" — is this the right shape, or the shape that was
-     easiest from here?
-   - **What is still worth improving?**
-   - **Is it convenient?** Would the person who uses this every day thank us or work around us?
-   - **What can be fixed now, cheaply, while we are here?**
-   - **What is left unfinished?** Name it. "Landed with a named remainder" is NOT done.
-   - **What does this open up?** A seam that now makes three other things possible is part of the
-     result and belongs in the report.
-
-   **The trap this closes:** a task can pass 1–6 completely — builds, tests, frames, honest report —
-   and still be unfinished, because the report *names* the remainder instead of closing it. Naming a
-   gap is the minimum, not the finish line. If the remainder genuinely belongs to another task, it
-   must be filed **and the parent stays open until that one lands**.
-
-### A measured refusal counts as done
-
-If the work turns out not to earn its cost, **the deliverable is the measurement and the refusal**,
-not a feature nobody should have shipped. That is a completed task, and this project has accepted
-several: an SDF step bound that could only ever fire in a sky with no clouds in it; a
-quarter-resolution atlas that cost a third of the channel it was meant to preserve; a 3D mip
-generator that was **built, measured at six tenths of a grey level, and removed again**; a weighted
-metering mask whose own control series moved the frame by one 8-bit level.
-
-The rules that make it a refusal rather than a shrug:
-
-- **Numbers, not impressions.** Say what you measured, on what, and what the noise floor was.
-- **Say what would change the answer.** ("This only pays once a stretch of sky can be declared
-  voxel-only.") The next person needs to know when to revisit.
-- **Record it where it will be found** — the commit message, the requirement entry, or a comment at
-  the site. A refusal nobody can find gets re-derived.
-- A hypothesis you **disproved** is worth the same treatment. Knowing that the height bands were not
-  the horizon fringe, or that shrinking the weather cell makes "clouds look too low" worse, saved
-  the next agent hours.
-
-What is still forbidden: shipping something that never fires, a knob that hides a defect instead of
-fixing it, or raising a budget constant until one camera angle looks acceptable.
-
----
-
-## 4. No legacy — migrate immediately, and in the files
-
-Compatibility "just in case" is how a project ends up with two paths forever, one of which nobody
-tests.
-
-1. **The old path is deleted by the change that replaces it.** A field moved to a new component is
-   gone from the struct, the serialization, the UI and the shader. Not "deprecated but still read",
-   not a "use the new system" flag, not an `#ifdef`, not two branches in the renderer.
-2. **No double writes.** Never write a value to both the old and the new place "so nothing breaks".
-3. **Data migrates once, at load, and is written back in the new form.** A scene has a version;
-   the loader raises N to N+1 through an explicit migration and then works only with the new model.
-   The runtime knows nothing about the old format.
-4. **The migration function is pure and tested.** In: the old property tree. Out: the new one. No
-   GPU, files or global state. The test covers missing and malformed fields.
-5. **Scenes in the repository are converted by the same task.** Everything under
-   `Resources/Assets/Scenes` is saved in the new format and committed. No file is left keeping the
-   old path alive.
-6. **Migration code has an expiry.** It raises a specific version to a specific version, and says so
-   in a comment. It does not "support the old format" — it destroys it.
-7. **Silent migration is forbidden.** Log which scene, from which version to which, and how many
-   fields moved.
-
-The same applies inside the code: when a new subsystem replaces an old one, the old implementation
-is deleted, not kept "in case we roll back". Rolling back is called `git revert`.
-
----
-
-## 5. Working in parallel
-
-- **Land before the next step** (owner, 2026-10-29: «почему так много неслитых веток??»). A branch is in dev within a day; a branch older than that gets no new feature step — only the work that lands it. Steps stacked on an unlanded branch make every other branch merge against it, and the integration build then finds one error per round. Each changed translation unit is compiled on its own before the push, so the one full build passes the first time.
-- **The shared backbone goes first, by one person** — component structures, serialization, editor
-  registration. Nobody else starts until it exists, or three people edit one header at once.
-- **After the backbone, work on non-overlapping files.** Shaders, the render pass, the editor UI.
-- **Own your files, ask for anyone else's.**
-- **Say which files you are fencing off**, and expect the same. When several people work at once the
-  scope fence is what makes a merge mechanical instead of archaeological — and the one conflict this
-  project actually hit was a scene file two people edited for unrelated reasons.
-- **`git stash` is shared across worktrees on this machine.** One `stash pop` pulled another
-  engineer's untracked files into an unrelated tree. Prefer explicit commits; if you must stash,
-  apply by name.
-- **The scratchpad is shared too, and it overwrites silently.** Two developers on one day each lost
-  a run to it: one had `shot.sh` replaced mid-task by another worktree's copy pointing at a
-  *different binary*, the other lost `sweep.sh` and `shot.sh` together, which killed a sweep. Nothing
-  warns you — the script simply becomes somebody else's and keeps running. **Prefix every scratch
-  file with your task's name**, and if a measurement disagrees with the one before it, check that the
-  script that produced it is still yours before you go looking for a defect in the code.
-- **The machine is shared too.** Rendering and timing while someone else renders produces numbers
-  that measure them, not you — see `desert-engine-verify` §5a before quoting a slope.
-
----
-
-## 6. Where a setting goes: three files, and the one question that decides
-
-Written down by К1 after the same question surfaced four times in a week (К2, К3, У6, У8, Д31) in the
-shape *one container holding things with different owners and different lifetimes*. Nothing anywhere
-said which file owned what, and the cost is measured: `ShowColliders: true` travelled through git in 55
-of the 73 scenes that stated it, and five image-quality fields still sit in the LEVEL file, so a weak
-machine cannot turn the picture down without editing a file that goes to everybody.
-
-**One sentence per file — what is in it and, above all, what is not:**
-
-- **`~/.desertengine/editor.json` — ONE PERSON'S COPY OF THE EDITOR.** What a user's own installation
-  must remember between sessions and across every project, and whose value two people on the same
-  project may legitimately hold differently at the same moment. NOT anything a second person opening
-  the project must see, and nothing the SHIPPED GAME needs — the packaged Runtime never opens this
-  file, so a value put here is a value taken away from the player.
-- **`<Name>.deproj` — WHAT THE PRODUCT IS, FOR EVERYBODY.** The few facts every process that opens
-  this project must agree on before any level exists: identity, where content lives, which level
-  boots, the format's own version. NOT anything that varies from level to level, NOT anything that
-  varies from machine to machine, and no field whose value is derivable — `Common/Core/Constants.hpp`
-  already refused fourteen folder-name fields on exactly that ground.
-- **`<Name>.desce` — WHAT THE WORLD IS.** The level's entities and the level-wide policy a designer
-  authors and expects to travel with the level: render path, shadows, the grade, the lens, wind,
-  gravity, the splash. NOT what a VIEWER draws on top of the world (К2 took ten fields out), and NOT
-  what a MACHINE can afford (К3 owes five).
-
-**For a new field — three questions, IN THIS ORDER. The order is the rule.**
-
-0. Does the field describe the FILE ITSELF — format version, unit generation, the name it is filed
-   under? Then it is FILE METADATA, belongs to whichever file it describes, and 1–3 do not apply.
-   Exactly four fields may claim this; a fifth is a conversation, not a row.
-1. **Would two people working on this project AT THE SAME TIME legitimately want different values?**
-   Yes → `editor.json`.
-2. **Does the value differ from one level to the next?** Yes → `.desce`.
+For a new field, in this order:
+0. Does it describe the file itself (format version, unit generation)? Then it is that file's metadata.
+1. Would two people working on the project at the same time legitimately want different values? → `editor.json`.
+2. Does the value differ from level to level? → `.desce`.
 3. Otherwise → `.deproj`.
 
-**Why question 1 comes first** is the only load-bearing part. Questions 2 and 3 are BOTH true of a
-quality knob — anti-aliasing does differ between levels if authored that way, and it is a project-wide
-default if set that way — so any order that asks them earlier finds it a home and stops. Question 1 is
-the only one whose "yes" is about a CONFLICT rather than a scope, and a conflict beats a scope: a value
-two people must be able to disagree about cannot live in a file they share, whatever else is true of it.
+Question 1 is first because it is about a conflict, and a conflict beats a scope: a quality knob answers "yes" to 2 and 3 as well, and any other order files it in a shared file. Quality knob or authored look? Set it to its cheapest value: the level is merely rendered worse → machine quality; the level is mis-authored (GI off is a darker room, not a coarser one) → level data.
 
-**Quality knob or authored look?** Set it to its cheapest value: has the level been MIS-AUTHORED, or
-merely RENDERED WORSE? Rendered worse → machine quality (`MeshLOD` off is byte-identical geometry near
-the camera). Mis-authored → level data that happens to cost something (Forward and Deferred disagree
-about cloud shadow on the ground; GI Off is a darker room, not a coarser one).
-
-**It is enforced, not merely written.** `Desert/Tests/Engine/ConfigOwnership` enumerates each file's
-fields through the same mechanism that WRITES that file, so a field added tomorrow reddens it before
-anyone remembers this document. Known violations sit in an explicit debt register and every row must
-name the task that owns moving it — the suite checks that, because an exception with no task name is
-unreadable in a month.
-
-**A fourth config file is a conversation with the owner, not a decision.** K3 has no valid
-"put it in `editor.json`" answer: all five quality fields are read by `SceneRenderer`, which the
-packaged game also runs, and `editor.json` is an Editor-target concept the Runtime never opens.
-
-**`editor.json` is THE per-user settings store, and the neighbours in `~/.desertengine` are not
-alternatives to it** — this matters because "user state" already has five files and only one of them
-is a place to put a setting:
-
-| file | what it is | may a setting go here? |
-|---|---|---|
-| `editor.json` | the user's editor settings | **yes — this is the one** |
-| `projects.json` | recent-projects registry, written by the engine AND the launcher | no: a cross-process registry, not settings |
-| `engines.json` | engine-install registry, same two writers | no: same |
-| `Layouts/*.ini`, `./imgui.ini` | opaque ImGui dock state, written and parsed by ImGui itself | no: we do not author its contents |
-| `asset_favorites.txt` | Content Browser pinned folders — plain text, absolute paths, unchecked write | **no, and it should not exist**: user state that belongs in `editor.json`, filed as debt |
-
-Note `imgui.ini` is resolved **relative to the working directory**, not to `~/.desertengine` — it is
-why a cross-tree pixel A/B silently compares two different viewport resolutions (`desert-engine-verify`
-§7).
-
----
-
-## 7. Context is the budget — how work is done, not only what is shipped (owner, 2026-09-24)
-
-Measured over ~30 agent tasks (`.claude/tools/agent_spend.py`): 60–70 % of the cost is the context being
-re-read on every turn, ~20 % is the cache rewritten after pauses over 5 minutes, ~10 % is output (priced 5×).
-Every token that enters the context is paid again on each later turn, so the rules below are part of the
-contract, for agents and for the lead alike:
-
-1. **Never read a whole file.** `grep -n` first, then at most ~80 lines of the range you need. Whole-file reads
-   of 7–12k tokens were the single largest item in the measured sessions.
-2. **Long output goes to a file**, and only its tail or a `grep` of it enters the context: builds, suite runs,
-   logs, `gh run view --log`.
-3. **Broad discovery is delegated — and the first step of every task is one Explore call** that returns the
-   map (files:lines to change, suites and censuses touched). After it, no tree-wide `grep -r`/`rg`/`find` in the
-   working context; a wider question is another Explore call. Measured 2026-09-24: no agent had used Explore,
-   and shell search alone was 25–38 % of every task.
-4. **Batch independent calls** into one; every call is a turn and every turn re-reads everything.
-5. **No pause between calls longer than 5 minutes** — an expired cache rewrites the whole context (up to
-   566k tokens in one measured task). Long builds run in the background and are polled in chunks under
-   5 minutes; the editor is built at most twice per task, iterations run on suites.
-6. **Proof is proportionate**: 3–5 mutations that attack the main invariant, a frame only when the change is
-   visible, the suites the change reaches plus the censuses — the full sweep only per the lead's batch rule.
-7. **Reports are short** (~40 lines): done, proven by (numbers), builds, what the brief got wrong, remainder.
-8. **Tasks are sized to ≤ 60 turns — a hard cap, no extensions** (owner, 2026-09-29). Measured over 618 tasks:
-   a turn costs ~8k units in an agent under 30 turns and ~19k past 90; agents past 90 turns were 45 % of all
-   spend. From turn 45 stop at a step boundary; at 60 push a `wip:` commit and leave `REMAINDER.md` in the
-   scratch directory (file:line, what to replace with what, what is proven) — a fresh agent finishes from it.
-   Size the task so it fits: one or two steps with a file:line plan.
-9. **Never wait for CI** (owner, 2026-09-29): push, report the run id, stop. An idle agent's cache expires and
-   the whole context is written again (CI12: 1.5 of 3.2 M units). The lead watches runs from a background shell.
-10. **Every refused call is a full turn** (~2.9k refusals ≈ 7 % of spend): use the allowed forms the guard puts
-   into the context after the first call (`sym.sh`, `grep -n` + `sed -n` ranges, `suite.sh`, `wip:` push)
-   instead of trying the forbidden one first.
-11. **Build through the shared ccache** and never rename a lane's worktree (the PCH pins absolute paths).
-
-## Related
-
-- `DEV_CONTRACT.md`, bundled beside this file — the authority, with the history behind each rule.
-- `desert-engine-verify` — how to prove a change works (§2.3, §2.3.1, §2.4 of the contract).
-- `desert-engine-dev` — how the engine is built: architecture, conventions, footguns.
+- A fourth config file is the owner's decision, not the task's.
+- The other files in `~/.desertengine` are not settings stores: `projects.json` and `engines.json` are cross-process registries, `Layouts/*.ini` and `imgui.ini` are ImGui's own state.
+- The rule is enforced by `Desert/Tests/Engine/ConfigOwnership`, which lists each file's fields through the code that writes the file; a known violation is a row of its debt register naming the task that owns the move.

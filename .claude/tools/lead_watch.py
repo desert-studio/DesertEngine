@@ -5,7 +5,7 @@ The lead is ~3/4 of the spend, and 84 % of the lead's cost is re-reading its own
 the levers are the NUMBER of lead wake-ups and the LENGTH of the lead context. This hook reads the lead's
 transcript incrementally after every tool call and puts a warning into the lead's context the moment a waste
 pattern appears; every REPORT_EVERY requests it reports the running totals and appends them to
-~/.claude/lead-spend.csv. Sub-agents are ignored (agent_guard watches them).
+limits.STUDIO_HOME/lead-spend.csv. Sub-agents are ignored (agent_guard watches them).
 
 Patterns:
   idle wake   — a turn woken by a notification / agent message that made no tool call (pure cost);
@@ -18,20 +18,23 @@ Patterns:
   big schema  — ToolSearch loading a large deferred schema (notion-query-data-sources ~20k) into the lead: it stays
                 in every later request (10-20: ToolSearch 17 % of the lead);
   long wait   — a foreground call with a timeout over the cache TTL keeps the lead open while nothing happens.
-Cost units as ledger.py: 5*out + 1.25*new input + 0.1*cache reads.
+Cost units as `studio.py accept`: 5*out + 1.25*new input + 0.1*cache reads.
 """
 import csv, json, os, re, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import limits
 
 # Windows: the hook event and our messages are UTF-8, not the console code page (cp1251 lost «Код» on 10-20).
 for _stream in (sys.stdin, sys.stdout, sys.stderr):
     _stream.reconfigure(encoding="utf-8")
 
-STATE_DIR = os.path.expanduser("~/.claude/lead-watch")
-CSV = os.path.expanduser("~/.claude/lead-spend.csv")
+STATE_DIR = limits.STUDIO_HOME + "/lead-watch"
+CSV = limits.STUDIO_HOME + "/lead-spend.csv"
 REPORT_EVERY = 20
 CONTEXT_LIMIT = 250_000
 CLEAR_AT = 130_000  # owner 11-24: 150k too late, 100k thrashed (a fresh compact starts at ~75k); the reminder also triggers auto_compact.py
-COMPACT_NOW = os.path.expanduser("~/.claude/tools/auto_compact.now")
+COMPACT_NOW = limits.STUDIO_HOME + "/auto_compact.now"
 CLEAR_EVERY = 10
 BIG_RESULT = 6_000
 DIG_PER_TURN = 6
@@ -175,7 +178,7 @@ def main():
         lines.append(f"/COMPACT: context {st['ctx']//1000}k > {CLEAR_AT//1000}k — /compact is typed AUTOMATICALLY ~6 s after this turn ends, "
                      "then a 'continue' prompt (auto_compact.py, owner 11-24). YOU decide: at a task boundary (slots full, hand-ins accepted) write "
                      "the handover and run `python3 .claude/tools/auto_compact.py --clear` — /clear is typed instead (owner: «clear тоже делай ты»). "
-                     "In this turn fill every free agent slot (up to 4) and TELL THE OWNER «контекст Nk — запускаю /compact» (or /clear)")
+                     "In this turn fill every free agent slot (limits.MAX_AGENTS) and TELL THE OWNER «контекст Nk — запускаю /compact» (or /clear)")
     if st["n"] - st["last_report_n"] >= REPORT_EVERY:
         st["last_report_n"] = st["n"]
         read_pct = round(100 * 0.1 * st["read"] / units) if units else 0
@@ -191,7 +194,7 @@ def main():
     with open(spath, "w") as f:
         json.dump(st, f)
     if lines:
-        msg = "[lead_watch] " + " | ".join(lines) + " — fix the cause now (LEAD_PROTOCOL §000d, memory lead-is-the-spend)."
+        msg = "[lead_watch] " + " | ".join(lines) + " — fix the cause now (.claude/LEAD_PROTOCOL.md)."
         print(json.dumps({"hookSpecificOutput": {"hookEventName": data.get("hook_event_name", "PostToolUse"),
                                                  "additionalContext": msg}}))
 

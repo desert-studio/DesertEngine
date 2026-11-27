@@ -1,53 +1,43 @@
 #!/usr/bin/env python3
-"""PreToolUse / PostToolUse guard that ENFORCES the agents' context budget (contract §7, brief «Контекст»).
+"""agent_guard — the hook that ENFORCES how agents are launched and how they spend their context.
 
-The rules were advice for a day and no agent followed them (measured 2026-09-24: zero Explore calls, shell
-search 25-38 % of every task, 95-180-turn tasks, cache rewrites of up to 566k tokens after long waits).
-The owner: «Заставь агентов выполнять это». So the rules are checked on every tool call of a SUB-AGENT:
+One process per hook event. `decide(data)` is a pure function of the event (plus the state files), so the
+self-check replays known-bad calls in-process: no child processes, no log rows, one line of output.
 
-  1. no tree-wide search in a worker's own context (grep -r, rg, git grep, find without -maxdepth) —
-     discovery goes to an Explore sub-agent, whose reading stays in its own context;
-  2. at most 60 tool calls per worker, a HARD cap no extension lifts (ledger 09-29: a call costs 8k at <=30 calls and
-     19k past 90; agents past 90 were 45 % of all spend) — from call 45 every result carries a stop reminder,
-     past the limit everything is refused except git, SendMessage and writing the REMAINDER/report (10-23: 80 + 20 calls
-     for the final step only — scenario, frames, commit; no edits, no code search, no command thrice in a row);
-  3. no `sleep` longer than 270 s in one call (the prompt cache expires at 5 minutes);
-  4. at most two editor builds per worker;
-  5. one `make` on the machine at a time, at most -j4 (16 GB RAM; 2026-09-24 parallel builds OOM-killed it);
-  6. one editor/runtime process (GPU) at a time (2026-09-24 concurrent editors hung WindowServer: kernel panic);
-  7. economy (ledger 2026-09-24: shell search+read = 50-80 % of cost): Explore only on haiku; no code read before
-     the agent has read .claude/CODEMAP.md or asked Explore; code read in ranges of <= 150 lines, never `cat` whole.
-
-The lead's own session (no agent id in the hook input) and Explore agents are never restricted.
-Every decision is appended to ~/.claude/agent-guard/log.jsonl so the effect can be measured.
+Rules, by who makes the call (numbers: limits.py; pipeline and ownership: pipeline.py):
+  lead     - launch: code in the prompt, ceiling of live agents, disk, no sonnet, no duplicate live run, stall,
+             stale branch, unbuilt runs, brief of a fix (size, scenario, architecture), engineer only for a PLANNED
+             package (design is a parallel plan; no file overlap with a live run; no `isolation`);
+             own waste (timeout around tree-writing git, whole diff, huge output); Notion only through `board`;
+             no SendMessage to a long agent; push rules. Launch / resume are registered in pipeline.json.
+  board    - Notion tools only.
+  explore  - unrestricted.
+  worker   - call budget with a finishing window; no helper agents except Explore on haiku; map before code; code read
+             by ranges; no tree search; no long sleep / foreground call; no .claude edits or commits; scripts/Dev for
+             the routine; editor only through play_scenario; no asset removal; FILE OWNERSHIP inside a package tree.
+  stop     - report length; the run is marked handed in; an architect's design must be a parallel plan.
 """
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
-# Windows: the hook event and our messages are UTF-8, not the console code page (cp1251 lost «Код» on 10-20).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import limits
+import pipeline as P
+
 for _stream in (sys.stdin, sys.stdout, sys.stderr):
     _stream.reconfigure(encoding="utf-8")
 
-STATE_DIR = os.path.expanduser("~/.claude/agent-guard")  # survives a reboot: /tmp reset the 80-call budget
-TURN_WARN = 72
-TURN_LIMIT = 80  # owner 10-22 «применяй все четыре»: 40 → 80, a 40-call pass re-read brief+map+code twice as often; owner 10-20: «запиши это все в хуки» — an agent's cost grows with the square of its length (PT-LANDSCAPE 135 calls = 20.6M re-read); one cause per agent, the rest to a fresh agent
-TURN_FINISH = 20  # owner 10-23: p2 of SLICE-01c hit 80 two steps from the end and a fresh agent re-read everything; after
-# TURN_LIMIT only the FINAL step may run (scenario replay, frames, commit, REMAINDER) for TURN_FINISH more calls — no edits,
-# no code search — and the same command three times in a row there is a loop and is refused
-TURN_HARD_CAP = 100  # owner 10-23: soft 80 + 20 finishing; owner 10-22: 40 → 80; owner 2026-10-20 (150 on 10-10, 60 on 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
-# Owner 11-25 («настрой всё как в идеале ААА студии», «надоело, что месяцами делаем фичу»): the FEATURE lane. The small
-# limits above stay for a one-defect fix; a whole feature goes to `subagent_type: "engineer"` with an accepted design
-# file and one long run. Measured 11-25: 106 features took >= 3 passes (median 5), each re-reading the same code.
-FEATURE_TURNS = (270, 300, 320)  # warn, soft limit, hard cap
-FEATURE_ITEMS, FEATURE_CHARS, FEATURE_READ_LINES = 10, 5000, 400
+DRY = False  # the self-check: no state files, no log
 READ_ONLY_AGENTS = ("explore", "board", "architect", "reviewer", "acceptance")  # no code edits: no work brief needed
-UNCOUNTED_WAIT = re.compile(r"^\s*(\S*/)?(build_wait|wait_bg)\.sh\b")
-MAX_SLEEP = 270
-MAX_EDITOR_BUILDS = 4  # owner 10-10: one agent carries a feature to a live frame; 2 forced lead-side rebuilds
+FEATURE_LANE = ("engineer", "architect", "reviewer")
+CODE_RE = r"[A-Z][A-Z0-9]*(?:-[A-Z0-9+]+)*"
+ARCH_KEYS = ("Эталон", "Варианты", "Выбор")
 
 TREE_SEARCH = [
     re.compile(r"(^|[;&|(]\s*|\s)(grep|egrep|fgrep)\s+(-[A-Za-z]*[rR][A-Za-z]*|--recursive)\b"),
@@ -56,127 +46,348 @@ TREE_SEARCH = [
     re.compile(r"(^|[;&|(]\s*|\s)(ag|ack)\s"),
 ]
 FIND = re.compile(r"(^|[;&|(]\s*|\s)find\s")
-# grep -r over a build log directory or the scratch is reading logs, not searching the tree (09-29: L10b refused)
 LOG_SEARCH = re.compile(r"grep\s+-[A-Za-z]*[rR][A-Za-z]*\s+(\S+\s+)?[\"']?(\S*build/DevLogs|/private/tmp/|/tmp/)")
 SLEEP = re.compile(r"\bsleep\s+(\d+)")
 BRIEF_PATH = re.compile(r"(?:[A-Za-z]:)?/[^\s'\";|&]*BRIEF[A-Za-z0-9_-]*\.md")
-# the body of a heredoc (python/C++ written to a file) is data, not shell: `str.find(` is not a tree search
-HEREDOC_BODY = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\1\b", re.S)
-EDITOR_BUILD = re.compile(r"((^|[;&|(]\s*|\s)make\s|build_quiet\.sh\s)[^;&|]*\bEditor\b")  # make as a COMMAND: `ls Desert.make Editor.make` counted as a build
-SINGLE_TU = re.compile(r"\.o\b|\s-n\b|--dry-run")
-MAKE = re.compile(r"(^|[;&|(]\s*|\s)make\s")
-MAKE_JOBS = re.compile(r"\bmake\b[^;&|]*?-j\s*(\d+)")
-MAX_MAKE_JOBS = 4
-SELF_WAIT = re.compile(r"pgrep\s+-x\s+make|build_quiet\.sh")  # a command that waits for the other build itself is allowed
+DESIGN_PATH = re.compile(r"(?:[A-Za-z]:)?/[^\s'\"`;|&]*DESIGN[A-Za-z0-9_.-]*\.md")
+HEREDOC_BODY = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\1\b", re.S)  # a heredoc body is data, not shell
 GIT_COMMIT = re.compile(r"\bgit\b[^;&|]*\bcommit\b")
 WIP_COMMIT = re.compile(r"\bgit\b[^;&|]*\bcommit\b[^;&|]*(-m\s*[\"']wip|-F\s*-\s*<<-?\s*[\"']?\w+[\"']?\s*\n\s*wip)", re.I)
+GIT_PUSH = re.compile(r"\bgit\b[^;&|]*\bpush\b([^;&|]*)")
+DEV_MERGE = re.compile(r"\bgit\b[^;&|]*\b(merge|pull)\b(?!-)[^;&|]*(\borigin/dev\b|\borigin\s+dev\b|(?<![/\w])dev\b)")
+MIGRATOR_RUN = re.compile(r"Bin/(Debug|Release)/SceneMigrator\b")
+TEST_LOOP = re.compile(r"RunTests\.sh|run_tests\.bat|for\s+\w+\s+in\s+[^;]*Bin/Tests/")
 CODE_FILE = re.compile(r"\.(cpp|hpp|h|glslh|shader|mm)\b")
 CODE_READ = re.compile(r"(^|[;&|(]\s*)(cat|head|tail|sed|grep|awk|less|more)\s")
-MAX_READ_LINES = 150
-# A task tree: Mac /Users/…/DesertEngine-<X>; Windows F:/DesertEngine-<X> or F:/wt/<X>, also spelled /f/… or F:\….
 WORKTREE = re.compile(r"(/Users/[^\s\"']+/DesertEngine-[A-Za-z0-9]+"
                       r"|(?:[A-Za-z]:|/[a-z])[/\\](?:DesertEngine-[A-Za-z0-9]+|wt[/\\][A-Za-z0-9_.-]+))(?=[/\\\s\"']|$)")
-
-
-def worktree_dir(spelled):
-    """A WORKTREE match as a path this Python can open: Git Bash's /f/… becomes F:/… on Windows."""
-    p = spelled.replace("\\", "/")
-    if os.name == "nt" and re.match(r"^/[a-z]/", p):
-        p = p[1].upper() + ":" + p[2:]
-    return p
 EDITOR_RUN = re.compile(r"Bin/(Debug|Release)/(Editor|Runtime)\b")
-# Owner 2026-09-29: an agent never waits for CI — the idle cache expires and the whole context is written again
-# (CI12: 1.5 of 3.2 M units). Push, report the run id, the lead watches it from a background shell for free.
-# Owner 2026-09-30: suites, tidy, glued-text and handoff are the lead's — an agent waiting on them lets its cache expire.
-# Owner 10-10 evening: an agent runs its own feature's suites (suite.sh) — every lead round-trip was a lost pass.
 LEAD_ONLY_RUNS = re.compile(r"scripts/CI/CheckTidy\.sh|scripts/CI/CheckGluedText\.sh|handoff_check\.sh")
 CI_WAIT = re.compile(r"\bgh\s+(run\s+watch|pr\s+checks\b[^;&|]*--watch)|"
                      r"\b(while|until|for)\b[^\n]*\bgh\s+(run|pr)\b|\bgh\s+(run|pr)\b[^\n]*\bsleep\b")
+UNCOUNTED_WAIT = re.compile(r"^\s*python3?\s+\S*studio\.py\s+wait\b")
+ALWAYS_ALLOWED_AFTER_LIMIT = re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
+ASSET_RM = re.compile(r"(\b(rm|unlink|shred)\b[^;&|]*|\bfind\b[^;&|]*-delete\b[^;&|]*|\bxargs\b[^;&|]*\brm\b[^;&|]*)"
+                      r"(Content/|\.(demat|stmesh|skmesh|detex|desce|deimport|deanim|deprefab|decloudtype|dclayout)\b)")
+BUILD_RM = re.compile(r"\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+[^;&|]*\bbuild(/|\s|$)")
+GIT_TREE_WRITE = re.compile(r"\btimeout\s+(?:-\S+\s+)*\d+\w?\s+git\s+(?:-C\s+\S+\s+)?"
+                            r"(?:merge(?!-tree|-base)|rebase|checkout|switch|reset|stash|cherry-pick|am)\b")
+GIT_TEXT = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?(?:diff|show|log\s+-p)\b")
+CAPPED = re.compile(r"--(?:short)?stat|--name-only|--name-status|--numstat|--raw|--quiet|\|\s*(?:wc|grep|head|tail)\b|"
+                    r">\s*[\w/$\"']|\s-s\b")
+AGENT_ID = re.compile(r"agentId\"?\s*[:=]\s*\"?([0-9a-z]{8,})")
+RESUMED_ID = re.compile(r"resumedAgentId\"?\s*[:=]\s*\"?([0-9a-z]{8,})")
 
 
-MAX_BRIEF_ITEMS = 2
-DESIGN_KEYS = ("Эталон", "Отличия", "Архитектура", "Приёмка")
-ARCH_KEYS = ("Эталон", "Варианты", "Выбор")  # «## Архитектура»: reference followed / alternatives weighed / why this one
-MAX_BRIEF_DO_CHARS = 900  # calibrated 10-05: done = M18f 749, ANIM-AUDIT 839; wip = MEDIA-2 1106, MEDIA-3 1083, VIDEO-1 2100, VIDEO-2a 1017
+def cheat_sheet(lane):
+    warn, soft, hard = lane
+    return (f"""[agent_guard] ПРАВИЛА ЗАХОДА (каждый отказ хука стоит полного вызова — не пробуй запрещённое):
+- архитектура: эталон кода — паттерны C++ (навык desert-engine-architecture); UE — только вид и техники рендера. Без бюджетов-заглушек, мостов и угадываний; не влезает — REMAINDER.md, не компромисс.
+- имя: scripts/Dev/sym.sh <Имя> (определение), sym.sh --refs <Имя> (использования). НЕ grep -r / rg / git grep / find без -maxdepth.
+- код читается диапазоном: grep -n <шаблон> <файл> → Read(offset, limit) или sed -n 'A,Bp'. НЕ cat и не Read целиком.
+- пакет фичи: правишь только файлы строки «Файлы:» своего брифа; заголовок контракта не трогаешь (CONTRACT-BREAK в отчёт); чужой файл — NEEDS в отчёт.
+- не собираешь, не запускаешь тесты, не ждёшь CI: коммит «wip: <КОД> код готов» + push; сборка пачки и приёмка — у лида. Перед сдачей: python scripts/Dev/arch_census.py.
+- dev вливается только scripts/Dev/merge_dev.sh; сцены — scripts/Dev/migrate.sh; редактор — python .claude/tools/play_scenario.py <ДЕРЕВО> <.scn>.
+- долгое — run_in_background + python .claude/tools/studio.py wait <output-файл>; sleep ≤ {limits.MAX_SLEEP} с; ход в ожидании уведомления не заканчивай.
+- лимиты (limits.py): вызовов {soft} (+{hard - soft} только на финальный шаг), отчёт ≤ {limits.REPORT_MAX_LINES} непустых строк — подробности в файл.""")
 
 
-def enter_lane(agent_type):
-    """The feature lane's budgets, for this hook process only (one process = one call of one agent)."""
-    global TURN_WARN, TURN_LIMIT, TURN_HARD_CAP, MAX_READ_LINES
-    if agent_type in ("engineer", "architect", "reviewer"):
-        TURN_WARN, TURN_LIMIT, TURN_HARD_CAP = FEATURE_TURNS
-        MAX_READ_LINES = FEATURE_READ_LINES
+def lane_of(agent_type):
+    return (limits.FEATURE_CALLS, limits.FEATURE_READ_LINES) if agent_type in FEATURE_LANE else \
+           (limits.FIX_CALLS, limits.FIX_READ_LINES)
 
 
-def brief_size_denial(prompt, feature=False):
-    """None when the prompt points at a brief whose «## Сделать» fits one agent (60 calls), else the refusal text."""
-    found = BRIEF_PATH.search(prompt)
-    if not found:
-        return ("[agent_guard] Тимлид: рабочий агент запускается только по файлу брифа (…/BRIEF*.md в промпте) — "
-                "размер задачи проверяется по нему (владелец 10-05: «гарантия, что крупно не повторится»).")
+def code_of(prompt):
+    m = re.search(r"You are agent (" + CODE_RE + r")", prompt or "")
+    return m.group(1) if m else None
+
+
+def base_code(code):
+    return re.sub(r"(-(REV|FIX)\d*)?(-\d+)?$", "", code or "")
+
+
+# ---- state and log --------------------------------------------------------------------------------------------------
+def log(data, agent, decision, note=""):
+    if DRY:
+        return
     try:
-        text = open(found.group(0), encoding="utf-8").read()
+        os.makedirs(limits.STUDIO_HOME, exist_ok=True)
+        if os.path.exists(limits.GUARD_LOG) and os.path.getsize(limits.GUARD_LOG) > 20 * 1024 * 1024:
+            os.replace(limits.GUARD_LOG, limits.GUARD_LOG + ".1")
+        tin = data.get("tool_input") or {}
+        with open(limits.GUARD_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"t": time.time(), "agent": agent, "type": data.get("agent_type"),
+                                "tool": data.get("tool_name"), "decision": decision, "note": note[:200],
+                                "cmd": str(tin.get("command") or tin.get("file_path") or tin.get("pattern") or "")
+                                [:160 if decision == "deny" else 100]}) + "\n")
     except OSError:
-        return f"[agent_guard] Тимлид: бриф {found.group(0)} не читается."
-    section = re.search(r"^## Сделать[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
-    if not section:
-        return f"[agent_guard] Тимлид: в брифе {found.group(0)} нет раздела «## Сделать»."
-    body = section.group(1)
-    # Owner 10-22 «спеки = сценарии, сразу и до конца»: every brief carries the card's spec as «## Сценарий» —
-    # Дано / Когда / Тогда [кадр] lines, written BEFORE the code; the agent commits it as Scenarios/<Sub>/<CODE>.scn and
-    # proves the feature only with ~/.claude/tools/play_scenario.sh. «## Чем доказать» was the replaced free-text proof.
-    if re.search(r"^## Чем доказать", text, re.M):
-        return (f"[agent_guard] Тимлид: в брифе {found.group(0)} старый раздел «## Чем доказать» — заменён «## Сценарий» "
-                "(владелец 10-22).")
-    scen = re.search(r"^## Сценарий[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
-    if not scen or not re.search(r"^\s*(Тогда|Then)[^\n]*\[[\w.-]+\]", scen.group(1), re.M):
-        return (f"[agent_guard] Тимлид: в брифе {found.group(0)} нет «## Сценарий» с хотя бы одной строкой "
-                "«Тогда [имя_кадра]: что видно» (владелец 10-22: спека карточки = сценарий Дано/Когда/Тогда до кода).")
-    # Owner 10-30 «ты часто просто выкидываешь идею, которая может быть не лучшая по архитектуре … я всё время на неё
-    # опираюсь»: every brief carries «## Архитектура» with the reference it follows, the alternatives weighed and why
-    # this one — written by the lead BEFORE the launch, so a first idea cannot reach an agent unexamined.
-    arch = re.search(r"^## Архитектура[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
-    missing = [k for k in ARCH_KEYS if not arch or not re.search(rf"^\s*[-*]?\s*{k}:\s*\S", arch.group(1), re.M)]
-    if missing:
-        return (f"[agent_guard] Тимлид: в брифе {found.group(0)} нет «## Архитектура» со строками "
-                f"{', '.join(k + ':' for k in ARCH_KEYS)} (не хватает: {', '.join(missing)}). Владелец 10-30: решение — "
-                "лучшее по архитектуре, не первая идея: как это сделано у UE/AAA, какие варианты отброшены, почему этот.")
-    items = re.findall(r"^\s*\d+[.)]\s", body, re.M)
-    if feature:
-        # The whole feature in one run needs a design that names every difference and its proven cause (DEV_CONTRACT 00e).
-        design = re.search(r"^## Дизайн[^\n]*\n\s*(\S+\.md)", text, re.M)
-        if not design or not os.path.isfile(design.group(1)):
-            return (f"[agent_guard] Тимлид: бриф {found.group(0)} для engineer без «## Дизайн» с путём к готовому файлу "
-                    "дизайна (агент architect, DEV_CONTRACT 00e): эталон, все отличия с доказанной причиной, одна архитектура.")
-        dtext = open(design.group(1), encoding="utf-8", errors="replace").read()
-        lost = [k for k in DESIGN_KEYS if not re.search(rf"^## {k}", dtext, re.M)]
-        if lost:
-            return f"[agent_guard] Тимлид: дизайн {design.group(1)} без разделов: {', '.join(lost)} (DEV_CONTRACT 00e)."
-        if len(items) > FEATURE_ITEMS or len(body) > FEATURE_CHARS:
-            return (f"[agent_guard] Тимлид: «## Сделать» {len(items)} пунктов / {len(body)} знаков (предел engineer "
-                    f"{FEATURE_ITEMS} / {FEATURE_CHARS}) — подробности живут в файле дизайна.")
-    elif len(items) > MAX_BRIEF_ITEMS or len(body) > MAX_BRIEF_DO_CHARS:
-        return (f"[agent_guard] Тимлид: задача крупнее одного агента — «## Сделать» {len(items)} пунктов / {len(body)} знаков "
-                f"(предел {MAX_BRIEF_ITEMS} / {MAX_BRIEF_DO_CHARS}). 10-05: 3 из 4 агентов с 4–6 пунктами упёрлись в 60 вызовов. "
-                "Это одна фича — запускай её целиком через subagent_type: \"engineer\" с файлом дизайна (DEV_CONTRACT 00e).")
-    # Owner 10-10: «опять пишет тесты не проверив, что работает фича — тесты в самом конце, чтобы 100 раз им не уделять
-    # внимание». A code brief asks for code + build only; tests/suites/mutations are their own brief, written once the
-    # feature was seen working, and that brief names the proof in a «Фича принята:» line.
-    # Target names (EditorTests), clauses handing suites to the lead («Сюиты/CI — тимлид») and «Тесты не писать» are not asks.
-    asks_tests = re.search(r"(?i)мутац\w*|\bтест\w*|\bсюит\w*|\bsuites?\b|\btests?\b",
-                           re.sub(r"[^.;\n]*тимлид[^.;\n]*|[^.;\n]*suite\.sh[^.;\n]*|\w*Tests\b|[Тт]ест\w*\s+не\s+\w+|(?i:existing test projects[^.;\n]*compile\w*)|(?i:\bno (?:new )?tests?\b)|\bне\s+\w+\s+тест\w*", "", body))
-    if asks_tests and "Фича принята:" not in text:
-        return (f"[agent_guard] Тимлид: бриф {found.group(0)} просит тесты/мутации вместе с кодом («{asks_tests.group(0)}»). "
-                "Владелец 10-10 вечер: новые тесты ОТЛОЖЕНЫ до конца фич (потом отдельный период тестов). Бриф — код + "
-                "сборка + живая проверка; существующие сюиты агент может гонять сам (suite.sh).")
+        pass
+
+
+def load_state(agent):
+    path = os.path.join(limits.AGENT_STATE, f"{agent}.json")
+    if DRY:
+        return {"calls": 0}, path
+    try:
+        with open(path) as f:
+            return json.load(f), path
+    except (OSError, ValueError):
+        return {"calls": 0}, path
+
+
+def save_state(state, path):
+    if DRY:
+        return
+    try:
+        os.makedirs(limits.AGENT_STATE, exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(state, f)
+    except OSError:
+        pass
+
+
+def map_digest(lane, map_path=None, tree=None):
+    """CODEMAP's index (every '## ' heading with its line number) and its hand-written Notes section."""
+    map_path = map_path or os.path.join(limits.REPO, ".claude", "CODEMAP.md")
+    try:
+        lines = open(map_path, encoding="utf-8").read().split("\n")
+    except OSError:
+        return "[agent_guard] .claude/CODEMAP.md is missing — tell the lead; do not search the tree instead.\n" + cheat_sheet(lane)
+    index = [f"{i + 1}: {l}" for i, l in enumerate(lines) if l.startswith("## ")]
+    if tree:
+        return (f"[agent_guard] КАРТА ТВОЕЙ ВЕТКИ (дерево {tree}): {map_path} — в ней и новые папки задачи. Читай СВОЙ "
+                f"раздел диапазоном. Разделы (строка: заголовок):\n" + "\n".join(index))
+    notes, inside = [], False
+    for l in lines:
+        if l.startswith("## "):
+            inside = l.startswith("## Notes")
+        elif inside and l.strip():
+            notes.append(l)
+    return ("[agent_guard] КАРТА ПРОЕКТА (.claude/CODEMAP.md). Разделы (строка: заголовок):\n" + "\n".join(index) +
+            "\nЗаметки карты:\n" + "\n".join(notes[:40]) +
+            "\nПрочитай СВОЙ раздел диапазоном (sed -n 'A,Bp' .claude/CODEMAP.md) — до этого чтение кода отклоняется. "
+            "Поиск по многим файлам — Agent(subagent_type \"Explore\", model \"haiku\").\n" + cheat_sheet(lane))
+
+
+# ---- lead rules -----------------------------------------------------------------------------------------------------
+def lead_waste_refusal(cmd):
+    """Owner 11-25: a merge cut by `timeout` left a half-written tree, and whole diffs were read into the lead."""
+    if GIT_TREE_WRITE.search(cmd):
+        return "`timeout` вокруг git, который пишет дерево, обрывает его на середине. Запусти без timeout, с run_in_background."
+    big = [int(n) for n in re.findall(r"\bhead\s+-c\s*(\d+)", cmd) if int(n) > limits.LEAD_OUTPUT_CAP]
+    if big:
+        return (f"вывод {big[0]} знаков в контекст лида (> limits.LEAD_OUTPUT_CAP = {limits.LEAD_OUTPUT_CAP}) перечитывается "
+                "каждым следующим запросом. Выжимка скриптом или агент reviewer.")
+    if any(GIT_TEXT.search(part) and not CAPPED.search(part) for part in re.split(r"&&|;|\n", cmd)):
+        return "дифф целиком в контекст лида не читается: --stat, выжимка (| head -60) или агент reviewer."
     return None
 
 
+def target_tree(cmd, cwd):
+    """The tree a git command acts on: `git -C <dir>`, else the last `cd <dir>` before it, else the hook's cwd."""
+    m = re.search(r"\bgit\s+-C\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd)
+    if m:
+        return m.group(1).strip("\"'")
+    cds = re.findall(r"(?:^|[;&|(]\s*)cd\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd)
+    return cds[-1].strip("\"'") if cds else (cwd or ".")
+
+
+def push_refusal(cmd, cwd):
+    """Trunk-based (owner 10-22): no int/* branches; a task/* branch a day old and far behind dev is not pushed."""
+    m = GIT_PUSH.search(cmd)
+    if not m:
+        return None
+    args = m.group(1)
+    if re.search(r"(?:^|[\s:])int/", args):
+        return "int/* не создаём (trunk-based): принятая ветка вливается в dev через scripts/Dev/land_dev.sh."
+    task = re.search(r"(?:^|[\s:])(task/[\w.\-]+)", args)
+    if not task:
+        return None
+    tree = target_tree(cmd[:m.end()], cwd)
+    rc, base = P.git(tree, "merge-base", limits.TRUNK, "HEAD")
+    if rc or not base:
+        return None
+    try:
+        born = int(P.git(tree, "log", "-1", "--format=%ct", base)[1] or 0)
+        behind = int(P.git(tree, "rev-list", "--count", base + ".." + limits.TRUNK)[1] or 0)
+    except ValueError:
+        return None
+    if born and time.time() - born > limits.STALE_BRANCH_H * 3600 and behind > limits.MAX_BEHIND:
+        return (f"{task.group(1)} отрезана от dev {int((time.time() - born) / 3600)} ч назад и отстала на {behind} коммитов "
+                "(ветка живёт день). Сначала scripts/Dev/merge_dev.sh, потом push.")
+    return None
+
+
+def stale_branch_refusal(code, prompt):
+    """Owner 10-29: no new step on a branch whose oldest commit not in dev is older than limits.STALE_BRANCH_H."""
+    if "ПОСАДКА:" in prompt:
+        return None
+    for br in (f"origin/task/{code}", f"origin/task/{base_code(code)}"):
+        rc, out = P.git(limits.LAND_TREE, "log", "--format=%ct", "--reverse", f"{limits.TRUNK}..{br}")
+        if rc == 0 and out:
+            age = (time.time() - int(out.split()[0])) / 3600
+            if age > limits.STALE_BRANCH_H:
+                return (f"{br} не в dev уже {age:.0f} ч: новый шаг в невлитую ветку запрещён. Сначала влей её; работа на "
+                        "посадку (слияние, ошибки компиляции) — с «ПОСАДКА: <что>» в промпте.")
+            return None
+    return None
+
+
+def unbuilt_refusal(s, code):
+    """Owner 11-25: one code run and one review-fix run may precede the build; the third waits for it."""
+    since = 0
+    try:
+        with open(limits.BUILD_LEDGER, encoding="utf-8") as f:
+            since = max((json.loads(line).get("t", 0) for line in f if line.strip()), default=0)
+    except (OSError, ValueError):
+        pass
+    runs = [r for r in s["runs"].values() if r.get("t1", 0) > since and base_code(r.get("code")) == base_code(code)
+            and r.get("type") not in READ_ONLY_AGENTS]
+    if len(runs) < limits.RUNS_BEFORE_BUILD:
+        return None
+    return (f"{base_code(code)}: сдано {len(runs)} захода после последней сборки (limits.RUNS_BEFORE_BUILD) — следующий только "
+            "после сборки пачки: studio.py merge, build_land.sh.")
+
+
+def fix_brief_refusal(path, text):
+    body = P.section(text, "Сделать")
+    if body is None:
+        return f"в брифе {path} нет раздела «## Сделать»."
+    scen = P.section(text, "Сценарий")
+    if not scen or not re.search(r"^\s*(Тогда|Then)[^\n]*\[[\w.-]+\]", scen, re.M):
+        return f"в брифе {path} нет «## Сценарий» со строкой «Тогда [имя_кадра]: что видно» (спека = сценарий до кода)."
+    arch = P.section(text, "Архитектура")
+    missing = [k for k in ARCH_KEYS if not arch or not re.search(rf"^\s*[-*]?\s*{k}:\s*\S", arch, re.M)]
+    if missing:
+        return (f"в брифе {path} нет «## Архитектура» со строками {', '.join(k + ':' for k in ARCH_KEYS)} (не хватает: "
+                f"{', '.join(missing)}): какой паттерн C++ взят за эталон, какие варианты отброшены, почему этот.")
+    items, (max_items, max_chars) = re.findall(r"^\s*\d+[.)]\s", body, re.M), limits.FIX_BRIEF
+    if len(items) > max_items or len(body) > max_chars:
+        return (f"задача крупнее починки — «## Сделать» {len(items)} пунктов / {len(body)} знаков (limits.FIX_BRIEF = "
+                f"{max_items} / {max_chars}). Это фича: architect → studio.py plan → engineer на пакет.")
+    return None
+
+
+def feature_brief_refusal(path, text, code, s):
+    """An engineer runs ONE planned package of a design that is a parallel plan over disjoint files."""
+    design = re.search(r"^## Дизайн[^\n]*\n\s*(\S+\.md)", text, re.M)
+    if not design or not os.path.isfile(design.group(1)):
+        return f"бриф {path} для engineer без «## Дизайн» с путём к файлу дизайна (агент architect)."
+    errs = P.design_errors(design.group(1))
+    if errs:
+        return f"дизайн {design.group(1)} не годится к запуску: " + "; ".join(errs[:3])
+    named = re.search(r"^Код:\s*(" + CODE_RE + r")\s*$", P.section(text, "Пакет") or "", re.M)
+    if not named or named.group(1) != code:
+        return (f"бриф {path}: в «## Пакет» нет строки «Код: {code}» — engineer запускается только на пакет, а бриф пакета "
+                "пишет `python .claude/tools/studio.py plan <КОД> <дизайн.md>` (он же создаёт дерево и коммит контракта).")
+    feat, letter = P.split_code(s, code)
+    if not letter:
+        return f"пакет {code} не спланирован: python .claude/tools/studio.py plan <КОД> <дизайн.md>, запуск — по его строкам."
+    clash = P.overlap_refusal(s, feat, letter)
+    if clash:
+        return clash
+    body = P.section(text, "Сделать") or ""
+    items, (max_items, max_chars) = re.findall(r"^\s*\d+[.)]\s", body, re.M), limits.FEATURE_BRIEF
+    if len(items) > max_items or len(body) > max_chars:
+        return f"«## Сделать» {len(items)} пунктов / {len(body)} знаков (limits.FEATURE_BRIEF) — подробности живут в дизайне."
+    return None
+
+
+def free_gb():
+    root = limits.WORKTREE_ROOT if os.path.isdir(limits.WORKTREE_ROOT) else os.path.splitdrive(limits.WORKTREE_ROOT)[0] + "/"
+    try:
+        return shutil.disk_usage(root or "/").free / 1024 ** 3
+    except OSError:
+        return float(limits.MIN_FREE_DISK_GB)
+
+
+def lead_launch_refusal(tin, s, disk_gb=None):
+    kind = (tin.get("subagent_type") or "general-purpose").lower()
+    prompt = str(tin.get("prompt") or "")
+    if "sonnet" in str(tin.get("model") or "").lower():
+        return "sonnet не запускать (владелец 09-29: на задачу он дороже основной модели). Разведка — haiku Explore."
+    if kind in P.NOT_COUNTED:
+        return None
+    code = code_of(prompt)
+    if not code:
+        return "в промпте нет кода: первая строка «You are agent <КОД>» (для пакета фичи — <КОД>-<A..D>)."
+    gb = free_gb() if disk_gb is None else disk_gb
+    if gb < limits.MIN_FREE_DISK_GB:
+        return (f"на диске деревьев ({limits.WORKTREE_ROOT}) свободно {gb:.1f} ГБ < limits.MIN_FREE_DISK_GB "
+                f"({limits.MIN_FREE_DISK_GB}). Сначала studio.py landed для севших фич.")
+    live = P.live_runs(s)
+    cap = limits.NIGHT_MAX_AGENTS if P.night(s) else limits.MAX_AGENTS
+    if len(live) >= cap:
+        return (f"живых агентов {len(live)} — потолок владельца {cap}{' (ночной режим)' if P.night(s) else ''}: "
+                f"{', '.join(sorted(r['code'] for r in live.values()))}. Дождись сдачи.")
+    twin = [a for a, r in live.items() if r["code"] == code]
+    if twin:
+        return f"заход {code} ещё идёт ({twin[0]}): второй агент с тем же кодом правит то же дерево. Параллельная работа — другой пакет."
+    if kind in READ_ONLY_AGENTS:
+        return None
+    if tin.get("isolation"):
+        return "isolation не задаётся: дерево пакета создаёт studio.py plan (от коммита контракта, на диске limits.WORKTREE_ROOT)."
+    found = BRIEF_PATH.search(prompt)
+    if not found:
+        return "рабочий агент запускается только по файлу брифа (…BRIEF*.md в промпте)."
+    try:
+        text = open(found.group(0), encoding="utf-8").read()
+    except OSError:
+        return f"бриф {found.group(0)} не читается."
+    stall = (s.get("stalls") or {}).get(code, {}).get("n", 0)
+    if stall >= limits.STALL_PASSES and "## Пересмотр" not in text:
+        return (f"{code}: {stall} сдачи без продвижения — тем же путём не запускать: впиши в бриф «## Пересмотр» "
+                "(причина застоя и новый подход).")
+    # Owner 11-26 «вернуться к 15 %»: NET-PAWN-TELEPORT-FRAME burned seven fix passes on guesses. After two failed
+    # fixes the next one is written from an architect's review of the whole path, not from the last symptom.
+    fix_n = re.search(r"BRIEF_FIX(\d+)\.md$", found.group(0))
+    review = os.path.join(os.path.dirname(found.group(0)), "DESIGN_REVIEW.md")
+    if fix_n and int(fix_n.group(1)) > limits.FIXES_BEFORE_REVIEW and not os.path.exists(review):
+        return (f"{code}: починка {fix_n.group(1)} без разбора — после {limits.FIXES_BEFORE_REVIEW} неудачных починок "
+                f"сначала Agent(architect) пишет {review} (причина file:line + дешёвая проверка), бриф — из него.")
+    why = feature_brief_refusal(found.group(0), text, code, s) if kind == "engineer" else fix_brief_refusal(found.group(0), text)
+    return why or unbuilt_refusal(s, code) or stale_branch_refusal(code, prompt)
+
+
+def lead_pre(data, s):
+    tool, tin = data.get("tool_name") or "", data.get("tool_input") or {}
+    if tool in ("Bash", "PowerShell"):
+        cmd = str(tin.get("command") or "")
+        return lead_waste_refusal(cmd) or push_refusal(cmd, data.get("cwd") or "")
+    if tool == "Agent":
+        return lead_launch_refusal(tin, s())
+    if tool.startswith("mcp__notion__") or (tool == "ToolSearch" and "notion" in str(tin.get("query") or "").lower()):
+        return "Notion читает и пишет только субагент board: Agent(subagent_type: \"board\", prompt: что прочитать или записать)."
+    if tool == "SendMessage":
+        target = str(tin.get("to") or tin.get("recipient") or tin.get("agent_id") or "").strip()
+        ids = [target] + [a for a, r in s()["runs"].items() if r.get("code") == target]
+        calls = max([load_state(a)[0].get("calls", 0) for a in ids if re.fullmatch(r"[\w.-]+", a)] or [0])
+        if calls > limits.CONTINUE_MAX:
+            return (f"агент {target} уже сделал {calls} вызовов (> limits.CONTINUE_MAX = {limits.CONTINUE_MAX}) — не "
+                    "продолжать: свежий агент по «## NEXT» его REMAINDER.")
+    return None
+
+
+def lead_post(data):
+    """Launch and resume are registered here, by the hook: the lead writes no event by hand."""
+    tool, tin = data.get("tool_name") or "", data.get("tool_input") or {}
+    resp = json.dumps(data.get("tool_response"), ensure_ascii=False)
+    if tool == "Agent":
+        kind, code, m = (tin.get("subagent_type") or "general-purpose").lower(), code_of(str(tin.get("prompt") or "")), AGENT_ID.search(resp)
+        if m and code and kind not in P.NOT_COUNTED:
+            with P.locked() as s:
+                P.register_launch(s, m.group(1), code, kind)
+            P.event("launch", code, m.group(1), kind)
+    elif tool == "SendMessage":
+        m = RESUMED_ID.search(resp)
+        if m:
+            with P.locked() as s:
+                P.resume(s, m.group(1))
+
+
+# ---- sub-agent rules ------------------------------------------------------------------------------------------------
 def runs_editor(cmd):
-    """True only when a shell segment EXECUTES the editor/runtime binary. The bare path regex also caught
-    `cp .../Editor.exe`, `test -f .../Editor`, a path passed as an argument (reported from Windows 09-27),
-    and agents worked around it with variables. A segment executes it when its first word (after
-    VAR=value assignments and exec/time/nohup/env) is the binary."""
+    """True only when a shell segment EXECUTES the editor/runtime binary (not `cp Editor.exe`, not a path argument)."""
     for segment in re.split(r"[;&|\n]+|\$\(|`", cmd):
         words = segment.strip().split()
         while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]) or words[0] in ("exec", "time", "nohup", "env", "command")):
@@ -186,138 +397,174 @@ def runs_editor(cmd):
         if words and EDITOR_RUN.search(words[0].strip("\"'")):
             return True
     return False
-ALWAYS_ALLOWED_AFTER_LIMIT =re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
-
-
-# Owner 2026-09-29: every refused call re-sends the whole context (~2.9k refusals = ~7 % of spend). The four
-# commonest refusals (tree search 81, cat 53, push without handoff 46, code before map 36 in 24 h) are answered
-# BEFORE the agent tries them: the allowed form of each is put into its context with the map, after call 1.
-CHEAT_SHEET = """[agent_guard] ДВА ПАРАМЕТРА ВСЕГДА — АРХИТЕКТУРА И NEXTGEN (владелец 10-29: лучшее качество картинки, ориентир UE 5.5+/поздние AAA, не заплатка; вид — из АССЕТОВ, кодом — только размещение/LOD). А Р Х И Т Е К Т У Р А ПЕРВОЙ (владелец 09-29): делай как ПРАВИЛЬНО устроено (владелец 11-26: эталон архитектуры КОДА — общепринятые паттерны C++ (C++ Core Guidelines, RAII, SOLID, GoF, value semantics, data-oriented там, где горячо); UE как архитектура — не эталон; отход от паттерна — только когда он мешает производительности, с замером; техники РЕНДЕРА и вид — ориентир UE 5.5+/AAA, их код и шейдеры портируй с адаптацией), без бюджетов, урезанных охватов, угадываний и мостов; не влезает — REMAINDER, не компромисс.\n[agent_guard] РАЗРЕШЁННЫЕ ФОРМЫ (каждый отказ хука стоит полного вызова — не пробуй запрещённое):
-- где определено имя: scripts/Dev/sym.sh <Имя>; где используется: scripts/Dev/sym.sh --refs <Имя>. НЕ grep -r / rg / git grep / find без -maxdepth.
-- чтение кода: grep -n <шаблон> <известный файл> → sed -n 'A,Bp' <файл> (≤150 строк) или Read(offset, limit≤150). НЕ cat / Read целиком.
-- новые тесты НЕ пишешь (владелец 10-10: тесты после фич); затронутые существующие сюиты гоняешь сам: scripts/Dev/suite.sh в фоне; tidy/склейки/handoff — тимлид. Сдача: последний коммит с темой «wip: …» → git push (полный handoff_check гоняет тимлид; не-wip без .cache/handoff/<HEAD>.ok хук откажет).
-- dev вливается только scripts/Dev/merge_dev.sh; сцены — scripts/Dev/migrate.sh; редактор — через run_capped.
-- сборки агент НЕ запускает: одну сборку пачки делает тимлид (build_land.sh); sleep ≤ 270 с.
-- формат: хук format_on_edit сам; clang-format -i по файлу целиком НЕ запускать.
-- долгое (> 4 мин: мигратор, сборка) — run_in_background + ~/.claude/tools/wait_bg.sh <output-файл> (≤ 4 мин за вызов); timeout > 280 с — отказ, ход в ожидании уведомления не заканчивать.
-- конец работы: «wip: <КОД> код готов» + push; сборка и приёмка — тимлид. Перед сдачей: python scripts/Dev/arch_census.py (рост = исправь).
-- CI не ждёшь: push → id прогона в отчёт → конец. Лимит вызовов — в подсказке хука (починка 80, фича engineer 300): остаток — REMAINDER.md в скретче."""
-
-
-
-def bg_out(data):
-    """The output file of a background Bash job, read from the tool's own reply, so the hint names the exact wait."""
-    m = re.search(r"Output is being written to: (\S+)", json.dumps(data.get("tool_response", "")))
-    return m.group(1).rstrip("\\.\"") if m else "<output-файл из ответа инструмента>"
-
-def map_digest(map_path=None, tree=None):
-    """CODEMAP's index (every '## ' heading with its line number) and its hand-written Notes section."""
-    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    map_path = map_path or os.path.join(root, ".claude", "CODEMAP.md")
-    try:
-        lines = open(map_path, encoding="utf-8").read().split("\n")
-    except OSError:
-        return "[agent_guard] .claude/CODEMAP.md is missing — tell the lead; do not search the tree instead."
-    index = [f"{i + 1}: {l}" for i, l in enumerate(lines) if l.startswith("## ")]
-    notes, inside = [], False
-    for l in lines:
-        if l.startswith("## "):
-            inside = l.startswith("## Notes")
-            continue
-        if inside and l.strip():
-            notes.append(l)
-    if tree:
-        return (f"[agent_guard] КАРТА ТВОЕЙ ВЕТКИ (дерево {tree}) построена заново: {map_path} — в ней и новые папки "
-                f"задачи. Читай СВОЙ раздел диапазоном: sed -n 'A,Bp' {map_path}. Разделы (строка: заголовок):\n" +
-                "\n".join(index))
-    return ("[agent_guard] КАРТА ПРОЕКТА (.claude/CODEMAP.md). Разделы (строка: заголовок):\n" + "\n".join(index) +
-            "\nЗаметки карты:\n" + "\n".join(notes[:40]) +
-            "\nПрочитай СВОЙ раздел: sed -n 'A,Bp' .claude/CODEMAP.md (A..B — от его заголовка до следующего) и строку "
-            "своего .cpp в «Source → suites». До этого чтение кода отклоняется. Поиск по многим файлам — Explore на "
-            "haiku (Agent subagent_type \"Explore\", model \"haiku\"): его чтение не ложится в твой контекст.\n" + CHEAT_SHEET)
-
-
-def emit(obj):
-    sys.stdout.write(json.dumps(obj))
-    sys.exit(0)
-
-
-def deny(reason, data, agent):
-    log(data, agent, "deny", reason)
-    emit({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                 "permissionDecisionReason": reason}})
-
-
-def log(data, agent, decision, note=""):
-    try:
-        os.makedirs(STATE_DIR, exist_ok=True)
-        with open(os.path.join(STATE_DIR, "log.jsonl"), "a") as f:
-            f.write(json.dumps({"t": time.time(), "agent": agent, "type": data.get("agent_type"),
-                                "tool": data.get("tool_name"), "decision": decision, "note": note[:200],
-                                # every call's command (deny: 160 chars, to find false refusals; allow: 100, to see where
-                                # search/read go — 09-29 night: search 37-41 % with a map in the brief, cause unknowable without it)
-                                "cmd": str((data.get("tool_input") or {}).get("command")
-                                           or (data.get("tool_input") or {}).get("file_path")
-                                           or (data.get("tool_input") or {}).get("pattern") or "")[:160 if decision == "deny" else 100]}) + "\n")
-    except OSError:
-        pass
-
-
-def load_state(agent):
-    path = os.path.join(STATE_DIR, f"{agent}.json")
-    try:
-        with open(path) as f:
-            return json.load(f), path
-    except (OSError, ValueError):
-        return {"calls": 0, "editor_builds": 0}, path
-
-
-def save_state(state, path):
-    try:
-        os.makedirs(STATE_DIR, exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(state, f)
-    except OSError:
-        pass
-
-
-def other_build_running():
-    """One build on the machine at a time (16 GB: three parallel builds OOM-killed it on 2026-09-24)."""
-    try:
-        return subprocess.run(["pgrep", "-x", "make"], capture_output=True).returncode == 0
-    except OSError:
-        return False
-
-
-def editor_running():
-    """One editor/runtime (GPU) at a time: concurrent MoltenVK editors hung WindowServer and the watchdog
-    panicked the kernel on 2026-09-24 08:05."""
-    try:
-        # -x on the process NAME: `pgrep -f <path>` also matched the waiting shell's own command line and spun
-        return any(subprocess.run(["pgrep", "-x", n], capture_output=True).returncode == 0 for n in ("Editor", "Runtime"))
-    except OSError:
-        return False
 
 
 def staged_claude_files(cmd, cwd):
     """True when the commit about to run would carry files under .claude/ (staged, or `-a` on modified ones)."""
-    m = re.search(r"\bcd\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd) or re.search(r"\bgit\s+-C\s+(\"[^\"]+\"|\S+)", cmd)
-    where = m.group(1).strip("\"'") if m else (cwd or ".")
-    args = ["git", "-C", where, "diff", "--name-only"]
-    try:
-        staged = subprocess.run(args + ["--cached"], capture_output=True, text=True).stdout.split()
-        if re.search(r"\bcommit\b[^;&|]*\s-[A-Za-z]*a", cmd):
-            staged += subprocess.run(args, capture_output=True, text=True).stdout.split()
-    except OSError:
-        return False
-    return any(f.startswith(".claude/") for f in staged)
+    where = target_tree(cmd, cwd)
+    _, staged = P.git(where, "diff", "--name-only", "--cached")
+    if re.search(r"\bcommit\b[^;&|]*\s-[A-Za-z]*a", cmd):
+        staged += "\n" + P.git(where, "diff", "--name-only")[1]
+    return any(f.startswith(".claude/") for f in staged.split())
 
 
-REPORT_MAX_LINES = 20
+def script_rule(cmd, cwd):
+    """A refusal text when a routine step bypasses its scripts/Dev script, else None."""
+    tree = target_tree(cmd, cwd)
+    has = lambda name: os.path.exists(os.path.join(tree, "scripts", "Dev", name))
+    if GIT_PUSH.search(cmd) and "--delete" not in cmd and has("handoff_check.sh"):
+        _, head = P.git(tree, "rev-parse", "HEAD")
+        subject = "wip" if WIP_COMMIT.search(cmd) else P.git(tree, "log", "-1", "--format=%s")[1]
+        if head and not subject.lower().startswith("wip") and not os.path.exists(os.path.join(tree, ".cache", "handoff", head + ".ok")):
+            return ("Push без проверки: нет .cache/handoff/<HEAD>.ok. Сдача агента — коммит с темой «wip: <КОД> код готов» "
+                    "(пушится без маркера, лид знает, что ветка ждёт сборки пачки).")
+    if DEV_MERGE.search(cmd) and "merge_dev.sh" not in cmd and has("merge_dev.sh"):
+        return "dev вливается только scripts/Dev/merge_dev.sh: он останавливается на конфликте и ловит расхождение .claude."
+    if MIGRATOR_RUN.search(cmd) and "DESERT_MIGRATE_VIA_SCRIPT=1" not in cmd and "migrate.sh" not in cmd and has("migrate.sh"):
+        return "SceneMigrator — только через scripts/Dev/migrate.sh [--write] <пути>: он отказывается от протухшего бинарника."
+    if TEST_LOOP.search(cmd):
+        return "Тесты выключены владельцем (CLAUDE.md «Build and run»): агент их не пишет и не гоняет."
+    return None
 
 
+def worker_pre(data, agent, agent_type, state, s):
+    """The refusal text for a worker's call, or None. Mutates @p state (saved by the caller)."""
+    (warn, soft, hard), read_lines = lane_of(agent_type)
+    tool, tin = data.get("tool_name", ""), data.get("tool_input") or {}
+    cmd = tin.get("command", "") if tool == "Bash" else ""
+    if not UNCOUNTED_WAIT.match(cmd):
+        state["calls"] = state.get("calls", 0) + 1
+    calls = state.get("calls", 0)
+
+    if soft < calls <= hard:  # the finishing window: scenario, frames, commit, push, REMAINDER
+        same = bool(cmd) and state.get("finish_last") == cmd
+        state["finish_rep"] = state.get("finish_rep", 1) + 1 if same else 1
+        state["finish_last"] = cmd
+        if tool in ("Edit", "MultiEdit", "NotebookEdit", "Grep", "Glob", "Agent") or state["finish_rep"] >= 3:
+            return (f"Вызов {calls}: после {soft} — только финальный шаг до {hard} (сценарий, кадры, коммит, пуш, REMAINDER); "
+                    "правки, поиск и одна команда трижды подряд запрещены.")
+    if calls > hard and not (tool in ("SendMessage", "Write") or (tool == "Bash" and ALWAYS_ALLOWED_AFTER_LIMIT.match(cmd))):
+        return (f"Лимит {hard} вызовов исчерпан ({calls}). Закоммить и запушь сделанное, запиши REMAINDER.md (файл:строка) "
+                "и отчитайся; остаток уйдёт свежему агенту.")
+
+    if tool == "Agent":
+        if (tin.get("subagent_type") or "general-purpose").lower() != "explore":
+            return "Рабочий помощник запрещён: разрешён только Explore на haiku для поиска. Не влезает — коммит, пуш, REMAINDER."
+        if (tin.get("model") or "").lower() != "haiku":
+            return "Explore запускается на haiku: Agent(subagent_type: \"Explore\", model: \"haiku\", ...)."
+        state["explored"] = True
+    if tool == "Bash" and BUILD_RM.search(cmd):
+        return "Дерево сборки не удаляется: rm -rf build стоит полной пересборки пачки. Сборка — у лида."
+    if tool == "Bash" and ASSET_RM.search(cmd):
+        return ("Ассеты проекта (Content/, .demat/.stmesh/.detex/.desce/…) из шелла не удаляются: через редактор (проверка "
+                "ссылок) или строкой в REMAINDER — удаляет лид.")
+
+    if (tool == "Bash" and "CODEMAP.md" in cmd and re.search(r"sed\s+-n\s+'?\d+,\d+p", cmd)) or \
+            (tool == "Read" and (tin.get("file_path") or "").endswith("CODEMAP.md") and tin.get("offset")):
+        state["map_read"] = True
+    brief = BRIEF_PATH.search(cmd if tool == "Bash" else (tin.get("file_path") or ""))
+    if brief and not state.get("map_read"):
+        try:
+            text = open(brief.group(0), encoding="utf-8").read()
+            if "## Карта" in text or "## Пакет" in text:  # the brief names the files: that is the map of this run
+                state["map_read"] = True
+        except OSError:
+            pass
+    shell = HEREDOC_BODY.sub("", cmd)  # a heredoc body is text being written, not a command that reads code
+    reading_code = (tool == "Read" and CODE_FILE.search(tin.get("file_path") or "")) or \
+                   (tool == "Bash" and CODE_READ.search(shell) and CODE_FILE.search(shell))
+    if reading_code and not state.get("map_read") and not state.get("explored"):
+        return ("Сначала карта: прочитай свой раздел .claude/CODEMAP.md диапазоном (или бриф пакета со строкой «Файлы:»), "
+                "либо спроси Explore на haiku — и только потом читай код.")
+    if tool == "Read" and CODE_FILE.search(tin.get("file_path") or "") and \
+            (not tin.get("limit") or int(tin.get("limit") or 0) > read_lines):
+        return f"Код читается диапазоном ≤ {read_lines} строк: Read(file_path, offset, limit≤{read_lines}) или sed -n 'A,Bp'."
+    if tool == "Bash" and CODE_FILE.search(cmd):
+        if re.search(r"(^|[;&|(]\s*)cat\s+(?!>)[^|;&>]*\.(cpp|hpp|h|glslh|shader|lua|mm)\b", cmd):
+            return f"`cat` исходника целиком запрещён: grep -n → sed -n 'A,Bp' (≤ {read_lines} строк)."
+        for a, b in re.findall(r"sed\s+-n\s+['\"]?(\d+),(\d+)p", cmd):
+            if int(b) - int(a) > read_lines:
+                return f"sed -n {a},{b}p — {int(b) - int(a)} строк > {read_lines}. Читай уже."
+
+    if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+        path = tin.get("file_path") or ""
+        if "/.claude/" in path.replace("\\", "/"):
+            return "Файлы .claude/ (хуки, навыки, агенты) правит только лид."
+        owned = P.edit_refusal(s(), path)
+        if owned:
+            return owned
+    if tool != "Bash":
+        return None
+
+    denial = script_rule(cmd, data.get("cwd") or "") or push_refusal(cmd, data.get("cwd") or "")
+    if denial:
+        return denial
+    if GIT_COMMIT.search(cmd) and staged_claude_files(cmd, data.get("cwd")):
+        return "В коммите есть файлы .claude/ — их коммитит только лид: git restore --staged .claude && git checkout -- .claude"
+    if any(rx.search(shell) for rx in TREE_SEARCH) and not LOG_SEARCH.search(shell):
+        return ("Поиск по дереву в своём контексте запрещён. Где определено имя — scripts/Dev/sym.sh <Имя>, где используется — "
+                "sym.sh --refs <Имя>; шире — Agent(subagent_type: \"Explore\", model: \"haiku\"). Сам ищи только в известных "
+                "файлах: grep -n <шаблон> <файл>.")
+    if FIND.search(shell) and "-maxdepth" not in shell:
+        return "`find` без -maxdepth — это поиск по дереву; Explore или `find <папка> -maxdepth 2 ...`."
+    for m in SLEEP.finditer(cmd):
+        if int(m.group(1)) > limits.MAX_SLEEP:
+            return (f"sleep {m.group(1)} > {limits.MAX_SLEEP} с: кэш истекает через 5 минут и весь контекст пишется заново. "
+                    "Жди кусками: python .claude/tools/studio.py wait <файл> [--marker ТЕКСТ].")
+    if not tin.get("run_in_background") and int(tin.get("timeout") or 0) > limits.MAX_SLEEP * 1000 + 10000:
+        return (f"timeout {int(tin['timeout']) // 1000} с > {limits.MAX_SLEEP + 10} с: вызов дольше 5 минут сбрасывает кэш. "
+                "Запусти с run_in_background: true и жди python .claude/tools/studio.py wait <output-файл>.")
+    if LEAD_ONLY_RUNS.search(cmd):
+        return "CheckTidy, CheckGluedText и handoff гоняет только лид."
+    if CI_WAIT.search(cmd):
+        return "CI не ждёшь: запушь, назови id прогона в отчёте (gh run list --branch <ветка> --limit 1, один раз) и заканчивай."
+    if re.search(r"DESERT_EDITOR_MANUAL|DESERT_SCENARIO\s*=", cmd) or (runs_editor(cmd) and "run_capped" not in cmd):
+        return ("Живой редактор агент поднимает только python .claude/tools/play_scenario.py <ДЕРЕВО> <Scenarios/…/КОД.scn> "
+                "[--hold]: доказательство = сценарий, один редактор за раз.")
+    return None
+
+
+def worker_post(data, agent, agent_type, state, path):
+    """additionalContext for a worker after a call, or None."""
+    lane, _ = lane_of(agent_type)
+    warn, soft, hard = lane
+    if not state.get("map_shown"):
+        state["map_shown"] = True
+        save_state(state, path)
+        return map_digest(lane)
+    pin = data.get("tool_input") or {}
+    tm = WORKTREE.search(pin.get("command", "") or pin.get("file_path", "") or "")
+    tree = tm.group(1).replace("\\", "/") if tm else None
+    if tree and os.name == "nt" and re.match(r"^/[a-z]/", tree):
+        tree = tree[1].upper() + ":" + tree[2:]
+    committed = data.get("tool_name") == "Bash" and GIT_COMMIT.search(pin.get("command", "") or "")
+    if tree and os.path.isdir(tree) and (not state.get("branch_map") or committed):
+        first = not state.get("branch_map")
+        out = os.path.join(limits.STUDIO_HOME, "maps", agent + "-CODEMAP.md")
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        gen = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gen_codemap.py")
+        try:
+            subprocess.run([sys.executable, gen], cwd=tree, env=dict(os.environ, CODEMAP_OUT=out), capture_output=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        state["branch_map"] = out
+        save_state(state, path)
+        if os.path.exists(out):
+            return map_digest(lane, out, tree) if first else "[agent_guard] Карта дерева пересобрана после коммита: " + out
+    if data.get("tool_name") == "Bash" and pin.get("run_in_background"):
+        m = re.search(r"Output is being written to: (\S+)", json.dumps(data.get("tool_response", "")))
+        return ("[agent_guard] Задача в фоне. НЕ заканчивай ход в ожидании уведомления: простой > 5 мин сбрасывает кэш. Жди: "
+                "python .claude/tools/studio.py wait " + (m.group(1).rstrip("\\.\"") if m else "<output-файл>") + " [--marker ТЕКСТ].")
+    calls = state.get("calls", 0)
+    if calls >= warn:
+        return (f"[agent_guard] Вызов {calls}/{soft} (+{hard - soft} только на финальный шаг). Доделай ТЕКУЩИЙ шаг, новый крупный "
+                "не начинай; закоммить, запушь, отчитайся. Остаток — REMAINDER.md (файл:строка, что на что, что проверено): "
+                "продлений нет.")
+    return None
+
+
+# ---- stop -----------------------------------------------------------------------------------------------------------
 def last_report_text(data):
-    """The sub-agent's final message: newer hook inputs carry it, older ones only the transcript path."""
     text = data.get("last_assistant_message")
     if isinstance(text, str) and text.strip():
         return text
@@ -332,8 +579,8 @@ def last_report_text(data):
                     m = json.loads(line).get("message", {})
                 except ValueError:
                     continue
-                if m.get("role") == "assistant":
-                    parts = [c.get("text", "") for c in m.get("content", []) if isinstance(c, dict) and c.get("type") == "text"]
+                if isinstance(m, dict) and m.get("role") == "assistant" and isinstance(m.get("content"), list):
+                    parts = [c.get("text", "") for c in m["content"] if isinstance(c, dict) and c.get("type") == "text"]
                     if any(t.strip() for t in parts):
                         last = "\n".join(parts)
         if last:
@@ -342,664 +589,221 @@ def last_report_text(data):
 
 
 def subagent_stop(data):
-    """Owner 2026-09-24: every report line is paid again in every later turn of the lead. One retry only."""
-    if (data.get("agent_type") or "").lower() == "explore" or data.get("stop_hook_active"):
-        sys.exit(0)
-    lines = [l for l in last_report_text(data).splitlines() if l.strip()]
-    if len(lines) > REPORT_MAX_LINES:
-        log(data, data.get("agent_id") or "?", "block", f"report {len(lines)} lines")
-        emit({"decision": "block", "reason":
-              f"[agent_guard] Отчёт {len(lines)} непустых строк, предел {REPORT_MAX_LINES}. Подробности (таблицы, логи, "
-              f"списки файлов) запиши в файл в своей папке и перепиши отчёт: итог, цифры, путь к файлу, остаток."})
-    sys.exit(0)
-
-
-GIT_PUSH = re.compile(r"\bgit\b[^;&|]*\bpush\b")
-DEV_MERGE = re.compile(r"\bgit\b[^;&|]*\b(merge|pull)\b(?!-)[^;&|]*(\borigin/dev\b|\borigin\s+dev\b|(?<![/\w])dev\b)")  # not `>/dev/null` (09-30 SURF2-vin refused a predecessor merge)
-MIGRATOR_RUN = re.compile(r"Bin/(Debug|Release)/SceneMigrator\b")
-TEST_LOOP = re.compile(r"RunTests\.sh|for\s+\w+\s+in\s+[^;]*Bin/Tests/")
-
-
-def target_tree(cmd, cwd):
-    """The tree a git command acts on: `git -C <dir>`, else the last `cd <dir>` before it, else the hook's cwd."""
-    m = re.search(r"\bgit\s+-C\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd)
-    if m:
-        return m.group(1).strip("\"'")
-    cds = re.findall(r"(?:^|[;&|(]\s*)cd\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd)
-    return cds[-1].strip("\"'") if cds else cwd
-
-
-def script_rule(cmd, cwd):
-    """A refusal text when a routine step bypasses its scripts/Dev script, else None. A tree whose branch predates
-    scripts/Dev (cut before 2026-09-24 evening) is not held to it — it has nothing to call until it merges dev."""
-    tree = target_tree(cmd, cwd)
-    has = lambda name: os.path.exists(os.path.join(tree, "scripts", "Dev", name))
-    if GIT_PUSH.search(cmd) and "--delete" not in cmd and has("handoff_check.sh"):
-        head = subprocess.run(["git", "-C", tree, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        subject = subprocess.run(["git", "-C", tree, "log", "-1", "--format=%s"], capture_output=True, text=True).stdout
-        if WIP_COMMIT.search(cmd):  # `git commit -m "wip: …" && git push` — HEAD is still the old commit at check time
-            subject = "wip"
-        if head and not subject.lower().startswith("wip") and \
-                not os.path.exists(os.path.join(tree, ".cache", "handoff", head + ".ok")):
-            return ("[agent_guard] Push без проверки: нет .cache/handoff/<HEAD>.ok. Запусти scripts/Dev/handoff_check.sh "
-                    "(в фоне, ~6 мин) — он пишет маркер только на зелёном и чистом дереве. Не успеваешь — коммит с "
-                    "темой «wip: …» пушится без маркера, и тимлид знает, что ветка не сдана.")
-    if DEV_MERGE.search(cmd) and "merge_dev.sh" not in cmd and has("merge_dev.sh"):
-        return ("[agent_guard] dev вливается только scripts/Dev/merge_dev.sh: он останавливается на конфликте и ловит "
-                "расхождение .claude (агент не может его закоммитить, и слияние оставляло старый хук).")
-    if MIGRATOR_RUN.search(cmd) and "DESERT_MIGRATE_VIA_SCRIPT=1" not in cmd and "migrate.sh" not in cmd and has("migrate.sh"):
-        return ("[agent_guard] SceneMigrator — только через scripts/Dev/migrate.sh [--write] <пути>: он пересобирает "
-                "Debug-бинарник и отказывается от протухшего (протухший Release однажды снёс 101k строк в 157 файлах).")
-    if TEST_LOOP.search(cmd) and "handoff_check.sh" not in cmd and "suite.sh" not in cmd and has("suite.sh"):
-        return ("[agent_guard] Тесты — scripts/Dev/suite.sh <Сюита…> или scripts/Dev/handoff_check.sh (все бинарники "
-                "из корня); RunTests.sh падает на двоичном выводе, свой цикл запускает не из корня.")
+    """("block", reason) for a report that must be rewritten, else None. The run is marked handed in either way."""
+    kind = (data.get("agent_type") or "").lower()
+    named = re.search(r"agent-([0-9a-f]{8,})\.jsonl$", str(data.get("agent_transcript_path") or ""))
+    aid = named.group(1) if named else (data.get("agent_id") or "")
+    if kind == "explore" or (named and data.get("agent_id") and named.group(1) != data.get("agent_id")):
+        return None  # a discovery agent, or a worker's own child: nothing is handed to the lead
+    text = last_report_text(data)
+    if not data.get("stop_hook_active"):
+        lines = [l for l in text.splitlines() if l.strip()]
+        if len(lines) > limits.REPORT_MAX_LINES:
+            log(data, aid or "?", "block", f"report {len(lines)} lines")
+            return ("block", f"[agent_guard] Отчёт {len(lines)} непустых строк, предел limits.REPORT_MAX_LINES = "
+                    f"{limits.REPORT_MAX_LINES}. Подробности запиши в файл и перепиши отчёт: итог, цифры, путь, остаток.")
+        design = DESIGN_PATH.search(text) if kind == "architect" else None
+        if design and os.path.isfile(design.group(0)):
+            errs = P.design_errors(design.group(0))
+            if errs:
+                log(data, aid or "?", "block", "design: " + errs[0])
+                return ("block", f"[agent_guard] Дизайн {design.group(0)} не планируется (studio.py plan откажет):\n- " +
+                        "\n- ".join(errs) + "\nИсправь «## Порядок»: «### Контракт» + 1.." + str(limits.MAX_PACKAGES) +
+                        " «### Пакет A — имя» со строками «Файлы:» и «Закрывает:», пакеты параллельны и не пересекаются по файлам;"
+                        " каждое отличие закрыто одним пакетом, файл сценария из «## Приёмка» — в «Файлы:» одного пакета.")
+    if aid and kind not in P.NOT_COUNTED and not DRY:
+        with P.locked() as s:
+            P.mark_stopped(s, aid, kind, code_of(text) or "")
     return None
 
 
+# ---- dispatch -------------------------------------------------------------------------------------------------------
+def decide(data, s=None):
+    """(kind, text) with kind in deny | block | context, or None. @p s: a pipeline state to judge against (self-check)."""
+    cache = {}
+
+    def state_now():
+        if "s" not in cache:
+            cache["s"] = s if s is not None else P.load()
+        return cache["s"]
+
+    event = data.get("hook_event_name") or "PreToolUse"
+    agent, agent_type = data.get("agent_id"), (data.get("agent_type") or "").lower()
+    if event == "SubagentStop":
+        return subagent_stop(data)
+    if event == "SubagentStart":
+        if not agent or agent_type in P.NOT_COUNTED:
+            return None
+        state, path = load_state(agent)
+        state["map_shown"] = True
+        save_state(state, path)
+        return ("context", map_digest(lane_of(agent_type)[0]))
+    if not agent:  # the lead's own session
+        if event == "PreToolUse":
+            why = lead_pre(data, state_now)
+            if why:
+                log(data, "lead", "deny", why)
+                return ("deny", "[agent_guard] Лид: " + why)
+        elif event == "PostToolUse" and not DRY:
+            lead_post(data)
+        return None
+    if agent_type == "board":
+        name = str(data.get("tool_name") or "")
+        if event == "PreToolUse" and name not in ("ToolSearch", "Read") and not name.startswith("mcp__notion__"):
+            log(data, agent, "deny", "board tool")
+            return ("deny", f"[agent_guard] Агент board работает только с Notion, вызов {name} запрещён.")
+        return None
+    if agent_type == "explore":
+        return None
+    state, path = load_state(agent)
+    if event == "PostToolUse":
+        text = worker_post(data, agent, agent_type, state, path)
+        return ("context", text) if text else None
+    why = worker_pre(data, agent, agent_type, state, state_now)
+    save_state(state, path)
+    log(data, agent, "deny" if why else "allow", why or "")
+    return ("deny", "[agent_guard] " + why) if why else None
+
+
+def emit(event, verdict):
+    if not verdict:
+        return
+    kind, text = verdict
+    if kind == "deny":
+        out = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": text}}
+    elif kind == "block":
+        out = {"decision": "block", "reason": text}
+    else:
+        out = {"hookSpecificOutput": {"hookEventName": event, "additionalContext": text}}
+    sys.stdout.write(json.dumps(out, ensure_ascii=False))
+
+
+# ---- self-check -----------------------------------------------------------------------------------------------------
 def self_check():
-    """SessionStart: prove every rule still bites by replaying known-bad calls; a silent regression of this file
-    (2026-09-24: a merge restored an old copy and the build limits vanished) must be loud at the next start."""
-    cases = {
-        "tree search": {"tool_name": "Bash", "tool_input": {"command": "grep -rn x ."}},
-        "find without depth": {"tool_name": "Bash", "tool_input": {"command": "find . -name x"}},
-        "long sleep": {"tool_name": "Bash", "tool_input": {"command": "sleep 600"}},
-        "make -j8": {"tool_name": "Bash", "tool_input": {"command": "make Editor -j8"}},
-        "editor without cap": {"tool_name": "Bash", "tool_input": {"command": "cd Editor && ../build/Bin/Debug/Editor"}},
-        "explore not on haiku": {"tool_name": "Agent", "tool_input": {"subagent_type": "Explore", "prompt": "x"}},
-        "agent spawns a worker": {"tool_name": "Agent", "tool_input": {"subagent_type": "general-purpose", "prompt": "x"}},
-        "agent spawns a sonnet worker": {"tool_name": "Agent", "tool_input": {"subagent_type": "general-purpose", "model": "sonnet", "prompt": "x"}},
-        "clean the build": {"tool_name": "Bash", "tool_input": {"command": "make -f Desert.make clean"}},
-        "agent removes assets": {"tool_name": "Bash", "tool_input": {"command": "rm Projects/Desert/Content/Materials/Bistro/a.demat"}},
-        "code before map": {"tool_name": "Bash", "tool_input": {"command": "grep -n Foo Desert/X.cpp"}},
-        "whole-file Read": {"tool_name": "Read", "tool_input": {"file_path": "/x/Desert/X.cpp"}},
-        "edit .claude": {"tool_name": "Edit", "tool_input": {"file_path": "/x/.claude/tools/agent_guard.py"}},
-        "push without handoff": {"tool_name": "Bash", "tool_input": {"command": "git -C " + os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + " push origin nothing-selfcheck"}},
-        "agent runs tidy": {"tool_name": "Bash", "tool_input": {"command": "bash scripts/CI/CheckTidy.sh abc"}},
-        "merge dev by hand": {"tool_name": "Bash", "tool_input": {"command": "git merge origin/dev"}},
-        "call longer than the cache": {"tool_name": "Bash", "tool_input": {"command": "scripts/Dev/suite.sh X",
-                                                                           "timeout": 600000}},
-        "migrator directly": {"tool_name": "Bash", "tool_input": {"command": "./build/Bin/Debug/SceneMigrator a"}},
-        "own test loop": {"tool_name": "Bash", "tool_input": {"command": "bash scripts/MacOS/RunTests.sh"}},
-        "agent waits for CI": {"tool_name": "Bash", "tool_input": {"command": "gh run watch 1 --exit-status"}},
-        "editor outside a scenario": {"tool_name": "Bash", "tool_input": {"command": "DESERT_EDITOR_MANUAL=1 bash ~/.claude/tools/run_capped.sh build/Bin/Debug/Editor --control-socket /tmp/x.sock"}},
-        "CI poll loop": {"tool_name": "Bash", "tool_input": {"command": "for i in $(seq 20); do gh run view 1 --json status; sleep 10; done"}},
+    """Replays known-bad calls through decide(); returns (names that bite, names that failed)."""
+    global DRY
+    DRY = True
+    tmp = tempfile.mkdtemp(prefix="agent_guard_selfcheck_").replace("\\", "/")
+    write = lambda name, text: (open(f"{tmp}/{name}", "w", encoding="utf-8").write(text), f"{tmp}/{name}")[1]
+    sections = "## Эталон\nx\n## Отличия\n- **D1.** a — `A.cpp:1`\n- **D2.** b — `B.cpp:1`\n## Архитектура\nx\n"
+    accept = "## Приёмка\nСценарий: Scenarios/F/F.scn\nТогда [f]: x\n"
+    pa, pb = "### Пакет A — a\nФайлы: Desert/A/\nЗакрывает: D1\n", "### Пакет B — b\nФайлы: Desert/B/, Scenarios/F/F.scn\nЗакрывает: D2\n"
+    good = write("GOOD-DESIGN.md", sections + "## Порядок\n" + pa + pb + accept)
+    lost = write("LOST-DESIGN.md", sections + "## Порядок\n" + pa + pb.replace("Закрывает: D2\n", "Закрывает: D1\n") + accept)
+    serial = write("SERIAL-DESIGN.md", sections + "## Порядок\n" + pa + "1. день 2: пакет B после пакета A\n" + pb + accept)
+    clash = write("CLASH-DESIGN.md", sections + "## Порядок\n" + pa + pb.replace("Desert/B/", "Desert/A/X.cpp") + accept)
+    pk = lambda files, state="planned": {"name": "x", "files": files, "tree": f"{tmp}/wt/F-", "state": state}
+    s = {"v": 1, "night_until": 0, "board_queue": [], "stalls": {"STUCK": {"head": "", "n": 9}},
+         "features": {"F": {"stage": "code", "t": time.time(), "contract": ["Desert/F/Api.hpp"], "base": "x",
+                            "packages": {"A": dict(pk(["Desert/A/"]), tree=f"{tmp}/wt/F-A"),
+                                         "B": dict(pk(["Desert/B/"]), tree=f"{tmp}/wt/F-B")}},
+                      "G": {"stage": "code", "t": time.time(), "contract": [], "base": "x",
+                            "packages": {"A": dict(pk(["Desert/A/Sub/"]), tree=f"{tmp}/wt/G-A")}}},
+         "runs": {"live1": {"code": "F-A", "type": "engineer", "t0": time.time(), "t1": 0}}}
+    serial_no = iter(range(1000))  # one file per case: two cases of one code must not share a brief
+    brief = lambda code, design, extra="": write(f"{next(serial_no)}-{code}-BRIEF.md", f"## Дизайн\n{design}\n## Пакет\nКод: {code}\n## Сценарий\n"
+                                                 f"Тогда [f]: x\n## Сделать\n1. a\n{extra}")
+    fix = lambda name, do: write(name + "-BRIEF.md", "## Архитектура\nЭталон: a\nВарианты: b\nВыбор: c\n## Сценарий\nТогда [f]: x\n"
+                                 f"## Сделать\n{do}")
+    launch = lambda code, path, kind="engineer", **kw: {"tool_name": "Agent", "tool_input": dict(
+        {"subagent_type": kind, "prompt": f"You are agent {code}. Your brief: {path}."}, **kw)}
+    sub = lambda tool, **tin: {"tool_name": tool, "tool_input": tin, "agent_id": "selfcheck", "agent_type": "general-purpose"}
+    bash = lambda cmd, **kw: sub("Bash", command=cmd, **kw)
+    bad = {
+        "overlapping file ownership": launch("G-A", brief("G-A", good)),
+        "a serial plan over days": launch("F-B", brief("F-B", serial)),
+        "packages of one design overlap": launch("F-B", brief("F-B", clash)),
+        "a difference no package closes": launch("F-B", brief("F-B", lost)),
+        "engineer without a planned package": launch("NEW-A", brief("NEW-A", good)),
+        "engineer with isolation": launch("F-B", brief("F-B", good), isolation="worktree"),
+        "edit of another package's file": sub("Edit", file_path=f"{tmp}/wt/F-B/Desert/A/X.cpp"),
+        "edit of a contract header": sub("Write", file_path=f"{tmp}/wt/F-B/Desert/F/Api.hpp"),
+        "second run with a live code": launch("F-A", brief("F-A", good)),
+        "launch without a code": {"tool_name": "Agent", "tool_input": {"subagent_type": "reviewer", "prompt": "review it"}},
+        "launch without a brief": {"tool_name": "Agent", "tool_input": {"subagent_type": "general-purpose", "prompt": "You are agent X-1. Do it."}},
+        "fat fix brief": launch("X-2", fix("X-2", "1. a\n2. b\n3. c\n"), "general-purpose"),
+        "fix brief without a scenario": launch("X-3", write("X-3-BRIEF.md", "## Сделать\n1. a\n"), "general-purpose"),
+        "stalled code without a rethink": launch("STUCK", fix("STUCK", "1. a\n"), "general-purpose"),
+        "sonnet": launch("X-4", fix("X-4", "1. a\n"), "general-purpose", model="sonnet"),
+        "lead cuts a merge with timeout": {"tool_name": "Bash", "tool_input": {"command": "timeout 100 git merge --no-ff x"}},
+        "lead reads a whole diff": {"tool_name": "Bash", "tool_input": {"command": "cd x && git diff -U2 a..b -- '*.cpp'"}},
+        "lead prints 48k chars": {"tool_name": "Bash", "tool_input": {"command": "cat f | head -c 48000"}},
+        "lead queries Notion": {"tool_name": "mcp__notion__notion-query-data-sources", "tool_input": {"query": "SELECT 1"}},
+        "lead loads Notion schemas": {"tool_name": "ToolSearch", "tool_input": {"query": "select:mcp__notion__notion-fetch"}},
+        "int branch push": {"tool_name": "Bash", "tool_input": {"command": "git push origin int/b9"}},
+        "board agent runs Bash": {"tool_name": "Bash", "tool_input": {"command": "ls"}, "agent_id": "b", "agent_type": "board"},
+        "tree search": bash("grep -rn x ."), "find without depth": bash("find . -name x"), "long sleep": bash("sleep 600"),
+        "call longer than the cache": bash("scripts/Dev/x.sh", timeout=600000),
+        "agent spawns a worker": sub("Agent", subagent_type="general-purpose", prompt="x"),
+        "explore not on haiku": sub("Agent", subagent_type="Explore", prompt="x"),
+        "agent removes assets": bash("rm Projects/Desert/Content/Materials/a.demat"),
+        "agent removes the build tree": bash("rm -rf build"),
+        "code before map": bash("grep -n Foo Desert/X.cpp"), "whole-file Read": sub("Read", file_path="/x/Desert/X.cpp"),
+        "edit .claude": sub("Edit", file_path="/x/.claude/tools/agent_guard.py"),
+        "agent runs tidy": bash("bash scripts/CI/CheckTidy.sh abc"), "agent runs tests": bash("bash scripts/MacOS/RunTests.sh"),
+        "agent waits for CI": bash("gh run watch 1 --exit-status"),
+        "CI poll loop": bash("for i in $(seq 20); do gh run view 1 --json status; sleep 10; done"),
+        "editor outside a scenario": bash("cd Editor && ../build/Bin/Debug/Editor"),
+        "editor manual flag": bash("DESERT_EDITOR_MANUAL=1 python .claude/tools/run_capped.py build/Bin/Debug/Editor.exe"),
+    }
+    legal = {
+        "engineer on a planned package": launch("F-B", brief("F-B", good)),
+        "small fix brief": launch("X-5", fix("X-5", "1. a\n"), "general-purpose"),
+        "reviewer with a code": {"tool_name": "Agent", "tool_input": {"subagent_type": "reviewer", "prompt": "You are agent F-A-REV. Review."}},
+        "lead launches the board agent": {"tool_name": "Agent", "tool_input": {"subagent_type": "board", "prompt": "tails"}},
+        "board agent queries Notion": {"tool_name": "mcp__notion__notion-query-data-sources", "tool_input": {"query": "SELECT 1"},
+                                       "agent_id": "b", "agent_type": "board"},
+        "edit of an own file": sub("Edit", file_path=f"{tmp}/wt/F-B/Desert/B/Y.cpp"),
+        "edit of an unowned file": sub("Edit", file_path=f"{tmp}/wt/F-B/Desert/New/Z.cpp"),
+        "lead reads a diff stat": {"tool_name": "Bash", "tool_input": {"command": "git diff --shortstat a..b"}},
+        "lead runs a merge": {"tool_name": "Bash", "tool_input": {"command": "git merge --no-ff x"}},
+        "heredoc that mentions a header": bash("cat > notes.md <<'EOF'\nsee Desert/X.hpp\nEOF\ngrep -n x notes.md"),
+        "worker waits with studio.py": bash("python .claude/tools/studio.py wait out.txt --marker DONE"),
     }
     failed = []
-    for name, case in cases.items():
-        payload = dict(case, agent_id="selfcheck-" + name.replace(" ", "-"), agent_type="general-purpose",
-                       hook_event_name="PreToolUse",
-                       cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        out = subprocess.run([sys.executable, __file__], input=json.dumps(payload), capture_output=True, text=True)
-        if '"deny"' not in out.stdout:
-            failed.append(name)
-        try:
-            os.remove(os.path.join(STATE_DIR, payload["agent_id"] + ".json"))
-        except OSError:
-            pass
-    # Lead-side rule (no agent id): a fat brief must be refused (owner 10-05).
-    fat = os.path.join(STATE_DIR, "selfcheck-BRIEF.md")
+    real_free, globals()["free_gb"] = free_gb, lambda: 999.0  # the disk is not what is checked here
     try:
-        os.makedirs(STATE_DIR, exist_ok=True)
-        with open(fat, "w", encoding="utf-8") as f:
-            f.write("## Сделать\n1. a\n2. b\n3. c\n## Чем доказать\n")
-        fat_out = subprocess.run([sys.executable, __file__], input=json.dumps({
-            "tool_name": "Agent", "hook_event_name": "PreToolUse",
-            "tool_input": {"subagent_type": "general-purpose", "prompt": f"brief {fat}"}}), capture_output=True, text=True)
-        for name, case in {
-                "lead runs ledger by hand": {"tool_name": "Bash", "tool_input": {"command": "python3 ~/.claude/tools/ledger.py X fix done a"}},
-                "lead fetches the board schema": {"tool_name": "mcp__notion__notion-fetch",
-                                                  "tool_input": {"id": "collection://386f5e0e-e749-479b-83a7-59e03ef9b8b2"}},
-                "lead queries Notion": {"tool_name": "mcp__notion__notion-query-data-sources", "tool_input": {"query": "SELECT 1"}},
-                "lead updates a card": {"tool_name": "mcp__notion__notion-update-page", "tool_input": {"page_id": "x"}},
-                "lead loads Notion schemas": {"tool_name": "ToolSearch", "tool_input": {"query": "select:mcp__notion__notion-fetch"}},
-                "board agent runs Bash": {"tool_name": "Bash", "tool_input": {"command": "ls"},
-                                          "agent_id": "selfcheck-board", "agent_type": "board"}}.items():
-            out = subprocess.run([sys.executable, __file__], input=json.dumps(dict(case, hook_event_name="PreToolUse")),
-                                 capture_output=True, text=True)
-            cases[name] = None
-            if '"deny"' not in out.stdout:
+        for name, case in bad.items():
+            verdict = decide(dict(case, hook_event_name="PreToolUse", cwd=tmp), s)
+            if not verdict or verdict[0] != "deny":
                 failed.append(name)
-        # Owner 11-25: the lead's own waste, and the calls that must stay open.
-        for name, cmd, refused in (("lead cuts a merge with timeout", "timeout 100 git merge --no-ff x", True),
-                                   ("lead reads a whole diff", "cd x && git diff -U2 a..b -- '*.cpp'", True),
-                                   ("lead prints 48k chars", "cat f | head -c 48000", True),
-                                   ("lead reads a diff stat", "git diff --shortstat a..b", False),
-                                   ("lead runs a merge", "git merge --no-ff x", False),
-                                   ("lead pushes with a timeout", "timeout 90 git push origin x", False),
-                                   ("lead runs merge-tree with a timeout", "timeout 60 git merge-tree --write-tree a b", False)):
-            if refused:
-                cases[name] = None
-            if bool(lead_waste_refusal(cmd)) != refused:
-                failed.append(name)
-        # Owner 11-23: continuing an agent past CONTINUE_MAX calls is refused.
-        send = os.path.join(STATE_DIR, "selfcheck-SEND.json")
-        with open(send, "w") as f:
-            json.dump({"calls": 60}, f)
-        sent = subprocess.run([sys.executable, __file__], input=json.dumps({
-            "tool_name": "SendMessage", "hook_event_name": "PreToolUse",
-            "tool_input": {"to": "selfcheck-SEND", "message": "next step"}}), capture_output=True, text=True)
-        os.remove(send)
-        cases["SendMessage to an agent with 60 calls"] = None
-        if '"deny"' not in sent.stdout:
-            failed.append("SendMessage to an agent with 60 calls")
-        # The other half: the route the refusals point to must stay open.
-        for name, case in {
-                "board agent queries Notion": {"tool_name": "mcp__notion__notion-query-data-sources", "tool_input": {"query": "SELECT 1"},
-                                               "agent_id": "selfcheck-board", "agent_type": "board"},
-                "lead launches the board agent": {"tool_name": "Agent", "tool_input": {"subagent_type": "board", "prompt": "tails"}}}.items():
-            legal = subprocess.run([sys.executable, __file__], input=json.dumps(dict(case, hook_event_name="PreToolUse")),
-                                   capture_output=True, text=True)
-            if legal.returncode or '"deny"' in legal.stdout:
-                failed.append("REFUSED a legal call: " + name)
-        # Owner 11-25: the feature lane refuses a brief without a design and takes a fat one with it.
-        design_md = os.path.join(STATE_DIR, "selfcheck-DESIGN.md")
-        with open(design_md, "w", encoding="utf-8") as f:
-            f.write("".join(f"## {k}\nx\n" for k in DESIGN_KEYS))
-        feat = fat.replace("selfcheck-BRIEF", "selfcheck-FEAT-BRIEF")
-        rest = ("## Архитектура\nЭталон: a\nВарианты: b\nВыбор: c\n## Сделать\n1. a\n2. b\n3. c\n4. d\n"
-                "## Сценарий\nТогда [f]: x\n")
-        for name, head, refused in (("feature brief without a design", "", True),
-                                    ("feature brief with a design", f"## Дизайн\n{design_md}\n", False)):
-            with open(feat, "w", encoding="utf-8") as f:
-                f.write(head + rest)
-            got = brief_size_denial("brief " + feat.replace(os.sep, "/"), True)
-            cases[name] = None
-            if bool(got) != refused:
-                failed.append(name)
-        os.remove(feat)
-        os.remove(design_md)
-        cases["lead launches a fat brief"] = None
-        if '"deny"' not in fat_out.stdout:
-            failed.append("lead launches a fat brief")
-        with open(fat, "w", encoding="utf-8") as f:
-            f.write("## Сделать\n1. Код фичи, собрать Editor EditorTests.\n2. Написать новую сюиту FooBar + мутация.\n")
-        out = subprocess.run([sys.executable, __file__], input=json.dumps({
-            "tool_name": "Agent", "hook_event_name": "PreToolUse",
-            "tool_input": {"subagent_type": "general-purpose", "prompt": f"brief {fat}"}}), capture_output=True, text=True)
-        cases["tests before the feature works"] = None
-        if '"deny"' not in out.stdout:
-            failed.append("tests before the feature works")
-        if weather_gate_pending():  # the rule bites only until the gate branches are on dev
-            with open(fat, "w", encoding="utf-8") as f:
-                f.write("## Сделать\n1. Покрытие облаков от погоды.\n## Чем доказать\nкадр\n")
-            out = subprocess.run([sys.executable, __file__], input=json.dumps({
-                "tool_name": "Agent", "hook_event_name": "PreToolUse",
-                "tool_input": {"subagent_type": "general-purpose", "description": "WTH-CLOUDS", "prompt": f"brief {fat}"}}),
-                capture_output=True, text=True)
-            cases["weather agent before WTH-STATE+OCCL on dev"] = None
-            if "WTH-CLOUDS" not in out.stdout:
-                failed.append("weather agent before WTH-STATE+OCCL on dev")
+        for name, case in legal.items():
+            verdict = decide(dict(case, hook_event_name="PreToolUse", cwd=tmp), s)
+            if verdict:
+                failed.append("REFUSED a legal call: " + name + " — " + verdict[1][:120])
+        if not lead_launch_refusal(launch("F-B", brief("F-B", good))["tool_input"], s, disk_gb=1.0):
+            failed.append("launch on a full disk")
+        long_report = {"hook_event_name": "SubagentStop", "agent_type": "engineer", "agent_id": "x",
+                       "last_assistant_message": "\n".join("line" for _ in range(limits.REPORT_MAX_LINES + 5))}
+        if (subagent_stop(long_report) or ("",))[0] != "block":
+            failed.append("long report")
+        serial_stop = {"hook_event_name": "SubagentStop", "agent_type": "architect", "agent_id": "x",
+                       "last_assistant_message": f"design: {serial}"}
+        if (subagent_stop(serial_stop) or ("",))[0] != "block":
+            failed.append("architect hands in a serial plan")
     finally:
-        try:
-            os.remove(fat)
-        except OSError:
-            pass
-    rules = ", ".join(cases)
-    msg = (f"[agent_guard] ДВА ПАРАМЕТРА ВСЕГДА: АРХИТЕКТУРА И NEXTGEN; вид — из ассетов, не кодом (владелец 10-29). А Р Х И Т Е К Т У Р А ПЕРВОЙ: решение = как правильно устроено (эталон кода — паттерны C++, не UE; отход — только ради производительности с замером, владелец 11-26), не замер/бюджет/урезанный охват "
-           f"(LEAD_PROTOCOL, DEV_CONTRACT §00). ПАУЗЫ НЕТ (владелец 10-05: «кончились токены»): незаконченные задачи обязательны, игра — параллельно; граф рендера не трогать. Фича = ОДИН заход engineer по дизайну architect (DEV_CONTRACT 00e); починка = ≤ 2 пункта / 900 знаков. Доска — только агент board (DEV_CONTRACT §00c); запуск (process_event.py launch на запуск); приём — одним ~/.claude/tools/accept.sh. self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
-           f"[agent_guard] SELF-CHECK FAILED — these rules no longer bite: {', '.join(failed)}. "
-           f"Restore .claude/tools/agent_guard.py from git history BEFORE launching any agent.")
-    emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}})
-
-
-# Owner 10-08: «сниму в рамках этой недели лимит на агентов» — cap lifted through Sunday 2026-10-11 (owner: «не до 15, а до 11»),
-# then back to the 09-30 three. Builds stay serialized (one build on the machine at a time), so more agents queue
-# on the build lock instead of OOM-ing the 16 GB machine.
-# Owner 10-12: «в рамках текущего контекста снимаю лимит на агентов. Запускай 20 штук» — lifted for 10-12.
-NIGHT_MAX_WORKING_AGENTS = 3  # owner 10-22
-MAX_WORKING_AGENTS = 4  # owner 10-30: two to four (the floor is in board_guard)
-# Owner 10-15: «уберу лимит агентов до понедельника» — no count cap through Monday 2026-10-19, then back to 7 by
-# itself. The real ceiling is the disk (10-15: 5.3 GB free; a tree + build is several GB), so a launch is refused
-# below MIN_FREE_DISK_GB whatever the count.
-MIN_FREE_DISK_GB = 15
-PROCESS_EVENTS = os.path.expanduser("~/.claude/process-events.csv")
-
-
-CONTINUE_MAX = 50  # owner 11-23: SendMessage to an agent past this many calls is refused
-
-
-def continued_agent_calls(tin):
-    """(target, calls) for a SendMessage recipient: an agent id, or a task code resolved through process-events.csv."""
-    import csv
-    target = str(tin.get("to") or tin.get("recipient") or tin.get("agent_id") or "").strip()
-    if not target:
-        return target, 0
-    ids = [target]
-    try:
-        with open(PROCESS_EVENTS) as f:
-            for row in csv.reader(f):
-                if len(row) >= 4 and row[1] == "launch" and row[2] == target:
-                    ids.append(row[3])
-    except OSError:
-        pass
-    calls = 0
-    for aid in ids:
-        if re.fullmatch(r"[\w.-]+", aid):
-            calls = max(calls, load_state(aid)[0].get("calls", 0))
-    return target, calls
-
-
-def lead_running_agents():
-    """Codes of agents launched in the last 6 h and not yet accepted (process_event.py launch → done|wip)."""
-    import csv
-    state = {}
-    try:
-        with open(PROCESS_EVENTS) as f:
-            for row in csv.reader(f):
-                if len(row) < 4 or not row[0].isdigit():
-                    continue
-                ts, ev, code, aid = int(row[0]), row[1], row[2], row[3]
-                if ev == "launch":
-                    state[aid] = (ts, code)
-                elif ev in ("done", "wip"):
-                    state.pop(aid, None)
-    except OSError:
-        return []
-    now = time.time()
-    return [code for ts, code in state.values() if now - ts < 6 * 3600]
-
-
-WEATHER_CODE = re.compile(r"\b(WTH-[A-Z0-9]+)")
-WEATHER_GATE = {"WTH-STATE", "WTH-OCCL"}
-
-
-def weather_gate_pending():
-    """Gate branches still off dev. A branch gone from origin was landed and deleted by MERGE-ALL."""
-    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    pending = []
-    for code in sorted(WEATHER_GATE):
-        ref = f"refs/remotes/origin/task/{code}"
-        if subprocess.run(["git", "-C", repo, "rev-parse", "-q", "--verify", ref], capture_output=True).returncode != 0:
-            continue
-        if subprocess.run(["git", "-C", repo, "merge-base", "--is-ancestor", ref, "refs/remotes/origin/dev"],
-                          capture_output=True).returncode != 0:
-            pending.append(code)
-    return pending
-
-
-LEAD_OUTPUT_CAP = 6000
-GIT_TREE_WRITE = re.compile(r"\btimeout\s+(?:-\S+\s+)*\d+\w?\s+git\s+(?:-C\s+\S+\s+)?"
-                            r"(?:merge(?!-tree|-base)|rebase|checkout|switch|reset|stash|cherry-pick|am)\b")
-GIT_TEXT = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?(?:diff|show|log\s+-p)\b")
-CAPPED = re.compile(r"--(?:short)?stat|--name-only|--name-status|--numstat|--raw|--quiet|\|\s*(?:wc|grep|head|tail)\b|"
-                    r">\s*[\w/$\"']|\s-s\b")
-
-
-def lead_waste_refusal(cmd):
-    """Owner 11-25: a merge cut by `timeout` left a half-written tree, and whole diffs were read into the lead."""
-    if GIT_TREE_WRITE.search(cmd):
-        return ("`timeout` вокруг git, который пишет дерево, обрывает его на середине (11-25: ng6build восстанавливали по "
-                "blob). Запусти без timeout, с run_in_background.")
-    big = [int(n) for n in re.findall(r"\bhead\s+-c\s*(\d+)", cmd) if int(n) > LEAD_OUTPUT_CAP]
-    if big:
-        return (f"вывод {big[0]} знаков в контекст лида (> {LEAD_OUTPUT_CAP}) перечитывается каждым следующим запросом. "
-                "Выжимка скриптом или ревьюер.")
-    if any(GIT_TEXT.search(part) and not CAPPED.search(part) for part in re.split(r"&&|;|\n", cmd)):
-        return "дифф целиком в контекст лида не читается: --stat, выжимка (| head -60) или агент reviewer."
-    return None
+        globals()["free_gb"] = real_free
+        shutil.rmtree(tmp, ignore_errors=True)
+        DRY = False
+    return list(bad) + ["launch on a full disk", "long report", "architect hands in a serial plan"], failed
 
 
 def main():
+    if "--self-check" in sys.argv:
+        names, failed = self_check()
+        msg = (f"[agent_guard] self-check OK: {len(names)} known-bad calls refused ({', '.join(names)})." if not failed else
+               f"[agent_guard] SELF-CHECK FAILED — these rules no longer bite: {'; '.join(failed)}. "
+               "Restore .claude/tools/agent_guard.py from git history BEFORE launching any agent.")
+        sys.stdout.write(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}},
+                                    ensure_ascii=False))
+        sys.exit(1 if failed and "--strict" in sys.argv else 0)
     try:
         data = json.load(sys.stdin)
     except ValueError:
         sys.exit(0)
-
-    if data.get("hook_event_name") == "SubagentStop":
-        subagent_stop(data)  # before the agent-id test: a SubagentStop input may not carry one
-
-    # Verified 2026-09-24 on live calls: a sub-agent's input carries agent_id and agent_type.
-    agent = data.get("agent_id")
-    agent_type = (data.get("agent_type") or "").lower()
-    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") in ("Bash", "PowerShell"):
-        waste = lead_waste_refusal(str((data.get("tool_input") or {}).get("command") or ""))
-        if waste:
-            deny("[agent_guard] Тимлид: " + waste, data, "lead")
-    # The lead's own spawns: sonnet is refused for any agent (owner 09-29 «соннет дорогой», measured above).
-    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
-            "sonnet" in str((data.get("tool_input") or {}).get("model") or "").lower():
-        deny("[agent_guard] Тимлид: sonnet не запускать — владелец 09-29 «соннет дорогой»; по замеру на задачу он дороже "
-             "основной модели (L10-FIX 0,59 млн за 15 правок, AL1-12c 0,56 против 0,13–0,23). Основная модель; разведка — haiku Explore.",
-             data, "lead")
-    # Owner 09-30: at most THREE working agents at once (Explore not counted). Running = `process_event.py launch` in the
-    # last 6 h with no later done/wip for that id — so a launch not logged there escapes this check: log every launch.
-    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
-            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() not in ("explore", "board"):
-        import shutil
-        free_gb = shutil.disk_usage( os.path.expanduser( "~" ) ).free / 1024 ** 3
-        if free_gb < MIN_FREE_DISK_GB:
-            deny(f"[agent_guard] Тимлид: на диске {free_gb:.1f} ГБ свободно (< {MIN_FREE_DISK_GB}) — новое дерево со сборкой "
-                 f"его забьёт. Сначала освободи место (build/ влитых деревьев), потом запускай.", data, "lead")
-        running = lead_running_agents()
-        # Owner 10-22 (night cost 10 % of the weekly limit): while night mode is on, 3 slots, not 4.
-        try:
-            night = float(open(os.path.expanduser("~/.claude/night_mode")).read().strip()) > __import__("time").time()
-        except Exception:
-            night = False
-        cap = NIGHT_MAX_WORKING_AGENTS if night else MAX_WORKING_AGENTS
-        # Owner 10-22: two passes without progress (accept.sh writes ~/.claude/stall/<CODE>) → rethink, not a third try.
-        pr = (data.get("tool_input") or {}).get("prompt") or ""
-        cm, bm = re.search(r"You are agent ([A-Z0-9-]+)", pr), re.search(r"execute (\S+BRIEF\S*\.md)", pr)
-        if cm:
-            try:
-                stalled = int(open(os.path.expanduser(f"~/.claude/stall/{cm.group(1)}")).read().strip() or 0)
-            except Exception:
-                stalled = 0
-            brief = ""
-            try:
-                brief = open(bm.group(1), encoding="utf-8", errors="replace").read() if bm else ""
-            except Exception:
-                pass
-            if stalled >= 2 and "## Пересмотр" not in brief:
-                deny(f"[agent_guard] Тимлид: {cm.group(1)} — {stalled} прохода без продвижения (владелец 10-22). Третий "
-                     f"заход тем же путём не запускать: впиши в бриф «## Пересмотр» — причина застоя и новый подход.", data, "lead")
-        if len(running) >= cap:
-            deny(f"[agent_guard] Тимлид: лимит владельца — не более {cap} агентов одновременно{' (ночной режим)' if night else ''}; идут: "
-                 f"{', '.join(running)}. Дождись сдачи (accept.sh), потом запускай.", data, "lead")
-    # Owner 10-05 («можно дать гарантию, что не повторится?»): three of four agents that day hit the 60-call cap with
-    # 4-6-item briefs (VIDEO-1, MEDIA-3, VIDEO-2a: done 25 % vs 59 % baseline) and the next agent re-read the same files.
-    # So a working agent is launched ONLY from a brief file whose «## Сделать» is ONE result: ≤ MAX_BRIEF_ITEMS numbered
-    # items and ≤ MAX_BRIEF_DO_CHARS characters (packing items into one paragraph is caught by the length).
-    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
-            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() not in READ_ONLY_AGENTS:
-        denial = brief_size_denial(str((data.get("tool_input") or {}).get("prompt") or ""),
-                                   (data.get("tool_input") or {}).get("subagent_type") == "engineer")
-        if denial:
-            deny(denial, data, "lead")
-    # Owner 10-19 («2 и 3 ок»): no further weather agent until WTH-STATE and WTH-OCCL are on dev — weather tasks cost
-    # ~1 M each (Editor build + frames) and stacked on branches nobody had landed.
-    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "Agent" and \
-            ((data.get("tool_input") or {}).get("subagent_type") or "general-purpose").lower() not in ("explore", "board"):
-        tin = data.get("tool_input") or {}
-        codes = sorted(set(WEATHER_CODE.findall(f"{tin.get('description') or ''} {tin.get('prompt') or ''}")) - WEATHER_GATE)
-        pending = weather_gate_pending() if codes else []
-        if pending:
-            deny(f"[agent_guard] Тимлид: погодных агентов ({', '.join(codes)}) не запускать, пока {', '.join(pending)} не в "
-                 f"origin/dev — выбор владельца 10-19 «2 и 3 ок». Сначала влей их (land_dev.sh), `git fetch --prune`, потом запускай.",
-                 data, "lead")
-    # Owner 10-21 («да давай по пунктам этим», token items 4–6): an acceptance is ONE accept.sh call (ledger + event +
-    # tree + frame digest), not 6–8 hand calls; the board is the board agent's (6k
-    # characters re-read on every later request).
-    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse":
-        tin = data.get("tool_input") or {}
-        if data.get("tool_name") == "Bash" and re.search(
-                r"python3?\s+\S*ledger\.py\s|python3?\s+\S*process_event\.py\s+(done|wip)\b", tin.get("command", "")):
-            deny("[agent_guard] Тимлид: приём — одним вызовом ~/.claude/tools/accept.sh CODE AGENT_ID KIND OUTCOME TREE "
-                 "[кадры] (ledger + process_event + ветка + кадры; владелец 10-21, пункт 4).", data, "lead")
-        # Owner 2026-11-24: Notion belongs to the board sub-agent; schemas and page bodies stay out of the lead context.
-        name = str(data.get("tool_name") or "")
-        if name.startswith("mcp__notion__") or (name == "ToolSearch" and "notion" in str(tin.get("query") or "").lower()):
-            deny("[agent_guard] Тимлид: Notion читает и пишет только субагент board: Agent(subagent_type: \"board\", "
-                 "prompt: что прочитать или какие поля записать). Владелец 2026-11-24, DEV_CONTRACT §00c.", data, "lead")
-    # Owner 11-23 («окей, обновляй все»): an agent past CONTINUE_MAX calls is not continued — its context costs more per
-    # call than a fresh agent reading its «## NEXT» (file:line + excerpts, DEV_CONTRACT §00).
-    if not agent and data.get("hook_event_name", "PreToolUse") == "PreToolUse" and data.get("tool_name") == "SendMessage":
-        target, calls = continued_agent_calls(data.get("tool_input") or {})
-        if calls > CONTINUE_MAX:
-            deny(f"[agent_guard] Тимлид: агент {target} уже сделал {calls} вызовов (> {CONTINUE_MAX}) — не продолжать. "
-                 f"Запусти свежего агента по «## NEXT» его REMAINDER (владелец 11-23).", data, "lead")
-    if agent and agent_type == "board":
-        # The board agent reads and writes Notion only (.claude/agents/board.md).
-        name = str(data.get("tool_name") or "")
-        if data.get("hook_event_name", "PreToolUse") == "PreToolUse" and \
-                name not in ("ToolSearch", "Read") and not name.startswith("mcp__notion__"):
-            deny(f"[agent_guard] Агент board работает только с Notion, вызов {name} запрещён.", data, agent)
-        sys.exit(0)
-    if not agent or agent_type == "explore":
-        sys.exit(0)  # the lead's own session, or a discovery agent: unrestricted
-
-    enter_lane(agent_type)
-    event = data.get("hook_event_name", "PreToolUse")
-    state, path = load_state(agent)
-
-    # A continued agent (the lead resumed it with SendMessage for the next step in the same code) gets a larger
-    # budget from ~/.claude/tools/agent_extend.py: re-reading the same files in a fresh agent was 40-60 % of a step.
-    limit = state.get("limit", TURN_LIMIT + TURN_FINISH)
-    if not state.get("cap_exempt"):  # set by hand only for an agent launched before the 09-29 cap
-        limit = min(limit, TURN_HARD_CAP)
-    if event == "PostToolUse":
-        # Owner 2026-09-28: «надо гарантировать что агенты прочитают карту проекта». The map's index (section
-        # headings with line numbers) and its hand-written notes are put into the agent's context after its
-        # FIRST call, so no agent starts without them; the code-read rule below still demands its own section.
-        if not state.get("map_shown"):
-            state["map_shown"] = True
-            save_state(state, path)
-            emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": map_digest()}})
-            sys.exit(0)
-        pin = data.get("tool_input") or {}
-        # Owner 2026-09-29 («может агент автоматически будет её строить?»): the injected map is dev's, and a task
-        # branch's new folders are not in it (the night's continuation agents searched 30-46 % for them). The first
-        # call that names a worktree (/…/DesertEngine-<X>/) builds THAT tree's map (0.3 s, no tokens) and points to it.
-        # Owner 2026-10-24: the map then follows the agent's own commits — each `git commit` in the tree rebuilds it,
-        # so files the agent created are in it for the rest of its run (only a one-line note, not the digest again).
-        tm = WORKTREE.search(pin.get("command", "") or pin.get("file_path", "") or "")
-        tree = worktree_dir(tm.group(1)) if tm else None
-        committed = data.get("tool_name") == "Bash" and GIT_COMMIT.search(pin.get("command", "") or "")
-        if tree and os.path.isdir(tree) and (not state.get("branch_map") or committed):
-            first = not state.get("branch_map")
-            out = os.path.join(STATE_DIR, "maps", agent + "-CODEMAP.md")
-            os.makedirs(os.path.dirname(out), exist_ok=True)
-            gen = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gen_codemap.py")
-            subprocess.run([sys.executable, gen], cwd=tree, env=dict(os.environ, CODEMAP_OUT=out),
-                           capture_output=True, timeout=30)
-            state["branch_map"] = out
-            save_state(state, path)
-            if os.path.exists(out):
-                emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
-                      map_digest(out, tree) if first else
-                      "[agent_guard] Карта дерева пересобрана после коммита: " + out}})
-        if data.get("tool_name") == "Bash" and pin.get("run_in_background"):
-            # Any background job, not only build_quiet.sh: T6c5 ran suite.sh in the background and went idle.
-            emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
-                  "[agent_guard] Задача в фоне. НЕ заканчивай ход в ожидании уведомления: простой > 5 мин сбрасывает кэш "
-                  "контекста (AF7v потерял так 0,43 млн). Жди блокирующими вызовами ≤ 4 мин: сборка build_quiet.sh — "
-                  "~/.claude/tools/build_wait.sh <лог>; прочее — ~/.claude/tools/wait_bg.sh " + bg_out(data) + "."}})
-            sys.exit(0)
-        calls = state.get("calls", 0)
-        if calls >= min(limit, TURN_LIMIT) - (TURN_LIMIT - TURN_WARN):
-            emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
-                  f"[agent_guard] Вызов {calls}/{TURN_LIMIT} (+{limit - TURN_LIMIT} только на финальный шаг: сценарий, кадры, "
-                  f"коммит; без правок и поиска). Доделай ТЕКУЩИЙ шаг, новый крупный не начинай; закоммить, запушь и отчитайся. Не останавливайся "
-                  f"раньше времени. Остаток — в REMAINDER.md в своём скретче (файл:строка, что заменить на что, что проверено): "
-                  f"продлений нет, его доделает свежий агент по этому списку."}})
-        sys.exit(0)
-
-    tool = data.get("tool_name", "")
-    tin = data.get("tool_input") or {}
-    cmd = tin.get("command", "") if tool == "Bash" else ""
-
-    if not UNCOUNTED_WAIT.match(cmd):
-        state["calls"] = state.get("calls", 0) + 1
-    calls = state["calls"] = state.get("calls", 0)
-
-    finish = TURN_LIMIT < calls <= limit and not state.get("limit")  # the owner's finishing window, 10-23
-    if finish:
-        same = bool(cmd) and state.get("finish_last") == cmd
-        state["finish_rep"] = state.get("finish_rep", 1) + 1 if same else 1
-        state["finish_last"] = cmd
-        if tool in ("Edit", "MultiEdit", "NotebookEdit", "Grep", "Glob", "Agent") or state["finish_rep"] >= 3:
-            save_state(state, path)
-            deny(f"[agent_guard] Вызов {calls}: после {TURN_LIMIT} — только финальный шаг до {limit} (прогон сценария, "
-                 f"кадры, коммит, пуш, REMAINDER); правки, поиск по коду и одна команда трижды подряд запрещены. "
-                 f"Не доделывается — REMAINDER.md (файл:строка) и отчёт тимлиду.", data, agent)
-    if calls > limit:
-        allowed = tool in ("SendMessage", "Write") or (tool == "Bash" and ALWAYS_ALLOWED_AFTER_LIMIT.match(cmd))
-        if not allowed:
-            save_state(state, path)
-            deny(f"[agent_guard] Лимит {limit} вызовов исчерпан ({calls}). Закоммить и запушь сделанное, запиши "
-                 f"REMAINDER.md в скретч (файл:строка) и отчитайся тимлиду; остаток он отдаст свежему агенту.", data, agent)
-
-    # Owner's rule: at most three programme agents. A sub-agent that spawns a general worker is a fourth
-    # (2026-09-24: P10e spawned "P10e code" and the machine ran five). Only Explore (discovery) is allowed.
-    # Owner 2026-09-24 refined it: the limit exists for ECONOMY — a helper is fine when it LOWERS spend. So a worker
-    # is allowed only on a cheaper model than the caller (sonnet or haiku), never on the inherited expensive one.
-    # 2026-09-29 owner: «sonnet дорогой» — measured per TASK, not per token: AL1-12c sonnet 0.56 M vs 0.13-0.23 M on the
-    # main model; L10-FIX sonnet 0.59 M for 15 tidy fixes (skipped the glued list). Half the price, 2.5-4x the tokens.
-    # So a worker helper is never cheaper: only Explore (haiku, read-only) remains.
-    if tool == "Agent" and (tin.get("subagent_type") or "general-purpose").lower() != "explore":
-        save_state(state, path)
-        deny("[agent_guard] Рабочий помощник запрещён (в т.ч. sonnet: владелец 09-29 «соннет дорогой» — по замеру он тратит "
-             "на задачу в 2,5–4 раза больше токенов). Разрешён только Explore на haiku для поиска. Правь сам; не влезает — "
-             "коммит, пуш, REMAINDER, отчёт.", data, agent)
-
-    # The build tree is shared state and costs a full rebuild (~10 min, a dozen calls of waiting) to recreate.
-    if tool == "Bash" and re.search(r"\bmake\b[^;&|]*\sclean(\s|$|;|&)|\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+[^;&|]*\bbuild(/|\s|$)", cmd) \
-            and not re.search(r"\brm\s+-[a-zA-Z]*\s+[^;&|]*build/Tests/Intermediates/\w+/\w+/\w+", cmd):
-        save_state(state, path)
-        deny("[agent_guard] Дерево сборки не чистится: make clean / rm -rf build стоит полной пересборки. Устаревший "
-             "объект — пересобери один файл (touch источника) или удали один .o.", data, agent)
-
-    # Assets are deleted through the editor (referencer check), never from the shell: 2026-10-08 BISTRO-COLOR removed
-    # 132 .demat with rm and only its own ad-hoc copy could bring them back (owner: «надо иметь возможность восстановиться»).
-    if agent and tool == "Bash" and re.search(
-            r"(\b(rm|unlink|shred)\b[^;&|]*|\bfind\b[^;&|]*-delete\b[^;&|]*|\bxargs\b[^;&|]*\brm\b[^;&|]*)"
-            r"(Content/|\.(demat|stmesh|skmesh|detex|desce|deimport|deanim|deprefab|decloudtype|dclayout)\b)", cmd):
-        save_state(state, path)
-        deny("[agent_guard] Ассеты проекта (Content/, .demat/.stmesh/.detex/.desce/…) из шелла не удаляются (владелец "
-             "10-08: «надо иметь возможность восстановиться»). Удаление — через редактор (MCP run_command, проверка "
-             "ссылок) или переимпорт поверх; нужна чистка — строка в REMAINDER, удаляет тимлид.", data, agent)
-
-    # --- Economy rules measured on the ledger (owner 2026-09-24: «сделай так, чтобы агенты опять не НЕ исполнили») ---
-    if tool == "Agent" and (tin.get("subagent_type") or "").lower() == "explore" and \
-            (tin.get("model") or "").lower() != "haiku":
-        save_state(state, path)
-        deny("[agent_guard] Explore запускается на haiku: Agent(subagent_type: \"Explore\", model: \"haiku\", ...). "
-             "Он только находит файлы; дорогая модель тут — пустая трата.", data, agent)
-    # A SECTION read counts (sed -n 'A,Bp' / Read with an offset), not a mere mention: `grep -n '^## '` alone
-    # listed the headings and let the agent go on searching (ledger 09-28: search+read still 55-80 %).
-    if (tool == "Bash" and "CODEMAP.md" in cmd and re.search(r"sed\s+-n\s+'?\d+,\d+p", cmd)) or \
-            (tool == "Read" and (tin.get("file_path") or "").endswith("CODEMAP.md") and tin.get("offset")):
-        state["map_read"] = True
-    # The lead's pre-scan puts a «## Карта» into the brief (LEAD_PROTOCOL §000 step 2): reading THAT brief is reading the
-    # map — refusing the first code read then only cost a call (09-29: L10b2, PRJ1a).
-    brief = BRIEF_PATH.search(cmd if tool == "Bash" else (tin.get("file_path") or ""))
-    if brief and not state.get("map_read"):
-        try:
-            if "## Карта" in open(brief.group(0), encoding="utf-8").read():
-                state["map_read"] = True
-        except OSError:
-            pass
-    reading_code = (tool == "Read" and CODE_FILE.search(tin.get("file_path") or "")) or \
-                   (tool == "Bash" and CODE_READ.search(cmd) and CODE_FILE.search(cmd))
-    if reading_code and not state.get("map_read") and not state.get("explored"):
-        save_state(state, path)
-        deny("[agent_guard] Сначала карта: прочитай свой раздел .claude/CODEMAP.md (grep -n '^## ' .claude/CODEMAP.md, "
-             "затем sed -n по диапазону) или спроси Explore на haiku — и только потом читай код.", data, agent)
-    if tool == "Agent" and (tin.get("subagent_type") or "").lower() == "explore":
-        state["explored"] = True
-    if tool == "Read" and CODE_FILE.search(tin.get("file_path") or "") and \
-            (not tin.get("limit") or int(tin.get("limit") or 0) > MAX_READ_LINES):
-        save_state(state, path)
-        deny(f"[agent_guard] Код читается диапазоном ≤ {MAX_READ_LINES} строк: Read(file_path, offset, limit≤{MAX_READ_LINES}) "
-             f"или sed -n 'A,Bp'. Целый файл — главная статья расхода.", data, agent)
-    if tool == "Bash" and CODE_FILE.search(cmd):
-        if re.search(r"(^|[;&|(]\s*)cat\s+(?!>)[^|;&>]*\.(cpp|hpp|h|glslh|shader|lua|mm)\b", cmd):
-            save_state(state, path)
-            deny(f"[agent_guard] `cat` исходника целиком запрещён: grep -n → sed -n 'A,Bp' (≤ {MAX_READ_LINES} строк).",
-                 data, agent)
-        for a, b in re.findall(r"sed\s+-n\s+['\"]?(\d+),(\d+)p", cmd):
-            if int(b) - int(a) > MAX_READ_LINES:
-                save_state(state, path)
-                deny(f"[agent_guard] sed -n {a},{b}p — {int(b) - int(a)} строк > {MAX_READ_LINES}. Читай уже.", data, agent)
-
-    if tool in ("Edit", "Write", "NotebookEdit") and "/.claude/" in (tin.get("file_path") or ""):
-        save_state(state, path)
-        deny("[agent_guard] Файлы .claude/ (хуки, бриф, контракт) правит только тимлид: 2026-09-24 слияние "
-             "принесло старую копию хука из дерева агента, лимиты сборок исчезли, машина упала.", data, agent)
-    # --- scripts/Dev is the only way to do the routine (owner 2026-09-24: «чтобы агенты всегда точно их использовали») ---
-    if tool == "Bash":
-        denial = script_rule(cmd, data.get("cwd") or "")
-        if denial:
-            save_state(state, path)
-            deny(denial, data, agent)
-
-    if tool == "Bash" and GIT_COMMIT.search(cmd) and staged_claude_files(cmd, data.get("cwd")):
-        save_state(state, path)
-        deny("[agent_guard] В коммите есть файлы .claude/ — их коммитит только тимлид. Убери их из индекса: "
-             "git restore --staged .claude && git checkout -- .claude", data, agent)
-
-    if tool == "Bash":
-        shell = HEREDOC_BODY.sub("", cmd)
-        for rx in TREE_SEARCH:
-            if rx.search(shell) and not LOG_SEARCH.search(shell):
-                save_state(state, path)
-                deny("[agent_guard] Поиск по дереву в своём контексте запрещён (контракт §7.3). Где определено имя — "
-                     "scripts/Dev/sym.sh <Имя> (1–2 с), где используется — sym.sh --refs <Имя>. Вопрос шире — "
-                     "субагенту: Agent(subagent_type: \"Explore\", prompt: \"<что найти, ответ ≤60 строк>\"). "
-                     "Сам ищи только внутри уже известных файлов: grep -n <шаблон> <файл>.", data, agent)
-        if FIND.search(shell) and "-maxdepth" not in shell:
-            save_state(state, path)
-            deny("[agent_guard] `find` без -maxdepth — это поиск по дереву; используй Explore или "
-                 "`find <папка> -maxdepth 2 ...`.", data, agent)
-        for m in SLEEP.finditer(cmd):
-            if int(m.group(1)) > MAX_SLEEP:
-                save_state(state, path)
-                deny(f"[agent_guard] sleep {m.group(1)} > {MAX_SLEEP} с: кэш истекает через 5 минут и весь "
-                     f"контекст пишется заново. Жди кусками: for i in $(seq 27); do grep -q <маркер> <лог> && "
-                     f"break; sleep 10; done", data, agent)
-        # A foreground call longer than the cache's 5 minutes re-reads the whole context (09-29: L10a2 lost 299k,
-        # 30 %, on 6-8 min calls). Long work goes to the background and is waited on in <= 4-min calls.
-        if not tin.get("run_in_background") and int(tin.get("timeout") or 0) > MAX_SLEEP * 1000 + 10000:
-            save_state(state, path)
-            deny(f"[agent_guard] timeout {int(tin['timeout']) // 1000} с > {MAX_SLEEP + 10} с: вызов дольше 5 минут "
-                 "сбрасывает кэш контекста (перечитывание ~1,25× всего контекста). Запусти то же с run_in_background: "
-                 "true и жди ~/.claude/tools/wait_bg.sh <output-файл> (≤ 4 мин за вызов; сборка — build_wait.sh).",
-                 data, agent)
-        if LEAD_ONLY_RUNS.search(cmd):
-            save_state(state, path)
-            deny("[agent_guard] CheckTidy, CheckGluedText и handoff гоняет ТОЛЬКО тимлид. Сюиты своей фичи — scripts/Dev/suite.sh "
-                 "в фоне (владелец 10-10).", data, agent)
-        if CI_WAIT.search(cmd):
-            save_state(state, path)
-            deny("[agent_guard] CI не ждёшь сам: пауза сбрасывает кэш, и весь контекст пишется заново (CI12: 1,5 из "
-                 "3,2 млн). Запушь, отчитайся с id прогона (gh run list --branch <ветка> --limit 1, один раз) и "
-                 "заканчивай — прогон смотрит тимлид.", data, agent)
-        if MAKE.search(cmd):
-            jobs = [int(j) for j in MAKE_JOBS.findall(cmd)]
-            if any(j > MAX_MAKE_JOBS for j in jobs):
-                save_state(state, path)
-                deny(f"[agent_guard] make -j{max(jobs)} > -j{MAX_MAKE_JOBS}: 16 ГБ памяти, clang этого движка "
-                     f"берёт 1-2 ГБ на файл. Собирай с -j{MAX_MAKE_JOBS}.", data, agent)
-            if other_build_running() and not SELF_WAIT.search(cmd):
-                save_state(state, path)
-                deny("[agent_guard] На машине уже идёт сборка (другой агент или тимлид). Одновременно — только "
-                     "одна: 2026-09-24 три параллельные сборки съели 16 ГБ и уронили машину. Поставь ожидание перед "
-                     "make в ту же команду: for i in $(seq 27); do pgrep -x make >/dev/null || break; sleep 10; "
-                     "done; make ...",
-                     data, agent)
-        if re.search(r"DESERT_EDITOR_MANUAL|DESERT_SCENARIO\s*=", cmd):
-            save_state(state, path)
-            deny("[agent_guard] Живой редактор агент поднимает только ~/.claude/tools/play_scenario.sh <ДЕРЕВО> "
-                 "<Scenarios/…/КОД.scn> [--hold] (владелец 10-22: доказательство = сценарий); обходной флаг — только тимлиду.",
-                 data, agent)
-        if runs_editor(cmd) and "run_capped" not in cmd:
-            save_state(state, path)
-            deny("[agent_guard] Редактор/рантайм запускается только через ограничитель памяти: "
-                 "~/.claude/tools/run_capped.sh ../build/Bin/Debug/Editor ... на macOS "
-                 "(путь: /Users/daniilsavcenko/.claude/tools/run_capped.sh), "
-                 "python .claude/tools/run_capped.py build/Bin/Debug/Editor.exe ... на Windows. "
-                 "2026-09-24 один редактор съел 13.7 ГБ из 16 и уронил машину.", data, agent)
-        if (runs_editor(cmd) or "run_capped" in cmd) and editor_running():
-            save_state(state, path)
-            deny("[agent_guard] Уже запущен редактор/рантайм (другой агент). Одновременно — только ОДИН процесс с GPU: "
-                 "2026-09-24 несколько редакторов повесили WindowServer, ядро ушло в panic. Подожди в той же команде: "
-                 "for i in $(seq 27); do pgrep -x Editor >/dev/null || pgrep -x Runtime >/dev/null || break; "
-                 "sleep 10; done; <запуск>", data, agent)
-        # a single translation unit (`make -f Editor.make .../EditorLayer.o`) is the cheap check the brief asks for
-        # BEFORE a full build; counting it made the rule punish its own advice (AF9k, 2026-09-24)
-        if EDITOR_BUILD.search(cmd) and not SINGLE_TU.search(cmd):
-            if state.get("editor_builds", 0) >= MAX_EDITOR_BUILDS:
-                save_state(state, path)
-                deny(f"[agent_guard] Editor уже собирался {MAX_EDITOR_BUILDS} раз(а) в этой задаче. Итерации — на "
-                     f"сюитах; если без ещё одной сборки нельзя — SendMessage тимлиду с причиной.", data, agent)
-            state["editor_builds"] = state.get("editor_builds", 0) + 1
-
-    save_state(state, path)
-    log(data, agent, "allow")
+    emit(data.get("hook_event_name") or "PreToolUse", decide(data))
     sys.exit(0)
 
 
 if __name__ == "__main__":
-    if "--self-check" in sys.argv:
-        self_check()
     main()

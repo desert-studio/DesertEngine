@@ -15,18 +15,21 @@ Owner 11-24: autoCompactWindow 100k thrashed; window back to 200k, and /compact 
 Claude cannot run a slash command itself, so this hook finds the Terminal.app tab whose tty is this claude
 process's tty and types the command there (synthetic input is allowed, owner 09-30). It fires at most once per
 COOLDOWN seconds and only after the turn has ended (Stop), a few seconds later so the prompt is idle.
-Log: ~/.claude/tools/auto_compact.log.  Off switch: touch ~/.claude/tools/auto_compact.off
+Log: limits.STUDIO_HOME/auto_compact.log.  Off switch: touch <that folder>/auto_compact.off
 Windows: console_type.py writes into the input buffer of the claude.exe console (no focus needed, unlike SendKeys).
 Only /compact there: typing /clear and the continue prompt waits for the owner's word on that machine.
-/clear only when the lead asked for it with --clear, after writing the handover (LEAD_PROTOCOL «КОНТЕКСТ ТИМЛИДА»).
+/clear only when the lead asked for it with --clear, after writing the handover (LEAD_PROTOCOL «Контекст лида»).
 """
 import json, os, subprocess, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import limits
 
 THRESHOLD = 130_000
 COOLDOWN = 900
 DELAY = 6
 CLEAR_LINES = 8
-HOME = os.path.expanduser("~/.claude/tools")
+HOME = limits.STUDIO_HOME
 os.makedirs(HOME, exist_ok=True)
 STAMP = os.path.join(HOME, "auto_compact.stamp")
 LOG = os.path.join(HOME, "auto_compact.log")
@@ -89,8 +92,6 @@ def type_into(tty, text, enters):
         return
     keys = "\n".join(['        delay 0.7\n        tell application "System Events" to key code 36'] * enters)
     # Empty the prompt box first: whatever is left there would be sent together with @p text.
-    # Key codes and a paste, never `keystroke`: with a Cyrillic layout active, keystroke types every Latin letter as
-    # key code 0, so "/compact" arrived as "/ффффффф" (owner's Mac, 11-26).
     wipe = "\n".join(['        tell application "System Events"\n'
                       '          key code 14 using control down\n'
                       '          key code 32 using control down\n'
@@ -107,16 +108,11 @@ tell application "Terminal"
         delay 0.5
 {wipe}
         delay 0.2
-        set oldClip to ""
-        try
-          set oldClip to the clipboard
-        end try
+        -- Owner 11-26: `keystroke` types through the active layout, so with Russian on "/compact" arrived as
+        -- "/ффффффф" and every garbled prompt started another lead turn. Paste by key code instead.
         set the clipboard to "{text}"
+        delay 0.1
         tell application "System Events" to key code 9 using command down
-        delay 0.3
-        try
-          set the clipboard to oldClip
-        end try
 {keys}
         return "typed"
       end if

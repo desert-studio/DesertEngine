@@ -4,7 +4,9 @@ description: The architecture rules of DesertEngine with the checks that enforce
 ---
 # Architecture
 
-Machine check: `python scripts/Dev/arch_census.py` (a ratchet: the numbers in `arch_baseline.json` may only fall; `--list RULE` shows the places). `land_dev.sh` and `build_land.sh` refuse a rise. A rise needs `--update --accept-rise "reason"`, by the lead, and the reason stays in the file. After a fall: `--update`.
+The reference for code is established C++ practice — C++ Core Guidelines, RAII, value semantics, SOLID, GoF, data-oriented design for hot paths (owner 2026-11-26). UE and other AAA engines are the reference for a LOOK and for render techniques (skill `desert-engine-look`), not for how code is organised. Deviate from the pattern only where it measurably hurts performance, and say so with the number.
+
+Machine check: `python scripts/Dev/arch_census.py` (a ratchet: the numbers in `arch_baseline.json` may only fall; `--list RULE` shows the places, and is the only list of open debt). `land_dev.sh` and `build_land.sh` refuse a rise. A rise needs `--update --accept-rise "reason"`, by the lead, and the reason stays in the file. After a fall: `--update`.
 
 ## Layers
 `Common` → modules (`CoreReflection`, `Schema`, `PhysicsCore`, `Audio`, `Net`, `Water`, …) → `Desert` (engine, renderer) → `Editor` / `Runtime` / `Server`. A lower layer never includes or names a higher one. The renderer reads a frozen frame packet, never the scene. Editor code is never reachable from a packaged game.
@@ -23,10 +25,10 @@ Machine check: `python scripts/Dev/arch_census.py` (a ratchet: the numbers in `a
 - New serialized field = new version + migration of the files, in the same branch.
 
 ## Size
-A file over 2500 lines may not grow by 100. Split by responsibility (a pass, a system, a panel), never by line number. Known debt: `SceneRenderer.cpp`, `MeshRenderer.hpp`, `MeshRendererForward.cpp`.
+A file over 2500 lines may not grow by 100. Split by responsibility (a pass, a system, a panel), never by line number. A change that touches a place `arch_census.py --list` names fixes that place whole.
 
-## Open debt (COUPLING-AUDIT, checked 2026-11-25)
-Net rates as constants (`Net/Replication.hpp`) instead of project settings; systems list duplicated (`RuntimeLayer.cpp`, `SceneWorkspace.cpp`); `LevelTravel` and `Input`/`EngineContext` singletons; `SoundClass` enum instead of an asset; `Window.hpp` title. A change that touches one of these fixes it whole.
+## Interfaces between parallel packages
+A feature built by several engineers at once is cut along headers: the shared header is the contract, written in full by the architect before any code, owned by nobody while the packages run. It carries types and function signatures, never a shared mutable object; each side can be compiled against it alone.
 
 ## Questions a design answers
-Who owns it? Who may write it? When is it rebuilt? What does a second world / view / player do? What is deleted? Which established C++ pattern fits (C++ Core Guidelines, RAII, SOLID, GoF, value semantics, data-oriented design for hot paths) — owner 11-26: UE is not the architecture reference for code; deviate from the pattern only when it measurably hurts performance, and say so with the number. What does it cost in ms and MB, and at which tier?
+Who owns it? Who may write it? When is it rebuilt? What does a second world / view / player do? What is deleted? Which established C++ pattern fits, and where does it not? What does it cost in ms and MB, and at which tier? Along which header is it cut when it is too big for one run?

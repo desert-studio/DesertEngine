@@ -96,7 +96,7 @@ def cmd_init(args) -> None:
         f"CAPTURE: {args.capture}\n\n"
         "## Is this bar honest?\n\n"
         "A bar must be OPENABLE and SUBJECT-MATCHED. Ours has failed the second test before:\n"
-        "`Docs/Clouds/UEReference/UE_mid.png` is a distant thin stratocumulus sheet, our\n"
+        "the first cloud reference frame was a distant thin stratocumulus sheet, our\n"
         "protocol sky is a near congestus deck, and R0 refused four shape instruments as\n"
         "evidence for exactly that reason. A run against a mismatched bar industrialises a\n"
         "comparison we already know is wrong. If the bar is not subject-matched, say so here\n"
@@ -150,8 +150,8 @@ def cmd_next(args) -> None:
     print(f"capture: {capture}")
     print()
     print("1. Free gates first -- they cost nothing and they fail loudest:")
-    print("   make Desert config=debug -j8 && make Editor config=debug -j8")
-    print("   full suite sweep, then llvm@18 git-clang-format on changed lines")
+    print("   python scripts/Dev/arch_census.py -- the counts may only fall")
+    print("   the round's code is in a batch the lead has built; an agent never builds")
     print("2. Capture the artifact with the command above.")
     print(f"3. gauntlet.py pair --slug {args.slug} --round {number} --ours <png> --ref <png>")
     print(f"4. Write rounds/{number:02d}/verdict.md judging A vs B through the '{lens}' lens.")

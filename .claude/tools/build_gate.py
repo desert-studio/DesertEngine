@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """PreToolUse gate for builds (owner 2026-11-05: «надо как-то записать оптимизацию в протокол, чтобы не делаем по
-1000 сборок на день»). LEAD_PROTOCOL §СБОРКА.
+1000 сборок на день»). LEAD_PROTOCOL «Сборка».
 
 A build is one call of .claude/tools/build_land.sh <land tree> <log> [scn]. The gate allows it when
   - nothing builds right now (the previous log has no <log>.rc and was written in the last 5 minutes = running), and
   - the previous build of the tree failed (compile-fix loop), or there is none, or at least MIN_MERGES merge
     commits landed since its HEAD, or the command carries BUILD_WHY="<reason>" (at most WHY_PER_DAY a day).
+A command is judged by what each shell segment RUNS (its first word), not by the names it mentions: `tail build.log`,
+`ls .claude/tools/build_land.sh` and `python x.py --log build_low.sh` are not builds, wherever they stand in a chain.
 Agents never build. Any other build entry (BuildWindows.bat, cmake --build, MSBuild, ninja, build_low*.sh) is
 refused with the one allowed form. Every allowed build is written to LEDGER with its HEAD, log and reason.
 """
@@ -16,16 +18,19 @@ import subprocess
 import sys
 import time
 
-LAND_TREE = os.environ.get("DESERT_LAND_TREE", "F:/DesertEngine")
-LEDGER = os.environ.get("BUILD_GATE_LEDGER", "C:/aftmp/build_ledger.jsonl")
-MIN_MERGES = 2
-WHY_PER_DAY = 3
-RUNNING_SECONDS = 300
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import limits
+
+LAND_TREE = limits.LAND_TREE
+LEDGER = limits.BUILD_LEDGER
+MIN_MERGES = limits.BUILD_MIN_MERGES
+WHY_PER_DAY = limits.BUILD_WHY_PER_DAY
+RUNNING_SECONDS = limits.BUILD_RUNNING_S
 
 ENTRY = re.compile(r"(?:^|[;&|(]\s*|\bbash\s+|\bsh\s+)(?:\S*/)?build_land\.sh\s+(\S+)\s+(\S+)")
-OTHER = re.compile(r"(BuildWindows\.bat|cmake\s+--build|MSBuild(\.exe)?[\"']?\s|(^|[;&|(]\s*)ninja\s|"
-                   r"build_low(_run)?\.sh\s)", re.I)
-READERS = re.compile(r"^\s*(cat|head|tail|grep|sed\s+-n|less|wc|ls|git\s+(log|show|diff|grep))\b")
+FIRST = re.compile(r"(^|[/\\])(build_land\.sh|build_low(_run)?\.sh|BuildWindows\.bat|MSBuild(\.exe)?|ninja(\.exe)?)$", re.I)
+RUNNERS = re.compile(r"^(bash|sh|cmd|cmd\.exe|powershell|pwsh|start|call|nice|exec|time|env|nohup)$", re.I)
+HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\1\b", re.S)
 WHY = re.compile(r"BUILD_WHY=(\"[^\"]+\"|'[^']+'|\S+)")
 
 
@@ -37,6 +42,25 @@ def emit(decision, text):
         out = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": text}}
     sys.stdout.write(json.dumps(out))
     sys.exit(0)
+
+
+def build_segments(cmd):
+    """The shell segments of @p cmd that RUN a build: the first word is the build entry itself or a runner of it."""
+    out = []
+    for segment in re.split(r"&&|\|\||[;|\n(]", HEREDOC.sub("", cmd)):
+        words = segment.strip().split()
+        while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+            words = words[1:]
+        while words and RUNNERS.match(words[0].strip("\"'")):
+            words = [w for w in words[1:] if not re.match(r"^[-/][A-Za-z]+$", w)] if len(words) > 1 else []
+            words = words if not words or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]) else words[1:]
+        if not words:
+            continue
+        run = " ".join(words)
+        first = words[0].strip("\"'")
+        if FIRST.search(first) or (first.lower().endswith("cmake") and "--build" in words[1:3]):
+            out.append(run)
+    return out
 
 
 def norm(path):
@@ -86,21 +110,20 @@ def main():
     if data.get("tool_name") not in ("Bash", "PowerShell"):
         sys.exit(0)
     cmd = (data.get("tool_input") or {}).get("command", "")
-    if re.match(r"^\s*git\s", cmd) or "<<" in cmd:
-        sys.exit(0)  # a commit message or a heredoc that only mentions a build is not one
-    entry = ENTRY.search(cmd)
-    if not entry and (not OTHER.search(cmd) or READERS.match(cmd)):
-        sys.exit(0)
-    form = "bash F:/DesertEngine/.claude/tools/build_land.sh F:/DesertEngine C:/aftmp/build_<name>.log [scn]"
+    builds = build_segments(cmd)
+    if not builds:
+        sys.exit(0)  # the command reads, lists or mentions a build; it runs none
+    entry = next((m for m in (ENTRY.search("bash " + b) for b in builds) if m), None)
+    form = f"bash {LAND_TREE}/.claude/tools/build_land.sh {LAND_TREE} C:/aftmp/build_<name>.log [scn]"
     if data.get("agent_id"):
-        emit("deny", "[build_gate] агенты не собирают (LEAD_PROTOCOL §СБОРКА): код + push, сборку делает лид "
+        emit("deny", "[build_gate] агенты не собирают (LEAD_PROTOCOL «Сборка»): код + push, сборку делает лид "
                      "одной сборкой пачки.")
     if not entry:
-        emit("deny", "[build_gate] сборка только одной командой: " + form + " (LEAD_PROTOCOL §СБОРКА).")
+        emit("deny", "[build_gate] сборка только одной командой: " + form + " (LEAD_PROTOCOL «Сборка»).")
     tree, log = norm(entry.group(1)), entry.group(2).strip("\"'")
     if tree != norm(LAND_TREE):
         emit("deny", f"[build_gate] собирается только дерево пачки {LAND_TREE}: ветки агентов сливаются в него, "
-                     "сборка одна на пачку (LEAD_PROTOCOL §СБОРКА).")
+                     "сборка одна на пачку (LEAD_PROTOCOL «Сборка»).")
     rows = ledger()
     today = time.strftime("%Y-%m-%d")
     today_rows = [r for r in rows if r.get("day") == today]
