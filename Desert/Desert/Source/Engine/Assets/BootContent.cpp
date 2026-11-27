@@ -34,11 +34,6 @@ namespace Desert::Assets
         }
     } // namespace
 
-    std::size_t ShaderCount()
-    {
-        return ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader ).size();
-    }
-
     Common::BoolResultStr CompileShaders( const std::shared_ptr<AssetManager>& manager,
                                           Core::StartupProgress*               progress )
     {

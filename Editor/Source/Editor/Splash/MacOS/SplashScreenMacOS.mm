@@ -17,6 +17,7 @@
 // Manual retain/release: this target is not built with -fobjc-arc (neither is Common's MacOS code).
 
 #include <Common/Core/EngineThread.hpp>
+#include <Editor/Core/StartupRecord.hpp>
 #include <Editor/Splash/SplashControls.hpp>
 #include <Editor/Splash/SplashImage.hpp>
 #include <Editor/Splash/SplashLayout.hpp>
@@ -30,9 +31,6 @@
 #import <CoreText/CoreText.h>
 #import <QuartzCore/QuartzCore.h>
 
-#include <sys/sysctl.h>
-#include <sys/time.h>
-#include <unistd.h>
 
 #include <atomic>
 #include <chrono>
@@ -355,21 +353,14 @@ namespace Desert::Editor::Splash
             [CATransaction flush];
 
             // HOW EARLY, measured from the kernel's own record of when this process began — the one clock
-            // that includes the loader and the static initialisers, which no timer started in main() sees.
-            kinfo_proc info{};
-            size_t     size  = sizeof( info );
-            int        mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid() };
-            struct timeval now
-            {
-            };
-            gettimeofday( &now, nullptr );
-            if ( sysctl( mib, 4, &info, &size, nullptr, 0 ) == 0 )
-            {
-                const struct timeval start = info.kp_proc.p_starttime;
-                const double         ms =
-                     ( now.tv_sec - start.tv_sec ) * 1000.0 + ( now.tv_usec - start.tv_usec ) / 1000.0;
-                LOG_INFO( "[Splash] on screen {:.0f} ms after the process started", ms );
-            }
+            // that includes the loader and the static initialisers (Editor/Core/StartupRecord.hpp, one copy).
+            if ( const auto started = ProcessStartTime() )
+                LOG_INFO( "[Splash] on screen {:.0f} ms after the process started",
+                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
+                                                                     started.GetValue() )
+                               .count() );
+            else
+                LOG_WARN( "[Splash] on screen; the process start could not be read ({})", started.GetError() );
 
             OpenCapture();
             m_WindowId = static_cast<CGWindowID>( m_Window.windowNumber );

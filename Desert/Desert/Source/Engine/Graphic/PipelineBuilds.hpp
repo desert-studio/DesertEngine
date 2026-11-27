@@ -5,7 +5,12 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <map>
 #include <mutex>
+#include <string>
+#include <string_view>
+#include <vector>
 
 // Graphics pipelines whose driver compile is running on the JobSystem (PSO1; the pattern of UE 5.8
 // FGraphicsPipelineStateInitializer precaching: the compile leaves the render thread, the draw waits for
@@ -30,82 +35,67 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::PipelineBuilds
 {
+    // One compile running now: what the splash names and how long it has run.
+    struct InFlightBuild
+    {
+        std::string                           Name;
+        std::chrono::steady_clock::time_point Begin;
+        PipelineRole                          Role;
+    };
+
     class Tracker
     {
     public:
-        // A compile was handed to a worker. Called on the thread that submits it, BEFORE the submit.
-        void OnStarted( PipelineRole role )
-        {
-            const std::lock_guard lock( m_Mutex );
-            ++m_Pending[Index( role )];
-            ++m_Started[Index( role )];
-        }
-
-        // The worker is done with it (built or failed): nothing of the pipeline's inputs is read any more.
-        void OnFinished( PipelineRole role )
-        {
-            {
-                const std::lock_guard lock( m_Mutex );
-                --m_Pending[Index( role )];
-            }
-            m_Idle.notify_all();
-        }
+        // A compile begins, on the thread that runs or submits it — sync (CompileOn::CallingThread) and async
+        // alike, so every graphics-pipeline compile is counted and named. Returns the ticket OnFinished takes.
+        [[nodiscard]] uint64_t OnStarted( PipelineRole role, std::string_view name );
+        // The compile is done (built or failed): nothing of the pipeline's inputs is read any more.
+        void OnFinished( uint64_t ticket );
 
         // Compiles of @p role still running.
-        size_t Pending( PipelineRole role ) const
-        {
-            const std::lock_guard lock( m_Mutex );
-            return m_Pending[Index( role )];
-        }
-
+        size_t Pending( PipelineRole role ) const;
         // Monotonic: compiles ever started. ContentGate's second condition ("the frame just rendered
         // started nothing new") needs a count that moves on START, not only a queue depth.
-        uint64_t Started( PipelineRole role ) const
-        {
-            const std::lock_guard lock( m_Mutex );
-            return m_Started[Index( role )];
-        }
+        uint64_t Started( PipelineRole role ) const;
+        // Monotonic: compiles ever finished.
+        uint64_t Finished( PipelineRole role ) const;
+        // The oldest @p max compiles running now (all roles), oldest first.
+        std::vector<InFlightBuild> InFlight( size_t max ) const;
 
         // Blocks until no compile is running. Shader hot-reload calls it before it replaces a shader's
         // modules, which a running compile is still reading.
-        void WaitIdle()
-        {
-            std::unique_lock lock( m_Mutex );
-            m_Idle.wait( lock, [this] { return m_Pending[0] == 0 && m_Pending[1] == 0; } );
-        }
+        void WaitIdle();
+        // Blocks until @p done is true; re-asked after every OnFinished (DeferredLighting's submit-then-wait).
+        // MAIN THREAD ONLY: it does not help the pool, so a JobSystem worker waiting here is the
+        // "body waits for an Async" cycle JobSystem.hpp forbids.
+        void WaitUntil( const std::function<bool()>& done );
 
         // What a content pipeline request cost the CALLING thread (the frame): spec checks, layout, state
         // setup and the hand-off. The driver compile is not in it any more; this is the number that says so.
-        void RecordCallerBlock( const std::chrono::nanoseconds blocked )
-        {
-            const std::lock_guard lock( m_Mutex );
-            m_CallerBlocked += blocked;
-            if ( blocked > m_CallerBlockedMax )
-                m_CallerBlockedMax = blocked;
-        }
+        void RecordCallerBlock( std::chrono::nanoseconds blocked );
 
         struct CallerCost
         {
             std::chrono::nanoseconds Total{};
             std::chrono::nanoseconds Max{};
         };
-        CallerCost CallerBlocked() const
-        {
-            const std::lock_guard lock( m_Mutex );
-            return { m_CallerBlocked, m_CallerBlockedMax };
-        }
+        CallerCost CallerBlocked() const;
 
     private:
-        mutable std::mutex       m_Mutex;
-        std::chrono::nanoseconds m_CallerBlocked{};
-        std::chrono::nanoseconds m_CallerBlockedMax{};
-        std::condition_variable  m_Idle;
-        static constexpr size_t  Index( PipelineRole role )
+        static constexpr size_t Index( PipelineRole role )
         {
             return static_cast<size_t>( role );
         }
-        std::array<size_t, 2>   m_Pending{};
-        std::array<uint64_t, 2> m_Started{};
+
+        mutable std::mutex                    m_Mutex;
+        std::condition_variable               m_Idle;
+        std::chrono::nanoseconds              m_CallerBlocked{};
+        std::chrono::nanoseconds              m_CallerBlockedMax{};
+        std::array<size_t, 2>                 m_Pending{};
+        std::array<uint64_t, 2>               m_Started{};
+        std::array<uint64_t, 2>               m_Finished{};
+        std::map<uint64_t, InFlightBuild>     m_InFlight;
+        uint64_t                              m_NextTicket = 1;
     };
 
     Tracker& Get();

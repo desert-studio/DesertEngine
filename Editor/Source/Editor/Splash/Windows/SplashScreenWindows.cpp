@@ -21,6 +21,7 @@
 // splash thread most of a core.
 
 #include <Common/Core/EngineThread.hpp>
+#include <Editor/Core/StartupRecord.hpp>
 #include <Editor/Splash/SplashControls.hpp>
 #include <Editor/Splash/SplashImage.hpp>
 #include <Editor/Splash/SplashLayout.hpp>
@@ -268,16 +269,15 @@ namespace Desert::Editor::Splash
                 SetForegroundWindow( window );
                 UpdateWindow( window );
 
-                // How early, from the kernel's record of when this process began (the macOS file says why).
-                FILETIME created, exited, kernel, user, now;
-                if ( GetProcessTimes( GetCurrentProcess(), &created, &exited, &kernel, &user ) )
-                {
-                    GetSystemTimeAsFileTime( &now );
-                    const auto ticks = []( const FILETIME& t )
-                    { return ( static_cast<unsigned long long>( t.dwHighDateTime ) << 32 ) | t.dwLowDateTime; };
+                // How early, from the kernel's record of when this process began (Editor/Core/StartupRecord.hpp,
+                // the one copy of that clock).
+                if ( const auto started = ProcessStartTime() )
                     LOG_INFO( "[Splash] on screen {:.0f} ms after the process started",
-                              static_cast<double>( ticks( now ) - ticks( created ) ) / 10000.0 );
-                }
+                              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
+                                                                         started.GetValue() )
+                                   .count() );
+                else
+                    LOG_WARN( "[Splash] on screen; the process start could not be read ({})", started.GetError() );
             }
             else
             {

@@ -1068,7 +1068,7 @@
   "Desert/Desert/Source/Engine/Media/MediaPlayer.cpp:m_Decoder = std::thread( [this] { DecodeLoop(); } );": 1,
   "Desert/Desert/Source/Engine/Media/MediaPlayer.hpp:std::thread m_Decoder;": 1,
   "Editor/Source/Editor/Panels/Photogrammetry/PhotogrammetryPanel.hpp:std::thread m_Worker;": 1,
-  "Editor/Source/Editor/Splash/Windows/SplashScreenWindows.cpp:std::thread decoder = Common::StartEngineThread( \"Splash Decoder\", Common::ThreadPriority::Normal,": 1,
+  "Editor/Source/Editor/Splash/Windows/SplashScreenWindows.cpp:std::thread decoder = Common::StartEngineThread(": 1,
   "Editor/Source/Editor/Splash/Windows/SplashScreenWindows.cpp:std::thread m_Thread;": 1,
   "Server/Source/main.cpp:std::thread(": 1
  },

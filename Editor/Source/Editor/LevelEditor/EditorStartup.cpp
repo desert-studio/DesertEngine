@@ -285,7 +285,8 @@ namespace Desert::Editor
                    Assets::SetDisplacedMeshBuilder( &Editor::BuildDisplacedMeshBytes );
                    // A grass variety's cover look: its albedo map averaged over the texels its blades draw.
                    Assets::SetGrassCoverLookBuilder( &Editor::BuildGrassCoverLook );
-                   (void)m_ImportManager->ImportLooseTextures( sink );
+                   if ( const size_t imported = m_ImportManager->ImportLooseTextures( sink ); imported > 0 )
+                       LOG_INFO( "[Startup] {} loose texture(s) imported", imported );
                } } );
         // THE ONLY CONTENT STAGES LEFT (AL1-9): nothing here creates an asset of any kind. Textures, materials,
         // meshes, skyboxes and the cloud kinds are created from their content-registry rows when something
