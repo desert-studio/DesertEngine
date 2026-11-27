@@ -99,3 +99,8 @@ def table():
 
 if __name__ == "__main__":
     print(table())
+
+# Owner 11-27 (a night = 6 % of the weekly limit, the lead ~61 % of it): the lead writes nothing until the owner asks
+# for news; a turn the owner did not start ends without text (silence_guard.py). One line for a decision only the
+# owner can make fits under this cap.
+SILENT_TEXT_MAX = 200

@@ -85,7 +85,8 @@
       {
         "hooks": [
           { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/board_guard.py\"" },
-          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/auto_compact.py\"", "timeout": 10 }
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/auto_compact.py\"", "timeout": 10 },
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/silence_guard.py\"", "timeout": 10 }
         ]
       }
     ]
