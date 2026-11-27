@@ -20,10 +20,13 @@
 //
 // Wire: a message is its type byte then little-endian fields (WireCodec.hpp). The Encode* functions return the
 // WHOLE message (type byte first); the Decode* functions take the BODY the mesh handler hands out (the type byte
-// already consumed), as every MeshLink.cpp decoder does. Message type bytes live in their own range above the
-// MeshLink.cpp EMesh codes (all < 0x20): a mesh handler asks IsHandoverMessage() first.
+// already consumed), as every MeshLink.cpp decoder does. ONE NUMBERING: a mesh connection carries the session
+// codes (NetHandshake.hpp, < kFirstSessionMessage), the mesh's own EMesh codes (MeshLink.cpp, from
+// kFirstSessionMessage + 40) and these, from kFirstHandoverMessage; MeshLink.cpp static_asserts that its last
+// EMesh code stays below kFirstHandoverMessage, so no handover byte can be read as a mesh message or the reverse.
 
 #include <Net/MeshOfOne.hpp>
+#include <Net/NetHandshake.hpp>
 #include <Net/Replication.hpp>
 
 #include <cstddef>
@@ -36,15 +39,18 @@
 
 namespace Desert::Net::Handover
 {
+    // The first handover type byte: past the mesh's EMesh range (MeshLink.cpp, kFirstSessionMessage + 40 ..
+    // + 62 today), with room for the mesh to grow.
+    inline constexpr std::uint8_t kFirstHandoverMessage = kFirstSessionMessage + 80;
     enum class EMessage : std::uint8_t
     {
-        Offer     = 0x40, // OfferHeader + HandoverPawn           sender -> store -> receiver
-        Accept    = 0x41, // Verdict (no refusal)                 receiver -> store
-        Refuse    = 0x42, // Verdict + Refusal                    receiver -> store
-        Commit    = 0x43, // Decision                             store -> receiver
-        Committed = 0x44, // Decision                             store -> sender
-        Withdraw  = 0x45, // Verdict (no refusal)                 sender -> store
-        Refused   = 0x46, // Decision + Refusal                   store -> sender | receiver
+        Offer     = kFirstHandoverMessage, // OfferHeader + HandoverPawn sender -> store -> receiver
+        Accept,    // Verdict (no refusal)                 receiver -> store
+        Refuse,    // Verdict + Refusal                    receiver -> store
+        Commit,    // Decision                             store -> receiver
+        Committed, // Decision                             store -> sender
+        Withdraw,  // Verdict (no refusal)                 sender -> store
+        Refused,   // Decision + Refusal                   store -> sender | receiver
     };
     [[nodiscard]] constexpr bool IsHandoverMessage( std::uint8_t type )
     {

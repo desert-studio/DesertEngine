@@ -25,7 +25,7 @@
 Ждать B 1800 \[Net\] in session
 # Когда: A walks 2000 cm along +X from (-1000, 92, -500) through X = 0; the handover is confirmed by sim 2.
 Роль A bot account=1 --seconds 900 --walk-cm 2000 --dir 0.15,0,0
-Ждать sim1 120 held and offered to sim 2 \(offer #1, epoch 1, frozen at step \d+\)
+Ждать sim1 120 held and offered to sim 2 \(offer #1, epoch 1, frozen at step \d+, \d+ unacked input\(s\)\)
 Ждать sim2 30 offer \(sim 1, #1\).*accepted \(catch-up [0-2] step
 Ждать store 30 offer \(sim 1, #1\).*committed \(sim 1, epoch 1\) -> \(sim 2, epoch 2\)
 Ждать sim2 30 committed: incoming pawn promoted
@@ -39,7 +39,7 @@
 Роль A2 bot account=2 --seconds 900 --walk-cm 2000 --dir 0.15,0,0
 Ждать A2 120 \] t=\S+ pawns.* \d+\*=\((2[0-6]\d),
 Сигнал sim2 STOP
-Ждать sim1 10 held and offered to sim 2 \(offer #2, epoch 1, frozen at step \d+\)
+Ждать sim1 10 held and offered to sim 2 \(offer #2, epoch 1, frozen at step \d+, \d+ unacked input\(s\)\)
 Ждать sim1 5 offer #2 .*ReceiverSilent: sim 2 answered nothing for 30 steps - withdrawn; the pawn resumes on sim 1 with \d+ queued input\(s\), next offer not before step \d+
 Ждать store 10 offer \(sim 1, #2\).*withdrawn by sim 1 at step \d+
 Ждать A2 10 2x \] t=
@@ -54,7 +54,7 @@
 Ждать B 60 fresh \[Shot\] recorded frame_
 Тогда B stale_offer_refused B's view after sim 2 resumed: ONE A2 capsule (never two) still walking +X east of X = 300; store.log has no "committed" for offer #2, and "accept from sim 2 refused - OfferUnknown" when sim 2 accepted the stale offer
 # Когда: the 120-step backoff ends; sim 1 offers A2 again and sim 2 takes it at epoch 2 (not 3).
-Ждать sim1 30 held and offered to sim 2 \(offer #3, epoch 1, frozen at step \d+\)
+Ждать sim1 30 held and offered to sim 2 \(offer #3, epoch 1, frozen at step \d+, \d+ unacked input\(s\)\)
 Ждать store 30 offer \(sim 1, #3\).*committed \(sim 1, epoch 1\) -> \(sim 2, epoch 2\)
 Ждать sim1 30 offer #3 .*committed by the store \(epoch 2\)
 Ждать sim2 30 committed: incoming pawn promoted
