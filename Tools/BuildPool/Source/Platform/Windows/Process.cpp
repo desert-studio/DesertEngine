@@ -4,9 +4,11 @@
 #include "Win.hpp"
 
 #include <psapi.h>
+#include <tlhelp32.h>
 
 #include <algorithm>
 #include <cwchar>
+#include <iterator>
 #include <map>
 
 #pragma comment( lib, "psapi.lib" )
@@ -218,6 +220,136 @@ namespace buildpool
             }
             return Ok();
         }
+
+        // ---- The MSVC PDB server
+        // mspdbsrv serves every cl/link of the user. Started by a tool inside a ChildJob it would die with that
+        // job (Terminate, or KILL_ON_JOB_CLOSE when the client dies) under every other build, and its memory would
+        // count as that TU's peak. So the pool starts it itself, outside every job, before the child runs.
+
+        // The mspdbsrv.exe beside the first command-line word that names an executable with one next to it: the
+        // compiler or linker, also behind a wrapper (ccache cl ..., cmd /c cl ...). Empty: no MSVC tool runs.
+        std::wstring PdbServerFor( const std::vector<std::string>& argv )
+        {
+            for ( const std::string& arg : argv )
+            {
+                if ( arg.empty() || arg.front() == '/' || arg.front() == '-' || arg.front() == '@' )
+                {
+                    continue; // an option or a response file, not a program
+                }
+                const std::wstring name = win::Widen( arg );
+                wchar_t            found[MAX_PATH * 2]{};
+                wchar_t*           filePart = nullptr;
+                const DWORD        length   = SearchPathW( nullptr, name.c_str(), L".exe",
+                                                           static_cast<DWORD>( std::size( found ) ), found, &filePart );
+                if ( length == 0 || length >= std::size( found ) || filePart == nullptr )
+                {
+                    continue;
+                }
+                std::wstring server( found, static_cast<size_t>( filePart - found ) );
+                server += L"mspdbsrv.exe";
+                const DWORD attributes = GetFileAttributesW( server.c_str() );
+                if ( attributes != INVALID_FILE_ATTRIBUTES && ( attributes & FILE_ATTRIBUTE_DIRECTORY ) == 0 )
+                {
+                    return server;
+                }
+            }
+            return {};
+        }
+
+        bool SamePath( const std::wstring& a, const std::wstring& b ) noexcept
+        {
+            return CompareStringOrdinal( a.c_str(), static_cast<int>( a.size() ), b.c_str(),
+                                         static_cast<int>( b.size() ), TRUE ) == CSTR_EQUAL;
+        }
+
+        // Whether a process of exactly this image is running.
+        Result<bool> PdbServerRunning( const std::wstring& server )
+        {
+            win::Handle snapshot( CreateToolhelp32Snapshot( TH32CS_SNAPPROCESS, 0 ) );
+            if ( !snapshot.Valid() )
+            {
+                return Fail( win::LastErrorText( "CreateToolhelp32Snapshot" ) );
+            }
+            PROCESSENTRY32W entry{};
+            entry.dwSize = sizeof( entry );
+            for ( BOOL more = Process32FirstW( snapshot.Get(), &entry ); more;
+                  more      = Process32NextW( snapshot.Get(), &entry ) )
+            {
+                const std::wstring image( entry.szExeFile );
+                if ( !SamePath( image, L"mspdbsrv.exe" ) )
+                {
+                    continue;
+                }
+                win::Handle process(
+                     OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID ) );
+                if ( !process.Valid() )
+                {
+                    continue; // exited since the snapshot, or another user's
+                }
+                wchar_t path[MAX_PATH * 2]{};
+                DWORD   pathLength = static_cast<DWORD>( std::size( path ) );
+                if ( QueryFullProcessImageNameW( process.Get(), 0, path, &pathLength ) &&
+                     SamePath( std::wstring( path, pathLength ), server ) )
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Starts `server` detached and outside every job, with the environment the child gets (the endpoint
+        // variable _MSPDBSRV_ENDPOINT_ must match). A job that forbids breakaway is an error: the server would
+        // otherwise die with one compile under every other build.
+        Status EnsurePdbServer( const ChildSpec& spec )
+        {
+            const std::wstring server = PdbServerFor( spec.argv );
+            if ( server.empty() )
+            {
+                return Ok();
+            }
+            Result<bool> running = PdbServerRunning( server );
+            if ( !running )
+            {
+                return running.error();
+            }
+            if ( running.value() )
+            {
+                return Ok();
+            }
+
+            SECURITY_ATTRIBUTES inheritable{ sizeof( SECURITY_ATTRIBUTES ), nullptr, TRUE };
+            win::Handle nul( CreateFileW( L"NUL", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                          &inheritable, OPEN_EXISTING, 0, nullptr ) );
+            if ( !nul.Valid() )
+            {
+                return Fail( win::LastErrorText( "open NUL" ) );
+            }
+            Launch launch;
+            launch.commandLine = win::QuoteCommandLine( { win::Narrow( server ), "-start", "-spawn" } );
+            if ( !spec.environment.empty() )
+            {
+                launch.environment = EnvironmentBlock( spec.environment );
+            }
+            launch.flags  = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB;
+            launch.input  = nul.Get();
+            launch.output = nul.Get();
+            launch.error  = nul.Get();
+            DWORD                       createError = 0;
+            Result<PROCESS_INFORMATION> created     = CreateWithHandles( launch, createError );
+            if ( !created )
+            {
+                if ( createError == ERROR_ACCESS_DENIED )
+                {
+                    return Fail( "mspdbsrv cannot leave this client's job (the job forbids breakaway); started "
+                                 "inside it, it would die with one compile under every other build" );
+                }
+                return created.error();
+            }
+            // Two clients racing here both start one; the second fails to claim the endpoint and exits.
+            CloseHandle( created.value().hThread );
+            CloseHandle( created.value().hProcess );
+            return Ok();
+        }
     } // namespace
 
     struct ChildJob::Impl
@@ -261,8 +393,8 @@ namespace buildpool
             Terminate();
             return;
         }
-        // The direct child exited by itself. A process it left behind on purpose (mspdbsrv serving other
-        // compilers) must outlive this job: KILL_ON_JOB_CLOSE is withdrawn before the job handle closes.
+        // The direct child exited by itself. A process it left behind on purpose (a server it started for other
+        // tools) must outlive this job: KILL_ON_JOB_CLOSE is withdrawn before the job handle closes.
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
         if ( QueryInformationJobObject( m_impl->job.Get(), JobObjectExtendedLimitInformation, &limits,
                                         sizeof( limits ), nullptr ) )
@@ -279,6 +411,12 @@ namespace buildpool
         {
             return Fail( "ChildJob::Spawn: empty argv" );
         }
+        // The MSVC PDB server is shared by every build of the user: it is started outside any job before the
+        // child, so the child connects to it instead of starting one inside this job.
+        if ( Status server = EnsurePdbServer( spec ); !server )
+        {
+            return server.error();
+        }
         auto impl = std::make_unique<Impl>();
 
         // A job nested inside whatever job this client runs in (Windows 8+ nests jobs).
@@ -287,9 +425,11 @@ namespace buildpool
         {
             return Fail( win::LastErrorText( "CreateJobObjectW" ) );
         }
+        // BREAKAWAY_OK: a nested client inside this job may start the daemon and mspdbsrv outside every job.
+        // Only a process created with an explicit CREATE_BREAKAWAY_FROM_JOB leaves, so the measurement holds.
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
         limits.BasicLimitInformation.LimitFlags =
-             JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_PRIORITY_CLASS;
+             JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_PRIORITY_CLASS | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
         limits.BasicLimitInformation.PriorityClass = PriorityClassOf( spec.priority );
         if ( !SetInformationJobObject( impl->job.Get(), JobObjectExtendedLimitInformation, &limits,
                                        sizeof( limits ) ) )
