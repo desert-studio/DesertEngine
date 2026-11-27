@@ -86,6 +86,12 @@ namespace
         std::size_t                        Count         = 0;
         std::size_t                        Next          = 0;
         std::uint8_t                       TeleportCount = 0;
+        // The newest received snapshot's teleport count, and the velocity of the first snapshot received with it:
+        // the server's landed velocity, which the cut line reports (the newest snapshot at the cut is about one
+        // interpolation delay later, when the pawn may be moving again).
+        bool                               NewestSeen      = false;
+        std::uint8_t                       NewestCount     = 0;
+        NetVec3                            FirstOfNewestVelocity;
         void                               Push( const BotSampledStep& entry )
         {
             Ring[Next] = entry;
@@ -1075,7 +1081,14 @@ namespace
                     continue;
                 const BotSampledStep current{
                      .Time = now, .Position = sample->Position, .Velocity = sample->Velocity };
-                BotCutWatch& watch = cutWatch[id];
+                BotCutWatch&    watch  = cutWatch[id];
+                const PawnState newest = pawn.History.Newest();
+                if ( !watch.NewestSeen || newest.TeleportCount != watch.NewestCount )
+                {
+                    watch.NewestSeen            = true;
+                    watch.NewestCount           = newest.TeleportCount;
+                    watch.FirstOfNewestVelocity = newest.Velocity;
+                }
                 if ( watch.Count > 0 && sample->TeleportCount != watch.TeleportCount )
                 {
                     const BotSampledStep& last = watch.Back( 0 );
@@ -1084,14 +1097,23 @@ namespace
                     const NetVec3 shift{ last.Position.X - back.Position.X, 0.f, last.Position.Z - back.Position.Z };
                     const float   moved  = planar( shift );
                     const float   speed  = planar( back.Velocity );
-                    const NetVec3 newest = pawn.History.Newest().Velocity;
+                    // Two teleports within one interpolation delay: the first snapshot of this one is gone from
+                    // the record, and the line says so instead of reporting another teleport's velocity.
+                    const std::string landed =
+                         watch.NewestCount == sample->TeleportCount
+                              ? std::format( "the first snapshot of this teleport carried velocity ({:.0f}, {:.0f}, "
+                                             "{:.0f}) cm/s",
+                                             watch.FirstOfNewestVelocity.X, watch.FirstOfNewestVelocity.Y,
+                                             watch.FirstOfNewestVelocity.Z )
+                              : std::format( "the snapshots have moved on to teleport count {}",
+                                             watch.NewestCount );
                     Log( "[{}] pawn {} teleport cut at t={:.1f}s: sampled ({:.0f}, {:.0f}, {:.0f}) -> "
                          "({:.0f}, {:.0f}, {:.0f}) cm; over the {:.0f} ms before the cut the sample moved {:.0f} cm, "
-                         "its sampled velocity {:.0f} cm/s accounts for {:.0f} cm; "
-                         "the newest snapshot's velocity ({:.0f}, {:.0f}, {:.0f}) cm/s",
+                         "its sampled velocity {:.0f} cm/s accounts for {:.0f} cm; {}; the newest snapshot's velocity "
+                         "({:.0f}, {:.0f}, {:.0f}) cm/s",
                          name, id, now, last.Position.X, last.Position.Y, last.Position.Z, sample->Position.X,
                          sample->Position.Y, sample->Position.Z, span * 1000.0, moved, speed, speed * span,
-                         newest.X, newest.Y, newest.Z );
+                         landed, newest.Velocity.X, newest.Velocity.Y, newest.Velocity.Z );
                     watch.Count = 0;
                     watch.Next  = 0;
                 }
