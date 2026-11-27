@@ -69,6 +69,11 @@
 Ждать sim2 30 committed: incoming pawn promoted
 Ждать B 60 fresh \[Shot\] recorded frame_
 Тогда B retry_committed B's view after the retry: ONE A2 capsule walking +X now under sim 2, no jump at the transfer (A2.log: neighbouring acked positions <= 60 cm apart); store.log exactly one "-> (sim 2, epoch 2)" line for A2
+# D4 on the receiver: the inputs that queued while A2 was frozen are applied by sim 2's steps after the commit
+# (at most 2 per step), each authoritative step measured by sim 2 itself - the largest <= 60 cm, read from the line.
+Ждать sim2 10 handover catch-up \(\d+ mesh step\(s\) since the offer froze it\) of \d+ queued input\(s\) done in \d+ step\(s\), at most 2 input\(s\) per step; largest step ([1-5]?\d\.\d|60\.0) cm
+Ждать B 60 fresh \[Shot\] recorded frame_
+Тогда B receiver_no_jump after the commit to sim 2 A2's pawn never moves more than 60 cm in one authoritative step (sim2.log "handover catch-up ... largest step <= 60.0 cm"); ONE A2 capsule, no snap (A2.log own-pawn x never decreases by > 5 cm after the commit)
 # Когда: the operator asks both sims for their handover counts.
 Консоль sim1 stat
 Ждать sim1 10 handovers: ([3-9]|\d\d+) offered, 2 committed, 0 adopted; refused \d+ by store, \d+ by receiver; [1-9]\d* withdrawn; .*0 open as sender

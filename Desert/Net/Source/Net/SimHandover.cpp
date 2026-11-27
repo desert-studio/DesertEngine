@@ -425,20 +425,13 @@ namespace Desert::Net
                                     held.Id, player ) );
                 return;
             }
-            // THE CATCH-UP IS CAPPED as the Offer's check is (kMaxCatchUpSteps): after a long doubt the steps past
-            // the cap are not simulated in one step - the pawn goes on from its frozen state, its queued inputs
-            // applied by the steps that follow.
+            // NOTHING IS SIMULATED INSIDE Commit: the gap is bounded by the Offer's CatchUpTooLarge check; the
+            // pawn goes on from its frozen state and the steps that follow drain its queued inputs, at most
+            // PawnSimulation's per-step cap each.
             const std::uint32_t behind   = StepsSince( step, held.Step );
-            const std::uint32_t catchUp  = std::min( behind, Handover::kMaxCatchUpSteps );
             const bool          wasProxy = replica.IsProxy( held.Id );
             m_Incoming.erase( incoming );
-            if ( catchUp != behind )
-                m_Log( std::format( "sim {}: offer (sim {}, #{}) of pawn net id {} (player {}) committed {} steps "
-                                    "after it froze (step {}, this sim at step {}): catch-up capped at {} steps, "
-                                    "{} step(s) not simulated",
-                                    m_Sim, held.Key.From, held.Key.Serial, held.Id, player, behind, held.Step,
-                                    step, catchUp, behind - catchUp ) );
-            const auto gateway = sim.Commit( player, catchUp );
+            const auto gateway = sim.Commit( player, behind );
             if ( !gateway )
             {
                 m_Log( std::format( "sim {}: offer (sim {}, #{}) of pawn net id {} (player {}) committed, but its "
@@ -457,7 +450,7 @@ namespace Desert::Net
                               m_Sim, held.Key.From, held.Key.Serial, held.Id, player, decision.Epoch,
                               wasProxy ? "its proxy replaced by the authoritative pawn"
                                        : "held no proxy of it (outside the border band)",
-                              held.Step, step, catchUp ) );
+                              held.Step, step, behind ) );
             return;
         }
 
