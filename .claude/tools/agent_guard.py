@@ -301,6 +301,47 @@ def fix_brief_refusal(path, text):
     return None
 
 
+def owned_chars(tree, files):
+    """Characters an engineer would read to know its owned files (a directory counts whole); new files count 0."""
+    total = 0
+    for entry in files:
+        root = os.path.join(tree, entry.strip())
+        if os.path.isfile(root):
+            total += os.path.getsize(root)
+        for here, _, names in (os.walk(root) if os.path.isdir(root) else ()):
+            total += sum(os.path.getsize(os.path.join(here, n)) for n in names)
+    return total
+
+
+def remainder_commits(tree):
+    try:
+        r = subprocess.run(["git", "-C", tree, "log", "--format=%h", "--", "REMAINDER.md"],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    return len(r.stdout.split()) if r.returncode == 0 else 0
+
+
+def package_spend_refusal(code, brief, pkg):
+    """SPEND_RULES 11-27: a package fits the read budget, and a package that left two remainders is split, not rerun."""
+    tree = pkg.get("tree") or ""
+    chars = owned_chars(tree, pkg.get("files") or []) if os.path.isdir(tree) else 0
+    if chars > limits.PACKAGE_READ_CHARS:
+        return (f"пакет {code}: файлы пакета {chars // 1000}k знаков > limits.PACKAGE_READ_CHARS "
+                f"({limits.PACKAGE_READ_CHARS // 1000}k) — раздели пакет (architect) или сузь «Файлы:» до файлов и строк.")
+    remainder = os.path.join(tree, "REMAINDER.md")
+    if os.path.isfile(remainder) and os.path.getmtime(brief) < os.path.getmtime(remainder) and remainder_commits(tree) >= 2:
+        return (f"пакет {code} уже дважды оставил REMAINDER.md с тем же брифом — третий заход тем же путём не запускать: "
+                "раздели остаток на новые брифы поменьше (studio.py plan).")
+    return None
+
+
+def build_running():
+    """The log of a build the ledger started, still being written (build_gate.state_of)."""
+    import build_gate
+    return next((r.get("log") for r in build_gate.ledger()[-6:] if build_gate.state_of(r) == "running"), None)
+
+
 def feature_brief_refusal(path, text, code, s):
     """An engineer runs ONE planned package of a design that is a parallel plan over disjoint files."""
     design = re.search(r"^## Дизайн[^\n]*\n\s*(\S+\.md)", text, re.M)
@@ -319,6 +360,10 @@ def feature_brief_refusal(path, text, code, s):
     clash = P.overlap_refusal(s, feat, letter)
     if clash:
         return clash
+    pkg = ((s.get("features") or {}).get(feat) or {}).get("packages", {}).get(letter) or {}
+    spend = package_spend_refusal(code, path, pkg)
+    if spend:
+        return spend
     body = P.section(text, "Сделать") or ""
     items, (max_items, max_chars) = re.findall(r"^\s*\d+[.)]\s", body, re.M), limits.FEATURE_BRIEF
     if len(items) > max_items or len(body) > max_chars:
@@ -351,6 +396,9 @@ def lead_launch_refusal(tin, s, disk_gb=None):
     if gb < limits.MIN_FREE_DISK_GB:
         return (f"на диске деревьев ({limits.WORKTREE_ROOT}) свободно {gb:.1f} ГБ < limits.MIN_FREE_DISK_GB "
                 f"({limits.MIN_FREE_DISK_GB}). Сначала studio.py landed для севших фич.")
+    building = build_running()
+    if building and kind != "lander":
+        return f"идёт сборка ({building}): сборка идёт одна на машине, без агентов (SPEND_RULES). Дождись её .rc."
     live = P.live_runs(s)
     cap = limits.NIGHT_MAX_AGENTS if P.night(s) else limits.MAX_AGENTS
     if len(live) >= cap:
@@ -820,6 +868,7 @@ def self_check():
     }
     failed = []
     real_free, globals()["free_gb"] = free_gb, lambda: 999.0  # the disk is not what is checked here
+    real_build, globals()["build_running"] = build_running, lambda: None  # nor a build of this machine
     try:
         for name, case in bad.items():
             verdict = decide(dict(case, hook_event_name="PreToolUse", cwd=tmp), s)
@@ -831,6 +880,31 @@ def self_check():
                 failed.append("REFUSED a legal call: " + name + " — " + verdict[1][:120])
         if not lead_launch_refusal(launch("F-B", brief("F-B", good))["tool_input"], s, disk_gb=1.0):
             failed.append("launch on a full disk")
+        os.makedirs(f"{tmp}/wt/F-B/Desert/B", exist_ok=True)
+        fat = brief("F-B", good)
+        write("wt/F-B/Desert/B/Big.cpp", "x" * (limits.PACKAGE_READ_CHARS + 1))
+        if not lead_launch_refusal(launch("F-B", fat)["tool_input"], s):
+            failed.append("package over the read budget")
+        os.remove(f"{tmp}/wt/F-B/Desert/B/Big.cpp")
+        real_rc, globals()["remainder_commits"] = remainder_commits, lambda tree: 2
+        try:
+            old = brief("F-B", good)
+            os.utime(old, (time.time() - 60, time.time() - 60))
+            write("wt/F-B/REMAINDER.md", "## NEXT\nx\n")
+            if not lead_launch_refusal(launch("F-B", old)["tool_input"], s):
+                failed.append("third run of a package with the same brief")
+            os.remove(f"{tmp}/wt/F-B/REMAINDER.md")
+        finally:
+            globals()["remainder_commits"] = real_rc
+        real_br, globals()["build_running"] = build_running, lambda: "C:/aftmp/build_x.log"
+        try:
+            if not lead_launch_refusal(launch("X-6", fix("X-6", "1. a\n"), "fixer")["tool_input"], s):
+                failed.append("agent while a build runs")
+        finally:
+            globals()["build_running"] = real_br
+        import build_gate
+        if not build_gate.agents_refusal(s):
+            failed.append("build beside agents")
         long_report = {"hook_event_name": "SubagentStop", "agent_type": "engineer", "agent_id": "x",
                        "last_assistant_message": "\n".join("line" for _ in range(limits.REPORT_MAX_LINES + 5))}
         if (subagent_stop(long_report) or ("",))[0] != "block":
@@ -841,9 +915,11 @@ def self_check():
             failed.append("architect hands in a serial plan")
     finally:
         globals()["free_gb"] = real_free
+        globals()["build_running"] = real_build
         shutil.rmtree(tmp, ignore_errors=True)
         DRY = False
-    return list(bad) + ["launch on a full disk", "long report", "architect hands in a serial plan"], failed
+    return list(bad) + ["launch on a full disk", "package over the read budget", "third run of a package with the same brief",
+                        "agent while a build runs", "build beside agents", "long report", "architect hands in a serial plan"], failed
 
 
 def main():

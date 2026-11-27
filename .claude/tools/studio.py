@@ -65,11 +65,21 @@ def brief_text(code, letter, pk, design, contract, then, base):
         "Файлы: " + ", ".join(pk["files"]),
         "Закрывает: " + ", ".join(pk.get("closes") or []),
         "Контракт (не править): " + (", ".join(contract) if contract else "нет общих заголовков"), "",
-        "## Сценарий", *then, "",
+        "## Сценарий", *then, "", *SPEND(),
         "## Сделать",
         f"1. Раздел «### Пакет {letter}» из «## Порядок» дизайна целиком: в своём дереве, только в своих файлах.",
         f"2. Коммит «wip: {code}-{letter} код готов», push ветки; в отчёте — каждое отличие строки «Закрывает»: закрыто (file:line) или нет и почему; "
         "строки NEEDS/CONTRACT-BREAK, если были.", "", *CHAIN(f"{code}-{letter}", pk["branch"], pk["tree"], pk["brief"])])
+
+
+def SPEND():
+    """SPEND_RULES 11-27: the spend conditions travel inside every package brief."""
+    return ["## Расход (.claude/SPEND_RULES.md)",
+            f"- Читаешь не больше limits.PACKAGE_READ_CHARS ({limits.PACKAGE_READ_CHARS // 1000}k знаков) своих файлов; "
+            "файлы длиннее 2000 строк — только диапазонами по grep, никогда целиком.",
+            f"- Контекст {limits.CONTEXT_MAX[1] // 1000}k: остаётся limits.CONTEXT_FINISH_CALLS ({limits.CONTEXT_FINISH_CALLS}) "
+            "вызовов — коммит, push, REMAINDER.md (файл:строка, «## NEXT»); дальше свежий агент.",
+            "- Не собираешь, не ждёшь опросом, не запускаешь лишних агентов.", ""]
 
 
 def CHAIN(code, branch, tree, brief):

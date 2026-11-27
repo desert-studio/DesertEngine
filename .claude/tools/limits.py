@@ -31,6 +31,7 @@ CONTINUE_MAX = 50                # owner 11-23: SendMessage to an agent past thi
 LEAD_OUTPUT_CAP = 6000           # characters one lead command may print (owner 11-25)
 
 # ---- one feature --------------------------------------------------------------------------------------------------
+PACKAGE_READ_CHARS = 250_000  # owner 11-27 SPEND_RULES: an engineer package's owned files, read volume at launch
 MAX_PACKAGES = 4          # owner 11-26: a design is 1..4 PARALLEL engineer runs over disjoint files
 FEATURES_IN_FLIGHT = 3    # features between `plan` and `landed`
 FEATURE_MAX_AGE_H = 24    # owner 11-26: nothing is stretched over days; an older unlanded feature stops new plans
