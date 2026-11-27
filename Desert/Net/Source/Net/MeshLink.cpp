@@ -378,6 +378,17 @@ namespace Desert::Net
             w.U8( pawn.LastProcessed ? 1 : 0 );
             w.U32( pawn.LastProcessed.value_or( 0 ) );
             WriteMoveState( w, pawn.Move );
+            // The pending spawn or teleport is part of the pawn (UE: the actor's whole state migrates): the
+            // adopter lands it against its own cells, or holds it while they stream.
+            w.U8( pawn.Placement ? 1 : 0 );
+            if ( pawn.Placement )
+            {
+                w.F32( pawn.Placement->Feet.X );
+                w.F32( pawn.Placement->Feet.Y );
+                w.F32( pawn.Placement->Feet.Z );
+                w.U8( static_cast<std::uint8_t>( pawn.Placement->Why ) );
+                w.U32( pawn.Placement->Waited );
+            }
             w.U32( static_cast<std::uint32_t>( pawn.Pending.size() ) );
             for ( const InputStep& input : pawn.Pending )
                 if ( !w.InputStepFull( input ) )
@@ -394,7 +405,24 @@ namespace Desert::Net
             if ( !r.U32( h.From ) || !r.U32( h.Epoch ) || !r.U32( h.To ) || !r.U32( h.Step ) ||
                  !r.U32( h.Gateway ) || !r.U32( pawn.Player ) || !r.U64( pawn.Account ) || !r.U32( pawn.Index ) ||
                  !r.Pawn( pawn.State ) || !r.U8( hasProcessed ) || !r.U32( processed ) ||
-                 !ReadMoveState( r, pawn.Move ) || !r.U32( pending ) || pending > InputRing::kCapacity )
+                 !ReadMoveState( r, pawn.Move ) )
+                return false;
+            std::uint8_t hasPlacement = 0;
+            if ( !r.U8( hasPlacement ) || hasPlacement > 1 )
+                return false;
+            if ( hasPlacement )
+            {
+                using EWhy = PawnSimulation::PendingPlacement::EWhy;
+                PawnSimulation::PendingPlacement placement;
+                std::uint8_t                     why = 0;
+                if ( !r.F32( placement.Feet.X ) || !r.F32( placement.Feet.Y ) || !r.F32( placement.Feet.Z ) ||
+                     !r.U8( why ) || why > static_cast<std::uint8_t>( EWhy::Teleport ) ||
+                     !r.U32( placement.Waited ) )
+                    return false; // a reason past the last one is a malformed record, not a guess
+                placement.Why  = static_cast<EWhy>( why );
+                pawn.Placement = placement;
+            }
+            if ( !r.U32( pending ) || pending > InputRing::kCapacity )
                 return false;
             if ( hasProcessed )
                 pawn.LastProcessed = processed;
@@ -1021,7 +1049,11 @@ namespace Desert::Net
         HandoverHeader               h;
         PawnSimulation::HandoverPawn pawn;
         if ( !DecodeHandover( body, h, pawn ) )
+        {
+            m_Log( std::format( "store: handover record from sim {} is malformed ({} bytes); refused", from,
+                                body.size() ) );
             return;
+        }
         const NetId id     = pawn.State.Id;
         const auto  record = m_PawnAuthority.find( id );
         const auto  target = m_Endpoint.PeerConnection( EMeshRole::Sim, h.To );
@@ -1533,7 +1565,11 @@ namespace Desert::Net
             HandoverHeader               h;
             PawnSimulation::HandoverPawn pawn;
             if ( !DecodeHandover( body, h, pawn ) )
+            {
+                m_Log( std::format( "sim {}: adopt record from the store is malformed ({} bytes); refused", m_Sim,
+                                    body.size() ) );
                 return true;
+            }
             const bool          wasProxy = replica.IsProxy( pawn.State.Id );
             const std::uint32_t catchUp  = step > h.Step ? step - h.Step : 0;
             replica.Promote( pawn.State.Id );

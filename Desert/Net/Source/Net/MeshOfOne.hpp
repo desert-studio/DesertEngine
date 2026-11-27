@@ -13,8 +13,10 @@
 // the server for it (GameMode::RestartPlayer) and replicated to every relevant connection, autonomous proxy for
 // its owner, simulated proxy for the others.
 
+#include <Common/Core/ResultStr.hpp>
 #include <Net/NetTransport.hpp>
 #include <Net/MovePrediction.hpp>
+#include <Net/PawnTeleport.hpp>
 #include <Net/Relevancy.hpp>
 #include <Net/Replication.hpp>
 
@@ -145,19 +147,27 @@ namespace Desert::Net
         // @p mover: THE GAME'S movement (Engine/Gameplay/CharacterMoveStep.hpp, the same step the client predicts
         // with, over the server's collision world of the streamed cells). Net queues and orders the input steps
         // and hands each to it; what an input means is the game's.
-        PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, IPawnMover& mover, Settings settings,
-                        NetLogSink log );
+        // @p placer: THE GAME'S placement (UE FindTeleportSpot) over the same collision world; every spawn and
+        // teleport lands through it. @p residency: the server's streamed world, asked whether the collision at a
+        // pending placement is in yet. Both outlive the simulation.
+        PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, IPawnMover& mover, IPawnPlacer& placer,
+                        const IWorldResidency& residency, Settings settings, NetLogSink log );
 
         void PlayerJoined( PlayerId player, std::uint64_t account ) override;
         void PlayerLeft( PlayerId player ) override;
         void PlayerInput( PlayerId player, const InputMessage& input ) override;
         [[nodiscard]] std::optional<AckedMove> LastProcessedInput( PlayerId player ) const override;
 
-        // Server authority moves @p player's pawn to @p position (UE TeleportTo); false when it has no pawn.
-        bool Teleport( PlayerId player, const NetVec3& position );
+        // Server authority asks to move @p player's pawn to @p feet (UE TeleportTo). The request is refused, and
+        // nothing moves, when the player has no pawn or no cell of the world's grid holds the point; otherwise
+        // the pawn's placement is pending: the destination becomes its streaming source at once, and a later Step
+        // lands it through the placer when the cells there are resident (logging where and how) or refuses it
+        // with the reason (the pawn stays where it was).
+        [[nodiscard]] Common::BoolResultStr Teleport( PlayerId player, const NetVec3& feet );
         // One fixed step of every pawn (its queued input steps); writes the moved states to the store.
         void Step();
-        // The pawns' positions: the server's streaming sources (NET-ARCH §4.1), with the player they belong to.
+        // The pawns' positions: the server's streaming sources (NET-ARCH §4.1), with the player they belong to; a
+        // pawn whose placement is pending reports its destination (the cells there stream first).
         struct Source
         {
             PlayerId      Player  = 0;
@@ -171,6 +181,21 @@ namespace Desert::Net
             return m_Pawns.contains( player );
         }
 
+        // A placement asked of the simulation and not landed yet (UE: the TeleportTo / RestartPlayer waiting for
+        // the destination's streaming): the requested feet, why it was asked, and the steps the pawn has been held
+        // for the destination's cells.
+        struct PendingPlacement
+        {
+            enum class EWhy : std::uint8_t
+            {
+                Spawn,
+                Teleport
+            };
+            NetVec3       Feet;
+            EWhy          Why    = EWhy::Teleport;
+            std::uint32_t Waited = 0;
+        };
+
         // THE HANDOVER of a pawn to another simulation (NET-ARCH §2M.4): everything the next owner needs to go on
         // at the next step - the state, the inputs not applied yet and the input that repeats when none arrives.
         struct HandoverPawn
@@ -182,6 +207,7 @@ namespace Desert::Net
             std::vector<InputStep>       Pending; // by client step
             std::optional<std::uint32_t> LastProcessed;
             PawnMoveState                Move; // the CharacterMovement state the next step starts from
+            std::optional<PendingPlacement> Placement; // the adopter lands it against its own cells
         };
         // Freezes @p player's pawn and hands it out: it is no longer stepped or written here (not destroyed - its
         // net id lives on in the next owner). nullopt when this simulation has no pawn for @p player.
@@ -207,12 +233,22 @@ namespace Desert::Net
             // The queue as the last Step found it, BEFORE it consumed: the clock sync's measure (one waiting step
             // each server step = the client exactly on time; after consumption a punctual client reads 0).
             std::uint8_t QueuedAtStep = 0;
+            // The spawn or teleport not landed yet; while set the pawn is HELD (its inputs acked, not applied).
+            std::optional<PendingPlacement> Placement;
         };
+        // One fixed step of one pawn: its pending placement resolved first, then its queued input steps.
+        void StepOne( PlayerId player, Pawn& pawn );
+        // Resolves @p pawn's pending placement: lands it (Resident or no cell), holds it (Loading) or refuses it
+        // (the placer found no spot, or the destination stayed loading past kPlacementStreamingTimeoutSteps).
+        void ResolvePlacement( PlayerId player, Pawn& pawn );
+        // Consumes the queued input steps; a held pawn's are acked without being applied.
         void StepPawn( Pawn& pawn ) const;
 
         IReplicationStore&       m_Store;
         IGatewayLink&            m_Gateway;
         IPawnMover&              m_Mover;
+        IPawnPlacer&             m_Placer;
+        const IWorldResidency&   m_Residency;
         Settings                 m_Settings;
         NetLogSink               m_Log;
         std::map<PlayerId, Pawn> m_Pawns;
