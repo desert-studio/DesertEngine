@@ -244,6 +244,9 @@ namespace Desert::Net
         InputRing                    m_Inputs;
         std::uint32_t                m_NextStep = 1, m_NextSequence = 1;
         std::optional<std::uint32_t> m_LastAck;
+        // The server step of the snapshot whose authority was taken last: a re-ack of m_LastAck from a newer
+        // server step is a server-side move (a teleport) and is taken too.
+        std::optional<std::uint32_t>                                 m_LastAckServerStep;
         std::optional<OwnAuthority>                                  m_OwnAuthority;
         StateAckWindow                                               m_StateAcks;
         std::map<std::pair<StableNetId, std::string>, std::uint32_t> m_StableVersions; // newest version per field
