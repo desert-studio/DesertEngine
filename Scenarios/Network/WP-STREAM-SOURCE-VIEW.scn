@@ -12,7 +12,9 @@
 # cell unloaded once the pawn left (scn-1125-071236/A.log:5636; clientA_fence_after.png fence, clientA_teleport.png none).
 # Net coordinates are Y-up (X, Y, Z), cm.
 Мир Content/Scenes/WP_Protocol.desce
-Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-300,1150 --spawn 500,-300,-200 --steps 864000
+# The spawn points are the ground (feet, cm): the placer measured the floor 98 cm under (0, -300, 1150) and 127 cm
+# under (500, -300, -200) (NET-TELEPORT-ENCROACH scn-1127-050216 server.log "point free, floor N cm below it"), so a pawn spawns standing.
+Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-398,1150 --spawn 500,-427,-200 --steps 864000
 Ждать server 60 \[Server\] listening on port
 Роль A editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --camera 2100,120,50 --look 0.595,-0.198,0.779 --quality PostProcess.MotionBlurQuality=0 --net-walk-cm 30000 --net-walk-dir 1,0,0 --net-walk-mode sprint
 # 1. The source is the camera, not the pawn. Printed on the first streamer tick at Play start, before the session.

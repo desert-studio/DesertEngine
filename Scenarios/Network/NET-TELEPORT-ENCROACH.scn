@@ -13,12 +13,14 @@
 # every pawn-1 velocity B ever receives is after the walk (a non-zero one is the slide of D4).
 # Net coordinates are Y-up (X, Y, Z), cm.
 Мир Content/Scenes/WP_Protocol.desce
-Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-300,1150 --spawn 500,-300,-200 --steps 864000
+# The spawn points are the ground (feet, cm): the placer measured the floor 98 cm under (0, -300, 1150) and 127 cm
+# under (500, -300, -200) (NET-TELEPORT-ENCROACH scn-1127-050216 server.log "point free, floor N cm below it"), so a pawn spawns standing.
+Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-398,1150 --spawn 500,-427,-200 --steps 864000
 Ждать server 60 \[Server\] listening on port
 Роль A editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --shot-player-view --quality PostProcess.MotionBlurQuality=0 --net-walk-cm 30000 --net-walk-dir 1,0,0 --net-walk-mode sprint
 Ждать A 1800 \[Net\] in session
-# 1. The spawn goes through the placer: the pawn lands on the floor under (0, -300, 1150) (the floor is at -382 there,
-# scn-1127-020957/server.log:82) and the server's line names how it was found.
+# 1. The spawn goes through the placer: the pawn is set onto the floor at (0, -398, 1150) (the floor 98 cm under
+# (0, -300, 1150), scn-1127-050216/server.log) and the server's line names how it was found.
 Ждать server 60 player 1 \(account 1\): pawn net id 1 spawned
 Ждать server 60 player 1: pawn 1 spawned onto \(0, -3[0-9]\d, 1150\) cm: .*(free|lifted|snapped)
 # The scripted sprint ends (300 m of server position).
