@@ -427,7 +427,7 @@ namespace Common::Scalability
              { P::TranslucencyRefraction, G::Reflections, "Translucency.Refraction", 0,
                LastOf( kTranslucencyRefractionMethodNames.size() ), CL::None,
                "SceneRenderer::AddFrameRayTracedRefraction -> \"Translucency: Ray Traced Refraction\" -> "
-               "TranslucencyRefractionTexture (Mesh/Surface/TranslucencyRefraction.glslh)",
+               "Pass_Forward_Translucent.glslh",
                0, Vis::Advanced },
              { P::ShadingParallaxMinSteps, G::Shading, "Shading.ParallaxMinSteps", 1, 64, CL::None,
                "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxMinSteps "

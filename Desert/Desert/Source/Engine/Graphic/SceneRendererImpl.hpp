@@ -1113,11 +1113,12 @@ namespace Desert::Graphic
             RDG::TextureRef Velocity;
             RDG::TextureRef Depth;
         };
-        // What the glass reads of it: the denoised reflection and the depth it belongs to. Invalid both: no front
-        // layer.
+        // What the glass reads of it: the denoised reflection and the depth it belongs to, and the surface's normal
+        // (a = roughness) the traced refraction bends through. Invalid all: no front layer.
         struct FrameFrontLayer
         {
             RDG::TextureRef Reflection;
+            RDG::TextureRef Normal;
             RDG::TextureRef Depth;
             // "Translucency: Ray Traced Refraction"'s RefractionOutputs::Radiance (RayTracedTranslucency.hpp);
             // invalid = Translucency.Refraction ScreenSpace, the glass reads the scene copy.

@@ -2786,7 +2786,7 @@ namespace Desert::Graphic
         const FrameSSR traced = AddFrameSSR( graph, textures, *reflections, gbuffer, screenTrace, frame, &surface );
         if ( !traced.Resolved.IsValid() )
             return {};
-        return FrameFrontLayer{ .Reflection = traced.Resolved, .Depth = surface.Depth };
+        return FrameFrontLayer{ .Reflection = traced.Resolved, .Normal = surface.Normal, .Depth = surface.Depth };
     }
 
     SceneRendererImpl::FrontLayerWriters
