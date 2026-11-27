@@ -331,6 +331,11 @@ namespace Common::Scalability
                                           // G-buffer and is reflected by the opaque surfaces' tracer and
                                           // denoiser; glass reads that reflection in place of the sky (UE
                                           // r.Lumen.TranslucencyReflections.FrontLayer.Enable)
+        // What answers the glass's refraction, kTranslucencyRefractionMethodNames by value (index = the value of
+        // System::TranslucencyRefractionMethod, RayTracedTranslucency.hpp): ScreenSpace = the scene copy bent on
+        // screen, HardwareTraced = "Translucency: Ray Traced Refraction" (UE r.RayTracedTranslucency). A
+        // placeholder until that pass reads it (NG-RT-REFRACTION).
+        TranslucencyRefraction,
         // Parallax occlusion mapping (Mesh/Surface/SurfaceParallax.glslh), through ViewFrame::Parallax and the
         // view block: march steps head-on and at grazing view, and the self-shadow steps toward the sun (0 = no
         // relief self-shadow).
@@ -617,6 +622,11 @@ namespace Common::Scalability
     // Effects.CloudLightMarchSamples' Max: the volumetric cloud march's own sample array size
     // (ECS::kCloudLightMarchMaxSamples, which Graphic/Clouds/CloudQuality.hpp static_asserts equal to this).
     inline constexpr ParameterValue kCloudLightMarchSamplesMax = 64;
+
+    // Translucency.Refraction's value names, index = System::TranslucencyRefractionMethod's value (the engine's
+    // enum, RayTracedTranslucency.hpp; its pass's reader static_asserts the count when it lands).
+    inline constexpr std::array<std::string_view, 2> kTranslucencyRefractionMethodNames{ "ScreenSpace",
+                                                                                          "HardwareTraced" };
 
     // Which catalog list a parameter's values are checked against, if any.
     enum class CatalogList : int

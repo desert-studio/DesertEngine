@@ -1028,6 +1028,7 @@ namespace Desert::Graphic::System
                                          settings.InvPrevPreExposure, roughFromGI, traceStage ) };
         }
 
+    public:
         // The front layer permutation's reads (Common/SSRTrace.glslh DESERT_REFLECTIONS_FRONT_LAYER): a
         // TranslucentFrontLayer renderer's programs declare them, an Opaque one's do not - an absent @p frontLayer
         // on the former leaves the slots unbound and the node refused by name, never a trace from the wrong surface.
@@ -1081,7 +1082,6 @@ namespace Desert::Graphic::System
             }
         }
 
-    public:
         // Whether the traced permutation of @p pipeline reads the view's cascades (SSRTrace.glslh: the software
         // tracer over the surface cache, DESERT_GI_TRACER_SOFTWARE without DESERT_GI_HIT_LIGHTING_IN_PLACE) - the
         // one statement of that condition for the shader's #if, DeclareTracedReads and the reads' producer

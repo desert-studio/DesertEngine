@@ -1,0 +1,19 @@
+#ifndef DESERT_RAY_TRACED_TRANSLUCENCY_PUSH_GLSLH
+#define DESERT_RAY_TRACED_TRANSLUCENCY_PUSH_GLSLH
+
+// NG-RT-REFRACTION contract: THE PUSH BLOCK of "Translucency: Ray Traced Refraction"
+// (Programs/Translucency/RayTracedTranslucency.shader, Pass "Trace"). The one declaration: DesertHeaderTool generates
+// ShaderPush::RayTracedTranslucencyPush from this block on every build (Engine/Generated/ShaderPushConstants.gen.hpp),
+// which RayTracedTranslucencyRenderer::AddPass takes (Graphic/Systems/Scene/Translucency/RayTracedTranslucency.hpp).
+// 96 bytes, std430.
+PushConstant RayTracedTranslucencyPush
+{
+	mat4  InvJitteredViewProjection; // clip (jittered) -> world, the front layer pixel's position from its depth
+	vec4  CameraPosition;            // xyz = camera world position (cm), w = PreExposure of the output
+	float MaxRayDistance;            // cm, each segment (kRayTracedTranslucencyMaxRayDistance)
+	float MaxRoughness;              // a front layer rougher than this is not traced: a = 0
+	uint  MaxInterfaces;             // dielectric interfaces followed before the path stops: a = 0 when exhausted
+	uint  FrameIndex;                // the rough lobe's GGX sample sequence
+};
+
+#endif
