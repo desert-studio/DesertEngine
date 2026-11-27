@@ -118,7 +118,8 @@ namespace Desert::Net
         // RecordInput + FlushInputs: a frame of one step.
         std::optional<InputStep> SendInput( InputStep input );
         // THE OWN PAWN'S AUTHORITY (§5.1): the newest ack with the server's state after that step, once per new
-        // ack (UE ClientAdjustPosition / ClientAckGoodMove), and the server's input queue length with it.
+        // ack or per newer server step re-acking the same step (a server-side move) (UE ClientAdjustPosition /
+        // ClientAckGoodMove), and the server's input queue length with it.
         struct OwnAuthority
         {
             std::uint32_t AckStep = 0;
