@@ -31,10 +31,14 @@ Shader "RayTracedTranslucency"
             Uniform(5) texture2D FrontLayerDepthTexture;  // the front layer's device depth (cleared: far)
             #define FrontLayerDepthTexture sampler2D(FrontLayerDepthTexture, PointClampSampler)
 
-            // The permutation (RayTracedTranslucencyRenderer::Variant = TracerVariant(kRayTracedTranslucencyTracer))
-            // defines both; the program never defines them itself.
-            #if !defined( DESERT_GI_TRACER_HARDWARE ) || !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
-            #error "ray-traced refraction is the hardware tracer's, lit in place"
+            // The program exists only as the hardware tracer lit in place (RayTracedTranslucencyRenderer::Variant =
+            // TracerVariant(kRayTracedTranslucencyTracer) defines both). The boot compile has no variant defines and is
+            // that same program, so it registers the pass the renderer acquires its variant from.
+            #ifndef DESERT_GI_TRACER_HARDWARE
+            #define DESERT_GI_TRACER_HARDWARE
+            #endif
+            #ifndef DESERT_GI_HIT_LIGHTING_IN_PLACE
+            #define DESERT_GI_HIT_LIGHTING_IN_PLACE
             #endif
             #include <Common/CameraUB.glslh> // the view block the hit groups read
             #include <Common/RayTracingSceneReads.glslh> // the world's table and rain occlusion the hits' weather reads
