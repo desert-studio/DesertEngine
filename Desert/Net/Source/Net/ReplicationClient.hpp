@@ -11,6 +11,10 @@
 // batched per net update, each unacked move resent until ClientAckGoodMove). SendInput = one step recorded and
 // flushed (a headless bot's frame is one step). The server's ack (Snapshot::AckInputStep) drops the ring up to it;
 // the engine's driver replays from it (NET-4).
+// At rest (NET-SEND-THROTTLE; UE GetClientNetSendDeltaTime -> ClientNetSendMoveDeltaTimeStationary): while the
+// caller says its pawn stands and no step since the last send changed the input, FlushInputs(InputSendPolicy)
+// holds the message until StationaryEverySteps steps have gone by - nothing is skipped, the next message carries
+// every unacked step - and sends at once on the first changed step or a pawn that moves.
 
 #include <Net/NetTransport.hpp>
 #include <Net/Relevancy.hpp>
@@ -67,6 +71,25 @@ namespace Desert::Net
         // Sends every unacked step (all of them, never only the newest) in one Input message; nothing when none is
         // unacked. A run the codec refuses (InputWire.hpp AppendInputRun) is logged and not sent.
         void FlushInputs();
+        // What the caller knows of its pawn when it flushes (NET-SEND-THROTTLE): PawnAtRest = the predicted state
+        // after the newest recorded step stands (grounded, no speed); StationaryEverySteps = the project's Net
+        // StationaryInputEverySteps (validated there, 1..60).
+        struct InputSendPolicy
+        {
+            bool          PawnAtRest           = false;
+            std::uint32_t StationaryEverySteps = 1;
+        };
+        // FlushInputs, except at rest: the message is held while @p policy.PawnAtRest, every step recorded since
+        // the last send has the input that send's newest step had (move, yaw, actions, axes), fewer than
+        // StationaryEverySteps steps have been recorded since it, and the ring is under half full. Otherwise sent.
+        void FlushInputs( const InputSendPolicy& policy );
+        // True while the uplink runs at the stationary rate (the last FlushInputs(policy) found the pawn at rest
+        // with an unchanged input, whether it held or sent): the server's queue of this client's steps then saws
+        // between empty and a held interval and says nothing of the clock sync (ClientNetDriver's dilation).
+        [[nodiscard]] bool InputAtStationaryRate() const
+        {
+            return m_InputAtStationaryRate;
+        }
         // THE INPUT UPLINK (UE `stat net` Out bytes, this lane's share): the Input messages' bytes and count over
         // the last whole second of NetClock (0 before one has passed), and the largest message this session with
         // the number of steps it carried, and the message with the most steps (ties: the more bytes) - a starved
@@ -251,6 +274,10 @@ namespace Desert::Net
         std::size_t      m_InputWindowBytes = 0, m_InputWindowMessages = 0;
         std::size_t      m_InputBytesPerSecond = 0, m_InputMessagesPerSecond = 0;
         InputMessageSize m_LargestInput, m_LongestInput;
+        // NET-SEND-THROTTLE: the newest step of the last sent Input message (its input is what "unchanged" is
+        // measured against), and whether the uplink is at the stationary rate.
+        std::optional<InputStep> m_LastSentStep;
+        bool                     m_InputAtStationaryRate = false;
         // The first step of the last refused run: a refusal is logged once per run start, not every frame.
         std::optional<std::uint32_t> m_RefusedFrom;
         // The last view (eye and shape) sent (ReportView) and when, in local seconds.

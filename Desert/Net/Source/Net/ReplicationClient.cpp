@@ -161,13 +161,40 @@ namespace Desert::Net
         return input;
     }
 
+    namespace
+    {
+        // The input a step carries, its number aside: both sides are on the wire's lattice (RecordInput), so
+        // equal floats are equal steps.
+        bool SameInput( const InputStep& a, const InputStep& b )
+        {
+            return a.Move.X == b.Move.X && a.Move.Y == b.Move.Y && a.Move.Z == b.Move.Z && a.Yaw == b.Yaw &&
+                   a.Actions == b.Actions && a.Axes == b.Axes;
+        }
+    } // namespace
+
     void ReplicationClient::FlushInputs()
+    {
+        FlushInputs( InputSendPolicy{} );
+    }
+
+    void ReplicationClient::FlushInputs( const InputSendPolicy& policy )
     {
         if ( m_State != EState::InSession )
             return;
         InputMessage message;
         message.Steps = m_Inputs.Unacked(); // each unacked step again, until the ack drops it (UE ServerMove)
         if ( message.Steps.empty() )
+            return;
+        // At rest the uplink drops to the stationary rate (UE ClientNetSendMoveDeltaTimeStationary): every step
+        // since the last send repeats its input, so holding them costs the server nothing but time - they all go
+        // in the next message. A changed step, a moving pawn or a ring half full sends now.
+        bool unchanged = policy.PawnAtRest && m_LastSentStep.has_value();
+        for ( const InputStep& step : message.Steps )
+            if ( unchanged && step.Step > m_LastSentStep->Step && !SameInput( step, *m_LastSentStep ) )
+                unchanged = false;
+        m_InputAtStationaryRate = unchanged;
+        if ( unchanged && message.Steps.back().Step - m_LastSentStep->Step < policy.StationaryEverySteps &&
+             message.Steps.size() < kMaxUnackedInputSteps / 2 )
             return;
         // A refused run burns its sequence id: the server reads sequence gaps as lost packets.
         message.Sequence                   = m_NextSequence++;
@@ -191,6 +218,7 @@ namespace Desert::Net
              ( message.Steps.size() == m_LongestInput.Steps && bytes.size() > m_LongestInput.Bytes ) )
             m_LongestInput = { bytes.size(), message.Steps.size() };
         m_Transport.Send( m_Connection, bytes, ENetLane::State );
+        m_LastSentStep = message.Steps.back();
     }
 
     std::optional<InputStep> ReplicationClient::SendInput( InputStep input )

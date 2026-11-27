@@ -41,9 +41,16 @@
 Нет A input run refused
 Тогда A net_zero_corrections A past the fence (x >= 2500), the fence (thin green box) intact behind it; no mannequin stuck at x ~2470
 # Тогда [net_zero_corrections_late]: 10 s after stopping - corrections still 0, and a standing pawn's uplink is <= 2299 B/s
-# (design: expected <= 2 300): every step equals the one before it, 10 + 10 + 14 B per message, one message per frame
-# (the cadence carries the acks; stationary throttling is NET-SEND-THROTTLE).
+# (design: expected <= 2 300): every step equals the one before it; at rest the client sends at the Net settings'
+# StationaryInputEverySteps (NET-SEND-THROTTLE, net_stand below), every held step riding the next message.
 Ждать A 60 10x \[Net\] t=
 Ждать A 30 \[Net\] t=.*corrections 0;.*; input ([0-9]{1,3}|1\d{3}|2[0-2]\d\d) B/s
 Нет A \[Net\] correction \d+ at
 Тогда A net_zero_corrections_late A stands past the fence (x >= 2500), still; the fence intact; one mannequin of A
+# Тогда [net_stand]: A stands 5 s more (15 s after stopping): the uplink runs at the stationary rate (UE
+# ClientNetSendMoveDeltaTimeStationary; Net StationaryInputEverySteps, default 30 = 2 messages/s) - A's `input … B/s`
+# <= 50 (today 140-170 B/s at 4 messages/s, NET-INPUT-PACK run 1127-003407) - and still no correction while standing.
+Ждать A 30 5x \[Net\] t=
+Ждать A 30 \[Net\] t=.*corrections 0;.*; input ([0-9]|[1-4][0-9]|50) B/s
+Нет A \[Net\] correction \d+ at
+Тогда A net_stand A stands past the fence (x >= 2500), still, upright; the fence intact; one mannequin of A
