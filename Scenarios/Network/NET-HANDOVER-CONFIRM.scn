@@ -33,7 +33,7 @@
 Ждать gw 30 player \d+ pawn net id \d+ - authority \(sim 2, epoch 2\) from step \d+: its inputs re-routed to sim 2
 Нет sim1 adopted .*from sim 1
 Ждать B 60 fresh \[Shot\] recorded frame_
-Тогда B confirm_cross B's view down on the cut: ONE A capsule just east of X = 300, moving continuously along +X (about 5 px per frame against confirm_cross_next), no jump back, no second A at the old place; clientA.log own-pawn x grows monotonically through the handover (no step back > 5 cm)
+Тогда B confirm_cross B's view down on the cut: ONE A capsule just east of X = 300, moving continuously along +X (about 5 px per frame against confirm_cross_next), no jump back, no second A at the old place; A.log own-pawn x grows monotonically through the handover (no step back > 5 cm)
 # Когда: A2 walks the parallel line 200 cm off A's; only when it is ~1 s short of X = 300 does sim 2 stop answering
 # (SIGSTOP). The stop must stay under the 10 s link timeout - a longer one closes sim 2's links (ReceiverLost, no retry).
 Роль A2 bot account=2 --seconds 900 --walk-cm 2000 --dir 0.15,0,0
@@ -47,7 +47,7 @@
 Ждать store 10 offer \(sim 1, #2\).*withdrawn by sim 1 at step \d+
 Ждать A2 10 2x \] t=
 Ждать B 60 fresh \[Shot\] recorded frame_
-Тогда B lost_receiver_silent B's view with sim 2 stopped: the A2 capsule east of X = 300 still walks along +X under sim 1 (one capsule; clientA2.log moves >= 40 cm per second after a stall <= 0.6 s, no snap back); A's capsule stands still (its sim is stopped)
+Тогда B lost_receiver_silent B's view with sim 2 stopped: the A2 capsule east of X = 300 still walks along +X under sim 1 (one capsule; A2.log moves >= 40 cm per second after a stall <= 0.6 s, no snap back); A's capsule stands still (its sim is stopped)
 # Когда: sim 2 resumes after ~4 s stopped (about 1 s to X = 300, 0.5 s to the withdrawal, 4 lines of A2 at two a
 # second): its stale offer #2 is refused or dropped.
 Ждать A2 10 2x \] t=
@@ -63,7 +63,7 @@
 Ждать sim1 30 offer #\d+ .*committed by the store \(epoch 2\)
 Ждать sim2 30 committed: incoming pawn promoted
 Ждать B 60 fresh \[Shot\] recorded frame_
-Тогда B retry_committed B's view after the retry: ONE A2 capsule walking +X now under sim 2, no jump at the transfer (clientA2.log: neighbouring acked positions <= 60 cm apart); store.log exactly one "-> (sim 2, epoch 2)" line for A2
+Тогда B retry_committed B's view after the retry: ONE A2 capsule walking +X now under sim 2, no jump at the transfer (A2.log: neighbouring acked positions <= 60 cm apart); store.log exactly one "-> (sim 2, epoch 2)" line for A2
 # Когда: the operator asks both sims for their handover counts.
 Консоль sim1 stat
 Ждать sim1 10 handovers: ([3-9]|\d\d+) offered, 2 committed, 0 adopted; refused \d+ by store, \d+ by receiver; [1-9]\d* withdrawn; .*0 open as sender
