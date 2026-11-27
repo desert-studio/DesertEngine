@@ -69,6 +69,12 @@ namespace Desert::Net
 
     // ------------------------------------------------------------------------------------------------- sender
 
+    void SimHandover::InboxRead( NetClock::time_point readStart )
+    {
+        m_ReadHorizon = m_LastRead;
+        m_LastRead    = readStart;
+    }
+
     void SimHandover::AfterStep( std::uint32_t step, PawnSimulation& sim, RemoteGatewayLink& gateways,
                                  RemoteReplicationStore& )
     {
@@ -79,8 +85,10 @@ namespace Desert::Net
         // otherwise. Without a link to the store no answer can come and nothing can have committed since it went:
         // the pawn resumes here at once. The deadline is wall time (kOfferDeadline), not steps: the ticks that
         // queued while this process stalled run in one burst, and the store's answer to the offer has had no
-        // time to be read in it.
-        const NetClock::time_point now         = NetClock::now();
+        // time to be read in it. And it is judged on the READ HORIZON (InboxRead), not the clock: a sender that
+        // wakes from a stall longer than the deadline has the store's Committed still in its socket, and the
+        // clock alone would withdraw an offer that already committed.
+        const NetClock::time_point now         = m_ReadHorizon;
         const bool                 storeLinked = !m_Endpoint.PeersOfRole( EMeshRole::Store ).empty();
         std::vector<std::pair<PlayerId, OpenOffer>> late;
         for ( const auto& [player, offer] : m_Offers )
@@ -312,19 +320,20 @@ namespace Desert::Net
                           name, behind, pending ) );
     }
 
-    void SimHandover::AskInDoubt( std::uint32_t step, NetClock::time_point now, bool storeLinked )
+    void SimHandover::AskInDoubt( std::uint32_t step, NetClock::time_point horizon, bool storeLinked )
     {
         // THE PARTICIPANT IN DOUBT ASKS THE COORDINATOR: the Accept is re-sent under the same key and the store
         // answers with the offer's outcome (HandoverLedger.hpp); OnDecision acts on it as on the first answer.
         // Without a link to the store no answer can come: the copy waits, and asks on the first step the link is
         // back (the store may have committed - dropping it here could leave the pawn with no owner). The wait is
         // wall time (kInDoubtWait), not steps: the ticks that queued while this process stalled run in one burst,
-        // and the store's answer to the Accept sent inside that burst has had no time to arrive.
+        // and the store's answer to the Accept sent inside that burst has had no time to arrive; it is judged on
+        // the read horizon (InboxRead), so the answers that queued during a stall are read first.
         if ( !storeLinked )
             return;
         for ( auto& [player, held] : m_Incoming )
         {
-            const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>( now - held.AskedWhen );
+            const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>( horizon - held.AskedWhen );
             if ( waited < Handover::kInDoubtWait )
                 continue;
             m_Endpoint.SendToRole( EMeshRole::Store,
@@ -337,7 +346,7 @@ namespace Desert::Net
                               m_Sim, held.Key.From, held.Key.Serial, held.Id, player, held.AskedAt, waited.count(),
                               StepsSince( step, held.AskedAt ) ) );
             held.AskedAt   = step;
-            held.AskedWhen = now;
+            held.AskedWhen = horizon;
         }
     }
 
