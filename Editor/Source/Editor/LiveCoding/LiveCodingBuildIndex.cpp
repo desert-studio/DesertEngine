@@ -1,5 +1,7 @@
 #include <Editor/LiveCoding/LiveCodingBuildIndex.hpp>
 
+#include <Editor/LiveCoding/ILiveCodingBackend.hpp>
+
 #include <Common/Json/Document.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -14,14 +16,6 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-
-#if defined( _WIN32 )
-#include <Windows.h>
-#else
-#include <cerrno>
-#include <csignal>
-#include <unistd.h>
-#endif
 
 namespace Desert::Editor::LiveCoding
 {
@@ -51,30 +45,6 @@ namespace Desert::Editor::LiveCoding
         fs::path Resolve( const fs::path& directory, const fs::path& path )
         {
             return Normal( path.is_absolute() ? path : directory / path );
-        }
-
-        std::uint32_t CurrentProcessId()
-        {
-#if defined( _WIN32 )
-            return static_cast<std::uint32_t>( ::GetCurrentProcessId() );
-#else
-            return static_cast<std::uint32_t>( ::getpid() );
-#endif
-        }
-
-        bool ProcessRuns( const std::uint32_t pid )
-        {
-#if defined( _WIN32 )
-            const HANDLE process = ::OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid );
-            if ( process == nullptr )
-                return ::GetLastError() == ERROR_ACCESS_DENIED; // it runs, as another user
-            DWORD      exitCode = 0;
-            const BOOL read     = ::GetExitCodeProcess( process, &exitCode );
-            ::CloseHandle( process );
-            return read != FALSE && exitCode == STILL_ACTIVE;
-#else
-            return ::kill( static_cast<pid_t>( pid ), 0 ) == 0 || errno == EPERM;
-#endif
         }
 
         Common::ResultStr<std::string> RequiredString( const Common::Json::Node& node, const std::string_view key )
@@ -403,6 +373,12 @@ namespace Desert::Editor::LiveCoding
                      compileCommands.GetValue(), index.m_Images[i].Target, index.m_Images[i].Image.string() );
 
         index.m_PatchedAt.assign( index.m_Sources.size(), fs::file_time_type::min() );
+        for ( std::size_t i = 0; i < index.m_Sources.size(); ++i )
+        {
+            index.m_SourceByKey.try_emplace( KeyOf( index.m_Sources[i].Source ), i );
+            if ( !index.m_Sources[i].UnitySource.empty() )
+                index.m_BatchByUnity[KeyOf( index.m_Sources[i].UnitySource )].push_back( i );
+        }
 
         const std::uint32_t self      = CurrentProcessId();
         const fs::path      livePatch = Normal( fs::path( buildDir.GetValue() ) ) / "LivePatch";
@@ -418,11 +394,10 @@ namespace Desert::Editor::LiveCoding
 
     std::optional<std::size_t> BuildIndex::FindSource( const fs::path& source ) const
     {
-        const std::string key = KeyOf( source );
-        for ( std::size_t i = 0; i < m_Sources.size(); ++i )
-            if ( KeyOf( m_Sources[i].Source ) == key )
-                return i;
-        return std::nullopt;
+        const auto found = m_SourceByKey.find( KeyOf( source ) );
+        if ( found == m_SourceByKey.end() )
+            return std::nullopt;
+        return found->second;
     }
 
     Common::ResultStr<std::vector<std::size_t>> BuildIndex::ChangedSources() const
@@ -496,12 +471,8 @@ namespace Desert::Editor::LiveCoding
 
     std::vector<std::size_t> BuildIndex::BatchOf( const fs::path& unitySource ) const
     {
-        const std::string        key = KeyOf( unitySource );
-        std::vector<std::size_t> batch;
-        for ( std::size_t i = 0; i < m_Sources.size(); ++i )
-            if ( !m_Sources[i].UnitySource.empty() && KeyOf( m_Sources[i].UnitySource ) == key )
-                batch.push_back( i );
-        return batch;
+        const auto found = m_BatchByUnity.find( KeyOf( unitySource ) );
+        return found == m_BatchByUnity.end() ? std::vector<std::size_t>() : found->second;
     }
 
     std::string BuildIndex::CommandFor( const std::size_t source, const fs::path& object ) const

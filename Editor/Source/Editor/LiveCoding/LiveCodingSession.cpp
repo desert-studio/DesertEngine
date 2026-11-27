@@ -53,6 +53,7 @@ namespace Desert::Editor::LiveCoding
             {
                 const std::lock_guard lock( m_Mutex );
                 m_Outcome = std::format( "refused: {}", reason );
+                ++m_OutcomeVersion;
             }
             return Common::MakeError<bool>( std::move( reason ) );
         };
@@ -61,8 +62,13 @@ namespace Desert::Editor::LiveCoding
             return refuse( m_Backend.GetError() );
         const PatchStage stage = m_Stage.load();
         if ( stage != PatchStage::Idle || !m_JobDone.load() )
-            return refuse( std::format( "a patch is already running ({})",
-                                        kPatchStageNames[static_cast<std::size_t>( stage )] ) );
+        {
+            // The running patch's outcome is still to come: this request is refused to the caller only.
+            const std::string reason = std::format( "a patch is already running ({})",
+                                                    kPatchStageNames[static_cast<std::size_t>( stage )] );
+            LOG_WARN( "[LiveCoding] refused: {}", reason );
+            return Common::MakeError<bool>( reason );
+        }
         const std::filesystem::path manifest = ManifestPath();
         std::error_code             ec;
         if ( !std::filesystem::exists( manifest, ec ) )
@@ -72,6 +78,7 @@ namespace Desert::Editor::LiveCoding
         {
             const std::lock_guard lock( m_Mutex );
             m_Outcome.clear();
+            ++m_OutcomeVersion;
         }
         m_Cancel.store( false );
         m_JobDone.store( false );
@@ -88,6 +95,7 @@ namespace Desert::Editor::LiveCoding
                      {
                          LOG_WARN( "[LiveCoding] refused: {}", refusal );
                          m_Outcome = std::format( "refused: {}", refusal );
+                         ++m_OutcomeVersion;
                          m_Stage.store( PatchStage::Idle );
                      }
                      m_JobDone.store( true );
@@ -111,6 +119,7 @@ namespace Desert::Editor::LiveCoding
                      LOG_INFO(
                           "[LiveCoding] nothing to patch: no source is newer than its image or its last patch" );
                      m_Outcome = "nothing to patch: no source is newer than its image or its last patch";
+                     ++m_OutcomeVersion;
                      m_Stage.store( PatchStage::Idle );
                      m_JobDone.store( true );
                      m_JobDone.notify_all();
@@ -198,19 +207,25 @@ namespace Desert::Editor::LiveCoding
         {
             const std::lock_guard lock( m_Mutex );
             m_Outcome = std::move( outcome );
+            ++m_OutcomeVersion;
         }
         m_Stage.store( PatchStage::Idle );
     }
 
-    Control::BackgroundReport LiveCodingSession::Report() const
+    const Control::BackgroundReport& LiveCodingSession::Report()
     {
-        const PatchStage          stage = m_Stage.load();
-        Control::BackgroundReport report;
-        report.Running  = stage != PatchStage::Idle;
-        report.Progress = report.Running ? kPatchStageNames[static_cast<std::size_t>( stage )] : "";
-        const std::lock_guard lock( m_Mutex );
-        report.Outcome = m_Outcome;
-        return report;
+        const PatchStage stage = m_Stage.load();
+        m_Report.Running       = stage != PatchStage::Idle;
+        const char* progress   = m_Report.Running ? kPatchStageNames[static_cast<std::size_t>( stage )] : "";
+        if ( m_Report.Progress != progress )
+            m_Report.Progress = progress;
+        if ( m_OutcomeVersion.load() != m_ReportedVersion )
+        {
+            const std::lock_guard lock( m_Mutex );
+            m_Report.Outcome  = m_Outcome;
+            m_ReportedVersion = m_OutcomeVersion.load();
+        }
+        return m_Report;
     }
 
     void LiveCodingSession::AppendCommands( std::vector<PaletteCommand>& out )

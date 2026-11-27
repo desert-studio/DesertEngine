@@ -1,11 +1,15 @@
 #include "PatchImage.hpp"
 
+#include "FunctionHotpatch.hpp"
+
 #include <Windows.h>
 
 #include <algorithm>
 #include <cstring>
 #include <optional>
 #include <set>
+#include <span>
+#include <tuple>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -14,7 +18,8 @@
 // in one allocation near the image they patch; every symbol resolves either into that allocation or into the image
 // as it runs (its /MAP, its import table, the exports of the other loaded images). Functions carrying edited code
 // are laid out new; header and template code that carries none keeps calling the image's copy, so a function-local
-// static inside it stays one object; writable data the image has stays the image's; constants are the new ones.
+// static inside it stays one object; writable data the image or an earlier patch has stays there; vtables, RTTI
+// and unchanged constants stay the image's; edited constants are the new ones.
 namespace Desert::Editor::LiveCoding
 {
     namespace
@@ -26,9 +31,11 @@ namespace Desert::Editor::LiveCoding
         constexpr std::uint32_t  kScnMemExecute     = 0x20000000;
         constexpr std::uint32_t  kScnMemWrite       = 0x80000000;
         constexpr std::uint8_t   kClassExternal     = 2;
+        constexpr std::uint8_t   kClassStatic       = 3;
         constexpr std::uint8_t   kClassLabel        = 6;
         constexpr std::uint8_t   kClassWeakExternal = 105;
         constexpr std::uint32_t  kNoSymbol          = ~0u;
+        constexpr std::uint32_t  kCodePadding       = 5;  // the E9 rel32 a later patch writes before an entry
         constexpr std::size_t    kThunkSize         = 16; // FF 25 00000000 (jmp [rip]) + 8-byte target, padded
         constexpr std::uintptr_t kReach             = 0x7FFF0000u - ( 16u << 20 ); // rel32 reach, 16 MB margin
 
@@ -177,6 +184,54 @@ namespace Desert::Editor::LiveCoding
             return nullptr;
         }
 
+        /// A section symbol (".data", ".bss"): a reference through it names an offset in the section, not a
+        /// variable.
+        bool IsSectionSymbol( const Coff::Symbol& symbol )
+        {
+            return symbol.StorageClass == kClassStatic && !symbol.Name.empty() && symbol.Name[0] == '.';
+        }
+
+        /// One object per type, which objects and the runtime compare by address: a vtable and its complete
+        /// object locator (vtable[-1], ADDR64). The other RTTI records (??_R0..??_R3) are compared by name and
+        /// reached image-relative, so the patch keeps its own copy of them.
+        bool IsIdentityConstant( const std::string& name )
+        {
+            return name.starts_with( "??_7" ) || name.starts_with( "??_R4" );
+        }
+
+        /// The addend the compiler stored at the relocation's place.
+        std::int64_t StoredAddend( const Coff::Section& section, const Coff::Relocation& relocation )
+        {
+            if ( relocation.Kind == Coff::RelocationKind::Addr64 )
+            {
+                std::int64_t addend = 0;
+                if ( std::size_t( relocation.Offset ) + 8 <= section.Bytes.size() )
+                {
+                    std::memcpy( &addend, section.Bytes.data() + relocation.Offset, 8 );
+                }
+                return addend;
+            }
+            std::int32_t addend = 0;
+            if ( std::size_t( relocation.Offset ) + 4 <= section.Bytes.size() )
+            {
+                std::memcpy( &addend, section.Bytes.data() + relocation.Offset, 4 );
+            }
+            return addend;
+        }
+
+        /// A laid-out unit of a section: the whole section, or, for writable data outside any COMDAT (no /Gw:
+        /// every variable of a source in one .data/.bss), the bytes of one variable. A piece is laid out only when
+        /// the patch needs it, so a variable the image has is never copied beside a new one of the same section.
+        struct Piece
+        {
+            std::uint32_t              Begin    = 0;
+            std::uint32_t              End      = 0;
+            std::uint32_t              Owner    = kNoSymbol; // the named symbol at Begin, in a split section
+            bool                       Included = false;
+            std::uintptr_t             Address  = 0;
+            std::vector<std::uint32_t> Relocations; // indices into the section's relocations inside [Begin, End)
+        };
+
         /// The objects of one patch being linked: every decision, every placement, the first refusal.
         class Linker
         {
@@ -197,6 +252,7 @@ namespace Desert::Editor::LiveCoding
             std::uintptr_t            End   = 0;
             std::vector<Redirect>     Redirects;
             std::vector<void ( * )()> Initialisers;
+            PatchHistory              Defined;
 
         private:
             bool Fail( std::string reason )
@@ -217,6 +273,22 @@ namespace Desert::Editor::LiveCoding
             std::optional<std::uint32_t> MapRva( std::uint32_t object, const std::string& name ) const
             {
                 return m_Image.Map->Find( name, MapObject( object ) );
+            }
+
+            const OriginalObject* Original( std::uint32_t object ) const
+            {
+                return object < m_Image.Originals.size() ? m_Image.Originals[object] : nullptr;
+            }
+
+            /// The newest definition an applied patch of this image made of @p name.
+            const PatchHistory::Definition* Earlier( const std::string& name ) const
+            {
+                if ( m_Image.History == nullptr )
+                {
+                    return nullptr;
+                }
+                const auto it = m_Image.History->Latest.find( NormaliseAnonymousNamespace( name ) );
+                return it == m_Image.History->Latest.end() ? nullptr : &it->second;
             }
 
             std::uintptr_t Export( const std::string& name ) const
@@ -246,20 +318,54 @@ namespace Desert::Editor::LiveCoding
                 return it == m_Externals.end() || it->second == std::make_pair( object, symbol );
             }
 
+            std::uint32_t PieceOf( std::uint32_t object, std::uint32_t section, std::uint32_t offset ) const
+            {
+                const std::vector<Piece>& pieces = m_Pieces[object][section];
+                const auto                after =
+                     std::upper_bound( pieces.begin(), pieces.end(), offset,
+                                       []( std::uint32_t at, const Piece& piece ) { return at < piece.Begin; } );
+                return after == pieces.begin() ? 0u : std::uint32_t( after - pieces.begin() - 1 );
+            }
+
+            /// Where @p offset of the section is in the patch (its piece is laid out).
+            std::uintptr_t AddressOf( std::uint32_t object, std::uint32_t section, std::uint32_t offset ) const
+            {
+                const Piece& piece = m_Pieces[object][section][PieceOf( object, section, offset )];
+                return piece.Address + ( offset - piece.Begin );
+            }
+
+            /// The symbol's own piece is laid out.
+            bool IsIncluded( std::uint32_t object, std::uint32_t symbol ) const
+            {
+                const Coff::Symbol& s       = m_Objects[object].Symbols()[symbol];
+                const std::uint32_t section = std::uint32_t( s.Section ) - 1;
+                return m_Pieces[object][section][PieceOf( object, section, s.Value )].Included;
+            }
+
+            /// The offset in its section a reference through @p symbol with @p rest past it lands at.
+            std::uint32_t OffsetOf( const Coff::Symbol& symbol, std::int64_t rest ) const
+            {
+                return IsSectionSymbol( symbol ) ? std::uint32_t( std::int64_t( symbol.Value ) + rest )
+                                                 : symbol.Value;
+            }
+
             bool           Decide( std::uint32_t object, std::uint32_t symbol, Decision& out );
+            bool           Resolve( std::uint32_t object, const Coff::Relocation& relocation, std::int64_t addend,
+                                    Decision& out, std::int64_t& rest );
             bool           CheckDataSize( std::uint32_t object, std::uint32_t symbol );
-            bool           Include( std::uint32_t object, std::uint32_t section );
-            bool           Process( std::uint32_t object, std::uint32_t section );
+            void           Include( std::uint32_t object, std::uint32_t section, std::uint32_t offset );
+            bool           Process( std::uint32_t object, std::uint32_t section, std::uint32_t piece );
             bool           Drain();
             bool           ReadInitialisers();
-            bool           SameAsOriginal( std::uint32_t object, std::uint32_t symbol );
+            bool           SameAsOriginal( std::uint32_t object, std::uint32_t symbol ) const;
             bool           IncludePData();
-            bool           CheckWritableSections();
+            bool           CheckThrowInfo();
+            void           SplitSections( std::uint32_t object );
             bool           Layout();
-            bool           Relocate( std::uint32_t object, std::uint32_t section );
+            bool           Relocate( std::uint32_t object, std::uint32_t section, const Piece& piece );
             std::uintptr_t Thunk( std::uintptr_t target );
-            std::uintptr_t TargetOf( const Decision& decision, bool imageRelative );
-            void           Report();
+            std::uintptr_t TargetOf( const Decision& decision, bool imageRelative, std::int64_t rest ) const;
+            bool           Report();
 
             std::span<const Coff::Object>   m_Objects;
             const ImageSymbols&             m_Image;
@@ -269,14 +375,13 @@ namespace Desert::Editor::LiveCoding
 
             std::vector<std::vector<Kind>>                       m_Kinds;
             std::vector<std::vector<Decision>>                   m_Decisions;
-            std::vector<std::vector<bool>>                       m_Included;
-            std::vector<std::vector<std::uintptr_t>>             m_SectionAddress;
+            std::vector<std::vector<bool>>                       m_Included;   // some piece of the section is
+            std::vector<std::vector<std::vector<Piece>>>         m_Pieces;     // object -> section -> pieces
             std::vector<std::vector<std::vector<std::uint32_t>>> m_Associates; // parent section -> associatives
             std::unordered_map<std::string, std::pair<std::uint32_t, std::uint32_t>> m_Externals;
-            std::vector<std::unordered_map<std::string, std::uint32_t>> m_OriginalByName; // lazily, per object
             std::set<std::pair<std::uint32_t, std::uint32_t>>    m_LocalCopies; // image data copied for ADDR32NB
-            std::vector<std::pair<std::uint32_t, std::uint32_t>> m_Work;
-            std::vector<std::pair<std::uint32_t, std::uint32_t>> m_InitialiserSymbols;
+            std::vector<std::tuple<std::uint32_t, std::uint32_t, std::uint32_t>> m_Work; // object, section, piece
+            std::vector<std::pair<std::uint32_t, std::uint32_t>>                 m_InitialiserSymbols;
 
             std::set<std::uintptr_t> m_ThunkTargets; // upper bound, counted while including
             std::set<std::uintptr_t> m_SlotTargets;
@@ -338,7 +443,7 @@ namespace Desert::Editor::LiveCoding
                         const auto rva = MapRva( object, s.Name );
                         if ( !rva )
                         {
-                            return Fail( "a new thread_local (" + s.Name + ") needs a rebuild" );
+                            return Fail( "new thread_local " + s.Name );
                         }
                         decision.Place   = Where::Image;
                         decision.Address = m_Image.Base + *rva;
@@ -348,29 +453,68 @@ namespace Desert::Editor::LiveCoding
                         decision.Place = Where::Patch;
                         if ( !IsLocal( s ) && m_Carrying.count( NormaliseAnonymousNamespace( s.Name ) ) == 0 )
                         {
+                            // Carries no edited code: the copy that runs stays, the image's or an earlier patch's.
                             if ( const auto rva = MapRva( object, s.Name ) )
                             {
-                                decision.Place   = Where::Image; // carries no edited code: the image's copy stays
+                                decision.Place   = Where::Image;
                                 decision.Address = m_Image.Base + *rva;
+                            }
+                            else if ( const PatchHistory::Definition* earlier = Earlier( s.Name ) )
+                            {
+                                decision.Place   = Where::Image;
+                                decision.Address = earlier->Address;
                             }
                         }
                         break;
                     case Kind::ReadOnly:
+                        decision.Place = Where::Patch; // an edited constant: the new value
+                        if ( !IsLocal( s ) )
+                        {
+                            // A vtable or an RTTI record stays the one objects already point at; an unchanged
+                            // constant stays the image's (throw information among them, see CheckThrowInfo).
+                            const bool identity = IsIdentityConstant( s.Name );
+                            const auto rva      = MapRva( object, s.Name );
+                            if ( rva && ( identity || SameAsOriginal( object, symbol ) ) )
+                            {
+                                decision.Place   = Where::Image;
+                                decision.Address = m_Image.Base + *rva;
+                            }
+                            else if ( const PatchHistory::Definition* earlier = Earlier( s.Name );
+                                      !rva && identity && earlier != nullptr )
+                            {
+                                decision.Place   = Where::Image;
+                                decision.Address = earlier->Address;
+                            }
+                        }
+                        break;
                     case Kind::PData:
                         decision.Place = Where::Patch;
-                        break; // constants: the edited values
+                        break;
                     case Kind::Data:
                         decision.Place = Where::Patch;
                         if ( !IsLocal( s ) )
                         {
+                            // Live data stays where it is: in the image, or where the patch that added it put it.
                             if ( const auto rva = MapRva( object, s.Name ) )
                             {
                                 if ( !CheckDataSize( object, symbol ) )
                                 {
                                     return false;
                                 }
-                                decision.Place   = Where::Image; // live data stays where it is
+                                decision.Place   = Where::Image;
                                 decision.Address = m_Image.Base + *rva;
+                            }
+                            else if ( const PatchHistory::Definition* earlier = Earlier( s.Name ) )
+                            {
+                                const std::uint32_t now = m_Objects[object].Extent( symbol );
+                                if ( now > earlier->Size )
+                                {
+                                    return Fail( "data layout changed: " + s.Name + " (" +
+                                                 std::to_string( earlier->Size ) + " -> " + std::to_string( now ) +
+                                                 " bytes)" );
+                                }
+                                decision.Place   = Where::Image;
+                                decision.Address = earlier->Address;
                             }
                         }
                         break;
@@ -404,15 +548,23 @@ namespace Desert::Editor::LiveCoding
                     decision.Place   = Where::Slot;
                     decision.Address = address;
                 }
-                else
+                else if ( const std::uintptr_t address = Export( s.Name ) )
                 {
-                    const std::uintptr_t address = Export( s.Name );
-                    if ( address == 0 )
-                    {
-                        return Fail( "unresolved symbol " + s.Name + ": not in the image's map nor exported" );
-                    }
                     decision.Place   = Where::Image;
                     decision.Address = address;
+                }
+                else if ( s.StorageClass == kClassWeakExternal && s.WeakDefault != kNoSymbol )
+                {
+                    // Nothing defines the weak name: it is its default (the aux record's TagIndex), as link.exe
+                    // resolves it.
+                    if ( !Decide( object, s.WeakDefault, decision ) )
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    return Fail( "unresolved symbol " + s.Name + ": not in the image's map nor exported" );
                 }
             }
             else
@@ -425,84 +577,131 @@ namespace Desert::Editor::LiveCoding
             return true;
         }
 
-        bool Linker::CheckDataSize( std::uint32_t object, std::uint32_t symbol )
+        // The decision a relocation lands on and the bytes past that decision's symbol. A reference through the
+        // section symbol of a split data section lands on the variable at its offset: the image's when the image
+        // has that variable.
+        bool Linker::Resolve( std::uint32_t object, const Coff::Relocation& relocation, std::int64_t addend,
+                              Decision& out, std::int64_t& rest )
         {
-            if ( object >= m_Image.Originals.size() || m_Image.Originals[object] == nullptr )
+            if ( !Decide( object, relocation.Symbol, out ) )
             {
-                return true; // compiled alone before too and not reloaded: nothing to compare against
+                return false;
             }
-            const Coff::Object& original = *m_Image.Originals[object];
-            auto&               byName   = m_OriginalByName[object];
-            if ( byName.empty() )
-            {
-                const std::span<const Coff::Symbol> symbols = original.Symbols();
-                for ( std::uint32_t i = 0; i < symbols.size(); ++i )
-                {
-                    if ( symbols[i].Section > 0 && !symbols[i].Function && !IsLocal( symbols[i] ) )
-                    {
-                        byName.try_emplace( NormaliseAnonymousNamespace( symbols[i].Name ), i );
-                    }
-                }
-            }
-            const Coff::Symbol& s  = m_Objects[object].Symbols()[symbol];
-            const auto          it = byName.find( NormaliseAnonymousNamespace( s.Name ) );
-            if ( it == byName.end() )
-            {
-                return true; // defined by another object of the image: its size is not this object's to judge
-            }
-            const std::uint32_t before = original.Extent( it->second );
-            const std::uint32_t after  = m_Objects[object].Extent( symbol );
-            if ( after > before )
-            {
-                return Fail( "data layout changed: " + s.Name + " grew from " + std::to_string( before ) + " to " +
-                             std::to_string( after ) + " bytes; live data cannot move (rebuild and restart)" );
-            }
-            return true;
-        }
-
-        bool Linker::Include( std::uint32_t object, std::uint32_t section )
-        {
-            const Kind kind = m_Kinds[object][section];
-            if ( m_Included[object][section] || kind == Kind::Discard || kind == Kind::Tls ||
-                 kind == Kind::CrtInit || kind == Kind::Ignored )
+            rest = addend;
+            if ( out.Place != Where::Patch )
             {
                 return true;
             }
-            m_Included[object][section] = true;
-            m_Work.emplace_back( object, section );
-            for ( const std::uint32_t child : m_Associates[object][section] )
+            const Coff::Symbol& s = m_Objects[out.DefObject].Symbols()[out.DefSymbol];
+            if ( !IsSectionSymbol( s ) )
             {
-                Include( object, child );
+                return true;
+            }
+            const std::uint32_t section = std::uint32_t( s.Section ) - 1;
+            const std::int64_t  offset  = std::int64_t( s.Value ) + addend;
+            if ( offset < 0 || offset > std::int64_t( m_Objects[out.DefObject].Sections()[section].Size ) )
+            {
+                return Fail( s.Name + " of " + m_Objects[out.DefObject].Path().generic_string() +
+                             " is referenced outside the section" );
+            }
+            const Piece& piece =
+                 m_Pieces[out.DefObject][section][PieceOf( out.DefObject, section, std::uint32_t( offset ) )];
+            if ( piece.Owner == kNoSymbol )
+            {
+                return true;
+            }
+            Decision owner;
+            if ( !Decide( out.DefObject, piece.Owner, owner ) )
+            {
+                return false;
+            }
+            if ( owner.Place != Where::Patch )
+            {
+                out  = owner;
+                rest = offset - std::int64_t( piece.Begin );
             }
             return true;
         }
 
-        bool Linker::Process( std::uint32_t object, std::uint32_t section )
+        bool Linker::CheckDataSize( std::uint32_t object, std::uint32_t symbol )
+        {
+            const OriginalObject* original = Original( object );
+            if ( original == nullptr )
+            {
+                return true; // compiled alone before too and not reloaded: nothing to compare against
+            }
+            const Coff::Symbol&                s     = m_Objects[object].Symbols()[symbol];
+            const std::optional<std::uint32_t> found = original->Find( NormaliseAnonymousNamespace( s.Name ) );
+            if ( !found || original->Object().Symbols()[*found].Function )
+            {
+                return true; // defined by another object of the image: its size is not this object's to judge
+            }
+            const std::uint32_t before = original->Object().Extent( *found );
+            const std::uint32_t after  = m_Objects[object].Extent( symbol );
+            if ( after > before )
+            {
+                return Fail( "data layout changed: " + s.Name + " (" + std::to_string( before ) + " -> " +
+                             std::to_string( after ) + " bytes)" );
+            }
+            return true;
+        }
+
+        void Linker::Include( std::uint32_t object, std::uint32_t section, std::uint32_t offset )
+        {
+            const Kind kind = m_Kinds[object][section];
+            if ( kind == Kind::Discard || kind == Kind::Tls || kind == Kind::CrtInit || kind == Kind::Ignored )
+            {
+                return;
+            }
+            const std::uint32_t piece = PieceOf( object, section, offset );
+            Piece&              unit  = m_Pieces[object][section][piece];
+            if ( unit.Included )
+            {
+                return;
+            }
+            unit.Included               = true;
+            m_Included[object][section] = true;
+            m_Work.emplace_back( object, section, piece );
+            for ( const std::uint32_t child : m_Associates[object][section] )
+            {
+                Include( object, child, 0 );
+            }
+        }
+
+        bool Linker::Process( std::uint32_t object, std::uint32_t section, std::uint32_t piece )
         {
             const Coff::Section& s = m_Objects[object].Sections()[section];
-            for ( const Coff::Relocation& relocation : s.Relocations )
+            for ( const std::uint32_t index : m_Pieces[object][section][piece].Relocations )
             {
-                Decision decision;
-                if ( !Decide( object, relocation.Symbol, decision ) )
+                const Coff::Relocation& relocation = s.Relocations[index];
+                Decision                decision;
+                std::int64_t            rest = 0;
+                if ( !Resolve( object, relocation, StoredAddend( s, relocation ), decision, rest ) )
                 {
                     return false;
                 }
                 const bool imageRelative = relocation.Kind == Coff::RelocationKind::Addr32Nb;
                 const bool rel32         = relocation.Kind >= Coff::RelocationKind::Rel32 &&
                                    relocation.Kind <= Coff::RelocationKind::Rel32_5;
-                if ( decision.Place == Where::Image && imageRelative && decision.DefSymbol != kNoSymbol &&
-                     m_Kinds[decision.DefObject]
-                            [std::uint32_t( m_Objects[decision.DefObject].Symbols()[decision.DefSymbol].Section ) -
-                             1] == Kind::Data )
+                const Kind targetKind =
+                     decision.DefSymbol == kNoSymbol
+                          ? Kind::Code
+                          : m_Kinds[decision.DefObject]
+                                   [std::uint32_t(
+                                         m_Objects[decision.DefObject].Symbols()[decision.DefSymbol].Section ) -
+                                    1];
+                if ( decision.Place == Where::Image && imageRelative &&
+                     ( targetKind == Kind::Data || targetKind == Kind::ReadOnly ) )
                 {
-                    // Image-relative from the patch's base (EH tables -> TypeDescriptor): the patch's own copy.
+                    // Image-relative from the patch's base (EH tables -> TypeDescriptor, ??_R2 -> ??_R1 of a
+                    // base class): the image is out of reach, so the patch keeps its own copy.
                     m_LocalCopies.emplace( decision.DefObject, decision.DefSymbol );
                     decision.Place = Where::Patch;
                 }
                 if ( decision.Place == Where::Patch )
                 {
                     const Coff::Symbol& target = m_Objects[decision.DefObject].Symbols()[decision.DefSymbol];
-                    Include( decision.DefObject, std::uint32_t( target.Section ) - 1 );
+                    Include( decision.DefObject, std::uint32_t( target.Section ) - 1, OffsetOf( target, rest ) );
                 }
                 else if ( decision.Place == Where::Slot )
                 {
@@ -510,7 +709,7 @@ namespace Desert::Editor::LiveCoding
                 }
                 else if ( imageRelative || rel32 )
                 {
-                    m_ThunkTargets.insert( decision.Address );
+                    m_ThunkTargets.insert( decision.Address + std::uintptr_t( rest ) );
                 }
             }
             return true;
@@ -520,9 +719,9 @@ namespace Desert::Editor::LiveCoding
         {
             while ( !m_Work.empty() )
             {
-                const auto [object, section] = m_Work.back();
+                const auto [object, section, piece] = m_Work.back();
                 m_Work.pop_back();
-                if ( !Process( object, section ) )
+                if ( !Process( object, section, piece ) )
                 {
                     return false;
                 }
@@ -530,34 +729,80 @@ namespace Desert::Editor::LiveCoding
             return true;
         }
 
-        bool Linker::SameAsOriginal( std::uint32_t object, std::uint32_t symbol )
+        // The symbol's bytes and relocations (place, kind, target name) equal those of the same-named symbol of
+        // the object the image was linked from. A COMDAT is its whole section; other symbols are their extent.
+        bool Linker::SameAsOriginal( std::uint32_t object, std::uint32_t symbol ) const
         {
-            if ( object >= m_Image.Originals.size() || m_Image.Originals[object] == nullptr )
+            const OriginalObject* original = Original( object );
+            if ( original == nullptr )
             {
                 return false;
             }
-            const Coff::Object& original = *m_Image.Originals[object];
-            const std::string   name     = NormaliseAnonymousNamespace( m_Objects[object].Symbols()[symbol].Name );
-            for ( const Coff::Symbol& candidate : original.Symbols() )
+            const Coff::Object&                now = m_Objects[object];
+            const std::optional<std::uint32_t> found =
+                 original->Find( NormaliseAnonymousNamespace( now.Symbols()[symbol].Name ) );
+            if ( !found )
             {
-                if ( candidate.Section <= 0 || !candidate.Function ||
-                     NormaliseAnonymousNamespace( candidate.Name ) != name )
-                {
-                    continue;
-                }
-                const Coff::Section& before = original.Sections()[std::size_t( candidate.Section ) - 1];
-                const Coff::Section& after =
-                     m_Objects[object].Sections()[std::size_t( m_Objects[object].Symbols()[symbol].Section ) - 1];
-                return before.Size == after.Size && before.Relocations.size() == after.Relocations.size() &&
-                       std::equal( before.Bytes.begin(), before.Bytes.end(), after.Bytes.begin(),
-                                   after.Bytes.end() );
+                return false;
             }
-            return false;
+            struct Range
+            {
+                const Coff::Object*  Object;
+                const Coff::Section* Section;
+                std::uint32_t        Begin;
+                std::uint32_t        Size;
+            };
+            const auto rangeOf = []( const Coff::Object& o, std::uint32_t index ) -> std::optional<Range>
+            {
+                const Coff::Symbol& s = o.Symbols()[index];
+                if ( s.Section <= 0 || std::size_t( s.Section ) > o.Sections().size() )
+                {
+                    return std::nullopt;
+                }
+                const Coff::Section& section = o.Sections()[std::size_t( s.Section ) - 1];
+                if ( section.Comdat != Coff::ComdatSelect::None )
+                {
+                    return Range{ &o, &section, 0, section.Size };
+                }
+                return Range{ &o, &section, s.Value, o.Extent( index ) };
+            };
+            const std::optional<Range> before = rangeOf( original->Object(), *found );
+            const std::optional<Range> after  = rangeOf( now, symbol );
+            if ( !before || !after || before->Size != after->Size ||
+                 before->Section->Bytes.empty() != after->Section->Bytes.empty() )
+            {
+                return false;
+            }
+            if ( !before->Section->Bytes.empty() &&
+                 ( std::size_t( before->Begin ) + before->Size > before->Section->Bytes.size() ||
+                   std::size_t( after->Begin ) + after->Size > after->Section->Bytes.size() ||
+                   std::memcmp( before->Section->Bytes.data() + before->Begin,
+                                after->Section->Bytes.data() + after->Begin, before->Size ) != 0 ) )
+            {
+                return false;
+            }
+            using Reference       = std::tuple<std::uint32_t, Coff::RelocationKind, std::string>;
+            const auto references = []( const Range& range )
+            {
+                std::vector<Reference> list;
+                for ( const Coff::Relocation& r : range.Section->Relocations )
+                {
+                    if ( r.Offset >= range.Begin && r.Offset < range.Begin + range.Size &&
+                         r.Symbol < range.Object->Symbols().size() )
+                    {
+                        list.emplace_back( r.Offset - range.Begin, r.Kind,
+                                           NormaliseAnonymousNamespace( range.Object->Symbols()[r.Symbol].Name ) );
+                    }
+                }
+                std::sort( list.begin(), list.end() );
+                return list;
+            };
+            return references( *before ) == references( *after );
         }
 
         // The .CRT$XCU entries: one `??__E<variable>` per dynamically initialised variable. The initialiser of a
-        // variable the image lacks runs after the redirects; one of a variable the image has is never rerun (it
-        // would reinitialise live data), and is reported when its code changed.
+        // variable the image and the earlier patches lack runs before the redirects; one of a variable that exists
+        // is never rerun (it would reinitialise live data), and is reported when its code changed.
         bool Linker::ReadInitialisers()
         {
             for ( std::uint32_t object = 0; object < m_Objects.size(); ++object )
@@ -619,7 +864,8 @@ namespace Desert::Editor::LiveCoding
                         if ( found != kNoSymbol && decision.Place == Where::Patch )
                         {
                             m_InitialiserSymbols.emplace_back( object, initialiser );
-                            Include( object, std::uint32_t( symbols[initialiser].Section ) - 1 );
+                            Include( object, std::uint32_t( symbols[initialiser].Section ) - 1,
+                                     symbols[initialiser].Value );
                         }
                         else if ( !SameAsOriginal( object, initialiser ) )
                         {
@@ -666,14 +912,17 @@ namespace Desert::Editor::LiveCoding
                     }
                     if ( covered != 0 )
                     {
-                        Include( object, section );
+                        Include( object, section, 0 );
                     }
                 }
             }
             return Drain();
         }
 
-        bool Linker::CheckWritableSections()
+        // A throw hands its _ThrowInfo to the runtime, which finds the image the information lives in with
+        // RtlPcToFileHeader; patch memory is no image, so a throw whose information only the patch has would
+        // terminate the editor. Unchanged throw information resolves to the image's (Decide, ReadOnly).
+        bool Linker::CheckThrowInfo()
         {
             for ( std::uint32_t object = 0; object < m_Objects.size(); ++object )
             {
@@ -681,48 +930,107 @@ namespace Desert::Editor::LiveCoding
                 for ( std::uint32_t i = 0; i < symbols.size(); ++i )
                 {
                     const Coff::Symbol& s = symbols[i];
-                    if ( s.Section <= 0 || IsLocal( s ) || !m_Included[object][std::uint32_t( s.Section ) - 1] ||
-                         m_Kinds[object][std::uint32_t( s.Section ) - 1] != Kind::Data || !IsChosen( object, i ) ||
-                         m_LocalCopies.count( { object, i } ) != 0 )
+                    if ( s.Section <= 0 || !( s.Name.starts_with( "_TI" ) || s.Name.starts_with( "_CTA" ) ) ||
+                         !IsChosen( object, i ) || !IsIncluded( object, i ) )
                     {
                         continue;
                     }
-                    Decision decision;
-                    if ( !Decide( object, i, decision ) )
-                    {
-                        return false;
-                    }
-                    if ( decision.Place == Where::Image )
-                    {
-                        // The section is laid out for a neighbour, so this variable would exist twice.
-                        return Fail( "data layout changed: " + s.Name + " shares a section with data the image " +
-                                     "lacks; live data cannot be split (rebuild and restart)" );
-                    }
+                    return Fail( "the patch adds exception type information the image lacks (" + s.Name +
+                                 "): the C++ runtime reads it only from a registered image; rebuild and restart" );
                 }
             }
             return true;
         }
 
+        void Linker::SplitSections( std::uint32_t object )
+        {
+            const std::span<const Coff::Section>    sections = m_Objects[object].Sections();
+            const std::span<const Coff::Symbol>     symbols  = m_Objects[object].Symbols();
+            std::vector<std::vector<std::uint32_t>> bySection( sections.size() );
+            for ( std::uint32_t i = 0; i < symbols.size(); ++i )
+            {
+                const Coff::Symbol& s = symbols[i];
+                if ( s.Section > 0 && std::size_t( s.Section ) <= sections.size() && !IsSectionSymbol( s ) )
+                {
+                    bySection[std::size_t( s.Section ) - 1].push_back( i );
+                }
+            }
+            m_Pieces[object].resize( sections.size() );
+            for ( std::uint32_t section = 0; section < sections.size(); ++section )
+            {
+                const Coff::Section&       s     = sections[section];
+                std::vector<Piece>&        units = m_Pieces[object][section];
+                std::vector<std::uint32_t> bounds{ 0 };
+                const bool split = m_Kinds[object][section] == Kind::Data && s.Comdat == Coff::ComdatSelect::None;
+                if ( split )
+                {
+                    for ( const std::uint32_t i : bySection[section] )
+                    {
+                        if ( symbols[i].Value < s.Size )
+                        {
+                            bounds.push_back( symbols[i].Value );
+                        }
+                    }
+                    std::sort( bounds.begin(), bounds.end() );
+                    bounds.erase( std::unique( bounds.begin(), bounds.end() ), bounds.end() );
+                }
+                for ( std::size_t k = 0; k < bounds.size(); ++k )
+                {
+                    Piece piece;
+                    piece.Begin = bounds[k];
+                    piece.End   = k + 1 < bounds.size() ? bounds[k + 1] : s.Size;
+                    units.push_back( std::move( piece ) );
+                }
+                if ( split )
+                {
+                    for ( const std::uint32_t i : bySection[section] )
+                    {
+                        Piece& piece = units[PieceOf( object, section, symbols[i].Value )];
+                        if ( piece.Begin == symbols[i].Value &&
+                             ( piece.Owner == kNoSymbol ||
+                               ( IsLocal( symbols[piece.Owner] ) && !IsLocal( symbols[i] ) ) ) )
+                        {
+                            piece.Owner = i;
+                        }
+                    }
+                }
+                for ( std::uint32_t r = 0; r < s.Relocations.size(); ++r )
+                {
+                    units[PieceOf( object, section, s.Relocations[r].Offset )].Relocations.push_back( r );
+                }
+            }
+        }
+
         bool Linker::Layout()
         {
-            std::uintptr_t                           size[std::size_t( Region::Count )] = {};
-            std::vector<std::vector<std::uintptr_t>> offsets( m_Objects.size() );
+            std::uintptr_t                                        size[std::size_t( Region::Count )] = {};
+            std::vector<std::vector<std::vector<std::uintptr_t>>> offsets( m_Objects.size() );
             for ( std::uint32_t object = 0; object < m_Objects.size(); ++object )
             {
                 const std::span<const Coff::Section> sections = m_Objects[object].Sections();
-                offsets[object].assign( sections.size(), 0 );
+                offsets[object].resize( sections.size() );
                 for ( std::uint32_t section = 0; section < sections.size(); ++section )
                 {
                     if ( !m_Included[object][section] )
                     {
                         continue;
                     }
-                    std::uintptr_t&     end = size[std::size_t( RegionOf( m_Kinds[object][section] ) )];
-                    const std::uint32_t alignment =
-                         m_Kinds[object][section] == Kind::PData ? 4u : AlignmentOf( sections[section] );
-                    end                      = AlignUp( end, alignment );
-                    offsets[object][section] = end;
-                    end += sections[section].Size;
+                    const Kind          kind      = m_Kinds[object][section];
+                    std::uintptr_t&     end       = size[std::size_t( RegionOf( kind ) )];
+                    const std::uint32_t alignment = kind == Kind::PData ? 4u : AlignmentOf( sections[section] );
+                    offsets[object][section].assign( m_Pieces[object][section].size(), 0 );
+                    for ( std::size_t p = 0; p < m_Pieces[object][section].size(); ++p )
+                    {
+                        const Piece& piece = m_Pieces[object][section][p];
+                        if ( !piece.Included )
+                        {
+                            continue;
+                        }
+                        // Code: the hotpatch padding a later patch redirects this function through.
+                        end = AlignUp( end + ( kind == Kind::Code ? kCodePadding : 0 ), alignment );
+                        offsets[object][section][p] = end;
+                        end += piece.End - piece.Begin;
+                    }
                 }
             }
             std::uintptr_t&      code        = size[std::size_t( Region::Code )];
@@ -760,6 +1068,10 @@ namespace Desert::Editor::LiveCoding
                 m_RegionBegin[r] = Begin + regionOffset[r];
             }
             m_PDataEnd = m_RegionBegin[std::size_t( Region::PData )] + size[std::size_t( Region::PData )];
+            // int3 between functions: the padding before each entry, and whatever the alignment leaves.
+            std::memset( reinterpret_cast<void*>( m_RegionBegin[std::size_t( Region::Code )] ), 0xCC,
+                         m_RegionBegin[std::size_t( Region::Code ) + 1] -
+                              m_RegionBegin[std::size_t( Region::Code )] );
 
             for ( std::uint32_t object = 0; object < m_Objects.size(); ++object )
             {
@@ -770,15 +1082,22 @@ namespace Desert::Editor::LiveCoding
                     {
                         continue;
                     }
-                    const std::uintptr_t address =
-                         m_RegionBegin[std::size_t( RegionOf( m_Kinds[object][section] ) )] +
-                         offsets[object][section];
-                    m_SectionAddress[object][section] = address;
-                    if ( !sections[section]
-                               .Bytes.empty() ) // uninitialised data stays the zeroes VirtualAlloc gave
+                    const std::uintptr_t region =
+                         m_RegionBegin[std::size_t( RegionOf( m_Kinds[object][section] ) )];
+                    for ( std::size_t p = 0; p < m_Pieces[object][section].size(); ++p )
                     {
-                        std::memcpy( reinterpret_cast<void*>( address ), sections[section].Bytes.data(),
-                                     sections[section].Bytes.size() );
+                        Piece& piece = m_Pieces[object][section][p];
+                        if ( !piece.Included )
+                        {
+                            continue;
+                        }
+                        piece.Address = region + offsets[object][section][p];
+                        // Uninitialised data stays the zeroes VirtualAlloc gave.
+                        if ( !sections[section].Bytes.empty() && piece.End > piece.Begin )
+                        {
+                            std::memcpy( reinterpret_cast<void*>( piece.Address ),
+                                         sections[section].Bytes.data() + piece.Begin, piece.End - piece.Begin );
+                        }
                     }
                 }
             }
@@ -814,36 +1133,43 @@ namespace Desert::Editor::LiveCoding
             return m_NextThunk - kThunkSize;
         }
 
-        std::uintptr_t Linker::TargetOf( const Decision& decision, bool imageRelative )
+        // The address a reference lands at, @p rest (the addend) included.
+        std::uintptr_t Linker::TargetOf( const Decision& decision, bool imageRelative, std::int64_t rest ) const
         {
             const bool localCopy = imageRelative && decision.DefSymbol != kNoSymbol &&
                                    m_LocalCopies.count( { decision.DefObject, decision.DefSymbol } ) != 0;
             if ( decision.Place == Where::Patch || localCopy )
             {
-                const Coff::Symbol& s = m_Objects[decision.DefObject].Symbols()[decision.DefSymbol];
-                return m_SectionAddress[decision.DefObject][std::uint32_t( s.Section ) - 1] + s.Value;
+                const Coff::Symbol& s       = m_Objects[decision.DefObject].Symbols()[decision.DefSymbol];
+                const std::uint32_t section = std::uint32_t( s.Section ) - 1;
+                if ( IsSectionSymbol( s ) )
+                {
+                    return AddressOf( decision.DefObject, section, OffsetOf( s, rest ) );
+                }
+                return AddressOf( decision.DefObject, section, s.Value ) + std::uintptr_t( rest );
             }
             if ( decision.Place == Where::Slot )
             {
-                return m_Slots.at( decision.Address );
+                return m_Slots.at( decision.Address ) + std::uintptr_t( rest );
             }
-            return decision.Address;
+            return decision.Address + std::uintptr_t( rest );
         }
 
-        bool Linker::Relocate( std::uint32_t object, std::uint32_t section )
+        bool Linker::Relocate( std::uint32_t object, std::uint32_t section, const Piece& piece )
         {
-            const Coff::Section& s    = m_Objects[object].Sections()[section];
-            const std::uintptr_t base = m_SectionAddress[object][section];
-            for ( const Coff::Relocation& relocation : s.Relocations )
+            const Coff::Section& s = m_Objects[object].Sections()[section];
+            for ( const std::uint32_t index : piece.Relocations )
             {
-                const std::uintptr_t at    = base + relocation.Offset;
-                const std::size_t    width = relocation.Kind == Coff::RelocationKind::Addr64 ? 8 : 4;
-                if ( std::size_t( relocation.Offset ) + width > s.Size )
+                const Coff::Relocation& relocation = s.Relocations[index];
+                const std::uintptr_t    at         = piece.Address + ( relocation.Offset - piece.Begin );
+                const std::size_t       width      = relocation.Kind == Coff::RelocationKind::Addr64 ? 8 : 4;
+                if ( std::size_t( relocation.Offset ) + width > piece.End )
                 {
-                    return Fail( s.Name + ": a relocation lies past the section end" );
+                    return Fail( s.Name + ": a relocation lies past the end of its section or variable" );
                 }
-                Decision decision;
-                if ( !Decide( object, relocation.Symbol, decision ) )
+                Decision     decision;
+                std::int64_t rest = 0;
+                if ( !Resolve( object, relocation, StoredAddend( s, relocation ), decision, rest ) )
                 {
                     return false;
                 }
@@ -852,17 +1178,13 @@ namespace Desert::Editor::LiveCoding
                 {
                     case Coff::RelocationKind::Addr64:
                     {
-                        std::uint64_t addend = 0;
-                        std::memcpy( &addend, reinterpret_cast<void*>( at ), 8 );
-                        const std::uint64_t value = TargetOf( decision, false ) + addend;
+                        const std::uint64_t value = TargetOf( decision, false, rest );
                         std::memcpy( reinterpret_cast<void*>( at ), &value, 8 );
                         break;
                     }
                     case Coff::RelocationKind::Addr32Nb:
                     {
-                        std::int32_t addend = 0;
-                        std::memcpy( &addend, reinterpret_cast<void*>( at ), 4 );
-                        std::uintptr_t target = TargetOf( decision, true );
+                        std::uintptr_t target = TargetOf( decision, true, rest );
                         if ( target < Begin || target >= End )
                         {
                             if ( !decision.Function )
@@ -870,14 +1192,14 @@ namespace Desert::Editor::LiveCoding
                                 return Fail( "image-relative reference from the patch to data outside it: " +
                                              name );
                             }
-                            target = Thunk(
-                                 target ); // the EH handler (__CxxFrameHandler4) and other runtime functions
+                            // The EH handler (__CxxFrameHandler4) and other runtime functions.
+                            target = Thunk( target );
                             if ( target == 0 )
                             {
                                 return Fail( "the patch ran out of thunks resolving " + name );
                             }
                         }
-                        const std::int64_t value = std::int64_t( target - Begin ) + addend;
+                        const std::int64_t value = std::int64_t( target - Begin );
                         if ( value < 0 || value > std::int64_t( UINT32_MAX ) )
                         {
                             return Fail( "image-relative reference out of range: " + name );
@@ -895,10 +1217,8 @@ namespace Desert::Editor::LiveCoding
                     {
                         const std::int64_t trailing =
                              std::int64_t( relocation.Kind ) - std::int64_t( Coff::RelocationKind::Rel32 );
-                        std::int32_t addend = 0;
-                        std::memcpy( &addend, reinterpret_cast<void*>( at ), 4 );
-                        std::uintptr_t target = TargetOf( decision, false );
-                        std::int64_t   value = std::int64_t( target ) + addend - std::int64_t( at + 4 + trailing );
+                        std::uintptr_t target = TargetOf( decision, false, rest );
+                        std::int64_t   value  = std::int64_t( target ) - std::int64_t( at + 4 + trailing );
                         if ( value < INT32_MIN || value > INT32_MAX )
                         {
                             if ( !decision.Function )
@@ -910,7 +1230,7 @@ namespace Desert::Editor::LiveCoding
                             {
                                 return Fail( "the patch ran out of thunks resolving " + name );
                             }
-                            value = std::int64_t( target ) + addend - std::int64_t( at + 4 + trailing );
+                            value = std::int64_t( target ) - std::int64_t( at + 4 + trailing );
                         }
                         const std::int32_t written = std::int32_t( value );
                         std::memcpy( reinterpret_cast<void*>( at ), &written, 4 );
@@ -926,10 +1246,8 @@ namespace Desert::Editor::LiveCoding
                             return Fail( "section-relative reference to " + name +
                                          ", which is no thread_local of the image" );
                         }
-                        std::int32_t addend = 0;
-                        std::memcpy( &addend, reinterpret_cast<void*>( at ), 4 );
                         const std::uint32_t written =
-                             std::uint32_t( decision.Address - m_Image.Base - *tls ) + std::uint32_t( addend );
+                             std::uint32_t( decision.Address - m_Image.Base - *tls ) + std::uint32_t( rest );
                         std::memcpy( reinterpret_cast<void*>( at ), &written, 4 );
                         break;
                     }
@@ -942,7 +1260,9 @@ namespace Desert::Editor::LiveCoding
             return true;
         }
 
-        void Linker::Report()
+        // The redirects (each function carrying edited code, from the image's entry and from every earlier
+        // patch's entry), the report, and what this patch defines for the next one.
+        bool Linker::Report()
         {
             for ( std::uint32_t object = 0; object < m_Objects.size(); ++object )
             {
@@ -950,20 +1270,22 @@ namespace Desert::Editor::LiveCoding
                 for ( std::uint32_t i = 0; i < symbols.size(); ++i )
                 {
                     const Coff::Symbol& s = symbols[i];
-                    if ( s.Section <= 0 || IsLocal( s ) || !m_Included[object][std::uint32_t( s.Section ) - 1] ||
-                         !IsChosen( object, i ) )
+                    if ( s.Section <= 0 || IsLocal( s ) || !IsChosen( object, i ) || !IsIncluded( object, i ) )
                     {
                         continue;
                     }
-                    const Kind           kind = m_Kinds[object][std::uint32_t( s.Section ) - 1];
-                    const std::uintptr_t address =
-                         m_SectionAddress[object][std::uint32_t( s.Section ) - 1] + s.Value;
+                    const Kind           kind    = m_Kinds[object][std::uint32_t( s.Section ) - 1];
+                    const std::uintptr_t address = AddressOf( object, std::uint32_t( s.Section ) - 1, s.Value );
+                    const std::string    key     = NormaliseAnonymousNamespace( s.Name );
                     if ( kind == Kind::Code && s.Function )
                     {
-                        const bool carrying = m_Carrying.count( NormaliseAnonymousNamespace( s.Name ) ) != 0;
-                        const auto rva      = MapRva( object, s.Name );
-                        if ( carrying && rva )
+                        const auto rva = MapRva( object, s.Name );
+                        if ( m_Carrying.count( key ) != 0 && rva )
                         {
+                            if ( !HasHotpatchRoom( m_Image.Base + *rva ) )
+                            {
+                                return Fail( m_Image.Name + " was linked without /FUNCTIONPADMIN" );
+                            }
                             Redirects.push_back( Redirect{ m_Image.Base + *rva, address, s.Name } );
                             m_Report.Redirected.push_back( s.Name );
                         }
@@ -971,10 +1293,30 @@ namespace Desert::Editor::LiveCoding
                         {
                             m_Report.NewFunctions.push_back( s.Name );
                         }
+                        if ( m_Image.History != nullptr )
+                        {
+                            const auto earlier = m_Image.History->Entries.find( key );
+                            if ( earlier != m_Image.History->Entries.end() )
+                            {
+                                for ( const std::uintptr_t entry : earlier->second )
+                                {
+                                    Redirects.push_back( Redirect{ entry, address, s.Name } );
+                                }
+                            }
+                        }
+                        Defined.Entries[key].push_back( address );
+                        Defined.Latest[key] = PatchHistory::Definition{ address, 0, true };
                     }
                     else if ( kind == Kind::Data && m_LocalCopies.count( { object, i } ) == 0 )
                     {
                         m_Report.NewData.push_back( s.Name );
+                        Defined.Latest[key] =
+                             PatchHistory::Definition{ address, m_Objects[object].Extent( i ), false };
+                    }
+                    else if ( kind == Kind::ReadOnly && IsIdentityConstant( s.Name ) )
+                    {
+                        Defined.Latest[key] =
+                             PatchHistory::Definition{ address, m_Objects[object].Extent( i ), false };
                     }
                 }
             }
@@ -982,10 +1324,11 @@ namespace Desert::Editor::LiveCoding
             {
                 const Coff::Symbol& s = m_Objects[object].Symbols()[symbol];
                 Initialisers.push_back( reinterpret_cast<void ( * )()>(
-                     m_SectionAddress[object][std::uint32_t( s.Section ) - 1] + s.Value ) );
+                     AddressOf( object, std::uint32_t( s.Section ) - 1, s.Value ) ) );
             }
             m_Report.PatchBegin = m_Report.PatchBegin == 0 ? Begin : std::min( m_Report.PatchBegin, Begin );
             m_Report.PatchEnd   = std::max( m_Report.PatchEnd, End );
+            return true;
         }
 
         Common::BoolResultStr Linker::Link()
@@ -998,9 +1341,8 @@ namespace Desert::Editor::LiveCoding
             m_Kinds.resize( count );
             m_Decisions.resize( count );
             m_Included.resize( count );
-            m_SectionAddress.resize( count );
+            m_Pieces.resize( count );
             m_Associates.resize( count );
-            m_OriginalByName.resize( count );
             for ( std::uint32_t object = 0; object < count; ++object )
             {
                 const std::span<const Coff::Section> sections = m_Objects[object].Sections();
@@ -1012,8 +1354,8 @@ namespace Desert::Editor::LiveCoding
                 }
                 m_Decisions[object].assign( symbols.size(), Decision{} );
                 m_Included[object].assign( sections.size(), false );
-                m_SectionAddress[object].assign( sections.size(), 0 );
                 m_Associates[object].resize( sections.size() );
+                SplitSections( object );
                 for ( std::uint32_t section = 0; section < sections.size(); ++section )
                 {
                     const Coff::Section& s = sections[section];
@@ -1048,10 +1390,10 @@ namespace Desert::Editor::LiveCoding
                     {
                         continue;
                     }
-                    Include( object, std::uint32_t( s.Section ) - 1 );
+                    Include( object, std::uint32_t( s.Section ) - 1, s.Value );
                 }
             }
-            if ( !ReadInitialisers() || !Drain() || !IncludePData() || !CheckWritableSections() )
+            if ( !ReadInitialisers() || !Drain() || !IncludePData() || !CheckThrowInfo() )
             {
                 return Common::MakeError<bool>( m_Error );
             }
@@ -1068,12 +1410,24 @@ namespace Desert::Editor::LiveCoding
             {
                 for ( std::uint32_t section = 0; section < m_Included[object].size(); ++section )
                 {
-                    if ( m_Included[object][section] && !Relocate( object, section ) )
+                    if ( !m_Included[object][section] )
                     {
-                        release();
-                        return Common::MakeError<bool>( m_Error );
+                        continue;
+                    }
+                    for ( const Piece& piece : m_Pieces[object][section] )
+                    {
+                        if ( piece.Included && !Relocate( object, section, piece ) )
+                        {
+                            release();
+                            return Common::MakeError<bool>( m_Error );
+                        }
                     }
                 }
+            }
+            if ( !Report() )
+            {
+                release();
+                return Common::MakeError<bool>( m_Error );
             }
 
             // Unwind: one RUNTIME_FUNCTION table for the whole patch, sorted for the unwinder's binary search,
@@ -1104,10 +1458,28 @@ namespace Desert::Editor::LiveCoding
                 release();
                 return Common::MakeError<bool>( "RtlAddFunctionTable refused the patch's unwind table" );
             }
-            Report();
             return Common::MakeSuccess( true );
         }
     } // namespace
+
+    OriginalObject::OriginalObject( Coff::Object object ) : m_Object( std::move( object ) )
+    {
+        const std::span<const Coff::Symbol> symbols = m_Object.Symbols();
+        m_ByName.reserve( symbols.size() );
+        for ( std::uint32_t i = 0; i < symbols.size(); ++i )
+        {
+            if ( symbols[i].Section > 0 && !IsLocal( symbols[i] ) )
+            {
+                m_ByName.try_emplace( NormaliseAnonymousNamespace( symbols[i].Name ), i );
+            }
+        }
+    }
+
+    std::optional<std::uint32_t> OriginalObject::Find( const std::string& normalised ) const
+    {
+        const auto it = m_ByName.find( normalised );
+        return it == m_ByName.end() ? std::nullopt : std::optional<std::uint32_t>( it->second );
+    }
 
     Common::ResultStr<PatchImage> PatchImage::Link( std::span<const Coff::Object>          objects,
                                                     const ImageSymbols&                    image,
@@ -1125,6 +1497,7 @@ namespace Desert::Editor::LiveCoding
         patch.m_End          = linker.End;
         patch.m_Redirects    = std::move( linker.Redirects );
         patch.m_Initialisers = std::move( linker.Initialisers );
+        patch.m_Defined      = std::move( linker.Defined );
         return Common::MakeSuccess( std::move( patch ) );
     }
 } // namespace Desert::Editor::LiveCoding

@@ -154,11 +154,12 @@ if(MSVC)
     # a full .pdb from /Zi objects. /GL IL lives only in Shipping objects, so no Development archive carries it
     # (the 4 GB archive limit: lib.exe hangs at 4294967295 bytes, 11-07).
     # LIVE CODING (Editor/Source/Editor/LiveCoding): Development and DebugGame images carry hotpatch padding before
-    # every function (/FUNCTIONPADMIN, the room for the jump that redirects it) and a /MAP beside the image under
-    # its name (the symbol -> address table a patch links against). Shipping is never patched.
+    # every function (/FUNCTIONPADMIN, the room for the jump that redirects it). The images Live Coding patches
+    # also get a /MAP (desert_finalize_targets, beside the manifest that names it); no other image writes one.
+    # Shipping is never patched.
     foreach(kind EXE SHARED MODULE)
-        set(CMAKE_${kind}_LINKER_FLAGS_DEVELOPMENT "/DEBUG:FASTLINK /INCREMENTAL /FUNCTIONPADMIN /MAP" CACHE STRING "" FORCE)
-        set(CMAKE_${kind}_LINKER_FLAGS_DEBUGGAME   "/DEBUG:FASTLINK /INCREMENTAL /FUNCTIONPADMIN /MAP" CACHE STRING "" FORCE)
+        set(CMAKE_${kind}_LINKER_FLAGS_DEVELOPMENT "/DEBUG:FASTLINK /INCREMENTAL /FUNCTIONPADMIN" CACHE STRING "" FORCE)
+        set(CMAKE_${kind}_LINKER_FLAGS_DEBUGGAME   "/DEBUG:FASTLINK /INCREMENTAL /FUNCTIONPADMIN" CACHE STRING "" FORCE)
         set(CMAKE_${kind}_LINKER_FLAGS_SHIPPING    "/DEBUG:FULL /INCREMENTAL:NO /OPT:REF /OPT:ICF /LTCG" CACHE STRING "" FORCE)
     endforeach()
     set(CMAKE_STATIC_LINKER_FLAGS_DEVELOPMENT "" CACHE STRING "" FORCE)
@@ -903,6 +904,10 @@ function(desert_finalize_targets)
         list(APPEND _live_targets Editor)
         set(_live_images "")
         foreach(_live IN LISTS _live_targets)
+            # The map the manifest names, written by the link of this image only (the symbol -> address table a
+            # patch links against).
+            set_property(TARGET ${_live} APPEND PROPERTY LINK_OPTIONS
+                "$<$<CONFIG:Development,DebugGame>:/MAP:$<TARGET_FILE_DIR:${_live}>/$<TARGET_FILE_BASE_NAME:${_live}>.map>")
             if(_live_images)
                 string(APPEND _live_images ",\n")
             endif()

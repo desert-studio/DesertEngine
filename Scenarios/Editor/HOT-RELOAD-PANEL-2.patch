@@ -1,0 +1,13 @@
+diff --git a/Editor/Source/Editor/Panels/History/HistoryPanel.cpp b/Editor/Source/Editor/Panels/History/HistoryPanel.cpp
+index fd6bcae81..1b6203e22 100644
+--- a/Editor/Source/Editor/Panels/History/HistoryPanel.cpp
++++ b/Editor/Source/Editor/Panels/History/HistoryPanel.cpp
+@@ -11,7 +11,7 @@ namespace Desert::Editor
+     // Live Coding acceptance: a function and a global the image lacks, and a callback stored while patch 1 runs.
+     const char* HistoryRevisionLabel()
+     {
+-        return "Revision (live) %llu";
++        return "Revision (live 2) %llu";
+     }
+     const char* ( *g_HistoryRevisionLabel )() = nullptr;
+ 

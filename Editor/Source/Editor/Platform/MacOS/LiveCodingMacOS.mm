@@ -1,5 +1,9 @@
 #include <Editor/LiveCoding/ILiveCodingBackend.hpp>
 
+#include <cerrno>
+#include <csignal>
+#include <unistd.h>
+
 namespace Desert::Editor::LiveCoding
 {
     // THE macOS DEFINITION (the DesktopPlatform pattern: one definition per platform). The backend reads PE/COFF
@@ -9,5 +13,15 @@ namespace Desert::Editor::LiveCoding
     {
         return Common::MakeError<std::unique_ptr<ILiveCodingBackend>>(
              "Live Coding patches PE/COFF images; macOS images are Mach-O" );
+    }
+
+    std::uint32_t CurrentProcessId()
+    {
+        return static_cast<std::uint32_t>( ::getpid() );
+    }
+
+    bool ProcessRuns( const std::uint32_t pid )
+    {
+        return ::kill( static_cast<pid_t>( pid ), 0 ) == 0 || errno == EPERM;
     }
 } // namespace Desert::Editor::LiveCoding

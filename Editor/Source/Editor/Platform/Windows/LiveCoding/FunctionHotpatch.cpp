@@ -3,6 +3,7 @@
 #include <Windows.h>
 #include <TlHelp32.h>
 
+#include <algorithm>
 #include <cstring>
 #include <vector>
 
@@ -39,25 +40,32 @@ namespace Desert::Editor::LiveCoding
             DWORD Previous = 0;
         };
 
-        void SuspendAll( const std::vector<HANDLE>& threads, std::vector<bool>& suspended )
+        void SuspendAll( const std::vector<HANDLE>& threads, std::vector<std::uint8_t>& suspended )
         {
             for ( std::size_t i = 0; i < threads.size(); ++i )
             {
-                suspended[i] = SuspendThread( threads[i] ) != DWORD( -1 );
+                suspended[i] = SuspendThread( threads[i] ) != DWORD( -1 ) ? 1 : 0;
             }
         }
 
-        void ResumeAll( const std::vector<HANDLE>& threads, const std::vector<bool>& suspended )
+        void ResumeAll( const std::vector<HANDLE>& threads, std::vector<std::uint8_t>& suspended )
         {
             for ( std::size_t i = 0; i < threads.size(); ++i )
             {
                 if ( suspended[i] )
                 {
                     ResumeThread( threads[i] );
+                    suspended[i] = 0;
                 }
             }
         }
     } // namespace
+
+    bool HasHotpatchRoom( std::uintptr_t entry ) noexcept
+    {
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>( entry );
+        return IsPadding( bytes - kPadding ) || IsEarlierRedirect( bytes );
+    }
 
     Common::BoolResultStr ApplyRedirects( std::span<const Redirect> redirects ) noexcept
     {
@@ -72,8 +80,7 @@ namespace Desert::Editor::LiveCoding
         for ( std::size_t i = 0; i < redirects.size(); ++i )
         {
             const Redirect& redirect = redirects[i];
-            const auto*     entry    = reinterpret_cast<const std::uint8_t*>( redirect.Original );
-            if ( !IsPadding( entry - kPadding ) && !IsEarlierRedirect( entry ) )
+            if ( !HasHotpatchRoom( redirect.Original ) )
             {
                 return Common::MakeFormattedError<bool>(
                      "{} has no hotpatch padding before its entry (the image was linked without /FUNCTIONPADMIN)",
@@ -130,60 +137,100 @@ namespace Desert::Editor::LiveCoding
             }
         }
 
-        std::vector<HANDLE> threads;
-        {
-            const DWORD  process  = GetCurrentProcessId();
-            const DWORD  self     = GetCurrentThreadId();
-            const HANDLE snapshot = CreateToolhelp32Snapshot( TH32CS_SNAPTHREAD, 0 );
-            if ( snapshot == INVALID_HANDLE_VALUE )
-            {
-                revoke();
-                return Common::MakeFormattedError<bool>( "CreateToolhelp32Snapshot failed ({})", GetLastError() );
-            }
-            THREADENTRY32 entry{};
-            entry.dwSize = sizeof( entry );
-            for ( BOOL more = Thread32First( snapshot, &entry ); more; more = Thread32Next( snapshot, &entry ) )
-            {
-                if ( entry.th32OwnerProcessID != process || entry.th32ThreadID == self )
-                {
-                    continue;
-                }
-                const HANDLE thread =
-                     OpenThread( THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, FALSE, entry.th32ThreadID );
-                if ( thread != nullptr )
-                {
-                    threads.push_back( thread );
-                }
-            }
-            CloseHandle( snapshot );
-        }
-        std::vector<bool> suspended( threads.size(), false );
-        const auto        closeThreads = [&]()
+        // The threads of the process: opened before anything is suspended, with room reserved for the ones a
+        // later snapshot finds (a thread created between the snapshot and the suspension), so suspending them
+        // allocates nothing.
+        constexpr std::size_t     kLateThreads = 256;
+        std::vector<HANDLE>       threads;
+        std::vector<DWORD>        ids;
+        std::vector<std::uint8_t> suspended;
+        const DWORD               process      = GetCurrentProcessId();
+        const DWORD               self         = GetCurrentThreadId();
+        const auto                closeThreads = [&]()
         {
             for ( HANDLE thread : threads )
             {
                 CloseHandle( thread );
             }
         };
+        // Opens (and, once the set is suspended, suspends) every thread of the process the list lacks. False when
+        // the snapshot fails or the reserved room runs out: the set is then not known to be stopped.
+        const auto collect = [&]( bool suspend, bool& found )
+        {
+            found                 = false;
+            const HANDLE snapshot = CreateToolhelp32Snapshot( TH32CS_SNAPTHREAD, 0 );
+            if ( snapshot == INVALID_HANDLE_VALUE )
+            {
+                return false;
+            }
+            bool          complete = true;
+            THREADENTRY32 entry{};
+            entry.dwSize = sizeof( entry );
+            for ( BOOL more = Thread32First( snapshot, &entry ); more; more = Thread32Next( snapshot, &entry ) )
+            {
+                if ( entry.th32OwnerProcessID != process || entry.th32ThreadID == self ||
+                     std::find( ids.begin(), ids.end(), entry.th32ThreadID ) != ids.end() )
+                {
+                    continue;
+                }
+                if ( suspend && threads.size() == threads.capacity() )
+                {
+                    complete = false;
+                    break;
+                }
+                const HANDLE thread =
+                     OpenThread( THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, FALSE, entry.th32ThreadID );
+                if ( thread == nullptr )
+                {
+                    continue; // exited between the snapshot and the open
+                }
+                threads.push_back( thread );
+                ids.push_back( entry.th32ThreadID );
+                suspended.push_back( suspend && SuspendThread( thread ) != DWORD( -1 ) ? 1 : 0 );
+                found = true;
+            }
+            CloseHandle( snapshot );
+            return complete;
+        };
+        {
+            bool found = false;
+            if ( !collect( false, found ) )
+            {
+                const DWORD error = GetLastError();
+                closeThreads();
+                revoke();
+                return Common::MakeFormattedError<bool>( "CreateToolhelp32Snapshot failed ({})", error );
+            }
+            threads.reserve( threads.size() + kLateThreads );
+            ids.reserve( ids.size() + kLateThreads );
+            suspended.reserve( suspended.size() + kLateThreads );
+        }
 
-        // Suspend everyone; a thread stopped inside the 7 bytes about to change would resume into a torn
-        // instruction, so then everyone is resumed and the whole set retried a millisecond later.
+        // Suspend everyone, then look again until a snapshot shows no thread the set lacks. A thread stopped
+        // inside the 7 bytes about to change would resume into a torn instruction, and one whose context cannot be
+        // read may be there: then everyone is resumed and the whole set retried a millisecond later.
         bool clear = false;
         for ( int attempt = 0; attempt < kAttempts && !clear; ++attempt )
         {
             SuspendAll( threads, suspended );
-            clear = true;
+            clear      = true;
+            bool found = true;
+            while ( clear && found )
+            {
+                clear = collect( true, found );
+            }
             for ( std::size_t t = 0; t < threads.size() && clear; ++t )
             {
                 if ( !suspended[t] )
                 {
-                    continue;
+                    continue; // exited: SuspendThread refuses a terminating thread
                 }
                 CONTEXT context{};
                 context.ContextFlags = CONTEXT_CONTROL;
                 if ( !GetThreadContext( threads[t], &context ) )
                 {
-                    continue; // the thread is exiting
+                    clear = false;
+                    break;
                 }
                 for ( const Redirect& redirect : redirects )
                 {
@@ -204,8 +251,9 @@ namespace Desert::Editor::LiveCoding
         {
             closeThreads();
             revoke();
-            return Common::MakeFormattedError<bool>(
-                 "a thread stayed on a patched entry through {} attempts; nothing was redirected", kAttempts );
+            return Common::MakeFormattedError<bool>( "a thread stayed on a patched entry, or new threads kept "
+                                                     "appearing, through {} attempts; nothing was redirected",
+                                                     kAttempts );
         }
 
         for ( std::size_t i = 0; i < redirects.size(); ++i )
