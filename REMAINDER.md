@@ -1,28 +1,21 @@
-# NG6-DEV-A remainder (context limit reached)
+# NG6-DEV-A remainder (second run, context limit reached)
 
-Done in this branch: D2 `CMakeLists.txt` (BuildPool block of dev + ng6build presets comment, DESERT_TIME_TRACE MSVC,
-ShaderProtocolGen, tool order), D3 `cmake/DesertWorkspace.cmake` (Ninja link pools desert_link_exe/dll removed: the
-build pool admits links; /Z7 stays unconditional for Development/DebugGame as ng6build has it, FASTLINK needs it),
-D4 `cmake/DesertModuleTable.cmake` (+WorldCellsHLODStatus|WorldPartitionHLODMember, Serialize `SceneUpgrade` dropped),
-D5 `scripts/Dev/_common.sh` dev_build and `scripts/Dev/compile_check.sh` run_pass through `pool.sh run`,
-D7 `Desert/Desert/Source/Engine/Core/Modules.cpp` (include + RegisterLandscapeHLODInputs()).
-
-Decided against the design: `CCACHE_COMPILERCHECK=content` is NOT added to CACHE_ENV - BuildPool.cmake:146 lists it
-as the module's own setting (FATAL_ERROR if passed); the module sets `string:{compiler_id}` (BuildPool.cmake:174).
+Done in run 2 (this commit): D6 `scripts/Windows/BuildWindows.bat` (--launcher/LAUNCHER_ARG -> dev's CACHE_ARG from
+BUILDPOOL_CACHE_PROGRAM, presets win-dev/win-debug/win-ship kept), D6 `scripts/MacOS/BuildMacOS.sh` (--no-ccache/
+CCACHE/LAUNCHER -> CACHE_PROGRAM/CACHE_ARGS/pool_ccache, POOL_HOME from build/cmake/$PRESET/CMakeCache.txt),
+D6 `.github/workflows/ci.yml` (3-way merge of dev's pool/cache steps onto ng6build presets: BUILDPOOL_HOME on the
+build steps, Cap ccache after each build with Development in place of Release, Architecture census steps kept, no
+--unity/--launcher), D8 `MachineSettings.cpp` (dev's Notes + MigrateBloomOverrides kept beside ng6build's
+MegaLights migration; chain temporal -> megaLights -> bloom -> ScreenOverrides at MachineSettings.cpp:586-598).
 
 Left:
-1. D6 `scripts/Windows/BuildWindows.bat`: replace `--launcher`/`LAUNCHER_ARG`/`DESERT_COMPILER_LAUNCHER` (lines 7, 20-21,
-   45, 72-78, 84, 136-140) with dev's `CACHE_ARG` from `BUILDPOOL_CACHE_PROGRAM` (`git diff e948e78ed origin/dev --
-   scripts/Windows/BuildWindows.bat`); keep ng6build presets win-dev/win-debug/win-ship.
-2. D6 `scripts/MacOS/BuildMacOS.sh`: same with dev's diff - drop `--no-ccache`/`CCACHE`/`LAUNCHER` (lines 6, 13, 26, 47,
-   74-84, 159-171, 188-190), add `CACHE_PROGRAM`/`CACHE_ARGS`/`pool_ccache` reading `build/cmake/$PRESET/CMakeCache.txt`
-   (check the ng6build build dir for presets mac-dev/mac-debug/mac-ship in CMakePresets.json `binaryDir`).
-3. D6 `.github/workflows/ci.yml`: grep `DESERT_COMPILER_LAUNCHER`/`--launcher`; take dev's pool/cache steps
-   (`git diff e948e78ed origin/dev -- .github/workflows/ci.yml`) onto ng6build preset names.
-4. D8 `Desert/Common/Source/Common/Settings/MachineSettings.cpp`: merge tree has ng6build side; add dev's block from
-   `git diff e948e78ed origin/dev -- <file>` (both blocks kept).
-5. D1 `.claude/` six files: merge commit holds dev's text; the hook refuses `.claude` edits to agents - lead runs
-   `git checkout ng6build -- .claude/agents/architect.md .claude/agents/engineer.md .claude/tools/agent_guard.py
-   .claude/tools/limits.py .claude/tools/pipeline.py .claude/tools/studio.py`. `wrapper_lint.py` is red on both sides
-   already: `.claude/skills/desert-engine-contract/SKILL.md` 9761 > 9600 characters (lead's file).
-6. `python scripts/Dev/arch_census.py`, commit, push, reviewer chain per the brief.
+1. arch_census reports 24 RISE. 22 are dev's merged code outside this package (discarded-result in
+   Editor/.../Sequencer/LevelBoneRows.cpp x11, Engine/Animation/Animator.cpp x6, VulkanFrameLoop.cpp x2,
+   LevelSequenceTimeline.cpp:251, WorldPartitionPanel.cpp:2240; file-too-big ViewportPanel.cpp) - lead/other packages.
+2. Mine (D4): layer-matrix Core -> Engine at Engine/Core/Serialize/WorldCellsHLODStatus.hpp:7
+   (WorldPartitionHLODHierarchy.hpp) and WorldCellsHLODStatus.cpp:6 (WorldPartitionResidencyRules.hpp). Adding those two
+   to the Core placement (cmake/DesertModuleTable.cmake:82) pulls WorldPartitionFormat.hpp and
+   WorldPartitionStreamingRules.hpp along (ResidencyRules.hpp:81-83); decide: place the whole closure in Core, or place
+   WorldCellsHLODStatus in Engine (dev's own table places it in Core while its Core has the same chain - check how
+   dev's census passes: `git show origin/dev:scripts/Dev/arch_baseline.json`, rule layer-matrix).
+3. Reviewer chain per the brief, then `studio.py accept NG6-DEV-A done`.

@@ -503,11 +503,13 @@ jobs:
       # first-party writes are gone, CI-SPEED). ccache's max_size bounds its COMPRESSED on-disk size, so
       # the saved archive is at most the ceiling. Raise one ceiling -> lower another, or dev evicts itself.
       #
-      # THE CACHE DIRECTORY IS NAMED HERE RATHER THAN INHERITED. ccache's default location depends on
-      # the machine (XDG_CACHE_HOME, then ~/Library/Caches/ccache on macOS), and a `path:` that has to
-      # agree with a default computed somewhere else is a gate that silently caches nothing the day
-      # they diverge. `runner.temp` is job-scoped and empty at the start of the job, so nothing but
-      # this restore can put anything in it.
+      # THE CACHE DIRECTORY IS NAMED HERE RATHER THAN INHERITED. The build's cache is its build pool
+      # home's (<home>/ccache, Tools/BuildPool/cmake/BuildPool.cmake); without BUILDPOOL_HOME the module
+      # puts a private home inside the build tree, and the `path:` below would cache nothing. So the
+      # build step names BUILDPOOL_HOME under `runner.temp`, job-scoped and empty at the start of the
+      # job, so nothing but this restore can put anything in it. The cache settings are the build's
+      # (CMakeLists.txt, scripts/Dev/ccache_launcher.sh); CI owns only the ceiling, applied by
+      # Cap ccache before the save.
       # THE RUNNER RAN OUT OF DISK, NOT THE CODE (run 36540884385, 2026-09-29: `ranlib: can't write to output
       # file (No space left on device)` on libDesert.a after 30 minutes of sanitizer build; the same commit
       # was green on its branch run). ASan objects are ~3x larger than plain Debug. The runner image carries
@@ -525,7 +527,7 @@ jobs:
       - name: Restore ccache
         uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}/ccache
+          path: ${{ runner.temp }}/buildpool/ccache
           key: ccache-sanitizers-macos14-${{ github.sha }}
           restore-keys: |
             ccache-sanitizers-macos14-
@@ -556,13 +558,20 @@ jobs:
           CXXFLAGS: "-fsanitize=address,undefined -fno-omit-frame-pointer"
           OBJCXXFLAGS: "-fsanitize=address,undefined -fno-omit-frame-pointer"
           LDFLAGS: "-fsanitize=address,undefined"
-          # THE DEFAULT IS 5 GiB AND IT IS NOT ENOUGH, which is the failure mode that looks exactly
-          # like the cache working: ccache evicts least-recently-used entries as it fills, so a
-          # too-small cache quietly turns the end of every build into misses. This Debug tree carries
-          # ~6 GB of ASan objects uncompressed; ccache stores them zstd-compressed.
-          CCACHE_MAXSIZE: "2G" # dev's set must fit 8.5 of the repository's 10 GB — see the note on Restore ccache
-          CCACHE_DIR: ${{ runner.temp }}/ccache
+          BUILDPOOL_HOME: ${{ runner.temp }}/buildpool
         run: ./scripts/MacOS/BuildMacOS.sh DebugGame
+
+      # CI's ceiling on what is saved; the build itself runs with the project's max_size. This Debug tree
+      # carries ~6 GB of ASan objects uncompressed; ccache stores them zstd-compressed, and the LRU keeps
+      # the newest 2G.
+      - name: Cap ccache
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        continue-on-error: true
+        env:
+          CCACHE_DIR: ${{ runner.temp }}/buildpool/ccache
+          CCACHE_CONFIGPATH: ${{ runner.temp }}/buildpool/ccache/ccache.conf
+          CCACHE_MAXSIZE: "2G" # dev's set must fit 8.5 of the repository's 10 GB — see the note on Restore ccache
+        run: ccache --cleanup
 
       # AFTER the build and BEFORE the tests: the tests are the half of this job most likely to fail,
       # and a build's worth of cache is worth keeping even when a suite goes red. `always()` for the
@@ -577,7 +586,7 @@ jobs:
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
-          path: ${{ runner.temp }}/ccache
+          path: ${{ runner.temp }}/buildpool/ccache
           key: ccache-sanitizers-macos14-${{ github.sha }}
 
       - name: Pick ccache debug files
@@ -881,7 +890,7 @@ jobs:
       - name: Restore ccache
         uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}/ccache
+          path: ${{ runner.temp }}/buildpool/ccache
           key: ccache-macos14-${{ matrix.config }}-${{ matrix.leg }}-${{ github.sha }}
           restore-keys: |
             ccache-macos14-${{ matrix.config }}-${{ matrix.leg }}-
@@ -891,8 +900,7 @@ jobs:
       - name: Build ${{ matrix.config }}
         timeout-minutes: 50
         env:
-          CCACHE_MAXSIZE: ${{ matrix.config == 'Development' && '0.5G' || '0.4G' }}
-          CCACHE_DIR: ${{ runner.temp }}/ccache
+          BUILDPOOL_HOME: ${{ runner.temp }}/buildpool
         run: ./scripts/MacOS/BuildMacOS.sh ${{ matrix.config }} ${{ matrix.projects }}
 
       # THE ARCHITECTURE RATCHET (STUDIO-AUDIT C4): code and #include rules, and with --build the build-cost rules
@@ -904,13 +912,23 @@ jobs:
           case "${{ matrix.config }}" in Development) p=dev ;; DebugGame) p=debug ;; Shipping) p=ship ;; esac
           python3 scripts/Dev/arch_census.py --build "build/cmake/mac-$p" --config ${{ matrix.config }}
 
+      # CI's ceiling on what is saved (see the sanitizers job's Cap ccache).
+      - name: Cap ccache
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        continue-on-error: true
+        env:
+          CCACHE_DIR: ${{ runner.temp }}/buildpool/ccache
+          CCACHE_CONFIGPATH: ${{ runner.temp }}/buildpool/ccache/ccache.conf
+          CCACHE_MAXSIZE: ${{ matrix.config == 'Development' && '0.5G' || '0.4G' }}
+        run: ccache --cleanup
+
       # After the build and before the tests, `always()`, `continue-on-error` — see the sanitizers job.
       - name: Save ccache
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
-          path: ${{ runner.temp }}/ccache
+          path: ${{ runner.temp }}/buildpool/ccache
           key: ccache-macos14-${{ matrix.config }}-${{ matrix.leg }}-${{ github.sha }}
 
       # Not in Shipping: the test runners are excluded from that configuration in
@@ -1269,9 +1287,10 @@ jobs:
       #      of compile CPU, measured on macOS by B2;
       #   2. no parallelism INSIDE a project (MSBuild without /MP).
       # Ninja answers 2 by construction: one cl.exe per source, as many as there are cores, across every
-      # target. That one-source-per-compile is also what ccache needs; it runs as the compiler launcher
-      # (BuildWindows.bat --launcher -> DESERT_COMPILER_LAUNCHER -> CMAKE_<LANG>_COMPILER_LAUNCHER), and
-      # with a launcher set cmake/DesertWorkspace.cmake embeds the debug information (/Z7) a cache can share.
+      # target. That one-source-per-compile is also what ccache needs; it runs behind the build pool as its
+      # cache prefix (BUILDPOOL_CACHE_PROGRAM -> BuildWindows.bat -> buildpool_enable in CMakeLists.txt ->
+      # CMAKE_<LANG>_COMPILER_LAUNCHER), and with a cache cmake/DesertWorkspace.cmake embeds the debug
+      # information (/Z7) a cache can share.
       #
       # MEASURED, first green run 35863890019 (9feaa1ee) against the eleven complete Release builds
       # before it (111.5-119.9 min, median 115.8): Build Release 74.7, Debug 36.0 (was 67.6-75.1),
@@ -1296,24 +1315,18 @@ jobs:
           if ($got -ne $sha) { throw "ccache $ver zip hash is $got, expected $sha" }
           Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\ccache-dist"
           $exe = "$env:RUNNER_TEMP\ccache-dist\ccache-$ver-windows-x86_64\ccache.exe"
+          # THE CACHE SETTINGS ARE THE BUILD'S, NOT CI'S: buildpool_enable in CMakeLists.txt passes them to
+          # every compile (and overrides an inherited CCACHE_* of the same name). CI names only where the
+          # pool lives (BUILDPOOL_HOME, job-scoped; its compile cache is <home>\ccache, BuildPool.cmake) and
+          # which ccache it runs (BUILDPOOL_CACHE_PROGRAM: RUNNER_TEMP is not on PATH, so the module's
+          # find_program would miss it). CCACHE_DIR/CCACHE_CONFIGPATH name the same cache for CI's own
+          # ccache calls (statistics, the size cap before the save).
+          $home = "$env:RUNNER_TEMP\buildpool"
           @(
-            "CCACHE_EXE=$exe"
-            "CCACHE_DIR=$env:RUNNER_TEMP\ccache"
-            # Per configuration (matrix.ccache_max), sized so dev's whole cache set fits 8.5 of the
-            # repository's 10 GB — see "THE CACHE IS WRITTEN BY dev ONLY" on the sanitizers job. Below
-            # the build's full object set (Debug saved 4.0 GB at 20G), so the LRU keeps the newest.
-            "CCACHE_MAXSIZE=${{ matrix.ccache_max }}"
-            # The same four entries, with the same census behind them, as scripts/MacOS/BuildMacOS.sh.
-            "CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime"
-            # Ninja writes each target's objects under its own <Target>.dir -- different for every
-            # target -- and ccache hashes an MSVC object's directory by default, which would
-            # make a suite's copy of an engine source miss against the identical compile before it.
-            # What that hash guards is the object's own path inside its /Z7 debug records, which
-            # nothing here reads; the source path that also lands in the object is still hashed.
-            "CCACHE_NOHASHDIR=1"
-            # On a miss, learn the includes from the real compile's /showIncludes instead of running
-            # the preprocessor first -- otherwise every miss is paid for twice.
-            "CCACHE_DEPEND=1"
+            "BUILDPOOL_CACHE_PROGRAM=$exe"
+            "BUILDPOOL_HOME=$home"
+            "CCACHE_DIR=$home\ccache"
+            "CCACHE_CONFIGPATH=$home\ccache\ccache.conf"
           ) | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           & $exe --version | Select-Object -First 1
 
@@ -1341,7 +1354,7 @@ jobs:
       - name: Restore ccache
         uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}\ccache
+          path: ${{ runner.temp }}\buildpool\ccache
           key: ccache-windows-${{ matrix.config }}-${{ github.sha }}
           restore-keys: |
             ccache-windows-${{ matrix.config }}-
@@ -1356,8 +1369,8 @@ jobs:
         # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it --
         # --no-tests configures without the suites (DESERT_WITH_TESTS=OFF). Restore = drop the flag.
         run: |
-          "%CCACHE_EXE%" --zero-stats || exit /b 1
-          scripts\Windows\BuildWindows.bat ${{ matrix.config }} --no-tests --launcher "%CCACHE_EXE%"
+          "%BUILDPOOL_CACHE_PROGRAM%" --zero-stats || exit /b 1
+          scripts\Windows\BuildWindows.bat ${{ matrix.config }} --no-tests
 
       # THE ARCHITECTURE RATCHET (STUDIO-AUDIT C4): code and #include rules, and with --build the build-cost rules
       # (header-fanout against scripts/Dev/header_fanout_budget.txt, tu-time, duplicate-compile) over the tree this
@@ -1369,6 +1382,19 @@ jobs:
           case "${{ matrix.config }}" in Development) p=dev ;; DebugGame) p=debug ;; Shipping) p=ship ;; esac
           python scripts/Dev/arch_census.py --build "build/cmake/win-$p" --config ${{ matrix.config }}
 
+      # CI'S OWN CEILING, applied to what is saved. The build runs with the project's max_size (CMakeLists.txt,
+      # sized for a developer machine); before the save the cache is cut to matrix.ccache_max, sized so dev's
+      # whole cache set fits 8.5 of the repository's 10 GB — see "THE CACHE IS WRITTEN BY dev ONLY" on the
+      # sanitizers job. Below the build's full object set (Debug saved 4.0 GB at 20G), so the LRU keeps the newest.
+      - name: Cap ccache
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        continue-on-error: true
+        shell: cmd
+        env:
+          CCACHE_MAXSIZE: ${{ matrix.ccache_max }}
+        run: |
+          "%BUILDPOOL_CACHE_PROGRAM%" --cleanup
+
       # Right after the build, `always()`: a build cancelled at the ceiling still leaves every object
       # it finished, and that is what lets the next run get past the point this one stopped at. The
       # cache is an optimisation, so a failed save never turns the job red (`continue-on-error`).
@@ -1377,7 +1403,7 @@ jobs:
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
-          path: ${{ runner.temp }}\ccache
+          path: ${{ runner.temp }}\buildpool\ccache
           key: ccache-windows-${{ matrix.config }}-${{ github.sha }}
 
       - name: Pick ccache debug files
@@ -1408,7 +1434,7 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          & $env:CCACHE_EXE --show-stats -v
+          & $env:BUILDPOOL_CACHE_PROGRAM --show-stats -v
           Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='UsedGB';e={[math]::Round($_.Used/1GB,1)}}, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
           if (Test-Path build) {
             "build\ total: {0:N1} GB" -f ((Get-ChildItem build -Recurse -File | Measure-Object Length -Sum).Sum / 1GB)
