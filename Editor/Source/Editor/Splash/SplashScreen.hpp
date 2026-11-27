@@ -22,7 +22,7 @@
 //     away.
 //
 // ONE INTERFACE, THREE CALLS, and the callers never know which platform answered. NOTHING IS PUSHED: the
-// splash's own thread samples the start's `Core::StartupProgress` (the phase, its items, elapsed, the time
+// splash's own thread samples the start's `Desert::Core::StartupProgress` (the phase, its items, elapsed, the time
 // left, the log) and draws it, so the main thread pays nothing for the picture however busy it is.
 
 #include <Engine/Core/StartupProgress.hpp>
@@ -67,6 +67,6 @@ namespace Desert::Editor::Splash
         /// @p progress on its own thread until Close; its close button calls `progress->RequestStop()`, which
         /// the start reads as the editor's ordinary close (nothing here ends the process).
         [[nodiscard]] static std::unique_ptr<SplashScreen> Show( const SplashContent&                   content,
-                                                                 std::shared_ptr<Core::StartupProgress> progress );
+                                                                 std::shared_ptr<Desert::Core::StartupProgress> progress );
     };
 } // namespace Desert::Editor::Splash

@@ -10,7 +10,7 @@
 // SplashScreen.hpp, the implicit form never reached the screen at all.
 //
 // THE TEXT IS PULLED, NOT PUSHED (STARTUP-PROGRESS, R6). The splash's thread samples the start's progress
-// (`Core::StartupProgress::Sample`) every kSamplePeriod and sets the layers from it, so the phase, the
+// (`Desert::Core::StartupProgress::Sample`) every kSamplePeriod and sets the layers from it, so the phase, the
 // running items with their ages, the time left and the bar move while the main thread is blocked inside one
 // long call. The thread is the progress's only sampler, as `Sample` requires.
 //
@@ -180,7 +180,7 @@ namespace Desert::Editor::Splash
     class SplashScreenMacOS final : public SplashScreen
     {
     public:
-        SplashScreenMacOS( const SplashContent& content, std::shared_ptr<Core::StartupProgress> progress )
+        SplashScreenMacOS( const SplashContent& content, std::shared_ptr<Desert::Core::StartupProgress> progress )
             : m_CookedImage( content.CookedImage ), m_CaptureDir( content.CaptureDir ),
               m_Progress( std::move( progress ) )
         {
@@ -338,7 +338,7 @@ namespace Desert::Editor::Splash
             m_Version.string = ToNS( content.Version );
             // Not sampled here: the splash's thread is the progress's only sampler. Its first sample comes
             // within kSamplePeriod of the thread's start.
-            ApplyStatus( Core::StartupView{} );
+            ApplyStatus( Desert::Core::StartupView{} );
 
             // The fade is handed to Core Animation whole: its render server runs it on its own clock.
             CABasicAnimation* fadeIn = [CABasicAnimation animationWithKeyPath:@"opacity"];
@@ -476,7 +476,7 @@ namespace Desert::Editor::Splash
         }
 
         // Called inside a transaction the caller owns.
-        void ApplyStatus( const Core::StartupView& view )
+        void ApplyStatus( const Desert::Core::StartupView& view )
         {
             const Layout layout = ComputeLayout( view.Fraction );
             m_Project.frame     = ToCG( layout.Project );
@@ -530,7 +530,7 @@ namespace Desert::Editor::Splash
         // --splash-capture: the layer tree at its design size (1200x675 points, one pixel each) as
         // splash-<ms>.png once per kCapturePeriodMs, <ms> since the process started. Rendered from the
         // layers' model values, so the fade in is not in it.
-        void CaptureIfDue( const Core::StartupView& view )
+        void CaptureIfDue( const Desert::Core::StartupView& view )
         {
             const auto atMs = static_cast<int64_t>( view.ElapsedSeconds * 1000.0 );
             if ( m_LastCaptureMs >= 0 && atMs - m_LastCaptureMs < kCapturePeriodMs )
@@ -596,7 +596,7 @@ namespace Desert::Editor::Splash
             // main thread that owns the event stream is loading), and every kSamplePeriod a sample of the
             // progress. Woken early only by Close.
             constexpr auto                        kPointerPeriod = std::chrono::milliseconds( 16 );
-            Core::StartupView                     view;
+            Desert::Core::StartupView                     view;
             std::chrono::steady_clock::time_point sampledAt;
             for ( ;; )
             {
@@ -611,7 +611,7 @@ namespace Desert::Editor::Splash
                 if ( sampled )
                 {
                     sampledAt = now;
-                    view      = m_Progress->Sample( Core::StartupClock::now() );
+                    view      = m_Progress->Sample( Desert::Core::StartupClock::now() );
                     if ( m_Capturing )
                         m_Csv << CaptureCsvRow( view ) << '\n';
                 }
@@ -635,7 +635,7 @@ namespace Desert::Editor::Splash
 
         std::filesystem::path                  m_CookedImage;
         std::filesystem::path                  m_CaptureDir;
-        std::shared_ptr<Core::StartupProgress> m_Progress; // sampled by the splash's thread only
+        std::shared_ptr<Desert::Core::StartupProgress> m_Progress; // sampled by the splash's thread only
         // --splash-capture (opened on the main thread before the splash's thread starts, then its only).
         std::ofstream m_Csv;
         bool          m_Capturing     = false;
@@ -673,7 +673,7 @@ namespace Desert::Editor::Splash
     };
 
     std::unique_ptr<SplashScreen> SplashScreen::Show( const SplashContent&                    content,
-                                                      std::shared_ptr<Core::StartupProgress> progress )
+                                                      std::shared_ptr<Desert::Core::StartupProgress> progress )
     {
         return std::make_unique<SplashScreenMacOS>( content, std::move( progress ) );
     }

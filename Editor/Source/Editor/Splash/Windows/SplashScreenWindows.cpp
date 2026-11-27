@@ -7,8 +7,8 @@
 // a message to it. This is the arrangement UE's FWindowsPlatformSplash uses.
 //
 // THE TEXT IS PULLED, NOT PUSHED (STARTUP-PROGRESS, R6). Every kFrameMs the thread samples the start's
-// progress (`Core::StartupProgress::Sample`) and repaints, so the phase, the running items with their ages,
-// the time left and the bar all move while the main thread is blocked inside one long call. The thread is
+// progress (`Desert::Core::StartupProgress::Sample`) and repaints, so the phase, the running items with their
+// ages, the time left and the bar all move while the main thread is blocked inside one long call. The thread is
 // the progress's only sampler, as `Sample` requires.
 //
 // THE MOTION (SplashLayout.hpp: fade in, crossfade out) is driven by the same timer. The fades are the
@@ -97,7 +97,8 @@ namespace Desert::Editor::Splash
     class SplashScreenWindows final : public SplashScreen
     {
     public:
-        SplashScreenWindows( const SplashContent& content, std::shared_ptr<Core::StartupProgress> progress )
+        SplashScreenWindows( const SplashContent&                           content,
+                             std::shared_ptr<Desert::Core::StartupProgress> progress )
              : m_Content( content ), m_Progress( std::move( progress ) )
         {
             OpenCapture();
@@ -244,7 +245,7 @@ namespace Desert::Editor::Splash
             const int y       = work.top + ( static_cast<int>( workH ) - h ) / 2;
 
             // The first sample before the first paint, so the window never shows an empty frame.
-            m_View = m_Progress->Sample( Core::StartupClock::now() );
+            m_View = m_Progress->Sample( Desert::Core::StartupClock::now() );
 
             HWND window =
                  // An APP window with a minimize box, not a tool window: minimized, it has a taskbar button to
@@ -272,12 +273,16 @@ namespace Desert::Editor::Splash
                 // How early, from the kernel's record of when this process began (Editor/Core/StartupRecord.hpp,
                 // the one copy of that clock).
                 if ( const auto started = ProcessStartTime() )
+                {
                     LOG_INFO( "[Splash] on screen {:.0f} ms after the process started",
                               std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
                                                                          started.GetValue() )
                                    .count() );
+                }
                 else
+                {
                     LOG_WARN( "[Splash] on screen; the process start could not be read ({})", started.GetError() );
+                }
             }
             else
             {
@@ -354,7 +359,7 @@ namespace Desert::Editor::Splash
                 return;
             }
 
-            m_View = m_Progress->Sample( Core::StartupClock::now() );
+            m_View = m_Progress->Sample( Desert::Core::StartupClock::now() );
             if ( m_Capturing )
                 AppendCsvRow();
             InvalidateRect( window, nullptr, FALSE );
@@ -500,7 +505,7 @@ namespace Desert::Editor::Splash
 
             DrawBackground( dc, screen, client, w, h );
 
-            const Core::StartupView& view   = m_View;
+            const Desert::Core::StartupView& view   = m_View;
             const Layout             layout = ComputeLayout( view.Fraction );
 
             const auto makeFont = [this]( const float size, const int weight )
@@ -697,7 +702,7 @@ namespace Desert::Editor::Splash
         bool          m_IconFontLoaded = false;
 
         SplashContent                          m_Content;
-        std::shared_ptr<Core::StartupProgress> m_Progress; // sampled by the splash's thread only
+        std::shared_ptr<Desert::Core::StartupProgress> m_Progress; // sampled by the splash's thread only
         float                                  m_Scale = 1.0f;
 
         std::thread             m_Thread;
@@ -712,7 +717,7 @@ namespace Desert::Editor::Splash
         std::chrono::steady_clock::time_point m_ShownAt;
         std::chrono::steady_clock::time_point m_ClosingAt;
         bool                                  m_Closing = false;
-        Core::StartupView                     m_View;
+        Desert::Core::StartupView             m_View;
         HBITMAP                               m_Background = nullptr;
         // --splash-capture (opened on the main thread before the splash's thread starts, then its only).
         std::ofstream m_Csv;
@@ -720,8 +725,8 @@ namespace Desert::Editor::Splash
         int64_t       m_LastCaptureMs = -1;
     };
 
-    std::unique_ptr<SplashScreen> SplashScreen::Show( const SplashContent&                   content,
-                                                      std::shared_ptr<Core::StartupProgress> progress )
+    std::unique_ptr<SplashScreen> SplashScreen::Show( const SplashContent&                           content,
+                                                      std::shared_ptr<Desert::Core::StartupProgress> progress )
     {
         return std::make_unique<SplashScreenWindows>( content, std::move( progress ) );
     }

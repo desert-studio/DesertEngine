@@ -11,7 +11,7 @@
 // design was written ("y = 58 from the bottom") and how AppKit layers measure. A platform whose origin is
 // at the top converts with `FlipY` below rather than keeping a second copy of the numbers.
 //
-// WHAT THE LINES SAY is here too (`StageText` … `LogText`), from one `Core::StartupView` the splash's own
+// WHAT THE LINES SAY is here too (`StageText` … `LogText`), from one `Desert::Core::StartupView` the splash's own
 // thread samples off the start's progress (STARTUP-PROGRESS): both platforms draw the same words.
 
 #include <Engine/Core/StartupProgress.hpp>
@@ -67,7 +67,7 @@ namespace Desert::Editor::Splash
     inline constexpr float  kLogPanelAlpha  = 0.35f;
     inline constexpr float  kLogPanelRadius = 6.0f;
     inline constexpr float  kLogInset       = 10.0f; // the lines' left and right padding inside the panel
-    inline constexpr std::size_t kLogLines  = Core::StartupProgress::kLogShown;
+    inline constexpr std::size_t kLogLines  = Desert::Core::StartupProgress::kLogShown;
 
     struct Rect
     {
@@ -192,7 +192,7 @@ namespace Desert::Editor::Splash
 
     /// "Loading the scene · phase 13 / 14 · 1240 / 1910" (the count only for a counted phase); "Closing..."
     /// once a person asked the start to stop; empty before the first phase.
-    [[nodiscard]] inline std::string StageText( const Core::StartupView& view )
+    [[nodiscard]] inline std::string StageText( const Desert::Core::StartupView& view )
     {
         if ( view.StopRequested )
             return "Closing...";
@@ -208,7 +208,7 @@ namespace Desert::Editor::Splash
 
     /// "62 %", rounded DOWN so that "100 %" is never shown before the start is over; empty before the first
     /// phase (a "0 %" there would be a number that says nothing).
-    [[nodiscard]] inline std::string PercentText( const Core::StartupView& view )
+    [[nodiscard]] inline std::string PercentText( const Desert::Core::StartupView& view )
     {
         if ( view.Phase.empty() && !view.Finished )
             return {};
@@ -229,7 +229,7 @@ namespace Desert::Editor::Splash
 
     /// The running items, oldest first (the sample holds at most kActiveShown); in `scene.reveal` they are
     /// what the reveal waits for. Empty once a person asked to stop.
-    [[nodiscard]] inline std::string ItemText( const Core::StartupView& view )
+    [[nodiscard]] inline std::string ItemText( const Desert::Core::StartupView& view )
     {
         if ( view.StopRequested )
             return {};
@@ -244,7 +244,7 @@ namespace Desert::Editor::Splash
     }
 
     /// "3:12 · about 1:05 left"; only the elapsed time once the start is over; empty before the first phase.
-    [[nodiscard]] inline std::string TimeText( const Core::StartupView& view )
+    [[nodiscard]] inline std::string TimeText( const Desert::Core::StartupView& view )
     {
         if ( view.Phase.empty() && !view.Finished )
             return {};
@@ -256,14 +256,14 @@ namespace Desert::Editor::Splash
 
     /// One line of the detail log: "0:31  Building shader maps  2254 items  95.4 s" — the time since the
     /// process started, then what the progress noted.
-    [[nodiscard]] inline std::string LogText( const Core::StartupLogLine& line )
+    [[nodiscard]] inline std::string LogText( const Desert::Core::StartupLogLine& line )
     {
         return Core::FormatDuration( line.AtSeconds ) + "  " + line.Text;
     }
 
     /// The text of log line @p row of the layout ([0] the bottom one): the newest entry at the bottom, older
     /// ones above it, empty where the log is shorter than the panel.
-    [[nodiscard]] inline std::string LogRowText( const Core::StartupView& view, const std::size_t row )
+    [[nodiscard]] inline std::string LogRowText( const Desert::Core::StartupView& view, const std::size_t row )
     {
         if ( row >= view.Log.size() )
             return {};
@@ -289,7 +289,7 @@ namespace Desert::Editor::Splash
 
     /// The row of one sample, without the line end: ms since the process started, the fraction, the phase,
     /// its count, the seconds left and the oldest running item.
-    [[nodiscard]] inline std::string CaptureCsvRow( const Core::StartupView& view )
+    [[nodiscard]] inline std::string CaptureCsvRow( const Desert::Core::StartupView& view )
     {
         char head[64];
         std::snprintf( head, sizeof( head ), "%.0f,%.6f,", view.ElapsedSeconds * 1000.0,
