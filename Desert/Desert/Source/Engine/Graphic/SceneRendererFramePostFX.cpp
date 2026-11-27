@@ -636,7 +636,7 @@ namespace Desert::Graphic
             const Texture2D* dirt           = textureService ? textureService->Get( dirtHandle ) : nullptr;
             if ( dirt != nullptr && dirt->GetImageHandle().IsValid() )
                 dirtMask = textures.Import(
-                     Runtime::ResourceRegistry::GetImageService()->Share( dirt->GetImageHandle() ),
+                     Runtime::GetImageService()->Share( dirt->GetImageHandle() ),
                      "Bloom.DirtMask" );
         }
         const bool dirtProduced = dirtMask.IsValid();

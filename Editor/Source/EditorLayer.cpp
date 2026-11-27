@@ -135,7 +135,6 @@
 // 4. Misc
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <Engine/Core/SceneRenderCollectors.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp> // view 0's scene colour, copied for --shot-hdr
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/TextECSSystem.hpp>
