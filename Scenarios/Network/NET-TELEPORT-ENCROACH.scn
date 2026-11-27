@@ -38,6 +38,13 @@
 # The residency union 5 s later holds the same spot; the pawn never fell.
 Ждать server 400 player 1 account 1 \(40000, 5[6-9]\d, 3000\)
 Нет server teleported to \(40000, -
+# 2b. The proxy sees no slide (D4): B's probe prints, per pawn, the sampled position and the velocity of the newest
+# received snapshot (Tools/DesertNetProbe: " <id>=(x,y,z) v (vx, vy, vz) cm/s", {:.0f}, so |v| < 1 prints 0 or -0).
+# Pawn 1 is remote to B (no '*'): at the destination its replicated horizontal velocity is zero.
+Ждать B 120 \] t=\S+ pawns.* 1=\(40000,5[6-9]\d,3000\) v \(-?0, -?\d+, -?0\) cm/s
+# [teleport_velocity_zero] is these two log lines, not a frame: B is a bot and draws none (net_scenario.py refuses a
+# Тогда on it).
+Нет B \] t=\S+ pawns.* 1=\(40000,5[6-9]\d,3000\) v \((-?[1-9]\d*, \S+, \S+|\S+, \S+, -?[1-9]\d*)\) cm/s
 # 3. Teleport over nothing: (200000, 3000) is in no cell of the world's grid. PawnSimulation::Teleport refuses it at
 # the request (Net/MeshOfOne.cpp) - nothing is queued, the placer is never asked - and the console prints the reason.
 Консоль server teleport 1 200000 300 3000
@@ -47,9 +54,7 @@
 Ждать A 60 fresh \[Shot\] recorded frame_
 Тогда A tp_refused A's frame after the server line: the same ground and horizon as tp_ground_next; no cut, no correction
 Нет A correction 3 at
-# 4. Proxies see no slide (D4): NOT PROVEN HERE. The teleport of step 2 and A's own correction show the server's zero
-# velocity, not what a proxy receives; B's log prints no received pawn velocity, so a negative line on it would pass
-# vacuously. The proof waits for DesertNetProbe printing each received velocity (the lead's card).
+# 4. Proxies see no slide (D4): proven at 2b on B's pawns line.
 # 5. Terminal velocity / no fall: the client's streaming source never sees a >1000 cm per-frame move after the landing
 # (scn-1127-020957/A.log:3762 "jumped 1060 cm ... velocity reset" every ~0.2 s of the fall).
 Нет A jumped 1\d\d\d cm to \(40000

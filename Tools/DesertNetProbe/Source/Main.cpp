@@ -1069,10 +1069,16 @@ namespace
             {
                 nextLog += 0.5;
                 std::string line;
+                // Each pawn's sampled position, then the velocity of its newest received snapshot (the replicated
+                // value, UE FRepMovement's LinearVelocity, not the interpolation's tangent).
                 for ( const auto& [id, pawn] : client.Pawns() )
                     if ( const auto sample = client.Sample( id ) )
-                        line += std::format( " {}{}=({:.0f},{:.0f},{:.0f})", id, pawn.Owned ? "*" : "",
-                                             sample->Position.X, sample->Position.Y, sample->Position.Z );
+                    {
+                        const NetVec3 velocity = pawn.History.Newest().Velocity;
+                        line += std::format( " {}{}=({:.0f},{:.0f},{:.0f}) v ({:.0f}, {:.0f}, {:.0f}) cm/s", id,
+                                             pawn.Owned ? "*" : "", sample->Position.X, sample->Position.Y,
+                                             sample->Position.Z, velocity.X, velocity.Y, velocity.Z );
+                    }
                 Log( "[{}] t={:.1f}s pawns{} ; unacked inputs {}, ack step {}", name, now,
                      line.empty() ? std::string( " none" ) : line, client.PendingInputs(),
                      client.LastAck() ? std::to_string( *client.LastAck() ) : std::string( "none" ) );
@@ -1084,10 +1090,11 @@ namespace
             const auto sample = client.Sample( id );
             if ( !sample || !firstSeen.contains( id ) )
                 continue;
+            const NetVec3 velocity = pawn.History.Newest().Velocity;
             Log( "[{}] FINAL {} pawn net id {} (player {}) at ({:.0f}, {:.0f}, {:.0f}) cm, moved {:.0f} cm from where "
-                 "this client first saw it",
+                 "this client first saw it, v ({:.0f}, {:.0f}, {:.0f}) cm/s",
                  name, pawn.Owned ? "own" : "remote", id, pawn.Player, sample->Position.X, sample->Position.Y,
-                 sample->Position.Z, distance( sample->Position, firstSeen[id] ) );
+                 sample->Position.Z, distance( sample->Position, firstSeen[id] ), velocity.X, velocity.Y, velocity.Z );
         }
         Log( "[{}] {} pawn(s) replicated; exit {}", name, client.Pawns().size(), result );
         return result;
