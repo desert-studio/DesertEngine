@@ -374,6 +374,16 @@ Per directory: files, lines, the classes its headers declare.
 ## Tools — `Tools`
 - `AssetClosure/Source` — 1 files, 159 lines
 - `AssetRegistryTool/Source` — 1 files, 156 lines
+- `BuildPool/Include/BuildPool` — 5 files, 706 lines: Acquire, Await, CacheExited, ChildJob, ChildSpec, ClassPolicy, Connection, Error, Grant, Heartbeat, Hello, Invocation, … (+19)
+- `BuildPool/Source/Client` — 8 files, 1,112 lines: DaemonLink, Options
+- `BuildPool/Source/Daemon` — 9 files, 2,219 lines: Action, Build, Client, CostClass, Entry, Inflight, Ledger, Now, Outbox, RunRecord, Scheduler, Session
+- `BuildPool/Source/Invocation` — 2 files, 998 lines
+- `BuildPool/Source/Platform` — 2 files, 140 lines: FrameReader
+- `BuildPool/Source/Platform/Linux` — 2 files, 427 lines
+- `BuildPool/Source/Platform/Mac` — 2 files, 214 lines
+- `BuildPool/Source/Platform/Posix` — 4 files, 1,103 lines: Fd, GroupSample
+- `BuildPool/Source/Platform/Windows` — 5 files, 1,719 lines: Handle
+- `BuildPool/Source/Wire` — 1 files, 347 lines
 - `CloudLayoutBaker/Source` — 1 files, 594 lines
 - `CloudVolumeBaker/Source` — 1 files, 235 lines
 - `CrashReporter/Resources/Icon` — 1 files, 706 lines
