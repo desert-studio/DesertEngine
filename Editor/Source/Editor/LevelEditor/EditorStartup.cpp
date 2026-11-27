@@ -463,8 +463,17 @@ namespace Desert::Editor
         const auto&                pipelines     = Graphic::PipelineBuilds::Get();
         const uint64_t             pipesStarted  = pipelines.Started( Graphic::PipelineRole::Engine );
         const uint64_t             pipesFinished = pipelines.Finished( Graphic::PipelineRole::Engine );
-        return [readsBase, readsStarted, pipesStarted,
-                pipesFinished]( const ::Desert::Core::StartupClock::time_point now )
+        // What the item line ages: the read named now and since when, and when anything was last in flight. The
+        // source is called under the progress's mutex only (the splash's samples, the phase's end), so this
+        // per-source state needs no lock of its own.
+        struct Watch
+        {
+            std::string                            Read;
+            ::Desert::Core::StartupClock::time_point ReadSince{};
+            ::Desert::Core::StartupClock::time_point LastInFlight = ::Desert::Core::StartupClock::now();
+        };
+        return [readsBase, readsStarted, pipesStarted, pipesFinished,
+                watch = Watch{}]( const ::Desert::Core::StartupClock::time_point now ) mutable
         {
             // The loader and the tracker only (both mutex-safe); nothing of the gate, which is main-thread.
             const Assets::LoadProgress reads  = Assets::AsyncAssetLoader::Get().Progress();
@@ -477,10 +486,31 @@ namespace Desert::Editor
             count.Done = std::min( count.Total,
                                    since( reads.Finished, readsBase ) +
                                         since( builds.Finished( Graphic::PipelineRole::Engine ), pipesFinished ) );
-            if ( !reads.Current.empty() )
-                count.Active.push_back( { std::filesystem::path( reads.Current ).filename().string(), 0.0 } );
+            // WHAT RUNS NOW, WITH ITS SECONDS: the engine/material pipelines in the driver, and the newest read
+            // only while a read is in flight -- the loader's `Current` outlives its read, and a finished file's
+            // name held for 20 s (Starter_Ground.demat at 123 / 123, build #38) said a stall where there was none.
             for ( ::Desert::Core::ActiveWork& build : PipelinesInFlight( now ) )
                 count.Active.push_back( std::move( build ) );
+            if ( reads.Started > reads.Finished && !reads.Current.empty() )
+            {
+                if ( reads.Current != watch.Read )
+                {
+                    watch.Read      = reads.Current;
+                    watch.ReadSince = now;
+                }
+                count.Active.push_back(
+                     { std::format( "{} {}", Assets::AssetTypeName( reads.CurrentType ),
+                                    std::filesystem::path( reads.Current ).filename().string() ),
+                       std::chrono::duration<double>( now - watch.ReadSince ).count() } );
+            }
+            // Nothing on a worker or in the driver while the phase runs: the main thread is doing the scene's work
+            // (instancing what landed, asking the next reads). Said as that, aged from the last thing in flight.
+            if ( count.Active.empty() )
+                count.Active.push_back(
+                     { "Main thread, nothing in flight",
+                       std::chrono::duration<double>( now - watch.LastInFlight ).count() } );
+            else
+                watch.LastInFlight = now;
             return count;
         };
     }

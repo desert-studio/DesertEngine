@@ -193,7 +193,19 @@ namespace Desert::Core
         // R = the current phase's estimate + every phase still ahead at its expected seconds.
         double remaining = 0.0;
         size_t ahead     = 0;
-        if ( m_Current )
+        if ( !m_Current )
+        {
+            // Before the first BeginPhase the process is already doing the plan's first phase's work (the
+            // window, the instance): the splash names it from its first frame, nothing counted yet.
+            const auto next = std::find_if( m_Phases.begin(), m_Phases.end(),
+                                            []( const Phase& phase ) { return !phase.Ended; } );
+            if ( next != m_Phases.end() )
+            {
+                view.Phase       = next->Spec.Label;
+                view.PhaseNumber = static_cast<size_t>( next - m_Phases.begin() ) + 1;
+            }
+        }
+        else
         {
             const Phase&    phase = m_Phases[*m_Current];
             const LiveCount count = CountOf( phase, now );
@@ -208,7 +220,6 @@ namespace Desert::Core
         for ( size_t index = ahead; index < m_Phases.size(); ++index )
             if ( !m_Phases[index].Ended )
                 remaining += m_Phases[index].Expected;
-        view.RemainingSeconds = remaining;
 
         // THE SHOWN FRACTION (R3): elapsed over elapsed + left. When a re-plan raised what is left, the bar does
         // not go back: the share still to do is crossed at the rate the new estimate gives, so it rises while
@@ -225,6 +236,12 @@ namespace Desert::Core
         m_Shown       = std::min( m_Shown, std::nextafter( 1.0, 0.0 ) );
         m_LastSample  = now;
         view.Fraction = m_Shown;
+        // THE SHOWN TIME LEFT IS THE BAR'S: the seconds the shown fraction implies at the elapsed time,
+        // elapsed * (1 - f) / f. One source for both, so the number never says "0:16 left" beside a bar at 97 %;
+        // while the bar follows the plan (raw >= shown) it is R itself, and while the bar crosses a re-planned
+        // remainder it falls with every sample (an overrun no longer holds it), reaching near 0 at the reveal.
+        view.RemainingSeconds =
+             m_Shown > 0.0 ? std::max( elapsed * ( 1.0 - m_Shown ) / m_Shown, kRemainingFloorSeconds ) : remaining;
         return view;
     }
 
@@ -300,8 +317,12 @@ namespace Desert::Core
             const double left = count.Total > count.Done ? static_cast<double>( count.Total - count.Done ) : 0.0;
             return std::max( elapsed * left / static_cast<double>( count.Done ), kRemainingFloorSeconds );
         }
-        // Otherwise the expectation; an overrun keeps a floor, so the ETA never says 0 while work runs.
-        return std::max( { phase.Expected - elapsed, 0.25 * phase.Expected, kRemainingFloorSeconds } );
+        // Otherwise the expectation, linear down to its knee (half of it), then the hyperbola knee^2 / elapsed:
+        // equal value and slope at the knee, a quarter of the expectation at the expectation, and still falling
+        // through any overrun -- it never stops while work runs and never reaches 0 (the floor).
+        const double knee     = 0.5 * phase.Expected;
+        const double estimate = elapsed <= knee ? phase.Expected - elapsed : knee * knee / elapsed;
+        return std::max( estimate, kRemainingFloorSeconds );
     }
 
     void StartupProgress::EndCurrent( const StartupClock::time_point now )

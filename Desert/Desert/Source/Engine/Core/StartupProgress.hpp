@@ -66,7 +66,7 @@ namespace Desert::Core
     // One sample, for the splash.
     struct StartupView
     {
-        std::string                 Phase; // the label; empty before the first phase
+        std::string                 Phase; // the label; before the first BeginPhase the plan's first phase's
         size_t                      PhaseNumber = 0; // 1-based
         size_t                      PhaseCount  = 0;
         uint64_t                    Done        = 0;
@@ -74,7 +74,7 @@ namespace Desert::Core
         std::vector<ActiveWork>     Active;          // oldest first, at most kActiveShown (wait reasons in scene.reveal)
         double                      Fraction         = 0.0; // 0..1, monotonic across samples, 1 only after Finish
         double                      ElapsedSeconds   = 0.0;
-        double                      RemainingSeconds = 0.0;
+        double                      RemainingSeconds = 0.0; // what Fraction implies: elapsed * (1 - f) / f
         std::vector<StartupLogLine> Log; // newest last, at most kLogShown
         bool                        StopRequested = false;
         bool                        Finished      = false;

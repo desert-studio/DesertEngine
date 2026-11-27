@@ -191,7 +191,8 @@ namespace Desert::Editor::Splash
     inline constexpr double kAgeShownSeconds = 1.0;
 
     /// "Loading the scene · phase 13 / 14 · 1240 / 1910" (the count only for a counted phase); "Closing..."
-    /// once a person asked the start to stop; empty before the first phase.
+    /// once a person asked the start to stop; empty only for a plan without phases (before the first BeginPhase
+    /// the sample names the plan's first phase).
     [[nodiscard]] inline std::string StageText( const Desert::Core::StartupView& view )
     {
         if ( view.StopRequested )
