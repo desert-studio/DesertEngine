@@ -248,7 +248,8 @@ namespace Desert::Editor
     void SequencerPanel::SetLevelCameraCutLock( const bool locked )
     {
         EditorPreferences::Get().SequencerLockViewportToCameraCuts = locked;
-        (void)EditorPreferences::Save();
+        if ( !EditorPreferences::Save() )
+            LOG_WARN( "[Sequencer] the camera-cut lock was not saved to the editor preferences" );
         PushLevelCameraCut();
     }
 

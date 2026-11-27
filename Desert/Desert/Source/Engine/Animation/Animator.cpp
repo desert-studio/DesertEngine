@@ -614,7 +614,8 @@ namespace Desert::Animation
                     // FoldBoneLayer cannot refuse here — SetSequencerLayer refused any bone outside the skeleton,
                     // and the pose was sized to the skeleton above.
                     m_PreLayerPose = m_EvaluatedPose;
-                    static_cast<void>( Timeline::FoldBoneLayer( m_Layer, m_EvaluatedPose, m_RequiredMask ) );
+                    if ( const Common::BoolResultStr folded = Timeline::FoldBoneLayer( m_Layer, m_EvaluatedPose, m_RequiredMask ); !folded )
+                        LOG_ERROR( "[Animator] sequencer bone layer not folded: {}", folded.GetError() );
                     break;
             }
         }
@@ -682,15 +683,18 @@ namespace Desert::Animation
             m_EvaluatedPose = m_PreLayerPose;
         }
         // Bones were checked against the skeleton when the layer was set (SetSequencerLayer).
-        static_cast<void>( Timeline::FoldBoneLayer( m_Layer, m_EvaluatedPose, m_RequiredMask ) );
+        if ( const Common::BoolResultStr folded = Timeline::FoldBoneLayer( m_Layer, m_EvaluatedPose, m_RequiredMask ); !folded )
+            LOG_ERROR( "[Animator] sequencer bone layer not folded: {}", folded.GetError() );
         if ( !m_PhysicsOverrides.empty() )
         {
             // The ragdoll wins: its bodies go back over the folded layer and the evaluated pose is published,
             // as ApplyPhysicsPose publishes it. These overrides were applied to this skeleton and pose size
             // this frame already, so the second write cannot refuse.
             m_Component.Invalidate();
-            static_cast<void>( ApplyBoneOverrides( m_Skeleton, m_EvaluatedPose, m_Component, m_PhysicsOverrides,
-                                                   1.0f, m_PhysicsScratch ) );
+            if ( const Common::BoolResultStr applied = ApplyBoneOverrides( m_Skeleton, m_EvaluatedPose, m_Component,
+                                                                     m_PhysicsOverrides, 1.0f, m_PhysicsScratch );
+                 !applied )
+                LOG_ERROR( "[Animator] physics bone overrides refused: {}", applied.GetError() );
             PublishPose();
             return;
         }
@@ -733,7 +737,8 @@ namespace Desert::Animation
         }
         // PublishDisplay's write, recomputed: the display pose keeps no layer between frames.
         out = m_DisplayPose;
-        static_cast<void>( Timeline::FoldBoneLayer( m_Layer, out, m_RequiredMask ) );
+        if ( const Common::BoolResultStr folded = Timeline::FoldBoneLayer( m_Layer, out, m_RequiredMask ); !folded )
+            LOG_ERROR( "[Animator] sequencer bone layer not folded: {}", folded.GetError() );
     }
 
     void Animator::EvaluateSource( LocalPose& pose )
@@ -1138,7 +1143,8 @@ namespace Desert::Animation
             }
         }
         // Bones were checked against the skeleton when the layer was set (SetSequencerLayer).
-        static_cast<void>( Timeline::FoldBoneLayer( m_Layer, m_DisplayPose, m_RequiredMask ) );
+        if ( const Common::BoolResultStr folded = Timeline::FoldBoneLayer( m_Layer, m_DisplayPose, m_RequiredMask ); !folded )
+            LOG_ERROR( "[Animator] sequencer bone layer not folded: {}", folded.GetError() );
         m_DisplayComponent.Invalidate();
         m_DisplayComponent.WriteSkinningMatrices( m_Skinning.Matrices, m_RequiredOrder );
         ++m_SkinningRevision;
@@ -1211,8 +1217,8 @@ namespace Desert::Animation
         // Every weighted sample at the shared phase of its own length, each blended toward by its share of the
         // running weight — SampleBlendSpace's walk, on this rig.
         out = rig.Rest;
-        static_cast<void>(
-             ForEachBlendSample( playback.Blend, playback.Loop,
+        // False = no sample visited: the rest pose set above stands.
+        ForEachBlendSample( playback.Blend, playback.Loop,
                                  [&]( const ClipPlayback& sample, const float alpha )
                                  {
                                      if ( alpha >= 1.0F )
@@ -1223,7 +1229,7 @@ namespace Desert::Animation
                                      SampleClipPose( rig, sample.Clip, sample.Time, m_SampleScratch );
                                      for ( uint32_t b = 0; b < out.Size() && b < m_SampleScratch.Size(); ++b )
                                          out[b] = Blend( out[b], m_SampleScratch[b], alpha );
-                                 } ) );
+                                 } );
     }
 
     void Animator::UpdatePlayback( ClipPlayback& playback, float deltaTime )
@@ -1393,12 +1399,13 @@ namespace Desert::Animation
             return ClockRootMotion( rig, playback );
         // Every weighted sample's own stride over the run's step, blended by weight as the pose is.
         BoneTransform motion = NoRootMotion();
-        static_cast<void>( ForEachBlendSample( playback.Blend, playback.Loop,
+        // False = no sample visited: no root motion stands.
+        ForEachBlendSample( playback.Blend, playback.Loop,
                                                [&]( const ClipPlayback& sample, const float alpha )
                                                {
                                                    const BoneTransform step = ClockRootMotion( rig, sample );
                                                    motion = alpha >= 1.0F ? step : Blend( motion, step, alpha );
-                                               } ) );
+                                               } );
         return motion;
     }
 

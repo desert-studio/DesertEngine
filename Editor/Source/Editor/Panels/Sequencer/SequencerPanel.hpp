@@ -384,10 +384,10 @@ namespace Desert::Editor
                                 const Animation::Timeline::BindingGuid& actor );
         /// THE setters of a bone track — rows, palette and `set` all call these, one undo step each; a refusal
         /// is returned by name and written to the Output Log.
-        Common::BoolResultStr AddLevelBoneTrack( const Animation::Timeline::BindingGuid& actor, std::string_view bone );
-        Common::BoolResultStr RemoveLevelBoneTrack( const Animation::Timeline::BindingGuid& bone );
+        void AddLevelBoneTrack( const Animation::Timeline::BindingGuid& actor, std::string_view bone );
+        void RemoveLevelBoneTrack( const Animation::Timeline::BindingGuid& bone );
         /// Keys the bone's pose as the viewer sees it at the playhead (`ECS::SetBoneKey`).
-        Common::BoolResultStr KeyLevelBone( const Animation::Timeline::BindingGuid& bone );
+        void KeyLevelBone( const Animation::Timeline::BindingGuid& bone );
         /// `set Bone.<actor>.<bone>.<field>` (LevelBoneRows.hpp).
         [[nodiscard]] Common::BoolResultStr SetLevelBoneProperty( const std::string&        name,
                                                                   const std::vector<float>& value );
