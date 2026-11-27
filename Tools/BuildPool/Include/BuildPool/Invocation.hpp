@@ -40,15 +40,24 @@ namespace buildpool
     {
         ToolKind tool = ToolKind::Unknown;
         ActionKind action = ActionKind::Other;
-        // The object, PCH, image or archive the action writes ("" when none was found). As written on the
-        // command line (/Fo, /Fp with /Yc, /OUT:, -o).
+        // What names the action in CostKey, as written on the command line ("" when none was found):
+        //   Compile, PchCreate, Link  the object, PCH, image or archive the action writes (/Fo, /Fp with /Yc,
+        //                             /OUT:, -o)
+        //   Preprocess                the SOURCE file it reads. Its output is a temporary name the cache chooses
+        //                             anew on every run, outside the build root: named by it, every run would be
+        //                             a new costKey and the ledger would never learn the action.
         std::string primaryOutput;
         // Preprocess only: true when the text goes to stdout, false when it goes to `preprocessOutput`.
         bool preprocessToStdout = false;
         std::string preprocessOutput;
-        // True when killing the action at any moment and running it again gives the same files: a Compile or
-        // PchCreate that writes no shared program database. False for /Zi, /ZI or /Fd with /FS (one .pdb written
-        // by many compiles through mspdbsrv), for every Link, for Other.
+        // True when killing the action at any moment and running it again gives the same files.
+        //   Compile, PchCreate  false ONLY when the action writes a program database, i.e. the last
+        //                       debug-format option of the line is /Zi or /ZI (one .pdb written by many compiles
+        //                       through mspdbsrv). /Z7 writes none, so /Fd and /FS beside it change nothing
+        //                       (CMake puts both on every MSVC compile). Every GccLike compile is restartable.
+        //   Preprocess          true when the text goes to a file; false when it goes to stdout (bytes already
+        //                       passed on cannot be taken back)
+        //   Link, Other         false
         bool restartable = false;
     };
 
@@ -62,9 +71,11 @@ namespace buildpool
     // backslash as one, and on Windows ignores case.
     std::string NormalizeRoots(std::string_view text, const TreeRoots& roots);
 
-    // Acquire::costKey: "<tool>|<action>|<configuration>|<primary output relative to the build root>", where
-    // <configuration> is the last component of the build root (the preset, e.g. win-dev), so one configuration
-    // never inherits another's cost and every tree of the same preset shares one.
+    // Acquire::costKey: "<tool>|<action>|<configuration>|<name>", where <configuration> is the last component
+    // of the build root (the preset, e.g. win-dev), so one configuration never inherits another's cost and every
+    // tree of the same preset shares one, and <name> is primaryOutput through NormalizeRoots with forward
+    // slashes and a leading "@BUILD@/" dropped: an output relative to the build root, or for a Preprocess its
+    // source as "@SOURCE@/...".
     std::string CostKey(const Invocation& invocation, const TreeRoots& roots);
 
     // The identity of a compiler: SHA-256 over (name, size, modification time) of every regular file in the

@@ -20,7 +20,8 @@ namespace buildpool
     // Bumped on any change of this file. A daemon that receives another number answers Refused and, when the
     // client's number is higher, drains (admits nothing new, exits when its last lease is released) so the
     // client can start the newer daemon on the same endpoint.
-    inline constexpr uint32_t kProtocolVersion = 1;
+    //   2  Heartbeat::cpuMs, Grant::sampleMs
+    inline constexpr uint32_t kProtocolVersion = 2;
 
     // The exit code a Back client returns to the cache when the daemon answered Retry. The Front never lets it
     // reach the build tool: it runs the cache once more (a hit) and returns that run's code.
@@ -37,6 +38,9 @@ namespace buildpool
     // Set by whoever starts a build (scripts/Dev/pool.sh run); read by every client of that build.
     inline constexpr const char* kEnvClass = "BUILDPOOL_CLASS";       // a class name of <home>/pool.ini
     inline constexpr const char* kEnvRun = "BUILDPOOL_RUN";           // a label for runs.tsv; may be absent
+    // The daemon outlives the build whose client starts it and serves every other build: it is started with ALL
+    // nine variables above removed (SpawnDetached's `environment`, each with an empty value), so "daemon" is
+    // never taken for a Back and nothing of one build or session stays in the daemon's environment.
 
     enum class Stage : uint8_t
     {
@@ -70,7 +74,7 @@ namespace buildpool
     {
         ActionKind kind = ActionKind::Other;
         // What the action costs is remembered under this key; equal in every tree for "the same" action:
-        // "<tool>|<action>|<configuration>|<primary output relative to the build root>" (Invocation.hpp CostKey).
+        // "<tool>|<action>|<configuration>|<Invocation::primaryOutput, root-normalised>" (Invocation.hpp CostKey).
         std::string costKey;
         // Non-empty: join the in-flight table under this key (Invocation.hpp InflightKey). Empty: no dedup.
         std::string inflightKey;
@@ -87,10 +91,13 @@ namespace buildpool
         std::string text;
     };
 
-    // Sent by a client holding a lease every PoolConfig::sampleMs.
+    // Sent by a client holding a lease every Grant::sampleMs of that lease: the job's JobUsage at that moment.
     struct Heartbeat
     {
         uint64_t currentBytes = 0;
+        // JobUsage::cpuMs of the job running under this lease so far. A job started again after a Preempt runs
+        // under a new lease and counts from 0. The Guard ranks its victims by this number (Daemon.hpp Guard).
+        uint64_t cpuMs = 0;
     };
 
     struct Released
@@ -131,6 +138,10 @@ namespace buildpool
     {
         uint64_t lease = 0;
         OsPriority priority = OsPriority::Normal;
+        // The Heartbeat period of this lease, milliseconds: the daemon's PoolConfig::sampleMs in effect. Always
+        // >= 1 (LoadConfig refuses sample_ms = 0; Decode refuses a Grant carrying 0). The daemon is the only
+        // reader of pool.ini: the client has no other source for the period and no default of its own.
+        uint32_t sampleMs = 0;
     };
 
     // The answer to an Acquire whose inflightKey is already being compiled by another session. Informational;
@@ -175,7 +186,7 @@ namespace buildpool
 
     // Wire form: u8 variant index, then the fields in declaration order (integers little-endian fixed width,
     // bool as u8, enums as their underlying type, a string as u32 length + UTF-8 bytes). Decode rejects a
-    // truncated message, an unknown index, trailing bytes and an out-of-range enum.
+    // truncated message, an unknown index, trailing bytes, an out-of-range enum and a Grant whose sampleMs is 0.
     std::vector<std::byte> Encode(const Message& message);
     Result<Message> Decode(std::span<const std::byte> bytes) noexcept;
 } // namespace buildpool
