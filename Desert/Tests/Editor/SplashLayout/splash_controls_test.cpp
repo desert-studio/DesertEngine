@@ -25,7 +25,8 @@ TEST( SplashControls, ButtonsSitInTheTopRightCornerTouchingAndClearOfEveryLine )
 
     // The live text is at the bottom; nothing of it may sit under a button.
     const Layout layout = ComputeLayout( 1.0 );
-    for ( const Rect& line : { layout.Project, layout.Stage, layout.Percent, layout.Item, layout.Version } )
+    for ( const Rect& line :
+          { layout.Project, layout.Stage, layout.Percent, layout.Item, layout.Time, layout.Version, layout.LogPanel } )
         EXPECT_LT( line.Y + line.H, minimize.Y );
 }
 

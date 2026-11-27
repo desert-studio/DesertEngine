@@ -9,6 +9,11 @@
 // end of a run-loop turn, and the splash's thread has no run loop: measured with the probe described in
 // SplashScreen.hpp, the implicit form never reached the screen at all.
 //
+// THE TEXT IS PULLED, NOT PUSHED (STARTUP-PROGRESS, R6). The splash's thread samples the start's progress
+// (`Core::StartupProgress::Sample`) every kSamplePeriod and sets the layers from it, so the phase, the
+// running items with their ages, the time left and the bar move while the main thread is blocked inside one
+// long call. The thread is the progress's only sampler, as `Sample` requires.
+//
 // Manual retain/release: this target is not built with -fobjc-arc (neither is Common's MacOS code).
 
 #include <Common/Core/EngineThread.hpp>
@@ -18,6 +23,8 @@
 #include <Editor/Splash/SplashScreen.hpp>
 
 #include <Common/Core/Logger.hpp>
+
+#include <stb_image/stb_image_write.h>
 
 #import <AppKit/AppKit.h>
 #import <CoreText/CoreText.h>
@@ -31,10 +38,16 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <memory>
 #include <optional>
+#include <string>
+#include <system_error>
 #include <thread>
+#include <vector>
 
 // A patch of the splash a mouse-down cannot drag the window by: the two buttons. Everything else of the
 // splash moves the window (movableByWindowBackground), the way the editor's title bar does.
@@ -169,7 +182,9 @@ namespace Desert::Editor::Splash
     class SplashScreenMacOS final : public SplashScreen
     {
     public:
-        explicit SplashScreenMacOS( const SplashContent& content ) : m_CookedImage( content.CookedImage )
+        SplashScreenMacOS( const SplashContent& content, std::shared_ptr<Core::StartupProgress> progress )
+            : m_CookedImage( content.CookedImage ), m_CaptureDir( content.CaptureDir ),
+              m_Progress( std::move( progress ) )
         {
             [NSApplication sharedApplication];
             // The same policy GLFW sets a moment later. Without it a process started from a terminal is a
@@ -255,6 +270,22 @@ namespace Desert::Editor::Splash
                                        kStageAlpha, kCAAlignmentRight, scale );
             m_Item    = MakeTextLayer( m_Root, [NSFont systemFontOfSize:kItemFontSize weight:NSFontWeightRegular],
                                        kItemAlpha, kCAAlignmentLeft, scale );
+            m_Time    = MakeTextLayer( m_Root,
+                                       [NSFont monospacedDigitSystemFontOfSize:kTimeFontSize
+                                                                        weight:NSFontWeightRegular],
+                                       kLogAlpha, kCAAlignmentRight, scale );
+
+            // The detail log: its backing first, so the lines are drawn over it. Hidden while the log is empty.
+            m_LogPanel                 = [[CALayer alloc] init];
+            CGColorRef panel           = MakeColour( 0, 0, 0, kLogPanelAlpha );
+            m_LogPanel.backgroundColor = panel;
+            CGColorRelease( panel );
+            m_LogPanel.cornerRadius = kLogPanelRadius;
+            m_LogPanel.hidden       = YES;
+            [m_Root addSublayer:m_LogPanel];
+            for ( CATextLayer*& line : m_LogLines )
+                line = MakeTextLayer( m_Root, [NSFont systemFontOfSize:kLogFontSize weight:NSFontWeightRegular],
+                                      kLogAlpha, kCAAlignmentLeft, scale );
 
             m_Track                 = [[CALayer alloc] init];
             CGColorRef track        = MakeColour( 1, 1, 1, kBarTrackAlpha );
@@ -307,7 +338,9 @@ namespace Desert::Editor::Splash
 
             m_Project.string = ToNS( content.ProjectName );
             m_Version.string = ToNS( content.Version );
-            ApplyStatus( ProgressSnapshot{} );
+            // Not sampled here: the splash's thread is the progress's only sampler. Its first sample comes
+            // within kSamplePeriod of the thread's start.
+            ApplyStatus( Core::StartupView{} );
 
             // The fade is handed to Core Animation whole: its render server runs it on its own clock.
             CABasicAnimation* fadeIn = [CABasicAnimation animationWithKeyPath:@"opacity"];
@@ -338,6 +371,7 @@ namespace Desert::Editor::Splash
                 LOG_INFO( "[Splash] on screen {:.0f} ms after the process started", ms );
             }
 
+            OpenCapture();
             m_WindowId = static_cast<CGWindowID>( m_Window.windowNumber );
             m_Thread   = Common::StartEngineThread( "Splash Screen", Common::ThreadPriority::Normal,
                                                   [this]() noexcept { Run(); } );
@@ -348,16 +382,11 @@ namespace Desert::Editor::Splash
             Close();
         }
 
-        void SetProgress( const ProgressSnapshot& progress ) override
+        // On the main thread, which is where AppKit wants a window minimized: a minimize clicked while the
+        // main thread was inside a long call is carried out the next time the start pumps.
+        void PumpMainThread() override
         {
-            // On the main thread, which is where AppKit wants a window minimized: a minimize clicked while
-            // the main thread was inside a long call is carried out at its next progress report.
             MinimizeIfAsked( m_Window, m_MinimizeAsked );
-            {
-                const std::lock_guard<std::mutex> lock( m_Mutex );
-                m_Pending = progress;
-            }
-            m_Wake.notify_one();
         }
 
         void Close() override
@@ -393,8 +422,12 @@ namespace Desert::Editor::Splash
             for ( CALayer* const layer :
                   { (CALayer*)m_Project, (CALayer*)m_Version, (CALayer*)m_Stage, (CALayer*)m_Percent,
                     (CALayer*)m_Item, m_Track, m_Fill, m_Image, (CALayer*)m_ButtonGlyphs[0],
-                    (CALayer*)m_ButtonGlyphs[1], m_ButtonSquares[0], m_ButtonSquares[1], m_Root } )
+                    (CALayer*)m_ButtonGlyphs[1], m_ButtonSquares[0], m_ButtonSquares[1], (CALayer*)m_Time,
+                    m_LogPanel } )
                 [layer release];
+            for ( CATextLayer* const line : m_LogLines )
+                [line release];
+            [m_Root release];
             [m_Window release];
             m_Window = nil;
         }
@@ -421,10 +454,11 @@ namespace Desert::Editor::Splash
             }
             const SplashButton before[2] = { m_Buttons.Hovered(), m_Buttons.Pressed() };
             const SplashButton clicked   = m_Buttons.Update( under, pointer.Down );
-            if ( clicked == SplashButton::Close && !CloseRequested() )
+            if ( clicked == SplashButton::Close && !m_Progress->StopRequested() )
             {
+                // The start's one stop flag: the long calls ask it between their items.
                 LOG_INFO( "[Splash] close clicked; the editor stops loading and exits" );
-                NoteCloseClicked();
+                m_Progress->RequestStop();
             }
             else if ( clicked == SplashButton::Minimize )
             {
@@ -451,22 +485,87 @@ namespace Desert::Editor::Splash
         }
 
         // Called inside a transaction the caller owns.
-        void ApplyStatus( const ProgressSnapshot& status )
+        void ApplyStatus( const Core::StartupView& view )
         {
-            const Layout layout = ComputeLayout( status.Fraction );
+            const Layout layout = ComputeLayout( view.Fraction );
             m_Project.frame     = ToCG( layout.Project );
             m_Version.frame     = ToCG( layout.Version );
             m_Stage.frame       = ToCG( layout.Stage );
             m_Percent.frame     = ToCG( layout.Percent );
             m_Item.frame        = ToCG( layout.Item );
+            m_Time.frame        = ToCG( layout.Time );
             m_Track.frame       = ToCG( layout.BarTrack );
             m_Fill.frame        = ToCG( layout.BarFill );
-            // Once close is clicked the load is being abandoned, and the stage the main thread last
-            // reported is no longer what is happening.
-            m_Stage.string = ToNS( CloseRequested() ? std::string( "Closing..." ) : status.Stage );
-            m_Item.string  = ToNS( CloseRequested() ? std::string{} : status.Item );
-            // No stage yet means no plan yet: a "0%" there would be a number that says nothing.
-            m_Percent.string = ToNS( status.Stage.empty() ? std::string{} : FormatPercent( status.Fraction ) );
+            m_LogPanel.frame    = ToCG( layout.LogPanel );
+            m_LogPanel.hidden   = view.Log.empty() ? YES : NO;
+            for ( std::size_t row = 0; row < kLogLines; ++row )
+            {
+                m_LogLines[row].frame  = ToCG( layout.LogLines[row] );
+                m_LogLines[row].string = ToNS( LogRowText( view, row ) );
+            }
+            m_Stage.string   = ToNS( StageText( view ) );
+            m_Item.string    = ToNS( ItemText( view ) );
+            m_Percent.string = ToNS( PercentText( view ) );
+            m_Time.string    = ToNS( TimeText( view ) );
+        }
+
+        // --splash-capture: the folder and the CSV are made before the splash's thread starts, so a refusal
+        // is said once and the start goes on without the capture.
+        void OpenCapture()
+        {
+            if ( m_CaptureDir.empty() )
+                return;
+            std::error_code error;
+            std::filesystem::create_directories( m_CaptureDir, error );
+            if ( error )
+            {
+                LOG_WARN( "[Splash] capture folder '{}' could not be made ({}); the splash is not captured",
+                          m_CaptureDir.string(), error.message() );
+                return;
+            }
+            const std::filesystem::path csv = m_CaptureDir / "progress.csv";
+            m_Csv.open( csv, std::ios::out | std::ios::trunc );
+            if ( !m_Csv )
+            {
+                LOG_WARN( "[Splash] '{}' could not be opened for writing; the splash is not captured", csv.string() );
+                return;
+            }
+            m_Csv << kCaptureCsvHeader << '\n';
+            m_Capturing = true;
+            LOG_INFO( "[Splash] capturing into '{}' (splash-<ms>.png every {} ms, progress.csv per sample)",
+                      m_CaptureDir.string(), kCapturePeriodMs );
+        }
+
+        // --splash-capture: the layer tree at its design size (1200x675 points, one pixel each) as
+        // splash-<ms>.png once per kCapturePeriodMs, <ms> since the process started. Rendered from the
+        // layers' model values, so the fade in is not in it.
+        void CaptureIfDue( const Core::StartupView& view )
+        {
+            const auto atMs = static_cast<int64_t>( view.ElapsedSeconds * 1000.0 );
+            if ( m_LastCaptureMs >= 0 && atMs - m_LastCaptureMs < kCapturePeriodMs )
+                return;
+            m_LastCaptureMs = atMs;
+            m_Csv.flush();
+
+            const int                  w = static_cast<int>( kWidth );
+            const int                  h = static_cast<int>( kHeight );
+            std::vector<unsigned char> pixels( static_cast<std::size_t>( w ) * static_cast<std::size_t>( h ) * 4u );
+            CGColorSpaceRef            space   = CGColorSpaceCreateWithName( kCGColorSpaceSRGB );
+            CGContextRef               context = CGBitmapContextCreate(
+                 pixels.data(), static_cast<size_t>( w ), static_cast<size_t>( h ), 8, static_cast<size_t>( w ) * 4u,
+                 space, (CGBitmapInfo)kCGImageAlphaPremultipliedLast | kCGBitmapByteOrderDefault );
+            CGColorSpaceRelease( space );
+            if ( context == nullptr )
+            {
+                LOG_WARN( "[Splash] capture at {} ms: no bitmap context", atMs );
+                return;
+            }
+            // A bitmap context's rows are stored top first, as PNG wants; the layers draw bottom-up into it.
+            [m_Root renderInContext:context];
+            CGContextRelease( context );
+            const std::filesystem::path file = m_CaptureDir / ( "splash-" + std::to_string( atMs ) + ".png" );
+            if ( stbi_write_png( file.string().c_str(), w, h, 4, pixels.data(), w * 4 ) == 0 )
+                LOG_WARN( "[Splash] capture '{}' could not be written", file.string() );
         }
 
         void Run()
@@ -502,38 +601,54 @@ namespace Desert::Editor::Splash
                 LOG_WARN( "[Splash] no picture, drawing on the plain background: {}", pixels.GetError() );
             }
 
-            // Woken by a new status, and otherwise every kPointerPeriod to look at the pointer: the buttons
-            // answer from this thread, because the main thread that owns the event stream is loading.
-            constexpr auto   kPointerPeriod = std::chrono::milliseconds( 16 );
-            ProgressSnapshot status;
+            // Every kPointerPeriod a look at the pointer (the buttons answer from this thread, because the
+            // main thread that owns the event stream is loading), and every kSamplePeriod a sample of the
+            // progress. Woken early only by Close.
+            constexpr auto                        kPointerPeriod = std::chrono::milliseconds( 16 );
+            Core::StartupView                     view;
+            std::chrono::steady_clock::time_point sampledAt;
             for ( ;; )
             {
-                bool statusChanged = false;
                 {
                     std::unique_lock<std::mutex> lock( m_Mutex );
-                    m_Wake.wait_for( lock, kPointerPeriod, [this] { return m_Stop || m_Pending.has_value(); } );
+                    m_Wake.wait_for( lock, kPointerPeriod, [this] { return m_Stop; } );
                     if ( m_Stop )
                         return;
-                    if ( m_Pending )
-                    {
-                        status = std::move( *m_Pending );
-                        m_Pending.reset();
-                        statusChanged = true;
-                    }
+                }
+                const auto now     = std::chrono::steady_clock::now();
+                const bool sampled = now - sampledAt >= kSamplePeriod;
+                if ( sampled )
+                {
+                    sampledAt = now;
+                    view      = m_Progress->Sample( Core::StartupClock::now() );
+                    if ( m_Capturing )
+                        m_Csv << CaptureCsvRow( view ) << '\n';
                 }
                 const bool buttonsChanged = TrackPointer();
-                if ( !statusChanged && !buttonsChanged )
+                if ( !sampled && !buttonsChanged )
                     continue;
                 [CATransaction begin];
                 [CATransaction setDisableActions:YES];
-                ApplyStatus( status );
+                ApplyStatus( view );
                 ApplyButtons();
                 [CATransaction commit];
                 [CATransaction flush];
+                if ( sampled && m_Capturing )
+                    CaptureIfDue( view );
             }
         }
 
-        std::filesystem::path m_CookedImage;
+        // The repaint period of both platforms (the Windows splash's frame timer is the same 33 ms).
+        static constexpr auto    kSamplePeriod    = std::chrono::milliseconds( 33 );
+        static constexpr int64_t kCapturePeriodMs = 1000;
+
+        std::filesystem::path                  m_CookedImage;
+        std::filesystem::path                  m_CaptureDir;
+        std::shared_ptr<Core::StartupProgress> m_Progress; // sampled by the splash's thread only
+        // --splash-capture (opened on the main thread before the splash's thread starts, then its only).
+        std::ofstream m_Csv;
+        bool          m_Capturing     = false;
+        int64_t       m_LastCaptureMs = -1;
 
         NSWindow*    m_Window  = nil;
         CALayer*     m_Root    = nil;
@@ -543,6 +658,10 @@ namespace Desert::Editor::Splash
         CATextLayer* m_Stage   = nil;
         CATextLayer* m_Percent = nil;
         CATextLayer* m_Item    = nil;
+        CATextLayer* m_Time    = nil;
+        CALayer*     m_LogPanel = nil;
+        // [0] the bottom line, the newest entry.
+        CATextLayer* m_LogLines[kLogLines] = {};
         CALayer*     m_Track   = nil;
         CALayer*     m_Fill    = nil;
         // [0] minimize, [1] close.
@@ -555,16 +674,16 @@ namespace Desert::Editor::Splash
         // Set by the splash's thread, carried out on the main thread (AppKit's rule for window changes).
         std::shared_ptr<std::atomic<bool>> m_MinimizeAsked = std::make_shared<std::atomic<bool>>( false );
 
-        std::thread                     m_Thread;
-        std::mutex                      m_Mutex;
-        std::condition_variable         m_Wake;
-        std::optional<ProgressSnapshot> m_Pending;
-        bool                            m_Stop   = false;
-        bool                            m_Closed = false;
+        std::thread             m_Thread;
+        std::mutex              m_Mutex;
+        std::condition_variable m_Wake;
+        bool                    m_Stop   = false;
+        bool                    m_Closed = false;
     };
 
-    std::unique_ptr<SplashScreen> SplashScreen::Show( const SplashContent& content )
+    std::unique_ptr<SplashScreen> SplashScreen::Show( const SplashContent&                    content,
+                                                      std::shared_ptr<Core::StartupProgress> progress )
     {
-        return std::make_unique<SplashScreenMacOS>( content );
+        return std::make_unique<SplashScreenMacOS>( content, std::move( progress ) );
     }
 } // namespace Desert::Editor::Splash
