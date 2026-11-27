@@ -1147,7 +1147,8 @@ namespace Desert::Graphic
                            "in hardware: RayTracingSceneRequired)" );
         if ( const Common::BoolResultStr built = BuildReflectionHitGroups(); !built )
             return refuse( built.GetError() );
-        if ( const Common::BoolResultStr made = m_RayTracedTranslucency.EnsurePipeline( m_ReflectionHitGroups.Templates );
+        if ( const Common::BoolResultStr made =
+                  m_RayTracedTranslucency.EnsurePipeline( m_ReflectionHitGroups.Templates );
              !made )
             return refuse( made.GetError() );
         auto reads = MakeHitLitReads( graph, textures, System::kRayTracedTranslucencyTracer, gbuffer, frame );
@@ -1158,8 +1159,8 @@ namespace Desert::Graphic
             return refuse( desc.GetError() );
 
         const ShaderProtocols::Camera cameraBlock = ShaderProtocols::MakeCameraUB( frame );
-        const RDG::BufferRef          camera =
-             graph.CreateBuffer( RDG::BufferDesc{ sizeof( cameraBlock ) }, "Translucency.RayTracedRefraction.CameraUB" );
+        const RDG::BufferRef          camera      = graph.CreateBuffer( RDG::BufferDesc{ sizeof( cameraBlock ) },
+                                                                        "Translucency.RayTracedRefraction.CameraUB" );
         graph.QueueBufferUpload( camera, std::as_bytes( std::span<const ShaderProtocols::Camera>( &cameraBlock, 1 ) ) );
 
         const System::RayTracedTranslucencyInputs inputs{
