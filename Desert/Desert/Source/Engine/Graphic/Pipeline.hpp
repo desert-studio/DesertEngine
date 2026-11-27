@@ -454,9 +454,13 @@ namespace Desert::Graphic
          * pipeline draws from the frame its compile lands; until then the draws through it are skipped and
          * counted by PipelineBuilds, which ContentGate waits on. A driver refusal on the worker is logged
          * with its VkResult and leaves the pipeline unbuilt (reported by name at the first draw).
-         * PipelineCache::GetOrCreate is the one caller: material and mesh pipelines, which appear with
-         * content. Pipelines a system builds once at renderer start keep the synchronous Create. @p role
-         * decides whether the content gate waits for the compile (PipelineBuilds).
+         * Two kinds of caller. PipelineCache::GetOrCreate: material and mesh pipelines, which appear with
+         * content. And A SYSTEM THAT BUILDS MANY PIPELINES AT ONCE (DeferredLightingRenderer's programs): it
+         * submits them all here and waits once (PipelineBuilds::Tracker::WaitUntil on every GetReadiness()
+         * leaving Compiling), then decides from Ready / Failed — so the driver compiles them on the workers in
+         * parallel instead of one after another on the main thread (UE batches PSO compiles the same way).
+         * Create stays for a single pipeline. @p role decides whether the content gate waits for the compile
+         * (PipelineBuilds).
          */
         NO_DISCARD static Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
         CreateAsync( const GraphicsPipelineSpecification& spec, PipelineRole role );
