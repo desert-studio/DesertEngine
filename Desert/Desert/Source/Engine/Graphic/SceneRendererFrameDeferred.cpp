@@ -2278,6 +2278,10 @@ namespace Desert::Graphic
 
     Common::BoolResultStr SceneRendererImpl::BuildReflectionHitGroups()
     {
+        // Once per frame: the reflections, the path tracer and the traced refraction of a frame read one table.
+        const uint64_t frame = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        if ( frame == m_ReflectionHitGroupsFrame )
+            return BOOLSUCCESS;
         auto*      materials       = Runtime::ResourceRegistry::GetMaterialService();
         auto*      shaders         = Runtime::ResourceRegistry::GetShaderService();
         const auto defaultTemplate = materials->DefaultSurfaceTemplate();
@@ -2339,7 +2343,8 @@ namespace Desert::Graphic
                                                                defaultSurface, hasHitGroup );
         if ( !table )
             return Common::MakeError( table.GetError() );
-        m_ReflectionHitGroups = std::move( table.GetValue() );
+        m_ReflectionHitGroups      = table.ExtractValue();
+        m_ReflectionHitGroupsFrame = frame;
         for ( const RayTracing::RayTracingHitGroupFallback& fallback :
               m_ReflectionHitGroups.TemplatesWithoutHitGroup )
         {
@@ -2356,11 +2361,80 @@ namespace Desert::Graphic
         return BOOLSUCCESS;
     }
 
+    Common::ResultStr<System::SSRRenderer::TracedReads> SceneRendererImpl::MakeHitLitReads(
+         RDG::Builder& graph, FrameTextures& textures, const GlobalIllumination::Pipeline& tracer,
+         const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame )
+    {
+        using Reads = System::SSRRenderer::TracedReads;
+        FrameTransients& t = textures.Transients;
+        if ( gbuffer.size() < 4 )
+            return Common::MakeError<Reads>( "the G-buffer has fewer than 4 colours" );
+        if ( !t.Lights.WorldGridCells.IsValid() )
+            return Common::MakeError<Reads>( "the world light grid was not built" );
+        // An in-place lit hit runs its surface template's closest-hit shader from this frame's table, which the
+        // caller built (BuildReflectionHitGroups) before it made the tracer's pipeline from its templates.
+        const bool inPlace = tracer.Hits == GlobalIllumination::HitLighting::InPlace;
+        if ( inPlace &&
+             m_ReflectionHitGroupsFrame != ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() )
+            return Common::MakeError<Reads>( "in-place hit lighting needs this frame's hit group table, which "
+                                             "BuildReflectionHitGroups did not build" );
+
+        Reads reads;
+        reads.Tracer     = MakeTracerFrame( graph, textures, tracer );
+        reads.SceneReads = AddFrameRayTracingSceneReads( graph, textures );
+        if ( const std::string_view missing = GlobalIllumination::TracerFrameMissing( reads.Tracer );
+             !missing.empty() )
+            return Common::MakeError<Reads>( std::string( missing ) );
+
+        const FrameGraphRefs refs = textures.GraphRefs();
+        // The GI's record of this frame when it traced; otherwise this frame's own (the same payload).
+        reads.GIFrame = m_TracedFrameShared.GIFrame;
+        if ( !reads.GIFrame.IsValid() )
+        {
+            const auto desc = graph.GetTextureDesc( gbuffer[0] );
+            if ( !desc )
+                return Common::MakeError<Reads>( desc.GetError() );
+            const FrameSun sun = GetFrameSun();
+            reads.GIFrame =
+                 AddFrameGIRecord( graph, frame, sun.Direction, sun.ColorIntensity,
+                                   glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height ) );
+        }
+        // The radiance cache's read: the GI's when it runs (an in-place lit hit takes its bounce), otherwise one
+        // that covers nothing (no clipmap: RadianceCacheIrradianceAt answers "no coverage", the hit keeps its
+        // direct light).
+        if ( m_TracedFrameShared.RadianceCache )
+            reads.RadianceCache = *m_TracedFrameShared.RadianceCache;
+        else
+        {
+            // FPS-CPU-UPLOAD: zeroed on the GPU in the graph's upload batch (QueueBufferClear), no CPU payload.
+            const RDG::BufferRef none =
+                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( RadianceCache::RadianceCacheParamsPayload ) },
+                                     "Reflections.RadianceCacheNone" );
+            graph.QueueBufferClear( none, 0u );
+            reads.RadianceCache = GlobalIllumination::RadianceCacheFrame{ .Params      = none,
+                                                                          .Indirection = none,
+                                                                          .Probes      = none,
+                                                                          .Irradiance  = refs.System.Black,
+                                                                          .Depth       = refs.System.Black,
+                                                                          .Radiance    = refs.System.Black };
+        }
+        reads.PointLights     = t.Lights.Point;
+        reads.SpotLights      = t.Lights.Spot;
+        reads.LightFunctionAtlas = t.Lights.LightFunctionAtlas;
+        reads.WorldGridParams = t.Lights.WorldGridParams;
+        reads.WorldGridCells  = t.Lights.WorldGridCells;
+        reads.EnvSpecular     = SceneViewInputsOf( refs ).EnvSpecular;
+        reads.GBufferA        = gbuffer[0];
+        reads.GBufferEmissive = gbuffer[3];
+        reads.GBufferShadingWord = gbuffer[2];
+        reads.HitGroups       = inPlace ? &m_ReflectionHitGroups : nullptr;
+        return Common::MakeSuccess( std::move( reads ) );
+    }
+
     std::optional<System::SSRRenderer::TracedReads> SceneRendererImpl::MakeTracedReflectionReads(
          RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
          const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame )
     {
-        FrameTransients& t = textures.Transients;
         const auto refuse  = [&]( const std::string_view why ) -> std::optional<System::SSRRenderer::TracedReads>
         {
             LOG_ERROR( "[SceneRenderer] Reflections ({}): {} - the frame reflects the screen alone",
@@ -2369,10 +2443,6 @@ namespace Desert::Graphic
                        why );
             return std::nullopt;
         };
-        if ( gbuffer.size() < 4 )
-            return refuse( "the G-buffer has fewer than 4 colours" );
-        if ( !t.Lights.WorldGridCells.IsValid() )
-            return refuse( "the world light grid was not built" );
         const GlobalIllumination::Pipeline tracer = ReflectionsTracer();
         {
             using namespace Common::Scalability;
@@ -2409,12 +2479,10 @@ namespace Desert::Graphic
             }
         }
 
-        System::SSRRenderer::TracedReads reads;
-        reads.Tracer = MakeTracerFrame( graph, textures, tracer );
-        reads.SceneReads = AddFrameRayTracingSceneReads( graph, textures );
-        if ( const std::string_view missing = GlobalIllumination::TracerFrameMissing( reads.Tracer );
-             !missing.empty() )
-            return refuse( missing );
+        auto made = MakeHitLitReads( graph, textures, tracer, gbuffer, frame );
+        if ( !made )
+            return refuse( made.GetError() );
+        System::SSRRenderer::TracedReads reads = made.ExtractValue();
         if ( tracer.Hits == GlobalIllumination::HitLighting::SurfaceCache )
         {
             if ( !m_SurfaceCacheFrame )
@@ -2427,47 +2495,6 @@ namespace Desert::Graphic
         }
 
         const FrameGraphRefs refs = textures.GraphRefs();
-        // The GI's record of this frame when it traced; otherwise this frame's own (the same payload).
-        reads.GIFrame = m_TracedFrameShared.GIFrame;
-        if ( !reads.GIFrame.IsValid() )
-        {
-            const auto desc = graph.GetTextureDesc( gbuffer[0] );
-            if ( !desc )
-                return refuse( desc.GetError() );
-            const FrameSun sun = GetFrameSun();
-            reads.GIFrame =
-                 AddFrameGIRecord( graph, frame, sun.Direction, sun.ColorIntensity,
-                                   glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height ) );
-        }
-        // The radiance cache's read: the GI's when it runs (an in-place lit hit takes its bounce), otherwise one
-        // that covers nothing (no clipmap: RadianceCacheIrradianceAt answers "no coverage", the hit keeps its
-        // direct light).
-        if ( m_TracedFrameShared.RadianceCache )
-            reads.RadianceCache = *m_TracedFrameShared.RadianceCache;
-        else
-        {
-            // FPS-CPU-UPLOAD: zeroed on the GPU in the graph's upload batch (QueueBufferClear), no CPU payload.
-            const RDG::BufferRef none =
-                 graph.CreateBuffer( RDG::BufferDesc{ sizeof( RadianceCache::RadianceCacheParamsPayload ) },
-                                     "Reflections.RadianceCacheNone" );
-            graph.QueueBufferClear( none, 0u );
-            reads.RadianceCache = GlobalIllumination::RadianceCacheFrame{ .Params      = none,
-                                                                          .Indirection = none,
-                                                                          .Probes      = none,
-                                                                          .Irradiance  = refs.System.Black,
-                                                                          .Depth       = refs.System.Black,
-                                                                          .Radiance    = refs.System.Black };
-        }
-        reads.PointLights     = t.Lights.Point;
-        reads.SpotLights      = t.Lights.Spot;
-        reads.LightFunctionAtlas = t.Lights.LightFunctionAtlas;
-        reads.WorldGridParams = t.Lights.WorldGridParams;
-        reads.WorldGridCells  = t.Lights.WorldGridCells;
-        reads.EnvSpecular     = SceneViewInputsOf( refs ).EnvSpecular;
-        reads.GBufferA        = gbuffer[0];
-        reads.GBufferEmissive = gbuffer[3];
-        reads.GBufferShadingWord = gbuffer[2];
-        reads.HitGroups       = hitLit ? &m_ReflectionHitGroups : nullptr;
         // FPS-SSR-HIT-2: the software tracer's global-field hits take the directional lights' shadow from the
         // view's cascades where those cover the hit (SSRTrace.glslh GI_HIT_DIRECTIONAL_CASCADES). The block is the
         // composite's ShadowUB values for the cascade arm, packed as the surface cache's cards pack theirs
@@ -2786,7 +2813,7 @@ namespace Desert::Graphic
         const FrameSSR traced = AddFrameSSR( graph, textures, *reflections, gbuffer, screenTrace, frame, &surface );
         if ( !traced.Resolved.IsValid() )
             return {};
-        return FrameFrontLayer{ .Reflection = traced.Resolved, .Depth = surface.Depth };
+        return FrameFrontLayer{ .Reflection = traced.Resolved, .Normal = surface.Normal, .Depth = surface.Depth };
     }
 
     SceneRendererImpl::FrontLayerWriters

@@ -135,6 +135,7 @@
 #include <Engine/Graphic/Systems/Scene/Shadows/MegaLightsVolume.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedLocalShadow.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedSunShadow.hpp>
+#include <Engine/Graphic/Systems/Scene/Translucency/RayTracedTranslucency.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/ForwardPrepassStats.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 #include <Engine/Graphic/Systems/Scene/PathTracing/PathTracer.hpp>
@@ -1113,16 +1114,24 @@ namespace Desert::Graphic
             RDG::TextureRef Velocity;
             RDG::TextureRef Depth;
         };
-        // What the glass reads of it: the denoised reflection and the depth it belongs to. Invalid both: no front
-        // layer.
+        // What the glass reads of it: the denoised reflection and the depth it belongs to, and the surface's normal
+        // (a = roughness) the traced refraction bends through. Invalid all: no front layer.
         struct FrameFrontLayer
         {
             RDG::TextureRef Reflection;
+            RDG::TextureRef Normal;
             RDG::TextureRef Depth;
             // "Translucency: Ray Traced Refraction"'s RefractionOutputs::Radiance (RayTracedTranslucency.hpp);
             // invalid = Translucency.Refraction ScreenSpace, the glass reads the scene copy.
             RDG::TextureRef Refraction;
         };
+        // "Translucency: Ray Traced Refraction" (RayTracedTranslucency.hpp) through @p frontLayer, from the opaque
+        // G-buffer @p gbuffer: the radiance the glass refracts. Invalid: Translucency.Refraction is ScreenSpace,
+        // no front layer is visible, or the pass was refused (logged once, the view stays ScreenSpace).
+        [[nodiscard]] RDG::TextureRef AddFrameRayTracedRefraction( RDG::Builder& graph, FrameTextures& textures,
+                                                                   const std::vector<RDG::TextureRef>& gbuffer,
+                                                                   const FrameFrontLayer&              frontLayer,
+                                                                   const ViewFrame&                    frame );
         // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
         void AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
                             System::MeshRenderer* meshRenderer, const FrameFrontLayer& frontLayer );
@@ -1294,6 +1303,14 @@ namespace Desert::Graphic
         [[nodiscard]] RDG::BufferRef AddFrameGIRecord( RDG::Builder& graph, const ViewFrame& frame,
                                                        const glm::vec4& lightDir, const glm::vec4& lightColor,
                                                        glm::uvec2 extent );
+        // The hit lighting's reads of @p tracer for this frame (the one producer of a TracedReads: the reflections
+        // and the traced refraction ask it): TLAS and scene reads, GI record, radiance cache (or one covering
+        // nothing), lights, EnvSpecular, G-buffer, and - for an InPlace tracer - this frame's hit group table, which
+        // the caller built first (BuildReflectionHitGroups). SurfaceCache, Shadow and ShadowCascades stay empty for
+        // the caller. The error names the missing read.
+        [[nodiscard]] Common::ResultStr<System::SSRRenderer::TracedReads>
+        MakeHitLitReads( RDG::Builder& graph, FrameTextures& textures, const GlobalIllumination::Pipeline& tracer,
+                         const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
         // The traced permutation's reads of SSR (System::SSRRenderer::TracedReads) for this frame; nullopt
         // (logged): a read is missing and the frame reflects the screen alone.
         [[nodiscard]] std::optional<System::SSRRenderer::TracedReads>
@@ -1808,6 +1825,8 @@ namespace Desert::Graphic
         // the next frame's build replaces it), the default surface's material for segments without a template,
         // and whether a hit-lighting request the device cannot run was reported.
         RayTracing::RayTracingHitGroupTable m_ReflectionHitGroups;
+        // The absolute frame m_ReflectionHitGroups was built in (~0: none yet): one build per frame.
+        uint64_t m_ReflectionHitGroupsFrame = ~0ull;
         // The scene's emissive triangles as lights, kept on the GPU across frames (AddFrameEmissiveLights).
         std::unique_ptr<RayTracing::EmissiveLightsRenderer> m_EmissiveLights;
         // The CPU list across frames (rebuilt only on a regathered frame or a moved material estimate), and the
@@ -1954,6 +1973,10 @@ namespace Desert::Graphic
         // on the first frame that resolves the sun to HardwareTraced.
         System::RayTracedSunShadowRenderer m_RayTracedSunShadow;
         System::ScreenSpaceDenoiser        m_SunShadowDenoiser{ System::DenoiserSignal::ShadowVisibility };
+        // "Translucency: Ray Traced Refraction" (Translucency.Refraction HardwareTraced), and the refusal last
+        // reported (said once per reason; empty while the pass runs).
+        System::RayTracedTranslucencyRenderer m_RayTracedTranslucency;
+        std::string                           m_ReportedRayTracedRefraction;
         // "Shadows: Ray Traced Local", this frame's slots, and one ShadowVisibility denoiser per light (keyed by
         // LocalLightShadowSettings::SourceId: slots move between frames, the history follows the light - UE keys
         // its shadow denoiser history per light too). Pruned each frame to the frame's lights.
