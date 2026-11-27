@@ -1,5 +1,6 @@
 {
   "autoCompactWindow": 200000,
+  "permissions": { "deny": ["Artifact", "mcp__blender", "mcp__claude_ai_Claude_Docs"] },
   "hooks": {
     "PreToolUse": [
       {

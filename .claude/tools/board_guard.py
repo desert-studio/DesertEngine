@@ -220,7 +220,7 @@ def main():
             sys.exit(0)
         why = stop_reason(P.load(), s)
         if why:
-            emit({"decision": "block", "reason": "[board_guard] " + why})
+            emit({"systemMessage": "[board_guard] " + why})  # TOKEN-AUDIT2 11-27: never block Stop (one extra lead request each); the next wake reads the queue
         sys.exit(0)
 
     if not tool.startswith("mcp__notion__"):
