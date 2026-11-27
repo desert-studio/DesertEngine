@@ -48,6 +48,23 @@
                         "Props": []
                     }
                 ]
+            },
+            "StreamingSource": {
+                "Enabled": true,
+                "OverrideLoadingRange": true,
+                "LoadingRange": 6400.0,
+                "Priority": -1,
+                "IsSector": false,
+                "SectorAngle": 360.0,
+                "SectorAngleFromCamera": false,
+                "ShapeOffset": [0.0, 0.0, 0.0],
+                "ShapeYaw": 0.0,
+                "UseVelocityForSorting": false,
+                "TargetGrids": [],
+                "TargetHLODLayers": [],
+                "TargetBehavior": 0,
+                "LookAheadTime": 0.0,
+                "MaxLookAhead": 100000.0
             }
         },
         {
