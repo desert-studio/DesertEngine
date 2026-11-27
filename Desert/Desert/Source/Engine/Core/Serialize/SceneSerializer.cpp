@@ -8,6 +8,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Common/Json/Document.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
