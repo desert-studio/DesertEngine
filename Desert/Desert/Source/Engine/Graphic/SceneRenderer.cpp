@@ -764,7 +764,7 @@ namespace Desert::Graphic
             it->ReleaseWorldCaches();
         ResetTemporalHistory();
         LOG_INFO( "[SceneRenderer] {}: the old world's view resources released (surface cache, radiance cache, "
-                  "probe gathers, global distance field, terrain materials).",
+                  "probe gathers, global distance field, terrain materials, landscape virtual texture).",
                   m_ViewResources.GetName() );
     }
 

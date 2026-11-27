@@ -1,0 +1,14 @@
+# WATER-AFTER-LOADALL repro on dev: WP_Protocol with Load All (Whole: true), then Water_Ocean; pale sheet over land?
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Тогда a_wp WP
+Когда run Scene "Open Scene Water_Ocean.desce"
+Когда wait-idle 60
+Когда frames 30
+Тогда-вид b_water30 вода
+Когда frames 300
+Тогда-вид c_water330 вода
+Когда run Scene "Open Scene Water_Ocean.desce"
+Когда wait-idle 60
+Когда frames 30
+Тогда-вид d_reopen вода
