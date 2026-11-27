@@ -4,7 +4,7 @@
 #   bootstrap                            build the pool binary of this tree's revision into the home; print its path
 #   start | status | window | stop       the home's daemon (status and window start one when none runs)
 #   run [--class C] [--label L] -- cmd   run one build as a pool build: BUILDPOOL_CLASS (a [class.*] of pool.ini; absent
-#                                        = its default_class), BUILDPOOL_RUN, CMAKE_BUILD_PARALLEL_LEVEL = `buildpool window`
+#                                        = inherited, else default_class), BUILDPOOL_RUN, CMAKE_BUILD_PARALLEL_LEVEL = `buildpool window`
 #   attach [<tree>]                      put <tree>/build/cmake on the home's volume (junction / symlink); moved once
 #   adopt-cache <dir>                    move an existing ccache directory into <home>/ccache, once
 set -u
@@ -46,7 +46,8 @@ link_target() {
     if [ "$POOL_WIN" = 1 ]; then
         local parent name
         parent="$(cygpath -w "$(dirname "$1")")"; name="$(basename "$1")"
-        cmd //c dir /AL "$parent" 2>/dev/null | tr -d '\r' |
+        # //AL: Git Bash rewrites a lone /AL into a path before cmd.exe sees it.
+        cmd //c dir //AL "$parent" 2>/dev/null | tr -d '\r' |
             sed -n "s#.*<JUNCTION>[[:space:]]*$name \[\(.*\)\]\$#\1#p" | head -1 | { read -r t && cygpath -m "$t"; }
     elif [ -L "$1" ]; then
         readlink "$1"
@@ -87,7 +88,8 @@ run)
     case "$window" in ''|*[!0-9]*) die "run: buildpool window answered '$window', not a number" ;; esac
     # The home goes with the build, so a configure the command runs takes the same pool.
     export BUILDPOOL_HOME="$HOME_DIR" CMAKE_BUILD_PARALLEL_LEVEL="$window"
-    if [ -n "$class" ]; then export BUILDPOOL_CLASS="$class"; else unset BUILDPOOL_CLASS; fi
+    # Without --class an inherited BUILDPOOL_CLASS stays (BUILDPOOL_CLASS=lead bash compile_check.sh).
+    [ -n "$class" ] && export BUILDPOOL_CLASS="$class"
     if [ -n "$label" ]; then export BUILDPOOL_RUN="$label"; else unset BUILDPOOL_RUN; fi
     exec "$@"
     ;;
@@ -101,7 +103,7 @@ attach)
     fi
     id="$(basename "$tree")-$(printf '%s' "$tree" | tr '[:upper:]' '[:lower:]' | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-8)"
     dst="$HOME_DIR/trees/$id/cmake"
-    current="$(link_target "$src")"
+    current="$(link_target "$src")"; moved=""
     if [ -n "$current" ]; then
         [ "$(native "$current")" = "$dst" ] && { echo "pool.sh: $src -> $dst (attached already)"; exit 0; }
         die "attach: $src already points to $current, not $dst"
@@ -111,11 +113,16 @@ attach)
         [ -e "$dst" ] && die "attach: both $src and $dst exist; remove the one that is stale"
         echo "pool.sh: moving $src to $dst (once; the tree must not be building)"
         mv "$src" "$dst" || die "attach: moving $src to $dst failed"
+        moved=1
     else
         mkdir -p "$dst" "$(dirname "$src")" || die "attach: cannot create $dst"
     fi
     if [ "$POOL_WIN" = 1 ]; then
-        cmd //c mklink /J "$(cygpath -w "$src")" "$(cygpath -w "$dst")" >/dev/null || die "attach: mklink /J $src failed"
+        # //J: Git Bash rewrites a lone /J into a path before cmd.exe sees it.
+        if ! cmd //c mklink //J "$(cygpath -w "$src")" "$(cygpath -w "$dst")" >/dev/null; then
+            [ -n "$moved" ] && { mv "$dst" "$src" || die "attach: mklink /J $src failed, and moving $dst back failed"; }
+            die "attach: mklink /J $src failed"
+        fi
     else
         ln -s "$dst" "$src" || die "attach: ln -s $dst $src failed"
     fi

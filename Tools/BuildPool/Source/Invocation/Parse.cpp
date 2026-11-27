@@ -293,7 +293,9 @@ namespace buildpool
         void ParseMsvc( std::span<const std::string> args, ToolKind tool, Invocation& invocation )
         {
             bool        compileOnly = false, preprocessStdout = false, preprocessFile = false, pchCreate = false;
-            bool        sharedPdb = false, pdbName = false, forceSync = false;
+            // The last debug-format option decides: /Zi and /ZI write a program database (shared by every
+            // compile that names it, through mspdbsrv); /Z7 writes none, so /Fd and /FS beside it change nothing.
+            bool        pdbWritten = false;
             std::string objectOut, preprocessOut, pchOut, imageOut, source;
             size_t      inputs = 0;
 
@@ -355,11 +357,9 @@ namespace buildpool
                 else if ( option.starts_with( "Yc" ) )
                     pchCreate = true;
                 else if ( option == "Zi" || option == "ZI" )
-                    sharedPdb = true;
-                else if ( option == "FS" )
-                    forceSync = true;
-                else if ( option.starts_with( "Fd" ) )
-                    pdbName = true;
+                    pdbWritten = true;
+                else if ( option == "Z7" )
+                    pdbWritten = false;
                 else if ( pathValue( "Fo", objectOut ) || pathValue( "Fi", preprocessOut ) ||
                           pathValue( "Fp", pchOut ) || pathValue( "Fe", imageOut ) )
                     continue;
@@ -383,8 +383,10 @@ namespace buildpool
                                                   : EndsWithSlash( preprocessOut )
                                                        ? preprocessOut + Stem( source ) + ".i"
                                                        : preprocessOut;
-                    invocation.primaryOutput    = invocation.preprocessOutput;
                 }
+                // The .i is a temporary name chosen by the cache (outside the build root, new on every run), so
+                // the action is named by the source it reads: one CostKey per translation unit.
+                invocation.primaryOutput = source;
                 // Output already written to stdout cannot be taken back: only a file preprocess runs again.
                 invocation.restartable = !preprocessStdout;
                 return;
@@ -394,7 +396,7 @@ namespace buildpool
                 invocation.action = pchCreate ? ActionKind::PchCreate : ActionKind::Compile;
                 invocation.primaryOutput =
                      pchCreate && !pchOut.empty() ? pchOut : ObjectPath( objectOut, source, ".obj" );
-                invocation.restartable = !( sharedPdb || ( pdbName && forceSync ) );
+                invocation.restartable = !pdbWritten;
                 return;
             }
             if ( inputs > 0 )
@@ -507,9 +509,10 @@ namespace buildpool
                 if ( !invocation.preprocessToStdout )
                 {
                     invocation.preprocessOutput = output;
-                    invocation.primaryOutput    = output;
                 }
-                invocation.restartable = !invocation.preprocessToStdout;
+                // The output is a temporary name chosen by the cache: name the action by its source instead.
+                invocation.primaryOutput = source;
+                invocation.restartable   = !invocation.preprocessToStdout;
                 return;
             }
             if ( depsOnly )

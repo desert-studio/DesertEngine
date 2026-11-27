@@ -58,8 +58,19 @@ namespace buildpool::client
             }
         }
 
+        // Whether a --cache-env value asks for the compiler's identity.
+        bool NeedsCompilerId( const Options& options ) noexcept
+        {
+            for ( const auto& [name, value] : options.cacheEnv )
+            {
+                if ( value.find( "{compiler_id}" ) != std::string::npos )
+                    return true;
+            }
+            return false;
+        }
+
         Result<CacheRun> PrepareCache( const Options& options, const std::filesystem::path& compiler,
-                                       uint64_t session ) noexcept
+                                       uint64_t session, std::string_view compilerId ) noexcept
         {
             auto self = SelfExecutable();
             if ( !self )
@@ -79,21 +90,29 @@ namespace buildpool::client
                  { kEnvSourceRoot, options.roots.source },
                  { kEnvBuildRoot, options.roots.build },
             };
-            // The compiler's identity is read only when a --cache-env value asks for it.
-            std::optional<std::string> compilerId;
             for ( const auto& [name, value] : options.cacheEnv )
-            {
-                if ( value.find( "{compiler_id}" ) != std::string::npos && !compilerId )
-                {
-                    auto id = CompilerId( compiler );
-                    if ( !id )
-                        return Fail( "cannot identify the compiler " + PathText( compiler ) + ": " +
-                                     id.error().message );
-                    compilerId = std::move( id ).take();
-                }
-                run.environment.emplace_back( name, compilerId ? ExpandCompilerId( value, *compilerId ) : value );
-            }
+                run.environment.emplace_back( name, ExpandCompilerId( value, compilerId ) );
             return run;
+        }
+
+        // The compiler under a lease of this Front, without the cache. A command the parser cannot read (an
+        // unreadable response file) still compiles: it is admitted as Other.
+        int RunDirect( DaemonLink& link, const Options& options, const std::filesystem::path& compiler ) noexcept
+        {
+            std::vector<std::string> command = options.command;
+            command.front()                  = PathText( compiler );
+            Invocation invocation;
+            if ( auto parsed = ParseInvocation( command ); parsed )
+                invocation = std::move( parsed ).take();
+            else
+                Report( "cannot classify the command, running it as Other: " + parsed.error().message );
+            Acquire acquire;
+            acquire.kind        = invocation.action;
+            acquire.costKey     = CostKey( invocation, options.roots );
+            acquire.restartable = invocation.restartable;
+            ChildSpec spec;
+            spec.argv = std::move( command );
+            return RunLeased( link, acquire, spec, nullptr );
         }
     } // namespace
 
@@ -110,22 +129,24 @@ namespace buildpool::client
         DaemonLink& link = opened.value();
 
         if ( options.cache.empty() )
+            return RunDirect( link, options, compiler.value() );
+
+        // The identity keys the cache; a cache run without it could hit another compiler's object, so a compiler
+        // that cannot be identified compiles without the cache.
+        std::string compilerId;
+        if ( NeedsCompilerId( options ) )
         {
-            std::vector<std::string> command = options.command;
-            command.front()                  = PathText( compiler.value() );
-            auto parsed                      = ParseInvocation( command );
-            if ( !parsed )
-                return Report( parsed.error().message );
-            Acquire acquire;
-            acquire.kind        = parsed.value().action;
-            acquire.costKey     = CostKey( parsed.value(), options.roots );
-            acquire.restartable = parsed.value().restartable;
-            ChildSpec spec;
-            spec.argv = std::move( command );
-            return RunLeased( link, acquire, spec, nullptr );
+            auto id = CompilerId( compiler.value() );
+            if ( !id )
+            {
+                Report( "cannot identify the compiler " + PathText( compiler.value() ) +
+                        ", compiling without the cache: " + id.error().message );
+                return RunDirect( link, options, compiler.value() );
+            }
+            compilerId = std::move( id ).take();
         }
 
-        auto run = PrepareCache( options, compiler.value(), link.GetWelcome().session );
+        auto run = PrepareCache( options, compiler.value(), link.GetWelcome().session, compilerId );
         if ( !run )
             return Report( run.error().message );
 

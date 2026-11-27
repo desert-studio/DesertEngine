@@ -146,6 +146,8 @@ namespace buildpool
         return ReplaceRoot( withoutBuild, roots.source, "@SOURCE@" );
     }
 
+    // A Preprocess is keyed by its source (its .i is the cache's temporary name, ParseInvocation); every other
+    // action by what it writes. Both are root-normalized, so every tree of one configuration shares the key.
     std::string CostKey( const Invocation& invocation, const TreeRoots& roots )
     {
         std::string output = NormalizeRoots( invocation.primaryOutput, roots );
