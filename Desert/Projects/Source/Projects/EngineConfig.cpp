@@ -182,7 +182,10 @@ namespace Desert::Project
 
         // The command-line layer over @p layered, item by item, into layers.Effective and layers.OverrideKeys.
         // Every item was read strictly over the defaults when it was set, and an item replaces whole what its
-        // path names, so the read here is the same read: a failure is logged as the one it would be.
+        // path names over a base that itself read strictly, so this read is the one SetEngineConfigOverrides already
+        // passed. Should it ever fail, the failure is not hidden: the error names it, OverrideKeys stays empty, and
+        // every reader that states the layer (DesertServer's "net settings ... --config sets 0 key(s): none")
+        // shows the run does not have what it was started with.
         void ApplyOverrides( Common::Json::Value layered, EngineConfigLayers& layers )
         {
             if ( overrides.empty() )
@@ -197,8 +200,9 @@ namespace Desert::Project
             auto effective = Common::Json::Root( layered ).As<EngineConfig>();
             if ( !effective )
             {
-                LOG_ERROR( "[Project] the --config layer does not read, this host runs the file layers: {}",
-                           effective.GetError() );
+                LOG_ERROR( "[Project] the --config layer does not read over the file layers, so NONE of its {} "
+                           "key(s) is applied (OverrideKeys empty): {}",
+                           overrides.size(), effective.GetError() );
                 return;
             }
             layers.Effective = effective.GetValue();
