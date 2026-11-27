@@ -109,8 +109,7 @@ namespace Desert::Net
             std::uint32_t      From    = 0;
             std::uint32_t      Step    = 0; // frozen at
             std::uint32_t      AskedAt = 0; // this sim's step of the Accept, or of the last in-doubt ask (the log)
-            NetClock::time_point AskedWhen; // the wall time of the same (the in-doubt wait is measured on it)
-            bool BacklogLanded = false;     // the previous owner's end-of-backlog mark overtook the Commit
+            NetClock::time_point AskedWhen;   // the wall time of the same (the in-doubt wait is measured on it)
         };
 
         void Offer( std::uint32_t step, const PawnSimulation::Source& source, std::uint32_t target,
@@ -126,6 +125,10 @@ namespace Desert::Net
         // incoming) pawn of that offer may close its catch-up (PawnSimulation::BacklogLanded). A mark of another
         // offer (an earlier handover of the same player, a restarted sender) is logged and dropped.
         void OnBacklogEnd( const MeshBacklogEnd& end, PawnSimulation& sim );
+        // As receiver, after a step: an awaited forward whose sender is no longer in the authority map (its sim
+        // left the mesh) can never land - the coordinator's map is the verdict, so the hole is given up: the
+        // pawn's catch-up closes as if the mark had landed (PawnSimulation::BacklogLanded). No timer.
+        void ReleaseLostBacklogs( PawnSimulation& sim );
 
         MeshEndpoint&                      m_Endpoint;
         std::uint32_t                      m_Sim;
@@ -135,7 +138,8 @@ namespace Desert::Net
         std::map<PlayerId, OpenOffer>      m_Offers;     // as sender: held pawns awaiting the store
         std::map<PlayerId, Incoming>       m_Incoming;   // as receiver: accepted, awaiting Commit
         // As receiver: the offer each adopted pawn was committed under, until the previous owner's end-of-backlog
-        // mark of that offer lands (PawnSimulation::BacklogLanded).
+        // mark of that offer lands (PawnSimulation::BacklogLanded) or its sender leaves the map
+        // (ReleaseLostBacklogs).
         std::map<PlayerId, Handover::OfferKey> m_AwaitingBacklog;
         std::map<PlayerId, std::uint32_t>  m_BackoffEnd; // as sender: no new offer before this step
         NetClock::time_point               m_ReadStart;   // the start of the latest inbox read (Poll)

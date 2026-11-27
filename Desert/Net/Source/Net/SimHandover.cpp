@@ -140,6 +140,7 @@ namespace Desert::Net
         }
 
         AskInDoubt( step, now, storeLinked );
+        ReleaseLostBacklogs( sim );
 
         for ( const PawnSimulation::Source& source : sim.Sources() )
         {
@@ -245,7 +246,6 @@ namespace Desert::Net
         if ( const auto incoming = m_Incoming.find( player );
              incoming != m_Incoming.end() && incoming->second.Key == end.Offer )
         {
-            incoming->second.BacklogLanded = true;
             sim.BacklogLanded( player );
             m_Log( std::format( "sim {}: end of the backlog of offer (sim {}, #{}) of player {} landed before its "
                                 "Commit - {} forwarded input step(s)",
@@ -268,6 +268,31 @@ namespace Desert::Net
                             m_Sim, end.Offer.From, end.Offer.Serial, player, end.Forwarded,
                             open ? "its catch-up may close"
                                  : "no adopted pawn of it awaits it (its player left)" ) );
+    }
+
+    void SimHandover::ReleaseLostBacklogs( PawnSimulation& sim )
+    {
+        if ( m_Map.Regions.empty() )
+            return; // no map yet: nothing says the sender is gone
+        for ( auto it = m_AwaitingBacklog.begin(); it != m_AwaitingBacklog.end(); )
+        {
+            const OfferKey offer  = it->second;
+            const bool     inMesh = std::ranges::any_of( m_Map.Regions, [&]( const MeshRegion& region )
+                                                         { return region.Sim == offer.From; } );
+            if ( inMesh )
+            {
+                ++it;
+                continue;
+            }
+            const PlayerId player = it->first;
+            it                    = m_AwaitingBacklog.erase( it );
+            const bool open       = sim.BacklogLanded( player );
+            m_Log( std::format(
+                 "sim {}: forward of offer (sim {}, #{}) of player {} lost - sim {} left the mesh; the "
+                 "hole is given up{}",
+                 m_Sim, offer.From, offer.Serial, player, offer.From,
+                 open ? "" : " (no adopted pawn of it awaits it: its player left)" ) );
+        }
     }
 
     bool SimHandover::OnStoreMessage( std::uint8_t type, std::span<const std::byte> body, PawnSimulation& sim,
@@ -506,7 +531,9 @@ namespace Desert::Net
             }
             replica.Promote( held.Id );
             m_Epoch[player] = decision.Epoch;
-            if ( !held.BacklogLanded )
+            // The pawn's flag is the one record of a mark that overtook this Commit
+            // (PawnSimulation::BacklogLanded).
+            if ( sim.AwaitsBacklog( player ) )
                 m_AwaitingBacklog[player] = held.Key;
             gateways.Adopted( player, *gateway );
             ++m_Stats.Adopted;

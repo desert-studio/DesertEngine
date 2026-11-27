@@ -461,6 +461,13 @@ namespace Desert::Net
         return pawn.Gateway;
     }
 
+    bool PawnSimulation::AwaitsBacklog( PlayerId player ) const
+    {
+        const auto it = m_Pawns.find( player );
+        return it != m_Pawns.end() && it->second.CatchUp && it->second.CatchUp->Adopted &&
+               !it->second.CatchUp->BacklogLanded;
+    }
+
     bool PawnSimulation::BacklogLanded( PlayerId player )
     {
         const auto it = m_Pawns.find( player );

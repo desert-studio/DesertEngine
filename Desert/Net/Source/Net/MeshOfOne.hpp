@@ -274,6 +274,9 @@ namespace Desert::Net
         // (the mark may overtake the commit). False when @p player's pawn is neither incoming nor adopted with
         // the forward awaited.
         bool BacklogLanded( PlayerId player );
+        // True when @p player's pawn is adopted with its catch-up still awaiting the previous owner's forward (no
+        // end-of-backlog mark landed, before the commit or after it).
+        [[nodiscard]] bool AwaitsBacklog( PlayerId player ) const;
 
     private:
         // The queue above which a step consumes kMaxInputsPerStep input steps instead of one (the sync's target).
