@@ -17,12 +17,22 @@
 // PawnSimulation (not stepped; inputs the gateway already re-routed here queue on it - no input is dropped)
 // while Accept goes to the store; Commit -> the incoming pawn becomes owned and catches up to this sim's step;
 // Refused -> the copy is dropped with the reason. An Offer that fails a check is answered with Refuse(reason) and
-// nothing is held. A receiver IN DOUBT - accepted, and no Commit or Refused for kInDoubtWait (one was lost) - asks
-// the coordinator: it re-sends its Accept, and the store answers every vote with the offer's outcome (Commit again
-// when the record already names this sim, Refused(OfferUnknown) when the offer ended any other way, the commit
-// itself when the offer is still open); it asks again every kInDoubtWait until an answer comes. Dropping the copy
-// on a timer alone would leave a committed pawn with no owner. A player that leaves while its pawn is incoming
-// waits for the same decision (PawnSimulation::PlayerLeft).
+// nothing is held; an Offer whose header decoded and whose pawn record did not is refused Malformed under its key,
+// the Detail naming the byte the read was cut at (Handover::DescribeCut) - the only Offer left unanswered is one
+// cut inside its header (no key to refuse under: the sender's deadline ends it). A receiver IN DOUBT - accepted,
+// and no Commit or Refused for kInDoubtWait (one was lost or did not decode) - asks the coordinator: it re-sends
+// its Accept, and the store answers every vote with the outcome of the pawn it names (Commit again when the record
+// already names this sim, Refused(OfferUnknown) when the offer ended any other way, the commit itself when the
+// offer is still open); it asks again every kInDoubtWait until an answer comes. Dropping the copy on a timer alone
+// would leave a committed pawn with no owner. A player that leaves while its pawn is incoming waits for the same
+// decision (PawnSimulation::PlayerLeft).
+//
+// EVERY VOTE NAMES ITS PAWN (HandoverWire.hpp Verdict::Id): the Accept and Refuse carry the offered pawn's net id
+// (kInvalidNetId only on a Refuse(Malformed) of a record whose pawn did not decode), the in-doubt Accept the
+// copy's, the Withdraw the held pawn's - so a reused offer serial can never move or answer another pawn's record.
+// A decision that does not decode is logged with the byte it was cut at and not acted on: the side that waits for
+// it asks again (the in-doubt Accept; the sender's Withdraw, which the store answers with Committed again when the
+// record already moved).
 //
 // Lives in Server/Source/main.cpp's sim role next to PawnSimulation, RemoteGatewayLink and the store replica;
 // the mesh handler routes the store's handover messages (IsHandoverMessage) and the coordinator's map here.

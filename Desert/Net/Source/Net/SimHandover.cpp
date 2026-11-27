@@ -126,8 +126,8 @@ namespace Desert::Net
             }
             if ( withdrawn != m_BackoffEnd.end() )
                 continue; // the Withdraw went; the store's answer decides
-            m_Endpoint.SendToRole( EMeshRole::Store,
-                                   Handover::EncodeWithdraw( { OfferKey{ m_Sim, offer.Serial }, m_Sim, step } ) );
+            m_Endpoint.SendToRole( EMeshRole::Store, Handover::EncodeWithdraw( { OfferKey{ m_Sim, offer.Serial },
+                                                                                 offer.Id, m_Sim, step } ) );
             m_BackoffEnd[player] = step;
             m_Log(
                  std::format( "sim {}: offer #{} of pawn net id {} (player {}) to sim {} - {}; Withdraw sent, the "
@@ -346,11 +346,28 @@ namespace Desert::Net
     {
         Handover::OfferHeader        header;
         PawnSimulation::HandoverPawn pawn;
-        if ( !Handover::DecodeOffer( body, header, pawn ) )
+        const Handover::DecodedOffer read = Handover::DecodeOffer( body, header, pawn );
+        if ( !read && read.Header )
         {
-            // No key to answer: the store's deadline on the sender ends the offer (ReceiverSilent).
-            m_Log( std::format( "sim {}: an offer from the store is malformed ({} bytes); not answered", m_Sim,
-                                body.size() ) );
+            // THE KEY WAS READ, THE PAWN WAS NOT: refused under that key at once, so the store ends the offer in
+            // one round trip and tells the sender why. No pawn was read: the vote names none (kInvalidNetId), and
+            // the store matches a Refuse by key and speaker alone.
+            const Refusal refusal{ ERefusal::Malformed, Handover::DescribeCut( read ) };
+            m_Endpoint.SendToRole(
+                 EMeshRole::Store,
+                 Handover::EncodeRefuse( Handover::Verdict{ header.Key, kInvalidNetId, m_Sim, step }, refusal ) );
+            ++m_Stats.IncomingRefused;
+            m_Log( std::format( "sim {}: offer (sim {}, #{}) to sim {} refused - {}; nothing held", m_Sim,
+                                header.Key.From, header.Key.Serial, header.To, Handover::Describe( refusal ) ) );
+            return;
+        }
+        if ( !read )
+        {
+            // The one record the wire cannot answer: without the header there is no key to refuse under, so the
+            // sender's deadline (kOfferDeadline -> Withdraw -> the store's answer) ends the offer.
+            m_Log( std::format( "sim {}: an offer from the store did not decode - {}; no key to answer: the "
+                                "sender's deadline ends it",
+                                m_Sim, Handover::DescribeCut( read ) ) );
             return;
         }
         const PlayerId      player = pawn.Player;
@@ -381,7 +398,7 @@ namespace Desert::Net
         else if ( const Common::BoolResultStr cell = sim.CanTake( pawn ); !cell )
             refusal = Refusal{ ERefusal::NoCell, cell.GetError() };
 
-        const Handover::Verdict verdict{ header.Key, m_Sim, step };
+        const Handover::Verdict verdict{ header.Key, id, m_Sim, step };
         if ( refusal )
         {
             m_Endpoint.SendToRole( EMeshRole::Store, Handover::EncodeRefuse( verdict, *refusal ) );
@@ -416,7 +433,7 @@ namespace Desert::Net
             if ( waited < Handover::kInDoubtWait )
                 continue;
             m_Endpoint.SendToRole( EMeshRole::Store,
-                                   Handover::EncodeAccept( Handover::Verdict{ held.Key, m_Sim, step } ) );
+                                   Handover::EncodeAccept( Handover::Verdict{ held.Key, held.Id, m_Sim, step } ) );
             ++m_Stats.InDoubtAsks;
             m_Log(
                  std::format( "sim {}: offer (sim {}, #{}) of pawn net id {} (player {}) accepted at step {}, no "
@@ -437,10 +454,18 @@ namespace Desert::Net
     {
         Handover::Decision decision;
         Refusal            refusal;
-        if ( !Handover::DecodeDecision( body, decision, type == EMessage::Refused ? &refusal : nullptr ) )
+        if ( const Handover::Decoded read =
+                  Handover::DecodeDecision( body, decision, type == EMessage::Refused ? &refusal : nullptr );
+             !read )
         {
-            m_Log( std::format( "sim {}: a {} from the store is malformed ({} bytes); ignored", m_Sim,
-                                Handover::MessageName( type ), body.size() ) );
+            // Nothing to answer: a decision is the coordinator's, and the participant that waits for it asks
+            // again. A cut Commit, or a cut Refused for the receiver, leaves it in doubt - AskInDoubt re-sends its
+            // Accept and the store answers with the outcome (the Commit again, or Refused); a cut Committed, or a
+            // cut Refused for the sender, leaves its offer open - its deadline sends Withdraw and the store
+            // answers with the outcome (Committed again when the record already moved, HandoverLedger.hpp).
+            m_Log( std::format( "sim {}: a {} from the store did not decode - {}; not acted on, the store's "
+                                "answer to the next ask decides",
+                                m_Sim, Handover::MessageName( type ), Handover::DescribeCut( read ) ) );
             return;
         }
         // Matched by the OFFER KEY, never by the net id (a Refused(OfferUnknown) names no pawn).
@@ -504,13 +529,16 @@ namespace Desert::Net
             }
             const PlayerId player = incoming->first;
             const Incoming held   = incoming->second;
-            // A decision names its key AND its subject: a Commit under this key for another pawn (a restarted
-            // sender reusing its serials) is not this copy's - the copy stays in doubt and asks again.
+            // THE RECEIVER'S INVARIANT, not a path: the store commits only on a vote naming the open offer's pawn
+            // (HandoverWire.hpp "A VOTE NAMES ITS SUBJECT"), and this sim's votes name the copy's (OnOffer,
+            // AskInDoubt) - so a Commit naming another pawn is a store defect. It is named, and the copy is NOT
+            // promoted on it: it stays in doubt and asks again.
             if ( decision.Id != held.Id )
             {
-                m_Log( std::format( "sim {}: Commit of offer (sim {}, #{}) names pawn net id {} at epoch {}, but "
-                                    "the incoming copy under that key is pawn net id {} (player {}) - decision "
-                                    "dropped, the copy stays in doubt",
+                m_Log( std::format( "sim {}: INVARIANT BROKEN - Commit of offer (sim {}, #{}) names pawn net id {} "
+                                    "at epoch {}, but this sim's vote under that key named pawn net id {} (player "
+                                    "{}); the store commits only the pawn a vote names - not promoted, the copy "
+                                    "stays in doubt",
                                     m_Sim, decision.Key.From, decision.Key.Serial, decision.Id, decision.Epoch,
                                     held.Id, player ) );
                 return;
