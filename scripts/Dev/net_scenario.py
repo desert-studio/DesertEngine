@@ -93,6 +93,8 @@ class Role:
         self.name, self.kind, self.proc, self.logpath, self.seqdir = name, kind, proc, logpath, seqdir
         self.lines, self.cursor, self.partial, self.drawn = [], 0, "", []
         self.hold = False  # a Тогда is choosing its frame: nothing announced is deleted meanwhile
+        self.claimed = {}  # sequence frame number -> the «Тогда» statement that took it
+        self.frames = 0  # the line after the last frame a «Тогда» took; Ждать never reads it
         self.reader = open(logpath, encoding="utf-8", errors="replace")
 
     def pump(self):
@@ -435,30 +437,47 @@ class Run:
         # `wrote ... frame_N.png` written from that frame's own copy. Frame N+1 is kept beside it as <name>_next.png
         # (D2: the next frame is judged, not assumed). Never "the first file written after the Тогда": with the
         # render pipelined a frame is written after the next tick, so that file was the frame BEFORE.
+        # CONSUMED OFFSET (NET-SCN-FRAME-CLAIMED): once frames N/N+1 are taken, r.frames moves past the line that
+        # announced frame N+1, so the next «Тогда» on this role waits for a newer frame - never re-reads these.
+        # r.cursor stays Ждать's: a one-shot line logged while «Тогда» waited for its frames is still matched.
         name, what = parts[1], parts[2] if len(parts) > 2 else ""
+        stmt = f"«Тогда {r.name} {name}»"
         r.hold = True
         try:
-            start, deadline, n, game, got = r.cursor, time.time() + 120, None, None, {}
+            start, deadline, n, game, got, after = max(r.cursor, r.frames), time.time() + 120, None, None, {}, None
             while time.time() < deadline:
-                for line in r.lines[start:]:
+                for index in range(start, len(r.lines)):
+                    line = r.lines[index]
                     if n is None:
                         m = RECORDED.search(line)
                         if m:
                             n, game = int(m.group(1)), m.group(2)
+                            if n in r.claimed:
+                                raise Fail(f"{stmt} found {r.name}'s frame_{n:05d} already taken by {r.claimed[n]}")
+                        continue
+                    m = RECORDED.search(line)
+                    if m and int(m.group(1)) == n + 1:
+                        after = index + 1
                         continue
                     m = SHOT.search(line)
                     k = SEQNUM.search(m.group(1)) if m and os.path.dirname(m.group(1)) == r.seqdir else None
                     if k and int(k.group(1)) in (n, n + 1) and int(k.group(1)) not in got:
-                        dst = os.path.join(self.out, name + ("" if int(k.group(1)) == n else "_next") + ".png")
+                        frame = int(k.group(1))
+                        dst = os.path.join(self.out, name + ("" if frame == n else "_next") + ".png")
+                        if frame in r.claimed:
+                            raise Fail(f"{stmt} found {r.name}'s frame_{frame:05d} already taken by "
+                                       f"{r.claimed[frame]}")
                         # A Ждать on another role may have pumped this one first (hold was off then) and deleted
                         # the announced file: the frame is gone, said by name - never another frame in its place.
                         if not os.path.exists(m.group(1)):
                             raise Fail(f"{r.name} wrote {os.path.basename(m.group(1))} for {name} but the file is gone "
                                        f"(deleted as an unclaimed sequence frame before this «Тогда» took it)")
                         os.replace(m.group(1), dst)
-                        got[int(k.group(1))] = dst
+                        got[frame] = dst
                 start = len(r.lines)
-                if n is not None and len(got) == 2:
+                if n is not None and len(got) == 2 and after is not None:
+                    r.claimed[n] = r.claimed[n + 1] = stmt
+                    r.frames = max(r.frames, after)
                     return (f"{name}.png\t(frame_{n:05d}, game frame {game}) {what}\n"
                             f"{name}_next.png\t(frame_{n + 1:05d}) the frame after {name}")
                 if r.proc.poll() is not None:
@@ -469,7 +488,8 @@ class Run:
             r.hold = False
         if n is None:
             raise Fail(f"{r.name} recorded no frame (no `[Shot] recorded frame_N`) within 120 s for {name}")
-        raise Fail(f"{r.name} recorded frame_{n:05d} for {name} but wrote {sorted(got)} of it and the next within 120 s")
+        raise Fail(f"{r.name} recorded frame_{n:05d} for {name} but wrote {sorted(got)} of it and the "
+                   f"`recorded frame_{n + 1:05d}` line within 120 s")
 
     def end(self):
         """Gauntlet ends every role when the test ends: the server is asked first (SIGINT), then the rest."""
