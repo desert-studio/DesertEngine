@@ -74,7 +74,7 @@ namespace Desert::Core
         std::vector<ActiveWork>     Active;          // oldest first, at most kActiveShown (wait reasons in scene.reveal)
         double                      Fraction         = 0.0; // 0..1, monotonic across samples, 1 only after Finish
         double                      ElapsedSeconds   = 0.0;
-        double                      RemainingSeconds = 0.0; // what Fraction implies: elapsed * (1 - f) / f
+        double                      RemainingSeconds = 0.0; // what Fraction implies, elapsed*(1-f)/f; never rises
         std::vector<StartupLogLine> Log; // newest last, at most kLogShown
         bool                        StopRequested = false;
         bool                        Finished      = false;
@@ -153,6 +153,7 @@ namespace Desert::Core
         StartupClock::time_point        m_ProcessStart;
         StartupClock::time_point        m_LastSample{};
         double                          m_Shown    = 0.0;
+        double                          m_ShownRemaining = 0.0; // the last sample's RemainingSeconds (never rises)
         bool                            m_Finished = false;
         std::atomic<bool>               m_Stop{ false };
     };

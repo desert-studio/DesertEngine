@@ -501,14 +501,14 @@ namespace Desert::Editor
                 count.Active.push_back(
                      { std::format( "{} {}", Assets::AssetTypeName( reads.CurrentType ),
                                     std::filesystem::path( reads.Current ).filename().string() ),
-                       std::chrono::duration<double>( now - watch.ReadSince ).count() } );
+                       std::max( std::chrono::duration<double>( now - watch.ReadSince ).count(), 0.0 ) } );
             }
             // Nothing on a worker or in the driver while the phase runs: the main thread is doing the scene's work
             // (instancing what landed, asking the next reads). Said as that, aged from the last thing in flight.
             if ( count.Active.empty() )
                 count.Active.push_back(
                      { "Main thread, nothing in flight",
-                       std::chrono::duration<double>( now - watch.LastInFlight ).count() } );
+                       std::max( std::chrono::duration<double>( now - watch.LastInFlight ).count(), 0.0 ) } );
             else
                 watch.LastInFlight = now;
             return count;

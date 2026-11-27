@@ -31,6 +31,17 @@ namespace Desert::Core
         // The floor of the current phase's estimate: an ETA of 0 while work runs would be a lie, and it would
         // let the bar reach 1 before Finish.
         constexpr double kRemainingFloorSeconds = 0.5;
+
+        // An uncounted phase's seconds left after @p elapsed of its @p expected: linear down to its knee (half of
+        // it), then the hyperbola knee^2 / elapsed -- equal value and slope at the knee, a quarter of the
+        // expectation at the expectation, and still falling through any overrun, so it never stops while work
+        // runs and never reaches 0 (the floor).
+        [[nodiscard]] double ExpectedLeft( const double expected, const double elapsed )
+        {
+            const double knee     = 0.5 * expected;
+            const double estimate = elapsed <= knee ? expected - elapsed : knee * knee / elapsed;
+            return std::max( estimate, kRemainingFloorSeconds );
+        }
     } // namespace
 
     StartupProgress::StartupProgress( std::vector<StartupPhaseSpec>              plan,
@@ -196,13 +207,16 @@ namespace Desert::Core
         if ( !m_Current )
         {
             // Before the first BeginPhase the process is already doing the plan's first phase's work (the
-            // window, the instance): the splash names it from its first frame, nothing counted yet.
+            // window, the instance; the engine always runs it): the splash names it from its first frame and
+            // estimates it as running since the process's start, nothing counted yet.
             const auto next = std::find_if( m_Phases.begin(), m_Phases.end(),
                                             []( const Phase& phase ) { return !phase.Ended; } );
             if ( next != m_Phases.end() )
             {
                 view.Phase       = next->Spec.Label;
                 view.PhaseNumber = static_cast<size_t>( next - m_Phases.begin() ) + 1;
+                remaining        = ExpectedLeft( next->Expected, view.ElapsedSeconds );
+                ahead            = view.PhaseNumber;
             }
         }
         else
@@ -224,24 +238,41 @@ namespace Desert::Core
         // THE SHOWN FRACTION (R3): elapsed over elapsed + left. When a re-plan raised what is left, the bar does
         // not go back: the share still to do is crossed at the rate the new estimate gives, so it rises while
         // time passes and reaches 1 only at Finish.
-        const double elapsed = view.ElapsedSeconds;
-        const double raw     = elapsed + remaining > 0.0 ? elapsed / ( elapsed + remaining ) : 0.0;
+        const double elapsed  = view.ElapsedSeconds;
+        const double raw      = elapsed + remaining > 0.0 ? elapsed / ( elapsed + remaining ) : 0.0;
+        const bool   sampled  = m_LastSample != StartupClock::time_point{};
+        const double step     = sampled ? std::max( SecondsBetween( m_LastSample, now ), 0.0 ) : 0.0;
+        const double maxShown = std::nextafter( 1.0, 0.0 );
         if ( raw >= m_Shown )
             m_Shown = raw;
-        else if ( m_LastSample != StartupClock::time_point{} )
-        {
-            const double step = std::max( SecondsBetween( m_LastSample, now ), 0.0 );
+        else if ( sampled )
             m_Shown += ( 1.0 - m_Shown ) * step / ( step + std::max( remaining, kRemainingFloorSeconds ) );
-        }
-        m_Shown       = std::min( m_Shown, std::nextafter( 1.0, 0.0 ) );
-        m_LastSample  = now;
-        view.Fraction = m_Shown;
+        m_Shown = std::min( m_Shown, maxShown );
+
         // THE SHOWN TIME LEFT IS THE BAR'S: the seconds the shown fraction implies at the elapsed time,
-        // elapsed * (1 - f) / f. One source for both, so the number never says "0:16 left" beside a bar at 97 %;
-        // while the bar follows the plan (raw >= shown) it is R itself, and while the bar crosses a re-planned
-        // remainder it falls with every sample (an overrun no longer holds it), reaching near 0 at the reveal.
-        view.RemainingSeconds =
-             m_Shown > 0.0 ? std::max( elapsed * ( 1.0 - m_Shown ) / m_Shown, kRemainingFloorSeconds ) : remaining;
+        // elapsed * (1 - f) / f -- one source for both, so the number never says "0:16 left" beside a bar at
+        // 97 %. It never rises: each sample it is at most the last one less step * S / (S + elapsed), so it falls
+        // in every sample (faster early, slower late, never 0); when that cap binds (an overrun, a re-plan that
+        // raised R, a counted phase whose first item was slow) the bar is moved to the fraction the capped time
+        // implies, which is above where it was, so the bar stays monotonic and reaches near 1 at the reveal.
+        double left = m_Shown > 0.0 ? std::max( elapsed * ( 1.0 - m_Shown ) / m_Shown, kRemainingFloorSeconds )
+                                    : std::max( remaining, kRemainingFloorSeconds );
+        if ( sampled )
+        {
+            const double cap =
+                 std::max( m_ShownRemaining - step * m_ShownRemaining /
+                                                   std::max( m_ShownRemaining + elapsed, kRemainingFloorSeconds ),
+                           kRemainingFloorSeconds );
+            if ( left > cap && elapsed > 0.0 )
+            {
+                left    = cap;
+                m_Shown = std::min( std::max( m_Shown, elapsed / ( elapsed + left ) ), maxShown );
+            }
+        }
+        m_ShownRemaining      = left;
+        m_LastSample          = now;
+        view.Fraction         = m_Shown;
+        view.RemainingSeconds = left;
         return view;
     }
 
@@ -317,12 +348,8 @@ namespace Desert::Core
             const double left = count.Total > count.Done ? static_cast<double>( count.Total - count.Done ) : 0.0;
             return std::max( elapsed * left / static_cast<double>( count.Done ), kRemainingFloorSeconds );
         }
-        // Otherwise the expectation, linear down to its knee (half of it), then the hyperbola knee^2 / elapsed:
-        // equal value and slope at the knee, a quarter of the expectation at the expectation, and still falling
-        // through any overrun -- it never stops while work runs and never reaches 0 (the floor).
-        const double knee     = 0.5 * phase.Expected;
-        const double estimate = elapsed <= knee ? phase.Expected - elapsed : knee * knee / elapsed;
-        return std::max( estimate, kRemainingFloorSeconds );
+        // Otherwise the expectation, decaying through an overrun.
+        return ExpectedLeft( phase.Expected, elapsed );
     }
 
     void StartupProgress::EndCurrent( const StartupClock::time_point now )
