@@ -301,11 +301,18 @@ def fix_brief_refusal(path, text):
     return None
 
 
-def owned_chars(tree, files):
-    """Characters an engineer would read to know its owned files (a directory counts whole); new files count 0."""
+def owned_chars(tree, files, reads=None):
+    """Characters an engineer would read to know its owned files (a directory counts whole); new files count 0.
+    reads: {file: [[first, last], ...]} - the design's declared line ranges; such a file counts only those lines."""
     total = 0
     for entry in files:
         root = os.path.join(tree, entry.strip())
+        ranges = (reads or {}).get(entry.strip())
+        if ranges and os.path.isfile(root):
+            with open(root, encoding="utf-8", errors="replace") as fh:
+                lines = fh.readlines()
+            total += sum(len(l) for a, b in ranges for l in lines[max(a - 1, 0):b])
+            continue
         if os.path.isfile(root):
             total += os.path.getsize(root)
         for here, _, names in (os.walk(root) if os.path.isdir(root) else ()):
@@ -325,7 +332,7 @@ def remainder_commits(tree):
 def package_spend_refusal(code, brief, pkg):
     """SPEND_RULES 11-27: a package fits the read budget, and a package that left two remainders is split, not rerun."""
     tree = pkg.get("tree") or ""
-    chars = owned_chars(tree, pkg.get("files") or []) if os.path.isdir(tree) else 0
+    chars = owned_chars(tree, pkg.get("files") or [], pkg.get("reads")) if os.path.isdir(tree) else 0
     if chars > limits.PACKAGE_READ_CHARS:
         return (f"пакет {code}: файлы пакета {chars // 1000}k знаков > limits.PACKAGE_READ_CHARS "
                 f"({limits.PACKAGE_READ_CHARS // 1000}k) — раздели пакет (architect) или сузь «Файлы:» до файлов и строк.")
