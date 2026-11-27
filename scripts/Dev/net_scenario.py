@@ -41,6 +41,14 @@ Line format (one step per line in order, `#` comments; a step's REGEX is the res
                                               {var1}, {var2}, … ({var1-20000} adds, for a console line)
   Сверить|Compare <var> <var> <cm>            every component of the two equal within <cm>
   Нет|Never <role> <REGEX>                    the role's whole log so far has no line matching REGEX
+  Порядок|Order <role> <REGEX> < <role> <REGEX>
+                                              the first role's LAST line matching its REGEX so far was written
+                                              before the second role's LAST matching line, by the lines' own
+                                              [HH:MM:SS.mmm] stamps (roles are different files: line numbers do not
+                                              compare); a missing line, an unstamped one or the wrong order fails
+                                              naming both lines. One stamp is a millisecond: the same millisecond
+                                              passes (a cross-process order finer than that is not in the logs); a
+                                              second line more than 12 h "earlier" is read as past midnight.
   Тогда|Then <role> <frame> <what it shows…>  the next frame the editor role draws, as <frame>.png (index.txt)
 Output: <scratch>/<CODE>/frames/scn-<time>/ (scn-latest points at it): <role>.log per role, the frames, index.txt,
 result.txt, trace.txt (each step's time and what it read), the scenario, cook.log. Every role is ended when the steps end or one fails.
@@ -61,8 +69,10 @@ KEYWORDS = {
     "проект": "project", "project": "project", "мир": "world", "world": "world", "роль": "role", "role": "role",
     "ждать": "wait", "wait": "wait", "консоль": "console", "console": "console", "запомнить": "read",
     "read": "read", "сверить": "compare", "compare": "compare", "нет": "never", "never": "never",
-    "тогда": "then", "then": "then", "сигнал": "signal", "signal": "signal",
+    "тогда": "then", "then": "then", "сигнал": "signal", "signal": "signal", "порядок": "order", "order": "order",
 }
+STAMP = re.compile(r"^\[(\d\d):(\d\d):(\d\d)\.(\d{3})\]")  # a role log line's wall-clock stamp
+DAY_MS = 24 * 3600 * 1000
 SERVER_ROLES = ("all", "coordinator", "store", "sim", "gateway")
 SIGNALS = {"STOP": "SIGSTOP", "CONT": "SIGCONT", "TERM": "SIGTERM"}
 PLACEHOLDER = re.compile(r"\{([A-Za-z_]+)(\d+)([+-]\d+(?:\.\d+)?)?\}")
@@ -425,6 +435,29 @@ class Run:
         if hit:
             raise Fail(f"{name}'s log has «{pattern}»: {hit.strip()[:200]}")
 
+    def order(self, rest):
+        sides = rest.split(" < ")
+        if len(sides) != 2:
+            raise Fail("«Порядок» takes <role> <regex> < <role> <regex> (one \" < \" between the two)")
+        self.poll()
+        found = []
+        for side in sides:
+            name, _, pattern = side.strip().partition(" ")
+            r, rx = self.role(name), re.compile(pattern)
+            line = next((l for l in reversed(r.lines) if rx.search(l)), None)
+            stamp = STAMP.match(line) if line else None
+            found.append((name, pattern, line, stamp))
+        said = " < ".join(f"{n}: {l.strip()[:160] if l else f'no line matches «{p}»'}" for n, p, l, _ in found)
+        if any(not st for *_, st in found):
+            raise Fail(f"order unproven, a line is missing or has no stamp - {said}")
+        a, b = (((int(h) * 60 + int(m)) * 60 + int(sec)) * 1000 + int(ms) for h, m, sec, ms in
+                (st.groups() for *_, st in found))
+        if b - a < -DAY_MS // 2:
+            b += DAY_MS
+        if b < a:
+            raise Fail(f"wrong order, the second line is {a - b} ms earlier - {said}")
+        return f"{b - a} ms apart - {said}"
+
     def then(self, rest):
         parts = rest.split(None, 2)
         if len(parts) < 2:
@@ -549,7 +582,7 @@ def main():
                 continue
             said = {"world": run.set_world, "role": run.start_role, "wait": run.wait, "console": run.console,
                     "read": run.read, "compare": run.compare, "never": run.never, "then": run.then,
-                    "signal": run.signal}[op](rest)
+                    "signal": run.signal, "order": run.order}[op](rest)
             if op == "then":
                 index.append(said)
                 frames += 1
