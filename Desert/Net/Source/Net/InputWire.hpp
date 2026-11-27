@@ -22,13 +22,22 @@
 // RUN LAYOUT (little-endian; after the message's own type / sequence bytes):
 //   U32 FirstStep, U8 Count (1..kMaxUnackedInputSteps)
 //   step 0, FULL:       I8 MoveX, I8 MoveY, I8 MoveZ, I16 Yaw, U32 Actions, U8 axisCount (<= kMaxInputAxes), I8 x axisCount
-//   steps 1..Count-1:   U8 mask (kDelta* bits; the upper bits are zero or the message is malformed), then only
+//   steps 1..Count-1:   records, each either
+//                       U8 mask (kDelta* bits; the upper bits are zero or the message is malformed), then only
 //                       the fields the mask names, in the FULL order (Move 3 B, Yaw 2 B, Actions 4 B, Axes 1+n B)
+//                       - one step; a lone unchanged step is mask 0, 1 B - or
+//                       U8 kDeltaRepeat, U8 n (kMinRepeatSteps .. the steps still to come) - n steps equal to the
+//                       one before them, 2 B (NET-INPUT-RUNLENGTH; UE FSavedMove_Character::CanCombineWith sends
+//                       identical moves as one). The encoder codes every run of 2+ unchanged steps this way; the
+//                       decoder expands it back to n numbered steps, so the server still steps every one of them.
+//                       n under kMinRepeatSteps or past Count is malformed: the whole run is refused.
 // Step numbers are not on the wire: the run is CONSECUTIVE (FirstStep + i). The InputRing is consecutive by
 // construction (numbered by one counter, trimmed only at the front), so the encoder refuses anything else.
 //
 // Sizes: a walking pawn at 60 Hz with 15 unacked steps - 10 B run (+10 B message head: type, sequence) against
-// 381 B today; a starved client (50 steps, turning every step) - 304 B, under one UDP MTU, against 1256 B.
+// 381 B today; a starved client (50 steps, turning every step) - 304 B, under one UDP MTU, against 1256 B. A pawn
+// at rest (30 equal steps per message, NET-SEND-THROTTLE) - 5 B message head + 5 B run head + 10 B full step +
+// one 2 B repeat record = 22 B, against 49 B coded 1 B per unchanged step.
 
 #include <Net/Replication.hpp>
 
@@ -48,11 +57,16 @@ namespace Desert::Net
     inline constexpr std::uint8_t kDeltaActions = 1u << 2;
     inline constexpr std::uint8_t kDeltaAxes    = 1u << 3;
     inline constexpr std::uint8_t kDeltaKnown   = kDeltaMove | kDeltaYaw | kDeltaActions | kDeltaAxes;
+    // The marker of a repeat record (RUN LAYOUT); alone in its byte - with any other bit set the byte is malformed.
+    inline constexpr std::uint8_t kDeltaRepeat  = 1u << 7;
+    static_assert( ( kDeltaRepeat & kDeltaKnown ) == 0, "the repeat marker is not a field bit" );
 
     // Byte sizes the acceptance and the logs quote; the encoder's output is exactly these.
     inline constexpr std::size_t kRunHeadBytes     = 4 + 1;         // FirstStep, Count
     inline constexpr std::size_t kFullStepBytes    = 3 + 2 + 4 + 1; // without the axes' bytes
-    inline constexpr std::size_t kUnchangedStepBytes = 1;           // a delta step whose mask is 0
+    inline constexpr std::size_t kUnchangedStepBytes = 1;           // a lone delta step whose mask is 0
+    inline constexpr std::size_t kRepeatRecordBytes  = 1 + 1;       // kDeltaRepeat, n
+    inline constexpr std::size_t kMinRepeatSteps     = 2;           // fewer cost no more as mask-0 bytes
 
     // The step as the server will see it: every field quantized and dequantized through the lattice above. Pure;
     // idempotent (OnWireLattice(OnWireLattice(s)) == OnWireLattice(s), field by field, as floats).
@@ -66,7 +80,8 @@ namespace Desert::Net
 
     // Reads one run from the front of @p in, advancing it past the run; @p out receives the steps, oldest first,
     // with Step = FirstStep + i and every field on the lattice. False (and @p in / @p out unspecified) when the
-    // bytes are not a run: a zero or over-large count, a truncated field, an unknown mask bit, too many axes.
+    // bytes are not a run: a zero or over-large count, a truncated field, an unknown mask bit, too many axes, a
+    // repeat record shorter than kMinRepeatSteps or running past the count.
     [[nodiscard]] bool ReadInputRun( std::span<const std::byte>& in, std::vector<InputStep>& out );
 
     // One step WITH its number, full fields: U32 Step + the FULL layout. For lists that are not consecutive - the
