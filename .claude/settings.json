@@ -32,7 +32,8 @@
         "matcher": "*",
         "hooks": [
           { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/agent_guard.py\"" },
-          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/lead_watch.py\"" }
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/lead_watch.py\"" },
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/silence_guard.py\" --remind", "timeout": 10 }
         ]
       },
       {

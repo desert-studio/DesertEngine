@@ -27,7 +27,7 @@ def is_tool_result(content):
 
 
 def written_this_turn(path):
-    """(owner started the turn, characters of text the lead wrote since the turn began)."""
+    """(owner started the turn, characters of text the lead wrote since the turn began, the turn's first row id)."""
     rows = []
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -44,8 +44,24 @@ def written_this_turn(path):
             said = text_of(msg.get("content")).lstrip()
             if not said:
                 continue
-            return not said.startswith(NOT_OWNER), chars
-    return True, chars
+            return not said.startswith(NOT_OWNER), chars, row.get("uuid", "")
+    return True, chars, ""
+
+
+def remind(data, owner, turn):
+    """PostToolUse: once per turn the owner did not start, say before the final text that it is at most two words."""
+    state = limits.STUDIO_HOME + "/silence-remind.state"
+    try:
+        with open(state, encoding="utf-8") as f:
+            if f.read() == turn:
+                return
+    except OSError:
+        pass
+    with open(state, "w", encoding="utf-8") as f:
+        f.write(turn)
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
+          f"[silence_guard] этот ход начал не владелец: в конце хода не больше limits.SILENT_TEXT_MAX знаков "
+          f"(два слова, например «Жду.»), без итогов и статусов — владелец 11-27."}}))
 
 
 def main():
@@ -53,8 +69,12 @@ def main():
     if data.get("stop_hook_active") or data.get("agent_id") or not data.get("transcript_path"):
         return
     try:
-        owner, chars = written_this_turn(data["transcript_path"])
+        owner, chars, turn = written_this_turn(data["transcript_path"])
     except OSError:
+        return
+    if "--remind" in sys.argv:
+        if not owner:
+            remind(data, owner, turn)
         return
     if not owner and chars > limits.SILENT_TEXT_MAX:
         with open(limits.STUDIO_HOME + "/silence-breaks.log", "a", encoding="utf-8") as log:
