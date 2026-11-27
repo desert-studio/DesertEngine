@@ -54,6 +54,14 @@
 Ждать A 60 fresh \[Shot\] recorded frame_
 Тогда A tp_refused A's frame after the server line: the same ground and horizon as tp_ground_next; no cut, no correction
 Нет A correction 3 at
+# 3b. Teleport above every cell (NET-RESIDENCY-HEIGHT-OUTCOME): (40000, 3000) is in cells of the grid, but y = 10 km is
+# past their content height grown by the search's column (lift / drop), so ServerWorld::ResidencyAt's height check
+# says NoCell and states WHY (Net::PointResidency::Note: the cells there and the y span they reach); Teleport refuses
+# with that reason and nothing is queued. [teleport_search_nodefault] is these log lines: no default height, no
+# fallback placement.
+Консоль server teleport 1 40000 1000000 3000
+Ждать server 120 console 'teleport 1 40000 1000000 3000': no cell of the world's grid reaches \(40000, 1000000, 3000\) cm: the \d+ cell\(s\) at \(40000, 3000\) cm reach y -?\d+ to -?\d+ cm \(content height, lifted \d+ / dropped \d+ cm by the search\): the pawn stays at \(40000, 5[6-9]\d, 3000\) cm
+Нет server teleport of pawn 1 to \(40000, 1000000
 # 4. Proxies see no slide (D4): proven at 2b on B's pawns line.
 # 5. Terminal velocity / no fall: the client's streaming source never sees a >1000 cm per-frame move after the landing
 # (scn-1127-020957/A.log:3762 "jumped 1060 cm ... velocity reset" every ~0.2 s of the fall).

@@ -27,13 +27,23 @@ namespace Desert::Net
         Resident, // every cell whose loose bounds hold the point is Activated: the collision there is in the world
     };
 
+    // The outcome of one residency question, with its reason (errors are values: the check states why, the caller
+    // logs it once). Note names the branch taken - "no cell of the world's grid at (x, z) cm", "no cell of the
+    // world's grid reaches (x, y, z) cm: ..." (the cells there do not reach the point's height), "cell '...' at
+    // (x, z) cm is loading ...", "N cell(s) reaching (x, y, z) cm resident".
+    struct PointResidency
+    {
+        EPointResidency Residency = EPointResidency::NoCell;
+        std::string     Note;
+    };
+
     // The server's streamed world as the simulation sees it (ServerWorld implements it over its residency
     // executor's state; UE UWorldPartitionSubsystem::IsStreamingCompleted for one source point).
     class IWorldResidency
     {
     public:
         virtual ~IWorldResidency() = default;
-        [[nodiscard]] virtual EPointResidency ResidencyAt( const NetVec3& position ) const = 0;
+        [[nodiscard]] virtual PointResidency ResidencyAt( const NetVec3& position ) const = 0;
     };
 
     // The game's answer to "put this pawn at these feet": the state it stands in there, still (velocity zero,
