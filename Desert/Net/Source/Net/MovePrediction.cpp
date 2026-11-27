@@ -21,6 +21,8 @@ namespace Desert::Net
     void MovePredictor::Reset( const PawnMoveState& state )
     {
         m_Moves.clear();
+        m_LastAcked.reset();
+        m_LastCorrectionReacked = false;
         m_Current = m_Previous = state;
         m_Started              = true;
     }
@@ -37,30 +39,57 @@ namespace Desert::Net
     MovePredictor::EReconcile MovePredictor::Reconcile( std::uint32_t ackStep, const PawnMoveState& server,
                                                         IPawnMover& mover, float dtSeconds )
     {
+        // UE ClientAdjustPosition + ClientUpdatePositionAfterServerUpdate: take the server's state, replay every
+        // unacked move on it.
+        const auto takeServerAndReplay = [&]
+        {
+            PawnMoveState state = server, previous = server;
+            for ( SavedMove& move : m_Moves )
+            {
+                previous   = state;
+                state      = mover.Step( state, move.Input, dtSeconds );
+                move.After = state;
+            }
+            m_Previous = m_Moves.empty() ? server : previous;
+            m_Current  = state;
+            ++m_Corrections;
+        };
+
         const auto acked = std::find_if( m_Moves.begin(), m_Moves.end(),
                                          [&]( const SavedMove& move ) { return move.Input.Step == ackStep; } );
-        if ( acked == m_Moves.end() )
-            return EReconcile::Unknown;
-        const bool differ = MoveStatesDiffer( acked->After, server );
-        if ( differ )
+        if ( acked != m_Moves.end() )
         {
-            m_LastMispredicted      = acked->After;
-            m_LastMispredictedInput = acked->Input;
+            const bool differ = MoveStatesDiffer( acked->After, server );
+            if ( differ )
+            {
+                m_LastMispredicted      = acked->After;
+                m_LastMispredictedInput = acked->Input;
+            }
+            // UE LastAckedMove: what the server said about this step, kept for a later verdict on the same step.
+            m_LastAcked = SavedMove{ acked->Input, differ ? server : acked->After };
+            m_Moves.erase( m_Moves.begin(), std::next( acked ) );
+            if ( !differ )
+                return EReconcile::Matched;
+            takeServerAndReplay();
+            m_LastCorrectionReacked = false;
+            return EReconcile::Corrected;
         }
-        m_Moves.erase( m_Moves.begin(), std::next( acked ) );
-        if ( !differ )
-            return EReconcile::Matched;
-        // UE ClientAdjustPosition + ClientUpdatePositionAfterServerUpdate: take the server's state, replay.
-        PawnMoveState state = server, previous = server;
-        for ( SavedMove& move : m_Moves )
+
+        // The same step acked again: the server moved the pawn without a move of ours (a teleport, a held
+        // placement, a handover) while no newer step of ours has been processed.
+        if ( m_LastAcked && m_LastAcked->Input.Step == ackStep )
         {
-            previous   = state;
-            state      = mover.Step( state, move.Input, dtSeconds );
-            move.After = state;
+            if ( !MoveStatesDiffer( m_LastAcked->After, server ) )
+                return EReconcile::Matched;
+            m_LastMispredicted      = m_LastAcked->After;
+            m_LastMispredictedInput = m_LastAcked->Input;
+            m_LastAcked->After      = server;
+            takeServerAndReplay();
+            m_LastCorrectionReacked = true;
+            return EReconcile::Corrected;
         }
-        m_Previous = m_Moves.empty() ? server : previous;
-        m_Current  = state;
-        ++m_Corrections;
-        return EReconcile::Corrected;
+
+        // Older than the last acked step, or before the first prediction: a stale ack.
+        return EReconcile::Unknown;
     }
 } // namespace Desert::Net

@@ -247,9 +247,12 @@ namespace Desert::Net
     // ONE REMOTE PAWN'S TRANSFORM HISTORY, by server time (§5.3): sampled between the two snapshots around the
     // render time as a cubic Hermite of position with the replicated velocities as tangents (C1 across snapshots:
     // no velocity kinks at the samples, which linear interpolation shows as a stutter at 30 Hz), shortest-arc yaw,
-    // and the Hermite's derivative as the sampled velocity. Past the newest sample it extrapolates along the newest
-    // velocity for at most kMaxExtrapolationSeconds, then holds (UE SmoothClientPosition's capped extrapolation);
-    // before the first it holds it. Two samples across a teleport are a cut.
+    // and the Hermite's derivative as the sampled velocity. Past the newest sample it extrapolates along the
+    // newest velocity for at most kMaxExtrapolationSeconds, then holds (UE SmoothClientPosition's capped
+    // extrapolation); before the first it holds it. Across a teleport (two samples with different TeleportCount)
+    // the path runs on along the earlier sample's velocity by the same capped rule until the later sample's time,
+    // then cuts to it - never a slide, never a hold with a moving velocity (the locomotion speed is the drawn
+    // speed throughout).
     class InterpolationBuffer
     {
     public:

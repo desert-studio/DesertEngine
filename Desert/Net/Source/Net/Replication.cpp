@@ -29,6 +29,21 @@ namespace Desert::Net
                 delta += 2.f * kPi;
             return a + delta * t;
         }
+
+        // A sample run on along its own velocity for @p ahead seconds, capped at @p cap, then held still (UE
+        // SmoothClientPosition's capped extrapolation). Past the cap the velocity is zeroed: the locomotion stands
+        // rather than running on the spot, so its speed is always the drawn one.
+        PawnState Extrapolate( const PawnState& from, double ahead, double cap )
+        {
+            const float dt  = static_cast<float>( std::min( ahead, cap ) );
+            PawnState   out = from;
+            out.Position.X += from.Velocity.X * dt;
+            out.Position.Y += from.Velocity.Y * dt;
+            out.Position.Z += from.Velocity.Z * dt;
+            if ( ahead > cap )
+                out.Velocity = {};
+            return out;
+        }
     } // namespace
 
     std::vector<std::byte> EncodeInput( const InputMessage& message )
@@ -261,26 +276,18 @@ namespace Desert::Net
             return {};
         if ( serverSeconds <= m_Samples.front().Time )
             return m_Samples.front().State;
+        // Past the newest snapshot (a late or lost one): on along the newest velocity, capped, then held still.
         if ( serverSeconds >= m_Samples.back().Time )
-        {
-            // Past the newest snapshot (a late or lost one): on along the newest velocity, capped, then held still.
-            const PawnState& newest = m_Samples.back().State;
-            const double     ahead  = serverSeconds - m_Samples.back().Time;
-            const float      dt     = static_cast<float>( std::min( ahead, extrapolationCap ) );
-            PawnState        out    = newest;
-            out.Position.X += newest.Velocity.X * dt;
-            out.Position.Y += newest.Velocity.Y * dt;
-            out.Position.Z += newest.Velocity.Z * dt;
-            if ( ahead > extrapolationCap )
-                out.Velocity = {}; // held: the locomotion stands rather than walking on the spot
-            return out;
-        }
+            return Extrapolate( m_Samples.back().State, serverSeconds - m_Samples.back().Time, extrapolationCap );
         const auto     after = std::find_if( m_Samples.begin(), m_Samples.end(),
                                              [&]( const Sample_& s ) { return s.Time > serverSeconds; } );
         const Sample_& a     = *( after - 1 );
         const Sample_& b     = *after;
+        // Across a teleport the server's pawn moved along a's velocity until the teleport step, then stood at b:
+        // the path runs on from a by the same capped rule until b's time, where the next interval starts at b (a
+        // cut, never a slide). The drawn speed and the locomotion's speed stay one number through the window.
         if ( a.State.TeleportCount != b.State.TeleportCount )
-            return a.State; // a cut at b's time, never a slide across the teleport
+            return Extrapolate( a.State, serverSeconds - a.Time, extrapolationCap );
         const double h  = b.Time - a.Time;
         const float  s  = static_cast<float>( ( serverSeconds - a.Time ) / h );
         const float  hs = static_cast<float>( h );
