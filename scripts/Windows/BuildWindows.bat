@@ -4,7 +4,7 @@ REM Configure (cmake --preset) and build Desert Engine on Windows with MSVC and 
 REM
 REM Usage:
 REM   scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--unity] [--gen-only] [--no-analyze]
-REM                                     [--no-tests] [--launcher ^<exe^>] [--project ^<Target^>]...
+REM                                     [--no-tests] [--project ^<Target^>]...
 REM
 REM Examples:
 REM   scripts\Windows\BuildWindows.bat                  Debug build, static analysis on
@@ -15,8 +15,11 @@ REM
 REM The test suites are configured unless --no-tests is passed ^(CMakePresets.json `base`: DESERT_WITH_TESTS=ON^).
 REM DESERT_WITH_TESTS is passed on EVERY configure, ON or OFF, so one --no-tests run cannot stick to the
 REM build tree's cache and silently drop the suites from the next run.
-REM --launcher ^<exe^> sets DESERT_COMPILER_LAUNCHER ^(CMAKE_^<LANG^>_COMPILER_LAUNCHER, CI's ccache^); without it
-REM CMakeLists.txt looks for sccache/ccache on PATH on the first configure.
+REM Every compile and link runs through the machine's build pool with ccache behind it ^(buildpool_enable in
+REM CMakeLists.txt, Tools/BuildPool/cmake/BuildPool.cmake^). The environment's BUILDPOOL_CACHE_PROGRAM ^(the ccache.exe;
+REM CI's sits in RUNNER_TEMP, off PATH^) is passed as -DBUILDPOOL_CACHE_PROGRAM on every configure; unset, the module
+REM looks for ccache on PATH and its configure line says when there is none. BUILDPOOL_HOME ^(the pool home: slots,
+REM ledger, compile cache^) is read by the module from the environment the same way.
 REM --project ^<Target^> builds that CMake target instead of everything; repeatable ^(BuildMacOS.sh's --project=^).
 REM The MSVC environment comes from vcvars64.bat of the Visual Studio instance vswhere reports when
 REM cl.exe is not already on PATH, so a plain cmd works as well as a Developer Command Prompt.
@@ -41,7 +44,8 @@ set "PRESET=windows-msvc-ninja"
 set "GEN_ONLY=0"
 set "ANALYZE=1"
 set "WITH_TESTS=ON"
-set "LAUNCHER_ARG="
+set "CACHE_ARG="
+if defined BUILDPOOL_CACHE_PROGRAM set "CACHE_ARG=-DBUILDPOOL_CACHE_PROGRAM=%BUILDPOOL_CACHE_PROGRAM%"
 set "TARGETS="
 
 REM WHERE THE ANALYSER ATTACHES. One path, named once. Its exit codes ARE its interface — 0 clean,
@@ -69,19 +73,14 @@ if /I "%~1"=="--gen-only"   (set "GEN_ONLY=1"            & shift & goto parse_ar
 if /I "%~1"=="--no-analyze" (set "ANALYZE=0"             & shift & goto parse_args)
 if /I "%~1"=="--no-tests"   (set "WITH_TESTS=OFF"        & shift & goto parse_args)
 REM A VALUE IS THE NEXT ARGUMENT, NOT `--flag=value`: cmd splits arguments on `=` as well as on spaces, so
-REM `--launcher=C:\x\ccache.exe` reaches %%1 as `--launcher` and %%2 as the path unless the caller quotes it.
-if /I "%~1"=="--launcher" (
-    if "%~2"=="" (echo [ERROR] --launcher needs a path 1>&2 & exit /b 1)
-    set "LAUNCHER_ARG=-DDESERT_COMPILER_LAUNCHER=%~2"
-    shift & shift & goto parse_args
-)
+REM `--project=Editor` reaches %%1 as `--project` and %%2 as the name unless the caller quotes it.
 if /I "%~1"=="--project" (
     if "%~2"=="" (echo [ERROR] --project needs a target name 1>&2 & exit /b 1)
     set "TARGETS=!TARGETS! %~2"
     shift & shift & goto parse_args
 )
 echo [ERROR] Unknown argument: %~1 1>&2
-echo         Usage: scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--unity] [--gen-only] [--no-analyze] [--no-tests] [--launcher ^<exe^>] [--project ^<Target^>]... 1>&2
+echo         Usage: scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--unity] [--gen-only] [--no-analyze] [--no-tests] [--project ^<Target^>]... 1>&2
 exit /b 1
 :args_done
 
@@ -130,9 +129,9 @@ REM custom command of the Common target, which runs on every build. Refreshing i
 REM the refresh in two places, and the one that runs first would hide a hook that had stopped
 REM working: a missing header is a compile error, a stale one is a lie.
 
-echo --- Configuring ^(cmake --preset %PRESET% -DDESERT_WITH_TESTS=%WITH_TESTS% %LAUNCHER_ARG%^)
-if defined LAUNCHER_ARG (
-    cmake --preset %PRESET% -DDESERT_WITH_TESTS=%WITH_TESTS% "!LAUNCHER_ARG!"
+echo --- Configuring ^(cmake --preset %PRESET% -DDESERT_WITH_TESTS=%WITH_TESTS% !CACHE_ARG!^)
+if defined CACHE_ARG (
+    cmake --preset %PRESET% -DDESERT_WITH_TESTS=%WITH_TESTS% "!CACHE_ARG!"
 ) else (
     cmake --preset %PRESET% -DDESERT_WITH_TESTS=%WITH_TESTS%
 )

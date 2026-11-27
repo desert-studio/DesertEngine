@@ -89,14 +89,14 @@ dev_drop_foreign_pch() {
 
 # dev_build <log> <target...> — build the DEV_CONFIG targets (and what they link) as one build of the machine's build
 # pool (scripts/Dev/pool.sh run): the pool, not this script, decides how many compiles and links run at once, so builds
-# of several trees run side by side. BUILDPOOL_CLASS, when set, names the pool.ini class of this build.
+# of several trees run side by side. An inherited BUILDPOOL_CLASS names the pool.ini class of this build (pool.sh run
+# keeps it when no --class is given).
 dev_build() {
     local log="$1"; shift
-    local args=() t class=()
+    local args=() t
     for t in "$@"; do args+=(--target "$t"); done
-    [ -n "${BUILDPOOL_CLASS:-}" ] && class=(--class "$BUILDPOOL_CLASS")
     # The compile cache's settings are the build's own: buildpool_enable in CMakeLists.txt (Tools/BuildPool/cmake).
     dev_drop_foreign_pch >>"$log"
-    bash "$DEV_ROOT/scripts/Dev/pool.sh" run ${class[@]+"${class[@]}"} --label "$(basename "$DEV_ROOT") ${args[*]}" --\
+    bash "$DEV_ROOT/scripts/Dev/pool.sh" run --label "$(basename "$DEV_ROOT") ${args[*]}" --\
         cmake --build "$DEV_BUILD" --config "$DEV_CONFIG" "${args[@]}" >>"$log" 2>&1
 }
