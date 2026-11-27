@@ -31,6 +31,9 @@
 Ждать sim2 30 committed: incoming pawn promoted
 Ждать sim1 30 offer #1 .*committed by the store \(epoch 2\): released, \d+ queued input\(s\) forwarded
 Ждать gw 30 player \d+ pawn net id \d+ - authority \(sim 2, epoch 2\) from step \d+: its inputs re-routed to sim 2
+# Two-phase order, by the log stamps: the store commits first; only then does sim 1 release and sim 2 promote.
+Порядок store offer \(sim 1, #1\).*committed \(sim 1, epoch 1\) -> \(sim 2, epoch 2\) < sim1 offer #1 .*committed by the store \(epoch 2\): released
+Порядок store offer \(sim 1, #1\).*committed \(sim 1, epoch 1\) -> \(sim 2, epoch 2\) < sim2 offer \(sim 1, #1\).*committed: incoming pawn promoted
 Нет sim1 adopted .*from sim 1
 Ждать B 60 fresh \[Shot\] recorded frame_
 Тогда B confirm_cross B's view down on the cut: ONE A capsule just east of X = 300, moving continuously along +X (about 5 px per frame against confirm_cross_next), no jump back, no second A at the old place; A.log own-pawn x grows monotonically through the handover (no step back > 5 cm); sim2.log's residency union names "player N view" for A right after the handover
@@ -68,6 +71,9 @@
 Ждать store 30 offer \(sim 1, #\d+\).*committed \(sim 1, epoch 1\) -> \(sim 2, epoch 2\)
 Ждать sim1 30 offer #\d+ .*committed by the store \(epoch 2\)
 Ждать sim2 30 committed: incoming pawn promoted
+# The same order for the retry: each role's LAST matching line is the retry's (offer #1's came before it).
+Порядок store committed \(sim 1, epoch 1\) -> \(sim 2, epoch 2\) < sim1 committed by the store \(epoch 2\): released
+Порядок store committed \(sim 1, epoch 1\) -> \(sim 2, epoch 2\) < sim2 committed: incoming pawn promoted
 Ждать B 60 fresh \[Shot\] recorded frame_
 Тогда B retry_committed B's view after the retry: ONE A2 capsule walking +X now under sim 2, no jump at the transfer (A2.log: neighbouring acked positions <= 60 cm apart); store.log exactly one "-> (sim 2, epoch 2)" line for A2
 # D4 on the receiver: the inputs that queued while A2 was frozen are applied by sim 2's steps after the commit
