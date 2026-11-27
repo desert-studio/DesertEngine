@@ -638,9 +638,10 @@ namespace Desert::Graphic::System
         // SETUP of the "Deferred: SSR" compute node: declares its one block (block 0) - the G-buffer normal/depth,
         // @p sceneHistory, @p hzb (all mips) and the velocity as separate textures read through the pass's shared
         // sampler states (the normal linear REPEAT, as the deferred composite reads it; the scene history linear
-        // clamped; depth, HZB and velocity point-clamped: SSR.shader names each one's state), @p
-        // trace / @p tiles as storage writes, @p uniforms (UploadTraceUniforms) as SSRTraceUB, the ShaderPush::SSRTracePush
-        // bytes; the pipeline's own setters are the other route. Not prepared: nothing.
+        // clamped, not in the hit-lit classify: TraceComputeReadsLinear; depth, HZB and velocity point-clamped:
+        // SSR.shader names each one's state), @p
+        // trace / @p tiles as storage writes, @p uniforms (UploadTraceUniforms) as SSRTraceUB, the
+        // ShaderPush::SSRTracePush bytes; the pipeline's own setters are the other route. Not prepared: nothing.
         // @p traced: the traced permutation's reads (EnsureTracedProgram first), or null for the screen alone.
         // @p frontLayer: the TranslucentFrontLayer surface's G-buffer (null for an Opaque renderer).
         // @p stage / @p list: which dispatch of the program the node runs and this frame's TraceList
