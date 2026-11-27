@@ -156,10 +156,6 @@ namespace Desert::Net
         void PlayerJoined( PlayerId player, std::uint64_t account ) override;
         void PlayerLeft( PlayerId player ) override;
         void PlayerInput( PlayerId player, const InputMessage& input ) override;
-        // The inputs the previous owner forwards after the commit (its held queue, then every later one that
-        // still reaches it): queued as PlayerInput does, and counted into the open adopted catch-up - they are the
-        // backlog that run drains, whether they land before or after the commit's own queue is applied.
-        void ForwardedInput( PlayerId player, const InputMessage& input );
         [[nodiscard]] std::optional<AckedMove> LastProcessedInput( PlayerId player ) const override;
 
         // Server authority asks to move @p player's pawn to @p feet (UE TeleportTo). The request is refused, and
@@ -289,13 +285,13 @@ namespace Desert::Net
             std::optional<PendingPlacement> Placement;
             // The catch-up after Resume (sender) or Commit (receiver): the inputs that queued while the pawn was
             // held, applied over the steps that follow. Measured per authoritative step (planar cm) until the queue
-            // is back at the target on a step that applied an input (a starved step - the forwarded backlog still
-            // in flight, or a hole before it - does not close it).
+            // is back at the target (Commit: on a step that applied an input - a starved step, the forwarded
+            // backlog still in flight or a hole before it, does not close it).
             struct CatchUpRun
             {
                 bool          Adopted     = false; // Commit (the receiver's) rather than Resume
                 std::uint32_t Behind      = 0;     // Commit: the mesh steps since the offer froze the pawn
-                std::size_t   Queued      = 0;     // at the resume or the commit, plus the forwarded ones since
+                std::size_t   Queued      = 0;     // at the resume or the commit, plus every input queued since
                 std::uint32_t Steps       = 0; // authoritative steps it has taken so far
                 float         LargestStep = 0.f;
             };

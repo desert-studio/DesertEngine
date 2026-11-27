@@ -247,7 +247,7 @@ namespace Desert::Net
                      std::format( "sim {}: a forwarded input of player {} dropped - this sim holds no pawn of it",
                                   m_Sim, forwarded->Player ) );
             else
-                sim.ForwardedInput( forwarded->Player, *forwarded->Input );
+                sim.PlayerInput( forwarded->Player, *forwarded->Input );
             return true;
         }
         if ( !Handover::IsHandoverMessage( type ) )
