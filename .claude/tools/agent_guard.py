@@ -301,6 +301,54 @@ def fix_brief_refusal(path, text):
     return None
 
 
+def owned_chars(tree, files, reads=None):
+    """Characters an engineer would read to know its owned files (a directory counts whole); new files count 0.
+    reads: {file: [[first, last], ...]} - the design's declared line ranges; such a file counts only those lines."""
+    total = 0
+    for entry in files:
+        root = os.path.join(tree, entry.strip())
+        ranges = (reads or {}).get(entry.strip())
+        if ranges and os.path.isfile(root):
+            with open(root, encoding="utf-8", errors="replace") as fh:
+                lines = fh.readlines()
+            total += sum(len(l) for a, b in ranges for l in lines[max(a - 1, 0):b])
+            continue
+        if os.path.isfile(root):
+            total += os.path.getsize(root)
+        for here, _, names in (os.walk(root) if os.path.isdir(root) else ()):
+            total += sum(os.path.getsize(os.path.join(here, n)) for n in names)
+    return total
+
+
+def remainder_commits(tree):
+    try:
+        r = subprocess.run(["git", "-C", tree, "log", "--format=%h", "--", "REMAINDER.md"],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    return len(r.stdout.split()) if r.returncode == 0 else 0
+
+
+def package_spend_refusal(code, brief, pkg):
+    """SPEND_RULES 11-27: a package fits the read budget, and a package that left two remainders is split, not rerun."""
+    tree = pkg.get("tree") or ""
+    chars = owned_chars(tree, pkg.get("files") or [], pkg.get("reads")) if os.path.isdir(tree) else 0
+    if chars > limits.PACKAGE_READ_CHARS:
+        return (f"пакет {code}: файлы пакета {chars // 1000}k знаков > limits.PACKAGE_READ_CHARS "
+                f"({limits.PACKAGE_READ_CHARS // 1000}k) — раздели пакет (architect) или сузь «Файлы:» до файлов и строк.")
+    remainder = os.path.join(tree, "REMAINDER.md")
+    if os.path.isfile(remainder) and os.path.getmtime(brief) < os.path.getmtime(remainder) and remainder_commits(tree) >= 2:
+        return (f"пакет {code} уже дважды оставил REMAINDER.md с тем же брифом — третий заход тем же путём не запускать: "
+                "раздели остаток на новые брифы поменьше (studio.py plan).")
+    return None
+
+
+def build_running():
+    """The log of a build the ledger started, still being written (build_gate.state_of)."""
+    import build_gate
+    return next((r.get("log") for r in build_gate.ledger()[-6:] if build_gate.state_of(r) == "running"), None)
+
+
 def feature_brief_refusal(path, text, code, s):
     """An engineer runs ONE planned package of a design that is a parallel plan over disjoint files."""
     design = re.search(r"^## Дизайн[^\n]*\n\s*(\S+\.md)", text, re.M)
@@ -319,6 +367,10 @@ def feature_brief_refusal(path, text, code, s):
     clash = P.overlap_refusal(s, feat, letter)
     if clash:
         return clash
+    pkg = ((s.get("features") or {}).get(feat) or {}).get("packages", {}).get(letter) or {}
+    spend = package_spend_refusal(code, path, pkg)
+    if spend:
+        return spend
     body = P.section(text, "Сделать") or ""
     items, (max_items, max_chars) = re.findall(r"^\s*\d+[.)]\s", body, re.M), limits.FEATURE_BRIEF
     if len(items) > max_items or len(body) > max_chars:
@@ -341,6 +393,15 @@ def lead_launch_refusal(tin, s, disk_gb=None):
         return "sonnet не запускать (владелец 09-29: на задачу он дороже основной модели). Разведка — haiku Explore."
     if kind in P.NOT_COUNTED:
         return None
+    if kind == "reviewer":
+        return ("лид reviewer не запускает (владелец 11-27: двойное ревью запрещено). Ревью одно — его зовёт сам engineer/fixer "
+                "в «## Цепочке» брифа; лид читает итог в отчёте автора.")
+    if kind == "acceptance":
+        runs = set(re.findall(r"[\w./-]+\.scn\b", prompt))
+        repeats = re.findall(r"(?:\bx\s*\d|\b\d+\s*x\b|×\s*\d|\btwice\b|дважд)", prompt, re.I)
+        if len(runs) > limits.ACCEPTANCE_RUNS or repeats:
+            return (f"одна приёмка = limits.ACCEPTANCE_RUNS ({limits.ACCEPTANCE_RUNS}) прогон сценария (SPEND 11-27: два прогона в одном "
+                    "агенте = 88-95k контекста кадров). Второй прогон или сценарий — свежий агент acceptance; отчёт таблицей.")
     code = code_of(prompt)
     if code and kind == "general-purpose":
         return ("одна правка идёт агентом fixer (SPEND-TOTAL-5X: у general-purpose полный набор инструментов, +22k на каждый запрос) — "
@@ -351,6 +412,9 @@ def lead_launch_refusal(tin, s, disk_gb=None):
     if gb < limits.MIN_FREE_DISK_GB:
         return (f"на диске деревьев ({limits.WORKTREE_ROOT}) свободно {gb:.1f} ГБ < limits.MIN_FREE_DISK_GB "
                 f"({limits.MIN_FREE_DISK_GB}). Сначала studio.py landed для севших фич.")
+    building = build_running()
+    if building and kind != "lander":
+        return f"идёт сборка ({building}): сборка идёт одна на машине, без агентов (SPEND_RULES). Дождись её .rc."
     live = P.live_runs(s)
     cap = limits.NIGHT_MAX_AGENTS if P.night(s) else limits.MAX_AGENTS
     if len(live) >= cap:
@@ -474,7 +538,7 @@ def worker_pre(data, agent, agent_type, state, s):
     if not state.get("ctx_capped_at") and context_of(data) >= limits.CONTEXT_MAX[1]:
         state["ctx_capped_at"] = calls  # owner 11-27: a fat context closes the run like the call cap does
     if state.get("ctx_capped_at"):
-        soft, hard = min(soft, state["ctx_capped_at"] - 1), min(hard, state["ctx_capped_at"] - 1 + hard - soft)
+        soft, hard = min(soft, state["ctx_capped_at"] - 1), min(hard, state["ctx_capped_at"] - 1 + limits.CONTEXT_FINISH_CALLS)
 
     if soft < calls <= hard:  # the finishing window: scenario, frames, commit, push, REMAINDER
         same = bool(cmd) and state.get("finish_last") == cmd
@@ -495,8 +559,9 @@ def worker_pre(data, agent, agent_type, state, s):
         if chain:  # owner 11-27: the worker drives its own chain, the lead wakes once (limits.CHAIN_REVIEWS)
             if tin.get("run_in_background"):
                 return "Свой reviewer/acceptance — на переднем плане (без run_in_background): иначе уведомление будит лида."
-            state["reviews"] = state.get("reviews", 0) + 1
-            if state["reviews"] > limits.CHAIN_REVIEWS:
+            if kind == "reviewer":
+                state["reviews"] = state.get("reviews", 0) + 1
+            if kind == "reviewer" and state["reviews"] > limits.CHAIN_REVIEWS:
                 return f"Больше limits.CHAIN_REVIEWS ({limits.CHAIN_REVIEWS}) ревью за заход: сдай как есть, accept stuck."
             return None
         if kind != "explore":
@@ -777,7 +842,8 @@ def self_check():
         "edit of another package's file": sub("Edit", file_path=f"{tmp}/wt/F-B/Desert/A/X.cpp"),
         "edit of a contract header": sub("Write", file_path=f"{tmp}/wt/F-B/Desert/F/Api.hpp"),
         "second run with a live code": launch("F-A", brief("F-A", good)),
-        "launch without a code": {"tool_name": "Agent", "tool_input": {"subagent_type": "reviewer", "prompt": "review it"}},
+        "launch without a code": {"tool_name": "Agent", "tool_input": {"subagent_type": "fixer", "prompt": "review it"}},
+        "lead launches a second reviewer": {"tool_name": "Agent", "tool_input": {"subagent_type": "reviewer", "prompt": "You are agent F-A-REV. Review."}},
         "launch without a brief": {"tool_name": "Agent", "tool_input": {"subagent_type": "fixer", "prompt": "You are agent X-1. Do it."}},
         "fat fix brief": launch("X-2", fix("X-2", "1. a\n2. b\n3. c\n"), "fixer"),
         "fix brief without a scenario": launch("X-3", write("X-3-BRIEF.md", "## Сделать\n1. a\n"), "fixer"),
@@ -807,7 +873,6 @@ def self_check():
     legal = {
         "engineer on a planned package": launch("F-B", brief("F-B", good)),
         "small fix brief": launch("X-5", fix("X-5", "1. a\n"), "fixer"),
-        "reviewer with a code": {"tool_name": "Agent", "tool_input": {"subagent_type": "reviewer", "prompt": "You are agent F-A-REV. Review."}},
         "lead launches the board agent": {"tool_name": "Agent", "tool_input": {"subagent_type": "board", "prompt": "tails"}},
         "board agent queries Notion": {"tool_name": "mcp__notion__notion-query-data-sources", "tool_input": {"query": "SELECT 1"},
                                        "agent_id": "b", "agent_type": "board"},
@@ -820,6 +885,7 @@ def self_check():
     }
     failed = []
     real_free, globals()["free_gb"] = free_gb, lambda: 999.0  # the disk is not what is checked here
+    real_build, globals()["build_running"] = build_running, lambda: None  # nor a build of this machine
     try:
         for name, case in bad.items():
             verdict = decide(dict(case, hook_event_name="PreToolUse", cwd=tmp), s)
@@ -829,8 +895,40 @@ def self_check():
             verdict = decide(dict(case, hook_event_name="PreToolUse", cwd=tmp), s)
             if verdict:
                 failed.append("REFUSED a legal call: " + name + " — " + verdict[1][:120])
+        two = {"subagent_type": "acceptance", "prompt": "You are agent F-ACC\nplay Scenarios/F/A.scn and Scenarios/F/B.scn"}
+        if "ACCEPTANCE_RUNS" not in (lead_launch_refusal(two, s) or ""):
+            failed.append("acceptance with two scenario runs")
+        if "ACCEPTANCE_RUNS" not in (lead_launch_refusal(dict(two, prompt="You are agent F-ACC\nplay Scenarios/F/A.scn x2"), s) or ""):
+            failed.append("acceptance with a repeated run")
+        if "ACCEPTANCE_RUNS" in (lead_launch_refusal(dict(two, prompt="You are agent F-ACC\nplay Scenarios/F/A.scn"), s) or ""):
+            failed.append("REFUSED a legal call: acceptance with one run")
         if not lead_launch_refusal(launch("F-B", brief("F-B", good))["tool_input"], s, disk_gb=1.0):
             failed.append("launch on a full disk")
+        os.makedirs(f"{tmp}/wt/F-B/Desert/B", exist_ok=True)
+        fat = brief("F-B", good)
+        write("wt/F-B/Desert/B/Big.cpp", "x" * (limits.PACKAGE_READ_CHARS + 1))
+        if not lead_launch_refusal(launch("F-B", fat)["tool_input"], s):
+            failed.append("package over the read budget")
+        os.remove(f"{tmp}/wt/F-B/Desert/B/Big.cpp")
+        real_rc, globals()["remainder_commits"] = remainder_commits, lambda tree: 2
+        try:
+            old = brief("F-B", good)
+            os.utime(old, (time.time() - 60, time.time() - 60))
+            write("wt/F-B/REMAINDER.md", "## NEXT\nx\n")
+            if not lead_launch_refusal(launch("F-B", old)["tool_input"], s):
+                failed.append("third run of a package with the same brief")
+            os.remove(f"{tmp}/wt/F-B/REMAINDER.md")
+        finally:
+            globals()["remainder_commits"] = real_rc
+        real_br, globals()["build_running"] = build_running, lambda: "C:/aftmp/build_x.log"
+        try:
+            if not lead_launch_refusal(launch("X-6", fix("X-6", "1. a\n"), "fixer")["tool_input"], s):
+                failed.append("agent while a build runs")
+        finally:
+            globals()["build_running"] = real_br
+        import build_gate
+        if not build_gate.agents_refusal(s):
+            failed.append("build beside agents")
         long_report = {"hook_event_name": "SubagentStop", "agent_type": "engineer", "agent_id": "x",
                        "last_assistant_message": "\n".join("line" for _ in range(limits.REPORT_MAX_LINES + 5))}
         if (subagent_stop(long_report) or ("",))[0] != "block":
@@ -841,9 +939,11 @@ def self_check():
             failed.append("architect hands in a serial plan")
     finally:
         globals()["free_gb"] = real_free
+        globals()["build_running"] = real_build
         shutil.rmtree(tmp, ignore_errors=True)
         DRY = False
-    return list(bad) + ["launch on a full disk", "long report", "architect hands in a serial plan"], failed
+    return list(bad) + ["launch on a full disk", "package over the read budget", "third run of a package with the same brief",
+                        "agent while a build runs", "build beside agents", "long report", "architect hands in a serial plan"], failed
 
 
 def main():
