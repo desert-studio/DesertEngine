@@ -13,6 +13,7 @@
 #include <charconv>
 #include <cerrno>
 #include <cmath>
+#include <filesystem>
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -97,10 +98,13 @@ namespace Desert::Editor
          { "--shot-sequence", true, "/tmp/seq" },
          { "--shot-every", true, "1" },
          { "--control-socket", true, "/tmp/desert-editor.sock" },
+         { "--splash-capture", true, "C:/aftmp/splash" },
          { "--language", true, "ru" },
          { "--view-budget-mib", true, "512" },
          { "--cloud-visualize", true, "1" },
          { "--device-profile", true, "gtx1660" },
+         { "--rhi", true, "vulkan" },
+         { "--adapter", true, "nvidia" },
          { "--log-level", true, "debug" },
          { "--rdg-compile-cache", true, "0" },
          { "--parallel-setup", true, "0" },
@@ -164,6 +168,10 @@ namespace Desert::Editor
         /// one would have them answering each other's clients, and the client could not tell.
         std::string ControlSocket;
 
+        /// `--splash-capture <dir>`: the splash writes its painted canvas there once a second and one row per
+        /// repaint into progress.csv (Splash::SplashContent::CaptureDir). Empty — the default — captures nothing.
+        std::filesystem::path SplashCapture;
+
         /// `--connect ip:port --net-token HEX --net-cooked DIR [--net-walk-cm D --net-walk-dir x,y,z
         /// --net-walk-mode walk|sprint --net-jump-every S]
         /// [--net-lag-ms L --net-loss P]`: Play runs as a client of that server (Engine/Net/ClientNetDriver).
@@ -193,12 +201,18 @@ namespace Desert::Editor
         /// (Graphic::RenderConfig::CloudVisualize, which names the modes). 0 is the ordinary picture.
         int CloudVisualize = 0;
 
-        /// `--device-profile <name>`: play a lower device on this one (UE DeviceProfiles; the Vulkan DeviceProfile
-        /// table in DeviceCapsProbe.cpp): its ray tracing rows, vendor upscalers and memory are withheld before the
-        /// device is created. Empty, the default, means this device as it is. The name is checked against the
-        /// table where it is published (Sandbox.hpp, RequestDeviceProfile), which refuses an unknown one with the
-        /// list, so the parse stays free of the graphics backend.
-        std::string DeviceProfile;
+        /// `--device-profile <name>`: play a lower device on this one (UE DeviceProfiles; the backend-neutral
+        /// table in Engine/Graphic/Rhi/DeviceProfile.hpp): its ray tracing rows, vendor upscalers and memory are
+        /// withheld before the device is created. Unset, the default, means this device as it is. A stated name, an
+        /// empty one too, is checked by Graphic::ResolveRhiSelection when the application starts, which refuses an
+        /// unknown one with the list, so the parse stays free of the graphics backend.
+        std::optional<std::string> DeviceProfile;
+        /// `--rhi <vulkan|d3d12>`: the rendering backend (Graphic::RhiSelection; beats machine.json "Rhi").
+        /// Unset, the default, leaves the choice to machine.json and then Vulkan. Checked at start, as above.
+        std::optional<std::string> Rhi;
+        /// `--adapter <auto|n|nvidia|amd|intel|vendor:0x..|name:..>`: which physical adapter the backend opens
+        /// (Graphic::AdapterPreference; beats machine.json "Adapter"). Unset leaves the choice to machine.json.
+        std::optional<std::string> Adapter;
         /// `--log-level <trace|debug|info|warn|error|critical|off>`: the log's level gate
         /// (Common::Logger::SetLevel), set by the host at start. Unset keeps the build's default:
         /// info outside Debug, trace in Debug.
@@ -443,8 +457,14 @@ namespace Desert::Editor
                 options.Shot.Sequence = value;
             else if ( arg == "--control-socket" )
                 options.ControlSocket = value;
+            else if ( arg == "--splash-capture" )
+                options.SplashCapture = value;
             else if ( arg == "--device-profile" )
                 options.DeviceProfile = value;
+            else if ( arg == "--rhi" )
+                options.Rhi = value;
+            else if ( arg == "--adapter" )
+                options.Adapter = value;
             else if ( arg == "--run" )
             {
                 // A commandlet is a NAME the editor knows; an unknown one would start an ordinary editor in a
@@ -814,11 +834,11 @@ namespace Desert::Editor
                      "runs, the scene is the world it runs on" );
             }
             if ( options.Shot.Active() || options.Shot.Play || options.Shot.FlightRoute.has_value() ||
-                 !options.ControlSocket.empty() )
+                 !options.ControlSocket.empty() || !options.SplashCapture.empty() )
             {
                 return Common::MakeError<CommandLineOptions>(
-                     "--run WorldPartitionBuilder has no window: --shot, --shot-sequence, --play, --flight and "
-                     "--control-socket belong to an editor session, not to a builder run" );
+                     "--run WorldPartitionBuilder has no window: --shot, --shot-sequence, --play, --flight, "
+                     "--control-socket and --splash-capture belong to an editor session, not to a builder run" );
             }
         }
 

@@ -10,8 +10,6 @@
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
 #include <Engine/Core/Formats/BlockCompression.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 
 #include <spdlog/fmt/fmt.h>
@@ -252,22 +250,13 @@ namespace Desert::Graphic
         return reloaded;
     }
 
-    EnvironmentCacheWriter& EnvironmentCacheWriter::Get()
-    {
-        static EnvironmentCacheWriter writer;
-        return writer;
-    }
-
     Common::BoolResultStr EnvironmentCacheWriter::Begin( ImageCube& cube, EnvironmentCacheEntry entry )
     {
-        auto* vulkanCube = dynamic_cast<API::Vulkan::VulkanImageCube*>( &cube );
-        if ( vulkanCube == nullptr )
-            return Common::MakeError<bool>( "the environment bake can only read back a Vulkan cube" );
         if ( auto writable = Common::DDC::CheckWritable( entry.Path ); !writable.IsSuccess() )
             return writable;
         entry.FaceSize = cube.GetWidth();
         entry.Mips     = cube.GetMipmapLevels();
-        auto begun     = vulkanCube->RT_BeginReadAllLevels();
+        auto begun     = cube.RT_BeginReadAllLevels();
         if ( !begun.IsSuccess() )
             return Common::MakeError<bool>( begun.GetError() );
         m_InFlight.push_back( { std::move( entry ), begun.ExtractValue(), {}, std::chrono::steady_clock::now() } );
@@ -372,7 +361,7 @@ namespace Desert::Graphic
                        write.Entry.SourceKey, write.Entry.Path.string(), cube.GetError() );
             return;
         }
-        auto* images = Runtime::ResourceRegistry::GetImageService();
+        auto* images = Runtime::GetImageService();
         if ( images == nullptr || !images->Replace( write.Entry.Live, cube.ExtractValue() ) )
         {
             // The environment was released before its write landed (a scene change): nothing draws it any more.

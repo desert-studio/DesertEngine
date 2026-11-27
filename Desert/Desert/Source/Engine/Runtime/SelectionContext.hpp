@@ -19,72 +19,35 @@ namespace Desert::Runtime
     class SelectionContext final
     {
     public:
-        static void Set( const Common::UUID& uuid )
-        {
-            s_Selected.assign( 1, uuid );
-            Changed();
-        }
+        static void Set( const Common::UUID& uuid );
 
-        static void SetAll( std::vector<Common::UUID> uuids )
-        {
-            s_Selected = std::move( uuids );
-            Changed();
-        }
+        static void SetAll( std::vector<Common::UUID> uuids );
 
         // The primary selection (last selected), or nullopt when nothing is selected.
-        static std::optional<Common::UUID> Get()
-        {
-            if ( s_Selected.empty() )
-                return std::nullopt;
-            return s_Selected.back();
-        }
+        static std::optional<Common::UUID> Get();
 
-        static const std::vector<Common::UUID>& GetAll()
-        {
-            return s_Selected;
-        }
+        static const std::vector<Common::UUID>& GetAll();
 
-        static bool Contains( const Common::UUID& uuid )
-        {
-            return s_SelectedSet.contains( uuid );
-        }
+        static bool Contains( const Common::UUID& uuid );
 
-        static void Clear()
-        {
-            s_Selected.clear();
-            Changed();
-        }
+        static void Clear();
 
         // Bumped on every selection write: a consumer that derives per-entity state from the selection
         // (SelectionOutlineMask) re-resolves only when it moved, never per frame.
-        static uint64_t GetRevision()
-        {
-            return s_Revision;
-        }
+        static uint64_t GetRevision();
 
         // "Render this entity in its BIND pose, ignoring any animator." Pushed by the editor while Skeleton
         // Edit is active so bone-gizmo edits to the rest pose are actually visible — an auto-playing clip
         // would otherwise override them (MeshECSSystem prefers the animator pose). nullopt = normal render.
-        static void SetBindPosePreview( const std::optional<Common::UUID>& uuid )
-        {
-            s_BindPosePreview = uuid;
-        }
-        static bool IsBindPosePreview( const Common::UUID& uuid )
-        {
-            return s_BindPosePreview.has_value() && *s_BindPosePreview == uuid;
-        }
+        static void SetBindPosePreview( const std::optional<Common::UUID>& uuid );
+        static bool IsBindPosePreview( const Common::UUID& uuid );
 
     private:
-        static void Changed()
-        {
-            s_SelectedSet.clear();
-            s_SelectedSet.insert( s_Selected.begin(), s_Selected.end() );
-            ++s_Revision;
-        }
+        static void Changed();
 
-        static inline std::vector<Common::UUID>        s_Selected;
-        static inline std::unordered_set<Common::UUID> s_SelectedSet; // Contains() in O(1); mirrors s_Selected
-        static inline uint64_t                         s_Revision = 0;
-        static inline std::optional<Common::UUID> s_BindPosePreview;
+        static std::vector<Common::UUID> s_Selected;
+        static std::unordered_set<Common::UUID> s_SelectedSet; // Contains() in O(1); mirrors s_Selected
+        static uint64_t s_Revision;
+        static std::optional<Common::UUID> s_BindPosePreview;
     };
 } // namespace Desert::Runtime

@@ -4,6 +4,7 @@
 
 #include <VFX/Public/ParticleEmitterRetire.hpp>
 #include <VFX/Public/ParticleGpuLayout.hpp>
+#include <VFX/Public/ParticleLayout.hpp>
 #include <VFX/Public/ParticleSortGraph.hpp>
 
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -92,35 +93,12 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, SceneWind );
     };
 
-    // ParticleSimulate's CollisionView block (std430): the simulating view's jittered view-projection and its
-    // inverse (the matrices its scene depth was drawn with), the camera position (cm), w = 1 when SceneDepth is
-    // this frame's scene depth.
-    struct ParticleCollisionViewGpu
-    {
-        glm::mat4 ViewProjection{ 1.0f };
-        glm::mat4 InvViewProjection{ 1.0f };
-        glm::vec4 Camera{ 0.0f };
-    };
-    static_assert( sizeof( ParticleCollisionViewGpu ) == 144, "ParticleSimulate.shader CollisionView" );
-
-    // ParticleSimulate's SceneWind block (std430, WIND-FIELD-GPU): the scene view's air, the one the foliage sways
-    // by. Directional = (directional velocity x, 0, z in cm/s, the speed in cm/s the local sources' units stand
-    // for); Gust = CameraUB::WindGust; Source / Speed = CameraUB::LocalWind / LocalWindSpeed
-    // (Common/LocalWind.glslh).
-    struct ParticleSceneWindGpu
-    {
-        glm::vec4                                                        Directional{ 0.0f };
-        glm::vec4                                                        Gust{ 0.0f };
-        std::array<glm::vec4, Desert::Graphic::kMaxLocalWindSources>     Source{};
-        std::array<glm::vec4, Desert::Graphic::kMaxLocalWindSources / 4> Speed{};
-    };
-    static_assert( sizeof( ParticleSceneWindGpu ) == 192, "ParticleSimulate.shader SceneWind" );
-
     // The scene view's air as the SceneWind block carries it (ViewFrame: the gusts, the local sources and the
     // directional velocity with the local sources' reference speed).
-    [[nodiscard]] ParticleSceneWindGpu MakeParticleSceneWind( const Desert::Graphic::ViewFrame& view )
+    [[nodiscard]] Desert::Graphic::System::ParticleSceneWindGpu
+    MakeParticleSceneWind( const Desert::Graphic::ViewFrame& view )
     {
-        ParticleSceneWindGpu wind;
+        Desert::Graphic::System::ParticleSceneWindGpu wind;
         wind.Directional =
              glm::vec4( view.WindVelocityXZ.x, 0.0f, view.WindVelocityXZ.y, view.LocalWindReferenceSpeed );
         wind.Gust   = view.WindGust;
@@ -1478,7 +1456,7 @@ namespace Desert::Graphic::System
                 SceneViewSlots others = slots;
                 others.Clear( SceneViewSlot::SceneDepth );
                 others.Clear( SceneViewSlot::ParticleRibbonOrder );
-                others.Bits &= ~sprite.RouteSlots.Get( fill ).Bits;
+                others.Clear( sprite.RouteSlots.Get( fill ) );
                 BindSceneViewInputs( block, inputs, others );
             }
             if ( drawn )

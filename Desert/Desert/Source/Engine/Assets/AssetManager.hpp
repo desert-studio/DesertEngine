@@ -48,16 +48,10 @@ namespace Desert::Assets
          * built a second before releasing the first would simply have both swept, which is correct.
          */
         //
-        // HEADER-ONLY, AND THAT IS LOAD-BEARING RATHER THAN A STYLE CHOICE. This class had no translation
-        // unit of its own, and eleven test suites rely on that: they compile a hand-picked list of asset
-        // sources precisely so that a registry can be constructed without linking the renderer. Giving it
-        // a `.cpp` broke every one of them with an undefined `AssetManager::AssetManager()` — caught by
-        // the sweep, one commit after it was written. The list below stays inline for the same reason.
-        [[nodiscard]] static std::vector<AssetManager*>& LiveManagerList()
-        {
-            static std::vector<AssetManager*> managers;
-            return managers;
-        }
+        // The list lives in AssetManager.cpp: the registry is built by the editor or runtime layer and swept
+        // from the engine's frame loop, two module DLLs, and a list defined in this header would be one per DLL
+        // so the sweep would see none (BINT-STATE). The test suites link the module, not hand-picked sources.
+        [[nodiscard]] static std::vector<AssetManager*>& LiveManagerList();
 
         [[nodiscard]] static const std::vector<AssetManager*>& LiveManagers()
         {

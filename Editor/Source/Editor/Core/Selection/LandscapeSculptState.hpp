@@ -334,11 +334,7 @@ namespace Desert::Editor::Core
             return std::nullopt;
         }
 
-        static LandscapeSculptState& Get()
-        {
-            static LandscapeSculptState s_State;
-            return s_State;
-        }
+        static LandscapeSculptState& Get();
     };
 
     struct LandscapeToolControl

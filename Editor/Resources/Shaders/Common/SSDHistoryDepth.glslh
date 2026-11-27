@@ -1,0 +1,23 @@
+#ifndef SSD_HISTORY_DEPTH_GLSLH
+#define SSD_HISTORY_DEPTH_GLSLH
+
+// THE VIEW DEPTH A DENOISER HISTORY KEEPS of the surface that wrote it (HistoryCountTexture.g, cm; r = its sample
+// count, 0 = it holds none): written by Programs/Denoise/SSDTemporalAccumulation.shader, read by every pass that
+// reprojects into the previous frame's surfaces (that pass; Programs/Shadows/MegaLightsGenerateSamples.shader).
+
+// The farthest view depth an rg16f texel holds (cm); farther surfaces compare as equal.
+const float kSSDMaxStoredDepth = 65000.0;
+
+float SSDStoredDepth(float viewDepth)
+{
+	return min(viewDepth, kSSDMaxStoredDepth);
+}
+
+// How far the stored depth may lie off the surface's previous one: 2 %, or what the jitter and the bilinear footprint
+// (two pixels of @p pixelRadius cm) move a point along a surface seen at a grazing angle.
+float SSDHistoryDepthTolerance(float previousDepth, float pixelRadius, float noV)
+{
+	return max(0.02 * previousDepth, 2.0 * pixelRadius / max(abs(noV), 0.05));
+}
+
+#endif // SSD_HISTORY_DEPTH_GLSLH

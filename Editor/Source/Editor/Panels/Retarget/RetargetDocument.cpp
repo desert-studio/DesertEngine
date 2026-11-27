@@ -20,7 +20,7 @@
 #include <Engine/Assets/RetargetAsset.hpp>
 #include <Engine/Assets/Serialization/Retarget.hpp>
 
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>

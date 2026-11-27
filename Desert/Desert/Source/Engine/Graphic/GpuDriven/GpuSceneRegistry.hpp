@@ -84,6 +84,8 @@ namespace Desert::Graphic
         uint32_t                   Entity = 0;
         const Mesh*                Mesh   = nullptr;
         std::span<const glm::mat4> Transforms{};
+        // The component's index of each transform (PrimitiveDesc::ComponentInstances); empty = in order.
+        std::span<const uint32_t>  ComponentInstances{};
         float                      CullDistanceStart = 0.0f;
         float                      CullDistanceEnd   = 0.0f;
         uint32_t                   Flags             = 0;
@@ -196,6 +198,9 @@ namespace Desert::Graphic::GpuDriven
     class GpuSceneRegistry
     {
     public:
+        // @p scene: the owning Core::Scene's ledger instance; the GPU scene's tables are its rows (GpuScene).
+        explicit GpuSceneRegistry( const ResourceOwnerInstance scene ) : m_Scene( scene ) {}
+
         [[nodiscard]] GpuScene& Scene()
         {
             return m_Scene;

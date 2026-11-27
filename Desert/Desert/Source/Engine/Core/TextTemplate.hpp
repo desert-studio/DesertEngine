@@ -2,8 +2,8 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/ResultStr.hpp>
-#include <Common/Json/Document.hpp>
 #include <Common/Json/Template.hpp>
+#include <Common/Json/ValueFwd.hpp>
 
 #include <string>
 #include <string_view>
@@ -26,7 +26,7 @@ namespace Desert::Core
         {
             if ( !m_Compiled.IsSuccess() )
                 return Common::MakeError<std::string>( m_Compiled.GetError() );
-            return Common::Text::Render( m_Compiled.GetValue(), Common::Json::Root( data ) );
+            return Common::Text::Render( m_Compiled.GetValue(), data );
         }
 
         // For a text that has no error channel of its own (a log line, a part of a message): a failure is

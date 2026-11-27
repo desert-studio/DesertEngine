@@ -32,17 +32,8 @@ Shader "SubsurfaceBurley"
         {
         	vec4 profileAtlas[]; // SSSS_ATLAS_WIDTH columns per profile row (Common/SubsurfaceProfileLayout.glslh)
         };
-        ReadBuffer(4) SubsurfaceViewUB
-        {
-        	mat4 WorldToClip;  // the jittered view-projection the G-buffer was rasterised with
-        	mat4 ClipToWorld;  // its inverse
-        	vec4 ViewParams;   // x = PostProcessSettings SubsurfaceScale, y = most samples, z = frame index, w = fewest
-        	mat4 PrevWorldToClip; // the previous frame's jittered view-projection (the history's raster)
-        	mat4 PrevClipToWorld; // its inverse
-        	vec4 HistoryParams;   // x = history readable (1/0), y = PreExposure / PrevPreExposure, z = most frames,
-        	                      // w = the stamp the previous scatter wrote into its moments' a
-        	vec4 StampParams;     // x = THIS scatter's stamp (written into moments.a), yzw unused
-        };
+        #include <Generated/Post/SubsurfaceViewGpu.glslh>
+        ReadBuffer(4) SubsurfaceViewUB { DESERT_SubsurfaceViewGpu_MEMBERS };
         layout(binding = 5, rgba16f) writeonly uniform image2D SubsurfaceScatteredTexture;
         Uniform(6) texture2D SubsurfaceHistoryTexture;        // previous frame: rgb = running mean, a = frames in it
         #define SubsurfaceHistoryTexture sampler2D(SubsurfaceHistoryTexture, PointClampSampler)

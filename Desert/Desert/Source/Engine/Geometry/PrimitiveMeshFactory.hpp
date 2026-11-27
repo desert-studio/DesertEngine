@@ -25,7 +25,8 @@ namespace Desert::Geometry
 
         // Drop the shared meshes. "Kept alive for the process" is exactly the problem: they own vertex and
         // index buffers, and a static destructor releases those after ~Application has destroyed the device
-        // and the VMA allocator. Called from Renderer::Shutdown(), which runs inside main.
+        // and the VMA allocator. Called from Renderer::Shutdown() (EngineRendererClient::OnShutdownRelease), which
+        // runs inside main.
         static void ReleaseShared();
     };
 } // namespace Desert::Geometry

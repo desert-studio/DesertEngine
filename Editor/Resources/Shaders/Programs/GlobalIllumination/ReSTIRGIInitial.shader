@@ -29,14 +29,10 @@ Shader "ReSTIRGIInitial"
         {
             GIFrame giFrame;
         };
-        ReadBuffer(2) PointLightsUB
-        {
-            PointLight pointLights[];
-        };
-        ReadBuffer(3) SpotLightsUB
-        {
-            SpotLight spotLights[];
-        };
+        #define POINT_LIGHTS_UB_BINDING 2
+        #include <Mesh/PointLightsUB.glslh>
+        #define SPOT_LIGHTS_UB_BINDING 3
+        #include <Mesh/SpotLightsUB.glslh>
         ReadBuffer(4) LightGridParamsUB
         {
             LightGridParams lightGrid;
@@ -62,7 +58,7 @@ Shader "ReSTIRGIInitial"
 
         // The hit's lighting reads exactly what the screen probes' cache-miss leg reads (ScreenProbeTrace.shader
         // SP_TRACE_LIGHTS_HITS / SP_TRACE_READS_CACHE): the G-buffer (GIHitLighting.glslh's screen tolerance and
-        // EMISSION_IS_LIGHT), the sky and the radiance cache's bounce.
+        // the word's far-side colour and EMISSION_IS_LIGHT), the sky and the radiance cache's bounce.
         Uniform sampler PointClampSampler;
         Uniform sampler LinearClampSampler;
         Uniform(9) textureCube EnvironmentSpecularTexture;

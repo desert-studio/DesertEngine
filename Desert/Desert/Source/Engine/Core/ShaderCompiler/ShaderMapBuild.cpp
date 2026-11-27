@@ -5,6 +5,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
 #include <Engine/Core/ShaderCompiler/SharedSamplerBinding.hpp>
+#include <Engine/Core/WorkSink.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
 #include <Common/Core/JobSystem.hpp>
@@ -594,7 +595,8 @@ namespace Desert::Core
         return BuildShaderMapUnderKey( request, MapKeyOf( request ) );
     }
 
-    std::vector<ShaderMapOutcome> BuildShaderMaps( const std::span<const ShaderMapRequest> requests )
+    std::vector<ShaderMapOutcome> BuildShaderMaps( const std::span<const ShaderMapRequest> requests,
+                                                   WorkSink* const                         sink )
     {
         auto& jobs = ::Common::JobSystem::Get();
 
@@ -615,13 +617,27 @@ namespace Desert::Core
         }
 
         std::vector<ShaderMapOutcome> outcomes( requests.size() );
+        // What the sink counts is what is built: a request that shares its key with an earlier one is that one's
+        // copy, not an item of work, so n reaches N.
+        if ( sink )
+            sink->Expect( builders.size() );
         // One program per claim: a program is milliseconds of shaderc, far above the cost of a claim, and
         // programs differ in cost by 10x, so small claims keep every worker busy to the end.
         jobs.ParallelFor( builders.size(),
                           [&]( const size_t b )
                           {
-                              const size_t i     = builders[b];
-                              auto         built = BuildShaderMapUnderKey( requests[i], keys[i] );
+                              const size_t i = builders[b];
+                              // Asked between items (the splash's close button): a request not started is
+                              // answered "stopped", the ones in hand finish.
+                              if ( StopRequested( sink ) )
+                              {
+                                  outcomes[i].Error = "stopped: the start was asked to stop before this map was built";
+                                  return;
+                              }
+                              const ScopedWorkItem item(
+                                   sink, requests[i].PassName.empty() ? requests[i].Name
+                                                                      : requests[i].Name + ":" + requests[i].PassName );
+                              auto built = BuildShaderMapUnderKey( requests[i], keys[i] );
                               if ( built.IsSuccess() )
                                   outcomes[i].Map = built.GetValue();
                               else

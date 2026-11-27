@@ -112,37 +112,24 @@
  * LAYER'S BASE in kilometres, which is the vector CloudRaymarch.shader hands SampleCloudField and the
  * only frame in which the noise's period means anything (see the note at that call site). The conversion
  * happens once, on the CPU, in Graphic::PackCloudAuthoredInstance.
+ *
+ * The struct itself is generated (Graphic::CloudAuthoredInstanceGpu, Engine/Graphic/Clouds/CloudLayout.hpp):
+ * Row0..Row2 are the rows of the linear map from a field-space DISPLACEMENT in kilometres to the volume's
+ * local cube (corners -0.5 and +0.5), their w the DetailFactor, DensityFactor and ExtinctionFactor;
+ * BoundsMin/BoundsMax are the instance's axis-aligned bounds in field space, kilometres.
+ *
+ * THE CHEAP REJECTION IS THE BOX AND NOT THE EXACT ONE, and the ratio is the reason: six compares against
+ * twenty-one multiply-adds, run at every field sample of every ray AND at every sample of every shadow ray.
+ *
+ * THE STRENGTH IS SIGNED AND THE CUTOUT IS ITS POSITIVE PART (BoundsMin.w):
+ *
+ *     Strength = abs( BoundsMin.w )        Cutout = max( BoundsMin.w, 0 )
+ *
+ * and a body wound down to nothing gives the procedural sky back either way. Graphic::PackCloudAuthoredInstance
+ * writes it; the two readers are CloudAuthoredStrength and CloudAuthoredCutout below. The float that frees is
+ * BoundsMax.w, and it holds the ATLAS SLAB — the depth coordinate at which this instance's body begins.
  */
-struct CloudAuthoredInstance
-{
-    // Rows of the linear map from a field-space DISPLACEMENT in kilometres to the volume's local cube,
-    // whose corners are -0.5 and +0.5. It is the inverse of rotation x scale x the volume's own authored
-    // size, so a uniformly scaled instance has rows of length 1/sizeKm.
-    vec4 Row0; // xyz = row 0, w = DetailFactor      — this cloud's multiplier on the layer's erosion depth
-    vec4 Row1; // xyz = row 1, w = DensityFactor     — its multiplier on the layer's density
-    vec4 Row2; // xyz = row 2, w = ExtinctionFactor  — its multiplier on the layer's extinction
-
-    // The instance's axis-aligned bounds in field space, kilometres. THE CHEAP REJECTION IS THIS BOX AND
-    // NOT THE EXACT ONE, and the ratio is the reason: six compares against twenty-one multiply-adds, run
-    // at every field sample of every ray AND at every sample of every shadow ray, which is about thirty
-    // times more often again. The exact test follows, but only for the points this one lets through.
-    //
-    // THE STRENGTH IS SIGNED AND THE CUTOUT IS ITS POSITIVE PART. A0 spent one float on each and the
-    // cutout was `suppress ? strength : 0` — one number derived from the other and a flag, which is the
-    // duplicated state this very struct refuses for the translation. Signed, it is one number:
-    //
-    //     Strength = abs( BoundsMin.w )        Cutout = max( BoundsMin.w, 0 )
-    //
-    // and a body wound down to nothing gives the procedural sky back either way, because both are zero
-    // there whatever the sign. Graphic::PackCloudAuthoredInstance writes it; the two readers are
-    // CloudAuthoredStrength and CloudAuthoredCutout below, so nothing else has to know.
-    //
-    // The float that frees is BoundsMax.w, and it holds the ATLAS SLAB — the depth coordinate at which
-    // this instance's body begins. That, and CLOUD_AUTHORED_SLAB_COUNT, is all the addressing an atlas
-    // needs.
-    vec4 BoundsMin; // xyz = minimum corner, w = signed Strength (negative = does not suppress)
-    vec4 BoundsMax; // xyz = maximum corner, w = AtlasSlabBaseW — where the body's slab begins
-};
+#include <Generated/Clouds/CloudAuthored.glslh>
 
 /// How strongly this instance asserts itself, 0..1. See the note on BoundsMin.w.
 float CloudAuthoredStrength( CloudAuthoredInstance instance )
@@ -242,10 +229,9 @@ vec3 CloudAuthoredAtlasUvw( vec3 uvw, float slabBaseW, int slabCount )
 }
 
 #ifdef CLOUD_AUTHORED_BUFFER_BINDING
-// The instance array as the GPU receives it. The C++ half of this layout is
-// Graphic::CloudAuthoredPayload (Engine/Graphic/Clouds/CloudAuthoredPayload.hpp), where a static_assert
-// pins every offset — a layout declared twice diverges the first time somebody inserts a member into one
-// of them, and the failure mode is a hero cloud read from the wrong bytes rather than an error.
+// The instance array as the GPU receives it: Graphic::CloudAuthoredPayload (Engine/Graphic/Clouds/CloudLayout.hpp)
+// is the one declaration, and the generated CloudAuthoredPayload above carries its members. The programs own
+// the slot (CLOUD_AUTHORED_BUFFER_BINDING, Graphic::kCloudAuthoredBinding on the C++ side).
 //
 // A SECOND STORAGE BLOCK RATHER THAN MORE OF THE FIRST. The cloud parameter block is the LAYER, one copy
 // of it, and it is repacked only when the artist moves a slider; this is a per-frame list whose length
@@ -254,17 +240,15 @@ vec3 CloudAuthoredAtlasUvw( vec3 uvw, float slabBaseW, int slabCount )
 // which is the one thing §4.4 of the analysis forbids.
 //
 // THE TWO ints FIRST AND THE ARRAY AFTER THEM. std430 aligns an array of structs to 16, so the two counts
-// leave eight bytes of ALIGNMENT — not a reserved slot: there is no member there to read, and the C++ side
-// pins the array's offset at 16 so the two cannot disagree about it.
+// leave eight bytes of ALIGNMENT — not a reserved slot: CloudAuthoredAlignment names them on both sides so
+// the array's offset is one declared fact.
 //
 // THE SLAB COUNT IS A PROPERTY OF THE ATLAS AND THEREFORE OF THE BUFFER, not of an instance: every
 // instance in a frame reads the same atlas, and a per-instance copy of one number is eight chances for
 // eight copies to disagree.
 layout( std430, binding = CLOUD_AUTHORED_BUFFER_BINDING ) readonly buffer CloudAuthoredBuffer
 {
-    int                   CloudAuthoredCount;
-    int                   CloudAuthoredSlabCount;
-    CloudAuthoredInstance CloudAuthoredInstances[CLOUD_AUTHORED_SLOTS];
+    DESERT_CloudAuthoredPayload_MEMBERS
 };
 
 #define CLOUD_AUTHORED_COUNT         CloudAuthoredCount

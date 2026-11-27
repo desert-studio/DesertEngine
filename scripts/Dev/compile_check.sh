@@ -3,7 +3,7 @@
 # to the tree); exit 0 / 1. Compiles every object the targets (default: Editor) are linked from -- no archive, no link
 # -- in two passes: first the branch's own sources (changed against the merge base with origin/dev, plus uncommitted
 # edits), so their errors arrive within a minute; then every other object the edits made stale (a changed header's
-# includers). Up-to-date objects are skipped, the rest mostly come from the shared compile cache (ccache_launcher.sh).
+# includers). Up-to-date objects are skipped, the rest mostly come from the shared compile cache (buildpool_enable).
 # Runs as one build of the machine's build pool (scripts/Dev/pool.sh run): beside other trees' builds, never queued.
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
@@ -15,7 +15,7 @@ dev_configure "$LOG" "" || exit 1
 dev_drop_foreign_pch
 cd "$DEV_BUILD" || exit 1
 
-ninja -f "build-$DEV_CONFIG.ninja" -t inputs "${TARGETS[@]}" 2>"$LOG/inputs.err" | grep -E '\.(o|obj)$' > "$LOG/objects.txt"
+ninja -t inputs "${TARGETS[@]}" 2>"$LOG/inputs.err" | grep -E '\.(o|obj)$' > "$LOG/objects.txt"
 [ -s "$LOG/objects.txt" ] || { echo "compile_check: no objects for ${TARGETS[*]} (ninja -t inputs: $(head -1 "$LOG/inputs.err"))"; exit 1; }
 # The branch's own sources -> their DEV_CONFIG objects (compile_commands.json: file -> output), only those the targets use.
 base=$(git -C "$DEV_ROOT" merge-base HEAD origin/dev 2>/dev/null || git -C "$DEV_ROOT" rev-parse HEAD)
@@ -34,7 +34,7 @@ EOF
 run_pass() {  # run_pass <name> <object list file>; ninja's -j is the pool's window (pool.sh run sets it)
     [ -s "$2" ] || return 0
     bash "$DEV_ROOT/scripts/Dev/pool.sh" run --label "compile_check $1" --\
-        sh -c 'xargs ninja -f "$1" -k 0 -j "$CMAKE_BUILD_PARALLEL_LEVEL" < "$2"' _ "build-$DEV_CONFIG.ninja" "$2" > "$LOG/$1.log" 2>&1
+        sh -c 'xargs ninja -k 0 -j "$CMAKE_BUILD_PARALLEL_LEVEL" < "$1"' _ "$2" > "$LOG/$1.log" 2>&1
 }
 report() {  # report <pass log>: the first errors, paths relative to the tree
     echo "compile_check: FAILED ($1, $(( $(date +%s) - start ))s; log $LOG/$1.log). First errors:"

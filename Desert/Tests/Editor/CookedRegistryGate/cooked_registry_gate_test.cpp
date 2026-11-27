@@ -35,6 +35,7 @@
 #include <string>
 #include "../../TestSupport/engine_dir.hpp"
 #include "../../TestSupport/runner.hpp"
+#include <Common/Content/ContentPaths.hpp>
 
 namespace fs = std::filesystem;
 

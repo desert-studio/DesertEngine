@@ -15,6 +15,7 @@
 #include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Graphic/Clouds/CloudPayload.hpp>
 #include <Engine/Graphic/Clouds/CloudQuality.hpp>
+#include "../../TestSupport/shipped_scalability.hpp"
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
@@ -1525,24 +1526,23 @@ TEST( ReflectionMetadata, EveryEditConditionNamesABoolOfItsOwnBlock )
 namespace
 {
     // Every enumerator, listed once. A tier missing from here is a tier nothing checks.
-    constexpr Common::Settings::CloudQuality kAllQualityTiers[] = {
-         Common::Settings::CloudQuality::Low,
-         Common::Settings::CloudQuality::Medium,
-         Common::Settings::CloudQuality::High,
-    };
-
-    const char* QualityTierName( Common::Settings::CloudQuality tier )
+    struct CloudTier
     {
-        switch ( tier )
-        {
-            case Common::Settings::CloudQuality::Low:
-                return "Low";
-            case Common::Settings::CloudQuality::Medium:
-                return "Medium";
-            case Common::Settings::CloudQuality::High:
-                return "High";
-        }
-        return "?";
+        const char*                        Name;
+        Desert::Graphic::CloudQualityScale Scale;
+    };
+    // The Effects levels the shipped table runs (Scalability.json, read, never copied): Low, Medium, and High,
+    // the identity every level above it runs too.
+    std::vector<CloudTier> AllQualityTiers()
+    {
+        const auto table = Desert::TestSupport::ShippedScalabilityTable();
+        EXPECT_TRUE( table.IsSuccess() ) << table.GetError();
+        if ( !table.IsSuccess() )
+            return {};
+        using Common::Scalability::Level;
+        return { { "Low", Desert::TestSupport::ShippedCloudQuality( table.GetValue(), Level::Low ) },
+                 { "Medium", Desert::TestSupport::ShippedCloudQuality( table.GetValue(), Level::Medium ) },
+                 { "High", Desert::TestSupport::ShippedCloudQuality( table.GetValue(), Level::High ) } };
     }
 
     // The component's default Max Steps, which no tier lowers.
@@ -1576,9 +1576,9 @@ TEST( CloudQualityTier, TheTierCapsTheShadowRayAndLeavesTheMarchAlone )
     shape.DensityFactor    = 1.0f;
     shape.ExtinctionFactor = 1.0f;
 
-    for ( const Common::Settings::CloudQuality tier : kAllQualityTiers )
+    for ( const CloudTier& tier : AllQualityTiers() )
     {
-        const Desert::Graphic::CloudQualityScale scale = Desert::Graphic::CloudQualityFor( tier );
+        const Desert::Graphic::CloudQualityScale scale = tier.Scale;
         const Desert::Graphic::CloudGpuPayload   payload = Desert::Graphic::PackCloudParams(
              data, material, &shape, 1u, atmosphere, glm::vec3( 0.0f ), Desert::Graphic::CloudRegionBinding{},
              scale.LightMarchSampleCeiling, scale.StopTransmittanceFloor );
@@ -1586,24 +1586,24 @@ TEST( CloudQualityTier, TheTierCapsTheShadowRayAndLeavesTheMarchAlone )
         // The shadow ray is min(authored, ceiling) — the tier lowers it and never raises it.
         EXPECT_FLOAT_EQ( payload.SunColour.w,
                          static_cast<float>( std::min( data.LightMarchSamples, scale.LightMarchSampleCeiling ) ) )
-             << QualityTierName( tier ) << " did not apply its shadow-ray ceiling to the packed block";
+             << tier.Name << " did not apply its shadow-ray ceiling to the packed block";
         EXPECT_LE( payload.SunColour.w, static_cast<float>( data.LightMarchSamples ) )
-             << QualityTierName( tier ) << " made the frame MORE expensive than the artist asked for";
+             << tier.Name << " made the frame MORE expensive than the artist asked for";
 
         // AND MAX STEPS IS UNTOUCHED ON EVERY TIER. This is the executable half of the refusal:
         // Desert/Tests/Engine/CloudType measures that the shipped library tolerates Max Steps down to 233
         // against the component's 256, nine per cent, so there is nothing for a tier to spend here — and
         // if one ever tries, this line is what says so.
         EXPECT_FLOAT_EQ( payload.March.x, kTierMaxSteps )
-             << QualityTierName( tier ) << " lowered Max Steps, which the shipped cloud library cannot afford";
+             << tier.Name << " lowered Max Steps, which the shipped cloud library cannot afford";
 
         // The march's stop threshold composes the OTHER way — max(), because ending the march earlier is
         // what makes it cheaper — and the two compositions have to point the same way or a tier stops
         // being a budget and becomes a second opinion about the sky.
         EXPECT_FLOAT_EQ( payload.March.y, std::max( data.StopTransmittance, scale.StopTransmittanceFloor ) )
-             << QualityTierName( tier ) << " did not apply its stop-transmittance floor";
+             << tier.Name << " did not apply its stop-transmittance floor";
         EXPECT_GE( payload.March.y, data.StopTransmittance )
-             << QualityTierName( tier ) << " made the march run LONGER than the artist asked for";
+             << tier.Name << " made the march run LONGER than the artist asked for";
     }
 
     // An artist who has already asked for the cheap answer keeps it on every tier — a ceiling is a
@@ -1611,14 +1611,14 @@ TEST( CloudQualityTier, TheTierCapsTheShadowRayAndLeavesTheMarchAlone )
     // side.
     data.LightMarchSamples = 8;
     data.StopTransmittance = 0.2f;
-    for ( const Common::Settings::CloudQuality tier : kAllQualityTiers )
+    for ( const CloudTier& tier : AllQualityTiers() )
     {
-        const Desert::Graphic::CloudQualityScale scale = Desert::Graphic::CloudQualityFor( tier );
+        const Desert::Graphic::CloudQualityScale scale = tier.Scale;
         const Desert::Graphic::CloudGpuPayload   payload = Desert::Graphic::PackCloudParams(
              data, material, &shape, 1u, atmosphere, glm::vec3( 0.0f ), Desert::Graphic::CloudRegionBinding{},
              scale.LightMarchSampleCeiling, scale.StopTransmittanceFloor );
-        EXPECT_FLOAT_EQ( payload.SunColour.w, 8.0f ) << QualityTierName( tier ) << " overruled an authored 8";
-        EXPECT_FLOAT_EQ( payload.March.y, 0.2f ) << QualityTierName( tier ) << " overruled an authored 0.2";
+        EXPECT_FLOAT_EQ( payload.SunColour.w, 8.0f ) << tier.Name << " overruled an authored 8";
+        EXPECT_FLOAT_EQ( payload.March.y, 0.2f ) << tier.Name << " overruled an authored 0.2";
     }
 }
 

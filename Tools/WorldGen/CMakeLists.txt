@@ -1,36 +1,11 @@
-# WorldGen: compiles the engine sources it needs straight in, data-only reflection
-# (DESERT_REFLECTION_DATA_ONLY); built after the engine codegen library, whose header tool writes Reflection*.gen.cpp.
-desert_glob(_sources "Source/*.cpp")
-file(GLOB _generated CONFIGURE_DEPENDS "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/Reflection_*.gen.cpp")
-list(SORT _generated)
-desert_add_executable(WorldGen FOLDER Tools SOURCES ${_sources} ${_generated}
-    "${DESERT_ROOT}/Desert/Projects/Source/Projects/StartupLayout.cpp"
-    "${DESERT_ROOT}/Tools/SceneMigrator/Source/SettingsCanonical.cpp"
-    "${DESERT_ROOT}/Desert/Desert/Source/Engine/Core/Serialize/ExternalEntities.cpp"
-    "${DESERT_ROOT}/Desert/Desert/Source/Engine/Core/Serialize/EntityDescriptorIndex.cpp"
-    "${DESERT_ROOT}/Desert/Desert/Source/Engine/Core/Serialize/WorldPartitionRules.cpp"
-    "${DESERT_ROOT}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp"
-    "${DESERT_ROOT}/Desert/Desert/Source/Engine/Reflection/FieldValue.cpp"
-    "${DESERT_ROOT}/Desert/Desert/Source/Engine/Reflection/FunctionInfo.cpp"
-    "${DESERT_ROOT}/Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp"
-    "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"
-    "${DESERT_ROOT}/Desert/Landscape/Source/LandscapeCore/Private/LandscapeData.cpp"
-    "${DESERT_ROOT}/Desert/Landscape/Source/LandscapeCore/Private/LandscapeLayout.cpp"
-    "${DESERT_ROOT}/Desert/Landscape/Source/LandscapeCore/Private/LandscapeWorldPartition.cpp"
-    "${DESERT_ROOT}/Desert/Landscape/Source/Landscape/Private/LandscapeGenerator.cpp"
-    "${DESERT_ROOT}/Desert/Landscape/Source/Landscape/Private/LandscapeSculpt.cpp"
-    "${DESERT_ROOT}/Desert/Landscape/Source/Landscape/Private/LandscapeBrush.cpp"
-    "${DESERT_ROOT}/Desert/Landscape/Source/Landscape/Private/LandscapeEditCache.cpp"
-    "${DESERT_ROOT}/Desert/Landscape/Source/LandscapeCore/Private/LandscapeEditLayers.cpp"
-    "${DESERT_ROOT}/Desert/Landscape/Source/LandscapeCore/Private/LandscapeEditLayerStack.cpp"
-    "${DESERT_ROOT}/Desert/Landscape/Source/LandscapeCore/Private/LandscapeSplines.cpp"
-    "${DESERT_ROOT}/Desert/Landscape/Source/Landscape/Private/LandscapePaint.cpp"
-    "${DESERT_ROOT}/Desert/Landscape/Source/LandscapeCore/Private/LandscapeTileFiles.cpp"
-    "${DESERT_ROOT}/Desert/Desert/Source/Engine/Core/Serialize/SceneDependencies.cpp")
-desert_depend_on_codegen(WorldGen)
-target_compile_definitions(WorldGen PRIVATE DESERT_REFLECTION_DATA_ONLY)
-target_include_directories(WorldGen PRIVATE "${DESERT_ROOT}/Editor/Resources/Shaders" "${DESERT_ROOT}/Tools/Shared" "${DESERT_ROOT}/Tools/SceneMigrator/Source")
+# WorldGen: generates worlds. The engine (reflection, serialization, landscape, projects) is LINKED from the engine
+# module libraries (desert_link_engine_tool) and the canonical settings from DesertSceneMigration -- never compiled a
+# second time here (B-TOOLS).
+desert_sources(_sources "Source" MATCHING "\\.cpp$")
+desert_add_executable(WorldGen FOLDER Tools SOURCES ${_sources})
+target_include_directories(WorldGen PRIVATE "${DESERT_ROOT}/Editor/Resources/Shaders" "${DESERT_ROOT}/Tools/Shared")
 desert_engine_includes(WorldGen)
-desert_external_includes(WorldGen "${DESERT_ROOT}/ThirdParty/entt/include" ${DESERT_COMMON_INCLUDE_DIRS})
-target_link_libraries(WorldGen PRIVATE Common ${DESERT_OPTICK} ReflectCpp)
-desert_platform_defines(WorldGen)
+desert_external_includes(WorldGen ${DESERT_COMMON_INCLUDE_DIRS} ${DESERT_DESERTSPECIFIC_INCLUDE_DIRS})
+desert_config_platform_defines(WorldGen)
+target_link_libraries(WorldGen PRIVATE DesertSceneMigration)
+desert_link_engine_tool(WorldGen)

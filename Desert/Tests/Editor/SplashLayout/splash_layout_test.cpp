@@ -28,8 +28,17 @@ TEST( SplashLayout, TheElementsSitWhereTheDesignPutsThem )
     EXPECT_EQ( layout.Stage.Y, 52.0f );
     EXPECT_EQ( layout.Item.X, 48.0f );
     EXPECT_EQ( layout.Item.Y, 36.0f );
-    // The item line has no right-hand neighbour and runs margin to margin.
-    EXPECT_EQ( layout.Item.X + layout.Item.W, Splash::kWidth - 48.0f );
+    // The item line owns the left two thirds of its line; the time line the rest, to the right margin.
+    EXPECT_FLOAT_EQ( layout.Item.X + layout.Item.W, 48.0f + ( Splash::kWidth - 96.0f ) * 2.0f / 3.0f );
+    EXPECT_EQ( layout.Time.Y, layout.Item.Y );
+    EXPECT_FLOAT_EQ( layout.Time.X, layout.Item.X + layout.Item.W );
+    EXPECT_FLOAT_EQ( layout.Time.X + layout.Time.W, Splash::kWidth - 48.0f );
+    // The detail log's panel sits on the right, above the version, and ends on the right margin.
+    EXPECT_EQ( layout.LogPanel.X, 648.0f );
+    EXPECT_EQ( layout.LogPanel.Y, 96.0f );
+    EXPECT_EQ( layout.LogPanel.H, 90.0f );
+    EXPECT_EQ( layout.LogPanel.X + layout.LogPanel.W, Splash::kWidth - 48.0f );
+    EXPECT_FLOAT_EQ( layout.LogPanelAlpha, 0.35f );
     EXPECT_EQ( layout.BarTrack.Y, 22.0f );
     EXPECT_EQ( layout.BarTrack.H, 2.0f );
     // The bar has the same 48-point margin on both sides.
@@ -67,6 +76,22 @@ TEST( SplashLayout, NoTwoTextBoxesOverlap )
     EXPECT_GE( layout.Item.Y, layout.BarTrack.Y + layout.BarTrack.H );
     EXPECT_GE( layout.Stage.Y, layout.Item.Y + layout.Item.H );
     EXPECT_GE( layout.Project.Y, layout.Stage.Y + layout.Stage.H );
+    // The time line shares the item line and owns its right third.
+    EXPECT_LE( layout.Item.X + layout.Item.W, layout.Time.X );
+    // The log panel is above everything on the bottom lines, and its lines stack inside it, the newest
+    // ([0]) at the bottom.
+    EXPECT_GE( layout.LogPanel.Y, layout.Version.Y + layout.Version.H );
+    EXPECT_GE( layout.LogPanel.Y, layout.Project.Y + layout.Project.H );
+    for ( std::size_t i = 0; i < Splash::kLogLines; ++i )
+    {
+        const Splash::Rect& line = layout.LogLines[i];
+        EXPECT_GE( line.X, layout.LogPanel.X );
+        EXPECT_LE( line.X + line.W, layout.LogPanel.X + layout.LogPanel.W );
+        EXPECT_GE( line.Y, layout.LogPanel.Y ) << "log line " << i;
+        EXPECT_LE( line.Y + line.H, layout.LogPanel.Y + layout.LogPanel.H ) << "log line " << i;
+        if ( i > 0 )
+            EXPECT_GE( line.Y, layout.LogLines[i - 1].Y + layout.LogLines[i - 1].H - 1e-3f ) << "log line " << i;
+    }
 }
 
 TEST( SplashLayout, NoLiveLineReachesThePicturesEngineWordmark )
@@ -75,8 +100,11 @@ TEST( SplashLayout, NoLiveLineReachesThePicturesEngineWordmark )
     // at y 80 with its box ending 1.3 points under ENGINE's glyphs, and on screen the two read as one line.
     const Splash::Layout layout = Splash::ComputeLayout( 0.5 );
     const float          floor  = Splash::kWordmarkEngine.Y - Splash::kWordmarkClearance;
-    for ( const Splash::Rect& box : { layout.Project, layout.Version, layout.Stage, layout.Percent, layout.Item } )
+    for ( const Splash::Rect& box :
+          { layout.Project, layout.Version, layout.Stage, layout.Percent, layout.Item, layout.Time } )
         EXPECT_LE( box.Y + box.H, floor ) << "a text box at y " << box.Y << " reaches the wordmark";
+    // The log panel rises above that floor, so it keeps clear of the wordmark sideways instead.
+    EXPECT_GE( layout.LogPanel.X, Splash::kWordmarkEngine.X + Splash::kWordmarkEngine.W + Splash::kWordmarkClearance );
 }
 
 TEST( SplashLayout, TheWordmarkBoxIsWhereThePictureDrawsEngine )

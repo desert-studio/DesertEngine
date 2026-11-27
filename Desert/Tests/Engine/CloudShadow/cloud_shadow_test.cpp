@@ -28,6 +28,7 @@
 
 #include "../../TestSupport/scratch_dir.hpp"
 #include "../../TestSupport/source_roots.hpp"
+#include "../../TestSupport/shipped_scalability.hpp"
 #include "CloudShadowReference.hpp"
 
 #include <Engine/Graphic/Clouds/CloudQuality.hpp>
@@ -454,7 +455,7 @@ TEST( CloudShadowMap, TheTexelResolvesWhatTheMarchCanFind )
 // ---------------------------------------------------------------------------------------------------
 //
 // A tier that breaks an invariant is worse than a tier that does not exist, so the three assertions above
-// are re-run against the numbers Graphic::CloudQualityFor produces for every enumerator rather than
+// are re-run against the numbers every Effects level gives rather than
 // against the constants that happen to be compiled in. That is what makes the tier a mechanism instead of
 // three sets of magic numbers: adding a fourth tier cannot silently coarsen the map past what the march
 // can find, because this loop will say so with the two figures side by side.
@@ -463,24 +464,23 @@ namespace
 {
     // Every enumerator, listed once. A new tier that is not added here is a tier nothing checks, which is
     // why the count is asserted below rather than left to the reader.
-    constexpr Common::Settings::CloudQuality kAllTiers[] = {
-         Common::Settings::CloudQuality::Low,
-         Common::Settings::CloudQuality::Medium,
-         Common::Settings::CloudQuality::High,
-    };
-
-    const char* TierName( Common::Settings::CloudQuality tier )
+    struct CloudTier
     {
-        switch ( tier )
-        {
-            case Common::Settings::CloudQuality::Low:
-                return "Low";
-            case Common::Settings::CloudQuality::Medium:
-                return "Medium";
-            case Common::Settings::CloudQuality::High:
-                return "High";
-        }
-        return "?";
+        const char*                        Name;
+        Desert::Graphic::CloudQualityScale Scale;
+    };
+    // The Effects levels the shipped table runs (Scalability.json, read, never copied): Low, Medium, and High,
+    // the identity every level above it runs too.
+    std::vector<CloudTier> AllTiers()
+    {
+        const auto table = Desert::TestSupport::ShippedScalabilityTable();
+        EXPECT_TRUE( table.IsSuccess() ) << table.GetError();
+        if ( !table.IsSuccess() )
+            return {};
+        using Common::Scalability::Level;
+        return { { "Low", Desert::TestSupport::ShippedCloudQuality( table.GetValue(), Level::Low ) },
+                 { "Medium", Desert::TestSupport::ShippedCloudQuality( table.GetValue(), Level::Medium ) },
+                 { "High", Desert::TestSupport::ShippedCloudQuality( table.GetValue(), Level::High ) } };
     }
 
     // The component's default Max Steps, which no tier lowers and which
@@ -500,20 +500,20 @@ TEST( CloudShadowMapTiers, EveryTierKeepsTheTexelInsideTheChordTheMarchCanFind )
     // shader's own text is the one this test wants: it is the thing being held to a relation.
     const float chordKm = Desert::Tests::CloudShadowRef::CloudFinestResolvableChordKm( kDefaultMaxStepsAllTiers );
 
-    for ( const Common::Settings::CloudQuality tier : kAllTiers )
+    for ( const CloudTier& tier : AllTiers() )
     {
-        const CloudQualityScale scale      = CloudQualityFor( tier );
+        const CloudQualityScale scale      = tier.Scale;
         const float             extentKm   = CloudShadowExtentKmForScale( scale.ShadowMapScale );
         const uint32_t          resolution = CloudShadowResolutionForScale( scale.ShadowMapScale );
         const float             texelKm    = CloudShadowTexelKm( extentKm, static_cast<float>( resolution ) );
 
         std::printf( "[CloudShadowMapTiers] %-6s  map %ux%u over %.1f km radius -> texel %.1f m, chord "
                      "%.1f m (%.2fx), samples <= %d\n",
-                     TierName( tier ), resolution, resolution, extentKm, texelKm * 1000.0f, chordKm * 1000.0f,
+                     tier.Name, resolution, resolution, extentKm, texelKm * 1000.0f, chordKm * 1000.0f,
                      texelKm / chordKm, scale.LightMarchSampleCeiling );
 
         EXPECT_LE( texelKm, chordKm )
-             << TierName( tier ) << " gives the shadow map a texel of " << texelKm * 1000.0f << " m against the "
+             << tier.Name << " gives the shadow map a texel of " << texelKm * 1000.0f << " m against the "
              << chordKm * 1000.0f
              << " m chord the view march can be relied on to find, so the map would be quantizing cloud "
                 "the sky visibly has. Scale the extent WITH the resolution — that is what "
@@ -521,7 +521,7 @@ TEST( CloudShadowMapTiers, EveryTierKeepsTheTexelInsideTheChordTheMarchCanFind )
                 "resolution alone";
 
         EXPECT_GE( texelKm, chordKm * 0.5f )
-             << TierName( tier )
+             << tier.Name
              << " is storing detail the march cannot produce — resolution spent on "
                 "nothing, which is the opposite failure and just as much a defect";
     }
@@ -553,9 +553,9 @@ TEST( CloudShadowMapTiers, EveryTierFadesItsBorderOverAtLeastTenTexels )
 {
     using namespace Desert::Graphic;
 
-    for ( const Common::Settings::CloudQuality tier : kAllTiers )
+    for ( const CloudTier& tier : AllTiers() )
     {
-        const CloudQualityScale scale      = CloudQualityFor( tier );
+        const CloudQualityScale scale      = tier.Scale;
         const float             extentKm   = CloudShadowExtentKmForScale( scale.ShadowMapScale );
         const uint32_t          resolution = CloudShadowResolutionForScale( scale.ShadowMapScale );
         const float             texelKm    = CloudShadowTexelKm( extentKm, static_cast<float>( resolution ) );
@@ -565,7 +565,7 @@ TEST( CloudShadowMapTiers, EveryTierFadesItsBorderOverAtLeastTenTexels )
         // stopped being a UV constant — so the ten-texel span survives a tier that halves the map.
         EXPECT_NEAR( bandKm, CLOUD_SHADOWMAP_BORDER_FADE_KM, 1e-4f );
         EXPECT_GT( bandKm, 10.0f * texelKm )
-             << TierName( tier )
+             << tier.Name
              << " fades its border over fewer than ten texels, which bands instead of blending";
     }
 }
@@ -581,17 +581,17 @@ TEST( CloudShadowMapTiers, EveryTierGuaranteesCoverageAroundTheCameraAndTheLadde
     float previousCoverageKm = 0.0f;
     float previousCostShare  = 0.0f;
 
-    for ( const Common::Settings::CloudQuality tier : kAllTiers ) // Low -> Medium -> High
+    for ( const CloudTier& tier : AllTiers() ) // Low -> Medium -> High
     {
-        const CloudQualityScale scale      = CloudQualityFor( tier );
+        const CloudQualityScale scale      = tier.Scale;
         const float             extentKm   = CloudShadowExtentKmForScale( scale.ShadowMapScale );
         const float             snapKm     = CloudShadowSnapKmForScale( scale.ShadowMapScale );
         const uint32_t          resolution = CloudShadowResolutionForScale( scale.ShadowMapScale );
 
         const float coverageKm = extentKm - 0.5f * snapKm;
-        EXPECT_GT( coverageKm, 0.0f ) << TierName( tier ) << " guarantees no cloud shadow anywhere at all";
+        EXPECT_GT( coverageKm, 0.0f ) << tier.Name << " guarantees no cloud shadow anywhere at all";
         EXPECT_NEAR( coverageKm / extentKm, 2.0f / 3.0f, 1e-5f )
-             << TierName( tier ) << " does not keep the snap in proportion to the extent";
+             << tier.Name << " does not keep the snap in proportion to the extent";
 
         // MONOTONE IN BOTH DIRECTIONS, which is the property that makes this a ladder rather than three
         // opinions: a more expensive tier must never cover less world, and must never cost less.
@@ -604,7 +604,7 @@ TEST( CloudShadowMapTiers, EveryTierGuaranteesCoverageAroundTheCameraAndTheLadde
         previousCostShare = costShare;
 
         std::printf( "[CloudShadowMapTiers] %-6s  guaranteed coverage %.1f km, %u^2 texel-rays\n",
-                     TierName( tier ), coverageKm, resolution );
+                     tier.Name, coverageKm, resolution );
     }
 }
 
@@ -614,7 +614,7 @@ TEST( CloudShadowMapTiers, TheReferenceTierIsExactlyWhatWasShippedBeforeTheTierE
 
     // The one assertion that says this task changed no picture at High: the reference tier reproduces the
     // three constants the map was shipped with, to the digit.
-    const CloudQualityScale high = CloudQualityFor( Common::Settings::CloudQuality::High );
+    const CloudQualityScale high = CloudQualityScale{};
 
     EXPECT_FLOAT_EQ( high.ShadowMapScale, 1.0f );
     EXPECT_EQ( CloudShadowResolutionForScale( high.ShadowMapScale ), kCloudShadowMapResolution );
@@ -711,9 +711,9 @@ TEST( CloudShadowMapTiers, EveryTierKeepsBothSnapsUnderAMovingCamera )
 {
     using namespace Desert::Graphic;
 
-    for ( const Common::Settings::CloudQuality tier : kAllTiers )
+    for ( const CloudTier& tier : AllTiers() )
     {
-        const CloudQualityScale scale      = CloudQualityFor( tier );
+        const CloudQualityScale scale      = tier.Scale;
         const float             extentKm   = CloudShadowExtentKmForScale( scale.ShadowMapScale );
         const float             snapKm     = CloudShadowSnapKmForScale( scale.ShadowMapScale );
         const uint32_t          resolution = CloudShadowResolutionForScale( scale.ShadowMapScale );
@@ -738,7 +738,7 @@ TEST( CloudShadowMapTiers, EveryTierKeepsBothSnapsUnderAMovingCamera )
             for ( int c = 0; c < 4; ++c )
                 for ( int r = 0; r < 4; ++r )
                     EXPECT_FLOAT_EQ( view.WorldToMap[c][r], reference.WorldToMap[c][r] )
-                         << TierName( tier ) << ", camera step " << i << ", element (" << c << ", " << r
+                         << tier.Name << ", camera step " << i << ", element (" << c << ", " << r
                          << ") — this tier's shadow boils under a moving camera";
         }
 
@@ -750,8 +750,8 @@ TEST( CloudShadowMapTiers, EveryTierKeepsBothSnapsUnderAMovingCamera )
         const float              texelWorld =
              CloudShadowTexelKm( extentKm, static_cast<float>( resolution ) ) * kCloudWorldUnitsPerKm;
 
-        EXPECT_NEAR( centreB.x - centreA.x, snapWorld, texelWorld ) << TierName( tier );
-        EXPECT_NEAR( centreB.z - centreA.z, 0.0f, texelWorld ) << TierName( tier );
+        EXPECT_NEAR( centreB.x - centreA.x, snapWorld, texelWorld ) << tier.Name;
+        EXPECT_NEAR( centreB.z - centreA.z, 0.0f, texelWorld ) << tier.Name;
 
         // 3. And the sub-texel residual the second snap removes is the SAME SIZE on every tier, because
         //    the texel is. That is the number that decides whether a shadow shimmers, and it is why
@@ -761,7 +761,7 @@ TEST( CloudShadowMapTiers, EveryTierKeepsBothSnapsUnderAMovingCamera )
                      CloudShadowTexelKm( kCloudShadowExtentKm, static_cast<float>( kCloudShadowMapResolution ) ) *
                           kCloudWorldUnitsPerKm,
                      1.0f )
-             << TierName( tier ) << " changed the size of the lattice the second snap works on";
+             << tier.Name << " changed the size of the lattice the second snap works on";
     }
 }
 
@@ -1026,8 +1026,8 @@ TEST( CloudShadowReceiver, NoShaderReconstructsTheShadowForItself )
 
 TEST( CloudShadowReceiver, NoMaterialPacksTheUniformBlockForItself )
 {
-    // The C++ half of the same relation. `CloudShadowUniforms` is filled in exactly ONE place —
-    // CloudShadowPackUniforms, beside the struct — and reaches a descriptor set through exactly one
+    // The C++ half of the same relation. `CloudShadowUniforms` is declared once (CloudLayout.hpp), filled in
+    // exactly ONE place — CloudShadowPackUniforms — and reaches a descriptor set through exactly one
     // writer, CloudShadowUpload. A material that assembles the block itself is free to decide differently
     // what `Params.y` means, and the symptom is one render path shading with a shadow the other has
     // switched off.
@@ -1045,8 +1045,8 @@ TEST( CloudShadowReceiver, NoMaterialPacksTheUniformBlockForItself )
                 continue;
 
             const std::string name = entry.path().filename().string();
-            // The struct and the function that fills it.
-            if ( name == "CloudShadowPayload.hpp" )
+            // The struct (CloudLayout.hpp, the cloud blocks' one declaration) and the function that fills it.
+            if ( name == "CloudLayout.hpp" || name == "CloudShadowPayload.hpp" )
             {
                 declarations++;
                 continue;
@@ -1063,7 +1063,7 @@ TEST( CloudShadowReceiver, NoMaterialPacksTheUniformBlockForItself )
                  << name << " builds the cloud-shadow uniform block itself; call CloudShadowUpload instead";
         }
 
-    EXPECT_EQ( declarations, 1 ) << "Engine/Graphic/Clouds/CloudShadowPayload.hpp was not found";
+    EXPECT_EQ( declarations, 2 ) << "Engine/Graphic/Clouds/CloudLayout.hpp or CloudShadowPayload.hpp was not found";
     EXPECT_EQ( writers, 1 ) << "Engine/Graphic/Clouds/CloudShadowBinding.hpp was not found";
 }
 

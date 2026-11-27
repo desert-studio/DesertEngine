@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <glm/glm.hpp>
 
@@ -68,6 +69,9 @@ namespace Desert::Graphic::GpuDriven
         glm::mat4   LocalToWorld{ 1.0f };
         // ISM: the instances' transforms relative to the component; empty = one identity instance.
         std::span<const glm::mat4> InstanceToPrimitive{};
+        // The component's index of each InstanceToPrimitive entry (InstancedMeshRenderData::InstanceIds) when the
+        // density thinned the field or a displacement split it; empty = the entries are the component's, in order.
+        std::span<const uint32_t> ComponentInstances{};
         // Geometry::LocalBounds of the mesh (cm) and the wind's reach past it (today MeshDrawCommand::BoundsPad).
         glm::vec3 LocalBoundsMin{ 0.0f };
         glm::vec3 LocalBoundsMax{ 0.0f };
@@ -141,7 +145,10 @@ namespace Desert::Graphic::GpuDriven
     class GpuScene
     {
     public:
-        GpuScene();
+        // @p scene: the owning Core::Scene's ledger instance (Scene::GetLedgerInstance). The tables are the
+        // scene's, read by every view of it: AddUploadPass opens the scene's scope, so a table made or grown in
+        // one view's frame is not that view's row and does not outlive its close as one (VIEW-CLOSE-LEAK).
+        explicit GpuScene( ResourceOwnerInstance scene );
         ~GpuScene();
         GpuScene( const GpuScene& )            = delete;
         GpuScene& operator=( const GpuScene& ) = delete;
@@ -341,6 +348,7 @@ namespace Desert::Graphic::GpuDriven
         std::vector<uint8_t>         m_Meshed;
         static uint64_t              NextStreamId();
         uint64_t                     m_StreamId = NextStreamId();
+        ResourceOwnerInstance        m_LedgerInstance; // the owning scene's
 
         std::unique_ptr<Table> m_PrimitiveTable;
         std::unique_ptr<Table> m_InstanceTable;

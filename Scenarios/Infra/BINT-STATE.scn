@@ -1,0 +1,19 @@
+# BINT-STATE: every piece of process-wide state a header used to define (Common::Singleton instances, RenderConfig,
+# SyncLoad ledger, selection/gizmo/foliage state, Vulkan debug-utils entry points, thread-local record contexts) lives
+# in one .cpp of its owner module; other module DLLs reach it only through non-inline functions.
+# One object per process shows here: Renderer, FrameManager, CommandBufferAllocator and EngineContext are filled by
+# Engine/EditorExe and read by RenderCore/Renderer - a second, empty copy in any DLL ends the first frame (null device,
+# no frame slots). RenderConfig is written by the editor settings and read by RenderCore/Renderer: Wireframe drawing
+# and texture filtering follow the editor here only if both sides read the same atomics.
+# Outside the editor: python scripts/Dev/arch_census.py exits 0 (header-state 0).
+Проект Projects/Desert/Desert.deproj
+Дано state
+Когда run View "View mode: Lit"
+Когда frames 120
+Тогда 0_lit_vulkan сцена Projects/Desert под Vulkan как в dev (кадр равен кадру dev): геометрия, свет, небо, текстуры на месте; без падения и диалога ошибки; в editor.log нет ошибки валидации и отказа загрузки
+Когда run View "View mode: Wireframe"
+Когда frames 60
+Тогда 1_wireframe та же сцена каркасом, как в dev: настройка редактора дошла до рендерера
+Когда run View "View mode: Lit"
+Когда frames 60
+Тогда 2_lit_back снова Lit, равен 0_lit_vulkan

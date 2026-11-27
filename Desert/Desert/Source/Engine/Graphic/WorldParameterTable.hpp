@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/WorldParameterLayout.hpp>
 #include <Engine/Core/WorldParameterInstance.hpp>
 
 #include <glm/glm.hpp>
@@ -11,25 +12,6 @@
 
 namespace Desert::Graphic
 {
-    // The C++ twin of Common/WorldParameters.glslh: a 16-byte header, then `capacity` 32-byte slots (std430).
-    struct GpuWorldParameterHeader
-    {
-        uint32_t Capacity = 1;
-        uint32_t Count    = 0;
-        uint32_t Pad0     = 0;
-        uint32_t Pad1     = 0;
-    };
-    struct GpuWorldParameterSlot
-    {
-        uint32_t  Key  = 0; // 0 = empty
-        uint32_t  Pad0 = 0;
-        uint32_t  Pad1 = 0;
-        uint32_t  Pad2 = 0;
-        glm::vec4 Value{ 0.0f };
-    };
-    static_assert( sizeof( GpuWorldParameterHeader ) == 16 && sizeof( GpuWorldParameterSlot ) == 32,
-                   "the std430 layout of Common/WorldParameters.glslh" );
-
     // Common/SurfaceLayer.glslh reads the world's surface layer by this key, written there as a literal (GLSL has
     // no strings); the layer's own values are read by keys the graph compiler writes into
     // Generated/SurfaceLayers.glslh.

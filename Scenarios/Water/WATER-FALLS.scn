@@ -1,13 +1,28 @@
 # WATER-FALLS: Water_Falls - a river (WaterBody River, FlowSpeed 200 cm/s) runs 8 m above a lake on a cliff and pours over
 # its lip at x = 0: the spline's steep reach (rise/run > Water::kRiverFallMinSlope) is drawn as the river's falling
 # sheet (WaterRenderer fall rows, Vertex_WaterMesh.glslh WaterFallVertex) and answered by Water::RiverFallAt.
+# Behind the lake a breakwater and the Sea: the world's one FFT ocean beside a Gerstner lake and a waveless river, all three
+# live in one wave record (ECS::WaterWaveSources). Log: no "[Water] ... is no water body".
+# The sheet is baked once per river edit (ECS::WaterRiverBakes): a ballistic arc from the lip, landing Plunge.Foot
+# 254 cm out at 1261 cm/s; its boil (WaterFoamUpdate binding 3) whitens and spreads the lake's foam.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Falls.desce
 Дано --subject viewport set Camera.Position 100,400,-2500
 Дано --subject viewport set Camera.Direction 0,-0.05,1
 Тогда-вид 1_side сбоку - сплошная лента воды от кромки до озера, течение видно по текстуре
 Дано --subject viewport set Camera.Position 900,300,-900
 Дано --subject viewport set Camera.Direction -0.6,-0.25,0.75
-Тогда-вид 2_base у основания пена и туман брызг (сами, от RiverFall::Foot, без ручных сущностей), озеро у подножия волнуется (CalmOcean)
+Тогда-вид 2_base у подножия белое кипение шире полотна (>= 8 м поперёк при ширине реки 8 м) лежит НА воде и уходит по озеру; туман у удара мягко тает у воды и скалы, без линии среза; брызги - штрихи вдоль полёта; полосы реки внутри озера нет
 Дано --subject viewport set Camera.Position -2000,2500,-6000
 Дано --subject viewport set Camera.Direction 0.3,-0.33,0.9
-Тогда-вид 3_far издали водопад - часть реки, без шва между рекой и падением
+Тогда-вид 3_far водопад - часть реки, озеро сразу за ударом в своих волнах, ступеньки уровня у подножия нет
+Дано --subject viewport set Camera.Position 1400,250,-700
+Дано --subject viewport set Camera.Direction -0.75,-0.1,0.65
+Тогда-вид 8_falls_a полотно отходит от скалы дугой и падает в 2.5 м от кромки (не по скале); край рвётся жгутами; низ уходит под волну озера без щели; струи между a, b, c сдвинуты вниз (вода течёт); в кадре море за молом (FFT, у озера Герстнер)
+Когда frames 4
+Тогда-вид 8_falls_b полотно отходит от скалы дугой и падает в 2.5 м от кромки (не по скале); край рвётся жгутами; низ уходит под волну озера без щели; струи между a, b, c сдвинуты вниз (вода течёт); в кадре море за молом (FFT, у озера Герстнер)
+Когда frames 4
+Тогда-вид 8_falls_c полотно отходит от скалы дугой и падает в 2.5 м от кромки (не по скале); край рвётся жгутами; низ уходит под волну озера без щели; струи между a, b, c сдвинуты вниз (вода течёт); в кадре море за молом (FFT, у озера Герстнер)
+Когда frames 1
+Дано --subject viewport set Camera.Position -1200,1500,-1800
+Дано --subject viewport set Camera.Direction 0.45,-0.55,0.7
+Тогда-вид two_levels река на 8 м и озеро внизу: пена и мокрая полоса каждого тела - у его собственного уровня; на скале под рекой нет полосы озера, у озера нет полосы реки

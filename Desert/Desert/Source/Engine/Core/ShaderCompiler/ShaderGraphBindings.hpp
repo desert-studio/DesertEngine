@@ -184,7 +184,10 @@ namespace Desert::Core
     // The ground's world height (`LandscapeVirtualHeightAtlas`; UE's WorldHeight RVT): what a mesh measures its
     // height above the ground and the ground's world normal from (Mesh/Surface/SurfaceLandscapeBlend.glslh).
     inline constexpr uint32_t kLandscapeVirtualHeightBinding     = kSceneReadBindingFirst + 43u;
-    inline constexpr uint32_t kSceneReadBindingCount             = 44u;
+    // The closest-depth HZB (`ClosestHzbTexture`, all mips; SceneViewSlot::ClosestHzb): the shadow trace of a local
+    // light no map was left for (Mesh/LocalLightShadow.glslh, declared by Mesh/ForwardLocalLights.glslh).
+    inline constexpr uint32_t kClosestHzbBinding                 = kSceneReadBindingFirst + 44u;
+    inline constexpr uint32_t kSceneReadBindingCount             = 45u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
@@ -256,7 +259,8 @@ namespace Desert::Core
     // distance-field sun's mask joined it (DF-SHADOWS). Then from 67: the translucency lighting volume joined it
     // (PARTICLES-LIT-TLV). Then from 68: the deformation field's four levels' images and its block joined it
     // (DEFORM-GRASS). Then from 73: the landscape RVT's page table, atlases and feedback joined it, and from 78 its world-height atlas (RVT-MESH-BLEND).
-    static_assert( kGraphOwnedBindingFirst == 79u,
+    // Then from 79: the closest HZB joined it.
+    static_assert( kGraphOwnedBindingFirst == 80u,
                    "the graph's window opens right above the virtual geometry raster's range" );
 
     /**
@@ -266,7 +270,7 @@ namespace Desert::Core
      *
      * SET 1, because set 0 has no slot for them outside every shared range: the traced permutation they ride on
      * fills set 0 from 0 to 40 (its G-buffer inputs, the GI frame, lights, light grid, radiance cache, the GI
-     * tracer at 23..33 and the surface cache at 34..40), 25..62 are the scene-read and raster ranges, and 63 up is
+     * tracer at 23..33 and the surface cache at 34..40), from 25 up are the scene-read and raster ranges, then
      * the graph's window, which nothing shipped may declare into (Tests/Engine/ShaderCacheKey). They had sat at
      * 50/51, inside the scene-read range. Set 1 is a program's own set (BindlessSetIndex.hpp) and no header
      * SSR.shader includes declares into it; the deferred composite parks its own extra reads there the same way
@@ -287,9 +291,9 @@ namespace Desert::Core
 
     /**
      * THE TABLE SHADERS READ: every slot above, by its C++ name, as Generated/SceneBindings.glslh hands it to GLSL
-     * (`#define kSceneFogVolumeBinding 48`; Graphic::ShaderProtocols::SceneBindingsGlsl, served by the shader
-     * includer and hashed by the cache key like every generated protocol include - there is no file on disk to
-     * edit). A shader never spells one of these numbers: it includes that header and writes
+     * (`#define kSceneFogVolumeBinding 48`; written from kSceneBindingNames by Tools/ShaderProtocolGen, served by
+     * the shader includer and hashed by the cache key like every generated protocol include - there is no file on
+     * disk to edit). A shader never spells one of these numbers: it includes that header and writes
      * `layout( binding = kSceneFogVolumeBinding )`, so moving a range here moves every declaration with it, and
      * the changed generated text recompiles every program that reads one. One name in both languages, so sym.sh
      * --refs finds the C++ binder and the GLSL declaration together. A slot added above without a row here is a
@@ -349,6 +353,7 @@ namespace Desert::Core
          DESERT_SCENE_BINDING_ROW( kLandscapeVirtualOcclusionBinding ),
          DESERT_SCENE_BINDING_ROW( kLandscapeVirtualFeedbackBinding ),
          DESERT_SCENE_BINDING_ROW( kLandscapeVirtualHeightBinding ),
+         DESERT_SCENE_BINDING_ROW( kClosestHzbBinding ),
          DESERT_SCENE_BINDING_ROW( kSceneReadBindingCount ),
          DESERT_SCENE_BINDING_ROW( kVirtualShadowRasterBindingFirst ),
          DESERT_SCENE_BINDING_ROW( kVsmFrameDataBinding ),

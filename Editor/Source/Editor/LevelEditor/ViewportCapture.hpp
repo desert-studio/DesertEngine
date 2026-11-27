@@ -10,7 +10,7 @@
 
 #include "Editor/LevelEditor/ShotDirector.hpp" // ShotDirector::RecordedFrame (WriteShotPng)
 
-#include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // the shot's detached staging (WindowPngWrite)
+#include <Engine/Graphic/SwapChain.hpp> // the shot's capture ticket (WindowPngWrite)
 
 #include <chrono>
 #include <cstdint>
@@ -77,8 +77,9 @@ namespace Desert::Editor
             double                                JoinMs    = 0.0; // on the frame: the render task join
             double                                WaitMs    = 0.0; // on the frame: the device idle wait
             double                                CollectMs = 0.0; // on the frame: staging detach (read, pack: worker)
-            // The capture's staging, read by the worker, released by FinishWindowPng.
-            Graphic::API::Vulkan::VulkanSwapChain::CapturedStaging Staging;
+            // The capture's ticket on its swap chain: resolved by the worker, released by FinishWindowPng.
+            std::shared_ptr<Graphic::SwapChain> Source;
+            Graphic::CapturedFrameTicket        Ticket;
             std::chrono::steady_clock::time_point Started;
             std::future<std::string>              Encode;
         };

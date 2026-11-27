@@ -1,25 +1,12 @@
 #pragma once
 
-#include <iostream>
-#include <fstream>
-#include <sstream>
+// THE ENGINE MODULE LIBRARIES' PRECOMPILED HEADER (Desert/Desert/CMakeLists.txt: PCH group "Engine"), force-included
+// into every source of every engine module library. The chain's second link (STUDIO-AUDIT B-PCH): the Common PCH,
+// then the engine headers most engine sources name. No singleton header: a source that derives from one includes it.
 
-#include <string>
-#include <filesystem>
+#include <Common/CommonPCH.hpp>
 
-#include <unordered_map>
-#include <unordered_set>
-#include <array>
-#include <vector>
+#include <glm/glm.hpp>
 
-#include <functional>
-#include <optional>
-
-#include <cmath>
-
-#include <random>
-
-#include <limits>
-
-#include <Common/Core/Core.hpp>
-#include <Common/Core/Singleton.hpp>
+#include <Engine/Assets/Common.hpp>
+#include <Engine/Assets/AssetGuidRef.hpp>

@@ -108,14 +108,10 @@ layout(std430, binding = 10) readonly buffer GIFrameUB
 {
 	GIFrame giFrame;
 };
-layout(std430, binding = 11) readonly buffer PointLightsUB
-{
-	PointLight pointLights[];
-};
-layout(std430, binding = 12) readonly buffer SpotLightsUB
-{
-	SpotLight spotLights[];
-};
+#define POINT_LIGHTS_UB_BINDING 11
+#include <Mesh/PointLightsUB.glslh>
+#define SPOT_LIGHTS_UB_BINDING 12
+#include <Mesh/SpotLightsUB.glslh>
 layout(std430, binding = 13) readonly buffer LightGridParamsUB
 {
 	LightGridParams lightGrid;
@@ -148,7 +144,7 @@ layout(binding = 21) uniform texture2D GBufferATexture;
 #define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
 layout(binding = 22) uniform texture2D GBufferEmissiveTexture;
 #define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
-// The shading word (uint): a hit's EMISSION_IS_LIGHT (Common/GIHitLighting.glslh GIHitMaterial). Set 1, the
+// The shading word (uint): a hit's far side and emission mark (GIHitMaterial). Set 1, the
 // program's own set, beside the front layer's slots (Core::kSsrShadingWordBinding).
 layout(set = kSsrFrontLayerSet, binding = kSsrShadingWordBinding) uniform utexture2D GBufferShadingWordTexture;
 #define GBufferShadingWordTexture usampler2D(GBufferShadingWordTexture, PointClampSampler)
@@ -174,19 +170,8 @@ layout(binding = 41) uniform texture2D RadianceCacheRadianceAtlasTexture;
 // thread (a compute receiver has no fragment).
 layout(binding = 49) uniform texture2DArray ShadowCascadesTexture; // layer DirectionalShadow[slot].w + cascade
 #define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
-layout(std430, binding = 50) readonly buffer SsrShadowUB
-{
-    mat4 LightViewProjection[8]; // Mesh/ShadowUB.glslh's members (SceneResources::ShadowUBData), same packer
-    vec4 DirectionalShadow[2];
-    vec4 CascadeTexelWorld[2];
-    vec4 CascadeDepthRange[2];
-    vec4 DebugParams;            // unread here
-    vec4 ContactShadowView;      // z: the dither frame the soft filter's disc turns by
-    vec4 SunContactShadow;       // unread here
-    vec4 ShadowFilter;           // x = PCSS blocker search taps, y = filter taps
-    mat4 FarShadowViewProj[2]; // per slot: the far shadow (Mesh/ShadowUB.glslh)
-    vec4 FarShadow[2];
-};
+#include <Generated/Materials/ShadowUB.glslh> // ShadowUBData: Materials/SceneResourcesLayout.hpp
+layout(std430, binding = 50) readonly buffer SsrShadowUB { DESERT_ShadowUBData_MEMBERS }; // the composite's values, same packer
 #define CASCADED_SHADOW_NOISE_PIXEL vec2(gl_GlobalInvocationID.xy)
 #include <Mesh/CascadedShadow.glslh>
 #define GI_HIT_DIRECTIONAL_CASCADES
@@ -290,7 +275,9 @@ bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, out vec3 radiance, o
 	// The hit's own shading model (its word from the closest hit): a clear-coated car, a satin sheet, a brushed
 	// panel reflect as the raster lights them.
 	radiance = GIHitRadianceLit(hit, L, GIHitSurface(payload.BaseColor, payload.Metallic, payload.Roughness,
-	                                                 payload.Emissive, true, payload.ShadingWord));
+	                                                 payload.Emissive, true, payload.ShadingWord,
+	                                                 DesertSubsurfaceColor(DesertShadingModelIndex(payload.ShadingWord),
+	                                                                       DesertUnpackPayload(payload.ShadingWord))));
 	hitPoint = hit.position;
 	return true;
 #else

@@ -12,7 +12,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/RayTracing/EmissiveLightsFrame.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/glm.hpp>
 
 #include <array>
@@ -52,9 +52,8 @@ namespace Desert::ShaderResources
 namespace Desert::Graphic::SurfaceCache
 {
     // ONE PER SCENE (UE: FScene's FLumenSceneData - the Lumen scene is the scene's, a view owns no cards):
-    // Core::Scene::GetSurfaceCache, read by every view of that scene (the editor viewports, PIE, which plays in
-    // the edited Scene). A reflection capture's face views stand at one capture point and keep one of their own
-    // (ReflectionCaptureRenderer::m_FaceSurfaceCache, SceneRenderer::ShareSurfaceCache).
+    // owned by Graphic::SceneRenderState (GetSurfaceCache), read by every view of that scene (the editor viewports,
+    // PIE, which plays in the edited Scene). A reflection capture's face views run none (ViewProfile::SceneCapture).
     class SurfaceCacheRenderer
     {
     public:
@@ -156,6 +155,7 @@ namespace Desert::Graphic::SurfaceCache
             RDG::TextureRef                       GBufferDepth;
             RDG::TextureRef                       GBufferA;
             RDG::TextureRef                       GBufferEmissive;
+            RDG::TextureRef                       GBufferShadingWord;
             // GPU-GI-CRITPATH (Scalability GlobalIllumination.SurfaceCacheAsyncRadiosity): true = the radiosity
             // trace and the integration run as compute on the async compute queue, in the segment of the radiance
             // cache's update they read and the screen probes' trace that reads their FinalLighting (UE: Lumen
@@ -240,15 +240,15 @@ namespace Desert::Graphic::SurfaceCache
         // scene - hands back the frame's records with Updated false and reads the same atlases (UE: one Lumen
         // scene update per scene render, read by all its views). A second update in the frame would capture and
         // relight over what the frame's earlier graph reads.
-        // @p lighting is the frame's directional lights: a significant change from those the lit pages were last
-        // fully relit under (GlobalIllumination::InvalidatesLightingHistory) relights every visible page this
-        // frame. @p localLighting is the frame's point and spot lights (ascending Key,
+        // @p lighting is the frame's lighting history key (lights and sky): a significant change from the key the
+        // lit pages were last fully relit under (GlobalIllumination::InvalidatesLightingHistory) relights every
+        // visible page this frame. @p localLighting is the frame's point and spot lights (ascending Key,
         // SceneRenderer::GatherFrameLocalLighting): one that changed significantly since its region was last relit
         // (GlobalIllumination::UpdateLocalLightingHistory) relights every visible page its region - before and
         // after the change - reaches, this frame; a frame where no light changed relights only the budget's.
         [[nodiscard]] Common::ResultStr<SceneUpdate>
         UpdateScene( std::span<const SceneGroup> groups, uint64_t engineFrame,
-                     const GlobalIllumination::DirectionalLighting&     lighting,
+                     const GlobalIllumination::LightingHistoryKey&      lighting,
                      std::span<const GlobalIllumination::LocalLighting> localLighting );
         // The scene's tables (rows by placement, the row of an instance). Its frame update is UpdateScene's.
         [[nodiscard]] const SurfaceCacheScene& GetScene() const
@@ -364,8 +364,8 @@ namespace Desert::Graphic::SurfaceCache
         std::optional<FrameViews>  m_FrameViews; // BeginFrame's, the latest frame
         // The tracers whose lighting program did not build (RefuseLightingTracer): BeginFrame resolves under them.
         ProgramRefusals m_Refusals;
-        // The directional lighting of the last full relight (empty until the first update).
-        std::optional<GlobalIllumination::DirectionalLighting>                m_LitBy;
+        // The lighting history key (lights and sky) of the last full relight (empty until the first update).
+        std::optional<GlobalIllumination::LightingHistoryKey>                 m_LitBy;
         // Each local light as its region was last relit (ascending Key; UpdateLocalLightingHistory), the next
         // frame's history being made and the regions to relight this frame - kept, so a frame allocates nothing.
         std::vector<GlobalIllumination::LocalLighting>                        m_LocalLitBy;
@@ -377,7 +377,8 @@ namespace Desert::Graphic::SurfaceCache
         // The radiosity probes' traced radiance, one hemisphere stratum per atlas texel (UE
         // RadiosityTraceRadianceAtlas, PF_FloatR11G11B10), blended with its history.
         std::shared_ptr<Image2D> m_RadiosityTrace;
-        // The directional lights changed this frame (a full relight): the radiosity keeps no history.
+        // The lighting history key (lights and sky) changed this frame (a full relight): the radiosity keeps no
+        // history.
         bool                     m_ResetRadiosity = true;
         std::shared_ptr<Framebuffer>                                          m_CaptureBuffer;
         std::shared_ptr<Shader>                                               m_CopyShader;

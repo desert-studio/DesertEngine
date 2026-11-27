@@ -11,6 +11,7 @@
 // names the offending value rather than a default that hides it.
 
 #include <Common/Json/Json.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <gtest/gtest.h>
 
 #include <Engine/Localization/LocalizationService.hpp>
@@ -65,7 +66,7 @@ namespace
         ASSERT_TRUE( Localization::Get().RegisterTable( id, language, parsed.ExtractValue() ) );
     }
 
-    // The service is a process-wide singleton, exactly like UI::UIDataStore next door. Every test puts it
+    // The service is a process-wide singleton. Every test puts it
     // back the way it found it, or the next one is testing the previous one's leftovers.
     struct Fixture : public ::testing::Test
     {

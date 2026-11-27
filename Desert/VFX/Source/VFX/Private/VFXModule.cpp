@@ -113,7 +113,7 @@ namespace Desert::VFX
     {
         Core::ModuleHookLists& hooks = Core::ModuleHooks();
         g_WorldSlot                  = hooks.SceneStates.size();
-        hooks.SceneStates.push_back( []() -> std::unique_ptr<Core::ISceneModuleState>
+        hooks.SceneStates.push_back( []( entt::registry& /*registry*/ ) -> std::unique_ptr<Core::ISceneModuleState>
                                      { return std::make_unique<VFXSceneState>(); } );
         hooks.Services.push_back( { []( const std::weak_ptr<Assets::AssetManager>& assets )
                                     { Runtime::GetVFXSystemService()->BindAssetManager( assets ); },

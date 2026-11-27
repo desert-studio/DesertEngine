@@ -21,9 +21,24 @@ function(_desert_tests_common_settings target)
     set_target_properties(${target} PROPERTIES FOLDER Tests
         RUNTIME_OUTPUT_DIRECTORY "${DESERT_ROOT}/build/Bin/Tests/$<CONFIG>")
     desert_remove_configuration(${target} Shipping)
+    # The module and third-party shared libraries live in build/Bin/<Config> (cmake/DesertWorkspace.cmake), one
+    # directory above the runners' own: macOS/Linux reach them through a second rpath entry; Windows has no rpath,
+    # so the DLLs the runner loads are copied beside it after each link (copy_if_different: only changed ones).
+    if(DESERT_IS_WINDOWS)
+        # A runner with no shared library (none in its link closure) runs no command: copy needs a file.
+        set(_dlls "$<TARGET_RUNTIME_DLLS:${target}>")
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND "$<$<BOOL:${_dlls}>:${CMAKE_COMMAND};-E;copy_if_different;${_dlls};$<TARGET_FILE_DIR:${target}>>"
+            COMMAND_EXPAND_LISTS VERBATIM)
+    elseif(APPLE)
+        set_property(TARGET ${target} APPEND PROPERTY BUILD_RPATH "@executable_path/../../$<CONFIG>")
+    else()
+        set_property(TARGET ${target} APPEND PROPERTY BUILD_RPATH "$ORIGIN/../../$<CONFIG>")
+    endif()
     target_include_directories(${target} PRIVATE "${DESERT_ROOT}/Desert/Tests")
     # C++ stand-ins for the shader includer's generated .glslh, for suites that compile shader text AS C++.
-    target_include_directories(${target} PRIVATE "${DESERT_ROOT}/Desert/Tests/GlslAsCpp")
+    target_include_directories(${target} PRIVATE "${DESERT_ROOT}/Desert/Tests/GlslAsCpp"
+        "${DESERT_GENERATED_DIR}/Shaders")
     desert_external_includes(${target} ${DESERT_COMMON_INCLUDE_DIRS} ${DESERT_TEST_INCLUDE_DIRS})
     target_compile_definitions(${target} PRIVATE ${DESERT_TEST_DEFINES}
         "DESERT_MODULE_TABLE_JSON=\"${DESERT_MODULE_TABLE_JSON}\"") # the ModuleBoundary suite reads the table
@@ -43,13 +58,13 @@ function(_desert_runner_settings target)
         "${DESERT_ROOT}/ThirdParty/GLFW/include/" "${DESERT_ROOT}/ThirdParty/" "${DESERT_ROOT}/ThirdParty/luau"
         ${DESERT_DESERTSPECIFIC_INCLUDE_DIRS})
     target_compile_definitions(${target} PRIVATE
-        $<$<CONFIG:Debug>:DESERT_CONFIG_DEBUG> $<$<CONFIG:Release>:DESERT_CONFIG_RELEASE>)
+        $<$<CONFIG:DebugGame>:DESERT_CONFIG_DEBUG> $<$<CONFIG:Development>:DESERT_CONFIG_RELEASE>)
     desert_link_engine(${target})
     target_link_libraries(${target} PRIVATE
         GLFW ${DESERT_OPTICK} MeshOptimizer OpenSubdiv Embree ImGui Assimp OpenEXRCore Dav1d Opus Voro Compressonator)
     if(DESERT_IS_MACOS)
         target_link_libraries(${target} PRIVATE
-            Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp
+            Common Jolt Luau ReflectCpp
             "-framework Cocoa" "-framework IOKit" "-framework CoreFoundation" "-framework CoreVideo"
             "-framework CoreMedia" "-framework AVFoundation" "-framework QuartzCore" "-framework Foundation")
     endif()
@@ -57,12 +72,17 @@ function(_desert_runner_settings target)
     target_link_libraries(${target} PRIVATE ReflectCpp)
 endfunction()
 
-# The header tool run before a runner compiles (desert_prebuild, after DesertHeaderTool is built).
+# The header tool run before a runner compiles (desert_prebuild): READS the files it scans (re-run when one, the tool
+# or a template changes), writes OUTPUTS into the build tree (never the source tree, B-TREE), compiled into the runner.
 function(_desert_tests_header_tool target name)
-    add_dependencies(${target} DesertHeaderTool)
+    cmake_parse_arguments(ARG "" "" "READS;OUTPUTS;ARGS" ${ARGN})
+    desert_header_tool_inputs(_inputs)
+    set_source_files_properties(${ARG_OUTPUTS} PROPERTIES GENERATED TRUE)
+    target_sources(${target} PRIVATE ${ARG_OUTPUTS})
     desert_prebuild(${target} ${name}
-        COMMAND "$<TARGET_FILE:DesertHeaderTool>" --templates "${DESERT_ROOT}/Tools/DesertHeaderTool/Templates" ${ARGN}
-        DEPENDS DesertHeaderTool
+        COMMAND "$<TARGET_FILE:DesertHeaderTool>" --templates "${DESERT_ROOT}/Tools/DesertHeaderTool/Templates" ${ARG_ARGS}
+        DEPENDS ${_inputs} ${ARG_READS}
+        BYPRODUCTS ${ARG_OUTPUTS}
         COMMENT "DesertHeaderTool: ${target} ${name}")
 endfunction()
 
@@ -71,14 +91,18 @@ function(_desert_runner_Common target)
     target_include_directories(${target} PRIVATE "${DESERT_ROOT}/Editor/Source" "${DESERT_ROOT}/Runtime/Source")
     target_link_libraries(${target} PRIVATE Common ReflectCpp ${DESERT_OPTICK})
     set(_subsystems "${DESERT_ROOT}/Desert/Tests/Common/Subsystems")
+    set(_out "${DESERT_GENERATED_DIR}/Tests/Subsystems")
+    desert_sources(_files "${_tests_dir}" MATCHING "^Common/Subsystems/Owner/[^/]+\\.hpp$")
+    target_sources(${target} PRIVATE ${_files})
+    desert_sources(_events "${DESERT_ROOT}/Desert/Common/Source/Common" MATCHING "^Core/Events/[^/]+\\.hpp$")
     _desert_tests_header_tool(${target} Subsystems
+        READS ${_files} ${_events}
+        OUTPUTS "${_out}/SampleSubsystems.gen.cpp" "${_out}/SampleWorldSubsystems.gen.cpp"
+        ARGS
         --check "${_subsystems}/Owner"
         --context "${DESERT_ROOT}/Desert/Common/Source/Common/Core/Events"
-        --subsystems Sample SubsystemSamples::SampleOwner SampleOwner.hpp "${_subsystems}/Generated/SampleSubsystems.gen.cpp"
-        --subsystems SampleWorld SubsystemSamples::SampleWorld SampleOwner.hpp "${_subsystems}/Generated/SampleWorldSubsystems.gen.cpp")
-    file(GLOB _files CONFIGURE_DEPENDS "${_subsystems}/Owner/*.hpp" "${_subsystems}/Generated/*.gen.cpp")
-    list(SORT _files)
-    target_sources(${target} PRIVATE ${_files})
+        --subsystems Sample SubsystemSamples::SampleOwner SampleOwner.hpp "${_out}/SampleSubsystems.gen.cpp"
+        --subsystems SampleWorld SubsystemSamples::SampleWorld SampleOwner.hpp "${_out}/SampleWorldSubsystems.gen.cpp")
     target_include_directories(${target} PRIVATE "${_subsystems}/Owner")
 endfunction()
 
@@ -92,19 +116,9 @@ function(_desert_runner_Tools target)
     _desert_runner_settings(${target})
     target_link_libraries(${target} PRIVATE Lua)
     set(_t "${DESERT_ROOT}/Tools")
+    # The migration steps are linked from DesertSceneMigration, never compiled a second time here (B-TOOLS).
+    target_link_libraries(${target} PRIVATE DesertSceneMigration)
     target_sources(${target} PRIVATE
-        "${_t}/SceneMigrator/Source/MigratorMain.cpp"
-        "${_t}/SceneMigrator/Source/SceneMigration.cpp"
-        "${_t}/SceneMigrator/Source/SettingsCanonical.cpp"
-        "${_t}/SceneMigrator/Source/UILift.cpp"
-        "${_t}/SceneMigrator/Source/MaterialAOParam.cpp"
-        "${_t}/SceneMigrator/Source/MaterialMaskClipParam.cpp" # MaterialWithMaskedTemplate, called by MigratorMain
-        "${_t}/SceneMigrator/Source/ClipInterpShift.cpp"
-        "${_t}/SceneMigrator/Source/ClipMigration.cpp"
-        "${_t}/SceneMigrator/Source/ClipGeneration3.cpp"
-        "${_t}/SceneMigrator/Source/ClipLift.cpp"
-        "${_t}/SceneMigrator/Source/ImportRecordSourceHash.cpp"
-        "${_t}/SceneMigrator/Source/ShaderLocatorFollow.cpp"
         "${_t}/WorldGen/Source/WorldBuild.cpp"
         "${_t}/WorldGen/Source/WorldGenMain.cpp"
         "${_t}/CrashReporter/Source/CrashReport.cpp"
@@ -126,17 +140,23 @@ function(_desert_runner_Tools target)
         "${_t}/DesertHeaderTool/Source"
         "${_reflected_functions}"
         "${_luau_runtime}")
+    set(_out "${DESERT_GENERATED_DIR}/Tests")
+    desert_sources(_function_fixture "${_tests_dir}" MATCHING "^Tools/ReflectedFunctions/Fixture/[^/]+\\.hpp$")
+    desert_sources(_luau_fixture "${_tests_dir}" MATCHING "^Tools/LuauRuntime/Fixture/[^/]+\\.hpp$")
+    target_sources(${target} PRIVATE ${_function_fixture} ${_luau_fixture})
     _desert_tests_header_tool(${target} ReflectedFunctions
-        --reflect "${_reflected_functions}" "Fixture" "${_reflected_functions}/Generated/FunctionFixture.gen.cpp"
+        READS ${_function_fixture}
+        OUTPUTS "${_out}/ReflectedFunctions/FunctionFixture.gen.cpp"
+                "${_out}/ReflectedFunctions/Reflection_FunctionFixture.gen.cpp"
+        ARGS
+        --reflect "${_reflected_functions}" "Fixture" "${_out}/ReflectedFunctions/FunctionFixture.gen.cpp"
         --reflect-anchor ForceLinkReflectedFunctionFixture)
     _desert_tests_header_tool(${target} LuauRuntime
-        --reflect "${_luau_runtime}" "Fixture" "${_luau_runtime}/Generated/LuauFixture.gen.cpp"
+        READS ${_luau_fixture}
+        OUTPUTS "${_out}/LuauRuntime/LuauFixture.gen.cpp" "${_out}/LuauRuntime/Reflection_LuauFixture.gen.cpp"
+        ARGS
+        --reflect "${_luau_runtime}" "Fixture" "${_out}/LuauRuntime/LuauFixture.gen.cpp"
         --reflect-anchor ForceLinkLuauRuntimeFixture)
-    file(GLOB _files CONFIGURE_DEPENDS
-        "${_reflected_functions}/Fixture/*.hpp" "${_reflected_functions}/Generated/*.gen.cpp"
-        "${_luau_runtime}/Fixture/*.hpp" "${_luau_runtime}/Generated/*.gen.cpp")
-    list(SORT _files)
-    target_sources(${target} PRIVATE ${_files})
 endfunction()
 
 function(_desert_runner_Engine target)
@@ -153,7 +173,7 @@ endfunction()
 
 function(_desert_runner_Editor target)
     # Whole, as the Editor links them, and ahead of the engine on the link line.
-    desert_link_editor_libs(${target} WHOLE_ARCHIVE)
+    desert_link_editor_libs(${target})
     _desert_runner_settings(${target})
     target_sources(${target} PRIVATE "${DESERT_ROOT}/Runtime/Source/PackagedContent.cpp")
     target_include_directories(${target} PRIVATE
@@ -182,8 +202,8 @@ set(_adopted_ProjectFormat "${DESERT_ROOT}/ThirdParty/desert-shared/Tests/projec
 
 # A suite's sources: its directory's *.cpp (not below it) and what it adopts.
 function(_desert_suite_sources dir out)
-    file(GLOB _files LIST_DIRECTORIES false CONFIGURE_DEPENDS "${dir}/*.cpp")
-    list(SORT _files)
+    file(RELATIVE_PATH _rel "${_tests_dir}" "${dir}")
+    desert_sources(_files "${_tests_dir}" MATCHING "^${_rel}/[^/]+\\.cpp$")
     get_filename_component(_suite "${dir}" NAME)
     if(_suite IN_LIST _adopted_suites)
         list(APPEND _files ${_adopted_${_suite}})

@@ -94,6 +94,9 @@ namespace Desert::Graphic
         // row params and textures from the template, push fields read off the compiled stages. A program
         // whose stages disagree with it or with each other never loads, so what is here is what the GPU reads.
         [[nodiscard]] virtual const Core::Formats::MaterialLayout& GetMaterialLayout() const = 0;
+        // THE byte count of this program's push block (ShaderLayout::PushBlockSize): what its pipeline layout's
+        // range is built with and what a material of this program holds and pushes (MaterialExecutor).
+        [[nodiscard]] virtual uint32_t GetPushBlockSize() const = 0;
 
         // False when this shader has never compiled successfully, i.e. it carries no stages at all.
         //
@@ -177,11 +180,7 @@ namespace Desert::Graphic
         }
 
     private:
-        [[nodiscard]] static uint64_t NextSerial() noexcept
-        {
-            static std::atomic<uint64_t> s_Next{ 0 };
-            return s_Next.fetch_add( 1, std::memory_order_relaxed ) + 1u;
-        }
+        [[nodiscard]] static uint64_t NextSerial() noexcept;
 
         ResourceOwnership     m_Accounting;
         std::atomic<uint64_t> m_CodeGeneration{ 0 };

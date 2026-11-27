@@ -67,7 +67,7 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include "ImportRecordSourceHash.hpp"
 #include "MaterialAOParam.hpp"
-#include "WaterWavesWind.hpp"
+#include "WaterWavesUpgrade.hpp"
 #include "MaterialMaskClipParam.hpp"
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
@@ -629,59 +629,10 @@ namespace
                 << "->v" << Desert::Migration::kWorldPartitionVersionHLODBuilderSettings << " ("
                 << report.HLODMergeMaterialsMoved
                 << " mesh layer(s)' MergeMaterials restated as Settings.MergeMaterials)";
-        if ( report.Upgrade.EntityHLODLayerRaised )
-            out << " world partition v"
-                << std::max( report.StatedWorldPartitionVersion,
-                             Desert::Migration::kWorldPartitionVersionHLODBuilderSettings )
-                << "->v" << Desert::Migration::kWorldPartitionVersionEntityHLODLayer
-                << " (HLOD layer per entity: additive, nothing restated)";
-        if ( report.Upgrade.ImpostorLayersRaised )
-            out << " world partition v"
-                << std::max( report.StatedWorldPartitionVersion,
-                             Desert::Migration::kWorldPartitionVersionEntityHLODLayer )
-                << "->v" << Desert::Migration::kWorldPartitionVersionImpostorLayers
-                << " (impostor HLOD layers: additive, nothing restated)";
-        if ( report.Upgrade.ReflectedAssetRefsRaised )
-            out << " asset references v" << report.Upgrade.From.AssetRef << "->v"
-                << Desert::Migration::kAssetRefVersionReflected << " (" << report.Upgrade.ReflectedAssetRefs.MeshBlocks
-                << " Static Mesh block(s) and " << report.Upgrade.ReflectedAssetRefs.MaterialFields
-                << " material field(s) restated as {Guid, Path})";
-        if ( report.Upgrade.SunRotationRaised && ( report.Upgrade.SunRotation.Aimed > 0 || report.Upgrade.SunRotation.Overrides > 0 ||
-                                           report.Upgrade.SunRotation.Undirected > 0 ) )
-            out << std::format( " lights v{}->v{} ({} directional light(s) aimed by Rotation, {} override(s) "
-                                "with an identity parent, {} without a direction kept their Rotation)",
-                                report.Upgrade.From.Light,
-                                Desert::Migration::kLightVersionRotation, report.Upgrade.SunRotation.Aimed,
-                                report.Upgrade.SunRotation.Overrides, report.Upgrade.SunRotation.Undirected );
-        if ( report.Upgrade.PostProcessBloomRaised && report.Upgrade.PostProcessBloom.Restated > 0 )
-            out << std::format(
-                 " post process v{}->v{} ({} PostProcessVolume setting(s) re-stated as UE bloom / auto "
-                 "exposure, {} EnableBloom false as BloomIntensity 0)",
-                 report.Upgrade.From.PostProcess, Desert::Migration::kPostProcessVersionBloom,
-                 report.Upgrade.PostProcessBloom.Restated, report.Upgrade.PostProcessBloom.BloomOff );
-        if ( report.Upgrade.VolumetricFogRaised )
-            out << " scene ->v" << Desert::Migration::kSceneVersionVolumetricFog
-                << " (fog and lights state the Volumetric Fog fields at their defaults)";
-        if ( report.Upgrade.TracedRequestRaised && report.Upgrade.TracedRequest.Restated > 0 )
-            out << " scene ->v" << Desert::Migration::kSceneVersionTracedRequest << " ("
-                << report.Upgrade.TracedRequest.Restated << " GI / reflection method(s) re-stated as requests: "
-                << "SoftwareTraced / HardwareTraced are Traced)";
-        if ( report.Upgrade.ComposedGIRaised && ( report.Upgrade.ComposedGI.Restated > 0 || report.Upgrade.ComposedGI.Dropped > 0 ) )
-            out << " scene ->v" << Desert::Migration::kSceneVersionComposedGI << " ("
-                << report.Upgrade.ComposedGI.Restated << " GI ScreenSpace request(s) re-stated as Off, "
-                << report.Upgrade.ComposedGI.Dropped << " GIIntensity dropped: GI comes from the method alone)";
-        if ( report.Upgrade.GrassRasterPathRaised && report.Upgrade.GrassRasterPath.Restated > 0 )
-            out << " scene ->v" << Desert::Migration::kSceneVersionGrassRasterPath << " ("
-                << report.Upgrade.GrassRasterPath.Restated << " GrassVisibilityBuffer bool(s) re-stated as GrassRaster: "
-                << "false is Scalability, true VisibilityBuffer)";
-        if ( report.Upgrade.LandscapeSplineEntitiesRaised && report.Upgrade.LandscapeSplineEntities.RootsCleared > 0 )
-            out << std::format( " scene ->v{} ({} landscape spline entit(ies) split out of {} landscape root(s))",
-                                Desert::Migration::kSceneVersionLandscapeSplineEntities,
-                                report.Upgrade.LandscapeSplineEntities.SplinesCreated,
-                                report.Upgrade.LandscapeSplineEntities.RootsCleared );
-        if ( report.Upgrade.TubeSourceLengthRaised && report.Upgrade.TubeSourceLengthsStated > 0 )
-            out << std::format( " scene ->v{} ({} PointLight / SpotLight block(s) given SourceLength 0)",
-                                Desert::Migration::kSceneVersionTubeSourceLength, report.Upgrade.TubeSourceLengthsStated );
+        // The engine's steps (Core/SceneUpgrade): every table row that ran, in order, as it states itself.
+        for ( const Desert::Core::StepOutcome& step : report.Upgrade.Steps )
+            out << std::format( " {} ->v{} ({}: {})", Desert::Core::UpgradeChainName( step.Chain ), step.To,
+                                step.Name, step.Summary );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never
@@ -1714,33 +1665,19 @@ namespace Desert::Migration
             }
             if ( path.extension() == ".danimgraph" )
             {
-                // ANGR 4 -> 5 (PAWN-MANNEQUIN): every blend sample states its RateScale; then 5 -> 6
-                // (ANIM-BS2D-RUNTIME): every blend space states its axes, a state's Axis its AxisParameters.
+                // ANGR 4 -> 5 (PAWN-MANNEQUIN): every blend sample states its RateScale.
                 const auto stated = ReadStatedVersion( path, text, "ANGR" );
-                if ( stated && ( stated.GetValue() == 4u || stated.GetValue() == 5u ) )
+                if ( stated && stated.GetValue() == 4u )
                 {
-                    const uint32_t from  = stated.GetValue();
-                    const auto     fifth = from == 4u ? Desert::Migration::MigrateAnimGraphV4ToV5( text )
-                                                      : Common::MakeSuccess( std::string( text ) );
-                    if ( !fifth )
-                    {
-                        err << "FAIL   " << path.string() << " — ANGR " << from << " -> 6: " << fifth.GetError()
-                            << "\n";
-                        ++failed;
-                        continue;
-                    }
-                    const auto raised = Desert::Migration::MigrateAnimGraphV5ToV6( fifth.GetValue() );
+                    const auto raised = Desert::Migration::MigrateAnimGraphV4ToV5( text );
                     if ( !raised )
                     {
-                        err << "FAIL   " << path.string() << " — ANGR " << from << " -> 6: " << raised.GetError()
-                            << "\n";
+                        err << "FAIL   " << path.string() << " — ANGR 4 -> 5: " << raised.GetError() << "\n";
                         ++failed;
                         continue;
                     }
-                    out << ( check ? "would raise " : "raised " ) << path.string() << " ANGR " << from << " -> 6 ("
-                        << raised.GetValue().Spaces << " blend space(s), " << raised.GetValue().Samples
-                        << " sample(s))\n";
-                    if ( !check && !WriteText( path, raised.GetValue().Text, err ) )
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " ANGR 4 -> 5\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
                     {
                         ++failed;
                         continue;
@@ -1832,23 +1769,25 @@ namespace Desert::Migration
                     continue;
                 }
             }
-            // WAVS 1 -> 2 (WATER-UNDERWATER, WaterWavesWind.hpp): Generator.WindAngleDeg is dropped; the waves run
-            // with the scene's wind.
+            // WAVS 1, 2 -> 3 (WaterWavesUpgrade.hpp): no Generator.WindAngleDeg, four FFT cascades.
             if ( path.extension() == ".dwaves" )
             {
                 const auto stated = ReadStatedVersion( path, text, "WAVS" );
-                if ( stated && stated.GetValue() == 1u )
+                if ( stated && stated.GetValue() >= 1u &&
+                     stated.GetValue() < Desert::Assets::kWaterWavesSchemaVersion )
                 {
-                    const auto raised = Desert::Migration::MigrateWaterWavesV1ToV2( text );
+                    const auto raised = Desert::Migration::MigrateWaterWavesToV3( text );
                     if ( !raised )
                     {
-                        err << "FAIL   " << path.string() << " — WAVS 1 -> 2: " << raised.GetError() << "\n";
+                        err << "FAIL   " << path.string() << " — WAVS: " << raised.GetError() << "\n";
                         ++failed;
                         continue;
                     }
-                    out << ( check ? "would raise " : "raised " ) << path.string() << " WAVS 1 -> "
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " WAVS " << stated.GetValue() << " -> "
                         << Desert::Assets::kWaterWavesSchemaVersion << "\n";
-                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    for ( const std::string& dropped : raised.GetValue().Dropped )
+                        out << "       dropped " << dropped << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue().Text, err ) )
                         ++failed;
                     continue;
                 }
@@ -2004,7 +1943,7 @@ namespace Desert::Migration
                     ++failed;
                     continue;
                 }
-                if ( stated.GetValue() >= 1u && stated.GetValue() <= 10u )
+                if ( stated.GetValue() >= 1u && stated.GetValue() <= 11u )
                 {
                     // The chain: each generation below the engine's takes every step from its own on.
                     using Step             = Common::ResultStr<std::string> ( * )( const std::string& );
@@ -2017,10 +1956,11 @@ namespace Desert::Migration
                                                &Desert::Migration::MigrateFoliageTypeV7ToV8,
                                                &Desert::Migration::MigrateFoliageTypeV8ToV9,
                                                &Desert::Migration::MigrateFoliageTypeV9ToV10,
-                                               &Desert::Migration::MigrateFoliageTypeV10ToV11 };
+                                               &Desert::Migration::MigrateFoliageTypeV10ToV11,
+                                               &Desert::Migration::MigrateFoliageTypeV11ToV12 };
                     std::string raisedText = text;
                     bool        stepFailed = false;
-                    for ( uint32_t from = stated.GetValue(); from <= 10u; ++from )
+                    for ( uint32_t from = stated.GetValue(); from <= 11u; ++from )
                     {
                         const auto raised = steps[from - 1u]( raisedText );
                         if ( !raised )
@@ -2050,7 +1990,8 @@ namespace Desert::Migration
                 if ( stated.GetValue() != Desert::Assets::kFoliageTypeSchemaVersion )
                 {
                     err << "FAIL   " << path.string() << " — states FOLT v" << stated.GetValue()
-                        << ", and this tool reads v1 to v3 (raised) and v"
+                        << ", and this tool reads v1 to v"
+                        << ( Desert::Assets::kFoliageTypeSchemaVersion - 1u ) << " (raised) and v"
                         << Desert::Assets::kFoliageTypeSchemaVersion << " only\n";
                     ++failed;
                     continue;
@@ -2132,10 +2073,10 @@ namespace Desert::Migration
             }
         }
 
-        // THE TEXTURE ASSETS: TXAS 1 -> 2 states the texture's colour space in IMPT (TEX-SRGB), 2 -> 3 its alpha coverage
-        // thresholds (FOLIAGE-ALPHA-MIPS). The step is the
-        // engine's own UpgradeTextureSourceAsset (one statement of the format): nullopt = already current, a file
-        // it cannot read FAILS by name and is left untouched.
+        // THE TEXTURE ASSETS: TXAS 1 -> 2 states the texture's colour space in IMPT (TEX-SRGB), 2 -> 3 its alpha
+        // coverage thresholds (FOLIAGE-ALPHA-MIPS), 3 -> 4 its colour dilation mask, 4 -> 5 its texture-array slot
+        // flag (BINT26-TERRAIN, off). The step is the engine's own UpgradeTextureSourceAsset (one statement of the
+        // format): nullopt = already current, a file it cannot read FAILS by name and is left untouched.
         int texturesRaised = 0;
         for ( const auto& path : textures )
         {

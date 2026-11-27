@@ -1,12 +1,14 @@
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 
 #include <Common/Json/Json.hpp>
 #include <Common/Json/ReadWrite.hpp>
 #include <Common/Core/Logger.hpp>
-#include <Engine/Core/Serialize/SceneUpgrade.hpp>
+#include <Engine/Core/SceneUpgrade/SceneUpgrade.hpp>
 
 namespace Desert::Assets
 {
@@ -20,7 +22,7 @@ namespace Desert::Assets
              "world units v{5} / world partition v{6} / asset references v{9} / lights v{11} / post process "
              "v{14}, and upgrades in memory from scene v{7} / world partition v{12} up. NOTHING WAS LOADED - no "
              "entity was taken from this file, and the scene is exactly as it was. A prefab carries the same "
-             "entity payloads a scene does and moves through the same generations (SceneUpgrade.hpp): a NEWER "
+             "entity payloads a scene does and moves through the same generations (Core/SceneUpgrade/SceneUpgrade.hpp): a NEWER "
              "file was written by a later build; an older one is converted once by Tools/SceneMigrator.",
              source, foundSceneVersion, foundUnitVersion, foundWorldPartitionVersion, Core::kSceneVersion,
              Core::kUnitVersion, Core::kWorldPartitionVersion, Core::kSceneUpgradeFloor, foundAssetRefVersion,
@@ -53,7 +55,7 @@ namespace Desert::Assets
         if ( !data.Header.has_value() )
             return Common::MakeError<PrefabData>( RefusePrefabVersion( source, data ) );
 
-        // UPGRADE ON LOAD (Core/Serialize/SceneUpgrade.hpp): the scene's chain over the prefab's records - an
+        // UPGRADE ON LOAD (Core/SceneUpgrade/SceneUpgrade.hpp): the scene's chain over the prefab's records - an
         // older generation is raised in memory and logged once, a newer one (or one below the floor) refused.
         if ( !PrefabIsAtCurrentVersion( data ) )
         {

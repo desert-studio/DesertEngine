@@ -22,7 +22,7 @@
 #include <Engine/ECS/RenderStateDelta.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/glm.hpp>
 
 #include <array>
@@ -55,6 +55,11 @@ namespace Desert::Assets
 namespace Desert::ECS
 {
     class System;
+}
+
+namespace Common::Scalability
+{
+    struct ResolvedQuality;
 }
 
 namespace Desert::Core
@@ -98,6 +103,7 @@ namespace Desert::Core
     class DebugDrawWorld;
     class EntityPackages;
     class GameMode;
+    class LevelTravel;
     class WeatherState;
     class WorldParameterInstance;
     class WorldTime;
@@ -105,42 +111,23 @@ namespace Desert::Core
     struct WorldPartitionSerialized;
 }
 
-namespace Desert::Graphic::RayTracing
-{
-    class RayTracingSceneCache;
-}
-
-namespace Desert::Graphic::GpuDriven
-{
-    class GpuSceneRegistry;
-}
-
 namespace Desert::Graphic
 {
     class SceneRenderer;
-    class ReflectionCaptureRenderer;
-    class SceneSkyLight;
-    class SceneAtmosphere;
-    class LocalShadowCache;
     // `struct` and not `class`: the definition in Graphic/Environment/SceneEnvironment.hpp uses struct, and the
     // Microsoft C++ ABI encodes the class-key into the decorated name, so the mismatch is a Windows-only link
     // error waiting for the day this forward declaration is the one a caller sees first.
     struct Environment;
 } // namespace Desert::Graphic
 
-namespace Desert::Graphic::DistanceField
-{
-    class DistanceFieldSceneData;
-}
-
-namespace Desert::Graphic::SurfaceCache
-{
-    class SurfaceCacheRenderer;
-}
-
 namespace Common::Math
 {
     class Ray;
+}
+
+namespace Desert::UI
+{
+    struct UIWorld;
 }
 
 namespace Desert::Core
@@ -170,8 +157,8 @@ namespace Desert::Core
         using ViewList = SceneViewList<Graphic::SceneRenderer, Core::Camera>;
         using View     = ViewList::View;
 
-        Scene();
-        Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer );
+        // A world states its kind: which registered systems it runs (Core/WorldSystems.hpp).
+        Scene( std::string sceneName, Graphic::SceneRenderer* sceneRenderer, WorldKind kind );
         ~Scene();
 
         // Copying or moving a Scene would put a second entry in (or a stale entry into) the live-scene
@@ -203,7 +190,7 @@ namespace Desert::Core
         [[nodiscard]] static const std::vector<Scene*>& LiveScenes();
 
         // A feature module's per-scene state (ModuleHooks().SceneStates[slot]; e.g. the VFX module's effects
-        // world, VFX::VFXWorld::Of). Never null for a registered slot: made by both constructors.
+        // world, VFX::VFXWorld::Of). Never null for a registered slot: made by the constructor.
         [[nodiscard]] ISceneModuleState& GetModuleState( std::size_t slot )
         {
             return *m_ModuleStates[slot];
@@ -365,6 +352,10 @@ namespace Desert::Core
             m_SceneName = name;
         }
 
+        // The .desce this world is; empty when it is in no file. Set by whoever loaded or saved it; Clear empties it.
+        [[nodiscard]] const std::string& GetFilePath() const;
+        void                             SetFilePath( std::string path );
+
         // The .desce's text header as loaded (or as last stamped by a save): it carries the scene's GUID,
         // which is the scene's identity and is kept from save to save - never re-derived.
         [[nodiscard]] const std::optional<Common::Content::TextAssetHeaderSerialized>& GetAssetHeader() const;
@@ -434,6 +425,12 @@ namespace Desert::Core
         {
             return m_State == SceneState::Play;
         }
+
+        // WHAT THIS MACHINE CAN AFFORD, pushed by the scene's owner (the editor's SceneWorkspace, the runtime's
+        // RuntimeLayer) on the main thread before OnUpdate, beside the renderer's own SetQuality: handed straight
+        // to every system (System::SetQuality), which keeps only the values it reads. A system never reads
+        // QualityState itself (UE: the owner passes the resolved scalability value in).
+        void SetQuality( const Common::Scalability::ResolvedQuality& quality );
 
         // The world's clock (Engine/Core/WorldTime.hpp): the ONE time source for everything that moves in
         // this scene's picture. Ticked once per frame at the top of OnUpdate.
@@ -568,6 +565,12 @@ namespace Desert::Core
         {
             return m_Players.empty() ? entt::entity( entt::null ) : m_Players.front().Controller;
         }
+        // This world's queued level change. Clear keeps it: it can be the travel that cleared the world.
+        [[nodiscard]] LevelTravel& Travel();
+        // What gameplay tells this world's screen and what the screen tells its gameplay (UI/UIWorld.hpp). Kept in
+        // the registry's context, where the UI's read view of the registry finds it.
+        [[nodiscard]] UI::UIWorld& GetUIWorld();
+
         // The game rules of this played world (Core/GameMode.hpp): death and restart of the player's pawn.
         [[nodiscard]] GameMode& GetGameMode()
         {
@@ -728,70 +731,14 @@ namespace Desert::Core
             return *m_ExtensionPasses;
         }
 
-        // THE SCENE'S REFLECTION CAPTURES (UE: FScene's FReflectionEnvironmentSceneData): one set, rendered once
-        // per frame before the views (OnUpdate) and read by every view of this scene. Renderer state cached on
-        // the scene, not its data: a view that renders a const scene publishes them into its own graph.
-        [[nodiscard]] Graphic::ReflectionCaptureRenderer& GetReflectionCaptures() const
+        // THE SCENE'S RENDERER STATE (UE: FScene, the world's render scene): reflection captures, ray-tracing
+        // cache, GPU scene, sky light, atmosphere, local shadows, distance fields and surface cache - one set for
+        // every view of this scene, cached on it, not its data. Made by the Renderer module's maker
+        // (ModuleHookLists::SceneRenderState); null in a process without a renderer. Renderer code reads the
+        // objects through Graphic::RenderStateOf( scene ) (Graphic/SceneRenderState.hpp).
+        [[nodiscard]] ISceneRenderState* GetRenderState() const
         {
-            return *m_ReflectionCaptures;
-        }
-
-        // THE SCENE'S RAY-TRACING GEOMETRY (UE: FScene's GPU skin cache and cached RT geometry): skinned BLASes
-        // skinned once per frame and hidden-submesh BLAS variants, shared by every view's TLAS. Renderer state
-        // cached on the scene, like the reflection captures.
-        [[nodiscard]] Graphic::RayTracing::RayTracingSceneCache& GetRayTracingCache() const
-        {
-            return *m_RayTracingCache;
-        }
-
-        // THE SCENE'S GPU SCENE (UE FScene::GPUScene, GpuDriven/GpuSceneRegistry.hpp): the persistent primitive /
-        // instance / palette tables every view of this scene reads (velocity, skin cache, TLAS custom index, GI
-        // card rows), synced by each view's MeshRenderer::SyncGpuScene. Renderer state cached on the scene, like
-        // the ray-tracing cache.
-        [[nodiscard]] Graphic::GpuDriven::GpuSceneRegistry& GetGpuScene() const
-        {
-            return *m_GpuScene;
-        }
-
-        // THE SCENE'S SKY LIGHT (UE: FScene's SkyLight and its real-time capture): one capture of the procedural
-        // sky's light, shared by every view of this scene and every face view of its reflection captures. Renderer
-        // state cached on the scene, like the captures above; a view holds it weakly (SkyboxRenderer).
-        [[nodiscard]] std::weak_ptr<Graphic::SceneSkyLight> GetSkyLight() const
-        {
-            return m_SkyLight;
-        }
-        // THE SCENE'S ATMOSPHERE (UE: FSkyAtmosphereRenderSceneInfo): its LUT programs and the view-independent
-        // LUTs, recorded once per frame by the scene's first view; the sky light's capture and every view read
-        // them. Held weakly by a view (SkyboxRenderer), like the sky light.
-        [[nodiscard]] std::weak_ptr<Graphic::SceneAtmosphere> GetAtmosphere() const
-        {
-            return m_Atmosphere;
-        }
-
-        // THE SCENE'S CACHED POINT/SPOT-LIGHT SHADOW DEPTH (UE: FScene's FCachedShadowMapData per light): one
-        // atlas for every view of this scene, the reflection captures' face views included
-        // (Graphic/LocalShadowCache.hpp). Renderer state cached on the scene, like the captures.
-        [[nodiscard]] Graphic::LocalShadowCache& GetLocalShadows() const
-        {
-            return *m_LocalShadows;
-        }
-
-        // THE SCENE'S MESH DISTANCE FIELDS (UE: FScene's FDistanceFieldSceneData): one brick atlas, one set of
-        // records and one streaming for every view of this scene, the reflection captures' face views included
-        // (Graphic/DistanceField/DistanceFieldSceneData.hpp). Renderer state cached on the scene, like the
-        // captures.
-        [[nodiscard]] Graphic::DistanceField::DistanceFieldSceneData& GetDistanceFields() const
-        {
-            return *m_DistanceFields;
-        }
-
-        // THE SCENE'S SURFACE CACHE (UE: FScene's FLumenSceneData): one card atlas, one capture and one relight
-        // per engine frame for every view of this scene - the editor viewports and PIE, which plays in this Scene
-        // (Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp). Its device objects are made by the first view
-        // that brings it up. Renderer state cached on the scene, like the distance fields.
-        [[nodiscard]] Graphic::SurfaceCache::SurfaceCacheRenderer& GetSurfaceCache() const
-        {
-            return *m_SurfaceCache;
+            return m_RenderState.get();
         }
 
         // THE SCENE in the resource ledger: every device object of the scene's shared renderer state above — the
@@ -832,6 +779,17 @@ namespace Desert::Core
             return m_CameraPinned;
         }
 
+        [[nodiscard]] WorldKind Kind() const
+        {
+            return m_Kind;
+        }
+
+        [[nodiscard]] bool HasSystems() const
+        {
+            return !m_Systems.empty();
+        }
+
+        // For the registrations of Core/WorldSystems.hpp; a host calls CreateWorldSystems.
         template <typename T, typename... Args>
         void AddSystem( Args&&... args )
         {
@@ -931,6 +889,8 @@ namespace Desert::Core
         void ExecuteSystems( const Common::Timestep& gameplayTs );
 
     private:
+        const WorldKind m_Kind;
+
         // The retained render cache's feed of the dirty set (ECS::RenderStateDelta; the registry context links
         // it). Declared before the registry so it outlives every signal the registry's teardown may fire.
         ECS::RenderStateDelta m_RenderStateDelta;
@@ -986,26 +946,8 @@ namespace Desert::Core
         std::unique_ptr<Debug::GameplayDebugger> m_GameplayDebugger;
 #endif
 
-        // See GetReflectionCaptures. Never null: made by both constructors.
-        std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
-        // See GetRayTracingCache. Never null: made by both constructors.
-        std::unique_ptr<Graphic::RayTracing::RayTracingSceneCache> m_RayTracingCache;
-        // See GetGpuScene. Never null: made by both constructors.
-        std::unique_ptr<Graphic::GpuDriven::GpuSceneRegistry> m_GpuScene;
-        // See GetSkyLight. Never null: made by both constructors. Shared so a view can hold it weakly.
-        std::shared_ptr<Graphic::SceneSkyLight> m_SkyLight;
-        // See GetAtmosphere. Never null: made by both constructors.
-        std::shared_ptr<Graphic::SceneAtmosphere> m_Atmosphere;
-        // See GetLocalShadows. Never null: made by both constructors.
-        std::unique_ptr<Graphic::LocalShadowCache> m_LocalShadows;
-        // See GetDistanceFields. Never null: made by both constructors.
-        std::unique_ptr<Graphic::DistanceField::DistanceFieldSceneData> m_DistanceFields;
-        // See GetSurfaceCache. Never null: made by both constructors.
-        std::unique_ptr<Graphic::SurfaceCache::SurfaceCacheRenderer> m_SurfaceCache;
-        // The surface caches and capture renderers Clear dropped with their world, kept until no frame in flight
-        // reads them (collected at the top of the views' render, OnUpdate).
-        Assets::FrameRetireQueue<std::unique_ptr<Graphic::SurfaceCache::SurfaceCacheRenderer>> m_RetiringSurfaceCaches;
-        Assets::FrameRetireQueue<std::unique_ptr<Graphic::ReflectionCaptureRenderer>>          m_RetiringReflectionCaptures;
+        // See GetRenderState. Made by the constructor from the scene's ledger instance (declared above).
+        std::unique_ptr<ISceneRenderState> m_RenderState;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)
@@ -1057,15 +999,20 @@ namespace Desert::Core
 
         std::unique_ptr<SceneSettings> m_Settings;
         std::string   m_SceneName;
-        // See Packages(). Made by both constructors.
+        // See Packages(). Made by the constructor.
         std::shared_ptr<EntityPackages> m_Packages;
         // THE FILE THIS WORLD CAME FROM: its text header (GetAssetHeader), the parsed document the saver merges onto
         // (GetLoadedDocument) and the partition block (GetWorldPartition). Defined in Scene.cpp, so the scene format
-        // stays out of this header. Never null: made by both constructors.
+        // stays out of this header. Never null: made by the constructor.
         struct FileState;
         std::unique_ptr<FileState> m_File;
+        void                       ReportToCrashHandler() noexcept;
 
-        // see GetModuleState; one per ModuleHooks().SceneStates row, made by both constructors
+        // see Travel. A member and not a world subsystem: a travel the new level's BeginPlay queues must survive
+        // SetState's recreation of the subsystems.
+        std::unique_ptr<LevelTravel> m_Travel;
+
+        // see GetModuleState; one per ModuleHooks().SceneStates row, made by the constructor
         std::vector<std::unique_ptr<ISceneModuleState>> m_ModuleStates;
 
         Common::WorldSubsystems<Scene> m_Subsystems{ *this };

@@ -1,3 +1,4 @@
+#include <Engine/Graphic/SceneRenderState.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/Systems/Scene/SceneFXSystem.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -80,7 +81,7 @@
 #include <Engine/Runtime/Services/Lights/RectLightLtcService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Core/WorldTime.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Graphic
 {
@@ -753,8 +754,8 @@ namespace Desert::Graphic
         ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
         const ActiveViewScope          viewScope( m_ViewResources );
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
-        // A lent surface cache / distance field is its lender's (a reflection capture's), released with it; the
-        // view's surface cache is its scene's (Scene::GetSurfaceCache), released with the scene's world.
+        // A lent distance field is its lender's (a reflection capture's), released with it; the view's surface
+        // cache is its scene's (Graphic::SceneRenderState::GetSurfaceCache), released with the scene's world.
         m_RadianceCache.reset();
         m_ScreenProbeGather.reset();
         m_IrradianceFieldGather.reset();
@@ -770,6 +771,14 @@ namespace Desert::Graphic
 
     namespace
     {
+        // The quality's texture bias in mips (Textures.MipBias): what the samplers add (ViewInputs::
+        // TextureMipBias) and the streamed size leaves out (TextureStreamingDemand::BiasedPixels).
+        float TextureMipBiasOf( const Common::Scalability::ResolvedQuality& quality )
+        {
+            return 0.01f * static_cast<float>(
+                                quality.As<int>( Common::Scalability::Parameter::TextureMipBias ) );
+        }
+
         // A view's name: what kind of surface it is and a serial that is never reused, so two log lines
         // about "preview #4" are about the same window and a reopened preview is visibly a new view.
         std::string NameView( const ViewProfile& profile )
@@ -1023,12 +1032,15 @@ namespace Desert::Graphic
                 const Geometry::LODView view{ camera->GetPosition(), camera->GetProjectionMatrix() };
                 TextureStreamingDemand::Get().NoteAsset(
                      value.Texture,
-                     TextureStreamingDemand::ScreenPixels( camera->GetPosition(), 1.0f, view, GetViewExtent().Height ) );
+                     TextureStreamingDemand::BiasedPixels(
+                          TextureStreamingDemand::ScreenPixels( camera->GetPosition(), 1.0f, view,
+                                                                GetViewExtent().Height ),
+                          TextureMipBiasOf( m_Quality ) ) );
             }
             const Texture2D* texture = Runtime::ResourceRegistry::GetTextureService()->Get( value.Texture );
             // The bindless slot lives on the texture's image (as Texture2DProperty::GetBindlessSlot reads it).
             const auto* image = texture != nullptr && texture->GetImageHandle().IsValid()
-                                     ? dynamic_cast<const Image2D*>( Runtime::ResourceRegistry::GetImageService()->Resolve(
+                                     ? dynamic_cast<const Image2D*>( Runtime::GetImageService()->Resolve(
                                             texture->GetImageHandle() ) )
                                      : nullptr;
             if ( image != nullptr && image->GetBindlessSlot().IsValid() )
@@ -1112,15 +1124,15 @@ namespace Desert::Graphic
         if ( camera != nullptr && GetViewExtent().Height > 0 )
             TextureStreamingDemand::Get().NoteWarmups(
                  &scene, Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
-                 GetViewExtent().Height );
+                 GetViewExtent().Height, TextureMipBiasOf( m_Quality ) );
 
         const auto& skyboxSystem = m_Systems.Skybox.get();
 
         skyboxSystem->PrepareCamera( m_SceneInfo.ActiveCamera );
         // The scene's one sky light: this view reads it, and captures it when it is the frame's first view.
-        skyboxSystem->SetSceneSkyLight( scene.GetSkyLight() );
+        skyboxSystem->SetSceneSkyLight( RenderStateOf( scene ).GetSkyLight() );
         // ...and the scene's atmosphere LUTs, recorded by that same first view, read by this one and the capture.
-        skyboxSystem->SetSceneAtmosphere( scene.GetAtmosphere() );
+        skyboxSystem->SetSceneAtmosphere( RenderStateOf( scene ).GetAtmosphere() );
 
         // Grid & other authoring aids hide while the game runs - not while it is simulated (UE: Simulate In
         // Editor keeps the editor's viewport and its overlays).
@@ -1153,16 +1165,16 @@ namespace Desert::Graphic
         m_DebugDraw->SetWorld( &scene.GetDebugDraw() );
 #endif
         // The scene's reflection captures, published into this frame's graph (SceneViewInputs).
-        m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
+        m_FrameReflectionCaptures = &RenderStateOf( scene ).GetReflectionCaptures();
         // The scene's ray-tracing geometry (skin cache, BLAS variants), shared by this frame's views.
-        m_FrameRayTracingCache = &scene.GetRayTracingCache();
+        m_FrameRayTracingCache = &RenderStateOf( scene ).GetRayTracingCache();
         // The scene's GPU scene (primitives, instances, palettes), synced and read by this frame's views.
-        m_FrameGpuScene = &scene.GetGpuScene();
+        m_FrameGpuScene = &RenderStateOf( scene ).GetGpuScene();
         m_SceneLedgerInstance  = scene.GetLedgerInstance();
         // The scene's local-light shadow cache, which this view's lights draw into and read (UpdateLocalShadows).
-        m_FrameLocalShadows = &scene.GetLocalShadows();
+        m_FrameLocalShadows = &RenderStateOf( scene ).GetLocalShadows();
         // The scene's mesh distance fields, which this view's global distance field composites from.
-        m_FrameDistanceFields = &scene.GetDistanceFields();
+        m_FrameDistanceFields = &RenderStateOf( scene ).GetDistanceFields();
         // The scene's deformation contacts this view's field has not taken, copied by value here (the game thread,
         // after the scene's Join): the job applies the copy while the next tick submits to the log. A reflection
         // capture's face keeps no field (AddFrameDeformationField), so it copies nothing.
@@ -1170,7 +1182,7 @@ namespace Desert::Graphic
             m_DeformationField.CaptureContacts( scene.GetDeformation() );
         m_FrameDeformationCaptured = true;
         // The scene's surface cache, which every view of the scene reads and the frame's first view updates.
-        m_FrameSurfaceCache = &scene.GetSurfaceCache();
+        m_FrameSurfaceCache = &RenderStateOf( scene ).GetSurfaceCache();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -1285,7 +1297,7 @@ namespace Desert::Graphic
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
         // rather than read from a global at the point of use: several SceneRenderers are live at once
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
-        m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
+        m_CloudQuality        = CloudQualityOf( quality );
         m_CloudFootprintSteps = quality.As<int>( Parameter::CloudFootprintSteps ) != 0;
         m_CloudLightLocalSamples = quality.As<int>( Parameter::CloudLightLocalSamples );
         if ( m_Systems.Water )
@@ -1353,7 +1365,6 @@ namespace Desert::Graphic
         m_SSRMaxDistance = post.SSRMaxDistance;
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
         m_SSRRaysPerPixel      = quality.As<int>( Parameter::ReflectionRaysPerPixel );
-        m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
         // Tenths of a pixel (Scalability.cpp row) -> pixels per edge.
         m_VirtualGeometryMaxPixelsPerEdge =
              static_cast<float>( quality.As<int>( Parameter::ViewDistanceVirtualGeometryMaxPixelsPerEdge ) ) /
@@ -1396,7 +1407,8 @@ namespace Desert::Graphic
         }
         m_ShadowFilter = SceneResources::ShadowFilterSettings{
              .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
-             .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };
+             .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ),
+             .LocalScreenTraceIterations = quality.As<int>( Parameter::ShadowLocalScreenTraceIterations ) };
         if ( const auto& mesh = m_Systems.Mesh )
         {
             mesh->SetRainOcclusionQuality( RainOcclusionQuality{
@@ -1419,7 +1431,8 @@ namespace Desert::Graphic
                                                       Parameter::FoliageGrassMeshLodDistanceScalePercent ) ),
                  .BladeSegmentPixels =
                       static_cast<float>( quality.As<int>( Parameter::FoliageGrassBladeSegmentPixels ) ),
-                 .BladeCardHull = quality.As<int>( Parameter::FoliageGrassBladeCardHull ) != 0 };
+                 .BladeCardHull  = quality.As<int>( Parameter::FoliageGrassBladeCardHull ) != 0,
+                 .TextureMipBias = TextureMipBiasOf( quality ) };
             if ( const auto& grass = m_Systems.Grass )
                 grass->SetQuality( grassQuality );
             // The ground's far cover reads the lens through the view's frame (ViewFrame::GrassLens, OnUpdate).
@@ -1438,15 +1451,13 @@ namespace Desert::Graphic
                   static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTSamplesPerRayLocal ) ) };
         m_MegaLightsQuality = System::MegaLightsQuality{
              .SamplesPerPixel  = quality.As<uint32_t>( Parameter::ShadowMegaLightsSamplesPerPixel ),
-             .SpatialSamples   = quality.As<uint32_t>( Parameter::ShadowMegaLightsSpatialSamples ),
-             .MaxHistory       = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ),
              .DenoiserRadius   = quality.As<uint32_t>( Parameter::ShadowMegaLightsDenoiserRadius ),
              .DownsampleFactor = quality.As<uint32_t>( Parameter::ShadowMegaLightsDownsampleFactor ) };
         m_MegaLightsVolumeQuality = System::MegaLightsVolumeQuality{
              .TilePixels = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeTilePixels ),
              .Slices     = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeSlices ),
              .Samples    = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeSamples ),
-             .MaxHistory = quality.As<uint32_t>( Parameter::ShadowMegaLightsMaxHistory ) };
+             .MaxHistory = quality.As<uint32_t>( Parameter::ShadowMegaLightsVolumeMaxHistory ) };
         m_ReflectionDenoiserRadius            = quality.As<uint32_t>( Parameter::ReflectionDenoiserRadius );
         // The view's memory census sizes the SSR trace from the profile, so the profile holds the factor.
         m_ViewProfile.ReflectionDownsampleFactor = quality.As<uint32_t>( Parameter::ReflectionDownsampleFactor );
@@ -1527,11 +1538,12 @@ namespace Desert::Graphic
 
         // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
         // UE's Exposure Compensation applies to the manual exposure too (2^AutoExposureBias).
-        const float manualExposure = ManualExposureScale( post.ManualExposureEV100, post.AutoExposureKey ) *
-                                     std::exp2( post.AutoExposureBias );
+        const float manualExposure =
+             ManualExposureScale( post.ManualExposureEV100 ) * std::exp2( post.AutoExposureBias );
         m_Systems.Tonemap->SetParams( manualExposure );
         // ScenePreExposure's source (UE FViewInfo::UpdatePreExposure): the exposure this view tonemaps with as the
-        // CPU knows it — manual: the scale above; auto: key / the adapted luminance read back FramesInFlight
+        // CPU knows it — manual: the scale above; auto: middle grey / the adapted luminance (over 2^compensation,
+        // AEAverage.shader) read back FramesInFlight
         // frames ago (0 until the first copy is written). A capture view keeps 0 -> 1.0: its output is stored
         // absolute.
         m_LastExposure = 0.0f;
@@ -1551,7 +1563,7 @@ namespace Desert::Graphic
             else if ( auto* ae = m_Systems.AutoExposure.get() )
             {
                 const float lum = ae->ReadBackAdaptedLuminance();
-                m_LastExposure  = lum > 0.0f ? post.AutoExposureKey / std::max( lum, 1e-4f ) : 0.0f;
+                m_LastExposure  = lum > 0.0f ? kExposureMiddleGrey / std::max( lum, 1e-4f ) : 0.0f;
                 const float measured            = ae->GetLastMeasuredLuminance();
                 m_ExposureReadout.AdaptedEV100  = lum > 0.0f ? LuminanceToEV100( lum ) : 0.0f;
                 m_ExposureReadout.MeasuredEV100 = measured > 0.0f ? LuminanceToEV100( measured ) : 0.0f;
@@ -1568,21 +1580,20 @@ namespace Desert::Graphic
         {
             const LocalExposureParams localExposure = ResolveLocalExposure( post );
             const float               logMiddleGrey = LocalExposureLogMiddleGrey(
-                 post.AutoExposureKey, localExposure.MiddleGreyBiasEV, !post.AutoExposure );
+                 post.AutoExposureBias, localExposure.MiddleGreyBiasEV, !post.AutoExposure );
             if ( auto* le = m_Systems.LocalExposure.get() )
                 le->SetParams( localExposure, logMiddleGrey, m_LastExposure > 0.0f ? m_LastExposure : manualExposure );
             if ( auto* ae = m_Systems.AutoExposure.get() )
-                ae->SetLocalExposure( localExposure, logMiddleGrey, post.AutoExposureKey );
+                ae->SetLocalExposure( localExposure, logMiddleGrey );
         }
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
         // or the meter clamped at Max EV100 — so a sky the exposure can show is never cut (SkyLuminanceCeiling).
-        // The compensation moves it too: the bias and the curve's lowest key (AutoExposureRules.hpp).
+        // The compensation moves it too: the bias and the curve's lowest point (AutoExposureRules.hpp).
         const float lowestCompensation =
              post.AutoExposureBias +
              LowestExposureCompensationCurveBias( post.AutoExposureCurveKeyCount, &post.AutoExposureCurveBias.x );
         const float lowestAutoExposure =
-             LowestAutoExposureScale( post.AutoExposureMaxEV100, post.AutoExposureKey ) *
-             std::exp2( lowestCompensation );
+             LowestAutoExposureScale( post.AutoExposureMaxEV100 ) * std::exp2( lowestCompensation );
         const float lowestExposure = post.AutoExposure ? lowestAutoExposure : manualExposure;
         m_Systems.Skybox->SetSkyLuminanceCeiling( SkyLuminanceCeiling( lowestExposure ) );
         m_Systems.Tonemap->SetTonemapOperator( post.Tonemapper );
@@ -1593,10 +1604,16 @@ namespace Desert::Graphic
         m_Systems.Mesh->SetWireframe( m_DebugView.WireframeMode );
         // The ground in the wireframe view too (UE draws every primitive kind through its wireframe pass).
         if ( const auto& it = m_Systems.Terrain )
+        {
             it->SetWireframe( m_DebugView.WireframeMode );
+            it->SetGridErrorPixels(
+                 0.01f * static_cast<float>( quality.As<int>( Parameter::ViewDistanceLandscapeGridErrorPercent ) ) );
+        }
         m_Systems.Mesh->SetLODEnabled( quality.As<bool>( Parameter::MeshLOD ) );
         m_Systems.Mesh->SetLODDistanceScale(
              0.01f * static_cast<float>( quality.As<int>( Parameter::ViewDistanceLODDistanceScalePercent ) ) );
+        m_Systems.Mesh->SetDrawDistanceScale(
+             0.01f * static_cast<float>( quality.As<int>( Parameter::ViewDistanceDrawDistanceScalePercent ) ) );
         m_Systems.Mesh->SetSkinCacheEnabled( quality.As<bool>( Parameter::SkinCache ) );
         m_Systems.Mesh->SetShadowWindDistance(
              static_cast<float>( quality.As<int>( Parameter::ShadowWindAnimationDistance ) ) );
@@ -1614,8 +1631,8 @@ namespace Desert::Graphic
         // SceneComposite computes `(scene + bloom + shafts + flare) * exposure`, and LensFlareBrightPass
         // thresholds the raw HDR upstream of it, so the authored number is divided by the manual exposure here
         // (auto-exposure: left in exposed units). Bloom does not take this route: BloomSetup compares UE's way,
-        // the luminance brought to exposed space in the shader (manual exposure or key / adapted luminance,
-        // pre-exposure undone).
+        // the luminance brought to exposed space in the shader (manual exposure or middle grey / adapted
+        // luminance, pre-exposure undone).
         const float exposureNormalisation = post.AutoExposure ? 1.0f : std::max( manualExposure, 1e-30f );
 
         // UE bloom (RENDER-BLOOM-UE): the volume's method, threshold, six Gaussian stages and convolution
@@ -1632,7 +1649,6 @@ namespace Desert::Graphic
             bloomFrame.Stages               = BloomGaussian::Stages( post );
             bloomFrame.ConvolutionIntensity = post.BloomIntensity * post.BloomConvolutionIntensity;
             bloomFrame.AutoExposure         = post.AutoExposure;
-            bloomFrame.ExposureKey          = post.AutoExposureKey;
             m_Systems.Bloom->SetFrameParams( bloomFrame );
         }
         m_Systems.Bloom->SetConvolutionKernel( post.BloomConvolutionKernel, post.BloomConvolutionScale );
@@ -1702,7 +1718,7 @@ namespace Desert::Graphic
                                              .HighPercent = post.AutoExposureHighPercent } );
         m_Systems.AutoExposure->SetCompensation( post.AutoExposureBias, post.AutoExposureCurveKeyCount,
                                                  post.AutoExposureCurveEV100, post.AutoExposureCurveBias );
-        m_Systems.Tonemap->SetAutoExposure( post.AutoExposure, post.AutoExposureKey );
+        m_Systems.Tonemap->SetAutoExposure( post.AutoExposure );
         // The view's buffer visualization is drawn display-referred, whatever the view's exposure (GP1 p8).
         m_Systems.Tonemap->SetVisualizeBuffer( IsDisplayReferredView( m_DebugView.DeferredDebug ) );
 
@@ -1900,7 +1916,7 @@ namespace Desert::Graphic
         }
         // RenderPipeline.ParallelSetup (RENDER-PARALLEL-SETUP): the view's pure setup on Common::TaskGroup tasks;
         // the Editor's --parallel-setup overrides it for the session (RenderConfig::ParallelSetupOverride).
-        const int  setupOverride = ::Desert::Graphic::RenderConfig::ParallelSetupOverride.load();
+        const int  setupOverride = ::Desert::Graphic::RenderConfig::ParallelSetupOverride();
         const int  setupQuality  = m_Quality.As<int>( Common::Scalability::Parameter::ParallelSetup );
         const bool parallelSetup = ( setupOverride >= 0 ? setupOverride : setupQuality ) != 0;
         m_ParallelSetup          = parallelSetup; // ParallelSetup(): the passes' own setup tasks
@@ -1991,6 +2007,7 @@ namespace Desert::Graphic
         inputs.Upscaler                          = resolved.GetValue().Upscaler; // the view's, not the setting's
         inputs.Quality                           = m_TemporalAAQuality;
         inputs.Scalability                       = &m_Quality;
+        inputs.TextureMipBias                    = TextureMipBiasOf( m_Quality );
         inputs.TimeSeconds                       = m_SceneTimeSeconds;
         inputs.Parallax                          = m_ParallaxQuality;
         // Index 0 is the scene's one directional light (see the atmosphere sun above); its Direction is the way the
@@ -2064,6 +2081,9 @@ namespace Desert::Graphic
             DESERT_PROFILE_PASS( "Water: PrepareFrame" );
             if ( m_Systems.Water )
                 m_Systems.Water->PrepareFrame();
+            if ( m_Systems.Mesh )
+                m_Systems.Mesh->SetShoreFoam( m_Systems.Water ? m_Systems.Water->GetShoreFoamUniforms()
+                                                              : ShoreFoamUniforms{} );
         }
 
         // The terrain's frame data, once, before any of its three passes records (the cascades in
@@ -2327,8 +2347,7 @@ namespace Desert::Graphic
                      .PoolBytes        = static_cast<uint64_t>( m_DisplacementPoolMiB ) << 20u } );
                 if ( const auto* viewCamera = GetMainCamera(); viewCamera != nullptr )
                     meshes->ApplyDisplacement(
-                         displacement,
-                         Geometry::LODView{ viewCamera->GetPosition(), viewCamera->GetProjectionMatrix() },
+                         displacement, meshes->MainLODView( *viewCamera ),
                          static_cast<float>( m_ViewExtent.Height ), frameNumber, !m_ViewProfile.SceneCapture );
             }
             if ( m_FrameGpuScene == nullptr )
@@ -2389,10 +2408,8 @@ namespace Desert::Graphic
             auto* const     meshes     = m_Systems.Mesh.get();
             const auto*     camera     = GetMainCamera();
             const glm::vec3 viewOrigin = camera != nullptr ? camera->GetPosition() : glm::vec3( 0.0f );
-            const float     lensScale  = camera != nullptr
-                                              ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(),
-                                                                                 camera->GetProjectionMatrix() } )
-                                              : 1.0f;
+            const float     lensScale =
+                 camera != nullptr ? DrawDistanceScale( meshes->MainLODView( *camera ) ) : 1.0f;
             // The view's methods, or the scene's cards this view relights this frame with ray query.
             const bool required =
                  RayTracing::RayTracingSceneRequired( m_RenderMethods ) || SurfaceCacheUpdateTracesRayQuery();
@@ -2731,8 +2748,10 @@ namespace Desert::Graphic
             // MSAA the prepass's multisampled depth through its own resolve, once (the base pass writes no depth,
             // so this is the opaque depth the receivers read).
             const bool volumeTracesScreen = LocalLightsAreStochastic() && StochasticTraceSources().ScreenTrace();
+            // A casting light without a shadow map is traced on this depth's hierarchy by the base pass.
+            const bool baseTracesScreen = LocalLightsNeedScreenTrace();
             const RDG::TextureRef prepassDepth =
-                 sceneDepth.IsValid() && ( LocalLightsReadVirtualPages() || volumeTracesScreen )
+                 sceneDepth.IsValid() && ( LocalLightsReadVirtualPages() || volumeTracesScreen || baseTracesScreen )
                       ? AddFrameSceneDepthResolve( graph, textures, "Forward: Prepass DepthResolve" )
                       : RDG::TextureRef{};
             // Stochastic with vsm+screen: the volume's froxels read the same local pages (MegaLightsVolumeVirtual).
@@ -2742,6 +2761,8 @@ namespace Desert::Graphic
                 (void)AddFrameVirtualShadows( graph, textures, prepassDepth, {}, glm::vec3( 0.0f, 1.0f, 0.0f ),
                                               frame, {} );
             }
+            if ( baseTracesScreen && prepassDepth.IsValid() && EnsureScreenTraceResources() )
+                AddFrameHZB( graph, textures, prepassDepth );
             AddFrameMegaLightsVolume( graph, textures, frame, lightGrid, prepassDepth );
         }
         DESERT_PROFILE_PHASE_END( lightGridPhases );
@@ -3753,7 +3774,7 @@ namespace Desert::Graphic
 
     void SceneRendererImpl::AssignLocalShadowMaskSlots( const Core::Frustum& view )
     {
-        // ShadowCaster is UpdateLocalShadows' answer "this light casts in this view" (CastShadows, and the view
+        // ShadowFlags' kLightShadowInView is UpdateLocalShadows' answer "this light casts in this view" (CastShadows, and the view
         // draws shadows), whether or not a map was drawn for it.
         m_LocalShadowMaskLights.clear();
         m_StochasticLightMethods.clear();
@@ -3818,7 +3839,7 @@ namespace Desert::Graphic
             point.ShadowVisibility = static_cast<int32_t>( m_RenderMethods.Visibility );
             // Per-light view cull (UE: a light whose bounds miss the view frustum renders no shadow): no pixel of
             // the view is inside its attenuation sphere, so no slot, no trace, no pack.
-            if ( point.ShadowCaster == 0 || ( ( pointsIn >> ( i & 3u ) ) & 1u ) == 0u )
+            if ( ( point.ShadowFlags & ShaderProtocols::kLightShadowInView ) == 0 || ( ( pointsIn >> ( i & 3u ) ) & 1u ) == 0u )
                 continue;
             bool slotted = screenMask;
             if ( stochastic )
@@ -3852,7 +3873,7 @@ namespace Desert::Graphic
             auto& spot          = m_SpotLight.SpotLights[i];
             spot.ShadowMaskSlot   = -1;
             spot.ShadowVisibility = static_cast<int32_t>( m_RenderMethods.Visibility );
-            if ( spot.ShadowCaster == 0 || ( ( spotsIn >> ( i & 3u ) ) & 1u ) == 0u )
+            if ( ( spot.ShadowFlags & ShaderProtocols::kLightShadowInView ) == 0 || ( ( spotsIn >> ( i & 3u ) ) & 1u ) == 0u )
                 continue;
             bool slotted = screenMask;
             if ( stochastic )
@@ -4006,6 +4027,8 @@ namespace Desert::Graphic
                            .Lights   = refs.Transients.Lights,
                            .PointLights = pointCount,
                            .SpotLights  = spotCount,
+                           .PointSources = m_PointLightShadows,
+                           .SpotSources  = m_SpotLightShadows,
                            .Width       = frame.Split.Render.Width,
                            .Height      = frame.Split.Render.Height,
              // The G-buffer depth is the opaque scene: the march has
@@ -4352,6 +4375,7 @@ namespace Desert::Graphic
             graph.QueueBufferUpload( reads.WorldParameters, std::span<const std::byte>( m_WorldParameterBytes ) );
         // The map the raster binds (System.White without one) and its block (Params.y = 0: no map).
         reads.RainOcclusionMap = SceneViewInputsOf( textures.GraphRefs() ).RainOcclusionMap;
+        reads.ShoreFoam        = textures.Transients.ShoreFoam;
         RainOcclusionUniforms rain{};
         if ( const auto* mesh = m_Systems.Mesh.get() )
             rain = mesh->GetRainOcclusionUniforms();
@@ -4373,7 +4397,9 @@ namespace Desert::Graphic
         mixIn( std::span<const std::byte>( m_WorldParameterBytes ) );
         if ( const auto* mesh = m_Systems.Mesh.get() )
         {
-            const RainOcclusionUniforms rain = mesh->GetRainOcclusionUniforms();
+            // Without the foam map's lanes: the water moves every frame, and an accumulation must not restart.
+            RainOcclusionUniforms rain = mesh->GetRainOcclusionUniforms();
+            rain.Shore                 = {};
             mixIn( std::as_bytes( std::span<const RainOcclusionUniforms>( &rain, 1 ) ) );
         }
         return hash;
@@ -4816,17 +4842,6 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::PrepareMesh( Mesh& mesh )
-    {
-        // THE ONE PLACE A MESH'S GPU SIDE IS MADE FROM ITS CPU DATA: the renderer's intake, on the game thread at
-        // the update's fence (RenderCommand::Prepare, Scene::OnUpdate). Geometry set or edited on the game side
-        // (ECS::SetEditableMesh's new mesh, DynamicMesh::Update) only raised the mesh's pending flag; the render
-        // revision, the BLAS release and the device buffers change here, with no view job reading the mesh
-        // (Mesh::EnsureGpuResources). A failed upload is reported once and the replays drop the draw.
-        if ( const auto uploaded = mesh.EnsureGpuResources(); !uploaded.IsSuccess() )
-            LOG_ERROR( "[SceneRenderer] a mesh could not be uploaded and is not drawn: {}", uploaded.GetError() );
-    }
-
     float SceneRendererImpl::NoteTextureDemand( const Mesh& mesh, const std::span<const glm::mat4> transforms,
                                                 const std::span<const Material* const> materials,
                                                 const MaterialOverrides*               overrides ) const
@@ -4857,6 +4872,7 @@ namespace Desert::Graphic
             pixels                      = std::max(
                  pixels, TextureStreamingDemand::ScreenPixels( center, radius, view, GetViewExtent().Height ) );
         }
+        pixels       = TextureStreamingDemand::BiasedPixels( pixels, TextureMipBiasOf( m_Quality ) );
         auto& demand = TextureStreamingDemand::Get();
         for ( const Material* material : materials )
             demand.Note( material, pixels );
@@ -4881,7 +4897,9 @@ namespace Desert::Graphic
         auto&                   demand = TextureStreamingDemand::Get();
         // The field's bounds tree, built once per instance snapshot and measured once per view: the nearest
         // instance's size without walking the instances (CPU-STREAM-DEMAND).
-        const float pixels = demand.FieldScreenPixels( transforms, local, view, GetViewExtent().Height );
+        const float pixels = TextureStreamingDemand::BiasedPixels(
+             demand.FieldScreenPixels( transforms, local, view, GetViewExtent().Height ),
+             TextureMipBiasOf( m_Quality ) );
         for ( const Material* material : materials )
             demand.Note( material, pixels );
         return pixels;
@@ -4893,8 +4911,8 @@ namespace Desert::Graphic
         const auto* camera = GetMainCamera();
         if ( maxDrawDistance <= 0.0f || mesh == nullptr || camera == nullptr )
             return true;
-        return IsWithinDrawDistance( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
-                                     transform, Geometry::LocalBounds( mesh->GetSubmeshes() ), maxDrawDistance );
+        return IsWithinDrawDistance( m_Systems.Mesh->MainLODView( *camera ), transform,
+                                     Geometry::LocalBounds( mesh->GetSubmeshes() ), maxDrawDistance );
     }
 
     void SceneRendererImpl::SetLODPreview( const uint32_t entity, const int level )
@@ -5006,28 +5024,27 @@ namespace Desert::Graphic
             view.Position   = camera->GetPosition();
             view.Projection = camera->GetProjectionMatrix();
         }
-        view.Height = GetViewExtent().Height;
+        view.Height           = GetViewExtent().Height;
+        view.TextureMipBias   = TextureMipBiasOf( m_Quality );
         view.LODDistanceScale = m_Systems.Mesh->IsLODEnabled() ? m_Systems.Mesh->GetLODDistanceScale() : 0.0f;
         if ( m_LODPreview.FramesLeft > 0 && m_LODPreview.Level >= 0 ) // LODPreviewFor's lease, as it answers
         {
             view.PreviewEntity = m_LODPreview.Entity;
             view.PreviewLevel  = m_LODPreview.Level;
         }
+        std::optional<Geometry::LODView> lodView;
+        if ( camera != nullptr )
+        {
+            lodView.emplace( m_Systems.Mesh->MainLODView( *camera ) );
+            view.DrawDistance = lodView->DrawDistance;
+        }
         const bool sameView = cache.Valid && cache.Current == view;
         cache.Current       = view;
         cache.Valid         = true;
-        std::optional<Geometry::LODView> lodView;
-        if ( camera != nullptr )
-            lodView.emplace( Geometry::LODView{ view.Position, view.Projection } );
         const bool demandAsked = camera != nullptr && view.Height != 0;
-        // THE IMPOSTOR SWITCH'S EYE (WP-FAR-12E, StaticSceneSection::ImpostorScreenSize): the LOD eye with the
-        // renderer's LOD distance scale, as every other level is chosen; none while LOD is off (source side).
-        std::optional<Geometry::LODView> impostorView;
-        if ( lodView.has_value() && view.LODDistanceScale > 0.0f )
-        {
-            impostorView                = lodView;
-            impostorView->DistanceScale = view.LODDistanceScale;
-        }
+        // THE IMPOSTOR SWITCH'S EYE (WP-FAR-12E, StaticSceneSection::ImpostorScreenSize) is the LOD eye, as every
+        // other level is chosen; none while LOD is off (source side).
+        const bool impostorLod = lodView.has_value() && view.LODDistanceScale > 0.0f;
 
         // Uploads (the render revision, the residency, the cached bounds' validity) follow the stale epoch; while
         // it held over two recorded frames that compared the admitted revisions, none is pending (the cache's
@@ -5081,12 +5098,10 @@ namespace Desert::Graphic
                     const std::array<float, 2> switchSizes{ Geometry::kLOD0ScreenSize, section.ImpostorScreenSize };
                     const uint32_t             side  = section.ImpostorCard ? 1u : 0u;
                     bool                       drawn = !section.ImpostorCard;
-                    if ( impostorView.has_value() )
+                    if ( impostorLod )
                     {
-                        Geometry::LODView at = *impostorView;
-                        at.Temporal          = m_Systems.Mesh->GetViewTemporalLOD();
                         const Geometry::LODMask mask = Geometry::SelectDitheredLODFromBounds(
-                             section.Transform, section.ImpostorBounds, at, switchSizes, -1, 0 );
+                             section.Transform, section.ImpostorBounds, *lodView, switchSizes, -1, 0 );
                         drawn = mask.Levels[0] == side || mask.Levels[1] == side;
                         if ( mask.IsDithered() )
                             held.Pending = true;
@@ -5200,9 +5215,11 @@ namespace Desert::Graphic
                                        tile.OriginZ + ( static_cast<float>( tile.FirstSampleZ ) +
                                                         0.5f * static_cast<float>( tile.QuadsPerTile ) ) *
                                                            tile.SpacingCm };
-            const float     pixels = TextureStreamingDemand::ScreenPixels(
-                 center, side * 0.70710678f, { camera->GetPosition(), camera->GetProjectionMatrix() },
-                 GetViewExtent().Height );
+            const float     pixels = TextureStreamingDemand::BiasedPixels(
+                 TextureStreamingDemand::ScreenPixels(
+                      center, side * 0.70710678f, { camera->GetPosition(), camera->GetProjectionMatrix() },
+                      GetViewExtent().Height ),
+                 TextureMipBiasOf( m_Quality ) );
             for ( const auto& [slot, asset] : overrides->Textures )
                 TextureStreamingDemand::Get().NoteAsset( Common::AssetHandle( asset ), pixels );
         }
@@ -5476,11 +5493,6 @@ namespace Desert::Graphic
     void SceneRendererImpl::ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field )
     {
         m_SharedGlobalDistanceField = field;
-    }
-
-    void SceneRendererImpl::ShareSurfaceCache( SurfaceCache::SurfaceCacheRenderer* cache )
-    {
-        m_SharedSurfaceCache = cache;
     }
 
     std::shared_ptr<Image2D> SceneRendererImpl::GetShadowCascadeCacheImage( const uint32_t cascade ) const

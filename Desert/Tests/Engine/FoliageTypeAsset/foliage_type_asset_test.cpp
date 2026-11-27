@@ -5,7 +5,7 @@
 
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 

@@ -44,13 +44,7 @@ Shader "HeterogeneousVolumeMarch"
 
         ReadBuffer(15) HeterogeneousVolumesBuffer { HeterogeneousVolumeGpu heterogeneousVolumes[]; };
         // Graphic::HeterogeneousVolumeMarchGpu, the pipeline's own buffer (kHeterogeneousVolumeParamsBinding).
-        ReadBuffer(17) HeterogeneousVolumeMarchParams
-        {
-            uvec4 HvCounts;  // x = volumes, y = frame index, z = history valid, w = max steps per volume
-            vec4  HvTarget;  // xy = half-res size, zw = render size
-            vec4  HvHistory; // x = history weight
-            vec4  HvRect;    // the volumes' screen rectangle, uv min xy, max zw
-        };
+        ReadBuffer(17) HeterogeneousVolumeMarchParams { DESERT_HeterogeneousVolumeMarchGpu_MEMBERS };
 
         LocalSize(8, 8, 1);
 

@@ -255,10 +255,9 @@ TEST( CloudMediumConsumers, EveryMediumEntryPointIsDefinedOnceAndInTheSubstituta
 // read out of the shader tree's own text, with comments stripped first — the block's own header discusses
 // `CloudAlbedo.w` in prose, and a scan that counted prose would certify the very slot it says is unread.
 //
-// IT ALSO PINS THE ONE RELATION NOTHING ELSE DOES: the GLSL block and Graphic::CloudGpuPayload agree on
-// how many floats they carry. The C++ side has static_asserts on every offset; the GLSL side is a
-// hand-written mirror with nothing checking it at all, and a member added to one and not the other is a
-// frame in which every parameter after it is read from the wrong place.
+// THE MEMBERS ARE READ FROM THE ONE DECLARATION: Graphic::kCloudGpuPayloadStruct (Clouds/CloudLayout.hpp),
+// which also writes the GLSL block (Generated/Clouds/CloudParams.glslh). There is no hand mirror left to
+// parse, so the slots counted here are exactly the slots both sides carry.
 namespace
 {
     // Comments removed, so prose about a slot cannot be mistaken for a fetch of it. Line and block
@@ -288,75 +287,27 @@ namespace
         return out;
     }
 
-    // One member of the block, as the GLSL declares it.
+    // One member of the block, as Graphic::kCloudGpuPayloadStruct declares it.
     struct BlockMember
     {
         std::string Name;
-        int         Components = 4; // 4 for vec4, 3 for the trailing vec3
+        int         Components = 4; // floats in one element: 4 for vec4, 3 for vec3
         int         ArrayCount = 1;
     };
 
-    // The block, read out of the file that declares it. A regex would need the same comment stripping and
-    // would still have to be told the two shapes that occur, so it is a plain scan.
-    std::vector<BlockMember> ParseBlock( const std::string& code )
+    // The block's members, from the declaration that writes the GLSL block.
+    std::vector<BlockMember> PayloadMembers()
     {
         std::vector<BlockMember> members;
-        const std::size_t        open = code.find( "readonly buffer CloudParamsBuffer" );
-        if ( open == std::string::npos )
-            return members;
-
-        const std::size_t begin = code.find( '{', open );
-        const std::size_t end   = code.find( '}', begin );
-        if ( begin == std::string::npos || end == std::string::npos )
-            return members;
-
-        std::istringstream lines( code.substr( begin + 1, end - begin - 1 ) );
-        std::string        line;
-        while ( std::getline( lines, line ) )
+        for ( const Desert::Graphic::ShaderProtocols::ShaderField& field : Desert::Graphic::kCloudGpuPayloadStruct.Fields )
         {
-            std::istringstream fields( line );
-            std::string        type;
-            std::string        name;
-            if ( !( fields >> type >> name ) )
-                continue;
-            if ( type != "vec4" && type != "vec3" )
-                continue;
-
             BlockMember member;
-            member.Components = type == "vec4" ? 4 : 3;
-
-            // `CloudSpeciesEdge[4];` — the count is part of the name as read.
-            const std::size_t bracket = name.find( '[' );
-            if ( bracket != std::string::npos )
-            {
-                member.ArrayCount = std::atoi( name.c_str() + bracket + 1 );
-                member.Name       = name.substr( 0, bracket );
-            }
-            else
-            {
-                member.Name = name.substr( 0, name.find( ';' ) );
-            }
-            if ( !member.Name.empty() && member.ArrayCount > 0 )
-                members.push_back( member );
+            member.Name       = std::string( field.Name );
+            member.Components = static_cast<int>( field.ElementSize / 4u );
+            member.ArrayCount = static_cast<int>( std::max( field.Count, 1u ) );
+            members.push_back( member );
         }
         return members;
-    }
-
-    // THE BLOCK'S OWN DECLARATION IS NOT A READ, and leaving it in was this census's own blind spot: a
-    // member declared as `vec4 CloudDetail;` is a bare occurrence of the name with no swizzle after it,
-    // which is exactly the shape of "passed or assigned whole" — so the first version of this test
-    // certified every slot in the block as read, including the two it was written to find. Cutting the
-    // declaration out is what leaves only USES behind.
-    std::string WithoutTheBlockDeclaration( const std::string& code )
-    {
-        const std::size_t open = code.find( "readonly buffer CloudParamsBuffer" );
-        if ( open == std::string::npos )
-            return code;
-        const std::size_t begin = code.find( '{', open );
-        const std::size_t end   = code.find( '}', begin );
-        if ( begin == std::string::npos || end == std::string::npos )
-            return code;
-        return code.substr( 0, open ) + code.substr( end + 1 );
     }
 
     // Component index for a swizzle letter, in all three GLSL vocabularies. -1 for anything else.
@@ -393,18 +344,16 @@ namespace
 
 TEST( CloudMediumConsumers, EverySlotOfTheParameterBlockIsReadOrHasARowSayingWhyNot )
 {
-    const std::filesystem::path    shaders   = RepoRoot() / "Editor/Resources/Shaders";
-    const std::string              blockCode = CodeOnly( ReadAll( shaders / "Common/CloudParams.glslh" ) );
-    const std::vector<BlockMember> members   = ParseBlock( blockCode );
-    ASSERT_FALSE( members.empty() ) << "the parameter block could not be read, so this census counted nothing";
+    const std::filesystem::path    shaders = RepoRoot() / "Editor/Resources/Shaders";
+    const std::vector<BlockMember> members = PayloadMembers();
+    ASSERT_FALSE( members.empty() ) << "the payload declares no members, so this census counted nothing";
 
-    // THE TWO HALVES OF ONE LAYOUT AGREE ON THEIR SIZE. Nothing else in the tree checks this: the C++
-    // offsets are static_asserted against each other, and the GLSL is a mirror written by hand.
+    // THE MEMBERS COVER THE WHOLE PAYLOAD: a slot no member names is a slot no shader can be asked about.
     int declaredFloats = 0;
     for ( const BlockMember& member : members )
         declaredFloats += member.Components * member.ArrayCount;
     EXPECT_EQ( declaredFloats, static_cast<int>( Desert::Graphic::kCloudPayloadFloats ) )
-         << "Common/CloudParams.glslh declares " << declaredFloats << " floats and Graphic::CloudGpuPayload "
+         << "Graphic::kCloudGpuPayloadStruct names " << declaredFloats << " floats and Graphic::CloudGpuPayload "
          << "carries " << Desert::Graphic::kCloudPayloadFloats
          << ". One of the two grew without the other, and every parameter after the difference is read from "
             "the wrong offset — which looks like badly tuned clouds and not like a bug.";
@@ -420,7 +369,7 @@ TEST( CloudMediumConsumers, EverySlotOfTheParameterBlockIsReadOrHasARowSayingWhy
 
     for ( const std::string& path : sources )
     {
-        const std::string code = WithoutTheBlockDeclaration( CodeOnly( ReadAll( path ) ) );
+        const std::string code = CodeOnly( ReadAll( path ) );
         for ( const BlockMember& member : members )
         {
             std::size_t at = 0;

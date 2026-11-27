@@ -1,8 +1,10 @@
 #pragma once
 
+#include <memory>
 #include <span>
 #include <string_view>
 #include <Common/Core/Memory/CommandBuffer.hpp>
+#include <Common/Core/Singleton.hpp>
 
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 
@@ -27,6 +29,8 @@ namespace Desert::ShaderResources
 namespace Desert::Graphic
 {
     class RendererAPI;
+    class IRhi; // Rhi/Rhi.hpp
+    class IRendererClient; // RendererClient.hpp
     struct BinDraw; // RendererAPI.hpp: a caller of RenderMeshIndirectCountBins includes it
     class RayTracingPipeline;
     class GraphicsPipeline; // Pipeline.hpp: callers that build/bind pipelines include it
@@ -54,6 +58,9 @@ namespace Desert::Graphic
     class Renderer : public Common::Singleton<Renderer>
     {
     public:
+        Renderer();
+        ~Renderer() override;
+
         Common::BoolResultStr Init();
         void                  Shutdown();
 
@@ -210,7 +217,7 @@ namespace Desert::Graphic
         // GPU wrote as a uint at @p countOffset of @p count. Each command carries its own firstIndex / indexCount
         // (a strip level, a LOD's submesh), so a bin draws several varieties' records of one mesh in one call;
         // the vertex stage tells them apart by gl_DrawIDARB. Refused: a device without drawIndirectCount
-        // (DeviceCapabilities::SupportsDrawIndirectCount), offsets not multiples of four, @p maxDraws past
+        // (GpuCapabilities::SupportsDrawIndirectCount), offsets not multiples of four, @p maxDraws past
         // maxDrawIndirectCount, records or the count past their buffers. 0 draws records nothing.
         [[nodiscard]] static Common::BoolResultStr
         RenderMeshIndirectCount( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
@@ -290,6 +297,16 @@ namespace Desert::Graphic
 
         RendererAPI* GetRendererAPI() const;
 
+        // THE BACKEND (IRhi): attached once by the Application from the RhiSelection, before the window and the
+        // device; every static X::Create forwards to it. Owned here, so it outlives every resource the renderer
+        // releases in Shutdown.
+        void AttachRhi( std::unique_ptr<IRhi> rhi );
+        [[nodiscard]] IRhi& Rhi();
+
+        // THE ENGINE'S HOOKS (IRendererClient): attached once by the Application before Init (Init refuses to
+        // start without one); called in WaitFrameSlot after the frame slot and twice in Shutdown. Owned here.
+        [[nodiscard]] Common::BoolResultStr AttachClient( std::unique_ptr<IRendererClient> client );
+
         const std::shared_ptr<Graphic::Texture2D>& GetBRDFTexture() const;
 
         std::shared_ptr<Framebuffer> GetCompositeFramebuffer();
@@ -308,6 +325,14 @@ namespace Desert::Graphic
         static Common::Memory::CommandBuffer& GetRenderCommandQueue();
 
     private:
-        std::shared_ptr<Texture2D> m_BRDFTexture;
+        // Declared first, destroyed last: everything below (and the fallback set it owns) is the backend's.
+        std::unique_ptr<IRhi>                   m_Rhi;
+        std::shared_ptr<Texture2D>              m_BRDFTexture;
+        std::unique_ptr<IRendererClient>        m_Client;
+        std::unique_ptr<RendererAPI>            m_RendererAPI;
     };
 } // namespace Desert::Graphic
+
+// The one instance lives in this class's .cpp (Common::Singleton, design BINT-STATE).
+template <>
+std::unique_ptr<Desert::Graphic::Renderer>& Common::Singleton<Desert::Graphic::Renderer>::Instance();

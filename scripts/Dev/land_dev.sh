@@ -2,7 +2,7 @@
 # land_dev.sh <tree> <branch>... — land finished task branches into dev in one call (the lead's merge recipe).
 # In <tree> (a clean worktree that no agent uses): fetch; a temporary branch from origin/dev; merge each origin/<branch>
 # with --no-ff; .claude taken from origin/dev (agents cannot commit it); refuse symlinked submodules (ls-tree 120000)
-# and added Legacy/Compat code; configure + build Editor, DesertCtl and SceneMigrator (Debug, scripts/Dev/_common.sh); push to dev only as a fast-forward of the dev it was built on;
+# and added Legacy/Compat code, a stale Sources.cmake (sources_sync.py --check); configure + build Editor, DesertCtl and SceneMigrator (Debug, scripts/Dev/_common.sh); push to dev only as a fast-forward of the dev it was built on;
 # regenerate CODEMAP; delete the landed remote branches.
 # Exit 0 = landed. 1 = conflicts (merge left in progress in <tree>, listed). 2 = refused or build red (nothing pushed).
 # Run it in the background: the build takes up to ~20 min. CI is not waited for.
@@ -35,6 +35,9 @@ legacy=$(git diff "$base" HEAD -U0 -- '*.cpp' '*.hpp' '*.h' | grep -E '^\+.*\b(L
 # The merged tree's own build scripts: the preset and the build are the ones being landed.
 # Singletons, content names in the engine, files over 2500 lines: the counts may only fall (skill desert-engine-architecture).
 python3 "$TREE/scripts/Dev/arch_census.py" || { echo "land_dev: the architecture census rose — not landing"; exit 2; }
+# The build reads explicit source lists (<dir>/Sources.cmake), never a glob: a list that differs from the merged tree
+# would silently leave a file out of the build (or name a deleted one), so it refuses here.
+python3 "$TREE/scripts/Dev/sources_sync.py" --check || { echo "land_dev: a Sources.cmake differs from the tree (run scripts/Dev/sources_sync.py) — not landing"; exit 2; }
 
 source "$TREE/scripts/Dev/_common.sh"
 LOG=$(dev_logdir land)

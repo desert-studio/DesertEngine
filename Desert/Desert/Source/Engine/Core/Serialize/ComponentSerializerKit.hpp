@@ -44,7 +44,6 @@
 #include <Engine/Assets/SoundAsset.hpp>
 #include <Engine/Assets/IesProfileAsset.hpp>
 #include <Engine/Assets/SparseVolumeAsset.hpp>
-#include <Engine/Assets/FoliageTypeAsset.hpp>
 #include <Engine/Assets/WorldParametersAsset.hpp>
 #include <Engine/Assets/WeatherPresetAsset.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>
@@ -67,7 +66,6 @@
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Runtime/Services/Icon/IconService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
-#include <Engine/Runtime/Services/Video/VideoService.hpp>
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/FolderComponent.hpp>
@@ -90,7 +88,7 @@
 #include <Engine/World/Partition/AlwaysLoadedComponent.hpp>
 #include <UI/Args/UIImageArgs.hpp>
 #include <Common/Json/ReadWrite.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 #include <Engine/Core/Serialize/BuiltinComponentSerializers.hpp>
 

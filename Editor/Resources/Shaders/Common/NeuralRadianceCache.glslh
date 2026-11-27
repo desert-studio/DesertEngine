@@ -39,26 +39,8 @@
 #define NRC_COUNTER_SEGMENTS 4
 #define NRC_HALF_MAX 65504.0
 
-// ---- Records (std430; NrcVertexGpu / NrcQueryGpu / NrcTrainingSampleGpu) ----
-// A.xyz = world position (cm) bits, A.w = packUnorm2x16(octahedral(w_o) * 0.5 + 0.5)
-// B.x = packUnorm2x16(octahedral(normal) * 0.5 + 0.5), B.y = packUnorm2x16(vec2(roughness, 0)),
-// B.z = packUnorm4x8(vec4(D_d, 0)), B.w = packUnorm4x8(vec4(D_s, 0))
-struct NrcVertex
-{
-    uvec4 A;
-    uvec4 B;
-};
-
-// One path of the image that ended in the cache, appended to its path's segment (64 B). Lobes: x / y =
-// packHalf2x16 of DiffuseWeight = T (1 - share) / D_d1 and .a = lum(I_d) before the cache, z / w = SpecularWeight
-// = T share / D_s1 and .a = lum(I_s) before the cache. Weight: x / y = packHalf2x16 of (T.rg), (T.b, 0); z = the
-// pixel (y * width + x); w = 0. Halves saturate at NRC_HALF_MAX.
-struct NrcQuery
-{
-    NrcVertex Vertex;
-    uvec4     Lobes;
-    uvec4     Weight;
-};
+// ---- Records: NrcVertex, NrcQuery, NrcTrainingSample, NrcTraceParams ----
+#include <Generated/Neural/NeuralRadianceCache.glslh> // Neural/NeuralRadianceCacheLayout.hpp
 
 struct NrcQueryData
 {
@@ -95,14 +77,6 @@ NrcQueryData NrcUnpackQuery(NrcQuery q)
     return d;
 }
 
-// Radiance.rgb = (R_end - R_i) / T_i, Radiance.a = uintBitsToFloat(self query index | NRC_NO_SELF_QUERY),
-// Throughput.rgb = T_end / T_i.
-struct NrcTrainingSample
-{
-    NrcVertex Vertex;
-    vec4      Radiance;
-    vec4      Throughput;
-};
 
 // The vertex as the encoder reads it.
 struct NrcVertexData

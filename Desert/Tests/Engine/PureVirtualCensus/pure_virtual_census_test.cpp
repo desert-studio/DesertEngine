@@ -635,8 +635,8 @@ namespace
          // fenced for the device-loss rebuild; that fence came down when Г7, Г7-C and Г13 landed, and
          // Г12 took the decision the row was waiting for: DELETED, because a Vulkan backend binds a
          // descriptor SET per draw and names its vertex/index buffers in the draw command, and there is
-         // no second backend for the seam to serve (`RendererAPIType` has exactly `None` and `Vulkan`,
-         // and the tree carries no other rendering backend). The reasoning is kept at the site, in
+         // no backend behind IRhi (Vulkan, D3D12) binds one object at a time, so the seam serves none.
+         // The reasoning is kept at the site, in
          // Graphic/RendererTypes.hpp.
          //
          // A dead pure virtual is not inert: it is a standing instruction to every future implementer to

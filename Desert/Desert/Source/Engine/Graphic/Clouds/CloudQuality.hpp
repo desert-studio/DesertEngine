@@ -2,15 +2,14 @@
 
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 
-#include <Common/Settings/MachineSettings.hpp>
+#include <Common/Settings/Scalability.hpp>
 
-#include <algorithm>
 #include <cstdint>
 
 namespace Desert::Graphic
 {
     /**
-     * WHAT A CLOUD QUALITY TIER IS ALLOWED TO CHANGE, as three numbers and not as six.
+     * WHAT A CLOUD QUALITY LEVEL IS ALLOWED TO CHANGE, as three numbers and not as six.
      *
      * THE SHORT VERSION, because the long one below is a list of refusals: this subsystem has exactly
      * three costs a cheaper setting can buy back without breaking something that is asserted elsewhere —
@@ -86,7 +85,7 @@ namespace Desert::Graphic
         int32_t LightMarchSampleCeiling = ECS::kCloudLightMarchMaxSamples;
 
         // The SHORT shadow ray's ceiling (VolumetricCloudData::LightMarchLocalSamples, where the cloud shadow
-        // map supplies the far optical depth) is NOT a CloudQuality number: it is its own Effects row,
+        // map supplies the far optical depth) is not one of these numbers: it is its own Effects row,
         // Scalability::Parameter::CloudLightLocalSamples, so a performance level can lower it while keeping the
         // full map footprint this tier would halve with it (FPS-SSR-TIER). One source per value.
 
@@ -121,47 +120,24 @@ namespace Desert::Graphic
     };
 
     /**
-     * The tier's numbers. PURE, so Desert/Tests/Engine/CloudShadow drives it directly and asserts the
-     * relations tier by tier instead of on the one set of constants that happens to be compiled in.
-     *
-     * An unknown enumerator answers High rather than a guess: High is the calibrated reference, so a
-     * scene whose tier failed to deserialize renders correctly and slowly, which is the failure a person
-     * notices and reports rather than one they ship.
+     * The scale of a machine's resolved quality. PURE: the three Effects.Cloud* rows in their units. Each row's
+     * default is the identity (the calibrated reference), and the level values live in Scalability.json:
+     *   * 16 light samples is 3.73 ms below the reference and runs the sunward highlights 34% hot;
+     *   * half the shadow map is half its radius around the camera, the texel unchanged;
+     *   * a stop transmittance of 0.05 saves 2.83 ms and moves no pixel by more than 10 of 255; 0.02 moves less.
      */
-    inline CloudQualityScale CloudQualityFor( Common::Settings::CloudQuality tier )
+    static_assert( Common::Scalability::kCloudLightMarchSamplesMax == ECS::kCloudLightMarchMaxSamples,
+                   "Effects.CloudLightMarchSamples' Max is the cloud march's sample array size" );
+
+    [[nodiscard]] inline CloudQualityScale CloudQualityOf( const Common::Scalability::ResolvedQuality& quality )
     {
+        using P = Common::Scalability::Parameter;
         CloudQualityScale scale;
-        switch ( tier )
-        {
-            case Common::Settings::CloudQuality::Low:
-                // Sixteen is where the shadow ray's price list stops being worth paying rather than an
-                // arbitrary halving: it is 3.73 ms below the default here, and the frame it produces is
-                // 34% hot in the sunward highlights against the converged answer — a difference a person
-                // sees, which is the test a tier has to pass in the other direction.
-                scale.LightMarchSampleCeiling = 16;
-                scale.ShadowMapScale          = 0.5f;
-                // Ten times the default, and the number is where the measurement stops being free: it
-                // saves 2.83 ms while moving no pixel of the shipped demo by more than 10 of 255.
-                scale.StopTransmittanceFloor = 0.05f;
-                break;
-
-            case Common::Settings::CloudQuality::Medium:
-                scale.LightMarchSampleCeiling = ECS::kCloudLightMarchMaxSamples;
-                scale.ShadowMapScale          = 0.5f;
-                // FPS-CLOUDS-MARCH-2: the march's own saving on the middle tier, which until now paid High's
-                // full view march. Four times the default and under half of Low's 0.05 - the samples it drops
-                // sit behind 98 % opacity, so the frame moves by less than the 10 of 255 Low's floor was
-                // measured at. High keeps its identity floor of zero.
-                scale.StopTransmittanceFloor = 0.02f;
-                break;
-
-            case Common::Settings::CloudQuality::High:
-            default:
-                scale.LightMarchSampleCeiling      = ECS::kCloudLightMarchMaxSamples;
-                scale.ShadowMapScale               = 1.0f;
-                scale.StopTransmittanceFloor  = 0.0f;
-                break;
-        }
+        scale.LightMarchSampleCeiling = quality.As<int32_t>( P::EffectsCloudLightMarchSamples );
+        scale.ShadowMapScale =
+             static_cast<float>( quality.As<int>( P::EffectsCloudShadowMapScalePercent ) ) / 100.0f;
+        scale.StopTransmittanceFloor =
+             static_cast<float>( quality.As<int>( P::EffectsCloudStopTransmittanceMilli ) ) / 1000.0f;
         return scale;
     }
 } // namespace Desert::Graphic

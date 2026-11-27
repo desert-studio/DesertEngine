@@ -1,18 +1,19 @@
 # Runtime: the player executable. Links the engine module libraries, never the editor.
-desert_glob(_sources "Source/*.cpp" "Source/*.hpp")
+desert_sources(_sources "Source" MATCHING "\\.(cpp|hpp)$")
 desert_add_executable(Runtime SOURCES ${_sources})
 set_target_properties(Runtime PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${DESERT_ROOT}/Editor"
     VS_DEBUGGER_COMMAND_ARGUMENTS "--project ../Projects/Desert/Desert.deproj")
 
 desert_header_tool_roots(context _context_roots)
-add_dependencies(Runtime DesertHeaderTool)
+desert_header_tool_inputs(_tool_inputs)
+desert_engine_source_files(_context_files)
 desert_prebuild(Runtime HeaderTool
     COMMAND "$<TARGET_FILE:DesertHeaderTool>"
         --templates "${DESERT_ROOT}/Tools/DesertHeaderTool/Templates"
         --check "${DESERT_ROOT}/Runtime/Source"
         ${_context_roots}
-    DEPENDS DesertHeaderTool
+    DEPENDS ${_tool_inputs} ${_sources} ${_context_files}
     COMMENT "DesertHeaderTool: Runtime check")
 
 desert_engine_includes(Runtime)
@@ -36,7 +37,7 @@ desert_copy_streamline_runtime(Runtime)
 desert_copy_oidn_runtime(Runtime)
 if(DESERT_IS_MACOS)
     target_link_libraries(Runtime PRIVATE
-        Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp
+        Common Jolt Luau ReflectCpp
         "-framework Cocoa" "-framework IOKit" "-framework CoreFoundation" "-framework CoreVideo"
         "-framework QuartzCore"
         ${DESERT_DESERTSPECIFIC_LIBRARIES})

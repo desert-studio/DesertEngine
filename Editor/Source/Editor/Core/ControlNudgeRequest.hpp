@@ -139,10 +139,6 @@ namespace Desert::Editor::Core
             int       Age     = 0;
         };
 
-        static State& Get()
-        {
-            static State s_State;
-            return s_State;
-        }
+        static State& Get();
     };
 } // namespace Desert::Editor::Core

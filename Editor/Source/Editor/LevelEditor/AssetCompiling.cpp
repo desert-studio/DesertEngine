@@ -106,7 +106,7 @@ namespace Desert::Editor
         // named remedy that cannot be run is worse than no message.
         commands.push_back( { "Action", "Rebuild Content Registry", [this]
                               {
-                                  const auto cooked = Assets::ContentRegistry::Refresh( *m_AssetManager );
+                                  const auto cooked = Assets::ContentRegistry::Refresh( *m_AssetManager, nullptr );
                                   if ( !cooked )
                                       return Common::MakeFormattedError( "the content registry: {}",
                                                                          cooked.GetError() );

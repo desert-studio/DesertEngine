@@ -329,7 +329,7 @@ namespace Desert::Graphic::GpuDriven
                     }
                     const InstanceCullDistance cull  = ScaledByLens(
                          { instance.CullDistanceStart, instance.CullDistanceEnd }, view.Gpu.CullOrigin.w );
-                    if ( !KeepsInstanceAtDistance( cull, row - primitive.FirstInstance, glm::vec3( world[3] ),
+                    if ( !KeepsInstanceAtDistance( cull, instance.ComponentInstance, glm::vec3( world[3] ),
                                                    glm::vec3( view.Gpu.CullOrigin ) ) )
                         return 0u;
 

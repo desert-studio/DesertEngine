@@ -17,6 +17,19 @@ set(DESERT_MODULE_TABLE "${DESERT_ROOT}/cmake/DesertModuleTable.cmake")
 set(DESERT_MODULE_TABLE_JSON "${CMAKE_BINARY_DIR}/DesertModules.json")
 set(DESERT_LEGACY_ROOT "Desert/Desert/Source")
 set(DESERT_LEGACY_REFLECT_DIR "Engine")
+# Everything DesertHeaderTool writes lives in the build tree, never in the source tree: <build>/Generated is an
+# include root of every engine target, so `#include "Engine/Generated/<File>"` resolves to
+# <build>/Generated/Engine/Generated/<File> (the engine's generated set, Desert/Desert/CMakeLists.txt).
+set(DESERT_GENERATED_DIR "${CMAKE_BINARY_DIR}/Generated")
+set(DESERT_ENGINE_GENERATED_DIR "${DESERT_GENERATED_DIR}/Engine/Generated")
+# A tree that still holds the files the header tool wrote into the source tree before B-TREE would shadow the build
+# tree's copies (the source root is the earlier include root) with stale ones: configure refuses, naming them.
+foreach(_stale "Desert/Desert/Source/Engine/Generated" "Editor/Source/Editor/Generated")
+    if(IS_DIRECTORY "${DESERT_ROOT}/${_stale}")
+        message(FATAL_ERROR "${DESERT_ROOT}/${_stale} holds files the header tool now writes into "
+                            "${DESERT_GENERATED_DIR}: delete that directory (untracked since B-TREE)")
+    endif()
+endforeach()
 
 # ── THE ROWS ───────────────────────────────────────────────────────────────────────────────────────
 set(DESERT_MODULES "")
@@ -55,9 +68,12 @@ macro(desert_module name)
     set(DESERT_MODULE_${name}_FOLDER "${_folder}")
     set(DESERT_MODULE_${name}_REFLECTED ${_m_REFLECTED})
     set(DESERT_MODULE_${name}_RENDER_FREE ${_m_RENDER_FREE})
-    # Generated reflection of a module lives in the legacy root and belongs to it: these rows come before the
-    # table's own placement rows (collected separately and appended after the table is read).
-    list(APPEND _desert_generated_modules "${name}")
+    # A module's generated registration (DesertHeaderTool, in the build tree) belongs to the module: its
+    # Reflection_<Name>.gen.cpp and Components_<Name>.gen.cpp (BUILD-MOD-5: a field added to a module's component
+    # rebuilds that module, not the engine).
+    set(DESERT_MODULE_${name}_GENERATED
+        "${DESERT_ENGINE_GENERATED_DIR}/Reflection_${name}.gen.cpp"
+        "${DESERT_ENGINE_GENERATED_DIR}/Components_${name}.gen.cpp")
 endmacro()
 
 # desert_placement(<Module> [[<ECMAScript pattern>]])
@@ -75,7 +91,6 @@ function(desert_placement module pattern)
     set(_desert_table_placement_patterns "${_desert_table_placement_patterns}" PARENT_SCOPE)
 endfunction()
 
-set(_desert_generated_modules "")
 set(_desert_table_placement_modules "")
 set(_desert_table_placement_patterns "")
 include("${DESERT_MODULE_TABLE}")
@@ -83,17 +98,29 @@ if(NOT DESERT_MODULES OR NOT _desert_table_placement_modules)
     message(FATAL_ERROR "DesertModuleTable.cmake declares no module or no placement row")
 endif()
 
-# Placement rows: the generated-reflection rows first (in module order), then the table's rows in order.
-foreach(name IN LISTS _desert_generated_modules)
-    list(APPEND DESERT_PLACEMENT_MODULES "${name}")
-    list(APPEND DESERT_PLACEMENT_SOURCE_PATTERNS "Engine/Generated/Reflection_${name}\\.gen\\.cpp$")
+# The generated files of the whole set (the subsystem tables, the shaders' push structs) are Engine's; the
+# replication layout is CoreReflection's, which the dedicated server links (Engine/Reflection/ReplicatedFields.hpp).
+# The two MODULE LISTS (Reflection.gen.cpp, Components.gen.cpp) name every module's registration function, so they
+# belong to no module: they are compiled into each executable that links the engine (desert_link_engine), the one
+# image above every module (BINT-ENG; UE: the target's module list in the executable).
+foreach(_gen EngineSubsystems.gen.cpp WorldSubsystems.gen.cpp ReflectedComponentBlocks.gen.hpp
+             ShaderPushConstants.gen.hpp)
+    list(APPEND DESERT_MODULE_Engine_GENERATED "${DESERT_ENGINE_GENERATED_DIR}/${_gen}")
 endforeach()
-# The per-module component registration (BUILD-MOD-5): Components_<Module>.gen.cpp compiles in its module, so a
-# field added to a module's component rebuilds that module, not the engine.
-foreach(name IN LISTS _desert_generated_modules)
-    list(APPEND DESERT_PLACEMENT_MODULES "${name}")
-    list(APPEND DESERT_PLACEMENT_SOURCE_PATTERNS "Engine/Generated/Components_${name}\\.gen\\.cpp$")
+list(APPEND DESERT_MODULE_CoreReflection_GENERATED "${DESERT_ENGINE_GENERATED_DIR}/ReplicatedFields.gen.cpp")
+set(DESERT_EXECUTABLE_GENERATED
+    "${DESERT_ENGINE_GENERATED_DIR}/Reflection.gen.cpp"
+    "${DESERT_ENGINE_GENERATED_DIR}/Components.gen.cpp")
+# Every file DesertHeaderTool writes for the engine: the byproducts of its step (Desert/Desert/CMakeLists.txt).
+set(DESERT_ENGINE_GENERATED_FILES ${DESERT_EXECUTABLE_GENERATED})
+foreach(name IN LISTS DESERT_MODULES)
+    list(APPEND DESERT_ENGINE_GENERATED_FILES ${DESERT_MODULE_${name}_GENERATED})
 endforeach()
+# Written by Tools/ShaderProtocolGen (its own prebuild step, Desert/Desert/CMakeLists.txt), appended after the
+# header tool's byproduct list so one file has one writer.
+list(APPEND DESERT_MODULE_ShaderCompiler_GENERATED "${DESERT_ENGINE_GENERATED_DIR}/GeneratedShaderIncludes.gen.cpp")
+
+# Placement rows of the legacy root: the table's rows in order.
 list(APPEND DESERT_PLACEMENT_MODULES ${_desert_table_placement_modules})
 list(APPEND DESERT_PLACEMENT_SOURCE_PATTERNS ${_desert_table_placement_patterns})
 foreach(_pattern IN LISTS DESERT_PLACEMENT_SOURCE_PATTERNS)
@@ -104,11 +131,9 @@ endforeach()
 list(LENGTH DESERT_PLACEMENT_PATTERNS _nplace)
 math(EXPR DESERT_PLACEMENT_LAST "${_nplace} - 1")
 
-# ── LEGACY FILES: every file under Desert/Desert/Source, placed by the first matching row ───────────
+# ── LEGACY FILES: every file Desert/Desert/Source/Sources.cmake lists, placed by the first matching row ──────
 set(_legacy_root "${DESERT_ROOT}/${DESERT_LEGACY_ROOT}")
-file(GLOB_RECURSE _legacy LIST_DIRECTORIES false CONFIGURE_DEPENDS RELATIVE "${_legacy_root}"
-     "${_legacy_root}/*.cpp" "${_legacy_root}/*.hpp" "${_legacy_root}/*.h" "${_legacy_root}/*.inl" "${_legacy_root}/*.mm")
-list(SORT _legacy)
+desert_sources(_legacy "${_legacy_root}" RELATIVE)
 list(REMOVE_ITEM _legacy "pch.cpp" "pch.hpp")
 set(DESERT_HAS_LEGACY_FILES OFF)
 foreach(name IN LISTS DESERT_MODULES)
@@ -143,7 +168,8 @@ set(_render_legacy "")
 foreach(_m IN LISTS _render_modules)
     list(APPEND _render_legacy ${DESERT_MODULE_${_m}_LEGACY})
 endforeach()
-set(_include_roots "${DESERT_ROOT}/${DESERT_LEGACY_ROOT}" "${DESERT_ROOT}/Editor/Resources/Shaders")
+set(_include_roots "${DESERT_ROOT}/${DESERT_LEGACY_ROOT}" "${DESERT_ROOT}/Editor/Resources/Shaders"
+    "${DESERT_GENERATED_DIR}/Shaders")
 foreach(_m IN LISTS DESERT_MODULES)
     list(APPEND _include_roots "${DESERT_ROOT}/${DESERT_MODULE_${_m}_SOURCE_ROOT}")
 endforeach()
@@ -159,9 +185,7 @@ foreach(name IN LISTS DESERT_MODULES)
     # A module that lives in its FOLDER (LandscapeCore) is followed from its folder's files.
     if(IS_DIRECTORY "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}")
         set(_root "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}")
-        file(GLOB_RECURSE _folder_files LIST_DIRECTORIES false CONFIGURE_DEPENDS
-             "${_root}/*.cpp" "${_root}/*.hpp" "${_root}/*.h" "${_root}/*.inl" "${_root}/*.mm")
-        list(SORT _folder_files)
+        desert_sources(_folder_files "${_root}")
         list(APPEND _queue ${_folder_files})
     endif()
     if(NOT _queue)
@@ -236,19 +260,17 @@ foreach(name IN LISTS DESERT_MODULES)
     # but only when it holds a translation unit.
     set(_files "")
     if(DESERT_MODULE_${name}_HAS_FOLDER AND NOT DESERT_MODULE_${name}_OWN_PROJECT)
-        set(_root "${DESERT_ROOT}/${_folder}")
-        file(GLOB_RECURSE _files LIST_DIRECTORIES false CONFIGURE_DEPENDS RELATIVE "${DESERT_ROOT}"
-             "${_root}/*.cpp" "${_root}/*.hpp" "${_root}/*.h" "${_root}/*.inl" "${_root}/*.mm")
-        list(FILTER _files INCLUDE REGEX "\\.(cpp|mm)$")
-        if(_files)
-            file(GLOB_RECURSE _files LIST_DIRECTORIES false CONFIGURE_DEPENDS RELATIVE "${DESERT_ROOT}"
-                 "${_root}/*.cpp" "${_root}/*.hpp" "${_root}/*.h" "${_root}/*.inl" "${_root}/*.mm")
-            list(SORT _files)
+        desert_sources(_units "${DESERT_ROOT}/${_folder}" MATCHING "\\.(cpp|mm)$" RELATIVE)
+        if(_units)
+            desert_sources(_rel "${DESERT_ROOT}/${_folder}" RELATIVE)
+            foreach(rel IN LISTS _rel)
+                list(APPEND _files "${_folder}/${rel}")
+            endforeach()
         endif()
     endif()
     set(DESERT_MODULE_${name}_FOLDER_FILES "${_files}")
     set(DESERT_MODULE_${name}_TABLE_LIBRARY OFF)
-    if(DESERT_MODULE_${name}_LEGACY OR _files)
+    if(DESERT_MODULE_${name}_LEGACY OR _files OR DESERT_MODULE_${name}_GENERATED)
         set(DESERT_MODULE_${name}_TABLE_LIBRARY ON)
     endif()
     # LibrariesOf: the own project's library, then the table library Desert<Name>.
@@ -294,18 +316,14 @@ function(_desert_check_module_boundaries)
             list(APPEND _files "${DESERT_ROOT}/${DESERT_LEGACY_ROOT}/${rel}")
         endforeach()
         if(DESERT_MODULE_${name}_HAS_FOLDER)
-            file(GLOB_RECURSE _own LIST_DIRECTORIES false CONFIGURE_DEPENDS
-                 "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}/*.cpp" "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}/*.hpp"
-                 "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}/*.h" "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}/*.inl"
-                 "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}/*.mm")
+            desert_sources(_own "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}")
             list(APPEND _files ${_own})
         endif()
         foreach(_file IN LISTS _files)
-            # The all-modules aggregates: the generated list of every module's reflected blocks and its one
-            # includer, compiled only by the tools and the tests above every module (SceneMigrator, the header
-            # tool's checks), never by a module's own source (they sit in the legacy root because the header tool
-            # writes there).
-            if(_file MATCHES "/Engine/(Generated/ReflectedComponentBlocks\\.gen|Core/Serialize/ReflectedComponentBlocks)\\.hpp$")
+            # The all-modules aggregate: the one includer of the generated list of every module's reflected blocks
+            # (<build>/Generated), compiled only by the tools and the tests above every module (SceneMigrator, the
+            # header tool's checks), never by a module's own source.
+            if(_file MATCHES "/Engine/Core/Serialize/ReflectedComponentBlocks\\.hpp$")
                 continue()
             endif()
             file(STRINGS "${_file}" _lines REGEX "${_include_regex}")
@@ -435,9 +453,9 @@ function(desert_module_closure name out)
     set(${out} ${_seen} PARENT_SCOPE)
 endfunction()
 
-# DesertModuleLibs.IncludeDirs(): every engine source root.
+# DesertModuleLibs.IncludeDirs(): every engine source root and the generated root (<build>/Generated).
 function(desert_engine_includes target)
-    target_include_directories(${target} PRIVATE ${DESERT_ENGINE_INCLUDE_DIRS})
+    target_include_directories(${target} PRIVATE ${DESERT_ENGINE_INCLUDE_DIRS} "${DESERT_GENERATED_DIR}")
 endfunction()
 
 # DesertModuleLibs.ClosureIncludeDirs(name): the source roots of the module's dependency closure only.
@@ -445,17 +463,18 @@ function(desert_closure_includes target module)
     desert_module_closure(${module} _closure)
     if(_closure)
         _desert_source_roots(_roots ${_closure})
-        target_include_directories(${target} PRIVATE ${_roots})
+        target_include_directories(${target} PRIVATE ${_roots} "${DESERT_GENERATED_DIR}")
     endif()
 endfunction()
 
 # A module library's include roots (UBT: the module's own and its dependency closure's, nothing else): the legacy
-# root (one directory still shared by the modules that have not moved), the module's own FOLDER and its closure's.
+# root (one directory still shared by the modules that have not moved), the module's own FOLDER and its closure's,
+# and the generated root (<build>/Generated: Engine/Generated/*.gen.hpp, written by DesertHeaderTool).
 function(desert_module_includes target module)
     desert_module_closure(${module} _closure)
     list(APPEND _closure ${module})
     _desert_source_roots(_roots ${_closure})
-    target_include_directories(${target} PRIVATE "${DESERT_ROOT}/${DESERT_LEGACY_ROOT}" ${_roots})
+    target_include_directories(${target} PRIVATE "${DESERT_ROOT}/${DESERT_LEGACY_ROOT}" ${_roots} "${DESERT_GENERATED_DIR}")
 endfunction()
 
 # The `--check`/`--context` arguments of the header tool: one per engine source root.
@@ -472,6 +491,27 @@ function(desert_depend_on_codegen target)
     add_dependencies(${target} ${DESERT_CODEGEN_LIB})
 endfunction()
 
+# A first-party module library (Common, every engine module, UI, Render2DCore, the editor layers): its type follows the
+# configuration (STUDIO-AUDIT B-DLL). Development and DebugGame: SHARED, one DLL (dylib, so) per module, so an edit
+# relinks that module and not one executable holding every object; every symbol is exported
+# (WINDOWS_EXPORT_ALL_SYMBOLS: CMake writes the .def from the objects, no source annotation). No DEFINE_SYMBOL: the
+# members of a shared PCH group must compile with the same definitions (C2855 otherwise), and nothing reads it.
+# Shipping (DESERT_MONOLITHIC): STATIC, linked into one executable with /LTCG.
+function(desert_module_library name)
+    cmake_parse_arguments(ARG "" "FOLDER" "SOURCES" ${ARGN})
+    if(DESERT_MONOLITHIC)
+        add_library(${name} STATIC ${ARG_SOURCES})
+    else()
+        add_library(${name} SHARED ${ARG_SOURCES})
+        set_target_properties(${name} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON DEFINE_SYMBOL "")
+        # A module DLL is an image Live Coding may patch: desert_finalize_targets lists it in LiveCoding.json.
+        set_property(GLOBAL APPEND PROPERTY DESERT_LIVE_CODING_TARGETS ${name})
+    endif()
+    if(ARG_FOLDER)
+        set_target_properties(${name} PROPERTIES FOLDER "${ARG_FOLDER}")
+    endif()
+endfunction()
+
 # DesertModuleLibs.Link(): every module library, top of the table first, then SPIRV-Cross and the Vulkan SDK libraries.
 function(desert_link_engine target)
     set(_names "")
@@ -481,6 +521,15 @@ function(desert_link_engine target)
         list(APPEND _names ${DESERT_MODULE_${name}_LIBRARIES})
     endforeach()
     target_link_libraries(${target} PRIVATE ${_names} ${DESERT_DESERTSPECIFIC_LIBRARIES})
+    # The executable's module list (BINT-ENG): the generated reflection and component lists and the feature
+    # modules' startup (Desert/Launch/LinkedModules.cpp). Only an executable gets it: a library linking the engine
+    # (an editor layer) is a module of its own, and a second copy would register every module twice.
+    get_target_property(_type ${target} TYPE)
+    if(_type STREQUAL "EXECUTABLE")
+        set_source_files_properties(${DESERT_EXECUTABLE_GENERATED} TARGET_DIRECTORY ${target} PROPERTIES GENERATED TRUE)
+        target_sources(${target} PRIVATE ${DESERT_EXECUTABLE_GENERATED} "${DESERT_ROOT}/Desert/Launch/LinkedModules.cpp")
+        target_include_directories(${target} PRIVATE "${DESERT_ROOT}/${DESERT_LEGACY_ROOT}" "${DESERT_GENERATED_DIR}")
+    endif()
 endfunction()
 
 # A tool that runs engine code (WorldCook, SceneMigrator): the module libraries (desert_link_engine) and the
@@ -490,14 +539,37 @@ function(desert_link_engine_tool target)
     desert_link_engine(${target})
     if(DESERT_IS_MACOS)
         target_link_libraries(${target} PRIVATE
-            Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp
+            Common Jolt Luau ReflectCpp
             "-framework Cocoa" "-framework IOKit" "-framework CoreFoundation" "-framework CoreVideo"
             "-framework CoreMedia" "-framework AVFoundation" "-framework QuartzCore" "-framework Foundation")
     endif()
 endfunction()
 
-# The header tool invocation the engine's codegen library runs before it compiles (Desert/Desert/CMakeLists.txt).
-function(desert_engine_header_tool_command out)
+# Every engine source file the header tool reads (--reflect, --check, --context): the legacy root's and every
+# module FOLDER's, as their Sources.cmake list them. A header-tool step names them as its DEPENDS, so it re-runs
+# exactly when one of them changes, and never on a build that changed nothing.
+function(desert_engine_source_files out)
+    desert_sources(_files "${DESERT_ROOT}/${DESERT_LEGACY_ROOT}")
+    foreach(name IN LISTS DESERT_MODULES)
+        if(DESERT_MODULE_${name}_HAS_FOLDER)
+            desert_sources(_own "${DESERT_ROOT}/${DESERT_MODULE_${name}_FOLDER}")
+            list(APPEND _files ${_own})
+        endif()
+    endforeach()
+    list(REMOVE_DUPLICATES _files)
+    set(${out} ${_files} PARENT_SCOPE)
+endfunction()
+
+# The header tool's own inputs besides the sources: the executable, its templates, the module table.
+function(desert_header_tool_inputs out)
+    desert_sources(_templates "${DESERT_ROOT}/Tools/DesertHeaderTool/Templates")
+    set(${out} DesertHeaderTool ${_templates} PARENT_SCOPE)
+endfunction()
+
+# The header tool invocation the engine's codegen library runs before it compiles (Desert/Desert/CMakeLists.txt):
+# <out> the command (every output under DESERT_ENGINE_GENERATED_DIR, the files DESERT_ENGINE_GENERATED_FILES
+# names), <inputs> what it reads. The schema lock is only compared here; DesertSchemaLock rewrites it.
+function(desert_engine_header_tool_command out inputs)
     set(_cmd "$<TARGET_FILE:DesertHeaderTool>"
         --templates "${DESERT_ROOT}/Tools/DesertHeaderTool/Templates"
         --modules "${DESERT_MODULE_TABLE_JSON}")
@@ -517,7 +589,7 @@ function(desert_engine_header_tool_command out)
         list(GET _pair 1 _dir)
         if(_first)
             list(APPEND _cmd --reflect "${_root}" "${_dir}"
-                 "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp")
+                 "${DESERT_ENGINE_GENERATED_DIR}/Reflection.gen.cpp")
             set(_first OFF)
         else()
             list(APPEND _cmd --reflect-root "${_root}" "${_dir}")
@@ -527,18 +599,26 @@ function(desert_engine_header_tool_command out)
     list(APPEND _cmd
         --reflect-enums "${DESERT_ROOT}/Desert/Common/Source/Common/Settings"
         --reflect-enums "${DESERT_ROOT}/Desert/PhysicsCore/Source/PhysicsCore"
-        --reflect-components "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp"
+        --reflect-components "${DESERT_ENGINE_GENERATED_DIR}/ReflectedComponentBlocks.gen.hpp"
         # The stored shape of every COMPONENT block: a removed/renamed/retyped field fails the build here.
         --schema-lock "${DESERT_ROOT}/Desert/Schema/ComponentSchema.lock"
         ${_check}
         --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp
-        "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/EngineSubsystems.gen.cpp"
+        "${DESERT_ENGINE_GENERATED_DIR}/EngineSubsystems.gen.cpp"
         --subsystems World Desert::Core::Scene Engine/Core/Scene.hpp
-        "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/WorldSubsystems.gen.cpp"
+        "${DESERT_ENGINE_GENERATED_DIR}/WorldSubsystems.gen.cpp"
         # The C++ push structs of the shaders' PushConstant blocks (Engine/Generated/ShaderPushConstants.gen.hpp).
         --shader-push "${DESERT_ROOT}/Editor/Resources/Shaders"
-        "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/ShaderPushConstants.gen.hpp")
+        "${DESERT_ENGINE_GENERATED_DIR}/ShaderPushConstants.gen.hpp")
+    desert_engine_source_files(_sources)
+    desert_sources(_shaders "${DESERT_ROOT}/Editor/Resources/Shaders")
+    # Shaders/Generated/*.glslh is written by the editor (surface layers) and holds no PushConstant block: not an
+    # input, or every editor session would re-run the step.
+    list(FILTER _shaders EXCLUDE REGEX "/Editor/Resources/Shaders/Generated/")
+    desert_header_tool_inputs(_tool)
     set(${out} ${_cmd} PARENT_SCOPE)
+    set(${inputs} ${_tool} "${DESERT_MODULE_TABLE_JSON}" ${_sources} ${_shaders} "${DESERT_ROOT}/Desert/Schema/ComponentSchema.lock"
+        PARENT_SCOPE)
 endfunction()
 
 # Runs once every function it calls is defined (desert_module_closure above).

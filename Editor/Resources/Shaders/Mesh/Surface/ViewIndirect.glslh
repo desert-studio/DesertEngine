@@ -23,7 +23,7 @@
 
 // The reflection captures (Common/ReflectionEnvironment.glslh), declared before Mesh/AmbientIBL.glslh includes it.
 #define DESERT_REFLECTION_CAPTURES
-#include <Common/ReflectionCaptureGpu.glslh>
+#include <Generated/ReflectionCaptures/ReflectionCaptures.glslh> // ReflectionCaptures/ReflectionCaptureLayout.hpp
 layout( std430, set = 1, binding = 0 ) readonly buffer ReflectionCapturesUB
 {
     uvec4                ReflectionCaptureHeader; // x = capture count

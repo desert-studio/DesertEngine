@@ -2,8 +2,12 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Core/RenderTask.hpp>
+#include <Engine/Core/StartupProgress.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
+#include <Engine/Graphic/Rhi/Rhi.hpp>
+#include <Engine/Core/EngineRendererClient.hpp>
+#include <Engine/Reflection/ReflectionRegistry.hpp>
 
 #include <functional>
 #include <mutex>
@@ -34,8 +38,33 @@
 
 namespace Desert::Engine
 {
+    // THE ENGINE'S HALF OF THE START'S PLAN: the phases this constructor begins, in order. The seconds are the
+    // expectation with no history (the 11-27 Bistro start on Windows, SP-MODEL); a start with history uses the
+    // longest of its last runs. None is counted: each says its running step as an item.
+    std::vector<Core::StartupPhaseSpec> ApplicationStartupPhases()
+    {
+        using Core::PhaseCountKind;
+        return {
+             { "app.window", "Opening the window", 2.1, PhaseCountKind::Timed },
+             { "app.instance", "Starting Vulkan", 7.4, PhaseCountKind::Timed },
+             { "app.device", "Creating the device", 4.6, PhaseCountKind::Timed },
+             { "app.renderer", "Starting the renderer", 2.2, PhaseCountKind::Timed },
+        };
+    }
+
     Application::Application( const ApplicationInfo& appInfo ) : m_ApplicationInfo( appInfo )
     {
+        // The host's progress, when it watches the start (the editor's splash; the Runtime passes none). A phase
+        // the host's plan does not hold is a defect of the plan, said here; the start goes on.
+        const auto beginPhase = [startup = appInfo.Startup]( const std::string_view key )
+        {
+            if ( !startup )
+                return;
+            if ( const auto begun = startup->BeginPhase( key ); !begun )
+                LOG_ERROR( "[Startup] phase '{}' refused: {}", key, begun.GetError() );
+        };
+        beginPhase( "app.window" );
+
         // Which heap the process allocates from (DESERT_MIMALLOC): the A/B of the allocator reads this line.
         LOG_INFO( "[Memory] {}", Common::Utils::ReadProcessAllocator().Describe() );
         // THE GAME THREAD is the thread that builds the application and runs its loop (UE: GGameThreadId, the
@@ -65,28 +94,68 @@ namespace Desert::Engine
         }
         m_FramePacer.SetLimit( appInfo.Display.FrameRateLimit );
 
-        m_Window = Window::Create( windowSpec );
-        m_WindowEventNode = m_Events.Attach<Window>( m_ApplicationEventNode, *m_Window );
-        m_Window->SetEventTree( m_Events );
-        m_Window->Init();
+        // THE STEPS SAY THEMSELVES: each numbered step below is one item of its phase, named on the splash with its
+        // seconds while it runs (a null Startup is a start nobody watches).
+        Core::WorkSink* const startupSink = appInfo.Startup;
+
+        // 0. The machine's store, then the backend: the RhiSelection reads machine.json (Rhi, Adapter) and the
+        // device is created from what it withholds (HideRayTracing); the backend comes before the window,
+        // whose Init builds the swapchain through it.
+        {
+            const Core::ScopedWorkItem windowItem( startupSink, "window" );
+            if ( !appInfo.MachineSettingsFile.empty() )
+                ::Common::Settings::MachineSettings::Load( appInfo.MachineSettingsFile );
+            {
+                Graphic::RhiSelectionInputs rhiInputs = appInfo.Rhi;
+                rhiInputs.MachineRhi     = ::Common::Settings::MachineSettings::Get().Rhi;
+                rhiInputs.MachineAdapter = ::Common::Settings::MachineSettings::Get().Adapter;
+                auto selection           = Graphic::ResolveRhiSelection( rhiInputs );
+                if ( !selection )
+                {
+                    m_StartupRefusal = selection.GetError();
+                    LOG_ERROR( "[Rhi] cannot start: {}", m_StartupRefusal );
+                    Close( EXIT_FAILURE );
+                    return;
+                }
+                auto rhi = Graphic::CreateRhi( selection.GetValue() );
+                if ( !rhi )
+                {
+                    m_StartupRefusal = rhi.GetError();
+                    LOG_ERROR( "[Rhi] cannot start: {}", m_StartupRefusal );
+                    Close( EXIT_FAILURE );
+                    return;
+                }
+                LOG_INFO( "[Rhi] {}", Graphic::Describe( selection.GetValue() ) );
+                Graphic::Renderer::CreateInstance().AttachRhi( rhi.ExtractValue() );
+            }
+
+            m_Window = Window::Create( windowSpec );
+            m_WindowEventNode = m_Events.Attach<Window>( m_ApplicationEventNode, *m_Window );
+            m_Window->SetEventTree( m_Events );
+            m_Window->Init();
+        }
 
         // 1. Create RendererContext (Vulkan Instance)
-        m_RendererContext = Graphic::RendererContext::Create( m_Window );
-        
-        // 2. Partially initialize EngineContext
-        EngineContext::CreateInstance().Initialize( m_Window, nullptr, m_RendererContext );
+        beginPhase( "app.instance" );
+        {
+            const Core::ScopedWorkItem instanceItem( startupSink, "Vulkan instance" );
+            m_RendererContext = Graphic::RendererContext::Create( m_Window );
 
-        // 3. The machine's store, then the device: the device is created from what machine.json withholds
-        // (HideRayTracing), so the store cannot wait for QualityBoot, which runs after the device exists.
-        if ( !appInfo.MachineSettingsFile.empty() )
-            ::Common::Settings::MachineSettings::Load( appInfo.MachineSettingsFile );
+            // 2. Partially initialize EngineContext
+            EngineContext::CreateInstance().Initialize( m_Window, nullptr, m_RendererContext );
+        }
 
-        // 3b. Create Device
+        beginPhase( "app.device" );
+        // 3. Create Device (the machine's store was loaded at step 0)
         // A REFUSED DEVICE IS AN ERROR WITH A LIST, NOT A CRASH. DeviceCaps names every required capability
         // the GPU lacks; construction stops here, EntryPoint sees StartupRefusal() and skips OnCreate/Run,
         // and the process ends with that message and a failing exit code. Not std::exit: worker threads
         // already exist (TeardownOrder.StdExitAppearsOnlyBeforeTheApplicationExists).
-        auto device = Device::Create();
+        auto device = [startupSink]
+        {
+            const Core::ScopedWorkItem deviceItem( startupSink, "device" );
+            return Device::Create();
+        }();
         if ( !device )
         {
             m_StartupRefusal = device.GetError();
@@ -100,11 +169,19 @@ namespace Desert::Engine
         EngineContext::GetInstance().SetDevice( m_Device );
 
         // 5. Init Context (Allocators)
-        m_RendererContext->Init();
+        {
+            const Core::ScopedWorkItem allocatorsItem( startupSink, "allocators" );
+            m_RendererContext->Init();
+        }
 
         // 6. Setup SwapChain
-        auto swapChainResult = m_Window->SetupSwapChain();
-        DESERT_VERIFY( swapChainResult.IsSuccess(), "Failed to setup SwapChain" );
+        beginPhase( "app.renderer" );
+        {
+            const Core::ScopedWorkItem swapChainItem( startupSink, "swap chain" );
+            auto                       swapChainResult = m_Window->SetupSwapChain( m_Device );
+            DESERT_VERIFY( swapChainResult.IsSuccess(), "Failed to setup SwapChain" );
+        }
+        const Core::ScopedWorkItem rendererItem( startupSink, "renderer" );
 
         // 7. Initialize Global Renderer
         //
@@ -112,7 +189,16 @@ namespace Desert::Engine
         // matter — no rendering API was selected, and the BRDF LUT could not be created — after either of
         // which every frame below is drawn against half a renderer. Same instrument as the swapchain line
         // above it, and for the same reason: there is no partially-working renderer to continue with.
-        const auto rendererReady = Graphic::Renderer::CreateInstance().Init();
+        //
+        // Init order: every REFLECT()-annotated type is already registered (the executable's Reflection.gen.cpp
+        // runs the module list at static initialisation, BINT-ENG); the engine's renderer client is attached;
+        // then the renderer starts (API, BRDF LUT).
+        LOG_INFO( "[Reflection] {} reflected type(s) registered",
+                  Reflection::ReflectionRegistry::Get().All().size() );
+        const auto clientAttached =
+            Graphic::Renderer::GetInstance().AttachClient( std::make_unique<EngineRendererClient>() );
+        DESERT_VERIFY( clientAttached.IsSuccess(), "Failed to attach the renderer client: {}", clientAttached.GetError() );
+        const auto rendererReady = Graphic::Renderer::GetInstance().Init();
         DESERT_VERIFY( rendererReady.IsSuccess(), "Failed to initialize the renderer: {}",
                        rendererReady.GetError() );
 
@@ -385,7 +471,7 @@ namespace Desert::Engine
                     RenderTask::Get().Join();
                     deliverPresented();
                 }
-                const auto prepared = m_Window->PrepareNextFrame();
+                const auto prepared = m_Window->PrepareNextFrame( *m_RendererContext );
                 if ( !prepared.IsSuccess() )
                 {
                     if ( EndRunOnDeviceLoss( "preparing the next frame" ) )
@@ -662,7 +748,8 @@ namespace Desert::Engine
         DESERT_PROFILE_SCOPE( "PresentInterimFrame" );
         if ( const auto presented = window.PresentFinalImage(); !presented.IsSuccess() )
             return Common::MakeError( std::format( "presenting the interim frame: {}", presented.GetError() ) );
-        if ( const auto prepared = window.PrepareNextFrame(); !prepared.IsSuccess() )
+        if ( const auto prepared = window.PrepareNextFrame( *EngineContext::GetInstance().GetRendererContext() );
+             !prepared.IsSuccess() )
             return Common::MakeError(
                  std::format( "the frame boundary after the interim frame: {}", prepared.GetError() ) );
         if ( const auto begun = Graphic::Renderer::GetInstance().BeginFrame(); !begun.IsSuccess() )

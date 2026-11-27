@@ -4,6 +4,7 @@
 #include <Engine/Core/Serialize/ComponentRegistration.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
 
+#include <Common/Core/Core.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <span>
@@ -24,6 +25,9 @@ namespace Desert::Core::Serialize
         {
             std::vector<ModuleSerializer> Registered;
             bool                          Ordered = false; // the registry was built: nothing more can be placed
+            // The executable's generated module list (Components.gen.cpp, compiled into the executable): Engine
+            // never names a module's generated rows, the list hands itself over at static initialisation.
+            void ( *LinkedRows )( ComponentRegistrar& ) = nullptr;
         };
 
         ModuleSerializerList& ModuleSerializers()
@@ -32,10 +36,21 @@ namespace Desert::Core::Serialize
             return list;
         }
 
+        void RegisterLinkedRows( ComponentRegistrar& registrar )
+        {
+            // An executable without its generated rows cannot read or write a single component block: an
+            // invariant of the link, refused here rather than continued as a registry missing every row.
+            DESERT_VERIFY( ModuleSerializers().LinkedRows != nullptr,
+                           "[Scene] no generated component rows were linked: the executable must compile "
+                           "Components.gen.cpp (desert_link_engine, cmake/DesertModules.cmake)" );
+            ModuleSerializers().LinkedRows( registrar );
+        }
+
         void Order( std::span<const ModuleComponent> rows, std::vector<ComponentSerializer>& out )
         {
-            // The feature modules register their hand-written serializers at StartupModule: started first (a
-            // no-op once done), so the order never depends on which static initialiser ran first.
+            // The feature modules register their hand-written serializers at StartupModule, which the executable
+            // runs at static initialisation (Desert/Launch/LinkedModules.cpp); Engine's own startup is started
+            // here too (a no-op once done). The registry is built on first use, after static initialisation.
             StartupEngineModules();
             ModuleSerializers().Ordered = true;
 
@@ -86,7 +101,7 @@ namespace Desert::Core::Serialize
             builtins.push_back( Builtins::MakeScript() );
         }
 
-        const ComponentProvider kEngineProvider{ &Generated::RegisterModuleComponents, &Order };
+        const ComponentProvider kEngineProvider{ &RegisterLinkedRows, &Order };
 
         [[maybe_unused]] const bool kInstalled = ( InstallComponentProvider( kEngineProvider ), true );
     } // namespace
@@ -100,6 +115,16 @@ namespace Desert::Core::Serialize
             return;
         }
         ModuleSerializers().Registered.push_back( serializer );
+    }
+
+    void LinkModuleComponentRows( void ( *registerRows )( ComponentRegistrar& ) )
+    {
+        if ( ModuleSerializers().Ordered )
+        {
+            LOG_ERROR( "[Scene] the generated component rows were linked after the component registry was built" );
+            return;
+        }
+        ModuleSerializers().LinkedRows = registerRows;
     }
 
     void LinkEngineComponentProvider()

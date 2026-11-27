@@ -5,7 +5,7 @@ namespace Desert::Engine
     // Every field comes from the capabilities of the device the process created, so the key names exactly the GPU
     // and driver the cached levels were measured on; a field read from anywhere else (a config, a previous run)
     // would let a GPU swap keep the old answer.
-    Common::Scalability::BenchmarkCacheKey MakeBenchmarkCacheKey( const DeviceCapabilities& caps,
+    Common::Scalability::BenchmarkCacheKey MakeBenchmarkCacheKey( const GpuCapabilities& caps,
                                                                   uint32_t                  tableVersion )
     {
         Common::Scalability::BenchmarkCacheKey key;

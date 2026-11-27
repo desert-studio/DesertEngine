@@ -386,7 +386,7 @@ namespace Desert::Graphic::RDG
 
     Common::ResultStr<TextureDesc> Builder::GetTextureDesc( TextureRef texture ) const
     {
-        const ResourceRecord* resource = FindResource( texture.Index, ResourceKind::Texture );
+        const ResourceRecord* resource = FindResourceRecord( texture.Index, ResourceKind::Texture );
         if ( resource == nullptr )
             return Common::MakeFormattedError<TextureDesc>(
                  "graph '{}': GetTextureDesc of invalid texture handle {}", m_Name, texture.Index );
@@ -395,7 +395,7 @@ namespace Desert::Graphic::RDG
 
     Common::ResultStr<std::string_view> Builder::GetTextureName( TextureRef texture ) const
     {
-        const ResourceRecord* resource = FindResource( texture.Index, ResourceKind::Texture );
+        const ResourceRecord* resource = FindResourceRecord( texture.Index, ResourceKind::Texture );
         if ( resource == nullptr )
             return Common::MakeFormattedError<std::string_view>(
                  "graph '{}': GetTextureName of invalid texture handle {}", m_Name, texture.Index );
@@ -434,7 +434,7 @@ namespace Desert::Graphic::RDG
     void Builder::QueueBufferClear( BufferRef buffer, const uint32_t value )
     {
         CheckNotInSetupTask( m_Name, "QueueBufferClear" );
-        const ResourceRecord* record = FindResource( buffer.Index, ResourceKind::Buffer );
+        const ResourceRecord* record = FindResourceRecord( buffer.Index, ResourceKind::Buffer );
         const uint64_t        bytes  = record != nullptr ? record->Buffer.Bytes : 0u;
         AddUploadPass( buffer, UploadRange{ buffer.Index, 0u, {}, bytes, value } );
     }
@@ -468,7 +468,7 @@ namespace Desert::Graphic::RDG
     {
         const uint64_t offset = upload.Offset;
         const uint64_t size   = upload.Size();
-        const ResourceRecord*  record = FindResource( buffer.Index, ResourceKind::Buffer );
+        const ResourceRecord*  record = FindResourceRecord( buffer.Index, ResourceKind::Buffer );
         const std::string_view recordName =
              record != nullptr ? std::string_view( record->Name.data(), record->Name.size() ) : std::string_view{};
         std::string error;
@@ -623,8 +623,8 @@ namespace Desert::Graphic::RDG
                                      const uint64_t targetOffset, const uint64_t bytes )
     {
         CheckNotInSetupTask( m_Name, "AddCopyBufferPass" );
-        const ResourceRecord* from   = FindResource( source.Index, ResourceKind::Buffer );
-        const ResourceRecord* into   = FindResource( target.Index, ResourceKind::Buffer );
+        const ResourceRecord* from   = FindResourceRecord( source.Index, ResourceKind::Buffer );
+        const ResourceRecord* into   = FindResourceRecord( target.Index, ResourceKind::Buffer );
         const auto            nameOf = []( const ResourceRecord* record, const BufferRef buffer )
         {
             if ( record == nullptr )
@@ -713,7 +713,7 @@ namespace Desert::Graphic::RDG
     void Builder::LendToRoute( const std::string_view slot, const BufferRef buffer )
     {
         CheckNotInSetupTask( m_Name, "LendToRoute" );
-        if ( FindResource( buffer.Index, ResourceKind::Buffer ) == nullptr )
+        if ( FindResourceRecord( buffer.Index, ResourceKind::Buffer ) == nullptr )
         {
             RecordError( fmt::format( "graph '{}': LendToRoute('{}') of invalid buffer handle {}", m_Name, slot,
                                       buffer.Index ) );
@@ -732,7 +732,7 @@ namespace Desert::Graphic::RDG
                            std::initializer_list<Access> later )
     {
         CheckNotInSetupTask( m_Name, "Extract" );
-        if ( FindResource( texture.Index, ResourceKind::Texture ) == nullptr )
+        if ( FindResourceRecord( texture.Index, ResourceKind::Texture ) == nullptr )
         {
             RecordError(
                  fmt::format( "graph '{}': Extract of invalid texture handle {}", m_Name, texture.Index ) );
@@ -779,7 +779,7 @@ namespace Desert::Graphic::RDG
     void Builder::Extract( BufferRef buffer, ExternalBuffer& into, Access final )
     {
         CheckNotInSetupTask( m_Name, "Extract" );
-        if ( FindResource( buffer.Index, ResourceKind::Buffer ) == nullptr )
+        if ( FindResourceRecord( buffer.Index, ResourceKind::Buffer ) == nullptr )
         {
             RecordError( fmt::format( "graph '{}': Extract of invalid buffer handle {}", m_Name, buffer.Index ) );
             return;
@@ -887,7 +887,7 @@ namespace Desert::Graphic::RDG
 
     void Builder::SetFaultDefault( TextureRef texture, FaultDefault value )
     {
-        const ResourceRecord* record = FindResource( texture.Index, ResourceKind::Texture );
+        const ResourceRecord* record = FindResourceRecord( texture.Index, ResourceKind::Texture );
         if ( record == nullptr || record->IsExternal() )
         {
             RecordError( std::format( "graph '{}': SetFaultDefault of handle {}, which is not a transient "
@@ -901,7 +901,7 @@ namespace Desert::Graphic::RDG
 
     void Builder::SetFaultPolicy( TextureRef external, ExternalFaultPolicy policy )
     {
-        const ResourceRecord* record = FindResource( external.Index, ResourceKind::Texture );
+        const ResourceRecord* record = FindResourceRecord( external.Index, ResourceKind::Texture );
         if ( record == nullptr || !record->IsExternal() )
         {
             RecordError( std::format( "graph '{}': SetFaultPolicy of texture handle {}, which is not an "
@@ -915,7 +915,7 @@ namespace Desert::Graphic::RDG
 
     void Builder::SetFaultPolicy( BufferRef external, ExternalFaultPolicy policy )
     {
-        const ResourceRecord* record = FindResource( external.Index, ResourceKind::Buffer );
+        const ResourceRecord* record = FindResourceRecord( external.Index, ResourceKind::Buffer );
         if ( record == nullptr || !record->IsExternal() )
         {
             RecordError( std::format( "graph '{}': SetFaultPolicy of buffer handle {}, which is not an "
@@ -953,7 +953,7 @@ namespace Desert::Graphic::RDG
         return { resource, record.HasFinalAccess ? std::optional<Access>( record.FinalAccess ) : std::nullopt };
     }
 
-    const Builder::ResourceRecord* Builder::FindResource( uint32_t index, ResourceKind kind ) const
+    const Builder::ResourceRecord* Builder::FindResourceRecord( uint32_t index, ResourceKind kind ) const
     {
         if ( index >= m_Resources.size() || m_Resources[index].Kind != kind )
             return nullptr;
@@ -1138,7 +1138,7 @@ namespace Desert::Graphic::RDG
                                       std::string_view call )
     {
         Builder::PassRecord&           pass     = m_Builder.m_Passes[m_Pass];
-        const Builder::ResourceRecord* resource = m_Builder.FindResource( texture.Index, ResourceKind::Texture );
+        const Builder::ResourceRecord* resource = m_Builder.FindResourceRecord( texture.Index, ResourceKind::Texture );
         const std::string&             graph    = m_Builder.m_Name;
         if ( resource == nullptr )
         {
@@ -1221,7 +1221,7 @@ namespace Desert::Graphic::RDG
     void PassBuilder::DeclareBuffer( BufferRef buffer, Access access, bool asWrite, std::string_view call )
     {
         Builder::PassRecord&           pass     = m_Builder.m_Passes[m_Pass];
-        const Builder::ResourceRecord* resource = m_Builder.FindResource( buffer.Index, ResourceKind::Buffer );
+        const Builder::ResourceRecord* resource = m_Builder.FindResourceRecord( buffer.Index, ResourceKind::Buffer );
         const std::string&             graph    = m_Builder.m_Name;
         if ( resource == nullptr )
         {
@@ -1290,7 +1290,7 @@ namespace Desert::Graphic::RDG
                                          bool isResolve )
     {
         Builder::PassRecord&           pass     = m_Builder.m_Passes[m_Pass];
-        const Builder::ResourceRecord* resource = m_Builder.FindResource( texture.Index, ResourceKind::Texture );
+        const Builder::ResourceRecord* resource = m_Builder.FindResourceRecord( texture.Index, ResourceKind::Texture );
         const std::string&             graph    = m_Builder.m_Name;
         std::string_view               call     = "ColorTarget";
         if ( isResolve )
@@ -1512,7 +1512,7 @@ namespace Desert::Graphic::RDG
                                                                SubresourceRange range ) const
     {
         const Builder::PassRecord&     pass     = m_Builder.m_Passes[m_Pass];
-        const Builder::ResourceRecord* resource = m_Builder.FindResource( texture.Index, ResourceKind::Texture );
+        const Builder::ResourceRecord* resource = m_Builder.FindResourceRecord( texture.Index, ResourceKind::Texture );
         if ( resource == nullptr )
             return Common::MakeFormattedError<TextureBinding>(
                  "graph '{}' pass '{}': GetTexture of invalid handle {}", m_Builder.m_Name, pass.Name,
@@ -1570,7 +1570,7 @@ namespace Desert::Graphic::RDG
     Common::ResultStr<BufferBinding> PassContext::GetBuffer( BufferRef buffer, Access access ) const
     {
         const Builder::PassRecord&     pass     = m_Builder.m_Passes[m_Pass];
-        const Builder::ResourceRecord* resource = m_Builder.FindResource( buffer.Index, ResourceKind::Buffer );
+        const Builder::ResourceRecord* resource = m_Builder.FindResourceRecord( buffer.Index, ResourceKind::Buffer );
         if ( resource == nullptr )
             return Common::MakeFormattedError<BufferBinding>(
                  "graph '{}' pass '{}': GetBuffer of invalid handle {}", m_Builder.m_Name, pass.Name,

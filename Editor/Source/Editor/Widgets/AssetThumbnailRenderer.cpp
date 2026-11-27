@@ -10,13 +10,11 @@
 #include <Editor/Widgets/ThumbnailFraming.hpp>
 
 #include <Engine/Animation/Animator.hpp>
+#include <Engine/Core/WorldSystems.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
-#include <Engine/ECS/System/MeshECSSystem.hpp>
-#include <Engine/ECS/System/SkyboxECSSystem.hpp>
-#include <Engine/ECS/System/VolumetricCloudECSSystem.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
@@ -116,8 +114,11 @@ namespace Desert::Editor
         if ( !m_Renderer->AdvanceRendererBuild() )
             return;
 
-        m_Scene           = std::make_shared<::Desert::Core::Scene>( "ThumbnailPreview", m_Renderer.get() );
-        const auto inited = m_Scene->Init( ::Desert::Core::Scene::InitPurpose::Offscreen );
+        m_Scene     = std::make_shared<::Desert::Core::Scene>( "ThumbnailPreview", m_Renderer.get(),
+                                                           ::Desert::Core::WorldKind::Capture );
+        auto inited = ::Desert::Core::CreateWorldSystems( *m_Scene, {} );
+        if ( inited.IsSuccess() )
+            inited = m_Scene->Init( ::Desert::Core::Scene::InitPurpose::Offscreen );
         if ( !inited.IsSuccess() )
         {
             // `m_Inited` stays false so the next call retries, which is the whole reason this is not a
@@ -198,13 +199,6 @@ namespace Desert::Editor
         // THE CAMERA Scene::Init MADE, held by name. An object capture is framed against it, and after a
         // dome capture has pinned its own it can no longer be found by asking the scene.
         m_ObjectCamera = m_Scene->GetActiveCamera();
-
-        m_Scene->AddSystem<ECS::MeshECSSystem>();
-        m_Scene->AddSystem<ECS::SkyboxECSSystem>();
-        // The Volume domain's system. Added unconditionally and costing nothing until an entity carries a
-        // VolumetricCloudComponent: with none in the registry it emits one "no clouds present" command a
-        // frame, which is also what takes the dome down again after a cloud capture.
-        m_Scene->AddSystem<ECS::VolumetricCloudECSSystem>();
 
         // Procedural sky entity (drawn by SkyboxECSSystem) — gives a real backdrop gradient. ALSO call the
         // direct SceneRenderer::SetProceduralSky below so the sky is enabled from frame 0 (the ECS command

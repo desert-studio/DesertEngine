@@ -1,0 +1,70 @@
+# SCAL-COVER: every quality row moves the picture or the cost (Scalability.json v4): draw distance, landscape grid
+# error, foliage instance density, cloud rows. The Bistro half is SCAL-COVER-BISTRO.scn.
+# Conditions: PC unlocked, display on, VRAM below budget, machine.json without overrides; 300 frames before a dump.
+# [vuid] editor.log has 0 VUID. [machine] machine.json is byte-identical after the run; a machine recommended by the
+# v3 data is re-measured once on its next ordinary start and is not recommended Cinematic.
+# BEFORE = the same shot on the dev tip before SCAL-COVER, put on the left of the side-by-side.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce --gpu-profile
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда run Quality "Quality: ViewDistance Epic"
+Когда run Quality "Quality: Foliage Epic"
+Когда frames 300
+Когда profile-dump
+Тогда-вид vd_epic equals BEFORE at Epic, mean |diff| <= 2/255
+Когда run Quality "Quality: ViewDistance Low"
+Когда frames 300
+Когда profile-dump
+Тогда-вид vd_low far small props gone nearer than in vd_epic, near field the same, no holes or flicker; Frame Total and surviving instances below vd_epic
+Когда run Quality "Quality: ViewDistance Cinematic"
+Когда frames 300
+Когда profile-dump
+Тогда-вид vd_cine far foliage reaches farther than in vd_epic, no cracks in the landscape
+Когда run Quality "Quality: ViewDistance Epic"
+Когда run Quality "Quality: ViewDistance.LandscapeGridErrorPercent 400"
+Когда frames 300
+Когда profile-dump
+Тогда-вид vd_terrain_low hill silhouette simpler, section seams closed, no self-shadow bands on the slope
+Когда run Quality "Quality: ViewDistance.LandscapeGridErrorPercent Level"
+Когда run Quality "Quality: Foliage Low"
+Когда frames 300
+Когда profile-dump
+Тогда-вид fol_low small plants and grass denser level by level, every tree in place; Frame Total does not fall from Low to Epic
+Когда run Quality "Quality: Foliage Medium"
+Когда frames 300
+Когда profile-dump
+Тогда-вид fol_med small plants and grass denser level by level, every tree in place; Frame Total does not fall from Low to Epic
+Когда run Quality "Quality: Foliage High"
+Когда frames 300
+Когда profile-dump
+Тогда-вид fol_high small plants and grass denser level by level, every tree in place; Frame Total does not fall from Low to Epic
+Когда run Quality "Quality: Foliage Epic"
+Когда frames 300
+Когда profile-dump
+Тогда-вид fol_epic small plants and grass denser level by level, every tree in place; Frame Total does not fall from Low to Epic
+Когда run Quality "Quality: Foliage Low"
+Когда frames 60
+Когда run Quality "Quality: Foliage Epic"
+Когда frames 300
+Когда profile-dump
+Тогда-вид fol_back mean |diff| to fol_epic <= 2/255: the records are whole again
+Когда run Scene "Open Scene Clouds_Protocol.desce"
+Когда --subject viewport set Camera.Position 0,300,0
+Когда --subject viewport set Camera.Direction 1,0.3,0.1
+Когда run Quality "Quality: Effects Epic"
+Когда frames 300
+Когда profile-dump
+Тогда-вид cl_epic equals BEFORE at Epic, mean |diff| <= 2/255
+Когда run Quality "Quality: Effects Medium"
+Когда frames 300
+Когда profile-dump
+Тогда-вид cl_med not told from cl_epic
+Когда run Quality "Quality: Effects Low"
+Когда frames 300
+Когда profile-dump
+Тогда-вид cl_low the same cloud shapes, no grid in the cloud shadow map; Clouds:* at least 4 ms below cl_epic, state the GPU ms
+Когда --subject viewport set Camera.Direction 1,0.3,0.4
+Когда frames 2
+Тогда-вид cl_low_moved no blink of the clouds after the camera turned

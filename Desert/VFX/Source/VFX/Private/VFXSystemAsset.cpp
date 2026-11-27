@@ -122,4 +122,11 @@ namespace Desert::Assets
         LOG_INFO( "[VFX] System written: '{}', {} emitter(s).", filepath.string(), data.Emitters.size() );
         return BOOLSUCCESS;
     }
-} // namespace Desert::Assets
+
+    std::atomic<uint64_t> VFXSystemAsset::s_EditSerial{ 1 };
+
+    auto VFXSystemAsset::EditSerial() -> uint64_t
+    {
+        return s_EditSerial.load( std::memory_order_acquire );
+    }
+}

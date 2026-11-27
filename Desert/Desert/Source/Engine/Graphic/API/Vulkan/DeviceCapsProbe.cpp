@@ -418,7 +418,7 @@ namespace Desert::Graphic::API::Vulkan
             neural.StorageBuffer8BitAccess    = caps.Has( Capability::StorageBuffer8BitAccess );
             neural.SubgroupSizeControl        = caps.Has( Capability::SubgroupSizeControl );
             neural.CooperativeMatrix          = caps.Has( Capability::CooperativeMatrix );
-            neural.VulkanMemoryModel          = caps.Has( Capability::VulkanMemoryModel );
+            neural.MemoryModel                = caps.Has( Capability::VulkanMemoryModel );
             neural.MaxPushConstantsSize       = device.properties.limits.maxPushConstantsSize;
             neural.MaxComputeSharedMemorySize = device.properties.limits.maxComputeSharedMemorySize;
 
@@ -514,50 +514,6 @@ namespace Desert::Graphic::API::Vulkan
             caps.Profile = profile;
         }
 
-        // THE PROFILE TABLE (UE DeviceProfiles.ini), ONE SOURCE. What each card's Vulkan driver lacks against
-        // this engine's rows, and its memory. GTX 10 (Pascal): no ray tracing driver path in Vulkan, no native
-        // 16-bit arithmetic (D3D12 Native16BitShaderOps is Turing+), no tensor cores. GTX 16 (Turing TU116/117):
-        // fp16 native, no tensor cores; the 1660's driver exposes acceleration_structure + ray_tracing_pipeline
-        // over the shader cores but not ray_query, the 1650 (4 GB) none of them. RTX 2060: hardware RT, tensor
-        // cores (DLSS, RR; frame generation is Ada+, and the catalog lists none). PerfIndexCap 0 everywhere:
-        // the profile does not imitate speed, the recommender's measured index stands.
-        const std::vector<DeviceProfile>& DeviceProfileTable()
-        {
-            using Common::Scalability::RayTracingAcceleration;
-            static const std::vector<DeviceProfile> table = {
-                 DeviceProfile{ .Name                  = "gtx1060",
-                                .HideRayTracing        = true,
-                                .RayTracingAccel       = RayTracingAcceleration::None,
-                                .HideVendorUpscalers   = true,
-                                .HideCooperativeMatrix = true,
-                                .HideShaderFloat16     = true,
-                                .VideoMemoryMiB        = 6144 },
-                 DeviceProfile{ .Name                  = "gtx1650",
-                                .HideRayTracing        = true,
-                                .RayTracingAccel       = RayTracingAcceleration::None,
-                                .HideVendorUpscalers   = true,
-                                .HideCooperativeMatrix = true,
-                                .VideoMemoryMiB        = 4096 },
-                 DeviceProfile{ .Name                  = "gtx1660",
-                                .HideRayQuery          = true,
-                                .RayTracingAccel       = RayTracingAcceleration::Emulated,
-                                .HideVendorUpscalers   = true,
-                                .HideCooperativeMatrix = true,
-                                .VideoMemoryMiB        = 6144 },
-                 DeviceProfile{ .Name            = "rtx2060",
-                                .RayTracingAccel = RayTracingAcceleration::Hardware,
-                                .Architecture    = Common::Scalability::GpuArchitecture::Turing,
-                                .VideoMemoryMiB  = 6144 },
-            };
-            return table;
-        }
-
-        DeviceProfile& RequestedProfileSlot()
-        {
-            static DeviceProfile requested;
-            return requested;
-        }
-
         ProbedDevice Probe( VkInstance instance, const vkb::PhysicalDevice& candidate,
                             const DeviceRestrictions& restrictions )
         {
@@ -638,10 +594,41 @@ namespace Desert::Graphic::API::Vulkan
         if ( listed.value().empty() )
             return Common::MakeError<ProbedDevice>( "the Vulkan instance lists no physical device" );
 
+        // THE ADAPTER PREFERENCE (--adapter, machine.json "Adapter") narrows the candidates before the rank: an index
+        // names one listed device, a vendor or a name text the devices it fits. None fits = the refusal names the
+        // preference and every listed device; it never falls back to the best-ranked device.
+        const AdapterPreference& wanted = restrictions.Adapter;
+        const auto fits = [&wanted]( const vkb::PhysicalDevice& device, const uint32_t index )
+        {
+            switch ( wanted.By )
+            {
+                case AdapterPreference::Kind::Auto:
+                    return true;
+                case AdapterPreference::Kind::Index:
+                    return index == wanted.Index;
+                case AdapterPreference::Kind::Vendor:
+                    return device.properties.vendorID == wanted.VendorId;
+                case AdapterPreference::Kind::Name:
+                    return std::string_view( device.properties.deviceName ).find( wanted.NameSubstring ) !=
+                           std::string_view::npos;
+            }
+            return false;
+        };
+
         std::optional<ProbedDevice> best;
         std::string                 refusals;
+        std::string                 skipped;
+        uint32_t                    index = 0;
         for ( const vkb::PhysicalDevice& candidate : listed.value() )
         {
+            const uint32_t listedAt = index++;
+            if ( !fits( candidate, listedAt ) )
+            {
+                skipped += std::format( "\n  #{} {} (vendor 0x{:04X})", listedAt,
+                                        std::string_view( candidate.properties.deviceName ),
+                                        candidate.properties.vendorID );
+                continue;
+            }
             ProbedDevice probed = Probe( instance.instance, candidate, restrictions );
             if ( const auto accepted = CheckRequired( probed.Caps ); !accepted )
             {
@@ -652,45 +639,13 @@ namespace Desert::Graphic::API::Vulkan
                                TypeRank( best->Physical->properties.deviceType ) )
                 best = std::move( probed );
         }
+        if ( !best && refusals.empty() )
+            return Common::MakeFormattedError<ProbedDevice>( "no Vulkan device is the adapter {}; listed:{}",
+                                                             Describe( wanted ), skipped );
         if ( !best )
             return Common::MakeFormattedError<ProbedDevice>( "no Vulkan device meets the required set:{}",
                                                              refusals );
         return Common::MakeSuccess( std::move( *best ) );
     }
 
-    Common::ResultStr<DeviceProfile> FindDeviceProfile( std::string_view name )
-    {
-        std::string known;
-        for ( const DeviceProfile& profile : DeviceProfileTable() )
-        {
-            if ( profile.Name == name )
-                return Common::MakeSuccess( profile );
-            if ( !known.empty() )
-                known += ", ";
-            known += profile.Name;
-        }
-        return Common::MakeFormattedError<DeviceProfile>(
-             "--device-profile '{}' is not a device profile; known: {}", name, known );
-    }
-
-    Common::BoolResultStr RequestDeviceProfile( std::string_view name )
-    {
-        auto found = FindDeviceProfile( name );
-        if ( !found )
-            return Common::MakeError<bool>( found.GetError() );
-        RequestedProfileSlot() = found.ExtractValue();
-        return Common::MakeSuccess( true );
-    }
-
-    const DeviceProfile& RequestedDeviceProfile()
-    {
-        return RequestedProfileSlot();
-    }
-
-    uint64_t ProfiledDeviceLocalBytes( const DeviceProfile& profile, uint64_t heapBytes )
-    {
-        if ( profile.VideoMemoryMiB == 0 )
-            return heapBytes;
-        return std::min<uint64_t>( heapBytes, profile.VideoMemoryMiB * 1024ull * 1024ull );
-    }
 } // namespace Desert::Graphic::API::Vulkan

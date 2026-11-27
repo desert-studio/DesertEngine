@@ -7,16 +7,10 @@ Shader "Grid"
         // world ray onto y=0, draw an analytic, derivative-based multi-scale grid (distance LOD), highlight the
         // X/Z axes, fade to the horizon, and write gl_FragDepth so opaque geometry occludes it.
 
+        #include <Generated/Debug/DebugMaterials.glslh> // Materials/Debug/DebugMaterialLayout.hpp
         Uniform(0) GridUB
         {
-            mat4 Projection;
-            mat4 View;
-            mat4 InvProjection;
-            mat4 InvView;
-            vec4 CameraPos; // xyz
-            vec4 ThinColor;
-            vec4 ThickColor;
-            vec4 Params; // x = base cell size (m), y = fade start, z = fade end
+            DESERT_GridParams_MEMBERS
         } u;
 
         In(0) vec3 v_Near;
@@ -109,16 +103,10 @@ Shader "Grid"
         // Infinite ground-plane grid. A fullscreen triangle emits a world-space ray per pixel (near->far,
         // reconstructed via the inverse view-projection); the fragment shader intersects it with the y=0 plane.
 
+        #include <Generated/Debug/DebugMaterials.glslh> // Materials/Debug/DebugMaterialLayout.hpp
         Uniform(0) GridUB
         {
-            mat4 Projection;
-            mat4 View;
-            mat4 InvProjection;
-            mat4 InvView;
-            vec4 CameraPos; // xyz
-            vec4 ThinColor;
-            vec4 ThickColor;
-            vec4 Params; // x = base cell size (m), y = fade start, z = fade end
+            DESERT_GridParams_MEMBERS
         } u;
 
         Out(0) vec3 v_Near;

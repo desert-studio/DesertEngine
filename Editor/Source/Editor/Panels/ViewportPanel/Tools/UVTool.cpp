@@ -362,7 +362,7 @@ namespace Desert::Editor::Tools
     void UVTool::DrawPreview( ::Desert::Core::Scene& scene, const glm::dvec3& eyeWorld,
                               const Session& session ) const
     {
-        using Vertex       = Graphic::MaterialDebugLine::LineVertex;
+        using Vertex       = Graphic::DebugLineVertex;
         const MS&  ms      = MS::Get();
         const auto world   = WorldOfDouble( scene, session.Entity );
         const auto normal  = glm::transpose( glm::inverse( glm::dmat3( world ) ) );

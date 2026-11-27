@@ -4,7 +4,6 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
 
 
 #include <glm/matrix.hpp>
@@ -20,7 +19,7 @@ namespace Desert::World::Foliage
 {
     void RealizePrefabFoliage( Core::Scene& scene )
     {
-        auto* types = Runtime::ResourceRegistry::GetFoliageTypeService();
+        auto* types = Runtime::GetFoliageTypeService();
         if ( !types )
             return;
         entt::registry& registry = scene.GetRegistry();

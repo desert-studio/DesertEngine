@@ -26,6 +26,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Core/EngineRendererClient.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
 #include "../../TestSupport/derived_data_sandbox.hpp"
@@ -124,7 +125,14 @@ Shader "EngineHostFill"
             h.Device = device.ExtractValue();
             EngineContext::GetInstance().SetDevice( h.Device );
             h.Context->Init();
-            const auto ready = Renderer::CreateInstance().Init();
+            const auto attached =
+                Renderer::CreateInstance().AttachClient( std::make_unique<Engine::EngineRendererClient>() );
+            if ( !attached )
+            {
+                h.Error = attached.GetError();
+                return h;
+            }
+            const auto ready = Renderer::GetInstance().Init();
             if ( !ready )
                 h.Error = ready.GetError();
             return h;

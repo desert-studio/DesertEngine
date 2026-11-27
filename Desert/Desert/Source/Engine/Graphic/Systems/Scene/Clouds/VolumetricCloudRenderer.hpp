@@ -169,7 +169,7 @@ namespace Desert::Graphic::System
          *                   species' placement lattice is laid along.
          * @param heroClouds this frame's sculpted bodies — slot A of the seam. Empty is the ordinary case
          *                   and means the march's authored loop does not run at all.
-         * @param quality    this machine's cloud quality tier, taken from Common::Settings::MachineSettings each
+         * @param quality    this machine's cloud cost, CloudQualityOf the view's resolved quality each
          *                   BeginScene like every other cost-versus-quality choice. It arrives HERE rather
          *                   than being read from a global because this renderer is one of several live at
          *                   once (Docs/RENDERER_FRAME_STATE.md) and a tier is per-view state like any
@@ -181,7 +181,7 @@ namespace Desert::Graphic::System
          *                   ceiling on VolumetricCloudData::LightMarchLocalSamples (CloudSelfShadowPack).
          */
         void SetCloudSettings( bool present, const ECS::VolumetricCloudData& data, const glm::vec3& windOffset,
-                               const glm::vec3& windDirection, Common::Settings::CloudQuality quality,
+                               const glm::vec3& windDirection, const CloudQualityScale& quality,
                                bool footprintSteps, int32_t lightLocalSampleCeiling,
                                const std::vector<HeroCloudInstance>& heroClouds );
 
@@ -992,7 +992,7 @@ namespace Desert::Graphic::System
         // This view's quality tier and the numbers it derives. The scale is held rather than re-derived at
         // every use because DeclareShadowMapNodes announces the map's size when it CHANGES — the size is a
         // property of the tier, not of the view.
-        Common::Settings::CloudQuality m_Quality             = Common::Settings::CloudQuality::High;
+        CloudQualityScale m_Quality; // the identity until SetCloudSettings
         // Scalability Effects.CloudFootprintSteps for this view (SetCloudSettings), ShaderPush::CloudRaymarch::CloudVisualize.z.
         bool m_FootprintSteps = true;
         // Scalability Effects.CloudLightLocalSamples for this view (SetCloudSettings): the near sun ray's

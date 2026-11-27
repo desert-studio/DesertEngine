@@ -57,12 +57,9 @@ Shader "BakeProceduralSky"
         // bake used to receive these as a push-constant block, which meant two layouts to keep in step and
         // a silent corruption of everything after the first field that fell out of order.
         //
-        // The binding number is bound explicitly from C++ (ComputePipeline::SetStorageBuffer) and must stay
-        // equal to Graphic::kSkyPayloadBinding and to the number the graphics sky shader declares.
-        ReadBuffer(1) SkyBuffer
-        {
-            vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT];
-        };
+        // The generated block sits at Graphic::kSkyPayloadBinding, the number C++ passes to
+        // ComputePipeline::SetStorageBuffer.
+        #include <Generated/Sky/SkyBuffer.glslh>
 
         // The cached atmosphere LUTs (Graphic::kSkyTransmittanceLutBinding / kSkyMultiScatterLutBinding).
         // SkyboxRenderer dispatches them immediately before a physical bake; on the gradient model the
@@ -578,9 +575,7 @@ Shader "BakeProceduralSky"
 
             vec3 dir = CaptureFaceDirection(face, (vec2(coord) + 0.5) / vec2(size));
 
-            SkyPacked s;
-            for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
-                s.v[i] = SkyPackedData[i];
+            SkyPacked s = SkyPackedData;
 
             SkyAtmParams atm = MakeBakeAtmosphere(s);
 

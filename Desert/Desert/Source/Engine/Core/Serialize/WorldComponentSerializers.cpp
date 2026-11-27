@@ -45,23 +45,33 @@ namespace Desert::Core::Serialize::Builtins
             s.Key = "Foliage";
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::FoliageComponent>(); };
 
-            s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
+            // The type is the Foliage module's asset: the engine names it only by its content-registry row (the
+            // GUID its handle is HandleForGuid of); the shared resolver has the module announce it.
+            s.Serialize = []( ECS::Entity entity,
+                              const Assets::AssetManager& /*assetManager*/ ) -> Common::Json::Value
             {
                 const auto&                 foliage = entity.GetComponent<ECS::FoliageComponent>();
                 Common::Json::ObjectBuilder out;
-                if ( const auto type = assetManager.FindByHandle<Assets::FoliageTypeAsset>( foliage.FoliageType ) )
+                if ( !foliage.FoliageType )
+                    return { out.Build() };
+                const auto handle = static_cast<uint64_t>( foliage.FoliageType );
+                // The row is asked AS A FOLIAGE TYPE: a handle whose row is another kind (a mesh, a layout) is
+                // refused by name, never saved under that file's GUID.
+                const auto row =
+                     Assets::ContentRegistry::RowOf( Common::Content::ContentKind::FoliageType, handle );
+                if ( row && row->Guid && !row->Guid->IsNull() )
                 {
-                    out.Set( "FoliageTypeGuid", Common::Content::AssetGuidToText( type->Guid() ) );
-                    out.Set( "FoliageTypePath",
-                             Common::AssetHandle::StableKeyForPath( type->GetMetadata().Filepath ) );
+                    out.Set( "FoliageTypeGuid", Common::Content::AssetGuidToText( *row->Guid ) );
+                    out.Set( "FoliageTypePath", row->Key );
+                    return { out.Build() };
                 }
-                else if ( foliage.FoliageType )
-                {
-                    LOG_ERROR( "[Foliage] Entity '{}' names foliage type handle {} that no loaded asset carries; "
-                               "its reference is saved empty",
-                               entity.GetComponent<ECS::TagComponent>().Tag,
-                               static_cast<uint64_t>( foliage.FoliageType ) );
-                }
+                const std::string otherKey = Assets::ContentRegistry::KeyForHandle( handle );
+                LOG_ERROR( "[Foliage] Entity '{}' names foliage type handle {}: {}; its reference is saved empty",
+                           entity.GetComponent<ECS::TagComponent>().Tag, handle,
+                           row ? std::format( "its .defoliage row '{}' states no GUID", row->Key )
+                           : otherKey.empty()
+                                ? std::string( "no content-registry row carries it" )
+                                : std::format( "its content-registry row '{}' is not a foliage type", otherKey ) );
                 return { out.Build() };
             };
 
@@ -84,18 +94,11 @@ namespace Desert::Core::Serialize::Builtins
                 if ( guidText.empty() && path.empty() )
                     return; // A field whose type was never chosen: authored so, saved so.
 
-                const auto guid    = Common::Content::AssetGuidFromText( guidText );
-                auto&      manager = const_cast<Assets::AssetManager&>( assetManager );
-                Assets::Asset<Assets::FoliageTypeAsset> type;
-                if ( guid )
-                {
-                    type = manager.FindByHandle<Assets::FoliageTypeAsset>( Common::UUID(
-                         static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ) );
-                    if ( !type )
-                        type = Assets::CreateFromRegistryGuid<Assets::FoliageTypeAsset>(
-                             manager, guid.GetValue(), Common::Content::ContentKind::FoliageType );
-                }
-                if ( !type )
+                // The one reader of a GUID reference (ResolveGuidRef over the scene's AssetResolver): the module's
+                // announcer is reached there by its type, on record or announced from the registry row's file.
+                const uint64_t type = ResolveGuidRef( MakeAssetResolver( assetManager ), guidText, path,
+                                                      "FoliageTypeAsset", "foliage type reference" );
+                if ( type == 0 )
                 {
                     // REFUSED, NOT SUBSTITUTED: a field painted with defaults would look like the scene's grass
                     // while being nobody's.
@@ -108,7 +111,7 @@ namespace Desert::Core::Serialize::Builtins
                          entity.GetComponent<ECS::TagComponent>().Tag, guidText, path );
                     return;
                 }
-                foliage.FoliageType = type->GetMetadata().Handle;
+                foliage.FoliageType = Assets::AssetHandle( type );
             };
 
             out.push_back( std::move( s ) );

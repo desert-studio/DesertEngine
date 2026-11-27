@@ -28,7 +28,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Migration
 {

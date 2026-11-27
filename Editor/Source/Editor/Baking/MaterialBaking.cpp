@@ -10,7 +10,7 @@
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Formats/TextureIntent.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/SceneRenderCollectors.hpp>
+#include <Engine/Core/WorldSystems.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
@@ -337,8 +337,10 @@ namespace Desert::Editor::Baking
             return Common::MakeError( proxy.GetError() );
         const Geometry::RenderMeshData& data = proxy.GetValue();
 
-        m_Scene = std::make_shared<::Desert::Core::Scene>( "MaterialBake", m_Renderer.get() );
-        ::Desert::Core::AddSceneRenderCollectors( *m_Scene );
+        m_Scene = std::make_shared<::Desert::Core::Scene>( "MaterialBake", m_Renderer.get(),
+                                                           ::Desert::Core::WorldKind::Capture );
+        if ( auto made = ::Desert::Core::CreateWorldSystems( *m_Scene, {} ); !made )
+            return Common::MakeError( made.GetError() );
         if ( auto inited = m_Scene->Init( ::Desert::Core::Scene::InitPurpose::Offscreen ); !inited )
             return Common::MakeError( "the bake scene failed to initialise: " + inited.GetError() );
         m_Scene->Resize( m_Request.Size, m_Request.Size );

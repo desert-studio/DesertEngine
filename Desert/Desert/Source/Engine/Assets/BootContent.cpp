@@ -7,6 +7,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderMapBuild.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
+#include <Engine/Core/StartupProgress.hpp>
 #include <Projects/ProjectContext.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -21,13 +22,20 @@
 
 namespace Desert::Assets
 {
-    std::size_t ShaderCount()
+    namespace
     {
-        return ContentRegistry::FilesOfKind( Common::Content::ContentKind::Shader ).size();
-    }
+        // A phase the host's plan does not hold is a plan defect, said once; the compile goes on uncounted.
+        void BeginShaderPhase( Core::StartupProgress* progress, const std::string_view key )
+        {
+            if ( !progress )
+                return;
+            if ( const auto begun = progress->BeginPhase( key ); !begun )
+                LOG_ERROR( "[BootContent] the startup progress refused phase '{}': {}", key, begun.GetError() );
+        }
+    } // namespace
 
     Common::BoolResultStr CompileShaders( const std::shared_ptr<AssetManager>& manager,
-                                          const ItemProgress& progress, const StopRequested& stop )
+                                          Core::StartupProgress*               progress )
     {
         if ( !manager )
             return Common::MakeError(
@@ -50,16 +58,19 @@ namespace Desert::Assets
                                } );
         std::vector<std::shared_ptr<ShaderAsset>> shaders;
         shaders.reserve( rows.size() );
+        BeginShaderPhase( progress, "shaders.load" );
+        if ( progress )
+            progress->Expect( rows.size() );
         for ( const auto& path : rows )
         {
-            if ( stop && stop() )
+            if ( Core::StopRequested( progress ) )
             {
                 LOG_INFO( "[BootContent] shader load stopped on request after {} of {} program(s)", shaders.size(),
                           rows.size() );
                 stopped = true;
                 break;
             }
-            ReportItem( progress, path.filename().string(), shaders.size(), rows.size() );
+            const Core::ScopedWorkItem item( progress, path.stem().string() );
 
             const auto created = std::chrono::steady_clock::now();
             auto       shader  = manager->CreateAsset<ShaderAsset>( path );
@@ -83,6 +94,10 @@ namespace Desert::Assets
         // the registration order and the SPIR-V are what the one-at-a-time start produced. A medium is left
         // out: it is source compiled into other programs, never a program of its own. A map the workers
         // could not store is simply built again by Register() — slower, not different.
+        // Each request is an item of its phase, reported from the worker that builds it. The programs and the
+        // passes are two steps with two counts: the passes are known only once the programs' maps are built, so
+        // they are a phase of their own (shaders.passes) whose N is given once, never a raise of the programs' N.
+        BeginShaderPhase( progress, "shaders.maps" );
         const Core::ShaderPhaseTimes        beforeWorkers = Core::ReadShaderPhaseTimes();
         const auto                          workersStart  = std::chrono::steady_clock::now();
         std::vector<Core::ShaderMapRequest> programs;
@@ -96,7 +111,7 @@ namespace Desert::Assets
             const auto& path = shader->GetMetadata().Filepath;
             programs.push_back( { source, path, {}, {}, path.stem().string() } );
         }
-        const auto                          programMaps = Core::BuildShaderMaps( programs );
+        const auto                          programMaps = Core::BuildShaderMaps( programs, progress );
         for ( size_t i = 0; i < programs.size(); ++i )
             if ( !programMaps[i].Error.empty() )
                 LOG_ERROR( "[BootContent] shader '{}' ({}) did not build: {}", programs[i].Name,
@@ -106,7 +121,8 @@ namespace Desert::Assets
             for ( const auto& pass : programMaps[i].Map.Meta.PassNames )
                 if ( !Core::Preprocess::IsDefaultProgramPass( programMaps[i].Map.Meta, pass ) )
                     passes.push_back( { programs[i].Source, programs[i].Path, pass, {}, programs[i].Name } );
-        Core::BuildShaderMaps( passes );
+        BeginShaderPhase( progress, "shaders.passes" );
+        Core::BuildShaderMaps( passes, progress );
         const double workersMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - workersStart ).count();
         Core::ShaderPhaseTimes onWorkers = Core::ReadShaderPhaseTimes();
@@ -121,12 +137,24 @@ namespace Desert::Assets
                   "wall; summed over the workers: {}",
                   programs.size(), passes.size(), workersMs, Core::FormatShaderPhaseTimes( onWorkers ) );
 
-        // 3. THE DEVICE HALF, in registry order.
+        // 3. THE DEVICE HALF, in registry order. Each program is an item; the engine pipelines a Register builds
+        // are named on the splash by the host's ambient source while they compile.
+        BeginShaderPhase( progress, "shaders.register" );
+        if ( progress )
+            progress->Expect( shaders.size() );
         const Core::ShaderPhaseTimes before        = Core::ReadShaderPhaseTimes();
         const auto                   registerStart = std::chrono::steady_clock::now();
         std::size_t                  count         = 0;
         for ( const auto& shader : shaders )
         {
+            if ( Core::StopRequested( progress ) )
+            {
+                LOG_INFO( "[BootContent] shader registration stopped on request after {} of {} program(s)", count,
+                          shaders.size() );
+                stopped = true;
+                break;
+            }
+            const Core::ScopedWorkItem item( progress, shader->GetMetadata().Filepath.stem().string() );
             // A refusal (a program name another file already owns) is said here, naming the file, and the
             // program is not counted: the ready line below counts what was registered, nothing else.
             if ( auto registered = Runtime::ResourceRegistry::GetShaderService()->Register( shader ); !registered )
@@ -164,6 +192,10 @@ namespace Desert::Assets
                   "failure(s) in {}",
                   cache.MapHits, cache.MapMisses, cache.Hits, cache.Compiled, cache.StoreFailures,
                   Core::ShaderCacheDir().string() );
+        // A cache that cannot store makes the next start as cold as this one (a full disk): said on the splash too.
+        if ( progress && cache.StoreFailures > 0 )
+            progress->Note( std::format( "shader cache: {} could not be stored in {}", cache.StoreFailures,
+                                         Core::ShaderCacheDir().string() ) );
 
         // THE ENGINE'S ONE REQUIRED TEMPLATE. A mesh with no material and every newly authored material take the
         // `Default Surface` template, found by that role (UE: a missing DefaultMaterial is fatal at load). Without

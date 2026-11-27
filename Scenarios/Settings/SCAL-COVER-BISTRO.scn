@@ -1,0 +1,56 @@
+# SCAL-COVER-BISTRO: textures, translucency volume, software raster and the Quality panel (the other half of
+# SCAL-COVER.scn: another project is another editor run).
+# Conditions: PC unlocked, display on, VRAM below budget, machine.json without overrides; 300 frames before a dump.
+# [vuid] editor.log has 0 VUID. [machine] machine.json is byte-identical after the run; a machine recommended by the
+# v3 data is re-measured once on its next ordinary start and is not recommended Cinematic.
+# BEFORE = the same shot on the dev tip before SCAL-COVER, put on the left of the side-by-side.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Day.desce --gpu-profile
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Когда run Quality "Quality: Textures Low"
+Когда frames 300
+Когда profile-dump
+Тогда-вид tx_low textures softer than tx_epic
+Когда run Quality "Quality: Textures High"
+Когда frames 300
+Когда profile-dump
+Тогда-вид tx_high sharper than tx_low; pool <= 1536 MB
+Когда run Quality "Quality: Textures Epic"
+Когда frames 300
+Когда profile-dump
+Тогда-вид tx_epic sharp; the [Memory] census pool does not fall Low <= High <= Epic, no budget warning
+Когда run Quality "Quality: Textures.MipBias 400"
+Когда frames 300
+Когда profile-dump
+Тогда-вид tx_mip400 terrain, decals and meshes softened alike; the cypresses, hedges and hanging planters keep their leaf coverage of tx_epic (masked textures keep alpha coverage in every mip)
+Когда run Quality "Quality: Textures.MipBias Level"
+Когда run Quality "Quality: Effects Low"
+Когда frames 300
+Когда profile-dump
+Тогда-вид fx_low glass lit, no blocks of the 32-cubed translucency volume (GI_Bistro_Day holds no VFX system, so no smoke is in this shot at any Effects level)
+Когда run Quality "Quality: Effects Epic"
+Когда run Quality "Quality: ViewDistance High"
+Когда run Quality "Quality: VirtualGeometry.SoftwareRaster 0"
+Когда frames 300
+Когда profile-dump
+Тогда-вид sw_high_off the reference of sw_high; GPU ms noted
+Когда run Quality "Quality: VirtualGeometry.SoftwareRaster 1"
+Когда frames 300
+Когда profile-dump
+Тогда-вид sw_high equals sw_high_off, mean |diff| <= 2/255; GPU ms noted
+Когда run Quality "Quality: VirtualGeometry.SoftwareRaster Level"
+Когда run Quality "Quality: AntiAliasing.TemporalQuality 1"
+Когда run Quality "Quality: Textures.MipBias 50"
+Когда run Quality "Quality: GlobalIllumination.RadiosityUpdateFactor 32"
+Когда run Quality "Quality: GlobalIllumination.RadiosityProbeSpacing 8"
+Когда run Quality "Quality: GlobalIllumination.RadiosityHemisphereProbeResolution 2"
+Когда run Quality "Quality: ViewDistance.DrawDistanceScalePercent 80"
+Когда run Quality "Quality: ViewDistance.LandscapeGridErrorPercent 200"
+Когда run Panel "Open Scalability"
+Когда run Quality "Quality: Foliage.InstanceDensityScalePercent 40"
+Когда run Quality "Quality: Effects.CloudLightMarchSamples 8"
+Когда run Quality "Quality: Effects.CloudShadowMapScalePercent 50"
+Когда run Quality "Quality: Effects.CloudStopTransmittanceMilli 20"
+Когда frames 60
+Тогда-вид ui_all the Quality panel lists TemporalQuality, the three Radiosity rows, MipBias and the six new rows; every override above was accepted

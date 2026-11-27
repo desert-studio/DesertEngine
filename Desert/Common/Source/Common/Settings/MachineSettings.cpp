@@ -14,7 +14,7 @@
 #include <cstdlib>
 #include <optional>
 #include <Common/Json/ReadWrite.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Common::Settings
 {
@@ -437,6 +437,62 @@ namespace Common::Settings
             return Json::Value( std::move( kept ) );
         }
 
+        // The overrides of the MegaLights reservoir reuse: Shadows.MegaLightsSpatialSamples names no pass and is
+        // dropped, Shadows.MegaLightsMaxHistory is the volume's (Shadows.MegaLightsVolumeMaxHistory). Nothing when
+        // the array holds neither.
+        std::optional<Json::Value> MigrateMegaLightsOverrides( const Json::Node&         overrides,
+                                                               std::vector<std::string>& warnings, bool& migrated )
+        {
+            constexpr std::string_view kOldSpatial = "Shadows.MegaLightsSpatialSamples";
+            constexpr std::string_view kOldHistory = "Shadows.MegaLightsMaxHistory";
+            constexpr std::string_view kNewHistory = "Shadows.MegaLightsVolumeMaxHistory";
+
+            // An array that already holds the new key keeps that value: the old one would be a second owner.
+            bool holdsNew = false;
+            overrides.ForEachElement(
+                 [&]( std::size_t, const Json::Node& entry )
+                 {
+                     const auto value = entry.As<Scalability::ParameterOverride>();
+                     holdsNew         = holdsNew || ( value && value.GetValue().Key == kNewHistory );
+                 } );
+
+            Json::Value::Array kept;
+            bool               retired = false;
+            overrides.ForEachElement(
+                 [&]( std::size_t, const Json::Node& entry )
+                 {
+                     const auto value = entry.As<Scalability::ParameterOverride>();
+                     if ( !value )
+                     {
+                         kept.push_back( entry.Raw() );
+                         return;
+                     }
+                     const Scalability::ParameterOverride& read = value.GetValue();
+                     if ( read.Key == kOldSpatial || ( read.Key == kOldHistory && holdsNew ) )
+                     {
+                         retired = true;
+                         return;
+                     }
+                     if ( read.Key != kOldHistory )
+                     {
+                         kept.push_back( entry.Raw() );
+                         return;
+                     }
+                     retired = true;
+                     kept.push_back( Json::Value( Json::ObjectBuilder()
+                                                       .Set( "Key", std::string( kNewHistory ) )
+                                                       .Set( "Value", read.Value )
+                                                       .Build() ) );
+                 } );
+            if ( !retired )
+                return std::nullopt;
+            migrated = true;
+            warnings.push_back(
+                 "Quality.Overrides migrated: Shadows.MegaLightsSpatialSamples retired, "
+                 "Shadows.MegaLightsMaxHistory is Shadows.MegaLightsVolumeMaxHistory; the file is rewritten" );
+            return Json::Value( std::move( kept ) );
+        }
+
         // THE BLOOM MIGRATION (RENDER-BLOOM-UE). An older build stored PostProcess.BloomMips (the mips of the
         // retired chain, 2..6) and PostProcess.BloomMethod (the method, now the post-process volume's
         // Core::PostProcessSettings::BloomMethod). A file holding either is rewritten once (`migrated`):
@@ -527,17 +583,19 @@ namespace Common::Settings
                          rebuilt.Set( name, ScreenLevels( member, levelsOut ) );
                      else if ( name == "Overrides" )
                      {
-                         std::optional<Json::Value> migrated =
+                         const std::optional<Json::Value> temporal =
                               MigrateTemporalOverrides( member, levelsOut.Warnings, levelsOut.Migrated );
-                         std::optional<Json::Value> bloom =
-                              migrated ? MigrateBloomOverrides( Json::Root( *migrated, member.Where() ),
-                                                                levelsOut.Notes, levelsOut.Migrated )
-                                       : MigrateBloomOverrides( member, levelsOut.Notes, levelsOut.Migrated );
-                         if ( bloom )
-                             migrated = std::move( bloom );
-                         rebuilt.Set( name, migrated ? ScreenOverrides( Json::Root( *migrated, member.Where() ),
-                                                                        rejections )
-                                                     : ScreenOverrides( member, rejections ) );
+                         const Json::Value afterTemporal = temporal ? *temporal : Json::Value( member.Raw() );
+                         const std::optional<Json::Value> megaLights =
+                              MigrateMegaLightsOverrides( Json::Root( afterTemporal, member.Where() ),
+                                                          levelsOut.Warnings, levelsOut.Migrated );
+                         const Json::Value afterMegaLights = megaLights ? *megaLights : afterTemporal;
+                         const std::optional<Json::Value> bloom =
+                              MigrateBloomOverrides( Json::Root( afterMegaLights, member.Where() ), levelsOut.Notes,
+                                                     levelsOut.Migrated );
+                         rebuilt.Set( name, ScreenOverrides( Json::Root( bloom ? *bloom : afterMegaLights,
+                                                                         member.Where() ),
+                                                             rejections ) );
                      }
                      else
                          rebuilt.Set( name, member.Raw() );

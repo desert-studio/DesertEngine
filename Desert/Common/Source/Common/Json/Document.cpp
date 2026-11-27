@@ -1,5 +1,5 @@
 #include "Document.hpp"
-#include "DocumentStruct.hpp"
+#include "Detail/RflBridge.hpp"
 #include "ReadWrite.hpp"
 
 #include <Common/Content/CanonicalText.hpp>

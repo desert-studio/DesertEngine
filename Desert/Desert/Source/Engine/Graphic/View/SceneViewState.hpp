@@ -92,6 +92,7 @@ namespace Desert::Graphic
         // frame has a temporal upscaler: ITemporalUpscaler::HistoryDescs reads its own rows from it (TSR: the
         // history screen percentage). BeginFrame refuses a temporal frame without it, naming the upscaler.
         const Common::Scalability::ResolvedQuality* Scalability = nullptr;
+        float TextureMipBias = 0.0f; // ResolvedQuality Textures.MipBias / 100: material samplers, mips coarser
 
         double TimeSeconds = 0.0; // the view's clock (scene time; paused scene -> unchanged -> DeltaSeconds 0)
         // The exposure this view last tonemapped with, as the CPU knows it (ScenePreExposure's source): manual ->

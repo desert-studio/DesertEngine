@@ -2,6 +2,7 @@
 
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Assets/MeshCardRepresentation.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheLayout.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 
 #include <glm/glm.hpp>
@@ -11,7 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 // THE SURFACE CACHE — the interface (GI-CACHE-IFACE; owner 10-15 "surface cache — БЕРЁМ"). Port of UE Lumen's
 // Lumen Scene: LumenSceneData.h (FLumenCard, FLumenMeshCards), LumenSurfaceCache.cpp (atlases), MeshCardBuild /
@@ -101,54 +102,7 @@ namespace Desert::Graphic::SurfaceCache
          Core::Formats::ImageFormat::R8_UNORM,   // RadiosityFramesAccumulated (UE PF_G8)
     };
 
-    // ---- The GPU records (std430; must match Common/SurfaceCache.glslh) --------------------------------------
-
-    // One card of the scene (UE FLumenCardData, LUMEN_CARD_DATA_STRIDE = 7 float4). 96 bytes.
-    struct CardPayload
-    {
-        // World -> card: rows of the rotation in xyz, the card origin (world, cm) in w of the three rows.
-        glm::vec4 WorldToLocal[3]{ glm::vec4( 0.0f ), glm::vec4( 0.0f ), glm::vec4( 0.0f ) };
-        glm::vec4 LocalExtent{ 0.0f }; // xyz = half size in card space (z = depth range); w = texel size (cm)
-        // x = SizeInPages (x | y << 16), y = PageTableOffset, z = HiResSizeInPages (x | y << 16),
-        // w = HiResPageTableOffset — the always-resident pages and the streamed high-resolution ones.
-        glm::uvec4 Pages{ 0u };
-        // x = packed: ResLevelToResLevelXYBias x (bits 0-7), y (8-15), direction (16-19), lighting channels
-        // (20-23),
-        //     visible (24), heightfield (25), far field (26)  — UE Packed0W, same bits;
-        // y = index of the MeshCardsPayload it belongs to; z, w = 0.
-        glm::uvec4 Info{ 0u };
-    };
-    static_assert( sizeof( CardPayload ) == 96 );
-
-    // One page of a card mapped into the atlas (UE FLumenPageTableEntry / LUMEN_CARD_PAGE_DATA_STRIDE). 80 bytes.
-    struct CardPagePayload
-    {
-        // x = card index, y = mapped (0/1), z = 1 when the card is captured this frame (its lit layers are not its
-        // own yet), w = 0
-        glm::uvec4 Card{ 0u };
-        glm::vec4  CardUVRect{ 0.0f };          // the page's rectangle in card UV
-        glm::vec4  PhysicalAtlasUVRect{ 0.0f }; // the same rectangle in atlas UV
-        glm::vec4  TexelScale{ 0.0f };          // xy = CardUVTexelScale, zw = PhysicalAtlasUVTexelScale
-        // x = frame of the last direct-lighting update, y = of the last radiosity update,
-        // z = radiosity temporal index, w = direct-lighting temporal index (UE Last*UpdateFrameIndex)
-        glm::uvec4 Updates{ 0u };
-    };
-    static_assert( sizeof( CardPagePayload ) == 80 );
-
-    // One mesh instance's cards (UE FLumenMeshCardsData, LUMEN_MESH_CARDS_DATA_STRIDE = 6 float4). 112 bytes.
-    struct MeshCardsPayload
-    {
-        glm::vec4 WorldToLocal[3]{ glm::vec4( 0.0f ), glm::vec4( 0.0f ), glm::vec4( 0.0f ) }; // as CardPayload
-        // x = first CardPayload, y = card count, z = flags (bit 0 heightfield, bit 1 mostly two-sided), w = 0
-        glm::uvec4 Cards{ 0u };
-        // Per CardDirection, the mask of this mesh's cards facing it: [0].xyzw = directions 0..3, [1].xy = 4..5.
-        glm::uvec4 CardLookup[2]{ glm::uvec4( 0u ), glm::uvec4( 0u ) };
-        // rgb = what a hit OUTSIDE card coverage is shaded with (header note): the mean base colour of the mesh's
-        // materials when the instance is registered, replaced by the mean captured card albedo after its first
-        // capture; a = 0.
-        glm::vec4 FallbackAlbedo{ 0.0f };
-    };
-    static_assert( sizeof( MeshCardsPayload ) == 112 );
+    // ---- The GPU records: SurfaceCacheLayout.hpp (Generated/GI/SurfaceCache.glslh) ---------------------------
 
     // ---- The instance table (contract B3, GI-TRACER-CONTRACT; agreed with the Windows side) ------------------
     // Every instance of the Lumen scene (a static mesh part, each instance of an ISM/HISM batch) holds ONE ROW of
@@ -157,21 +111,8 @@ namespace Desert::Graphic::SurfaceCache
     // the TLAS instance custom index (GIHit::instance); the software tracer, whose global distance field has no
     // object identity, finds the rows around its hit in the field's object grid (DistanceField::
     // GlobalDistanceField, THE OBJECT GRID; Common/GITracing.glslh GIHitInstanceRows). A row whose instance has no
-    // cards this frame (none built, none resident: small and far meshes) holds kNoMeshCards - the hit is lit in
-    // place.
-    inline constexpr uint32_t kNoMeshCards = 0xFFFFFFFFu; // Common/GITracing.glslh GI_NO_MESH_CARDS
-    inline constexpr uint32_t kNoInstance  = 0xFFFFFFFFu; // Common/GITracing.glslh GI_NO_INSTANCE
-
-    // One row (std430, Common/SurfaceCacheSampling.glslh SurfaceCacheInstance). 48 bytes.
-    struct InstanceRowPayload
-    {
-        // x = this frame's MeshCardsPayload index (the instance's card layout) or kNoMeshCards, y = the first
-        // CardPagePayload of the instance's cards, z = their page count, w = 0.
-        glm::uvec4 Cards{ kNoMeshCards, 0u, 0u, 0u };
-        glm::vec4  BoundsMin{ 0.0f }; // world box of the instance's cards, cm (xyz)
-        glm::vec4  BoundsMax{ 0.0f };
-    };
-    static_assert( sizeof( InstanceRowPayload ) == 48 );
+    // cards this frame (none built, none resident: small and far meshes) holds kNoMeshCards (SurfaceCacheLayout.hpp)
+    // - the hit is lit in place. A row is InstanceRowPayload.
 
     // ---- The budget (Scalability, GlobalIllumination group: UE sg.GlobalIlluminationQuality) -----------------
     struct SurfaceCacheBudget
@@ -188,8 +129,7 @@ namespace Desert::Graphic::SurfaceCache
         bool operator==( const SurfaceCacheBudget& ) const = default;
     };
 
-    // PURE. The budget of the machine's quality. The rows are Scalability placeholders until GI-SURFACE-CACHE
-    // gives them this reader's pass (Scalability.hpp, "GlobalIllumination: the budgets ...").
+    // PURE. The budget of the machine's quality (Scalability.hpp, "GlobalIllumination: the budgets ...").
     [[nodiscard]] inline SurfaceCacheBudget
     MakeSurfaceCacheBudget( const Common::Scalability::ResolvedQuality& quality )
     {

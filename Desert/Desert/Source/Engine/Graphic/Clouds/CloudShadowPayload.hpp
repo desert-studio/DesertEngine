@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Math/Rounding.hpp>
+#include <Engine/Graphic/Clouds/CloudLayout.hpp>
 #include <Engine/Graphic/Clouds/CloudPayload.hpp>
 
 #include <glm/glm.hpp>
@@ -144,35 +145,11 @@ namespace Desert::Graphic
 
     // The shadow map march's per-dispatch push (map-to-world, trace, depth band, wind) is ShaderPush::CloudShadowMap, CloudShadowMap.shader's PushConstants block.
 
-
-    /**
-     * The consumer's uniform block — the CloudShadowUB of Programs/Deferred/DeferredLighting.shader,
-     * member for member.
-     *
-     * EVERY SLOT OF `Params` IS A PROPERTY OF THE MAP, not a constant the reader could look up. That is
-     * the reason the far depth and the border fade travel here rather than being re-derived from the
-     * `#define`s the deferred pass also compiles: the consumer must be told what it was handed, so that
-     * the day the extent becomes authorable — or a second, coarser map is added beside this one — nothing
-     * downstream has to change. The strength is here for the opposite reason: it is the artist's, it is
-     * applied at read time rather than baked in, and one multiply in one place is the whole of it.
-     */
-    struct CloudShadowUniforms
-    {
-        glm::mat4 WorldToMap{ 1.0f };
-        // x = the kilometres the clip z spans, y = 1 when the map is bound and must be read, z = the UV
-        // width of the border fade, w = the artist's shadow strength.
-        glm::vec4 Params{ 0.0f };
-    };
-
-    static_assert( offsetof( CloudShadowUniforms, WorldToMap ) == 0 );
-    static_assert( offsetof( CloudShadowUniforms, Params ) == 64 );
-    static_assert( sizeof( CloudShadowUniforms ) == 80 );
-
     /**
      * WHAT A RENDERER GATHERED ABOUT THIS FRAME'S MAP, before any material has been told about it — the
      * single payload every consumer of the cloud shadow receives.
      *
-     * It lives HERE, beside the uniform block it packs into, and not in a material header, because there
+     * It lives HERE, beside the packer of the uniform block it fills, and not in a material header, because there
      * is no longer one consumer. Until Р21 the only shader in the tree that read the map was the deferred
      * composite, so this struct sat inside MaterialDeferredLighting.hpp and the forward mesh shaders, the
      * glass pass and the terrain stood in full sun under a deck that shaded the ground beside them. Now
@@ -250,40 +227,6 @@ namespace Desert::Graphic
      * (CloudQualityScale::ShadowMapScale moves the extent and the resolution together).
      */
     inline constexpr float kCloudSelfShadowLocalKm = 1.0f;
-
-    // The view march's binding for the block below and for the map it reads (Programs/Clouds/
-    // CloudRaymarch.shader: `binding = 19` and `Uniform(18)` — the first two slots above its highest).
-    // Handed to SetStorageBuffer verbatim, so it must equal the shader's number.
-    inline constexpr uint32_t kCloudSelfShadowBinding = 19u;
-
-    /**
-     * What the view march needs to read the cloud shadow map as its far shadow term. A buffer and not the
-     * push constant, which is exactly full (CloudPush, 128 bytes), and not the parameter block, which is
-     * the artist's weather shared by four programs while this is a property of THIS frame's map.
-     *
-     * Map: x = the kilometres the map's clip z spans (CloudShadowMapView::FarDepthKm), y = 1 when the map
-     *      was built this frame and must be read, z = the UV width of the border fade, w = the short ray's
-     *      length in km (kCloudSelfShadowLocalKm).
-     * LocalSamples: the short ray's sample count, the artist's LightMarchLocalSamples under the tier's
-     *      ceiling.
-     *
-     * THE ARTIST'S SHADOW STRENGTH IS NOT HERE, and that is deliberate: it is how dark the cloud's shadow
-     * on the GROUND is (VolumetricCloudData::ShadowStrength, read by Common/CloudShadowReceiver.glslh). A
-     * cloud's shadow on itself is the medium's optical depth, and a ground-shadow dial that also brightened
-     * the clouds' undersides would be one knob with two meanings.
-     */
-    struct CloudSelfShadowParams
-    {
-        glm::mat4 WorldToMap{ 1.0f };
-        glm::vec4 Map{ 0.0f };
-        float     LocalSamples = 1.0f;
-    };
-
-    static_assert( offsetof( CloudSelfShadowParams, WorldToMap ) == 0 );
-    static_assert( offsetof( CloudSelfShadowParams, Map ) == 64 );
-    static_assert( offsetof( CloudSelfShadowParams, LocalSamples ) == 80 );
-    static_assert( sizeof( CloudSelfShadowParams ) == 84,
-                   "a mat4, a vec4 and a float - the shader reads exactly this" );
 
     inline constexpr uint32_t kCloudSelfShadowParamsBytes = sizeof( CloudSelfShadowParams );
 

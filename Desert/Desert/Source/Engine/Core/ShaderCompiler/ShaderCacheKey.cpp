@@ -7,9 +7,9 @@
 
 #include <Engine/Core/ShaderCompiler/BindlessSetIndex.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
+#include <Engine/Core/ShaderCompiler/GeneratedShaderIncludes.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderTarget.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
-#include <Engine/Graphic/ShaderProtocols/GeneratedProtocolIncludes.hpp>
 
 #include <chrono>
 #include <format>
@@ -49,8 +49,8 @@ namespace Desert::Core
         const std::string& OptionsFingerprint()
         {
             static const std::string fingerprint =
-                 std::format( "vulkan{}.{}|glsl460|v7", VK_API_VERSION_MAJOR( kShaderTargetApiVersion ),
-                              VK_API_VERSION_MINOR( kShaderTargetApiVersion ) );
+                 std::format( "vulkan{}.{}|glsl460|v7", ApiVersionMajor( kShaderTargetApiVersion ),
+                              ApiVersionMinor( kShaderTargetApiVersion ) );
             return fingerprint;
         }
 
@@ -192,13 +192,12 @@ namespace Desert::Core
                         WalkIncludes( *substituted, full, variant, visited, out, depth + 1 );
                         continue;
                     }
-                    // A GENERATED PROTOCOL BLOCK (Common/CameraUB.glslh) has no file: its text comes from the C++
-                    // struct, and is walked from that text like any header's.
-                    if ( const std::string* generated =
-                              Graphic::ShaderProtocols::FindGeneratedProtocolInclude( requested ) )
+                    // A GENERATED PROTOCOL INCLUDE (Common/CameraUB.glslh) has no file: its text is generated from
+                    // the C++ declaration by Tools/ShaderProtocolGen, and is walked from that text like any header's.
+                    if ( const GeneratedShaderInclude* generated = FindGeneratedShaderInclude( requested ) )
                     {
                         out.push_back( full );
-                        WalkIncludes( *generated, full, variant, visited, out, depth + 1 );
+                        WalkIncludes( std::string( generated->Text ), full, variant, visited, out, depth + 1 );
                         continue;
                     }
                     // THE GENERATED SHADING-MODEL DISPATCH IS VIRTUAL (UE /Engine/Generated/): the loaded set's
@@ -346,18 +345,19 @@ namespace Desert::Core
 
     namespace
     {
-        // THE GENERATED PROTOCOL TEXT (GeneratedProtocolIncludes.hpp): the include is virtual, so the file loops
-        // below have no bytes of it to hash — a C++ layout change must still move every key that includes it.
+        // THE GENERATED PROTOCOL TEXT (Core::FindGeneratedShaderInclude): the include is virtual, so the file loops
+        // below have no bytes of it to hash; the tool's hash of the generated text moves every key that includes it
+        // when a C++ layout changes.
         void MixGeneratedProtocol( uint64_t& key, const std::filesystem::path& include )
         {
             const std::string relative =
                  include.lexically_normal()
                       .lexically_relative( Common::Constants::Path::SHADERDIR_PATH.lexically_normal() )
                       .generic_string();
-            if ( const std::string* generated = Graphic::ShaderProtocols::FindGeneratedProtocolInclude( relative ) )
+            if ( const GeneratedShaderInclude* generated = FindGeneratedShaderInclude( relative ) )
             {
                 FnvMix( key, "|protocol:" );
-                FnvMix( key, *generated );
+                FnvMix( key, std::format( "{:016x}", generated->Hash ) );
             }
         }
     } // namespace

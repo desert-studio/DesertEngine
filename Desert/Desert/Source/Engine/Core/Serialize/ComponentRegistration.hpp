@@ -10,7 +10,8 @@
 //                                                   — includes ONLY that module's component headers and calls
 //                                                   ComponentRegistrar::Add once per row;
 //   Engine/Generated/Components.gen.cpp            RegisterModuleComponents: every module's function, in the
-//                                                   table's order (dependencies first).
+//                                                   table's order (dependencies first); compiled into the
+//                                                   executable, not into Engine (a lower DLL names no module).
 //
 // Each Components_<Module>.gen.cpp is placed in its module (cmake/DesertModules.cmake), so a field added to
 // DestructibleComponent recompiles Components_Destruction.gen.cpp and the Destruction files that include the
@@ -217,7 +218,8 @@ namespace Desert::Core::Serialize
 
     namespace Generated
     {
-        // Engine/Generated/Components.gen.cpp (Engine's provider calls it; Core does not).
+        // Engine/Generated/Components.gen.cpp, compiled into each executable (desert_link_engine); it hands this
+        // function to Engine's provider (LinkModuleComponentRows), which never names it.
         void RegisterModuleComponents( ComponentRegistrar& registrar );
     } // namespace Generated
 } // namespace Desert::Core::Serialize

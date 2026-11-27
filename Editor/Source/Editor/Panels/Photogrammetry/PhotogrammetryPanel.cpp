@@ -11,6 +11,7 @@
 
 #include <Common/Utilities/CameraCapture.hpp>
 
+#include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/RenderTask.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
@@ -20,8 +21,7 @@
 #include <Engine/ECS/CameraComponent.hpp>
 #include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
-#include <Engine/ECS/System/MeshECSSystem.hpp>
-#include <Engine/ECS/System/SkyboxECSSystem.hpp>
+#include <Engine/Core/WorldSystems.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -624,10 +624,14 @@ namespace Desert::Editor
         // Built before the panel knows its preview rect; RenderPreview's first resize brings it to size.
         m_PreviewRenderer =
              Graphic::SceneRenderer::Create( Graphic::kUnsizedViewExtent, Graphic::kThumbnailViewProfile );
-        m_PreviewScene    = std::make_shared<::Desert::Core::Scene>( "ReconPreview", m_PreviewRenderer.get() );
+        m_PreviewScene = std::make_shared<::Desert::Core::Scene>( "ReconPreview", m_PreviewRenderer.get(),
+                                                                  ::Desert::Core::WorldKind::Preview );
+        auto inited    = ::Desert::Core::CreateWorldSystems( *m_PreviewScene, {} );
+        if ( inited.IsSuccess() )
+            inited = m_PreviewScene->Init();
         // `m_PreviewInit` stays false so the next call retries; with the result dropped the flag was set
         // regardless and every frame afterwards recorded into a scene that had never initialised.
-        if ( const auto inited = m_PreviewScene->Init(); !inited.IsSuccess() )
+        if ( !inited.IsSuccess() )
         {
             LOG_ERROR( "[Photogrammetry] preview scene failed to initialise: {}", inited.GetError() );
             m_PreviewScene.reset();
@@ -655,9 +659,6 @@ namespace Desert::Editor
 
         m_PreviewTarget = m_PreviewScene->CreateNewEntity( "PrevTarget" );
         m_PreviewTarget.AddComponent<ECS::StaticMeshComponent>();
-
-        m_PreviewScene->AddSystem<ECS::MeshECSSystem>();
-        m_PreviewScene->AddSystem<ECS::SkyboxECSSystem>();
 
         auto  skyEnt             = m_PreviewScene->CreateNewEntity( "PrevSky" );
         auto& skyC               = skyEnt.AddComponent<ECS::SkyAtmosphereComponent>();

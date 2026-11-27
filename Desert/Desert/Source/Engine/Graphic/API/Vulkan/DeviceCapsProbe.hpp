@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/API/Vulkan/DeviceCaps.hpp>
+#include <Engine/Graphic/Rhi/RhiSelection.hpp>
 
 #include <Common/Settings/CapabilityCatalog.hpp>
 
@@ -28,22 +29,9 @@ namespace Desert::Graphic::API::Vulkan
         DeviceCaps                           Caps;
     };
 
-    // struct DeviceProfile lives in DeviceCaps.hpp (unchanged), so DeviceCaps can carry the applied one to every
-    // reader past the probe (the catalog builder, VMA, the memory readout) without a second copy of its fields.
-
-    // THE PROFILE TABLE, ONE SOURCE (DeviceCapsProbe.cpp): the profile named @p name, or an error that names
-    // every profile the table knows. "" is not a name (no profile is the default DeviceProfile{}).
-    [[nodiscard]] Common::ResultStr<DeviceProfile> FindDeviceProfile( std::string_view name );
-
-    // The host's choice (Editor and Runtime --device-profile), made before the device exists; read once by
-    // VulkanLogicalDevice::Create into DeviceRestrictions::Profile. Unknown name: the FindDeviceProfile error and
-    // nothing changes. Never called = no profile (DeviceProfile{}), today's behaviour.
-    [[nodiscard]] Common::BoolResultStr RequestDeviceProfile( std::string_view name );
-    [[nodiscard]] const DeviceProfile&  RequestedDeviceProfile();
-
-    // A device-local heap of @p heapBytes as the profiled device has it: min(heap, VideoMemoryMiB); unchanged when
-    // the profile caps nothing. The one rule for VMA's pHeapSizeLimit, QueryMemory, VideoMemory and the catalog.
-    [[nodiscard]] uint64_t ProfiledDeviceLocalBytes( const DeviceProfile& profile, uint64_t heapBytes );
+    // struct DeviceProfile, its table (FindDeviceProfile) and ProfiledDeviceLocalBytes live in
+    // Engine/Graphic/Rhi/DeviceProfile.hpp: backend-neutral, reached through the RhiSelection. The probe applies
+    // the profile the selection carries (ApplyProfile, DeviceCapsProbe.cpp).
 
     // What this machine withholds from the engine on top of what the driver offers (machine.json; the host reads
     // Common::Settings::MachineSettings and passes it here, so this file stays free of the settings store).
@@ -55,8 +43,11 @@ namespace Desert::Graphic::API::Vulkan
         // / VK_NV_ray_tracing_invocation_reorder (machine.json; the OMM / SER on-off comparison, RT-OMM-SER).
         bool HideOpacityMicromap   = false;
         bool HideInvocationReorder = false;
-        // The --device-profile the host passes (DeviceProfile, DeviceCaps.hpp); applied after HideRayTracing.
+        // The --device-profile the host resolved (RhiSelection::Profile); applied after HideRayTracing.
         DeviceProfile Profile;
+        // The --adapter / machine.json "Adapter" preference (RhiSelection::Adapter). One no listed device meets
+        // is SelectDevice's refusal by name, never a quiet switch to the best-ranked device.
+        AdapterPreference Adapter;
     };
 
     // The instance must be created as VulkanContext creates it: apiVersion kMaximumApiVersion (a device's

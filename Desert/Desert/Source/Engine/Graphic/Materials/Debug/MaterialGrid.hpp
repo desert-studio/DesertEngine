@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/Materials/Debug/DebugMaterialLayout.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
 #include <Engine/Core/Camera.hpp>
@@ -29,7 +30,7 @@ namespace Desert::Graphic
             if ( !camera )
                 return;
 
-            GridUB data{};
+            GridUniforms data{};
             data.Projection    = camera->GetProjectionMatrix();
             data.View          = camera->GetViewMatrix();
             data.InvProjection = glm::inverse( data.Projection );
@@ -42,18 +43,5 @@ namespace Desert::Graphic
             if ( auto* ub = Get<UniformBufferProperty>( MaterialGridShaderParameters::GridUB ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
-
-    private:
-        struct GridUB
-        {
-            glm::mat4 Projection;
-            glm::mat4 View;
-            glm::mat4 InvProjection;
-            glm::mat4 InvView;
-            glm::vec4 CameraPos;
-            glm::vec4 ThinColor;
-            glm::vec4 ThickColor;
-            glm::vec4 Params;
-        };
     };
 } // namespace Desert::Graphic

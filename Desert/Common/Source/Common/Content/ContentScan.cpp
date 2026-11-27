@@ -3,6 +3,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/ImportRecord.hpp>
+#include <Common/Content/ScanProgress.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
@@ -26,6 +27,7 @@
 #include <vector>
 #include <cstdio>
 #include <Common/Json/ReadWrite.hpp>
+#include <Common/Content/ContentPaths.hpp>
 
 namespace Common::Content
 {
@@ -542,9 +544,37 @@ namespace Common::Content
 
     std::map<std::string, ContentFile> ScanContentRoots()
     {
+        return ScanContentRoots( ScanProgress{} );
+    }
+
+    std::map<std::string, ContentFile> ScanContentRoots( const ScanProgress& progress )
+    {
+        // The walk first (directories only), then the headers: so the count is known before the slow half runs.
+        // A key the walk reaches twice is the first visit's, as it always was.
+        struct Listed
+        {
+            std::filesystem::path File;
+            ContentKind           Kind;
+            std::string           Key;
+        };
+        std::vector<Listed>                listed;
         std::map<std::string, ContentFile> found;
-        ForEachContentFile( [&found]( const std::filesystem::path& file, ContentKind kind, const std::string& key )
-                            { found.emplace( key, DescribeContentFile( file, kind ) ); } );
+        ForEachContentFile(
+             [&listed, &found]( const std::filesystem::path& file, ContentKind kind, const std::string& key )
+             {
+                 if ( found.try_emplace( key ).second )
+                     listed.push_back( { file, kind, key } );
+             } );
+        if ( progress.Listed )
+            progress.Listed( listed.size() );
+        for ( const Listed& file : listed )
+        {
+            if ( progress.Begin )
+                progress.Begin( file.File );
+            found[file.Key] = DescribeContentFile( file.File, file.Kind );
+            if ( progress.End )
+                progress.End();
+        }
         return found;
     }
 
@@ -635,8 +665,28 @@ namespace Common::Content
 
     GatheredRegistry GatherContentRegistry( const RegistryCache& cache )
     {
+        return GatherContentRegistry( cache, ScanProgress{} );
+    }
+
+    GatheredRegistry GatherContentRegistry( const RegistryCache& cache, const ScanProgress& progress )
+    {
+        // The walk first (directories only), then the files: so the count is known before the slow half (the
+        // cache checks' stats and the header reads) runs. Every visit is kept, a key the walk reaches twice
+        // included: its second row is refused by the registry exactly as when the walk and the reads were one.
+        struct Listed
+        {
+            std::filesystem::path File;
+            ContentKind           Kind;
+            std::string           Key;
+        };
+        std::vector<Listed> listed;
+        ForEachContentFile( [&listed]( const std::filesystem::path& file, ContentKind kind, const std::string& key )
+                            { listed.push_back( { file, kind, key } ); } );
+        if ( progress.Listed )
+            progress.Listed( listed.size() );
+
         GatheredRegistry gathered;
-        ForEachContentFile(
+        const auto       gatherOne =
              [&]( const std::filesystem::path& file, ContentKind kind, const std::string& key )
              {
                  const Utils::AssetRegistryEntry* cached   = cache.Registry.FindByKey( key );
@@ -674,7 +724,15 @@ namespace Common::Content
                  if ( ( kind == ContentKind::StaticMesh || kind == ContentKind::SkinnedMesh ) &&
                       !( described.HeaderBounds && described.HeaderBounds->Stated ) )
                      gathered.MeshesWithoutHeaderBounds.push_back( key );
-             } );
+             };
+        for ( const Listed& file : listed )
+        {
+            if ( progress.Begin )
+                progress.Begin( file.File );
+            gatherOne( file.File, file.Kind, file.Key );
+            if ( progress.End )
+                progress.End();
+        }
         return gathered;
     }
 

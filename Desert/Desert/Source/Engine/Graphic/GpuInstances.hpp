@@ -5,6 +5,7 @@
 // landscape grass, GrassRenderer) owns the buffers and registers them in the frame graph; the mesh renderer draws
 // them through the instanced cells exactly as an ISM, reading the count with vkCmdDrawIndexedIndirect.
 
+#include <Engine/Graphic/GpuInstancesLayout.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <algorithm>
@@ -157,47 +158,6 @@ namespace Desert::Graphic
         Count
     };
     inline constexpr uint32_t kGpuInstanceDrawLists = static_cast<uint32_t>( GpuInstanceDrawList::Count );
-
-    // ONE DRAW ROW (std430, 96 bytes; Common/GpuInstanceDrawRow.glslh GpuInstanceDrawRow): what the per-variety
-    // path bound or pushed per section (MeshRendererGpuInstanced.cpp bindRecord's slots b17 / b18 / b13 and the
-    // mesh visibility rows, addBuckets' MaterialIndex / Wind / PrimitiveFlags), by device address or by value.
-    // Written by the producer when a word moves (a buffer re-created, the material row re-claimed, the wind
-    // changed), per frame-in-flight copy, never per draw.
-    struct GpuInstanceDrawRow
-    {
-        uint64_t  Instances      = 0; // mat4 per instance (InstanceTransforms)
-        uint64_t  Ids            = 0; // the list's ids into Instances (GpuInstanceIds); 0: the slot is the row
-        uint64_t  BladeShape     = 0; // the variety's GrassBladeShape; 0: not a blade
-        uint64_t  MeshVisibility = 0; // GrassMeshVisibilityGpu rows; 0: not drawn through the visibility buffer
-        uint32_t  MaterialRow    = 0; // the scene material table's row (MeshRenderer::FindMaterialRow)
-        uint32_t  PrimitiveFlags = 0;
-        uint32_t  Reserved0      = 0;
-        uint32_t  Reserved1      = 0;
-        glm::vec4 WindA{ 0.0f }; // PackViewInstanceWind( Wind, PrevInstanceOffset ).A
-        glm::vec4 WindB{ 0.0f }; // .B
-        // GRASS-SHADOW-BINS-1, a cascade caster's (the per-section path's light camera words that are the
-        // section's, not the cascade's): xyz the origin the cascade thins the blades from (CasterWindOrigin, or a
-        // still section's ThinOrigin), w the caster ring's inner distance (ShadowWindInnerOf; CasterWindRing.x).
-        glm::vec4 Caster{ 0.0f };
-    };
-    static_assert( sizeof( GpuInstanceDrawRow ) == 96, "GpuInstanceDrawRow mirrors the std430 GLSL struct" );
-
-    // One gather entry (std430, 32 bytes; Programs/Grass/GrassDrawCompact.shader CompactEntry): Count records
-    // from Records at Stride bytes apart (a strip's level records: kGpuInstanceArgsRecordBytes; a mesh's LOD
-    // groups: a group's bytes), copied to slots FirstSlot .. FirstSlot + Count - 1 of bin Bin, and Count added to
-    // the bin's drawn count. The CPU lays the entries of a bin out end to end in the per-variety path's draw
-    // order, so a bin draws its records in that order (the picture stays the same); an empty record is an empty
-    // draw of the GPU's front end.
-    struct GpuDrawCompactEntry
-    {
-        uint64_t Records      = 0; // device address of the run's first VkDrawIndexedIndirectCommand
-        uint64_t DrawRow      = 0; // device address of the GpuInstanceDrawRow its draws read
-        uint32_t Count        = 0;
-        uint32_t Stride       = 0;
-        uint32_t Bin          = 0;
-        uint32_t FirstSlot    = 0;
-    };
-    static_assert( sizeof( GpuDrawCompactEntry ) == 32, "GpuDrawCompactEntry mirrors the std430 GLSL struct" );
 
     // The frame graph names of one frame's compaction output (valid from its pass on): Commands holds
     // kGpuDrawBinCommandBytes per slot, DrawRows kGpuDrawBinRowBytes per slot, Counts kGpuDrawBinCountBytes per

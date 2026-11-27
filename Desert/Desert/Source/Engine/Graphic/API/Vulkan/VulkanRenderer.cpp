@@ -5,6 +5,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
+#include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <span>
@@ -39,7 +40,8 @@
 #include <Engine/ShaderResources/API/Vulkan/VulkanStorageBuffer.hpp>
 
 #include <Engine/Graphic/MeshDrawArguments.hpp>
-#include <Engine/Graphic/GpuDriven/IndirectDrawSubmission.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
+#include <Engine/Graphic/GpuDriven/IndirectSubmissionMode.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Common/Settings/Scalability.hpp>
@@ -48,7 +50,7 @@
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -646,7 +648,7 @@ namespace Desert::Graphic::API::Vulkan
         // The graphics pipeline enables VK_DYNAMIC_STATE_LINE_WIDTH, so it must be set before drawing.
         // Widths > 1 require the wideLines device feature — MoltenVK lacks it, so force 1.0 there (a
         // wider value is a validation error and gets dropped anyway).
-        const float safeWidth = Graphic::RenderConfig::WideLines ? std::clamp( lineWidth, 1.0f, 10.0f ) : 1.0f;
+        const float safeWidth = Graphic::RenderConfig::WideLines() ? std::clamp( lineWidth, 1.0f, 10.0f ) : 1.0f;
         vkCmdSetLineWidth( RecordingTarget(), safeWidth );
 
         // Vertexless: the DebugLine vertex shader pulls each vertex from the Lines storage buffer by
@@ -3142,8 +3144,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             m_RdgDevice.Device        = device->GetVulkanLogicalDevice();
             m_RdgDevice.Allocator     = VulkanAllocator::GetVMAAllocator();
-            m_RdgDevice.CmdBeginLabel = fpCmdBeginDebugUtilsLabelEXT;
-            m_RdgDevice.CmdEndLabel   = fpCmdEndDebugUtilsLabelEXT;
+            m_RdgDevice.CmdBeginLabel = VKUtils::CmdBeginDebugLabelEntry();
+            m_RdgDevice.CmdEndLabel   = VKUtils::CmdEndDebugLabelEntry();
             VkPhysicalDeviceProperties properties{};
             vkGetPhysicalDeviceProperties( device->GetPhysicalDevice()->GetVulkanPhysicalDevice(), &properties );
             m_RdgDevice.Limits        = properties.limits;

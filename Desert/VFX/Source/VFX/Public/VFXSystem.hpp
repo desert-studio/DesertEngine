@@ -11,7 +11,7 @@
 #include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
-#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/SubsystemVersion.hpp>
 #include <VFX/Public/VFXUserOverride.hpp>
 #include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/ResultStr.hpp>

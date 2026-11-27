@@ -2,7 +2,7 @@
 
 #include <Engine/Assets/ContentRegistry.hpp>
 
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <cstddef>

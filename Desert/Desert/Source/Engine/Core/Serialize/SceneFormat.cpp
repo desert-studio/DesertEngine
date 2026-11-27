@@ -1,7 +1,9 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
-#include <Engine/Core/Serialize/SceneUpgrade.hpp>
+#include <Engine/Core/SceneUpgrade/SceneUpgrade.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/AssetRedirector.hpp>
+#include <Common/Content/ContentKinds.hpp>
 #include <Common/Json/ReadWrite.hpp>
 
 namespace Desert::Core
@@ -69,8 +71,8 @@ namespace Desert::Core
             return Common::MakeError<LoadableScene>(
                  fmt::format( "[SceneSerializer] '{0}' states no header. Nothing was loaded.", source ) );
 
-        // UPGRADE ON LOAD (SceneUpgrade.hpp): an older generation is raised in memory, a newer one (or one below
-        // the floor) is refused and nothing is loaded.
+        // UPGRADE ON LOAD (Core/SceneUpgrade/SceneUpgrade.hpp): an older generation is raised in memory, a newer one
+        // (or one below the floor) is refused and nothing is loaded.
         const SceneUpgradeReport upgrade = UpgradeScene( scene );
         if ( !upgrade.Refused.empty() )
             return Common::MakeError<LoadableScene>(

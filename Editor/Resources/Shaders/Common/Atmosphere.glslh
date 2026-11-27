@@ -33,65 +33,32 @@ struct SkyConfig
     float starIntensity;   // night star brightness
 };
 
-// ---- The packed sky parameter block, mirrored by Graphic::SkyGpuPayload (Engine/Graphic/SkyPayload.hpp) ----
+// ---- The packed sky parameter block: SkyPacked, generated from Graphic::SkyGpuPayload
+// (Engine/Graphic/SkyLayout.hpp, which documents every member). No consumer reads a member directly; the
+// loaders below are the only readers, so the block can grow without any consumer changing a line.
 //
-//   v[0]  xyz = direction TOWARD the sun (normalized), w = sun intensity
-//   v[1]  rgb = zenith colour,  w = sky brightness
-//   v[2]  rgb = horizon colour, w = horizon falloff
-//   v[3]  rgb = sun colour,     w = sun glow
-//   v[4]  rgb = sunset colour,  w = sunset intensity
-//   v[5]  rgb = ground colour,  w = star intensity
-//   v[6]  rgb = night colour,   w = sun angular RADIUS in RADIANS
+// A pass binds the generated buffer, copies it into a SkyPacked, and calls the loaders:
 //
-// The physical-atmosphere medium (SkyModel::PhysicalAtmosphere), appended and never inserted —
-// every offset above is a promise to every shader that reads the block. Coefficients are PER
-// KILOMETRE, scale heights and altitudes in kilometres; the planet radius alone is WORLD UNITS and
-// is converted to km inside SkyMedium.glslh (the one conversion):
-//
-//   v[7]  rgb = Rayleigh scattering /km, w = Rayleigh scale height (km)
-//   v[8]  rgb = Mie scattering /km,      w = Mie scale height (km)
-//   v[9]  rgb = Mie absorption /km,      w = Mie anisotropy g
-//   v[10] rgb = ozone absorption /km,    w = atmosphere height (km)
-//   v[11] rgb = ground albedo,           w = multi-scattering factor
-//   v[12] x = ozone tip altitude (km), y = ozone tip value, z = ozone tent width (km),
-//         w = planet radius (WORLD UNITS)
-//
-// The Phase 2 lanes — the model switch and the art-direction tints the physical sky pass and the
-// Sky-View LUT read (appended, like the medium before them):
-//
-//   v[13] rgb = Sky Luminance Factor (sky pixels only), w = sky model (0 gradient, 1 physical)
-//   v[14] rgb = Sky And Aerial Perspective Luminance Factor (inside every scattering integration),
-//         w = reserved (0)
-//
-// A pass declares its own buffer at its own binding, copies it into a SkyPacked, and calls the loaders:
-//
-//   ReadBuffer(1) SkyBuffer { vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT]; };
-//   SkyPacked s; for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i) s.v[i] = SkyPackedData[i];
+//   #include <Generated/Sky/SkyBuffer.glslh>
+//   SkyPacked s = SkyPackedData;
 //   vec3 color = EvaluateSky( dir, UnpackSunDirection(s), UnpackSunIntensity(s),
 //                             UnpackSunAngularRadius(s), UnpackSkyConfig(s) );
-//
-// Adding a palette field is then one edit here plus one to the C++ mirror; no consumer changes a line.
-#define SKY_PACKED_VEC4_COUNT 20
-
-struct SkyPacked
-{
-    vec4 v[SKY_PACKED_VEC4_COUNT];
-};
+#include <Generated/Sky/SkyPacked.glslh>
 
 SkyConfig UnpackSkyConfig( SkyPacked s )
 {
     SkyConfig c;
-    c.zenith          = s.v[1].rgb;
-    c.horizon         = s.v[2].rgb;
-    c.sunColor        = s.v[3].rgb;
-    c.sunsetColor     = s.v[4].rgb;
-    c.ground          = s.v[5].rgb;
-    c.night           = s.v[6].rgb;
-    c.skyBrightness   = s.v[1].w;
-    c.horizonFalloff  = s.v[2].w;
-    c.sunGlow         = s.v[3].w;
-    c.sunsetIntensity = s.v[4].w;
-    c.starIntensity   = s.v[5].w;
+    c.zenith          = s.Zenith.rgb;
+    c.horizon         = s.Horizon.rgb;
+    c.sunColor        = s.Sun.rgb;
+    c.sunsetColor     = s.Sunset.rgb;
+    c.ground          = s.Ground.rgb;
+    c.night           = s.Night.rgb;
+    c.skyBrightness   = s.Zenith.w;
+    c.horizonFalloff  = s.Horizon.w;
+    c.sunGlow         = s.Sun.w;
+    c.sunsetIntensity = s.Sunset.w;
+    c.starIntensity   = s.Ground.w;
     return c;
 }
 
@@ -100,26 +67,26 @@ SkyConfig UnpackSkyConfig( SkyPacked s )
 // call from a pass that assembled the block itself.
 vec3 UnpackSunDirection( SkyPacked s )
 {
-    return normalize( s.v[0].xyz );
+    return normalize( s.SunDirection.xyz );
 }
 
 float UnpackSunIntensity( SkyPacked s )
 {
-    return s.v[0].w;
+    return s.SunDirection.w;
 }
 
 // Star Intensity (SkyAtmosphereData), read by both models: the gradient's star brightness, and the physical
 // model's multiplier on AtmosphereStarPeakLuminance.
 float UnpackStarIntensity( SkyPacked s )
 {
-    return s.v[5].w;
+    return s.Ground.w;
 }
 
 // RADIANS. The component authors an angular DIAMETER in degrees; the halving and the conversion happen
 // once, on the C++ side, so no shader has to know which of the two it was handed.
 float UnpackSunAngularRadius( SkyPacked s )
 {
-    return s.v[6].w;
+    return s.Night.w;
 }
 
 // ---- The physical-atmosphere medium block, one accessor per vec4 -----------------------------------
@@ -129,32 +96,32 @@ float UnpackSunAngularRadius( SkyPacked s )
 
 vec4 UnpackMediumRayleigh( SkyPacked s )
 {
-    return s.v[7];
+    return s.MediumRayleigh;
 }
 
 vec4 UnpackMediumMie( SkyPacked s )
 {
-    return s.v[8];
+    return s.MediumMie;
 }
 
 vec4 UnpackMediumMieAbsorption( SkyPacked s )
 {
-    return s.v[9];
+    return s.MediumMieAbsorption;
 }
 
 vec4 UnpackMediumOzone( SkyPacked s )
 {
-    return s.v[10];
+    return s.MediumOzone;
 }
 
 vec4 UnpackMediumGround( SkyPacked s )
 {
-    return s.v[11];
+    return s.MediumGround;
 }
 
 vec4 UnpackMediumTentPlanet( SkyPacked s )
 {
-    return s.v[12];
+    return s.MediumTentPlanet;
 }
 
 // ---- The Phase 2 lanes ------------------------------------------------------------------------------
@@ -163,14 +130,14 @@ vec4 UnpackMediumTentPlanet( SkyPacked s )
 // shares: the C++ side packs 1.0 exactly, so the comparison is not a float hazard.
 bool UnpackSkyModelIsPhysical( SkyPacked s )
 {
-    return s.v[13].w > 0.5;
+    return s.SkyLuminance.w > 0.5;
 }
 
 // Art-direction tint on the PHYSICAL sky's on-screen pixels only (UE's SkyLuminanceFactor). Never
 // touches the aerial perspective over geometry, and never the gradient model.
 vec3 UnpackSkyLuminanceFactor( SkyPacked s )
 {
-    return s.v[13].rgb;
+    return s.SkyLuminance.rgb;
 }
 
 // Art-direction tint applied INSIDE every scattering integration of the physical model (UE's
@@ -178,7 +145,7 @@ vec3 UnpackSkyLuminanceFactor( SkyPacked s )
 // Phase 3 aerial-perspective volume after them.
 vec3 UnpackSkyAndAerialPerspectiveLuminanceFactor( SkyPacked s )
 {
-    return s.v[14].rgb;
+    return s.SkyApLuminance.rgb;
 }
 
 // The PHYSICAL sky's sun: the atmosphere sun LIGHT's outer-space illuminance (its Color x Intensity, lux),
@@ -187,7 +154,7 @@ vec3 UnpackSkyAndAerialPerspectiveLuminanceFactor( SkyPacked s )
 // artistic gradient keeps UnpackSunIntensity / sunColor (its own, non-physical palette).
 vec3 UnpackAtmosphereLightIlluminance( SkyPacked s )
 {
-    return s.v[15].rgb;
+    return s.AtmosphereLight.rgb;
 }
 
 // The highest luminance the physical sky pass writes on screen (Graphic::SkyLuminanceCeiling): follows
@@ -195,13 +162,13 @@ vec3 UnpackAtmosphereLightIlluminance( SkyPacked s )
 // fp16 scene target can hold.
 float UnpackSkyLuminanceCeiling( SkyPacked s )
 {
-    return s.v[15].w;
+    return s.AtmosphereLight.w;
 }
 
 // UE's Atmosphere Sun Disk Color Scale (on the directional light): the disc only, never the sky.
 vec3 UnpackSunDiskColorScale( SkyPacked s )
 {
-    return s.v[16].rgb;
+    return s.SunDisk.rgb;
 }
 
 // ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon), v[17]-v[19] (Graphic::SkyGpuPayload):
@@ -209,32 +176,32 @@ vec3 UnpackSunDiskColorScale( SkyPacked s )
 // UnpackLight1Present, so a sky without one evaluates exactly what it did before the slot existed.
 bool UnpackLight1Present( SkyPacked s )
 {
-    return s.v[18].w > 0.5;
+    return s.Light1Illuminance.w > 0.5;
 }
 
 // Direction TOWARD light 1, normalized.
 vec3 UnpackLight1Direction( SkyPacked s )
 {
-    return s.v[17].xyz;
+    return s.Light1Direction.xyz;
 }
 
 // Angular RADIUS of light 1's disc in radians (half the light's Source Angle, as UE draws it).
 float UnpackLight1AngularRadius( SkyPacked s )
 {
-    return s.v[17].w;
+    return s.Light1Direction.w;
 }
 
 // Light 1's outer-space illuminance (its Color x Intensity, lux) — the moon's counterpart of
 // UnpackAtmosphereLightIlluminance.
 vec3 UnpackLight1Illuminance( SkyPacked s )
 {
-    return s.v[18].rgb;
+    return s.Light1Illuminance.rgb;
 }
 
 // Light 1's Atmosphere Sun Disk Color Scale.
 vec3 UnpackLight1DiskColorScale( SkyPacked s )
 {
-    return s.v[19].rgb;
+    return s.Light1Disk.rgb;
 }
 
 float atm_hash13( vec3 p )

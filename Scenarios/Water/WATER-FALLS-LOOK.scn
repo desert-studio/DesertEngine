@@ -1,0 +1,39 @@
+# WATER-FALLS-LOOK: Water_Falls - the river's mouth, the sheet against the sun, the night, the plunge's boil carrying
+# a barrel, and the sheet under TAA. Reference: Seljalandsfoss (side), scaled to the frame height.
+# BEFORE frames (design step 0, experiments #4 and #19): run Scenarios/Water/WATER-FALLS.scn and this file on the
+# ng6build tip (before the WATER-FALLS commits; 9_mouth then shows the river strip inside the lake, no Creek) with
+# default machine.json and exposure; each AFTER frame is judged as a triple: reference | before | after.
+# Experiments: #4 = 2_base and 9_mouth (brightness profile across the old 8 m strip x 200..3000); #17 = 13_taa_on
+# vs 13_taa_off (luminance std-dev in the sheet box, > 30 % apart proves smearing); #18 = 10_backlit (sheet mean
+# vs the cliff behind it); #19 = every frame against the reference; #20 = 11_night; #21 = 2_base in
+# WATER-FALLS.scn (no drop below the lake level within 1 s of life).
+# Sound (#13) is heard, not seen: the owner listens in Play at 2_base (louder at the foot, quieter at 3_far).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Falls.desce
+Дано --subject viewport set Camera.Position 2400,300,-3900
+Дано --subject viewport set Camera.Direction 0,-0.3,1
+Тогда-вид 9_mouth ручей входит в озеро без шва: за 4 м до устья на нём появляются волны озера, в устье он неотличим от озера
+Дано --subject viewport set Camera.Position 600,200,-300
+Дано --subject viewport set Camera.Direction -0.9,0.3,0.2
+Тогда-вид 10_backlit против солнца тонкие края полотна светлее толстой середины
+Дано --subject viewport set Camera.Position 1400,250,-700
+Дано --subject viewport set Camera.Direction -0.75,-0.1,0.65
+Когда run Anti-Aliasing "Anti-Aliasing: TAA"
+Когда frames 16
+Тогда-вид 13_taa_on струи полотна видны раздельно, не размазаны в сплошную полосу
+Когда run Anti-Aliasing "Anti-Aliasing: None"
+Когда frames 16
+Тогда-вид 13_taa_off струи полотна видны раздельно; разброс яркости в рамке полотна отличается от 13_taa_on не больше чем на 30 %
+Когда run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано set 3651295826201078030 DirectionalLightData.Intensity 0.25
+Когда frames 64
+Дано --subject viewport set Camera.Position 900,300,-900
+Дано --subject viewport set Camera.Direction -0.6,-0.25,0.75
+Тогда-вид 11_night пена и туман видны только в лунном свете, ничего не светится само
+Дано set 3651295826201078030 DirectionalLightData.Intensity 1.0
+Когда frames 64
+Когда run Action "Simulate"
+Когда advance 2
+Когда advance 2
+Дано --subject viewport set Camera.Position 600,1200,0
+Дано --subject viewport set Camera.Direction 0.01,-1,0.01
+Тогда-вид 12_float пена удара растеклась кругом (пятно >= 15 м в поперечнике) и уносится по озеру; бочка Barrel_70 отнесена от места удара

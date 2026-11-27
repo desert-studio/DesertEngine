@@ -857,13 +857,14 @@ namespace Desert::Graphic::System
         // UE's screen size (TileSectionLods) picks a section's grid from its bounding sphere's share of the
         // screen, blind to its heights and to the internal resolution - a flat field at 0.53 MP drew 392 k grid
         // triangles. Here a section's grid is the coarsest whose height error (LandscapeTileDraw::GridError)
-        // projects under kLandscapeGridErrorPixels at the section's nearest point: a flat section goes coarse at
+        // projects under @p errorPixels (SetGridErrorPixels) at the section's nearest point: a flat section goes coarse at
         // once, a ridge keeps its silhouette. Near the eye (@p keepCm: the displacement's fade end; the dice
         // rings need the LOD-0 grid there and the relief vanishes at LOD 1, LandscapeDisplacementLodScale) a
         // section keeps UE's screen-size LOD, the picture there unchanged. @p pixelsPerCm = projection[1][1] x
         // half the view height.
         LandscapeSectionLodArray CameraSectionLods( const LandscapeTileDraw& l, const Geometry::LODView& view,
-                                                    const float pixelsPerCm, const float keepCm )
+                                                    const float pixelsPerCm, const float keepCm,
+                                                    const float errorPixels )
         {
             LandscapeSectionLodArray lods = TileSectionLods( l, view );
             if ( pixelsPerCm <= 0.0f || l.SpacingCm <= 0.0f )
@@ -897,7 +898,7 @@ namespace Desert::Graphic::System
                     const uint32_t section = sz * kLandscapeMaxSections + sx;
                     lods[section]          = LandscapeLodFromScreenError(
                          l.GridError.data() + section * kLandscapeGridErrorLods, maxLod,
-                         pixelsPerCm / std::max( nearest, 1.0f ), kLandscapeGridErrorPixels );
+                         pixelsPerCm / std::max( nearest, 1.0f ), errorPixels );
                 }
             }
             return lods;
@@ -1462,7 +1463,7 @@ namespace Desert::Graphic::System
                     // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the handle names this exact type
                     const auto* img = tex == nullptr ? nullptr
                                                      : static_cast<const Image2D*>(
-                                                            Runtime::ResourceRegistry::GetImageService()->Resolve(
+                                                            Runtime::GetImageService()->Resolve(
                                                                  tex->GetImageHandle() ) );
                     // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
                     m_GroupSamplerScratch.push_back( img );
@@ -1606,7 +1607,7 @@ namespace Desert::Graphic::System
                                       : 0.0f;
             SetTileLods( m_TileLods, KeyOf( l, 0, 0 ),
                          CameraSectionLods( l, Geometry::LODView{ frame.CameraPosition, frame.Projection },
-                                            cameraPixelsPerCm, keepCm ) );
+                                            cameraPixelsPerCm, keepCm, m_GridErrorPixels ) );
         }
         SealTileLods( m_TileLods );
 

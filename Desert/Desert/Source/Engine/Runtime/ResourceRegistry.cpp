@@ -6,7 +6,6 @@
 #include <Engine/Runtime/Services/CloudModelling/CloudModellingService.hpp>
 #include <Engine/Runtime/Services/CloudNoise/CloudNoiseService.hpp>
 #include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
-#include <Engine/Runtime/Services/Foliage/FoliageTypeService.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Runtime/Services/Icon/IconService.hpp>
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
@@ -18,7 +17,7 @@
 #include <Engine/Runtime/Services/Subsurface/SubsurfaceProfileService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
-#include <Engine/Runtime/Services/Video/VideoService.hpp>
+#include <Engine/Runtime/Services/IVideoService.hpp>
 #include <Engine/Runtime/Services/Weather/WeatherPresetService.hpp>
 #include <Engine/Runtime/Services/WorldParameters/WorldParametersService.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
@@ -36,13 +35,18 @@ namespace Desert::Runtime
         // without this call the texture service would be built before the image service, destroyed
         // after it, and every texture it still held would unregister into a destroyed object. Renderer::
         // Shutdown empties them through ClearAll() first, but a process that never reaches it (a tool, a
-        // test, an early exit) still runs the static destructors. Touching the ImageService getter
-        // before the holder's own static makes the order a property of the code rather than of which
+        // test, an early exit) still runs the static destructors. Touching the ImageService getter (RenderCore's
+        // Runtime::GetImageService) before the holder's own static makes the order a property of the code rather than of which
         // service somebody happened to ask for first.
         void ImageServiceConstructedFirst()
         {
-            (void)ResourceRegistry::GetImageService();
+            (void)GetImageService();
         }
+
+        // The Media module's video service, handed over by its StartupModule (ProvideVideoService); the module
+        // owns the instance, so it is destroyed with the module, before the RenderCore image service it holds
+        // views of.
+        IVideoService* s_VideoService = nullptr;
     } // namespace
 
     MeshService* ResourceRegistry::GetMeshService()
@@ -70,12 +74,6 @@ namespace Desert::Runtime
         return &shaderService;
     }
 
-    ImageService* ResourceRegistry::GetImageService()
-    {
-        static ImageService imageService;
-        return &imageService;
-    }
-
     MaterialService* ResourceRegistry::GetMaterialService()
     {
         static MaterialService materialService;
@@ -101,11 +99,14 @@ namespace Desert::Runtime
         return &animatedImageService;
     }
 
-    VideoService* ResourceRegistry::GetVideoService()
+    IVideoService* ResourceRegistry::GetVideoService()
     {
-        ImageServiceConstructedFirst(); // holds Texture2Ds -- see the function
-        static VideoService videoService;
-        return &videoService;
+        return s_VideoService;
+    }
+
+    void ResourceRegistry::ProvideVideoService( IVideoService* service )
+    {
+        s_VideoService = service;
     }
 
     CloudNoiseService* ResourceRegistry::GetCloudNoiseService()
@@ -136,12 +137,6 @@ namespace Desert::Runtime
     {
         static UIThemeService uiThemeService;
         return &uiThemeService;
-    }
-
-    FoliageTypeService* ResourceRegistry::GetFoliageTypeService()
-    {
-        static FoliageTypeService foliageTypeService;
-        return &foliageTypeService;
     }
 
     PhysicsAssetService* ResourceRegistry::GetPhysicsAssetService()
@@ -191,7 +186,6 @@ namespace Desert::Runtime
         GetCloudTypeService()->BindAssetManager( assets );
         GetUIThemeService()->BindAssetManager( assets );
         GetSkyboxService()->BindAssetManager( assets );
-        GetFoliageTypeService()->BindAssetManager( assets );
         for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
             service.Bind( assets );
         GetPhysicsAssetService()->BindAssetManager( assets );
@@ -217,13 +211,13 @@ namespace Desert::Runtime
         GetFontService()->Clear();
         GetIconService()->Clear();
         GetAnimatedImageService()->Clear();
-        GetVideoService()->Clear();
+        if ( s_VideoService != nullptr )
+            s_VideoService->Clear();
         GetCloudNoiseService()->Clear();
         GetCloudTypeService()->Clear();
         GetCloudModellingService()->Clear();
         GetCloudLayoutService()->Clear();
         GetUIThemeService()->Clear();
-        GetFoliageTypeService()->Clear();
         for ( const Core::ModuleService& service : Core::ModuleHooks().Services )
             service.Clear();
         GetPhysicsAssetService()->Clear();

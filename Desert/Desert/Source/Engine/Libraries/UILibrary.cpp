@@ -1,7 +1,8 @@
 #include <Engine/Libraries/UILibrary.hpp>
 
 #include <Common/Core/Logger.hpp>
-#include <UI/UIDataStore.hpp>
+#include <Engine/Libraries/ScriptWorld.hpp>
+#include <UI/UIWorld.hpp>
 
 #include <format>
 #include <optional>
@@ -15,9 +16,20 @@ namespace Desert::Libraries
         using Reflection::FieldType;
         using Reflection::Value;
 
-        UI::UIDataStore& Store()
+        /// The running script's screen; nullptr, logged, outside a world's script call.
+        UI::UIWorld* ScreenOf( const char* function )
         {
-            return UI::UIDataStore::Get();
+            Core::Scene* const scene = ScriptScene( "ui", function );
+            return scene != nullptr ? &scene->GetUIWorld() : nullptr;
+        }
+
+        /// The running script's data store, for a call that answers with a result.
+        Common::ResultStr<UI::UIDataStore*> StoreFor( const char* call )
+        {
+            const Common::ResultStr<Core::Scene*> world = ScriptWorld( "ui", call );
+            if ( !world )
+                return Common::MakeError<UI::UIDataStore*>( world.GetError() );
+            return Common::MakeSuccess( &world.GetValue()->GetUIWorld().Data );
         }
 
         /// A Value as what a UI binding shows: a number (any numeric kind), a boolean, a string or a colour.
@@ -76,12 +88,16 @@ namespace Desert::Libraries
                  key, Reflection::FieldTypeName( value.Type() ) );
             return;
         }
-        Store().Set( key, *shown );
+        if ( UI::UIWorld* const screen = ScreenOf( "set" ) )
+            screen->Data.Set( key, *shown );
     }
 
     Value UILibrary::Get( const std::string& key )
     {
-        const UI::UIDataStore& store = Store();
+        const UI::UIWorld* const screen = ScreenOf( "get" );
+        if ( screen == nullptr )
+            return {};
+        const UI::UIDataStore& store = screen->Data;
         if ( const auto b = store.Bool( key ); b && !store.Number( key ) )
             return Value::Bool( *b );
         if ( const auto n = store.Number( key ) )
@@ -95,27 +111,32 @@ namespace Desert::Libraries
 
     bool UILibrary::Has( const std::string& key )
     {
-        return Store().Has( key );
+        const UI::UIWorld* const screen = ScreenOf( "has" );
+        return screen != nullptr && screen->Data.Has( key );
     }
 
     void UILibrary::Erase( const std::string& key )
     {
-        Store().Erase( key );
+        if ( UI::UIWorld* const screen = ScreenOf( "erase" ) )
+            screen->Data.Erase( key );
     }
 
     void UILibrary::Clear()
     {
-        Store().Clear();
+        if ( UI::UIWorld* const screen = ScreenOf( "clear" ) )
+            screen->Data.Clear();
     }
 
     void UILibrary::Send( const std::string& message )
     {
-        UI::UIMessageQueue::Get().Push( message );
+        if ( UI::UIWorld* const screen = ScreenOf( "send" ) )
+            screen->Messages.Push( message );
     }
 
     void UILibrary::Toast( const std::string& overlay, const std::string& text )
     {
-        UI::UIOverlayRequests::Get().Raise( overlay, text );
+        if ( UI::UIWorld* const screen = ScreenOf( "toast" ) )
+            screen->Overlays.Raise( overlay, text );
     }
 
     Common::BoolResultStr UILibrary::ListAdd( const std::string& key, const Value::Map& record )
@@ -123,7 +144,10 @@ namespace Desert::Libraries
         Common::ResultStr<UI::UIDataStore> made = Record( record );
         if ( !made.IsSuccess() )
             return Common::MakeError<bool>( made.GetError() );
-        Store().Collection( key ).Add( made.ExtractValue() );
+        auto store = StoreFor( "list_add" );
+        if ( !store )
+            return Common::MakeError<bool>( store.GetError() );
+        store.GetValue()->Collection( key ).Add( made.ExtractValue() );
         return Common::MakeSuccess( true );
     }
 
@@ -132,12 +156,18 @@ namespace Desert::Libraries
         Common::ResultStr<UI::UIDataStore> made = Record( record );
         if ( !made.IsSuccess() )
             return Common::MakeError<bool>( made.GetError() );
-        return Store().Collection( key ).Insert( index - 1, made.ExtractValue() );
+        auto store = StoreFor( "list_insert" );
+        if ( !store )
+            return Common::MakeError<bool>( store.GetError() );
+        return store.GetValue()->Collection( key ).Insert( index - 1, made.ExtractValue() );
     }
 
     Common::BoolResultStr UILibrary::ListRemove( const std::string& key, int index )
     {
-        return Store().Collection( key ).Remove( index - 1 );
+        auto store = StoreFor( "list_remove" );
+        if ( !store )
+            return Common::MakeError<bool>( store.GetError() );
+        return store.GetValue()->Collection( key ).Remove( index - 1 );
     }
 
     Common::BoolResultStr UILibrary::ListSet( const std::string& key, int index, const std::string& field,
@@ -149,17 +179,24 @@ namespace Desert::Libraries
                                                          "boolean, a string or a colour (vector); got {}",
                                                          key, index, field,
                                                          Reflection::FieldTypeName( value.Type() ) ) );
-        return Store().Collection( key ).SetField( index - 1, field, *shown );
+        auto store = StoreFor( "list_set" );
+        if ( !store )
+            return Common::MakeError<bool>( store.GetError() );
+        return store.GetValue()->Collection( key ).SetField( index - 1, field, *shown );
     }
 
     void UILibrary::ListClear( const std::string& key )
     {
-        Store().Collection( key ).Clear();
+        if ( UI::UIWorld* const screen = ScreenOf( "list_clear" ) )
+            screen->Data.Collection( key ).Clear();
     }
 
     int UILibrary::ListCount( const std::string& key )
     {
-        const UI::UICollection* collection = Store().FindCollection( key );
+        UI::UIWorld* const screen = ScreenOf( "list_count" );
+        if ( screen == nullptr )
+            return 0;
+        const UI::UICollection* collection = screen->Data.FindCollection( key );
         return collection != nullptr ? collection->Size() : 0;
     }
 } // namespace Desert::Libraries

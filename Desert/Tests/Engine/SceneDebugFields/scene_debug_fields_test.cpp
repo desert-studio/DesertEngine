@@ -39,6 +39,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <glm/glm.hpp>
 
 using Desert::Reflection::FieldInfo;
 using Desert::Reflection::ReflectionRegistry;

@@ -6,7 +6,9 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/Systems/Scene/SingleLayerWaterPass.hpp>
 #include <Water/Public/WaterQuadTree.hpp>
+#include <Water/Public/WaterLayout.hpp>
 
 #include <glm/glm.hpp>
 
@@ -21,19 +23,19 @@
 namespace Desert::Graphic::System
 {
     // The splat shader's parameters (Programs/Water/WaterCausticsSplat.shader): the one spelling the pass binds
-    // and Initialize checks. WaterTiles / WaterInfoTexture / WaterFFTTexture are the water mesh's own names
-    // (Mesh/Surface/WaterMeshTiles.glslh): the waves block, the WaterInfo ground and the FFT ocean's atlas.
+    // and Initialize checks. WaterTiles / WaterShoreTexture / WaterWavesTexture are the water mesh's own names
+    // (Water/WaterSurfaceField.glslh): the waves block, the floor and the FFT ocean's array.
     struct WaterCausticsSplatShaderParameters
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterTiles );
-        DESERT_SHADER_PARAMETER( Texture, WaterInfoTexture );
-        // Binding 23: statically used by the FFT branch of every wave query (WaterWavesAreFFT).
-        DESERT_SHADER_PARAMETER( Texture, WaterFFTTexture );
+        DESERT_SHADER_PARAMETER( Texture, WaterShoreTexture );
+        DESERT_SHADER_PARAMETER( Texture, WaterWavesTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterCausticsEnergy );
         // The frame row (its body table: each map texel's still level is the level of the body over it).
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterCausticsFrameUB );
-        static constexpr std::array kAll{ RDG::Erase( WaterTiles ), RDG::Erase( WaterInfoTexture ),
-                                          RDG::Erase( WaterFFTTexture ), RDG::Erase( WaterCausticsEnergy ),
+        static constexpr std::array kAll{ RDG::Erase( WaterTiles ), RDG::Erase( WaterShoreTexture ),
+                                          RDG::Erase( WaterWavesTexture ), RDG::Erase( LinearRepeatSampler ), RDG::Erase( WaterCausticsEnergy ),
                                           RDG::Erase( WaterCausticsFrameUB ) };
     };
 
@@ -45,25 +47,7 @@ namespace Desert::Graphic::System
         static constexpr std::array kAll{ RDG::Erase( WaterCausticsEnergy ), RDG::Erase( WaterCausticsImage ) };
     };
 
-    // The frame row's head, std430 (Common/WaterCaustics.glslh WaterCausticsFrameUB), followed by Shape.x rows of
-    // WaterCausticsBodyRow (the block's runtime array WaterCausticsBodies, two vec4 per body): read by every
-    // receiver with the map (SceneViewInputs::WaterCausticsFrame) and by the splat.
-    struct WaterCausticsFrameHead
-    {
-        glm::vec4 Window{
-             0.0f };             // xy = the map's lower world (X, Z), z = 1 / side (cm), w = 1 when there is a map
-        glm::vec4 Shape{ 0.0f }; // x = the body rows that follow, y = onset depth, z = fade depth (cm), w = strength
-    };
-    static_assert( sizeof( WaterCausticsFrameHead ) == 2 * sizeof( glm::vec4 ), "std430 head of two vec4" );
-    // One body of the frame whose footprint meets the map's square.
-    struct WaterCausticsBodyRow
-    {
-        glm::vec4 Footprint{ 0.0f }; // xy = min (X, Z), zw = max (cm)
-        glm::vec4 Level{ 0.0f };     // x = the still surface Y (cm), y = its wave lane (WaterRenderer's: 1 + the
-                                     // frame's wave set, 0 = flat; WaterMeshTiles.glslh WaterWaveSetOf), z = its
-                                     // TargetWaveMaskDepth (cm, >= 1; WaterWaveAttenuation)
-    };
-    static_assert( sizeof( WaterCausticsBodyRow ) == 2 * sizeof( glm::vec4 ), "std430 body of two vec4" );
+    // The frame row (WaterCausticsFrameHead + WaterCausticsBodyRow rows): Water/Public/WaterLayout.hpp.
 
     // What every receiver binds when the caustics draw (FrameTransients::WaterCausticsMap / WaterCausticsFrame ->
     // SceneViewInputs): two valid refs of this frame's graph. A frame without caustics keeps the graph's 'off'
@@ -77,7 +61,7 @@ namespace Desert::Graphic::System
 
     // THE WATER'S CAUSTICS (WATER-CAUSTICS; Evan Wallace's WebGL water / GPU Gems 1 ch. 2, the map UE's water
     // samples in its lighting): each frame the sun is refracted through the water surface the water mesh draws -
-    // the same waves, the same WaterInfo damping - onto the floor below and the landed light's density is a
+    // the same waves over the same floor - onto the floor below and the landed light's density is a
     // kMapSize^2 map of one world square, "Water: Caustics Splat" + "Water: Caustics Resolve". The square is
     // centred on the point of the body nearest the camera that is closest to it (the camera itself when it is over
     // that body); every body of the frame that meets the square is in the frame row, each with its own still
@@ -116,20 +100,12 @@ namespace Desert::Graphic::System
             std::span<const Water::WaterQuadTreeBody> Bodies;
             // WaterRenderer::GetFrameBodyWaveLanes: Bodies[i]'s wave lane (the set it draws with); one per body.
             std::span<const float> BodyWaveLanes;
-            // WaterRenderer::GetFrameBodyWaveMaskDepths: Bodies[i]'s TargetWaveMaskDepth (cm); one per body.
-            std::span<const float> BodyWaveMaskDepths;
-            // The imported WaterInfo ground (FrameTextures::Import of WaterRenderer::GetWaterInfo), or invalid
-            // when none is baked (the waves block's WaterInfoFrame.w is then 0 and the shader reads no texel of
-            // it).
-            RDG::TextureRef WaterInfo;
-            // This frame's FFT ocean atlas (SceneRenderer::FrameWaterWaves: the graph's black without one, never
-            // read then - the waves block's WaterFFTFrame.w is 0).
-            RDG::TextureRef FFTWaves;
+            // WaterRenderer::GetFrameBodyCaustics: Bodies[i]'s material values (WaterCausticsBodyRow::Look).
+            std::span<const glm::vec3> BodyCaustics;
+            WaterFrameRefs  Water; // the frame's water the surface draws with (SceneRenderer::FrameWater)
             glm::vec3       SunTravel{ 0.0f, -1.0f, 0.0f }; // the direction the sunlight travels
             glm::vec3       Camera{ 0.0f };                 // the view's world position (cm)
             float           TimeSeconds = 0.0f; // ViewFrame::TimeSeconds = the water mesh's cameraUB.Time
-            // FrameGraphRefs::System.Black: the splat's ground where no WaterInfo is baked.
-            RDG::TextureRef Black;
         };
 
         // Adds this frame's passes when the caustics draw (enabled, a body with waves, the sun above the horizon,

@@ -225,7 +225,7 @@ namespace Desert::Editor::Tools
     void CreateShapeTool::ShowPreview( const ::Desert::Core::Scene& scene, const Spot& spot,
                                        const glm::vec3& eye ) const
     {
-        using Vertex         = Graphic::MaterialDebugLine::LineVertex;
+        using Vertex         = Graphic::DebugLineVertex;
         const glm::mat3 turn = glm::mat3_cast( spot.Rotation );
         const auto      at   = [&]( const glm::vec3& local ) { return spot.Point + turn * local; };
 

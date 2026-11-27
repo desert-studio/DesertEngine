@@ -61,20 +61,8 @@ Shader "TemporalAA"
         layout(binding = 6, rgba16f) restrict writeonly uniform image2D ResolvedColorTexture;
 
         // The C++ side is Graphic::TemporalAAParams (View/TemporalAA.hpp), offsets pinned by static_asserts.
-        layout(std430, binding = 7) readonly buffer TemporalAABuffer
-        {
-            mat4  InverseViewProjection;  // this frame, unjittered
-            mat4  PreviousViewProjection; // previous frame, unjittered
-            vec2  RenderSize;
-            vec2  OutputSize;
-            vec2  JitterUv;           // this frame's jitter in uv (JitterNdc * (0.5, -0.5))
-            float HistoryValid;
-            float HistoryPreExposureCorrection; // PreExposure / PrevPreExposure (UE HistoryPreExposureCorrection)
-            float PreExposure;                  // the scene colour arrives x this (ViewFrame::PreExposure)
-            float Pad0;
-            float Pad1;
-            float Pad2;
-        };
+        #include <Generated/Post/TemporalAAParams.glslh>
+        layout(std430, binding = 7) readonly buffer TemporalAABuffer { DESERT_TemporalAAParams_MEMBERS };
         Uniform(8) texture2D ResponsiveAaTexture; // R8 coverage of responsive translucency, RenderExtent
         #define ResponsiveAaTexture sampler2D(ResponsiveAaTexture, PointClampSampler)
 

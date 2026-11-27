@@ -4,7 +4,7 @@
 #include <Engine/Reflection/Value.hpp>
 #include <Engine/Scripting/ScriptSchema.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <chrono>
 #include <cstddef>
@@ -32,7 +32,8 @@ namespace Desert::Scripting
     /// What one call into a script may spend before the runtime stops it.
     struct LuauLimits
     {
-        /// THE WATCHDOG: a call (a script's top level, an event, a console line) still running after this long is
+        /// THE WATCHDOG: a call (a script's top level, an event, a console line) that has spent this much of its
+        /// thread's CPU (Common::Platform::ThreadCpuClock: preemption, page-ins and engine waits do not count) is
         /// stopped with an error at its next safepoint (loop back edge, call, return), so `while true do end`
         /// in OnUpdate fails that call instead of hanging the editor.
         std::chrono::milliseconds CallBudget{ 250 };

@@ -4,7 +4,7 @@
 # Everything set here at directory scope reaches every target below the root, first-party and vendored
 # alike. The warning level, optimisation and runtime checks are set
 # per TARGET, and the per-file rules (warnings off for vendored files, the Debug-optimised
-# builders, the unity opt-out list) become per-target settings of split OBJECT libraries; both are applied once,
+# builders) become per-target settings of split OBJECT libraries; both are applied once,
 # after every target exists, by desert_finalize_targets() (called from the root CMakeLists.txt through
 # cmake_language(DEFER)).
 
@@ -38,19 +38,45 @@ if(DESERT_IS_MACOS)
 endif()
 
 # ── CONFIGURATIONS ───────────────────────────────────────────────
-# Debug, Release and Shipping. Shipping is the player's artifact: DESERT_CONFIG_SHIPPING is what the
-# sources test to leave the development instruments out, so it is a configuration and not a Release flag.
-# Flags are spelled out explicitly instead of inheriting CMake's per-config defaults, so a CMake upgrade
-# cannot change how a configuration compiles:
-#   Debug     runtime Debug,  symbols On (/Zi or /Z7, never /ZI), no optimisation (MSVC /Od /RTC1 per target)
-#   Release   runtime Release, optimize On  (MSVC /Ox /Oi /Gy /GF per target, clang -O2), NDEBUG
-#   Shipping  runtime Release, optimize Full (MSVC /Ox, clang -O3), symbols Off, NDEBUG + DESERT_CONFIG_SHIPPING
-set(DESERT_CONFIGURATIONS Debug Release Shipping)
+# Development, DebugGame and Shipping -- the studio meaning of the three names (STUDIO-AUDIT B1):
+#   Development  the daily editor, every dev script and every scenario (scripts/Dev/dev_config.txt): optimised
+#                (MSVC /Ox /Oi /Gy /GF per target, clang -O2), NDEBUG, the development instruments on, debug
+#                information embedded (/Z7), an incremental link with /DEBUG:FASTLINK (the .pdb references the
+#                objects instead of copying their CodeView), no /LTCG, no /OPT:REF,ICF. Defines DESERT_CONFIG_RELEASE.
+#   DebugGame    a debugger session: no optimisation (MSVC /Od /RTC1 per target, clang -O0 -g), debug CRT, the
+#                instruments on, an incremental link. Defines DESERT_CONFIG_DEBUG.
+#   Shipping     the packaged game only: full optimisation, /Gw /Ob3 /GL on the runtime libraries (desert_ltcg),
+#                /LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO, a full .pdb (/Zi /DEBUG:FULL), instruments off
+#                (DESERT_CONFIG_SHIPPING, which Common/Core/DevInstruments.hpp turns into DESERT_DEV_INSTRUMENTS 0).
+# One configuration per build tree (CMakePresets.json: win-dev, win-debug, win-ship, mac-dev, ...): the objects of a
+# debugger session never sit beside the daily build's. Flags are spelled out instead of inheriting CMake's
+# per-configuration defaults, so a CMake upgrade cannot change how a configuration compiles.
+set(DESERT_CONFIGURATIONS Development DebugGame Shipping)
 get_property(_desert_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 if(_desert_multi_config)
-    set(CMAKE_CONFIGURATION_TYPES ${DESERT_CONFIGURATIONS} CACHE STRING "" FORCE)
-elseif(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+    message(FATAL_ERROR "${CMAKE_GENERATOR} holds several configurations in one tree; DesertEngine builds one per tree "
+                        "(the module libraries are DLLs in Development/DebugGame and static in Shipping): "
+                        "configure through a CMakePresets.json preset (win-dev, win-ship, mac-dev, ...)")
+endif()
+if(NOT CMAKE_BUILD_TYPE IN_LIST DESERT_CONFIGURATIONS)
+    message(FATAL_ERROR "CMAKE_BUILD_TYPE is '${CMAKE_BUILD_TYPE}', not one of ${DESERT_CONFIGURATIONS}: "
+                        "configure through a CMakePresets.json preset (win-dev, win-ship, mac-dev, ...)")
+endif()
+# The module libraries (cmake/DesertModuleTable.cmake rows, the editor layers): one DLL / dylib per module in Development
+# and DebugGame, so an edit relinks that module alone; static libraries linked into one monolithic executable in
+# Shipping, where /LTCG sees the whole program (desert_module_library, cmake/DesertModules.cmake).
+if(CMAKE_BUILD_TYPE STREQUAL "Shipping")
+    set(DESERT_MONOLITHIC ON)
+else()
+    set(DESERT_MONOLITHIC OFF)
+    # Every static library that ends up inside a shared module (the vendored ones) is position-independent.
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    # A module DLL sits beside the executable (build/Bin/<Config>): macOS and Linux find it through the rpath.
+    if(APPLE)
+        set(CMAKE_BUILD_RPATH "@executable_path")
+    elseif(UNIX)
+        set(CMAKE_BUILD_RPATH "$ORIGIN")
+    endif()
 endif()
 
 foreach(lang C CXX)
@@ -58,39 +84,32 @@ foreach(lang C CXX)
         # The optimisation level and /RTC1 are per TARGET (desert_finalize_targets, _desert_target_flags): a target
         # optimised for speed must not also get /Od or /Ox from here (cl D9025). No /DWIN32 /D_WINDOWS:
         # no source tests them.
-        set(CMAKE_${lang}_FLAGS_DEBUG    "" CACHE STRING "" FORCE)
-        set(CMAKE_${lang}_FLAGS_RELEASE  "/DNDEBUG" CACHE STRING "" FORCE)
-        set(CMAKE_${lang}_FLAGS_SHIPPING "/DNDEBUG" CACHE STRING "" FORCE)
+        set(CMAKE_${lang}_FLAGS_DEBUGGAME   "" CACHE STRING "" FORCE)
+        set(CMAKE_${lang}_FLAGS_DEVELOPMENT "/DNDEBUG" CACHE STRING "" FORCE)
+        set(CMAKE_${lang}_FLAGS_SHIPPING    "/DNDEBUG" CACHE STRING "" FORCE)
     else()
-        set(CMAKE_${lang}_FLAGS_DEBUG    "-O0 -g" CACHE STRING "" FORCE)
-        set(CMAKE_${lang}_FLAGS_RELEASE  "-O2 -DNDEBUG" CACHE STRING "" FORCE)
-        set(CMAKE_${lang}_FLAGS_SHIPPING "-O3 -DNDEBUG" CACHE STRING "" FORCE)
+        set(CMAKE_${lang}_FLAGS_DEBUGGAME   "-O0 -g" CACHE STRING "" FORCE)
+        set(CMAKE_${lang}_FLAGS_DEVELOPMENT "-O2 -DNDEBUG" CACHE STRING "" FORCE)
+        set(CMAKE_${lang}_FLAGS_SHIPPING    "-O3 -DNDEBUG" CACHE STRING "" FORCE)
     endif()
 endforeach()
 if(APPLE)
-    set(CMAKE_OBJCXX_FLAGS_DEBUG    "${CMAKE_CXX_FLAGS_DEBUG}" CACHE STRING "" FORCE)
-    set(CMAKE_OBJCXX_FLAGS_RELEASE  "${CMAKE_CXX_FLAGS_RELEASE}" CACHE STRING "" FORCE)
-    set(CMAKE_OBJCXX_FLAGS_SHIPPING "${CMAKE_CXX_FLAGS_SHIPPING}" CACHE STRING "" FORCE)
+    set(CMAKE_OBJCXX_FLAGS_DEBUGGAME   "${CMAKE_CXX_FLAGS_DEBUGGAME}" CACHE STRING "" FORCE)
+    set(CMAKE_OBJCXX_FLAGS_DEVELOPMENT "${CMAKE_CXX_FLAGS_DEVELOPMENT}" CACHE STRING "" FORCE)
+    set(CMAKE_OBJCXX_FLAGS_SHIPPING    "${CMAKE_CXX_FLAGS_SHIPPING}" CACHE STRING "" FORCE)
 endif()
-foreach(kind EXE SHARED MODULE STATIC)
-    set(CMAKE_${kind}_LINKER_FLAGS_SHIPPING "${CMAKE_${kind}_LINKER_FLAGS_RELEASE}" CACHE STRING "" FORCE)
-endforeach()
-# ── WHOLE-PROGRAM OPTIMISATION AND THE PROCESS ALLOCATOR (CPU-TOOLCHAIN-LTCG-PGO) ──
-# UE: bAllowLTCG for the shipped code, FMallocMimalloc / FMallocBinned as the process allocator. MSVC only; clang's
-# counterpart (ThinLTO, mimalloc's static override) is its own A/B later, not a value of these switches.
-#   DESERT_LTCG      /Gw /Ob3 in Release and Shipping, /GL + /LTCG in Shipping only (the 4 GB archive limit, see
-#                    _shipping_link), on the runtime libraries marked desert_ltcg (Common,
-#                    every engine module library -- one shared PCH, so all or none -- and Jolt); executables link
-#                    /LTCG:INCREMENTAL (Release) and /LTCG (Shipping). Editor-only libraries stay without /GL, so
-#                    link time and memory grow only with the code the game runs. How many links run at once is
-#                    the machine's build pool's decision (Tools/BuildPool: admission by each link's measured
-#                    memory), not a per-tree Ninja pool: each LTCG link holds the whole runtime's IL.
+# ── THE PROCESS ALLOCATOR ──
+# UE: FMallocMimalloc / FMallocBinned as the process allocator. MSVC only.
 #   DESERT_MIMALLOC  mimalloc.dll + mimalloc-redirect.dll as the process allocator of the executables marked
-#                    desert_link_mimalloc (Editor, Runtime, DesertCtl) in Release and Shipping. Debug keeps the
-#                    debug CRT heap: the redirect patches ucrtbase.dll, which a /MDd process does not allocate from.
+#                    desert_link_mimalloc (Editor, Runtime, DesertCtl) in Development and Shipping. DebugGame keeps
+#                    the debug CRT heap: the redirect patches ucrtbase.dll, which a /MDd process does not allocate from.
+# Whole-program optimisation is not a switch: it is what Shipping is (/GL on the desert_ltcg runtime libraries, /LTCG on
+# the link); no other configuration pays for it.
+# How many links run at once is the machine's build pool's decision (Tools/BuildPool, buildpool_enable in
+# CMakeLists.txt: admission by each link's measured memory), not a per-tree Ninja pool: Editor.exe holds every object of
+# the editor, and two such links beside the compile ran out of memory (LNK1327, ledger 11-24).
 if(MSVC)
-    option(DESERT_LTCG "MSVC: /GL on the runtime libraries, /LTCG on the executables (Release, Shipping)" ON)
-    option(DESERT_MIMALLOC "MSVC: mimalloc + mimalloc-redirect as the process allocator (Release, Shipping)" ON)
+    option(DESERT_MIMALLOC "MSVC: mimalloc + mimalloc-redirect as the process allocator (Development, Shipping)" ON)
 endif()
 
 # ── THE INSTRUCTION SET (CPU-SIMD) ─────────────────────────────────────────────
@@ -101,9 +120,9 @@ endif()
 #                    with -ffp-contract=off: clang and gcc would otherwise fuse a*b+c into an FMA, which MSVC's
 #                    /fp:precise does not, and a client and its server would round the same expression apart.
 #                    macOS is arm64 (CMAKE_SYSTEM_PROCESSOR there names the host, not CMAKE_OSX_ARCHITECTURES).
-#                    Every target in EVERY configuration, so Debug compiles the same code paths as Release and
+#                    Every target in EVERY configuration, so DebugGame compiles the same code paths as Development and
 #                    Shipping (Common/Core/Math/Simd.hpp picks them at compile time from _M_X64 / __x86_64__ /
-#                    __AVX__) and a Debug test exercises what ships. The compiler autovectorises
+#                    __AVX__) and a DebugGame test exercises what ships. The compiler autovectorises
 #                    with AVX2; the hot loops it cannot vectorise (frustum culling) are written by hand through
 #                    Simd.hpp. VS2022's /fp:precise does not contract a*b+c into an FMA (that is /fp:contract),
 #                    so a scalar and a SIMD path of the same arithmetic round alike. A vendored library with its
@@ -123,48 +142,64 @@ if(MSVC)
     # is added per configuration below.
     set(CMAKE_C_FLAGS "/EHsc /Zc:inline /FC" CACHE STRING "" FORCE)
     set(CMAKE_CXX_FLAGS "/EHsc /Zc:inline /FC" CACHE STRING "" FORCE)
-    # Debug and Release write a .pdb (DesertCrashReporter
-    # symbolises with it); Shipping writes none. Optimised links fold and drop (/OPT:REF,ICF).
-    set(CMAKE_EXE_LINKER_FLAGS_DEBUG    "/DEBUG /INCREMENTAL" CACHE STRING "" FORCE)
-    set(_release_link "/DEBUG /INCREMENTAL:NO /OPT:REF /OPT:ICF")
-    set(_shipping_link "/INCREMENTAL:NO /OPT:REF /OPT:ICF")
-    # Whole-program code generation in Shipping only (UE bAllowLTCG: Shipping, not Development). Release keeps
-    # /Z7 debug info, and /GL IL + /Z7 in every object put DesertRenderer.lib past the 4 GB archive limit
-    # (lib.exe hangs at 4294967295 bytes, 11-07).
-    if(DESERT_LTCG)
-        string(APPEND _shipping_link " /LTCG")
-    endif()
-    set(CMAKE_EXE_LINKER_FLAGS_RELEASE  "${_release_link}" CACHE STRING "" FORCE)
-    set(CMAKE_EXE_LINKER_FLAGS_SHIPPING "${_shipping_link}" CACHE STRING "" FORCE)
+    # Every configuration writes a .pdb (DesertCrashReporter symbolises with it). Development and DebugGame link
+    # incrementally with /DEBUG:FASTLINK: an edit relinks what changed, and the .pdb points into the objects (/Z7)
+    # instead of merging 12 GB of CodeView (Editor.exe linked 952 s with /INCREMENTAL:NO /OPT:REF,ICF, 11-26).
+    # Shipping alone folds and drops (/OPT:REF,ICF) and generates code across the program (/LTCG, UE bAllowLTCG):
+    # a full .pdb from /Zi objects. /GL IL lives only in Shipping objects, so no Development archive carries it
+    # (the 4 GB archive limit: lib.exe hangs at 4294967295 bytes, 11-07).
+    # LIVE CODING (Editor/Source/Editor/LiveCoding): Development and DebugGame images carry hotpatch padding before
+    # every function (/FUNCTIONPADMIN, the room for the jump that redirects it). The images Live Coding patches
+    # also get a /MAP (desert_finalize_targets, beside the manifest that names it); no other image writes one.
+    # Shipping is never patched.
+    foreach(kind EXE SHARED MODULE)
+        set(CMAKE_${kind}_LINKER_FLAGS_DEVELOPMENT "/DEBUG:FASTLINK /INCREMENTAL /FUNCTIONPADMIN" CACHE STRING "" FORCE)
+        set(CMAKE_${kind}_LINKER_FLAGS_DEBUGGAME   "/DEBUG:FASTLINK /INCREMENTAL /FUNCTIONPADMIN" CACHE STRING "" FORCE)
+        set(CMAKE_${kind}_LINKER_FLAGS_SHIPPING    "/DEBUG:FULL /INCREMENTAL:NO /OPT:REF /OPT:ICF /LTCG" CACHE STRING "" FORCE)
+    endforeach()
+    set(CMAKE_STATIC_LINKER_FLAGS_DEVELOPMENT "" CACHE STRING "" FORCE)
+    set(CMAKE_STATIC_LINKER_FLAGS_DEBUGGAME   "" CACHE STRING "" FORCE)
+    set(CMAKE_STATIC_LINKER_FLAGS_SHIPPING    "" CACHE STRING "" FORCE)
+    # Shipping's /Zi objects of one target write one .pdb in parallel: /FS serialises the writes through mspdbsrv.
+    add_compile_options("$<$<AND:$<CONFIG:Shipping>,$<COMPILE_LANGUAGE:C,CXX>>:/FS>")
+else()
+    foreach(kind EXE SHARED MODULE STATIC)
+        set(CMAKE_${kind}_LINKER_FLAGS_DEVELOPMENT "" CACHE STRING "" FORCE)
+        set(CMAKE_${kind}_LINKER_FLAGS_DEBUGGAME   "" CACHE STRING "" FORCE)
+        set(CMAKE_${kind}_LINKER_FLAGS_SHIPPING    "" CACHE STRING "" FORCE)
+    endforeach()
 endif()
 
-# MSBuild's SupportJustMyCode default under UseDebugLibraries (Debug): /JMC.
+# MSBuild's SupportJustMyCode default under UseDebugLibraries (DebugGame): /JMC.
 if(MSVC)
-    add_compile_options("$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:C,CXX>>:/JMC>")
+    add_compile_options("$<$<AND:$<CONFIG:DebugGame>,$<COMPILE_LANGUAGE:C,CXX>>:/JMC>")
 endif()
 # MSBuild never scans for C++20 module dependencies (ScanSourceForModuleDependencies false); a scanned source
 # also never joins a unity batch.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
-# /MDd for Debug, /MD for Release and Shipping (dynamic CRT, one runtime across every target).
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+# /MDd for DebugGame, /MD for Development and Shipping (dynamic CRT, one runtime across every target).
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:DebugGame>:Debug>DLL")
 
-# Debug information: Debug and Release never Shipping. /Zi and not /ZI (edit-and-continue defeats a cache, BUILD1 P3). With a compile
-# cache behind the build pool (BUILDPOOL_CACHE, set by buildpool_enable in CMakeLists.txt) the information is embedded
-# (/Z7): a cache cannot share the one vc143.pdb every compile of a project writes into, and the pool can restart a /Z7
-# compile under memory pressure but never one that writes a shared .pdb.
-if(BUILDPOOL_CACHE)
-    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<NOT:$<CONFIG:Shipping>>:Embedded>")
-else()
-    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<NOT:$<CONFIG:Shipping>>:ProgramDatabase>")
-endif()
+# Debug information, never /ZI (edit-and-continue defeats a cache, BUILD1 P3). Development and DebugGame embed it in
+# every object (/Z7): /DEBUG:FASTLINK reads it from there, and a compiler cache can share an object but not the one
+# vc143.pdb every compile of a target writes into. Shipping writes a .pdb per target (/Zi) for the full link .pdb.
+set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<CONFIG:Shipping>,ProgramDatabase,Embedded>")
+
+# /Yl-: no __@@_PchSym_ reference symbol in the precompiled-header objects. Every target links its PCH holder's
+# object itself, so the reference has nothing to pull in, and WINDOWS_EXPORT_ALL_SYMBOLS cut the symbol at its '@'
+# into a `__ DATA` export the linker matched only fuzzily: ambiguous, LNK2001 `__`, once shaderc_combined's own
+# PchSym symbols joined DesertShaderCompiler's link (B-INT build #12).
+add_compile_options($<$<AND:$<CXX_COMPILER_ID:MSVC>,$<COMPILE_LANGUAGE:CXX>>:/Yl->)
 
 add_compile_definitions(
     $<$<CONFIG:Shipping>:DESERT_CONFIG_SHIPPING>
-    # EnTT's type-index counter must be atomic in every target or none.
+    # EnTT's own counters (entt::family) atomic in every target or none; its type index is process-wide
+    # (Common/Core/Entt.hpp).
     ENTT_USE_ATOMIC
-    # spdlog is header-only here, so every target or none (one logger::log_it_): spdlog catches nothing, its
-    # own failure aborts with its message, and a sink's throw ends the process at the log call (Logger.hpp).
+    # spdlog is a compiled library (cmake/ThirdParty/Spdlog.cmake), so every target or none: spdlog catches nothing,
+    # its own failure aborts with its message, and a sink's throw ends the process at the log call (Logger.hpp).
+    SPDLOG_COMPILED_LIB
     SPDLOG_NO_EXCEPTIONS
     # Optick (the CPU profiler) in every target or none, with ONE value: Profiler.hpp's class layout depends on it,
     # and optick.config.h turns an undefined USE_OPTICK on. Off in Shipping, where no target links the library
@@ -175,6 +210,37 @@ add_compile_definitions(
 )
 # The Optick library as a link item: every configuration but Shipping.
 set(DESERT_OPTICK "$<$<NOT:$<CONFIG:Shipping>>:Optick>")
+
+# ── THIRD-PARTY PROCESS STATE ─────────────────────────────────────────────────────────────────────
+# A vendored library that keeps process-wide state - the ImGui context, the node editor's current editor, the spdlog
+# registry, Jolt's allocator hooks and factory, the Optick profiler, GLFW's library state - is ONE shared library
+# outside Shipping (desert_add_library PROCESS_STATE), so every module DLL reads the same instance; the Shipping
+# monolith links it statically. Each library is built with its own documented shared-build switches: the library
+# compiles the export side, EVERY other target the import side, so no target's definitions depend on what it links
+# (the members of a shared PCH group must agree, C2855). Optick has no import side (OPTICK_EXPORTS, Optick.cmake).
+# EnTT is header-only; its type index is made process-wide by Common/Core/Entt.hpp.
+# Luau is one PROCESS_STATE library too (cmake/ThirdParty/Luau.cmake: the VM state two modules run). The other
+# vendored libraries several modules link stay STATIC, a copy per DLL, because they keep no process state the
+# engine relies on: MeshOptimizer's only global is the allocator pair meshopt_setAllocator sets, which nothing calls;
+# Voro, Compressonator, OpenSubdiv, Embree (state per RTCDevice handle), Dav1d and Opus (per decoder/encoder
+# context) hand their state to the caller as an object.
+if(NOT DESERT_MONOLITHIC)
+    set(_desert_self "$<TARGET_PROPERTY:NAME>")
+    add_compile_definitions(
+        JPH_SHARED_LIBRARY                                   # Jolt.cmake adds JPH_BUILD_SHARED_LIBRARY
+        SPDLOG_SHARED_LIB                                    # Spdlog.cmake: spdlog_EXPORTS
+        FMT_SHARED                                           # spdlog's bundled fmt; Spdlog.cmake: FMT_LIB_EXPORT
+        # GLFW itself compiles _GLFW_BUILD_DLL (GLFW.cmake); glfw3.h refuses both at once.
+        "$<$<NOT:$<STREQUAL:${_desert_self},GLFW>>:GLFW_DLL>")
+    if(DESERT_IS_WINDOWS)
+        # ImGui and the node editor leave their API macro to the build; elsewhere default visibility exports.
+        add_compile_definitions(
+            "$<IF:$<STREQUAL:${_desert_self},ImGui>,IMGUI_API=__declspec(dllexport),IMGUI_API=__declspec(dllimport)>"
+            "$<IF:$<STREQUAL:${_desert_self},ImGuiNodeEditor>,IMGUI_NODE_EDITOR_API=__declspec(dllexport),IMGUI_NODE_EDITOR_API=__declspec(dllimport)>"
+            # The GLFW and Vulkan backends are not in the ImGui DLL: the editor compiles them (ImGuiBuild.cpp).
+            "IMGUI_IMPL_API=")
+    endif()
+endif()
 
 # ── LANGUAGE ───────────────────────────────────────────────────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 20)
@@ -252,71 +318,107 @@ else()
 endif()
 
 # ── UNITY BUILD ───────────────────────────────────────────────────────────────────
-# Off by default: a developer build must compile the code as written.
-# CMake's unity build works with every generator, so the switch is not
-# refused for Ninja.
-option(DESERT_UNITY "Compile Common, the engine module libraries and the editor libraries as unity files (CI speed)" OFF)
-set(DESERT_UNITY_BATCH_SIZE 12)
-set(DESERT_UNITY_OPT_OUT
-    "ThirdParty/"
-    # windows.h / d3d12.h stay out of unity batches (DX12-RHI): their macros would leak into the batch.
-    "Source/Engine/Graphic/API/D3D12/"
-    "Source/Engine/Core/Device.cpp"
-    "Source/Common/Utilities/ContentManifest.cpp"
-    "Source/Engine/Animation/Rig/ControlShape.cpp"
-    "Source/Engine/Assets/CloudNoiseVolume.cpp"
-    "Source/Engine/Assets/CloudProceduralVolume.cpp"
-    "Source/Engine/Assets/CloudNoiseVolumeSheet.cpp"
-    "Source/Engine/Assets/Serialization/TextureBinary.cpp"
-    "Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp"
-    "Source/Engine/Graphic/Systems/Scene/PostProcessing/AutoExposureRenderer.cpp"
-    "Source/Engine/Graphic/Systems/Scene/PostProcessing/BloomRenderer.cpp"
-    "Source/Engine/Graphic/Systems/Scene/PostProcessing/LensFlareRenderer.cpp"
-    "Source/Engine/Graphic/Systems/Scene/PostProcessing/LightShaftRenderer.cpp"
-    "Source/UI/UICanvasRenderer2D.cpp"
-    "Source/Landscape/Private/LandscapeEditCache.cpp"
-    "Source/Editor/Panels/Clouds/CloudLayoutPanel.cpp"
-    "Source/Editor/Panels/Clouds/CloudNoiseVolumePanel.cpp"
-    "Source/Editor/Panels/FileExplorer/FileExplorerPanel.cpp"
-    "Source/Editor/Panels/Photogrammetry/PhotogrammetryPanel.cpp"
-    "Source/Editor/Panels/SceneHierarchy/SceneHierarchyPanel.cpp"
-    "Source/Editor/Panels/SceneProperties/ComponentEditor.cpp"
-    "Source/Editor/Panels/SceneSettings/SceneSettingsPanel.cpp"
-    "Source/Editor/Panels/ViewportPanel/Tools/ElementSelectTool.cpp"
-    "Source/Editor/Panels/ViewportPanel/Tools/LandscapeSculptTool.cpp"
-    "Source/Editor/Panels/WorldPartition/WorldPartitionMap.cpp"
-    "Source/Editor/RenderSystems/Passes/EditorUIPass.cpp"
-    "Source/Editor/Widgets/PreviewViewport.cpp"
-    "Source/Editor/Widgets/ThumbnailCache.cpp"
-    "Source/Editor/Widgets/ThumbnailSubject.cpp"
-    "Source/EditorLayer.cpp"
-    "Source/Sandbox.cpp"
-)
+# ON in Development and Shipping (STUDIO-AUDIT B3): a first-party library compiles as unity files of 16 sources, so
+# the headers behind the sources (p90 477 per object) are parsed once per batch instead of once per source. DebugGame
+# compiles each source alone (a debugger session steps through the code as written). A source that cannot share a
+# batch says so where it is owned: SKIP_UNITY_BUILD_INCLUSION, with the reason, in the CMakeLists.txt of its target
+# (desert_unity_exclude). A vendored source (a path under /ThirdParty/) never joins a batch. The sources this branch
+# changed are compiled alone too (adaptive unity): scripts/Dev/adaptive_unity.py writes <build>/adaptive_unity.cmake
+# from `git diff --name-only dev...HEAD` before the build, so an edit recompiles one object, not its batch.
+if(CMAKE_BUILD_TYPE STREQUAL "DebugGame")
+    set(_desert_unity_default OFF)
+else()
+    set(_desert_unity_default ON)
+endif()
+option(DESERT_UNITY "Compile Common, the engine module libraries and the editor libraries as unity files" ${_desert_unity_default})
+set(DESERT_UNITY_BATCH_SIZE 16)
+set(DESERT_ADAPTIVE_UNITY_FILE "${CMAKE_BINARY_DIR}/adaptive_unity.cmake")
+set(DESERT_ADAPTIVE_UNITY_SKIP "")
+if(EXISTS "${DESERT_ADAPTIVE_UNITY_FILE}")
+    include("${DESERT_ADAPTIVE_UNITY_FILE}")
+endif()
+set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${DESERT_ADAPTIVE_UNITY_FILE}")
 
-# Called from inside a target's script, as DesertUnity.EnableForProject() was. Does nothing without DESERT_UNITY.
+# Called from inside a target's script. Does nothing without DESERT_UNITY.
 function(desert_enable_unity target)
     if(DESERT_UNITY)
-        set_target_properties(${target} PROPERTIES UNITY_BUILD ON UNITY_BUILD_BATCH_SIZE ${DESERT_UNITY_BATCH_SIZE})
+        set_target_properties(${target} PROPERTIES
+            UNITY_BUILD ON UNITY_BUILD_MODE BATCH UNITY_BUILD_BATCH_SIZE ${DESERT_UNITY_BATCH_SIZE})
         set_property(TARGET ${target} PROPERTY DESERT_UNITY_TARGET ON)
     endif()
 endfunction()
 
+# desert_unity_exclude(REASON "<why>" <source>...): the sources compile alone, never in a unity batch of their target.
+# Called by the CMakeLists.txt that owns the sources; the reason is the macro or name that would leak into the batch.
+function(desert_unity_exclude)
+    cmake_parse_arguments(ARG "" "REASON" "" ${ARGN})
+    if(NOT ARG_REASON OR NOT ARG_UNPARSED_ARGUMENTS)
+        message(FATAL_ERROR "desert_unity_exclude: REASON \"<why>\" and at least one source")
+    endif()
+    foreach(src IN LISTS ARG_UNPARSED_ARGUMENTS)
+        cmake_path(ABSOLUTE_PATH src BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE _abs)
+        if(NOT EXISTS "${_abs}")
+            message(FATAL_ERROR "desert_unity_exclude: ${_abs} does not exist (${ARG_REASON})")
+        endif()
+        set_property(GLOBAL APPEND PROPERTY DESERT_UNITY_EXCLUDED "${_abs}")
+    endforeach()
+endfunction()
+
 # ── TARGET HELPERS ─────────────────────────────────────────────────────────────────────────────────
 
-# Recursive glob, re-run on every build so a new file is picked up without a manual re-configure.
-# Patterns are relative to the calling CMakeLists.txt's directory unless absolute.
-function(desert_glob out)
-    file(GLOB_RECURSE _files LIST_DIRECTORIES false CONFIGURE_DEPENDS ${ARGN})
+# desert_sources(<out> <dir> [MATCHING <regex>] [RELATIVE]): the files <dir>/Sources.cmake lists, sorted. That list
+# is written by scripts/Dev/sources_sync.py from git and committed; nothing in the build globs a first-party
+# directory, so a build re-configures only when a Sources.cmake (or another CMake file) changed. <dir> is relative
+# to the calling CMakeLists.txt unless absolute; MATCHING keeps the paths (relative to <dir>) that match; RELATIVE
+# returns them relative to <dir> instead of absolute.
+function(desert_sources out dir)
+    cmake_parse_arguments(_s "RELATIVE" "MATCHING" "" ${ARGN})
+    get_filename_component(_dir "${dir}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    if(NOT EXISTS "${_dir}/Sources.cmake")
+        message(FATAL_ERROR "${_dir}/Sources.cmake is missing: run python scripts/Dev/sources_sync.py")
+    endif()
+    set(DESERT_SOURCES "")
+    include("${_dir}/Sources.cmake")
+    set(_files "")
+    foreach(rel IN LISTS DESERT_SOURCES)
+        if(_s_MATCHING AND NOT rel MATCHES "${_s_MATCHING}")
+            continue()
+        endif()
+        if(_s_RELATIVE)
+            list(APPEND _files "${rel}")
+        else()
+            list(APPEND _files "${_dir}/${rel}")
+        endif()
+    endforeach()
+    set(${out} ${_files} PARENT_SCOPE)
+endfunction()
+
+# _desert_thirdparty_glob(<out> [RECURSE] <pattern>...): the one glob of the build, for VENDORED code under
+# ThirdParty/ or Editor/ThirdParty/ only (first-party sources come from the committed Sources.cmake lists, desert_sources). No
+# CONFIGURE_DEPENDS: a vendored tree changes only with a submodule bump, which re-runs configure anyway, so a no-op
+# build re-checks nothing. RECURSE descends into subdirectories; without it only the named directory is listed.
+function(_desert_thirdparty_glob out)
+    cmake_parse_arguments(_g "RECURSE" "" "" ${ARGN})
+    foreach(pattern IN LISTS _g_UNPARSED_ARGUMENTS)
+        if(NOT pattern MATCHES "^${DESERT_ROOT}/([^/]+/)?ThirdParty/")
+            message(FATAL_ERROR "_desert_thirdparty_glob: ${pattern} is not under ThirdParty/ (list first-party sources in Sources.cmake)")
+        endif()
+    endforeach()
+    if(_g_RECURSE)
+        file(GLOB_RECURSE _files LIST_DIRECTORIES false ${_g_UNPARSED_ARGUMENTS})
+    else()
+        file(GLOB _files LIST_DIRECTORIES false ${_g_UNPARSED_ARGUMENTS})
+    endif()
     list(SORT _files)
     set(${out} ${_files} PARENT_SCOPE)
 endfunction()
 
 # The target-level settings five or more targets need, in one place:
-#   DESERT_CONFIG_DEBUG / DESERT_CONFIG_RELEASE (never Shipping), DESERT_PLATFORM_<OS>.
+#   DESERT_CONFIG_DEBUG (DebugGame) / DESERT_CONFIG_RELEASE (Development), never Shipping; DESERT_PLATFORM_<OS>.
 function(desert_config_platform_defines target)
     target_compile_definitions(${target} PRIVATE
-        $<$<CONFIG:Debug>:DESERT_CONFIG_DEBUG>
-        $<$<CONFIG:Release>:DESERT_CONFIG_RELEASE>)
+        $<$<CONFIG:DebugGame>:DESERT_CONFIG_DEBUG>
+        $<$<CONFIG:Development>:DESERT_CONFIG_RELEASE>)
     if(DESERT_IS_WINDOWS)
         target_compile_definitions(${target} PRIVATE DESERT_PLATFORM_WINDOWS)
     elseif(DESERT_IS_MACOS)
@@ -326,10 +428,16 @@ function(desert_config_platform_defines target)
     endif()
 endfunction()
 
-# add_library(STATIC) for a first-party or vendored static library. FOLDER groups it in an IDE.
+# add_library for a first-party or vendored library: STATIC, or with PROCESS_STATE (the library keeps process-wide
+# state, THIRD-PARTY PROCESS STATE above) SHARED outside Shipping and STATIC in the Shipping monolith. FOLDER groups
+# it in an IDE.
 function(desert_add_library name)
-    cmake_parse_arguments(ARG "" "FOLDER" "SOURCES" ${ARGN})
-    add_library(${name} STATIC ${ARG_SOURCES})
+    cmake_parse_arguments(ARG "PROCESS_STATE" "FOLDER" "SOURCES" ${ARGN})
+    if(ARG_PROCESS_STATE AND NOT DESERT_MONOLITHIC)
+        add_library(${name} SHARED ${ARG_SOURCES})
+    else()
+        add_library(${name} STATIC ${ARG_SOURCES})
+    endif()
     if(ARG_FOLDER)
         set_target_properties(${name} PROPERTIES FOLDER "${ARG_FOLDER}")
     endif()
@@ -368,30 +476,26 @@ function(desert_external_includes target)
     endforeach()
 endfunction()
 
-# DesertPlatform.LinkWholeArchive: every object of the static library reaches the binary, so a file whose
-# one job is a static initialiser (a reflected component's self-registration) is not dropped by the linker.
-# CMake spells -force_load / --whole-archive / /WHOLEARCHIVE as one generator expression.
-function(desert_link_whole_archive target)
-    foreach(lib IN LISTS ARGN)
-        target_link_libraries(${target} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,${lib}>")
-    endforeach()
-endfunction()
-
-# Commands that must run on EVERY build before the target's sources compile (the header
-# tool, GenVersion). A custom command whose output is a SYMBOLIC file is never up to date, so it runs every
-# build, and as a source of the target it orders before every object of that target -- and only of that
-# target, which adds no target to the build (a custom target would).
+# A command that runs before the target's sources compile (the header tool, GenVersion), and only when one of its
+# DEPENDS changed: the step touches a stamp after the command succeeds, so a build that changed nothing runs
+# nothing (`ninja -d explain` is empty). DEPENDS must name every file the command reads (the header tool's inputs
+# come from the Sources.cmake lists); BYPRODUCTS names the files it writes (rewritten only when their text changes,
+# so ninja's restat keeps their readers up to date).
 function(desert_prebuild target name)
-    cmake_parse_arguments(ARG "" "COMMENT" "COMMAND;DEPENDS" ${ARGN})
+    cmake_parse_arguments(ARG "" "COMMENT" "COMMAND;DEPENDS;BYPRODUCTS" ${ARGN})
+    if(NOT ARG_DEPENDS)
+        message(FATAL_ERROR "desert_prebuild(${target} ${name}): DEPENDS names no input, the step would never re-run")
+    endif()
     set(_stamp "${CMAKE_CURRENT_BINARY_DIR}/${target}.${name}.prebuild")
     add_custom_command(
         OUTPUT "${_stamp}"
+        BYPRODUCTS ${ARG_BYPRODUCTS}
         COMMAND ${ARG_COMMAND}
+        COMMAND "${CMAKE_COMMAND}" -E touch "${_stamp}"
         DEPENDS ${ARG_DEPENDS}
         WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
         COMMENT "${ARG_COMMENT}"
         VERBATIM)
-    set_source_files_properties("${_stamp}" PROPERTIES SYMBOLIC TRUE)
     # The step is its own target (<target>-<name>) that <target> depends on, so a tool that needs the generated
     # sources and nothing else can build them: DesertPrebuild (desert_finalize_targets) depends on every step.
     # One target owns the output; <target> only orders after it, so the command never runs twice in parallel.
@@ -418,11 +522,11 @@ endfunction()
 #   warnings   ON: /W3 (-Wall -Wextra). OFF: /W0 (-w), for a target marked
 #              (desert_warnings_off) and for a target whose every source is vendored (a path under /ThirdParty/).
 #   speed      desert_optimize_speed: /O2 /Oi /Gy /GF in EVERY configuration and
-#              no Debug runtime checks (clang -O3).
-#   debug_opt  speed with no runtime checks, Debug only, on single files
-#              (DESERT_DEBUG_OPTIMIZE, the mesh card/distance field builders): Debug /O2 (clang -O2).
-# Otherwise: Debug /Od /RTC1 (no optimisation, fast runtime checks),
-# Release and Shipping /Ox /Oi /Gy /GF (full optimisation, intrinsics,
+#              no DebugGame runtime checks (clang -O3).
+#   debug_opt  speed with no runtime checks, DebugGame only, on single files
+#              (DESERT_DEBUG_OPTIMIZE, the mesh card/distance field builders): DebugGame /O2 (clang -O2).
+# Otherwise: DebugGame /Od /RTC1 (no optimisation, fast runtime checks),
+# Development and Shipping /Ox /Oi /Gy /GF (full optimisation, intrinsics,
 # function-level linking, string pooling). clang's per-configuration level stays in CMAKE_<LANG>_FLAGS_<CONFIG>.
 function(_desert_target_flags target warnings speed debug_opt)
     set(_cc "$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>")
@@ -441,17 +545,17 @@ function(_desert_target_flags target warnings speed debug_opt)
                 set(_debug /Od /RTC1)
             endif()
             target_compile_options(${target} PRIVATE
-                "$<$<AND:$<CONFIG:Debug>,${_cc}>:${_debug}>"
-                "$<$<AND:$<NOT:$<CONFIG:Debug>>,${_cc}>:/Ox;/Oi;/Gy;/GF>")
+                "$<$<AND:$<CONFIG:DebugGame>,${_cc}>:${_debug}>"
+                "$<$<AND:$<NOT:$<CONFIG:DebugGame>>,${_cc}>:/Ox;/Oi;/Gy;/GF>")
         endif()
     elseif(speed)
         target_compile_options(${target} PRIVATE "$<${_cc}:-O3>")
     elseif(debug_opt)
-        target_compile_options(${target} PRIVATE "$<$<AND:$<CONFIG:Debug>,${_cc}>:-O2>")
+        target_compile_options(${target} PRIVATE "$<$<AND:$<CONFIG:DebugGame>,${_cc}>:-O2>")
     endif()
-    # DESERT_LTCG on a desert_ltcg target: whole-program code generation (/GL), global data in COMDATs the linker can
+    # Shipping, a desert_ltcg target: whole-program code generation (/GL), global data in COMDATs the linker can
     # fold and drop (/Gw), the aggressive inliner (/Ob3, which pays across modules only with /GL). Its archive is
-    # written by lib /LTCG, which otherwise restarts itself on the first /GL object.
+    # written by lib /LTCG, which otherwise restarts itself on the first /GL object. No other configuration pays for it.
     # DESERT_AVX2: AVX2 (/arch:AVX2, -march=x86-64-v3 -ffp-contract=off), every configuration, but not on a target
     # with its own ISA dispatch.
     get_target_property(_own_isa ${target} DESERT_OWN_ISA_DISPATCH)
@@ -462,14 +566,12 @@ function(_desert_target_flags target warnings speed debug_opt)
             target_compile_options(${target} PRIVATE "$<${_cc}:-march=x86-64-v3;-ffp-contract=off>")
         endif()
     endif()
-    get_target_property(_ltcg ${target} DESERT_LTCG)
-    if(MSVC AND DESERT_LTCG AND _ltcg)
-        # /Gw /Ob3 in Release and Shipping; /GL and lib /LTCG in Shipping only (see _shipping_link).
-        target_compile_options(${target} PRIVATE "$<$<AND:$<NOT:$<CONFIG:Debug>>,${_cc}>:/Gw;/Ob3>")
-        target_compile_options(${target} PRIVATE "$<$<AND:$<CONFIG:Shipping>,${_cc}>:/GL>")
+    get_target_property(_whole ${target} DESERT_WHOLE_PROGRAM)
+    if(MSVC AND _whole AND CMAKE_BUILD_TYPE STREQUAL "Shipping")
+        target_compile_options(${target} PRIVATE "$<${_cc}:/Gw;/Ob3;/GL>")
         get_target_property(_type ${target} TYPE)
         if(_type STREQUAL "STATIC_LIBRARY")
-            set_property(TARGET ${target} APPEND PROPERTY STATIC_LIBRARY_OPTIONS "$<$<CONFIG:Shipping>:/LTCG>")
+            set_property(TARGET ${target} APPEND PROPERTY STATIC_LIBRARY_OPTIONS /LTCG)
         endif()
     endif()
 endfunction()
@@ -513,9 +615,9 @@ function(_desert_split_objects owner suffix pch_holder out)
 
     add_library(${_obj} OBJECT ${ARGN})
     # The owner's whole-program mark (desert_ltcg): its split parts, the PCH holder included, compile like it.
-    get_target_property(_ltcg ${owner} DESERT_LTCG)
-    if(_ltcg)
-        set_property(TARGET ${_obj} PROPERTY DESERT_LTCG ON)
+    get_target_property(_whole ${owner} DESERT_WHOLE_PROGRAM)
+    if(_whole)
+        set_property(TARGET ${_obj} PROPERTY DESERT_WHOLE_PROGRAM ON)
     endif()
     # The owner's instruction set (desert_own_isa_dispatch): its split parts keep the same flags.
     get_target_property(_own_isa ${owner} DESERT_OWN_ISA_DISPATCH)
@@ -551,7 +653,7 @@ function(_desert_split_objects owner suffix pch_holder out)
         set_property(TARGET ${_obj} PROPERTY ${prop} "${_v}")
     endforeach()
     # Usage requirements: the owner's link libraries, by name (an object library links nothing; the directory
-    # markers `::@` of a cross-directory target_link_libraries() and the WHOLE_ARCHIVE wrapper are link-only).
+    # markers `::@` of a cross-directory target_link_libraries() and a $<LINK_LIBRARY:...> wrapper are link-only).
     get_target_property(_libs ${owner} LINK_LIBRARIES)
     if(_libs)
         set(_names "")
@@ -577,9 +679,15 @@ function(_desert_split_objects owner suffix pch_holder out)
 endfunction()
 
 # Runs once, after every target is declared: the per-target rules plus the
-# per-file rules (vendored files, unity opt-outs, Debug-optimised builders).
+# per-file rules (vendored files, unity exclusions, DebugGame-optimised builders).
 function(desert_finalize_targets)
     _desert_collect_targets("${CMAKE_SOURCE_DIR}" _targets)
+    get_property(_unity_excluded GLOBAL PROPERTY DESERT_UNITY_EXCLUDED)
+    # The adaptive list is relative to the repository root (git diff --name-only).
+    set(_adaptive "")
+    foreach(rel IN LISTS DESERT_ADAPTIVE_UNITY_SKIP)
+        list(APPEND _adaptive "${CMAKE_SOURCE_DIR}/${rel}")
+    endforeach()
     foreach(target IN LISTS _targets)
         get_target_property(_type ${target} TYPE)
         if(_type STREQUAL "INTERFACE_LIBRARY" OR _type STREQUAL "UTILITY")
@@ -640,14 +748,9 @@ function(desert_finalize_targets)
                 list(APPEND _vendored "${_abs}")
             else()
                 list(APPEND _ours "${_abs}")
-                if(_unity)
-                    foreach(pattern IN LISTS DESERT_UNITY_OPT_OUT)
-                        string(FIND "${_abs}" "${pattern}" _at)
-                        if(NOT _at EQUAL -1)
-                            list(APPEND _no_unity "${_abs}")
-                            break()
-                        endif()
-                    endforeach()
+                # Vendored sources compiled with ours never share a batch; desert_unity_exclude marks the rest.
+                if(_unity AND (_abs MATCHES "/ThirdParty/" OR _abs IN_LIST _unity_excluded OR _abs IN_LIST _adaptive))
+                    list(APPEND _no_unity "${_abs}")
                 endif()
             endif()
         endforeach()
@@ -717,6 +820,12 @@ function(desert_finalize_targets)
                 set_property(TARGET ${target} PROPERTY PRECOMPILE_HEADERS)
                 set_property(TARGET ${target} PROPERTY PRECOMPILE_HEADERS_REUSE_FROM ${_holder})
                 set(_pch "")
+                # A member that links its own binary (a module DLL, an executable over DLLs) carries the PCH object:
+                # every object compiled /Yu references its symbol (LNK2011 without it). In the static monolith
+                # the donor's archive brings it into the one binary.
+                if(NOT DESERT_MONOLITHIC AND NOT _type STREQUAL "STATIC_LIBRARY" AND NOT _type STREQUAL "OBJECT_LIBRARY")
+                    target_sources(${target} PRIVATE "$<TARGET_OBJECTS:${_holder}>")
+                endif()
             endif()
         endif()
         if(_pch AND (_vendored OR _debug_opt OR _shared_donor))
@@ -740,13 +849,13 @@ function(desert_finalize_targets)
             _desert_split_objects(${target} ThirdParty "${_holder}" _split ${_vendored})
             _desert_target_flags(${_split} OFF "${_speed}" OFF)
         endif()
-        # Sources optimised in Debug. MSVC: Debug compiles them without the PCH but with pch.hpp still force-included, i.e. the
-        # reused PCH ignored (/Y-) with cmake_pch.hxx still force-included; Release/Shipping use the PCH. clang has
+        # Sources optimised in DebugGame. MSVC: DebugGame compiles them without the PCH but with pch.hpp still force-included, i.e. the
+        # reused PCH ignored (/Y-) with cmake_pch.hxx still force-included; Development/Shipping use the PCH. clang has
         # no per-configuration PCH switch: the header is force-included in every configuration instead.
         if(_debug_opt)
             if(MSVC)
                 _desert_split_objects(${target} DebugOptimized "${_holder}" _split ${_debug_opt})
-                target_compile_options(${_split} PRIVATE "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:C,CXX>>:/Y->")
+                target_compile_options(${_split} PRIVATE "$<$<AND:$<CONFIG:DebugGame>,$<COMPILE_LANGUAGE:C,CXX>>:/Y->")
             else()
                 _desert_split_objects(${target} DebugOptimized "" _split ${_debug_opt})
                 foreach(hdr IN LISTS _pch_abs)
@@ -776,6 +885,38 @@ function(desert_finalize_targets)
     list(SORT _foreign)
     list(JOIN _foreign "\n" _foreign_text)
     file(WRITE "${CMAKE_BINARY_DIR}/PlatformForeignSources.txt" "${_foreign_text}\n")
+
+    # LIVE CODING'S MANIFEST, beside Editor.exe: the one statement of target -> image -> map, plus where the build
+    # and its compilation database are (Editor/Source/Editor/LiveCoding/LiveCodingBuildIndex.hpp reads it). Only a
+    # build of module DLLs linked with /MAP has images to patch, so a monolithic or non-MSVC build writes none and
+    # the editor refuses the command, naming the missing file.
+    if(TARGET Editor AND MSVC AND NOT DESERT_MONOLITHIC)
+        get_property(_live_targets GLOBAL PROPERTY DESERT_LIVE_CODING_TARGETS)
+        list(APPEND _live_targets Editor)
+        set(_live_images "")
+        foreach(_live IN LISTS _live_targets)
+            # The map the manifest names, written by the link of this image only (the symbol -> address table a
+            # patch links against).
+            set_property(TARGET ${_live} APPEND PROPERTY LINK_OPTIONS
+                "$<$<CONFIG:Development,DebugGame>:/MAP:$<TARGET_FILE_DIR:${_live}>/$<TARGET_FILE_BASE_NAME:${_live}>.map>")
+            if(_live_images)
+                string(APPEND _live_images ",\n")
+            endif()
+            string(APPEND _live_images
+                "    {\"Target\": \"${_live}\", \"Image\": \"$<TARGET_FILE:${_live}>\", "
+                "\"Map\": \"$<TARGET_FILE_DIR:${_live}>/$<TARGET_FILE_BASE_NAME:${_live}>.map\"}")
+        endforeach()
+        file(GENERATE OUTPUT "$<TARGET_FILE_DIR:Editor>/LiveCoding.json" CONTENT
+"{
+  \"BuildDir\": \"${CMAKE_BINARY_DIR}\",
+  \"CompileCommands\": \"${CMAKE_BINARY_DIR}/compile_commands.json\",
+  \"SourceRoots\": [\"${CMAKE_SOURCE_DIR}/Desert\", \"${CMAKE_SOURCE_DIR}/Editor/Source\"],
+  \"Images\": [
+${_live_images}
+  ]
+}
+")
+    endif()
 endfunction()
 
 # Records sources that belong to a platform other than this host's and are therefore in no target here.
@@ -794,16 +935,16 @@ function(desert_ascii_characterset target)
 endfunction()
 
 # A vendored target optimised in EVERY configuration (MSVC /O2 /Oi /Gy /GF, clang -O3)
-# and without the Debug runtime checks /O2 cannot be combined with (no /RTC1). Applied per target by
+# and without the DebugGame runtime checks /O2 cannot be combined with (no /RTC1). Applied per target by
 # desert_finalize_targets().
 function(desert_optimize_speed target)
     set_property(TARGET ${target} PROPERTY DESERT_OPTIMIZE_SPEED ON)
 endfunction()
 
-# A runtime library compiled for whole-program optimisation under DESERT_LTCG (/GL /Gw /Ob3, Release and Shipping).
+# A runtime library compiled for whole-program optimisation in Shipping (/GL /Gw /Ob3, archived by lib /LTCG).
 # Applied per target, with its split parts, by desert_finalize_targets().
 function(desert_ltcg target)
-    set_property(TARGET ${target} PROPERTY DESERT_LTCG ON)
+    set_property(TARGET ${target} PROPERTY DESERT_WHOLE_PROGRAM ON)
 endfunction()
 
 # A vendored library that picks its instruction set itself (a cpuid dispatch, an ISA-specific build): no
@@ -813,7 +954,7 @@ function(desert_own_isa_dispatch target)
     set_property(TARGET ${target} PROPERTY DESERT_OWN_ISA_DISPATCH ON)
 endfunction()
 
-# DESERT_MIMALLOC: mimalloc.dll as the process allocator of the executable <target>, Release and Shipping
+# DESERT_MIMALLOC: mimalloc.dll as the process allocator of the executable <target>, Development and Shipping
 # (cmake/ThirdParty/Mimalloc.cmake). It must be the executable's FIRST import, so the redirect is in place before
 # any other module allocates: its import library goes into LINK_OPTIONS, which the MSVC link rule writes before
 # every link library, and /INCLUDE:mi_version keeps the import although no source calls mimalloc. Nothing includes
@@ -822,7 +963,7 @@ function(desert_link_mimalloc target)
     if(NOT DESERT_MIMALLOC)
         return()
     endif()
-    set(_on "$<NOT:$<CONFIG:Debug>>")
+    set(_on "$<NOT:$<CONFIG:DebugGame>>")
     target_link_options(${target} PRIVATE "$<${_on}:$<TARGET_LINKER_FILE:Mimalloc>;/INCLUDE:mi_version>")
     # The build order and the relink when mimalloc.lib changes; the same import library again in the link list.
     target_link_libraries(${target} PRIVATE "$<${_on}:Mimalloc>")
@@ -858,9 +999,8 @@ function(desert_platform_defines target)
     endif()
 endfunction()
 
-# The target is absent from that configuration's build. Ninja
-# Multi-Config (the presets' generator) honours a per-configuration EXCLUDE_FROM_ALL; the target stays declared,
-# so a build that names it explicitly still builds it.
+# The target is absent from that configuration's build tree (EXCLUDE_FROM_ALL in the tree whose CMAKE_BUILD_TYPE is
+# <config>); the target stays declared, so a build that names it explicitly still builds it.
 function(desert_remove_configuration target config)
     set_property(TARGET ${target} PROPERTY EXCLUDE_FROM_ALL "$<CONFIG:${config}>")
 endfunction()

@@ -3,9 +3,9 @@
 // Ported from UE 5.8 Engine/Source/Runtime/Foliage/Public/FoliageType.h (UFoliageType::CullDistance, an
 // FInt32Interval: instances fade between Min and Max and are culled beyond Max; Max = 0 never culls), adapted:
 // UE fades with a per-pixel dither in the material; here the fade drops a per-INSTANCE share on the CPU, in
-// the ISM loops that already cull by frustum. A stable hash of the instance's index is its fade threshold, so
-// the thinning grows smoothly with distance, never flickers while the camera stands still, and needs no new
-// shader input or pass. Units are centimetres.
+// the ISM loops that already cull by frustum. A stable hash of the instance's COMPONENT index
+// (ComponentInstanceIndex; the GPU cull reads it as GpuSceneInstance::ComponentInstance) is its fade threshold,
+// so the thinning grows smoothly with distance and never flickers while the camera stands still. Units are centimetres.
 
 #include <Common/Core/Math/AABB.hpp>
 
@@ -66,6 +66,24 @@ namespace Desert::Graphic
         return static_cast<float>( word >> 8u ) * ( 1.0f / 16777216.0f );
     }
 
+    /// Whether instance @p index is drawn when only @p density of a field is
+    /// (Foliage.InstanceDensityScalePercent). A second hash than the fade's, so a thinned field
+    /// still fades over its whole band.
+    [[nodiscard]] inline bool KeepsInstanceAtDensity( const uint32_t index, const float density )
+    {
+        return density >= 1.0f || InstanceFadeThreshold( index ^ 0x9E3779B9u ) < density;
+    }
+
+    /// The component's own index of transform @p i of an ISM's drawn list: @p componentIds when the density
+    /// thinned the field or a displacement split it (InstancedMeshRenderData::InstanceIds, parallel to the
+    /// transforms), else @p i itself. The fade hash is seeded with it, so a density change keeps every instance's
+    /// fade threshold (GpuSceneInstance::ComponentInstance is the GPU cull's twin).
+    [[nodiscard]] inline uint32_t ComponentInstanceIndex( const std::vector<uint32_t>* componentIds,
+                                                          const std::size_t i )
+    {
+        return componentIds != nullptr ? ( *componentIds )[i] : static_cast<uint32_t>( i );
+    }
+
     /// Whether instance @p index at @p instancePosition is drawn from @p viewPosition. Nearer than Min: always.
     /// From Max on: never. Between: the fade t = (d - Min) / (Max - Min) drops every instance whose threshold
     /// lies below t, so the share drawn falls linearly from all to none across the band.
@@ -119,6 +137,7 @@ namespace Desert::Graphic
     }
 
     inline void CollectIsmInstances( const std::vector<glm::mat4>& transforms,
+                                     const std::vector<uint32_t>* componentIds,
                                      const Common::Math::AABB& localBounds, const Core::Frustum& frustum,
                                      const InstanceCullDistance& cull, const InstanceWind& wind,
                                      const Geometry::LODView& cullView, const Geometry::LODView& lodView,
@@ -128,6 +147,7 @@ namespace Desert::Graphic
     {
         visible.clear();
         levels.clear();
+        // @p componentIds: the component's index of each transform (ComponentInstanceIndex), the fade's seed.
         // @p indices: each kept instance's index in @p transforms, in kept order (an ISM drawn by GpuScene id,
         // MeshRenderer's IsmViewCull::Indices); null for a caller that keeps the transforms only.
         if ( indices != nullptr )
@@ -148,7 +168,7 @@ namespace Desert::Graphic
         {
             const std::size_t lanes = std::min<std::size_t>( 4u, transforms.size() - first );
             for ( std::size_t lane = 0; lane < lanes; ++lane )
-                reaches[lane] = IsmInstanceReach( lensCull, static_cast<uint32_t>( first + lane ),
+                reaches[lane] = IsmInstanceReach( lensCull, ComponentInstanceIndex( componentIds, first + lane ),
                                                   transforms[first + lane], localBounds, wind, cullView.Origin );
             const uint32_t inView = frustum.IntersectsEach4( first, transforms.size(), boxOf );
             for ( std::size_t lane = 0; lane < lanes; ++lane )

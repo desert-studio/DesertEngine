@@ -15,30 +15,8 @@
 #define SURFACE_CACHE_CARD_DIRECTIONS 6u
 #define SURFACE_CACHE_MAX_CARDS_PER_MESH 32u
 
-// std430 — must match SurfaceCache::CardPayload (96 bytes).
-struct SurfaceCard {
-    vec4  worldToLocal[3]; // rows of world -> card rotation in xyz; the card origin (world, cm) in w
-    vec4  localExtent;     // xyz = half size in card space (z = depth range); w = texel size (cm)
-    uvec4 pages;           // x = SizeInPages (x | y << 16), y = PageTableOffset, z = HiResSizeInPages, w = HiResPageTableOffset
-    uvec4 info;            // x = packed (see SurfaceCardDirection et al.), y = mesh cards index
-};
-
-// std430 — must match SurfaceCache::CardPagePayload (80 bytes).
-struct SurfaceCardPage {
-    uvec4 card;                // x = card index, y = mapped, z = 1 when captured this frame, w = 0
-    vec4  cardUVRect;          // the page in card UV
-    vec4  physicalAtlasUVRect; // the page in atlas UV
-    vec4  texelScale;          // xy = card UV texel scale, zw = atlas UV texel scale
-    uvec4 updates;             // last direct / radiosity update frames, radiosity / direct temporal indices
-};
-
-// std430 — must match SurfaceCache::MeshCardsPayload (112 bytes).
-struct MeshCards {
-    vec4  worldToLocal[3]; // as SurfaceCard
-    uvec4 cards;           // x = first card, y = card count, z = flags (bit 0 heightfield, bit 1 mostly two-sided)
-    uvec4 cardLookup[2];   // per direction, the mask of the cards facing it: [0].xyzw = 0..3, [1].xy = 4..5
-    vec4  fallbackAlbedo;  // rgb = what a hit outside card coverage is shaded with
-};
+// SurfaceCard, SurfaceCardPage, MeshCards, SurfaceCacheInstance (Common/SurfaceCacheSampling.glslh's table).
+#include <Generated/GI/SurfaceCache.glslh> // GlobalIllumination/SurfaceCacheLayout.hpp
 
 // ---- The packed card word (UE GetLumenCardData, Packed0W: same bits) ----------------------------------------
 uvec2 SurfaceCardResLevelXYBias( SurfaceCard card )

@@ -442,15 +442,19 @@ namespace Desert::Graphic::System
         m_LocalShadowRows.clear();
         m_LocalRedraws.clear();
         m_LocalCachePlans.clear();
-        for ( auto& point : points )
+        // The light's own CastShadows (kLightShadowCasts) is view-independent: the path tracer and the GI hits read
+        // it whatever this view draws. Every "casts in this view" below ORs in kLightShadowInView.
+        for ( std::size_t i = 0; i < points.size(); ++i )
         {
-            point.ShadowView   = kNoLocalShadowView;
-            point.ShadowCaster = 0;
+            points[i].ShadowView = kNoLocalShadowView;
+            points[i].ShadowFlags =
+                 i < pointShadows.size() && pointShadows[i].CastShadows ? ShaderProtocols::kLightShadowCasts : 0;
         }
-        for ( auto& spot : spots )
+        for ( std::size_t i = 0; i < spots.size(); ++i )
         {
-            spot.ShadowView   = kNoLocalShadowView;
-            spot.ShadowCaster = 0;
+            spots[i].ShadowView = kNoLocalShadowView;
+            spots[i].ShadowFlags =
+                 i < spotShadows.size() && spotShadows[i].CastShadows ? ShaderProtocols::kLightShadowCasts : 0;
         }
 
         // MegaLights (Shadows Stochastic) traces every local light's visibility (System::MegaLightsRenderer): each
@@ -459,9 +463,11 @@ namespace Desert::Graphic::System
         if ( m_ShadowsEnabled && ( !shadowMaps || onlyLights != nullptr ) )
         {
             for ( std::size_t i = 0; i < points.size() && i < pointShadows.size(); ++i )
-                points[i].ShadowCaster = pointShadows[i].CastShadows ? 1 : 0;
+                if ( pointShadows[i].CastShadows )
+                    points[i].ShadowFlags |= ShaderProtocols::kLightShadowInView;
             for ( std::size_t i = 0; i < spots.size() && i < spotShadows.size(); ++i )
-                spots[i].ShadowCaster = spotShadows[i].CastShadows ? 1 : 0;
+                if ( spotShadows[i].CastShadows )
+                    spots[i].ShadowFlags |= ShaderProtocols::kLightShadowInView;
         }
         if ( !shadowMaps )
             return;
@@ -520,7 +526,7 @@ namespace Desert::Graphic::System
             if ( onlyLights != nullptr && !onlyLights->contains( s.SourceId ) )
                 continue;
             // It casts in this view: a view refused below leaves it a caster the maps do not cover.
-            points[i].ShadowCaster = 1;
+            points[i].ShadowFlags |= ShaderProtocols::kLightShadowInView;
             const float r = screenRadius( points[i].Position, points[i].Radius );
             made.push_back( { static_cast<uint64_t>( s.SourceId ) * 2u, false, i,
                               LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 8u ), r,
@@ -534,7 +540,7 @@ namespace Desert::Graphic::System
                 continue;
             if ( onlyLights != nullptr && !onlyLights->contains( s.SourceId ) )
                 continue;
-            spots[i].ShadowCaster = 1;
+            spots[i].ShadowFlags |= ShaderProtocols::kLightShadowInView;
             const float r = screenRadius( spots[i].Position, spots[i].Range );
             made.push_back( { static_cast<uint64_t>( s.SourceId ) * 2u + 1u, true, i,
                               LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 4u ), r,
@@ -671,7 +677,8 @@ namespace Desert::Graphic::System
                      "first; {}.",
                      refused, atlasSide, atlasSide, kMinLocalShadowTile, kMinLocalShadowTile,
                      onlyLights != nullptr ? "they are ray traced with one hard ray"
-                                           : "whatever reads the maps draws them UNSHADOWED" );
+                                           : "the surfaces trace the screen depth for them, the volumes draw them "
+                                             "UNSHADOWED" );
         }
     }
 

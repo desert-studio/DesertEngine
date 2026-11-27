@@ -5,7 +5,7 @@
         "Versions": {
             "MATL": 7
         },
-        "Dependencies": ["bcefeba392c545f6b95dcb1c2554b7a8", "8fc480b103b1d6b8a324ca01e7863f9c", "2086ff8d8f71cd90d6fa58c8f13334ff", "2b88bbd9ee3371ae823710fcaf671563", "3ca7e80d282f3c1e7229a3632c9dcd90"]
+        "Dependencies": ["bcefeba392c545f6b95dcb1c2554b7a8", "8fc480b103b1d6b8a324ca01e7863f9c", "2086ff8d8f71cd90d6fa58c8f13334ff", "6c1f0b7de2594a38b7f0a4c35d18e602", "a94e37c1580d4f6b9e62d1f7083b5ac4"]
     },
     "Shader": {
         "Guid": "bcefeba392c545f6b95dcb1c2554b7a8",
@@ -37,14 +37,6 @@
             "Value": [0.05, 0.0, 0.0, 0.0]
         },
         {
-            "Name": "RefractionStrength",
-            "Value": [40.0, 0.0, 0.0, 0.0]
-        },
-        {
-            "Name": "FoamTint",
-            "Value": [0.92, 0.95, 0.95, 1.0]
-        },
-        {
             "Name": "FoamTileSize",
             "Value": [350.0, 0, 0, 0]
         },
@@ -59,10 +51,6 @@
         {
             "Name": "FoamDecaySeconds",
             "Value": [3.0, 0, 0, 0]
-        },
-        {
-            "Name": "FoamBreakerIndex",
-            "Value": [0.78, 0, 0, 0]
         }
     ],
     "Textures": [
@@ -77,14 +65,14 @@
             "Path": "assets:Water/Textures/T_WaterRipple_B_N.detex"
         },
         {
-            "Name": "FoamTexture",
-            "Guid": "2b88bbd9ee3371ae823710fcaf671563",
-            "Path": "assets:Water/Textures/T_WaterFoam_C.detex"
+            "Name": "FoamHeight",
+            "Guid": "6c1f0b7de2594a38b7f0a4c35d18e602",
+            "Path": "assets:Water/Textures/T_WaterFoam_H.detex"
         },
         {
-            "Name": "FoamStructure",
-            "Guid": "3ca7e80d282f3c1e7229a3632c9dcd90",
-            "Path": "assets:Water/Textures/T_WaterFoam_S.detex"
+            "Name": "FoamNormal",
+            "Guid": "a94e37c1580d4f6b9e62d1f7083b5ac4",
+            "Path": "assets:Water/Textures/T_WaterFoam_N.detex"
         }
     ],
     "CloudAssets": []

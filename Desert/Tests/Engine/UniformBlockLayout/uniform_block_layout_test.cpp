@@ -12,7 +12,6 @@
 // shader name at the reflected offset (UploadRegisteredProperties + FlushFieldFilledUniformBuffers), so member
 // order on either side is free by design; the census there is the name + type set (mutation: a member renamed,
 // dropped or retyped on one side -> red).
-#include <Engine/Graphic/Systems/Scene/Deferred/SSAOUniforms.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
 
@@ -87,21 +86,6 @@ TEST( UniformBlockLayout, DenoiserViewUBIsTheDenoisersViewUniforms )
                       { "InverseJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) } },
                     sizeof( T ) );
     EXPECT_EQ( sizeof( T ), 192u );
-}
-
-TEST( UniformBlockLayout, SSAOUBIsTheSSAOUniformsStruct )
-{
-    using T = Desert::Graphic::System::SSAOUniforms::SSAOUBData;
-    ExpectTwin( "SSAO.shader", "SSAOUB",
-                {
-                     { "InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
-                     { "WorldToView", offsetof( T, WorldToView ) },
-                     { "Target", offsetof( T, Target ) },
-                     { "Horizon", offsetof( T, Horizon ) },
-                     { "Temporal", offsetof( T, Temporal ) },
-                },
-                sizeof( T ) );
-    EXPECT_EQ( sizeof( T ), 176u );
 }
 
 TEST( UniformBlockLayout, DeferredUBHasExactlyTheDeferredLightingMaterialsProperties )

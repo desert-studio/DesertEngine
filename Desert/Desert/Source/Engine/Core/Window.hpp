@@ -11,6 +11,7 @@
 namespace Desert::Graphic
 {
     class SwapChain;
+    class RendererContext;
 }
 
 namespace Desert
@@ -161,7 +162,9 @@ namespace Desert
 
         // The frame's own result, passed through rather than swallowed. See Renderer.cpp: this link
         // declared them void, which is one of the three places a failed present used to vanish.
-        [[nodiscard]] virtual Common::BoolResultStr PrepareNextFrame() const  = 0;
+        // The window's frame boundary on @p context (the one Application made from this window): the caller
+        // hands it in, so the window, a RenderCore type, reaches no engine-level locator.
+        [[nodiscard]] virtual Common::BoolResultStr PrepareNextFrame( const Graphic::RendererContext& context ) const = 0;
         [[nodiscard]] virtual Common::BoolResultStr PresentFinalImage() const = 0;
 
         virtual std::shared_ptr<Graphic::SwapChain> GetWindowSwapChain() = 0;
@@ -187,8 +190,7 @@ namespace Desert
             return false;
         }
 
-        virtual Common::ResultStr<bool>
-        SetupSwapChain( ) = 0;
+        virtual Common::ResultStr<bool> SetupSwapChain( const std::shared_ptr<Engine::Device>& device ) = 0;
 
         static std::shared_ptr<Window> Create( const WindowSpecification& specification );
     };

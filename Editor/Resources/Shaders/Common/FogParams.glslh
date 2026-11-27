@@ -1,11 +1,6 @@
-// THE height-fog parameter block, byte for byte. The C++ side of this layout is Graphic::FogGpuPayload
-// (Engine/Graphic/Fog/FogPayload.hpp); the two are kept in step by static_asserts on every offset there.
-// A layout declared twice diverges the first time somebody inserts a field in the middle of one of them,
-// and the failure is a corrupted frame with no error message — the asserts turn it into a build error.
-//
-// Raw `layout(std430, ...)` rather than the ReadBuffer(n) sugar, for the same reason SkyScattering.glslh
-// gives: this header must also compile under plain glslc, and raw layout is the sanctioned escape for
-// structural GLSL.
+// THE height-fog parameter block. Its layout is declared once, in C++ (Graphic::FogGpuPayload,
+// Engine/Graphic/Fog/FogLayout.hpp); Tools/ShaderProtocolGen generates the block below at build time, with the
+// raw `layout(std430, binding = FOG_PARAMS_BINDING)` this header needs to compile under plain glslc too.
 //
 // UNITS: everything here is already in KILOMETRES and per-kilometre coefficients — PackFogParams
 // converted once, on the C++ side. Nothing in this block is in world units.
@@ -13,30 +8,10 @@
 #ifndef FOG_PARAMS_GLSLH
 #define FOG_PARAMS_GLSLH
 
-// The binding the fog parameter buffer is bound at. ComputePipeline::SetStorageBuffer takes the binding
-// as an explicit argument and does not consult reflection, so this number and Graphic::kFogParamsBinding
-// must be the same one — a mismatch lands the buffer on another descriptor, not on an error.
-// 1 in the opaque fog compute (Graphic::kFogParamsBinding); a surface cell defines it first to its scene-read slot
-// (Mesh/Surface/SceneFog.glslh, Core::kSceneFogParamsBinding) and finds the same buffer by the block's name.
-#ifndef FOG_PARAMS_BINDING
-#define FOG_PARAMS_BINDING 1
-#endif
-
-layout(std430, binding = FOG_PARAMS_BINDING) readonly buffer FogParamsBuffer
-{
-    vec4 FogSun;          // xyz = TOWARD the sun (normalized), w = DirectionalInscatteringExponent
-    vec4 FogDirectional;  // rgb = directional lobe colour,     w = directional start distance (km)
-    vec4 FogInscattering; // rgb = fog inscattering colour,     w = 1 - FogMaxOpacity
-    vec4 FogLayer0;       // x = density /km, y = height falloff /km, z = fog height (km), w = start distance (km)
-    vec4 FogLayer1;       // x = density /km, y = height falloff /km, z = fog height (km), w = cutoff distance (km; 0 = off)
-    vec4 FogAmbient;      // rgb = sky-ambient contribution scale, w = 1 when the distant sky light must be sampled
-    vec4 FogVolumetric0;  // x = froxel edge (px), y/z = froxels across/down, w = 1 when the volumetric fog is bound
-    vec4 FogVolumetric1;  // xyz = B, O, S of the froxel slice mapping (cm), w = slices
-    vec4 FogView;         // xy = scene view size (px), z = AP volume depth (km), w = AP view-distance scale
-    vec4 FogGates;        // x = 1 when the AP volume is sampled, y = 1 when the height fog is enabled, z = ViewFrame::PreExposure
-    vec4 FogForward;      // xyz = camera forward (world, normalized)
-    vec4 FogCamera;       // xyz = camera position (world units)
-};
+// FOG_PARAMS_BINDING defaults to Graphic::kFogParamsBinding (the opaque fog compute); a surface cell defines it
+// first to its scene-read slot (Mesh/Surface/SceneFog.glslh, Core::kSceneFogParamsBinding) and finds the same
+// buffer by the block's name.
+#include <Generated/Fog/FogParams.glslh>
 
 // Unpacks the block into the struct Common/HeightFog.glslh evaluates (include that first).
 //

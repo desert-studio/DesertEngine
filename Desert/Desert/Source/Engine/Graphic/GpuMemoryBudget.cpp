@@ -49,6 +49,11 @@ namespace Desert::Graphic
         return budget;
     }
 
+    GpuMemoryBudget::StreamingPoolStats& GpuMemoryBudget::TextureStreamingPool()
+    {
+        return m_TextureStreamingPool;
+    }
+
     GpuMemoryBudget::Client::Client( std::string name, const float weight )
          : m_Id( GpuMemoryBudget::Get().Register( std::move( name ), weight ) )
     {
@@ -224,7 +229,7 @@ namespace Desert::Graphic
             m_Pool     = size / kUnmeasuredHeapDivisor;
             m_Measured = true;
             LOG_WARN(
-                 "[GpuMemoryBudget] the device reports no live budget (VK_EXT_memory_budget): the pool is fixed "
+                 "[GpuMemoryBudget] the device reports no live budget (driver memory budget query): the pool is fixed "
                  "at {:.0f} MB of its {:.0f} MB device-local heap",
                  MB( m_Pool ), MB( size ) );
             Distribute();

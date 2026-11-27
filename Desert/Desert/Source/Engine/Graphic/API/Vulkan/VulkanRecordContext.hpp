@@ -110,21 +110,10 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<VkDescriptorSet> Sets; // bound at set 0 on; the capacity is kept across forgets
         uint64_t                     Epoch = 0;
 
-        static void ForeignBind() noexcept
-        {
-            ++t_ForeignBinds;
-        }
+        static void ForeignBind() noexcept;
         // Whether @p commandBuffer holds this state as it was bound (no foreign compute bind since); when it does
         // not, the state is forgotten and recorded as @p commandBuffer's.
-        [[nodiscard]] bool On( VkCommandBuffer commandBuffer ) noexcept
-        {
-            if ( CommandBuffer == commandBuffer && Epoch == t_ForeignBinds )
-                return true;
-            Forget();
-            CommandBuffer = commandBuffer;
-            Epoch         = t_ForeignBinds;
-            return false;
-        }
+        [[nodiscard]] bool On( VkCommandBuffer commandBuffer ) noexcept;
         void Forget() noexcept
         {
             CommandBuffer = VK_NULL_HANDLE;
@@ -134,7 +123,7 @@ namespace Desert::Graphic::API::Vulkan
         }
 
     private:
-        static inline thread_local uint64_t t_ForeignBinds = 0;
+        static thread_local uint64_t t_ForeignBinds;
     };
 
     struct VulkanRecordContext
@@ -170,19 +159,11 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         // The context bound to the calling thread, or null: the frame's context applies.
-        [[nodiscard]] static VulkanRecordContext* Bound() noexcept
-        {
-            return t_Bound;
-        }
+        [[nodiscard]] static VulkanRecordContext* Bound() noexcept;
         // Binds @p context (null: none) to the calling thread; returns what was bound, for Bind( previous ).
-        static VulkanRecordContext* Bind( VulkanRecordContext* context ) noexcept
-        {
-            VulkanRecordContext* const previous = t_Bound;
-            t_Bound                             = context;
-            return previous;
-        }
+        static VulkanRecordContext* Bind( VulkanRecordContext* context ) noexcept;
 
     private:
-        static inline thread_local VulkanRecordContext* t_Bound = nullptr;
+        static thread_local VulkanRecordContext* t_Bound;
     };
 } // namespace Desert::Graphic::API::Vulkan

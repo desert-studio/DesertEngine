@@ -3,7 +3,7 @@
 #include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 
-#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetGuid.hpp>
 
 #include <string>
 

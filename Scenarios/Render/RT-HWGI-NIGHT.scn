@@ -1,0 +1,75 @@
+# RT-HWGI-NIGHT (design F:/aftmp/DESIGN-RT-HWGI-NIGHT.md, Приёмка): the Bistro night under hardware-traced GI, opened right
+# after the day street. The GI histories are keyed by the sky they were lit with (GlobalIllumination::LightingHistoryKey:
+# sun, moon, sky cube identity, sky gain and yaw), and the sky light is the world's (SceneRenderState::Clear remakes it).
+# Numbers, 8-bit frame mean over the whole frame unless stated, same camera and EV100 in every frame:
+# C1 hwgi_night_no_blue mean within +-10 % of ss_night and of S_pt (before: S_hw 225 vs S_pt 84 full-frame mean; 134 was its red channel).
+# C2 hwgi_open_30 <= hwgi_night_no_blue x 1.10; editor.log after the open has NO "deg from the captured one" line, and
+#    its first "Sky light recapture begins" is the whole capture, not the 54-slice one.
+# C3 day_B16 mean |d| <= 1/255 against the pre-change build.
+# C4 profile-dump after the TimeOfDay 22 recapture: RadianceCache + SurfaceCache GPU <= a sun-step frame of the
+#    pre-change build; the steady-state GPU frame (after hwgi_night_no_blue) +-0.1 ms of before; [Memory] census +-1 MB
+#    once the parked sky light retired.
+# C5 (D4, reported, not pass/fail): gi_shield, the GI view of the shield, B/G against S_pt's indirect, same albedo.
+# scrub_night: mean = hwgi_night_no_blue +-5 %, taken >= 120 frames after the log's "sky bake 0x... -> 0x..." line for
+# the night cube. gain_night: mean |d| per channel <= 3 % of hwgi_night_no_blue.
+# ss_night is taken in the same world after the HW frames (not by a second day->night open): the night scene carries
+# the exposure edits, and reopening it would stop at the unsaved-scene question. Screen-space GI keeps no world
+# history, so the method switch gives the same reference as the open.
+# The Bistro night sky is the atmosphere (no SkyboxComponent): its gain step is SkyAtmosphereData.SkyBrightness, a
+# recapture (a new cube identity); the SkyLook gain/yaw half of the key is reached only by a panorama sky.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+Когда --subject viewport set Camera.Position -20,250,330
+Когда --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Когда frames 240
+Тогда-вид day_B16 [day_B16] the B16 day street at the level's methods: mean |d| <= 1/255 against the same frame of the pre-change build (C3)
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда frames 30
+Когда run Scene "Open Scene GI_Bistro_Night.desce"
+Когда --subject viewport set Camera.Position -20,250,330
+Когда --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure false
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ManualExposureEV100 0.5260688
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.EnableBloom false
+Когда set 7130000000000010000 ExponentialHeightFogData.Enabled false
+Когда frames 30
+Тогда-вид hwgi_open_30 [hwgi_open_30] 30 frames after the open the street is already night: mean <= hwgi_night_no_blue x 1.10; лог: after the open no "deg from the captured one", the first "Sky light recapture begins" is the whole capture (C2)
+Когда frames 180
+Тогда-вид hwgi_night_no_blue [hwgi_night_no_blue] HW GI right after the day street: no white-blue sheet, the shield no brighter than in ss_night; mean within +-10 % of ss_night and of S_pt (C1)
+Когда profile-dump
+Когда run View "View mode: Indirect Lighting (GI)"
+Когда frames 30
+Тогда-вид gi_shield [gi_shield] the GI term of the shield under HW GI: its B/G against S_pt's indirect, same albedo (C5, reported for D4)
+Когда run View "View mode: Lit"
+Когда run Quality "Quality: GlobalIllumination.Method ScreenSpace"
+Когда frames 210
+Тогда-вид ss_night [ss_night] the reference: screen-space GI, no world history; its mean is the C1/C2 reference
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда run Quality "Quality: PathTracing.Denoiser Off"
+Когда run Quality "Quality: PathTracing.SamplesPerPixel 64"
+Когда frames 200
+Тогда-вид S_pt [S_pt] the path tracer of this build: the C1 reference (full-frame mean 84.2 in scn-1126-123325; 134 is its red channel only)
+Когда run Quality "Quality: PathTracing.SamplesPerPixel Level"
+Когда run Quality "Quality: PathTracing.Denoiser Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда frames 180
+# D3: day -> night inside one world, no reload: the new night cube is a new identity, so both histories reset when it lands.
+Когда set 4576059197435775655 TimeOfDayData.TimeOfDay 12
+Когда frames 300
+Тогда-вид scrub_noon [scrub_noon] noon in the night world: the sun turned 150 deg at the scene's own intensity (22, a dim noon by content); the log shows the sky recapture and rebake after the turn (context for scrub_night)
+Когда set 4576059197435775655 TimeOfDayData.TimeOfDay 22
+Когда frames 300
+Тогда-вид scrub_night [scrub_night] back to 22:00 inside one world: no blue sheet; mean = hwgi_night_no_blue +-5 %; лог: the frame is >= 120 frames after "sky bake 0x... -> 0x..." for the night cube
+Когда profile-dump
+# D5: a sky gain step and back: the histories reset on the way up and on the way down.
+Когда set 4576059197435775655 SkyAtmosphereData.SkyBrightness 4
+Когда frames 120
+Когда set 4576059197435775655 SkyAtmosphereData.SkyBrightness 1
+Когда frames 180
+Тогда-вид gain_night [gain_night] after the sky gain x4 and back: equals hwgi_night_no_blue, mean |d| per channel <= 3 %
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Resolution.Percent Level"

@@ -170,16 +170,8 @@ float RESTIRRandom( ivec2 texel, uint frameIndex, uint use )
 
 #define RESTIR_PI 3.14159265358979
 
-// THE PASSES' PARAMETERS ("ReSTIRParamsUB"). std430 — must match GlobalIllumination::ReSTIRParamsPayload
-// (ReSTIRGather.hpp). 96 bytes.
-struct ReSTIRParams {
-    uvec4 extent;     // xy = the reservoir extent, z = the spatial samples, w = 0 (unused)
-    uvec4 frame;      // x = the frame index (the reservoir pixel's jitter, the random sequence)
-    vec4  tuning;     // x = temporal M cap, y = spatial radius (reservoir texels), z = depth tolerance, w = normal cos
-    vec4  jitter;     // xy = this frame's NDC jitter, zw = last frame's (the temporal reprojection)
-    vec4  rayClamp;   // x = the largest radiance a ray carries (absolute; ScreenProbeParams.rayClamp.x)
-    vec4  validation; // x = relative luminance change, y = relative hit distance change, z = luminance floor (abs)
-};
+// THE PASSES' PARAMETERS ("ReSTIRParamsUB"): GlobalIllumination::ReSTIRParamsPayload.
+#include <Generated/GI/ReSTIR.glslh> // GlobalIllumination/GILayout.hpp
 // A frame without the view's previous reservoirs runs no temporal pass and compiles the initial pass without its
 // validation rays (RESTIR_INITIAL_NO_HISTORY): no shader tests a 'history valid' flag (ReSTIRGather::AddPasses).
 

@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
-#include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Core/FrameManager.hpp>
@@ -9,32 +8,16 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Formats/MaterialLayout.hpp>
 
-#include <Engine/Graphic/API/Vulkan/VulkanMaterialBackend.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
-#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/Rhi/Rhi.hpp>
 
 #include <Engine/ShaderResources/ShaderResourcesManager.hpp>
 
 #include <cstring>
 #include <format>
-#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic
 {
-    namespace
-    {
-        // The push block of a Vulkan program, by the one function its pipeline's layout range uses.
-        uint32_t VulkanPushBlockSize( const std::shared_ptr<Shader>& shader )
-        {
-            if ( !shader )
-            {
-                return 0u;
-            }
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): Vulkan branch, Vulkan shader
-            auto* vulkanShader = static_cast<API::Vulkan::VulkanShader*>( shader.get() );
-            return ShaderResources::ShaderLayout::PushBlockSize( vulkanShader->GetShaderPushConstant() );
-        }
-    } // namespace
 
     MaterialExecutor::MaterialExecutor( std::string&& debugName, const std::shared_ptr<Shader>& shader,
                                         const Core::Formats::ShaderProgramMeta& parameterSchema,
@@ -165,12 +148,12 @@ namespace Desert::Graphic
         namespace SR = SceneResources;
         namespace SP = ShaderProtocols;
         m_SceneBlocks = SceneBlocks{
-             .Camera             = FindUniformBufferProperty( SP::Camera::Parameter.Name ),
+             .Camera             = FindUniformBufferProperty( SP::kCameraUBParameter.Name ),
              .Time               = FindUniformBufferProperty( SR::kTimeBlock.Name ),
              .PointLights        = FindStorageBufferProperty( SP::PointLight::Parameter.Name ),
              .SpotLights         = FindStorageBufferProperty( SP::SpotLight::Parameter.Name ),
              .DirectionLights    = FindUniformBufferProperty( SP::DirectionLight::Parameter.Name ),
-             .LightsMetadata     = FindUniformBufferProperty( SP::LightsMetadata::Parameter.Name ),
+             .LightsMetadata     = FindUniformBufferProperty( SP::kLightsMetadataParameter.Name ),
              .Shadow             = FindUniformBufferProperty( SR::kShadowBlock.Name ),
              .SkyLook            = FindUniformBufferProperty( kSkyLookBlock.Name ),
              .CloudShadow        = FindUniformBufferProperty( SR::kCloudShadowBlock.Name ),
@@ -489,52 +472,12 @@ namespace Desert::Graphic
     }
 
     std::unique_ptr<MaterialExecutor>
-    MaterialExecutor::Create( std::string&& debugName, const std::string& shaderName,
-                              const Core::Formats::ShaderProgramMeta* parameterSchema )
-    {
-        const auto& resolvedShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName );
-        if ( !resolvedShader )
-        {
-            LOG_ERROR( "Could not find the shader: {}", shaderName );
-            DESERT_VERIFY( false );
-        }
-
-        switch ( RendererAPI::GetAPIType() )
-        {
-            case RendererAPIType::None:
-                return nullptr;
-            case RendererAPIType::Vulkan:
-            {
-                return std::make_unique<MaterialExecutor>(
-                     std::move( debugName ), resolvedShader,
-                     parameterSchema != nullptr ? *parameterSchema : resolvedShader->GetProgramMeta(),
-                     std::make_unique<API::Vulkan::VulkanMaterialBackend>( resolvedShader ),
-                     VulkanPushBlockSize( resolvedShader ) );
-            }
-        }
-        DESERT_VERIFY( false, "Unknown RendererAPI" );
-        return nullptr;
-    }
-
-    std::unique_ptr<MaterialExecutor>
     MaterialExecutor::Create( std::string&& debugName, const std::shared_ptr<Shader>& shader,
                               const Core::Formats::ShaderProgramMeta* parameterSchema )
     {
-        switch ( RendererAPI::GetAPIType() )
-        {
-            case RendererAPIType::None:
-                return nullptr;
-            case RendererAPIType::Vulkan:
-            {
-                return std::make_unique<MaterialExecutor>(
-                     std::move( debugName ), shader,
-                     parameterSchema != nullptr ? *parameterSchema : shader->GetProgramMeta(),
-                     std::make_unique<API::Vulkan::VulkanMaterialBackend>( shader ),
-                     VulkanPushBlockSize( shader ) );
-            }
-        }
-        DESERT_VERIFY( false, "Unknown RendererAPI" );
-        return nullptr;
+        return std::make_unique<MaterialExecutor>(
+             std::move( debugName ), shader, parameterSchema != nullptr ? *parameterSchema : shader->GetProgramMeta(),
+             Renderer::GetInstance().Rhi().CreateMaterialBackend( shader ), shader->GetPushBlockSize() );
     }
 
     std::shared_ptr<UniformBufferProperty>

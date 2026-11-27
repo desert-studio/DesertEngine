@@ -1,5 +1,6 @@
 #include "ImportManager.hpp"
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
+#include <Engine/Core/WorkSink.hpp>
 
 
 #include "Assimp/AssimpImporter.hpp"
@@ -1017,18 +1018,21 @@ namespace Desert::Editor
         return m_TextureImporter->Import( path );
     }
 
-    size_t ImportManager::ImportLooseTextures( const Assets::ItemProgress& progress )
+    size_t ImportManager::ImportLooseTextures( ::Desert::Core::WorkSink* sink )
     {
         // IMPORT, NOT COOK (AF3c). A loose image dropped under `LooseTextureRoots()` becomes its `.detex`
         // asset here; its platform data is derived on first use (Assets::LoadTexturePlatformData -> the
         // builder this editor registers) or by the packager, and lives in the DDC, never beside the asset.
-        size_t                                   imported = 0;
-        const std::vector<std::filesystem::path> sources  = LooseTextureSources();
-        for ( std::size_t i = 0; i < sources.size(); ++i )
+        // Counted per candidate, not per source: telling a source from an asset's provenance opens the file, and
+        // on a cold disk that reading is most of this phase, so it runs inside the item the splash names.
+        size_t                                   imported   = 0;
+        const std::vector<std::filesystem::path> candidates = LooseTextureCandidates();
+        if ( sink )
+            sink->Expect( candidates.size() );
+        for ( const std::filesystem::path& source : candidates )
         {
-            const std::filesystem::path& source = sources[i];
-            Assets::ReportItem( progress, source.filename().string(), i, sources.size() );
-            if ( source.extension() == Assets::kTextureAssetExtension )
+            const ::Desert::Core::ScopedWorkItem item( sink, source.filename().string() );
+            if ( !IsLooseTextureSource( source ) || source.extension() == Assets::kTextureAssetExtension )
                 continue;
             if ( const auto asset = TextureImporter::ImportSourceAsset( source ); asset.IsSuccess() )
                 ++imported;

@@ -1,5 +1,5 @@
-# The editor libraries: the editor's five layered static libraries, which source
-# belongs to which, and the one way to link them.
+# The editor libraries: the editor's five layered module libraries (DLLs in Development/DebugGame, static in
+# Shipping: desert_module_library), which source belongs to which, and the one way to link them.
 #
 # Each source under Editor/Source/Editor/ belongs to the layer whose directory is the LONGEST prefix of its path;
 # a source in no layer, or a file directly under Editor/Source/ that no layer claims, fails configure.
@@ -8,11 +8,11 @@ include_guard(GLOBAL)
 
 set(DESERT_EDITOR_SOURCE_ROOT "${DESERT_ROOT}/Editor/Source")
 set(DESERT_EDITOR_LAYERS EditorCore EditorImport EditorWidgets EditorPanels EditorLevel)
-set(DESERT_EDITOR_LAYER_EditorCore_DIRS    Core Platform RenderSystems)
+set(DESERT_EDITOR_LAYER_EditorCore_DIRS    Core Platform RenderSystems LiveCoding)
 set(DESERT_EDITOR_LAYER_EditorImport_DIRS  Import Packaging)
 set(DESERT_EDITOR_LAYER_EditorWidgets_DIRS Widgets Splash ImGuiIntegration)
 set(DESERT_EDITOR_LAYER_EditorPanels_DIRS  Panels)
-set(DESERT_EDITOR_LAYER_EditorLevel_DIRS   LevelEditor Builders Baking Generated Panels/SceneProperties Panels/SceneHierarchy Panels/Modeling)
+set(DESERT_EDITOR_LAYER_EditorLevel_DIRS   LevelEditor Builders Baking Panels/SceneProperties Panels/SceneHierarchy Panels/Modeling)
 set(DESERT_EDITOR_LAYER_EditorLevel_ROOT_FILES EditorLayer.cpp EditorLayer.hpp)
 set(DESERT_EDITOR_OBJC_LIB EditorObjC)
 set(DESERT_EDITOR_ENTRY_POINT Sandbox.cpp Sandbox.hpp)
@@ -22,10 +22,23 @@ foreach(layer IN LISTS DESERT_EDITOR_LAYERS)
     set(DESERT_EDITOR_LAYER_${layer}_FILES "")
 endforeach()
 
-file(GLOB_RECURSE _editor_files LIST_DIRECTORIES false CONFIGURE_DEPENDS RELATIVE "${DESERT_EDITOR_SOURCE_ROOT}/Editor"
-     "${DESERT_EDITOR_SOURCE_ROOT}/Editor/*.cpp" "${DESERT_EDITOR_SOURCE_ROOT}/Editor/*.hpp"
-     "${DESERT_EDITOR_SOURCE_ROOT}/Editor/*.h" "${DESERT_EDITOR_SOURCE_ROOT}/Editor/*.inl")
-list(SORT _editor_files)
+# The editor's files are the committed list Editor/Source/Sources.cmake (scripts/Dev/sources_sync.py), never a
+# glob: Editor/... C++ files go to the layers, Editor/... Objective-C++ to EditorObjC, the root files to the claim check.
+desert_sources(_editor_all "${DESERT_EDITOR_SOURCE_ROOT}" RELATIVE)
+set(_editor_files "")
+set(_editor_root_files "")
+set(DESERT_EDITOR_OBJC_FILES "")
+foreach(rel IN LISTS _editor_all)
+    if(rel MATCHES "^Editor/(.+\\.(cpp|hpp|h|inl))$")
+        list(APPEND _editor_files "${CMAKE_MATCH_1}")
+    elseif(rel MATCHES "^Editor/.+\\.mm$")
+        list(APPEND DESERT_EDITOR_OBJC_FILES "${DESERT_EDITOR_SOURCE_ROOT}/${rel}")
+    elseif(NOT rel MATCHES "/")
+        list(APPEND _editor_root_files "${rel}")
+    else()
+        message(FATAL_ERROR "cmake/DesertEditorLibs.cmake: Editor/Source/${rel} is in no editor library")
+    endif()
+endforeach()
 foreach(rel IN LISTS _editor_files)
     set(_best "")
     set(_best_len -1)
@@ -53,7 +66,6 @@ foreach(layer IN LISTS DESERT_EDITOR_LAYERS)
 endforeach()
 
 # Every file directly under Editor/Source/ must be claimed.
-file(GLOB _editor_root_files LIST_DIRECTORIES false RELATIVE "${DESERT_EDITOR_SOURCE_ROOT}" "${DESERT_EDITOR_SOURCE_ROOT}/*")
 foreach(file IN LISTS _editor_root_files)
     set(_claimed OFF)
     if(file IN_LIST DESERT_EDITOR_ENTRY_POINT OR file STREQUAL "EditorPCH.hpp" OR file STREQUAL "EditorPCH.cpp")
@@ -69,21 +81,34 @@ foreach(file IN LISTS _editor_root_files)
     endif()
 endforeach()
 
-file(GLOB_RECURSE DESERT_EDITOR_OBJC_FILES LIST_DIRECTORIES false CONFIGURE_DEPENDS "${DESERT_EDITOR_SOURCE_ROOT}/Editor/*.mm")
-list(SORT DESERT_EDITOR_OBJC_FILES)
-
-# DesertEditorLibs.Link(wholeArchive): the five layers top first (EditorObjC ahead of them on macOS); with
-# WHOLE_ARCHIVE every object reaches the binary (component editors register themselves from static initialisers).
+# DesertEditorLibs.Link(): the five layers top first (EditorObjC ahead of them on macOS). Component editors register
+# themselves from static initialisers, so every object of a layer must reach the process. A layer DLL links all of
+# its objects and runs their initialisers when it loads. The Shipping monolith (DESERT_MONOLITHIC) links the layers
+# as archives, from which a linker takes only the objects something references: there the archives are linked whole
+# (/WHOLEARCHIVE, -force_load, --whole-archive), the static-link spelling of "every object of the module".
 function(desert_link_editor_libs target)
-    cmake_parse_arguments(ARG "WHOLE_ARCHIVE" "" "" ${ARGN})
     set(_names ${DESERT_EDITOR_LAYERS})
     list(REVERSE _names)
     if(DESERT_IS_MACOS)
         list(PREPEND _names ${DESERT_EDITOR_OBJC_LIB})
     endif()
-    if(ARG_WHOLE_ARCHIVE)
-        desert_link_whole_archive(${target} ${_names})
-    else()
-        target_link_libraries(${target} PRIVATE ${_names})
+    foreach(lib IN LISTS _names)
+        if(DESERT_MONOLITHIC)
+            target_link_libraries(${target} PRIVATE "$<LINK_LIBRARY:WHOLE_ARCHIVE,${lib}>")
+        else()
+            target_link_libraries(${target} PRIVATE ${lib})
+        endif()
+    endforeach()
+endfunction()
+
+# A tool that runs editor code (GamePackager, TextureCook, AssetClosure): the editor libraries (not whole: nothing in a
+# tool needs their self-registering editors), the third-party libraries they are built against and the engine
+# (desert_link_engine_tool) - linked, never compiled a second time into the tool (B-TOOLS).
+function(desert_link_editor_tool target)
+    desert_link_editor_libs(${target})
+    target_link_libraries(${target} PRIVATE Assimp ImGui ImGuiNodeEditor)
+    if(IS_DIRECTORY "${DESERT_ROOT}/ThirdParty/dlib")
+        target_link_libraries(${target} PRIVATE Dlib)
     endif()
+    desert_link_engine_tool(${target})
 endfunction()

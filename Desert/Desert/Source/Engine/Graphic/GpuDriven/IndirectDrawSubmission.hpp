@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 #include <Engine/Graphic/GpuDriven/InstanceCulling.hpp>
+#include <Engine/Graphic/GpuDriven/IndirectSubmissionMode.hpp>
 
 #include <cstdint>
 
@@ -40,31 +41,6 @@ namespace Desert::Graphic::RDG
 // (API/Vulkan/VulkanRenderer.cpp:794, 887-917, 1812-1825) and RenderMeshIndirect (:919-960) for the binned passes.
 namespace Desert::Graphic::GpuDriven
 {
-    enum class IndirectSubmission : uint8_t
-    {
-        DrawIndexedIndirectMulti,
-        DrawIndexedIndirectPerRecord,
-    };
-
-    // The device facts the choice reads: VkPhysicalDeviceFeatures::multiDrawIndirect and
-    // VkPhysicalDeviceLimits::maxDrawIndirectCount. Filled from Engine::DeviceCapabilities by its owner (this
-    // struct is how they reach the selection, never a second query of the device).
-    struct IndirectDrawCapabilities
-    {
-        bool     MultiDrawIndirect    = false;
-        uint32_t MaxDrawIndirectCount = 1;
-    };
-
-    // How every binned pass of the device reads its table: the mode and the most records one call may name.
-    struct IndirectSubmissionMode
-    {
-        IndirectSubmission Submission      = IndirectSubmission::DrawIndexedIndirectPerRecord;
-        uint32_t           MaxDrawsPerCall = 1;
-    };
-
-    // THE one decision point: multiDrawIndirect ? Multi : PerRecord.
-    [[nodiscard]] IndirectSubmissionMode SelectIndirectSubmission( const IndirectDrawCapabilities& capabilities );
-
     // Records one pass's groups from one view's CulledDraws inside the pass's exec: per group, bind its pipeline,
     // the block its shader was declared with (@p groupBindings[group]) and the view's carrier of the scene blocks
     // (@p groupMaterials[group], may be null), the geometry buffers and the identity row stream up to

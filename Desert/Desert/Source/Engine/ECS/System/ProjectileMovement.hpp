@@ -8,7 +8,7 @@
 #include <Engine/ECS/PhysicsEvents.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/glm.hpp>
 
 #include <unordered_map>

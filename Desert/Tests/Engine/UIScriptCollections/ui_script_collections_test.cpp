@@ -6,7 +6,9 @@
 // script as ( false, reason ) instead of vanishing.
 
 #include <Engine/Scripting/Luau/LuauHost.hpp>
-#include <UI/UIDataStore.hpp>
+#include <Engine/Core/Scene.hpp>
+#include <Engine/Core/WorldContext.hpp>
+#include <UI/UIWorld.hpp>
 
 #include <gtest/gtest.h>
 
@@ -22,17 +24,15 @@ namespace
 
     struct Lua
     {
+        Desert::Core::Scene    World{ "ui-script-collections", nullptr, Desert::Core::WorldKind::Game };
         Scripting::LuauRuntime Runtime{ Scripting::LuauLimits{} };
-
-        Lua()
-        {
-            UI::UIDataStore::Get().Clear();
-        }
 
         /// Runs `code` as a script's top level and returns its global `Out` table.
         std::map<std::string, Refl::Value> Run( const std::string& code )
         {
             std::map<std::string, Refl::Value> out;
+            const Desert::Core::WorldContext        context{ .World = &World };
+            const Desert::Core::WorldContext::Scope inWorld( context );
             auto slot = Runtime.Load( "UIScriptCollections", std::format( "Out = {{}}\n{}", code ), {} );
             EXPECT_TRUE( slot.IsSuccess() ) << ( slot.IsSuccess() ? "" : slot.GetError() );
             if ( slot.IsSuccess() )
@@ -42,9 +42,9 @@ namespace
         }
     };
 
-    const UI::UICollection& Chat()
+    const UI::UICollection& Chat( Lua& lua )
     {
-        const UI::UICollection* c = UI::UIDataStore::Get().FindCollection( "chat" );
+        const UI::UICollection* c = lua.World.GetUIWorld().Data.FindCollection( "chat" );
         EXPECT_NE( c, nullptr );
         return *c;
     }
@@ -73,8 +73,8 @@ TEST( UIScriptCollections, ARecordWrittenByAScriptIsTheRecordTheListReads )
 {
     Lua lua;
     lua.Run( R"(ui.list_add( "chat", { from = "Ann", n = 3, seen = true, tint = vector.create( 1, 0.5, 0 ) } ))" );
-    ASSERT_EQ( Chat().Size(), 1 );
-    const UI::UIDataStore& r = Chat().Record( 0 );
+    ASSERT_EQ( Chat( lua ).Size(), 1 );
+    const UI::UIDataStore& r = Chat( lua ).Record( 0 );
     EXPECT_EQ( r.Text( "from" ).value_or( "" ), "Ann" );
     EXPECT_EQ( r.Number( "n" ).value_or( 0.0 ), 3.0 );
     EXPECT_EQ( r.Bool( "seen" ).value_or( false ), true );
@@ -92,10 +92,10 @@ TEST( UIScriptCollections, LuaIndicesAreOneBasedAndTranslatedOnce )
         Out.count = ui.list_count( "chat" )
     )" );
     EXPECT_EQ( Number( out, "count" ), 3.0 );
-    ASSERT_EQ( Chat().Size(), 3 );
-    EXPECT_EQ( Chat().Record( 0 ).Number( "n" ).value_or( -1 ), 0.0 );
-    EXPECT_EQ( Chat().Record( 1 ).Number( "n" ).value_or( -1 ), 10.0 );
-    EXPECT_EQ( Chat().Record( 2 ).Number( "n" ).value_or( -1 ), 2.0 );
+    ASSERT_EQ( Chat( lua ).Size(), 3 );
+    EXPECT_EQ( Chat( lua ).Record( 0 ).Number( "n" ).value_or( -1 ), 0.0 );
+    EXPECT_EQ( Chat( lua ).Record( 1 ).Number( "n" ).value_or( -1 ), 10.0 );
+    EXPECT_EQ( Chat( lua ).Record( 2 ).Number( "n" ).value_or( -1 ), 2.0 );
 }
 
 TEST( UIScriptCollections, ABadWriteIsReportedToTheScriptAndChangesNothing )

@@ -47,7 +47,7 @@
 
 #include <Common/Json/Document.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -83,7 +83,8 @@ namespace Desert::Core
     [[nodiscard]] const Reflection::TypeInfo* RegistryTypeLookup( const std::string& typeName );
 
     // The SaveGame property names of the script at `scriptPath`. The engine reads the script
-    // (ScriptFileSaveGameLookup = Scripting::ReadScriptSaveGameProperties); a test passes its own.
+    // (ScriptFileSaveGameLookup = the script language module's ModuleHookLists::ScriptSaveGameNames, which is
+    // Scripting::ReadScriptSaveGameProperties); a test passes its own.
     using ScriptSaveGameLookup =
          std::function<Common::ResultStr<std::vector<std::string>>( const std::string& scriptPath )>;
     [[nodiscard]] Common::ResultStr<std::vector<std::string>>

@@ -107,7 +107,7 @@ namespace Desert::Graphic
         struct ScreenProbeMissReasons;
         struct ScreenProbeCensus;
         struct RadianceCacheUpdateCounts;
-        struct DirectionalLighting;
+        struct LightingHistoryKey;
         struct LocalLighting;
     } // namespace GlobalIllumination
     namespace SceneResources
@@ -711,11 +711,6 @@ namespace Desert::Graphic
         // capture renderer's (DistanceField::GlobalDistanceField: updated once per frame): @p field is lent before
         // each frame and outlives the frames in flight that read it; null returns the view to its own field.
         virtual void ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field ) = 0;
-        // ... and ONE surface cache (the Lumen scene of their cards): @p cache is their capture renderer's, lent
-        // before each frame (one face renders per engine frame, so the cache sees one Update per frame) and
-        // outliving the frames in flight that recorded its passes; null returns the view to its scene's cache
-        // (Scene::GetSurfaceCache).
-        virtual void ShareSurfaceCache( SurfaceCache::SurfaceCacheRenderer* cache ) = 0;
 
         // Procedural sky configuration (from the SkyAtmosphereComponent + the atmosphere sun, via the ECS).
         // sunDir is the direction TOWARD the sun, already normalized; bakeNow is the one-shot request from
@@ -955,8 +950,10 @@ namespace Desert::Graphic
         // Atmosphere light 1 (the moon) as the same lit passes receive it: its direction and colour/intensity, or
         // zero colour/intensity when the scene has none (the shaders then add nothing).
         [[nodiscard]] virtual FrameSun GetFrameLight1() const = 0;
-        // Both as the world-space GI histories compare them (GlobalIllumination::InvalidatesLightingHistory).
-        [[nodiscard]] virtual GlobalIllumination::DirectionalLighting GetFrameDirectionalLighting() const = 0;
+        // The key every world-space GI history of this frame is compared against (GlobalIllumination::
+        // LightingHistoryKey): the frame's directional lights and the sky light the GI misses sample. Built once
+        // per call from GetFrameSun, GetFrameLight1 and GetEnvironment; not const, as GetEnvironment is not.
+        [[nodiscard]] virtual GlobalIllumination::LightingHistoryKey GetFrameLightingHistoryKey() = 0;
         // This frame's point and spot lights (m_PointLight / m_SpotLight with their m_*LightShadows identities)
         // as the world-space GI histories compare them (GlobalIllumination::UpdateLocalLightingHistory),
         // ascending Key; made into m_FrameLocalLighting, its capacity kept across frames.

@@ -94,13 +94,12 @@ file(READ "${_root}/contrib/zlib/zconf.h.included" _zconf)
 desert_write_generated("${_generated}/zconf.h" "${_zconf}")
 desert_write_generated("${DESERT_ROOT}/build/generated/assimp/VERSION.txt" "${_major}.${_minor}.${_patch}\n")
 
-desert_glob(_src
+_desert_thirdparty_glob(_src RECURSE
     "${_root}/code/Common/*.cpp" "${_root}/code/CApi/*.cpp" "${_root}/code/Geometry/*.cpp"
     "${_root}/code/Material/*.cpp" "${_root}/code/PostProcessing/*.cpp" "${_root}/code/AssetLib/FBX/*.cpp"
     "${_root}/code/AssetLib/Obj/*.cpp" "${_root}/code/AssetLib/glTFCommon/*.cpp" "${_root}/code/AssetLib/glTF/*.cpp"
     "${_root}/code/AssetLib/glTF2/*.cpp")
-file(GLOB _contrib CONFIGURE_DEPENDS "${_root}/contrib/zlib/*.c" "${_root}/contrib/unzip/*.c")
-list(SORT _contrib)
+_desert_thirdparty_glob(_contrib "${_root}/contrib/zlib/*.c" "${_root}/contrib/unzip/*.c")
 desert_add_library(Assimp FOLDER ThirdParty SOURCES ${_src} ${_contrib})
 set_target_properties(Assimp PROPERTIES CXX_STANDARD 17)
 target_include_directories(Assimp PRIVATE

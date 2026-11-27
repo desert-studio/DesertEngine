@@ -1,6 +1,7 @@
 #pragma once
 
-#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetGuid.hpp>
+#include <Common/Content/SubsystemVersion.hpp>
 #include <Common/Core/Math/AABB.hpp>
 #include <Common/Core/ResultStr.hpp>
 

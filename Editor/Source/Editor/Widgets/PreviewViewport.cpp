@@ -1,7 +1,6 @@
 #include "PreviewViewport.hpp"
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Core/RenderTask.hpp>
-#include <Engine/ECS/System/AnimationECSSystem.hpp>
 #include "PreviewPaneLayout.hpp"
 
 #include <Editor/RenderSystems/Passes/EditorCubemapPreviewPass.hpp>
@@ -21,10 +20,6 @@
 #include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Graphic/Renderer.hpp>
-#include <Engine/ECS/System/AnimationECSSystem.hpp>
-#include <Engine/ECS/System/MeshECSSystem.hpp>
-#include <Engine/ECS/System/SkyboxECSSystem.hpp>
-#include <Engine/ECS/System/VolumetricCloudECSSystem.hpp>
 #include <Engine/Graphic/SkyPresets.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -219,8 +214,10 @@ namespace Desert::Editor
         // outright, and the reason was memory rather than taste: four 2048 cascades are 335 MB of
         // attachments per renderer and this editor allows six live ones. See Graphic::ShadowQuality.
         m_Renderer        = Graphic::SceneRenderer::Create( extent, Graphic::kPreviewViewProfile );
-        m_Scene    = std::make_shared<::Desert::Core::Scene>( "DetailsPreview", m_Renderer.get() );
-        const auto inited = m_Scene->Init();
+        m_Scene     = std::make_shared<::Desert::Core::Scene>( "DetailsPreview", m_Renderer.get(), m_WorldKind );
+        auto inited = ::Desert::Core::CreateWorldSystems( *m_Scene, m_Services );
+        if ( inited.IsSuccess() )
+            inited = m_Scene->Init();
         if ( !inited.IsSuccess() )
         {
             // `m_Inited` stays false so the next call retries, which is the whole reason this is not a
@@ -292,13 +289,6 @@ namespace Desert::Editor
         // toggle would churn the mesh service for a checkbox.
         m_Floor = m_Scene->CreateNewEntity( "PreviewFloor" );
         m_Floor.AddComponent<ECS::StaticMeshComponent>();
-
-        m_Scene->AddSystem<ECS::MeshECSSystem>();
-        m_Scene->AddSystem<ECS::SkyboxECSSystem>();
-        // The Volume domain's system. Added unconditionally and costing nothing until an entity carries a
-        // VolumetricCloudComponent: with none in the registry it emits one "no clouds present" command a
-        // frame, which is what stops a deleted layer leaving its clouds behind.
-        m_Scene->AddSystem<ECS::VolumetricCloudECSSystem>();
 
         // Procedural sky as the backdrop. Unlike the thumbnails (fixed camera looking down, so only the
         // ground hemisphere showed) this camera can point anywhere, so the whole dome is kept cohesive.
@@ -1006,7 +996,7 @@ namespace Desert::Editor
         skinned.MaterialSlots = materials;
         ECS::SetSkinnedMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), skinned );
 
-        // THE SCENE'S CLOCK IS STOPPED: the preview scene runs no AnimationECSSystem, so the only writer of
+        // THE SCENE'S CLOCK IS STOPPED: a WorldKind::Preview scene runs no AnimationECSSystem, so the only writer of
         // the playhead is SetAnimationTime, and ApplyAnimationTime builds the animator (Playing = false and
         // CurrentClip keep that true should the component ever reach a scene that does run the system).
         auto& anim       = m_Target.AddComponent<ECS::AnimationComponent>();
@@ -1028,14 +1018,11 @@ namespace Desert::Editor
         ++m_ContentRevision;
     }
 
-    void PreviewViewport::EnableAnimationSystem( Animation::AnimationLibrary* library,
-                                                 Assets::AssetManager*        assets )
+    void PreviewViewport::RunAnimationGraphs( const ::Desert::Core::WorldServices& services )
     {
-        EnsureInit();
-        if ( m_AnimationSystemOn )
-            return;
-        m_Scene->AddSystem<ECS::AnimationECSSystem>( library, assets );
-        m_AnimationSystemOn = true;
+        DESERT_VERIFY( !m_Inited );
+        m_WorldKind = ::Desert::Core::WorldKind::AnimationPreview;
+        m_Services  = services;
     }
 
     void PreviewViewport::SetGraphCharacter( const Assets::AssetHandle&              mesh,
@@ -1138,8 +1125,7 @@ namespace Desert::Editor
             return true; // a graph character is posed by the scene's AnimationECSSystem, not by a playhead
         auto& anim = m_Target.GetComponent<ECS::AnimationComponent>();
         {
-            // THIS SCENE HAS NO AnimationECSSystem (it needs the editor's AnimationLibrary and AssetManager,
-            // and its clock would fight the scrub), so nothing else ever builds the animator: waiting for "the
+            // A WorldKind::Preview SCENE HAS NO AnimationECSSystem (its clock would fight the scrub), so nothing else ever builds the animator: waiting for "the
             // system's next update" left GetAnimator() null forever, which hid the bones, the Skeleton Tree
             // and every "Select Bone" command. The preview builds it itself, the same way the system does,
             // once the skinned mesh has resolved; until then the bind pose renders and the caller keeps
@@ -1321,8 +1307,16 @@ namespace Desert::Editor
         // one. Pushed every frame, like EditorLayer pushes the viewport's, so the pane follows a change
         // made in Scene Settings instead of holding whatever the machine said when the panel opened.
         Common::Scalability::ResolvedQuality quality = Common::Scalability::QualityState::Resolved();
-        quality.Values[static_cast<std::size_t>( Common::Scalability::Parameter::CloudQuality )] =
-             static_cast<Common::Scalability::ParameterValue>( Common::Settings::CloudQuality::Low );
+        // The cloud rows at the table's Effects Low (one source: Scalability.json), whatever the machine runs.
+        {
+            using Common::Scalability::Level;
+            using Common::Scalability::Parameter;
+            const Common::Scalability::ScalabilityTable& table = Common::Scalability::QualityState::Table();
+            for ( const Parameter parameter :
+                  { Parameter::EffectsCloudLightMarchSamples, Parameter::EffectsCloudShadowMapScalePercent,
+                    Parameter::EffectsCloudStopTransmittanceMilli } )
+                quality.Values[static_cast<std::size_t>( parameter )] = table.ValueAt( parameter, Level::Low );
+        }
         m_Renderer->SetQuality( quality );
 
         ApplyCamera( m_Width, m_Height );

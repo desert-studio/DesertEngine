@@ -94,7 +94,7 @@ namespace Desert::Engine
 
         std::vector<std::string>              coopMissing = fp16Missing;
         std::optional<CooperativeMatrixShape> tile;
-        if ( !caps.VulkanMemoryModel )
+        if ( !caps.MemoryModel )
             coopMissing.emplace_back( "vulkanMemoryModel" );
         if ( !caps.CooperativeMatrix )
             coopMissing.emplace_back( "cooperativeMatrix" );
@@ -146,7 +146,7 @@ namespace Desert::Engine
              YesNo( caps.ShaderFloat16 ), YesNo( caps.ShaderInt8 ), YesNo( caps.StorageBuffer16BitAccess ),
              YesNo( caps.StorageBuffer8BitAccess ), YesNo( caps.SubgroupSizeControl ),
              YesNo( caps.CooperativeMatrix ), YesNo( caps.CooperativeMatrixInCompute ),
-             YesNo( caps.VulkanMemoryModel ), caps.SubgroupSize, caps.MinSubgroupSize, caps.MaxSubgroupSize,
+             YesNo( caps.MemoryModel ), caps.SubgroupSize, caps.MinSubgroupSize, caps.MaxSubgroupSize,
              YesNo( caps.ComputeSubgroupSizeRequirable ), caps.MaxPushConstantsSize,
              caps.MaxComputeSharedMemorySize, caps.CooperativeMatrixShapes.size() );
         if ( caps.CooperativeMatrixShapes.empty() )

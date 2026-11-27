@@ -56,7 +56,7 @@ namespace Desert::Graphic::System
             if ( textureHandle == 0 )
                 return {};
             auto* textures = Runtime::ResourceRegistry::GetTextureService();
-            auto* images   = Runtime::ResourceRegistry::GetImageService();
+            auto* images   = Runtime::GetImageService();
             if ( textures == nullptr || images == nullptr )
                 return {};
             // The answer holds the texture alive while its image is resolved (MaterialService's slot binding).

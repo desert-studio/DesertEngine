@@ -1,101 +1,31 @@
 #include <Engine/Graphic/Image.hpp>
-#include <Engine/Graphic/RendererAPI.hpp>
 #include <Engine/Graphic/Renderer.hpp>
-
-#include <Engine/Graphic/API/Vulkan/VulkanImage.hpp>
+#include <Engine/Graphic/Rhi/Rhi.hpp>
 
 namespace Desert::Graphic
 {
 
+    // The backend builds and asks (IRhi::CreateImage*): null = it refused and logged why — the image's size,
+    // tag and the allocation's error, where they are known.
     std::shared_ptr<Image2D> Image2D::Create( const Core::Formats::Image2DSpecification& spec )
     {
-        switch ( RendererAPI::GetAPIType() )
-        {
-            case RendererAPIType::None:
-                return nullptr;
-            case RendererAPIType::Vulkan:
-            {
-
-                const auto& image  = std::make_shared<API::Vulkan::VulkanImage2D>( spec );
-                const auto  result = image->RT_Invalidate();
-                if ( !result.IsSuccess() )
-                {
-                    // ASKED, NOT ASSUMED — the treatment Image3D::Create below already had, and the
-                    // reason it has it applies here word for word: handing back a half-built image
-                    // pushes the failure into the first pass that samples it, with no connection to the
-                    // allocation that actually failed. `nullptr` is inside this function's declared
-                    // contract, not a new outcome: the RendererAPIType::None arm above returns it.
-                    LOG_ERROR( "Image2D::Create: image {}x{} failed: {}", spec.Width, spec.Height,
-                               result.GetError() );
-                    return nullptr;
-                }
-
-                // THE SIZE IS RECORDED BY THE BACKEND'S ALLOCATION, NOT HERE. It used to be computed from
-                // the specification at this line, and "this is the one place every 2D image passes
-                // through" — the reason given — was false: seven sites (2 in VulkanFramebuffer.cpp, 5 in
-                // VulkanFallbackTextures.cpp) construct the backend image directly, which is how 320 MiB
-                // of shadow cascades reported zero bytes. See VulkanImage.cpp, beside the allocation.
-                return image;
-            }
-        }
-        DESERT_VERIFY( false, "Unknown RenderingAPI" );
+        return Renderer::GetInstance().Rhi().CreateImage2D( spec );
     }
 
     std::shared_ptr<ImageCube> ImageCube::Create( const Core::Formats::ImageCubeSpecification& spec,
                                                   const std::unique_ptr<MipMapCubeGenerator>&  mipGenerator )
     {
-        switch ( RendererAPI::GetAPIType() )
+        auto image = Renderer::GetInstance().Rhi().CreateImageCube( spec );
+        if ( image && spec.Mips > 1 && mipGenerator )
         {
-            case RendererAPIType::None:
-                return nullptr;
-            case RendererAPIType::Vulkan:
-            {
-
-                const auto& image  = std::make_shared<API::Vulkan::VulkanImageCube>( spec );
-                const auto  result = image->RT_Invalidate();
-                if ( !result.IsSuccess() )
-                {
-                    LOG_ERROR( "ImageCube::Create: cube '{}' with a {}-texel face failed: {}", spec.Tag,
-                               spec.FaceSize, result.GetError() );
-                    return nullptr;
-                }
-
-                if ( spec.Mips > 1 && mipGenerator )
-                {
-                    mipGenerator->GenerateMips( image );
-                }
-
-                // Size recorded by the allocation — see VulkanImage.cpp and the note on the 2D arm above.
-                return image;
-            }
+            mipGenerator->GenerateMips( image );
         }
-        DESERT_VERIFY( false, "Unknown RenderingAPI" );
+        return image;
     }
 
     std::shared_ptr<Image3D> Image3D::Create( const Core::Formats::Image3DSpecification& spec )
     {
-        switch ( RendererAPI::GetAPIType() )
-        {
-            case RendererAPIType::None:
-                return nullptr;
-            case RendererAPIType::Vulkan:
-            {
-                const auto& image  = std::make_shared<API::Vulkan::VulkanImage3D>( spec );
-                const auto  result = image->RT_Invalidate();
-                if ( !result.IsSuccess() )
-                {
-                    // Handing back a half-built volume would push the failure into the first dispatch
-                    // that binds it, with no connection to the allocation that actually failed.
-                    LOG_ERROR( "Image3D::Create: volume '{}' {}x{}x{} failed: {}", spec.Tag, spec.Width,
-                               spec.Height, spec.Depth, result.GetError() );
-                    return nullptr;
-                }
-
-                // Size recorded by the allocation — see VulkanImage.cpp and the note on the 2D arm above.
-                return image;
-            }
-        }
-        DESERT_VERIFY( false, "Unknown RenderingAPI" );
+        return Renderer::GetInstance().Rhi().CreateImage3D( spec );
     }
 
     // `ImageCube::Copy` STOOD HERE AND WAS AN ALIAS, NOT A COPY. It read

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/GlobalIllumination/GILayout.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
@@ -103,35 +104,12 @@ namespace Desert::Graphic::GlobalIllumination
     // (FPS-GLOW-ROOT: the red-orange ball in the grass of FIELD-BARN t0).
     inline constexpr float kScreenProbeMaxRayIntensity = 40.0f;
 
-    // std430 — must match `struct ScreenProbeParams` in Common/ScreenProbes.glslh. 208 bytes.
-    struct ScreenProbeParamsPayload
-    {
-        glm::mat4  PrevViewProjection{ 1.0f };
-        glm::mat4  PrevInvViewProjection{ 1.0f }; // the temporal filter's previous world position of a pixel
-        glm::vec4  PrevCamera{ 0.0f };
-        glm::vec4  Jitter{ 0.0f }; // xy = this frame's jitter in NDC, zw = last frame's
-        glm::uvec4 Grid{ 0u };  // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
-        glm::uvec4 Atlas{ 0u }; // x = probes per atlas row, y = frame index, z = kScreenProbe* flags below,
-                                // w = the frame's probe jitter in pixels (x | y << 16, ScreenProbeJitter)
-        // x = the largest component a traced ray's radiance may carry, absolute (kScreenProbeMaxRayIntensity /
-        // PreExposure); yzw unused (std430 vec4 alignment).
-        glm::vec4 RayClamp{ 0.0f };
-    };
-    static_assert( sizeof( ScreenProbeParamsPayload ) == 208 );
     // ScreenProbeParamsPayload::Atlas.z — must match SP_FLAG_* in Common/ScreenProbes.glslh. Bit 1 is free: no
     // shader tests the view's history (without it the disocclusion pass is not added and the temporal filter is
     // its no-history permutation: Program::Integrate*TemporalNoHistory, the ReSTIR gather's
     // Program::TemporalNoHistory). Bits 4 and 8 are free: the screen walk and the
     // sparse stable probes are the screen leg's permutations (ScreenProbeGather::TraceScreenProgram).
     inline constexpr uint32_t kScreenProbeShortRangeAO = 2u; // the ShortRangeAO pass ran: the integrate reads it
-
-    // std430 — must match `struct ScreenProbe` in Common/ScreenProbes.glslh. 32 bytes.
-    struct ScreenProbePayload
-    {
-        glm::vec4 Position{ 0.0f };
-        glm::vec4 Normal{ 0.0f };
-    };
-    static_assert( sizeof( ScreenProbePayload ) == 32 );
 
     // The probe layout of an extent (pure; Common/ScreenProbes.glslh computes the same on the GPU).
     struct ScreenProbeLayout
@@ -185,7 +163,7 @@ namespace Desert::Graphic::GlobalIllumination
     // @p adaptivePercent: adaptive probes per uniform probe, percent (Scalability
     // GlobalIllumination.AdaptiveProbeAllocationPercent, UE AdaptiveProbeAllocationFraction x 100);
     // @p downsample / @p tracedTexels: ScreenProbeLayoutSupported; @p maxImageDimension: the device's
-    // maxImageDimension2D (DeviceCapabilities::MaxTexture2DSize), which bounds both atlas sides.
+    // maxImageDimension2D (GpuCapabilities::MaxTexture2DSize), which bounds both atlas sides.
     //
     // THE IMAGE-LIMIT CLAMP. The widest atlas texel a probe takes is the filtered one, side = TracedTexels + 2, so
     // the atlas holds at most C = (maxImageDimension / side)² probes. The row is widened first:

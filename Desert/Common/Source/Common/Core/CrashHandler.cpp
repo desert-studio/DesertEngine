@@ -11,6 +11,7 @@
 #include "CrashHandler.hpp"
 
 #include <Common/Core/Core.hpp>
+#include <Common/Core/CrashWorlds.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Core/EngineThread.hpp>
 #include <Common/Core/JobSystem.hpp>
@@ -87,7 +88,9 @@ extern char** environ;
 //   [build]     config=<Debug|Release|Shipping>   the configuration the WRITER was compiled in; the
 //                                     reporter picks its view from this key (Shipping ⇒ the player view)
 //               version=…  sha=…  branch=…  dirty=<0|1>      (sha, branch, dirty: NOT in Shipping)
-//   [context]   machine=<host name>  scene=<path or "none">  (machine, scene: NOT in Shipping)
+//   [context]   machine=<host name>   (machine, world, worlds_not_listed: NOT in Shipping)
+//               world=<kind> <state> <path>   one line per live world (CrashWorlds.hpp)
+//               worlds_not_listed=<dec>       only when a live world found no slot
 //               os=…  gpu=<device name or "unknown">
 //               gpu_vendor=<0x… PCI id>  gpu_device=<0x…>  gpu_driver=<vendor's own spelling>
 //               gpu_api=<major.minor.patch>   all "unknown" until the host created its device
@@ -164,7 +167,6 @@ namespace Common::Crash::Detail
     char g_GpuDriver[kSmallField] = "unknown";
     char g_GpuApi[kSmallField]    = "unknown";
     char g_Game[kSmallField]      = "unread";
-    char g_Scene[kPathField]    = "none";
     char g_Started[kSmallField] = "unknown";
 
     // The per-crash paths, all built at Install() time. The handler does no path arithmetic:
@@ -558,7 +560,17 @@ namespace Common::Crash::Detail
         if constexpr ( !kPlayerReport )
         {
             writer.Field( "machine", g_Machine );
-            writer.Field( "scene", g_Scene );
+            for ( std::size_t i = 0; i < kCrashWorldSlots; ++i )
+            {
+                if ( const char* world = PublishedCrashWorld( i ) )
+                    writer.Field( "world", world );
+            }
+            if ( const std::int32_t unlisted = UnlistedCrashWorlds(); unlisted > 0 )
+            {
+                writer.Str( "worlds_not_listed=" );
+                writer.Dec( static_cast<std::uint64_t>( unlisted ) );
+                writer.Char( '\n' );
+            }
         }
         writer.Field( "os", g_Os );
         writer.Field( "gpu", g_Gpu );
@@ -1518,7 +1530,7 @@ namespace Common::Crash
         }
 
         // What a later MoveReportRoot needs to rebuild the per-crash paths under another root: the
-        // directory NAME (start stamp + pid, fixed for the process) and the reporter found at Install.
+        // directory NAME (RunDirectoryName, fixed for the process) and the reporter found at Install.
         std::string           g_RunName;
         std::filesystem::path g_Reporter;
 
@@ -1529,6 +1541,28 @@ namespace Common::Crash
             Detail::CopyIntoFixed( ioSlot.dirUtf8, Detail::kPathField, inDirectory.string() );
             Detail::CopyIntoFixed( ioSlot.txtUtf8, Detail::kPathField, ( inDirectory / "crash.txt" ).string() );
             Detail::FreezeNativePaths( ioSlot, inDirectory, inReporter );
+        }
+
+        // The per-crash directory NAME, fixed for the process: <SHA7>-<start stamp>-<pid> in a developer build,
+        // so a dump is filed under the build that made it and `scripts/Dev/sym.sh --dump` names the matching
+        // `win-<SHA7>` symbols artifact; a player report never names the repository state: <start stamp>-<pid>.
+        std::string RunDirectoryName( const std::string& inStamp, std::uint64_t inPid )
+        {
+            if constexpr ( Detail::kPlayerReport )
+            {
+                return std::format( "{}-{}", inStamp, inPid );
+            }
+            else
+            {
+                // A build without a git hash (GenVersion wrote "unknown") files the dump as a player build would.
+                const std::string_view hash  = Common::Version::Hash();
+                const bool             isSha = hash.size() >= 7 &&
+                                   std::all_of( hash.begin(), hash.begin() + 7, []( char c )
+                                                { return ( c >= '0' && c <= '9' ) || ( c >= 'a' && c <= 'f' ); } );
+                if ( !isSha )
+                    return std::format( "{}-{}", inStamp, inPid );
+                return std::format( "{}-{}-{}", hash.substr( 0, 7 ), inStamp, inPid );
+            }
         }
 
         std::string FormatStartStamp()
@@ -1571,7 +1605,8 @@ namespace Common::Crash
 #else
         const auto pid = static_cast<std::uint64_t>( ::getpid() );
 #endif
-        const std::filesystem::path directory = root / std::format( "{}-{}", stamp, pid );
+        const std::string           runName   = RunDirectoryName( stamp, pid );
+        const std::filesystem::path directory = root / runName;
 
         // The ROOT is created now, while the process is healthy and can report a failure; the
         // per-crash directory is created inside the handler, so a run that never crashes leaves no
@@ -1613,7 +1648,7 @@ namespace Common::Crash
             reporter.clear();
         }
         g_Reporter = reporter;
-        g_RunName  = std::format( "{}-{}", stamp, pid );
+        g_RunName  = runName;
         FillSlot( g_PathSlots[0], directory, reporter );
         g_Paths.store( &g_PathSlots[0], std::memory_order_release );
 
@@ -1776,11 +1811,6 @@ namespace Common::Crash
     const std::filesystem::path& ReportRootDirectory()
     {
         return Detail::g_ReportRoot;
-    }
-
-    void SetScenePath( std::string_view inScenePath )
-    {
-        Detail::CopyIntoFixed( Detail::g_Scene, Detail::kPathField, inScenePath.empty() ? "none" : inScenePath );
     }
 
     std::string DescribeDriverVersion( std::uint32_t inVendorId, std::uint32_t inPacked )

@@ -289,7 +289,6 @@ namespace Desert::Graphic
         const RDG::TextureRef adapted = adaptedImport.IsValid() ? adaptedImport : textures.System.White;
         const System::LocalExposureRenderer::FusionExposure exposure{
              .ManualExposure = tonemap.GetExposure(),
-             .ExposureKey    = tonemap.GetExposureKey(),
              .AutoExposure   = tonemap.IsAutoExposureEnabled() && adaptedImport.IsValid(),
              .Reinhard       = tonemap.GetTonemapOperator() == Core::TonemapOperator::Reinhard };
         auto* lePtr = &le;
@@ -372,7 +371,7 @@ namespace Desert::Graphic
                  *setupDesc, kernel, named ? textureService->GetSourcePath( kernelHandle ) : std::string{} );
             if ( convolution )
                 kernelImage = textures.Import(
-                     Runtime::ResourceRegistry::GetImageService()->Share( kernel->GetImageHandle() ), "Bloom.Kernel" );
+                     Runtime::GetImageService()->Share( kernel->GetImageHandle() ), "Bloom.Kernel" );
             if ( convolution )
                 kernelSpectrum = textures.Import( bloom->GetKernelSpectrum(), "Bloom.KernelSpectrum" );
             if ( convolution && ( !kernelImage.IsValid() || !kernelSpectrum.IsValid() ) )
@@ -637,7 +636,7 @@ namespace Desert::Graphic
             const Texture2D* dirt           = textureService ? textureService->Get( dirtHandle ) : nullptr;
             if ( dirt != nullptr && dirt->GetImageHandle().IsValid() )
                 dirtMask = textures.Import(
-                     Runtime::ResourceRegistry::GetImageService()->Share( dirt->GetImageHandle() ),
+                     Runtime::GetImageService()->Share( dirt->GetImageHandle() ),
                      "Bloom.DirtMask" );
         }
         const bool dirtProduced = dirtMask.IsValid();

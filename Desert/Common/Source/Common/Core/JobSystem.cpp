@@ -24,6 +24,12 @@
 
 namespace Common
 {
+    RecordingFrame& RecordingFrame::OfThisThread() noexcept
+    {
+        static thread_local RecordingFrame t_Binding;
+        return t_Binding;
+    }
+
     JobSystem& JobSystem::Get()
     {
         static JobSystem s_Instance;

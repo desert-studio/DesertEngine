@@ -27,6 +27,7 @@
 #include <span>
 #include <string_view>
 #include <Engine/Runtime/Services/Shader/ShaderLookup.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/MegaLightsLayout.hpp>
 
 // THE MEGALIGHTS TRANSLUCENCY VOLUME (UE 5.5 MegaLights' volume + TranslucencyLightingVolume; Shadows Stochastic):
 // the surfaces that have no G-buffer pixel - the forward meshes and the translucent ones - take their local lights
@@ -36,7 +37,7 @@
 // Volume" (Programs/Shadows/MegaLightsVolume.shader) draws Shadows.MegaLightsVolumeSamples local lights by
 // resampled importance over the light-grid cell, traces each once toward its source sphere, projects the shadowed
 // estimate on L1 spherical harmonics (one RGBA16F volume per colour channel) and blends it with the previous
-// frame's volume at the reprojected froxel (Shadows.MegaLightsMaxHistory, as the surface samples' temporal reuse).
+// frame's volume at the reprojected froxel (Shadows.MegaLightsVolumeMaxHistory).
 // The readers: Common/MegaLightsVolume.glslh (Mesh/Surface/Pass_Forward.glslh, Pass_Forward_Translucent.glslh),
 // bound by name through SceneViewInputs::MegaLightsVolume.
 // The history is this object's, per view: two slots of three volumes, one read and one written per frame, created
@@ -60,7 +61,7 @@ namespace Desert::Graphic::System
     // UE r.RayTracing.NormalBias (0.1 cm), as the surface samples' rays: the gap a froxel ray leaves at both ends.
     inline constexpr float kMegaLightsVolumeRayBias = 0.1f;
 
-    // Scalability Shadows.MegaLightsVolume* (and the shared Shadows.MegaLightsMaxHistory), taken each BeginScene.
+    // Scalability Shadows.MegaLightsVolume*, taken each BeginScene.
     struct MegaLightsVolumeQuality
     {
         uint32_t TilePixels = 16; // froxel edge, render pixels
@@ -93,33 +94,6 @@ namespace Desert::Graphic::System
         float Near = 1.0f;
         float Far  = 2.0f;
     };
-
-    // MegaLightsVolumeViewUB (Programs/Shadows/MegaLightsVolume.shader), std140.
-    struct MegaLightsVolumeUniforms
-    {
-        glm::mat4  InvViewProjection;
-        glm::mat4  View;
-        glm::mat4  PrevView;
-        glm::mat4  PrevViewProjection;
-        glm::vec4  ZParams;     // near, slices / log(far / near), far, froxel edge (px)
-        glm::vec4  PrevZParams; // the same, of the frame the history was written in
-        glm::uvec4 Size;        // froxels xyz, frame index
-        glm::uvec4 Counts;      // points, spots, samples per froxel, history readable
-        glm::vec4  Params;      // history weight, ray bias (cm), render extent (px)
-        glm::mat4  JitteredViewProjection;    // the screen trace: the matrices the HZB's depth was drawn with
-        glm::mat4  InvJitteredViewProjection;
-        glm::vec4  CameraPosition; // xyz
-    };
-    static_assert( sizeof( MegaLightsVolumeUniforms ) == 480 );
-
-    // MegaLightsVolumeUB (Common/MegaLightsVolume.glslh), std430: what a reader maps a fragment with.
-    struct MegaLightsVolumeReadParams
-    {
-        glm::mat4  View;
-        glm::vec4  ZParams;
-        glm::uvec4 Size; // froxels xyz, on (1) / off (0)
-    };
-    static_assert( sizeof( MegaLightsVolumeReadParams ) == 96 );
 
     // The volume OFF for this graph: a block whose Size.w is 0 and System.Black3D in the three slots. The forward
     // cell then loops its light grid, the glass adds no local light.
@@ -271,7 +245,7 @@ namespace Desert::Graphic::System
                          stamped->Stamp.Stamp( index );
                      return dispatched;
                  } );
-            return Common::MakeSuccess( MegaLightsVolumeRefs{ .Params = params, .Lighting = written } );
+            return Common::MakeSuccess( MegaLightsVolumeRefs{ .Params = params, .Lighting = written, .Lit = true } );
         }
 
     private:

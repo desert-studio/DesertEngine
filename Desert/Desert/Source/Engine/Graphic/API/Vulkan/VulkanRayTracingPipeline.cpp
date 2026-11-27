@@ -1,3 +1,4 @@
+#include <Common/Core/Align.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingPipeline.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -27,10 +28,7 @@ namespace Desert::Graphic::API::Vulkan
              VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
              VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
 
-        constexpr VkDeviceSize AlignUp( VkDeviceSize value, VkDeviceSize alignment )
-        {
-            return alignment == 0 ? value : ( value + alignment - 1 ) / alignment * alignment;
-        }
+        using Common::AlignUp;
 
         // The stage create info of @p stage in @p shader, or null.
         const VkPipelineShaderStageCreateInfo* StageOf( const VulkanShader& shader, VkShaderStageFlagBits stage )

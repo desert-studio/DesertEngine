@@ -22,11 +22,7 @@ namespace Desert::Editor::Core
     class MeshElementSelection
     {
     public:
-        static MeshElementSelection& Get()
-        {
-            static MeshElementSelection s;
-            return s;
-        }
+        static MeshElementSelection& Get();
 
         enum class Op
         {

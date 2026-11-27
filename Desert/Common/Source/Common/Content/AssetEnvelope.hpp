@@ -31,6 +31,8 @@
 // The TOC hash is `Utils::PakContentHash` of the section's bytes: it is both the integrity check of
 // the body and the section's content id (the future DDC key), so there is one hash, not two.
 
+#include <Common/Content/AssetGuid.hpp>
+#include <Common/Content/SubsystemVersion.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/ResultStr.hpp>
@@ -48,38 +50,11 @@
 
 namespace Common::Content
 {
-    // Four ASCII characters packed so the FIRST character is the lowest byte, i.e. the tag reads
-    // correctly in a hex dump of the little-endian file.
-    constexpr uint32_t FourCC( const char ( &text )[5] )
-    {
-        return static_cast<uint32_t>( static_cast<unsigned char>( text[0] ) ) |
-               ( static_cast<uint32_t>( static_cast<unsigned char>( text[1] ) ) << 8 ) |
-               ( static_cast<uint32_t>( static_cast<unsigned char>( text[2] ) ) << 16 ) |
-               ( static_cast<uint32_t>( static_cast<unsigned char>( text[3] ) ) << 24 );
-    }
-
     // Printable form of a FourCC for error messages; non-printable bytes come out as '?'.
     std::string FourCCToString( uint32_t tag );
 
     constexpr uint32_t ASSET_ENVELOPE_MAGIC             = FourCC( "DAST" );
     constexpr uint32_t ASSET_ENVELOPE_CONTAINER_VERSION = 1;
-
-    // 128 bits, as UE's FGuid: an asset keeps this identity across renames and moves, so it is minted
-    // once (Generate) and afterwards only ever copied. There is deliberately no constructor from a path.
-    struct AssetGuid
-    {
-        uint64_t Hi = 0;
-        uint64_t Lo = 0;
-
-        static AssetGuid Generate();
-
-        bool IsNull() const
-        {
-            return Hi == 0 && Lo == 0;
-        }
-
-        bool operator==( const AssetGuid& ) const = default;
-    };
 
     // THE ONE FOLD from an asset's identity to the 64-bit handle the runtime keys its maps by (AF7b).
     // UE references an asset by GUID or path and has no second numeric id; a handle is only this GUID
@@ -89,16 +64,6 @@ namespace Common::Content
     // A null GUID folds to the null handle (no reference); a non-null GUID never does.
     // The value is PERSISTED indirectly (cooked data and caches key by it): changing the fold is a format change.
     AssetHandle HandleForGuid( const AssetGuid& guid ) noexcept;
-
-    // One subsystem's serialization version inside an asset: a mesh envelope carries the mesh codec's
-    // version AND the material-slot layout's AND the bounds', each owned by a different subsystem.
-    struct SubsystemVersion
-    {
-        uint32_t Tag     = 0;
-        uint32_t Version = 0;
-
-        bool operator==( const SubsystemVersion& ) const = default;
-    };
 
     // THE HEADER CONTRACT: what any asset file — binary envelope today, text header in AF6 — must be
     // able to state about itself without its body being read.

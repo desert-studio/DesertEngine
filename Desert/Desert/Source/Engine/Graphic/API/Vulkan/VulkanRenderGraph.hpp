@@ -645,12 +645,7 @@ namespace Desert::Graphic::API::Vulkan
         // starts: the current slot has arenas 0 .. @p arenas - 1.
         void ReserveArenas( uint32_t arenas );
         // Binds arena @p arena to the calling thread (Allocate draws from it); returns the one bound before.
-        static uint32_t BindArena( uint32_t arena ) noexcept
-        {
-            const uint32_t previous = t_Arena;
-            t_Arena                 = arena;
-            return previous;
-        }
+        static uint32_t BindArena( uint32_t arena ) noexcept;
         // The sampler @p desc describes, from the device's VulkanSamplerCache: made on its first request, shared
         // by every entry (and every texture) with an equal state, owned by the cache. Nothing is created per
         // frame.
@@ -716,7 +711,7 @@ namespace Desert::Graphic::API::Vulkan
         VkDevice                            m_Device = VK_NULL_HANDLE;
         std::vector<std::vector<SlotPools>> m_Slots; // per frame slot, its arenas (0: the calling thread's)
         uint32_t                            m_Slot = 0;
-        static inline thread_local uint32_t t_Arena = 0;
+        static thread_local uint32_t t_Arena;
         VulkanSamplerCache&    m_SamplerCache;
         bool                   m_AccelerationStructures = false;
         // The content cache (AcquireCached). Its pools allow vkFreeDescriptorSets and are never reset.
@@ -1117,10 +1112,7 @@ namespace Desert::Graphic::API::Vulkan
             std::vector<PendingUpload> Uploads;
         };
         // The chunk bound to the calling thread by BeginChunk, when it is this backend's; else null.
-        [[nodiscard]] Chunk* BoundChunk() const noexcept
-        {
-            return t_Chunk != nullptr && t_Chunk->Owner == this ? t_Chunk : nullptr;
-        }
+        [[nodiscard]] Chunk* BoundChunk() const noexcept;
         [[nodiscard]] VkCommandBuffer RecordingBuffer() const noexcept
         {
             const Chunk* const chunk = BoundChunk();
@@ -1165,7 +1157,7 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t  m_CrumbBase     = VulkanGpuBreadcrumbs::kNoSerial;
         uint32_t  m_OpenCrumb     = VulkanGpuBreadcrumbs::kNoSerial;
         RDG::Pipe m_OpenCrumbPipe = RDG::Pipe::Graphics;
-        static inline thread_local Chunk*   t_Chunk      = nullptr;
+        static thread_local Chunk* t_Chunk;
 
         struct FramebufferEntry
         {

@@ -698,7 +698,7 @@ namespace Desert::Graphic::RDG
         void                                RecordError( std::string message );
         // RDG-FAULT1: a malformed declaration inside pass @p pass faults that pass only (first one kept).
         void                                RecordPassError( uint32_t pass, std::string message );
-        [[nodiscard]] const ResourceRecord* FindResource( uint32_t index, ResourceKind kind ) const;
+        [[nodiscard]] const ResourceRecord* FindResourceRecord( uint32_t index, ResourceKind kind ) const;
         // RDG-FAULT1: FrameFatal external @p resource as a FrameFault lists it (with its Extract's final access).
         [[nodiscard]] FrameFaultExternal MakeFrameFaultExternal( uint32_t resource ) const;
 

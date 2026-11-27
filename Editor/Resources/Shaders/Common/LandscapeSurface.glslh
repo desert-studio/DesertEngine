@@ -60,17 +60,9 @@ bool LandscapeTileIsHole( TerrainInstance t, vec4 w0, vec4 w1 )
 }
 
 // THE LANDSCAPE MATERIAL'S VALUES the ground reads (Terrain.shader / TerrainGBuffer.shader Properties): the raster
-// builds it from Material (TerrainSurface.glslh TerrainMaterial), the hit group reads it from its row. C++ twin:
-// Graphic/Systems/Scene/Terrain/TerrainLayerInputs.hpp LandscapeMaterialValues (vec4 slots only: one layout in
-// std140, std430 and the C++ struct).
-struct LandscapeMaterial
-{
-    vec4 Tiling;         // x FarTilingDistance (cm), y FarTilingScale, z MacroVariationSize (cm), w MacroVariationStrength
-    vec4 Detail;         // x DetailNormalScale (x tile size), y DetailNormalStrength, z MacroHueSize (cm), w MacroHueStrength
-    vec4 LayerTint[8];   // input k's LayerKTint
-    vec4 LayerParams[8]; // input k's (LayerKTileSize cm, LayerKBlend, LayerKNormalStrength, 0)
-    vec4 Weather;        // x Porosity (the rain's film, Common/WeatherRain.glslh), y, z, w 0
-};
+// builds it from Material (TerrainSurface.glslh TerrainMaterial), the hit group reads it from its row. Generated
+// from LandscapeMaterialValues (Graphic/Systems/Scene/Terrain/TerrainLayout.hpp).
+#include <Generated/Terrain/Terrain.glslh> // LandscapeMaterial: Terrain/TerrainLayout.hpp
 
 // INPUT @p k's ROW of a per-input array, by a chain of selects over constant indices: k is a value the tile row
 // carries (LayerInput), and an array indexed by it would be copied into per-thread memory (on Apple GPUs a spill to

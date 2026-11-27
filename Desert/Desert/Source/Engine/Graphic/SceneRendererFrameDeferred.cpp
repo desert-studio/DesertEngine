@@ -44,7 +44,7 @@
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Runtime/Services/Subsurface/SubsurfaceProfileService.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Graphic
 {
@@ -146,7 +146,7 @@ namespace Desert::Graphic
         // sun-shadow path, decided after the view's TLAS (OnUpdate), so OnUpdate imports them then
         // (ImportViewShadowMaps).
         FrameTransients& view   = textures.Transients;
-        auto* images = Runtime::ResourceRegistry::GetImageService();
+        auto* images = Runtime::GetImageService();
         if ( const auto env = GetEnvironment(); env.has_value() )
         {
             if ( env->IrradianceMap.IsValid() )
@@ -616,7 +616,7 @@ namespace Desert::Graphic
         inputs.WorldGridParams = t.Lights.WorldGridParams;
         inputs.WorldGridCells  = t.Lights.WorldGridCells;
         inputs.CameraPosition  = frame.CameraPosition;
-        inputs.Lighting        = GetFrameDirectionalLighting();
+        inputs.Lighting        = GetFrameLightingHistoryKey();
         // The screen probes' far field falls back to a coarser clipmap (RadianceCacheRadianceAt): Mark stamps it.
         inputs.MarkRadianceFallback = m_GIPipeline.ScreenProbes;
         // The captures' points are readers of this cache too: their stored diffuse is measured from it.
@@ -715,6 +715,7 @@ namespace Desert::Graphic
                         .GBufferDepth    = inputs.GBufferDepth,
                         .GBufferA        = inputs.GBufferA,
                         .GBufferEmissive = inputs.GBufferEmissive,
+                        .GBufferShadingWord = inputs.GBufferShadingWord,
                         .Async           = m_SurfaceCacheAsyncRadiosity } );
                  !lit )
             {
@@ -970,21 +971,17 @@ namespace Desert::Graphic
         // is the water module's, SingleLayerWaterPass.hpp) or with Effects.WaterCaustics 0 - the latter imports
         // nothing, so its graph is the graph without caustics.
         System::ISingleLayerWaterPass* const water = m_Systems.Water.get();
+        // The foam map the ground finds its wet sand in (RainOcclusionUB's shore half).
+        if ( water != nullptr && water->GetShoreFoamUniforms().Shape.y > 0.5f )
+            textures.Transients.ShoreFoam =
+                 textures.Import( water->GetFoamHistory(), "Water.FoamHistory", RDG::Access::SampledGraphics );
         if ( m_ViewProfile.SceneCapture || water == nullptr || !water->CausticsEnabled() )
             return;
-        const FrameGraphRefs                         refs = textures.GraphRefs();
         System::ISingleLayerWaterPass::CausticsInputs caustics{ .SunTravel = glm::vec3( GetFrameSun().Direction ),
                                                                 .Camera    = frame.CameraPosition,
-                                                                .TimeSeconds = static_cast<float>( frame.TimeSeconds ),
-                                                                .Black       = refs.System.Black };
+                                                                .TimeSeconds = static_cast<float>( frame.TimeSeconds ) };
         if ( water->FrameHasWaves() )
-        {
-            if ( water->GetWaterInfo() != nullptr )
-                caustics.WaterInfo =
-                     textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
-            // The FFT ocean's atlas the surface draws with (recorded once per graph; black without an FFT set).
-            caustics.FFTWaves = FrameWaterWaves( graph, textures );
-        }
+            caustics.Water = FrameWater( graph, textures ); // the surface's own (recorded once per graph)
         const std::optional<System::ISingleLayerWaterPass::CausticsFrame> made =
              water->AddCausticsPasses( graph, caustics );
         if ( made.has_value() )
@@ -1041,6 +1038,14 @@ namespace Desert::Graphic
         }
         const RDG::ImportedFramebuffer& target = *targets;
         const auto                      loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
+
+        // Before the refs the composite's scene view inputs are read from. A hierarchy that did not build is said by
+        // its maker, and the trace reads unoccluded. Its readers are the per-light loops: the composite's under any
+        // method but Stochastic (whose direct program has none) and the forward cells' while the MegaLights volume
+        // is off. The screen traces and MegaLights ask for the hierarchy themselves.
+        const bool lightsLooped = !LocalLightsAreStochastic() || !textures.Transients.MegaLightsVolume.Lit;
+        if ( lightsLooped && LocalLightsNeedScreenTrace() && EnsureScreenTraceResources() )
+            AddFrameHZB( graph, textures );
 
         // Every input by name; an input not produced this frame is the system texture neutral for it (UE
         // GSystemTextures), so the lighting is drawn in every mode (SSAO off, GI not traced, fewer cascades).
@@ -1134,7 +1139,7 @@ namespace Desert::Graphic
         const CloudShadowInput   cloudShadow = GetCloudShadowInput();
         DeferredEnvironmentInput environment;
         {
-            auto* imageService = Runtime::ResourceRegistry::GetImageService();
+            auto* imageService = Runtime::GetImageService();
             environment.Sky    = GetSkyLightState();
             if ( const auto& env = GetEnvironment(); env.has_value() )
             {
@@ -1543,7 +1548,7 @@ namespace Desert::Graphic
              .Extent            = glm::uvec2( frame.Split.Render.Width, frame.Split.Render.Height ) };
         const auto field = m_GlobalDistanceFieldView->AddFramePasses(
              graph, *globalField, import, objects, *m_FrameDistanceFields,
-             Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(), m_DistanceFieldPoolMiB, nearView );
+             Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(), nearView );
         if ( !field )
         {
             LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", field.GetError() );
@@ -1868,6 +1873,16 @@ namespace Desert::Graphic
                  return result;
              } );
         return sceneCopy;
+    }
+
+    bool SceneRendererImpl::LocalLightsNeedScreenTrace() const
+    {
+        const bool virtualMaps =
+             m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::VirtualMaps;
+        const auto unmapped = [virtualMaps]( const auto& light )
+        { return ( light.ShadowFlags & ShaderProtocols::kLightShadowInView ) != 0 && ( virtualMaps ? light.ShadowMaskSlot : light.ShadowView ) < 0; };
+        return std::ranges::any_of( GetPointLights().PointLights, unmapped ) ||
+               std::ranges::any_of( GetSpotLights().SpotLights, unmapped );
     }
 
     RDG::TextureRef SceneRendererImpl::AddFrameHZB( RDG::Builder& graph, FrameTextures& textures,
@@ -2827,20 +2842,12 @@ namespace Desert::Graphic
         auto* water = m_Systems.Water.get();
         if ( writers.Water && water != nullptr )
         {
-            const RDG::TextureRef waterInfo =
-                 textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
-            if ( !waterInfo.IsValid() )
-            {
-                LOG_ERROR( "[SceneRenderer] Translucency: Front Layer G-buffer (Water): the WaterInfo ground "
-                           "cannot be imported - the water is not in the front layer" );
-            }
-            else
+            // Recorded here when the front layer is the water's first reader this frame; AddFramePasses said why not.
+            if ( const System::WaterFrameRefs waterRefs = FrameWater( graph, textures ); waterRefs.IsValid() )
             {
                 const SceneViewInputs   view  = SceneViewInputsOf( textures.GraphRefs() );
                 const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
                 const bool              load  = writers.Meshes;
-                // The FFT ocean's waves, recorded here when the front layer is their first reader this frame.
-                const RDG::TextureRef waves = FrameWaterWaves( graph, textures );
                 graph.AddPass(
                      "Translucency: Front Layer G-buffer (Water)", RDG::PassFlags::Raster,
                      [&]( RDG::PassBuilder& pass )
@@ -2852,7 +2859,7 @@ namespace Desert::Graphic
                          pass.ColorTarget( 0, surface.Normal, colorLoad );
                          pass.ColorTarget( 1, surface.Velocity, colorLoad );
                          pass.DepthTarget( surface.Depth, depthLoad );
-                         water->DeclareFrontLayerDraws( pass, waterInfo, waves, view, frame );
+                         water->DeclareFrontLayerDraws( pass, waterRefs, view, frame );
                      },
                      [water]( RDG::PassContext& context ) -> Common::BoolResultStr
                      { return water->RenderFrontLayerManual( context ); } );

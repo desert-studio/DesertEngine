@@ -6,7 +6,7 @@ Shader "WaterSurface"
     // the water quadtree selected, drawn by Graphic::System::WaterRenderer with Mesh/Surface/Pass_SingleLayerWater.glslh
     // - the physics of light in water. The LOOK is the body's `.demat` of this template: the ripple normal maps and
     // their scroll, roughness and specular (EvaluateSurface), the volume's scattering, absorption, phase and the tint
-    // behind (EvaluateSingleLayerWater), the foam's texture, tint and thresholds. Nothing here states a colour of its own.
+    // behind (EvaluateSingleLayerWater), the foam's structure, albedo, thresholds and decays. Nothing here states a colour of its own.
     Domain Surface
     Usage WaterMesh
     TwoSided
@@ -21,7 +21,6 @@ Shader "WaterSurface"
         Color       ColorScaleBehindWater ("Color Scale Behind Water", Category("Water")) = (1, 1, 1, 1)
         Float       Roughness ("Roughness", Range(0.02,1), Category("Surface")) = 0.05
         Float       Specular ("Specular", Range(0,1), Category("Surface")) = 0.255
-        Float       RefractionStrength ("Refraction Strength (cm)", Range(0,200), Category("Surface")) = 40
         Texture2D   RippleNormalA ("Ripple Normal A", Category("Ripples"), Intent(NormalMap)) = "normal"
         Texture2D   RippleNormalB ("Ripple Normal B", Category("Ripples"), Intent(NormalMap)) = "normal"
         Float       RippleTileSizeA ("Ripple Tile Size A (cm)", Range(10,10000), Category("Ripples")) = 400
@@ -32,15 +31,26 @@ Shader "WaterSurface"
         Float       RippleStrength ("Ripple Strength", Range(0,4), Category("Ripples")) = 1
         Float       RippleSlopeRms ("Ripple Maps' Slope RMS", Range(0,1), Category("Ripples")) = 0.1
         Float       WindRippleMaxGain ("Wind Ripple Max Gain", Range(1,4), Category("Ripples")) = 2
-        Texture2D   FoamTexture ("Foam Colour", Category("Foam"), Intent(Colour)) = "white"
-        Texture2D   FoamStructure ("Foam Structure", Category("Foam"), Intent(Mask)) = "white"
-        Color       FoamTint ("Foam Tint", Category("Foam")) = (1, 1, 1, 1)
+        Texture2D   FoamHeight ("Foam Height (R cells, G bubbles)", Category("Foam"), Intent(Mask)) = "white"
+        Texture2D   FoamNormal ("Foam Normal", Category("Foam"), Intent(NormalMap)) = "normal"
+        Float       FoamAlbedo ("Foam Albedo", Range(0,1), Category("Foam")) = 0.85
         Float       FoamTileSize ("Foam Tile Size (cm)", Range(10,10000), Category("Foam")) = 300
-        Float       FoamJacobianThreshold ("Whitecap Jacobian Threshold", Range(-1,1), Category("Foam")) = 0.5
+        Float       FoamJacobianThreshold ("Whitecap Jacobian Threshold", Range(-1,1), Category("Foam")) = 0.62
         Float       FoamJacobianSoftness ("Whitecap Jacobian Softness", Range(0.01,1), Category("Foam")) = 0.25
-        Float       FoamDecaySeconds ("Foam Decay (s)", Range(0.1,30), Category("Foam")) = 3
-        Float       FoamBreakerIndex ("Breaker Index H/d", Range(0.4,1.5), Category("Foam")) = 0.78
-        Float       ShoreFadeCm ("Shore Fade Depth (cm)", Range(0,500), Category("Shore")) = 40
+        Float       WhitecapGain ("Whitecap Gain", Range(0,4), Category("Foam")) = 1
+        Float       FoamDecaySeconds ("Foam Decay (s)", Range(0.1,60), Category("Foam")) = 6
+        Float       BubbleDecaySeconds ("Bubble Decay (s)", Range(0.1,60), Category("Foam")) = 3
+        Float       WetDrySeconds ("Wet Sand Drying (s)", Range(0.1,600), Category("Shore")) = 40
+        Float       CausticsOnsetDepth ("Caustics Onset Depth (cm)", Range(1,1000), Category("Caustics")) = 30
+        Float       CausticsFadeDepth ("Caustics Fade Depth (cm)", Range(1,10000), Category("Caustics")) = 600
+        Float       CausticsStrength ("Caustics Strength", Range(0,1), Category("Caustics")) = 1
+        Texture2D   FallStrands ("Fall Strands (R height)", Category("Fall"), Intent(Mask)) = "white"
+        Float       FallStrandTileWidth ("Fall Strand Tile Across (cm)", Range(5,1000), Category("Fall")) = 120
+        Float       FallStrandTileLength ("Fall Strand Tile Along (cm)", Range(5,4000), Category("Fall")) = 360
+        Float       FallTearStartSpeed ("Fall Tears From (cm/s)", Range(0,5000), Category("Fall")) = 250
+        Float       FallTearEndSpeed ("Fall Torn At (cm/s)", Range(0,5000), Category("Fall")) = 900
+        Float       FallLipThickness ("Fall Lip Thickness (cm)", Range(1,200), Category("Fall")) = 25
+        Float       FallEdgeFray ("Fall Edge Fray (cm)", Range(0,500), Category("Fall")) = 60
         Float       DebugFoamMask ("Debug: Foam Mask Only", Range(0,1), Category("Debug")) = 0
     }
 
@@ -89,8 +99,8 @@ Shader "WaterSurface"
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
             SurfaceOutput s = DefaultSurfaceOutput();
-#ifdef WATER_MAX_WAVES
-            // A river's surface flows along its spline (WaterMeshTiles.glslh WaterFlowPhases: two copies advected
+#ifdef DESERT_WATER_MESH_TILES_GLSLH
+            // A river's surface flows along its spline (WaterRiver.glslh WaterFlowPhases: two copies advected
             // half a period apart, each faded out as it resets); still water reads one copy.
             vec2  p0, p1;
             float w1;
@@ -118,14 +128,17 @@ Shader "WaterSurface"
             return s;
         }
 
-        // The foam sheet at a still-water (X, Z), at two scales so it does not repeat: rgb = albedo, a = coverage.
-        vec4 WaterFoamSheet( vec2 stillXZ )
+        // The foam's structure at a still-water (X, Z), at two scales so it does not repeat: xy = the tangent normal's
+        // slope, z = the height (the large cells, the small bubbles broken into their walls).
+        vec3 WaterFoamSheet( vec2 stillXZ )
         {
-            const vec2 foamUv  = vec2( stillXZ.x, -stillXZ.y ) / max( Material.FoamTileSize, 1.0 );
-            const vec2 foamUv2 = mat2( 0.8, -0.6, 0.6, 0.8 ) * foamUv * 0.37 + vec2( 0.31, 0.17 );
-            return vec4( SurfaceSampleMaterial( Material.FoamTexture, foamUv ).rgb * Material.FoamTint.rgb,
-                         0.5 * ( SurfaceSampleMaterial( Material.FoamStructure, foamUv ).r +
-                                 SurfaceSampleMaterial( Material.FoamStructure, foamUv2 ).r ) );
+            const vec2 uv  = vec2( stillXZ.x, -stillXZ.y ) / max( Material.FoamTileSize, 1.0 );
+            const mat2 turn = mat2( 0.8, -0.6, 0.6, 0.8 );
+            const vec2 uv2 = turn * uv * 0.37 + vec2( 0.31, 0.17 );
+            const vec4 a = SurfaceSampleMaterial( Material.FoamHeight, uv );
+            const vec4 b = SurfaceSampleMaterial( Material.FoamHeight, uv2 );
+            const vec3 n = SurfaceSampleTangentNormal( Material.FoamNormal, uv );
+            return vec3( n.xy / max( n.z, 0.1 ), clamp( 0.5 * ( a.r + b.r ) + 0.3 * ( a.g - 0.5 ), 0.0, 1.0 ) );
         }
 
         SingleLayerWaterOutput EvaluateSingleLayerWater( SurfaceInput i )
@@ -135,28 +148,45 @@ Shader "WaterSurface"
             w.AbsorptionCoefficients = Material.AbsorptionCoefficients.rgb;
             w.PhaseG                 = Material.PhaseG;
             w.ColorScaleBehindWater  = Material.ColorScaleBehindWater.rgb;
-            w.RefractionOffset       = Material.RefractionStrength;
             // The foam rides the water particle (UV1 = its still-water X, Z; Vertex_WaterMesh.glslh), at two scales
             // so the sheet does not repeat.
             // On a river the sheet is carried by the flow, two-phase as the normals (EvaluateSurface).
             vec2  foam0 = i.UV1, foam1 = i.UV1;
             float foamW1 = 0.0;
-#ifdef WATER_MAX_WAVES
+#ifdef DESERT_WATER_MESH_TILES_GLSLH
             // A fall's foam streaks down its sheet (WaterFlowCoord: the sheet's coordinate, stretched along the flow).
             foam0 = WaterFlowCoord( i.UV1, i.UV0, i.VertexColor );
             WaterFlowPhases( foam0, i.VertexColor, i.Time, foam0, foam1, foamW1 );
 #endif
-            const vec4 sheet0        = WaterFoamSheet( foam0 );
-            const vec4 sheet         = foamW1 > 0.0 ? mix( sheet0, WaterFoamSheet( foam1 ), foamW1 ) : sheet0;
-            w.FoamAlbedo             = sheet.rgb;
-            w.FoamCoverage           = sheet.a;
-            w.FoamJacobianThreshold  = Material.FoamJacobianThreshold;
-            w.FoamJacobianSoftness   = Material.FoamJacobianSoftness;
-            w.FoamDecaySeconds       = Material.FoamDecaySeconds;
-            w.FoamBreakerIndex       = Material.FoamBreakerIndex;
-            w.ShoreFadeCm            = Material.ShoreFadeCm;
+            vec3 sheet = WaterFoamSheet( foam0 );
+            if ( foamW1 > 0.0 )
+                sheet = mix( sheet, WaterFoamSheet( foam1 ), foamW1 );
+            w.FoamNormal             = normalize( vec3( sheet.xy, 1.0 ) );
+            w.FoamHeight             = sheet.z;
+            w.FoamAlbedo             = Material.FoamAlbedo;
             w.DebugFoamMask          = Material.DebugFoamMask;
             w.WindRippleMaxGain      = Material.WindRippleMaxGain;
+            // A fall's strands (T_WaterFallStrands): the mask carried down the sheet by the falling water, two-phase
+            // as the foam, read at the pixel and a 32nd of a tile across (its slope bends the sheet's normal).
+            w.FallStrands = vec2( 0.5, 0.0 );
+            w.FallShape   = vec4( Material.FallTearStartSpeed, Material.FallTearEndSpeed, Material.FallLipThickness,
+                                  Material.FallEdgeFray );
+#ifdef DESERT_WATER_MESH_TILES_GLSLH
+            if ( WaterTileIsFall( i.VertexColor.b ) )
+            {
+                const vec2  tile = max( vec2( Material.FallStrandTileWidth, Material.FallStrandTileLength ), vec2( 1.0 ) );
+                const vec2  e    = vec2( tile.x / 32.0, 0.0 );
+                vec2  s0, s1;
+                float sw1;
+                WaterFlowPhases( WaterFlowCoord( vec2( 0.0 ), i.UV0, i.VertexColor ), i.VertexColor, i.Time, s0, s1,
+                                 sw1 );
+                const float h = mix( SurfaceSampleMaterial( Material.FallStrands, s0 / tile ).r,
+                                     SurfaceSampleMaterial( Material.FallStrands, s1 / tile ).r, sw1 );
+                const float x = mix( SurfaceSampleMaterial( Material.FallStrands, ( s0 + e ) / tile ).r,
+                                     SurfaceSampleMaterial( Material.FallStrands, ( s1 + e ) / tile ).r, sw1 );
+                w.FallStrands = vec2( h, ( x - h ) / e.x );
+            }
+#endif
             return w;
         }
     }

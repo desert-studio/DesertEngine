@@ -5,7 +5,8 @@
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
 
-#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetGuid.hpp>
+#include <Common/Core/ResultStr.hpp>
 
 namespace Desert::Assets
 {

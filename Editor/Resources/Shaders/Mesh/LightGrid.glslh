@@ -26,22 +26,10 @@
 // Lists are COMPACT: a cell takes count indices from the pool (sized on the CPU to every pair the kernel can list).
 // An offset of LIGHT_GRID_WORLD_EVERY_LIGHT means the pool ran out for that cell; its points are lit by every light.
 
-#define LIGHT_GRID_LAYOUT_FRUSTUM 0u
-#define LIGHT_GRID_LAYOUT_WORLD 1u
 #define LIGHT_GRID_WORLD_EVERY_LIGHT 0xFFFFFFFFu
 #define LIGHT_GRID_NO_CELL 0xFFFFFFFFu
-#define LIGHT_GRID_MAX_CLIPMAPS 6
 
-// std430 layout — must match Graphic::LightGridParamsPayload (288 bytes).
-struct LightGridParams {
-    mat4  view;          // world -> box space: frustum = view (camera looks down -z; depth = -(view * p).z), world = I
-    mat4  invProjection; // frustum: clip -> view, of the JITTERED projection the G-buffer depth was rasterised with
-    uvec4 size;          // frustum: tiles x, y, depth slices, list capacity; world: res, res, res * clipmaps, pool size
-    vec4  zParams;       // frustum: x = near (cm), y = slices / log(far / near), z = far (cm), w = tile edge in pixels
-    uvec4 counts;        // x = point lights, y = spot lights, z = layout (LIGHT_GRID_LAYOUT_*), w = world: clipmaps
-    vec4  extent;        // frustum: xy = render target in pixels
-    vec4  clipmaps[LIGHT_GRID_MAX_CLIPMAPS]; // world: xyz = clipmap min corner (world cm), w = cell size (cm)
-};
+#include <Generated/Lighting/LightGrid.glslh> // LightGridParams, LIGHT_GRID_LAYOUT_*, LIGHT_GRID_MAX_CLIPMAPS: LightingLayout.hpp
 
 uint LightGridCellCount( LightGridParams grid )
 {

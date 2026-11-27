@@ -57,7 +57,6 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::DistanceField
 {
-    inline constexpr int kGlobalDistanceFieldClipmaps = 4;
     // The clipmaps' slots, one named texture per level (Common/GITracer.glslh,
     // Debug/GlobalDistanceFieldView.shader declare GlobalDistanceField<level>Texture): every reader binds level i
     // through element i.
@@ -291,8 +290,7 @@ namespace Desert::Graphic::DistanceField
 
         // Brings the clipmaps up to @p camera and @p objects, once per @p engineFrame (the class comment). The
         // mesh fields are @p scene's - the one DistanceFieldSceneData of the Core::Scene every view of it shares:
-        // the frame's update starts its frame there (@p poolMiB: Scalability
-        // GlobalIllumination.DistanceFieldPoolMiB), looks its objects' fields up in the set the scene decided; then
+        // the frame's update starts its frame there (the scene data reads its ceiling), looks its objects' fields up in the set the scene decided; then
         // its update plan and one composite pass per level that has bricks to rewrite. Every call imports the
         // clipmaps, the object grid and the brick atlas into @p graph through @p import, and registers the asset,
         // indirection and object buffers through @p imports (FrameField::MeshFields) once this frame's objects
@@ -301,7 +299,7 @@ namespace Desert::Graphic::DistanceField
         [[nodiscard]] Common::ResultStr<FrameField>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
                          const GlobalDistanceFieldObjectSet& objects, DistanceFieldSceneData& scene,
-                         uint64_t engineFrame, uint32_t poolMiB, const MeshFieldImports& imports );
+                         uint64_t engineFrame, const MeshFieldImports& imports );
 
         // The object records of the frame's update (DF_OBJECT_*): what a view's graph registers as
         // MeshDistanceFieldReads::Objects.
@@ -441,7 +439,7 @@ namespace Desert::Graphic::DistanceField
         AddFramePasses( RDG::Builder& graph, GlobalDistanceField& field,
                         const GlobalDistanceField::ImportImage&       import,
                         const GlobalDistanceFieldObjectSet& objects, DistanceFieldSceneData& scene,
-                        uint64_t engineFrame, uint32_t poolMiB, const NearFieldView& view );
+                        uint64_t engineFrame, const NearFieldView& view );
 
         // "Debug: Global Distance Field" over @p target (a full-screen sphere trace of the clipmaps).
         [[nodiscard]] Common::BoolResultStr AddDebugViewPass( RDG::Builder&                          graph,

@@ -9,22 +9,13 @@
 // the software tracer). Produced by GlobalDistanceField::AddUpdatePasses and GlobalDistanceFieldView::AddFramePasses, carried by
 // the frame (FrameTransients) to the GI tracer (GlobalIllumination::TracerFrame, DeclareTracerReads).
 
+#include <Engine/Graphic/DistanceField/DistanceFieldLayout.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <glm/glm.hpp>
 
 namespace Desert::Graphic::DistanceField
 {
-    // The froxel grid's placement - std430 `struct MeshSDFGrid` in Common/MeshSDFGrid.glslh.
-    struct MeshSDFGridPlacement
-    {
-        glm::mat4  WorldToClip{ 1.0f };   // the view's unjittered view-projection
-        glm::uvec4 Cells{ 0u };           // cells across, cells down, depth slices, cells in all
-        glm::vec4  ZDistribution{ 0.0f }; // log z scale (1/cm), log z offset, z scale, pixels per cell
-        glm::vec4  Screen{ 0.0f };        // the view's extent in pixels, 1 / that
-    };
-    static_assert( sizeof( MeshSDFGridPlacement ) == 112 );
-
     struct MeshDistanceFieldReads
     {
         RDG::BufferRef  Assets;      // DF_ASSET_STRIDE vec4 per asset ("DFAssetData")

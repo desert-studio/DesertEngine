@@ -36,6 +36,7 @@
 #include <span>
 #include <string>
 #include <vector>
+#include <glm/glm.hpp>
 
 namespace Desert::Editor::Flight
 {

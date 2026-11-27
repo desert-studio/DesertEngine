@@ -47,7 +47,6 @@
 #include "PackagedContent.hpp"
 #include "RuntimeCrashTest.hpp"
 #include <Engine/Graphic/PipelineCacheFile.hpp>
-#include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
 #include "MovieRender.hpp"
 #include "RuntimeLayer.hpp"
 #include "RuntimeShot.hpp"
@@ -181,6 +180,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     namespace fs = std::filesystem;
 
     std::string projectArg;
+    // --rhi / --adapter / --device-profile: resolved against machine.json by the application, before the window
+    // (Graphic::ResolveRhiSelection), which refuses an unknown name with the list.
+    Desert::Graphic::RhiSelectionInputs rhiInputs;
 #if DESERT_DEV_INSTRUMENTS
     std::string crashTestArg;
 #endif
@@ -201,7 +203,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
         else if ( std::strcmp( argv[i], "--log-level" ) == 0 )
         {
             // The level gate (Common::Logger::SetLevel), moved before the first line it would drop; an unknown
-            // name is fatal with the names, as an unknown --device-profile is below.
+            // name is fatal with the names, as an unknown --device-profile is at start (ResolveRhiSelection).
             const char* const name = valueAfter( i );
             const auto        level = Common::Logger::LevelFromName( name );
             if ( !level )
@@ -212,12 +214,11 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
             Common::Logger::SetLevel( *level );
         }
         else if ( std::strcmp( argv[i], "--device-profile" ) == 0 )
-        {
-            // The lower device this run plays (the DeviceCapsProbe.cpp table), set before the device exists; an
-            // unknown name is fatal with the list, as a malformed --player-start is below.
-            if ( const auto set = Desert::Graphic::API::Vulkan::RequestDeviceProfile( valueAfter( i ) ); !set )
-                FailStartup( set.GetError(), 2 );
-        }
+            rhiInputs.CommandLineDeviceProfile = valueAfter( i ); // the lower device this run plays (DeviceProfile.hpp)
+        else if ( std::strcmp( argv[i], "--rhi" ) == 0 )
+            rhiInputs.CommandLineRhi = valueAfter( i );
+        else if ( std::strcmp( argv[i], "--adapter" ) == 0 )
+            rhiInputs.CommandLineAdapter = valueAfter( i );
 #if DESERT_DEV_INSTRUMENTS
         else if ( std::strcmp( argv[i], "--crash-test" ) == 0 )
             crashTestArg = valueAfter( i );
@@ -462,6 +463,7 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     appInfo.MachineSettingsFile =
          Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "machine.json";
     appInfo.Display = Desert::Player::s_UserSettings.Display;
+    appInfo.Rhi     = rhiInputs;
     // A movie renders into its own offscreen target; the window is only the host of the device, so it is a
     // small window rather than a fullscreen one covering the desktop for the length of the render.
 #if DESERT_DEV_INSTRUMENTS

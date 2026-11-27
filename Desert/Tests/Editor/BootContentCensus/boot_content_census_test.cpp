@@ -229,7 +229,7 @@ TEST( BootContentCensus, EveryBootFunctionIsCalledByBothHosts )
     ASSERT_FALSE( root.empty() );
     const std::string        header = WithoutComments( ReadFile( root + kBootHeader ) );
     // A boot function either loads silently (void) or refuses the boot (BoolResultStr, CompileShaders with
-    // no Default Surface); ShaderCount is the splash's weight, not a boot function.
+    // no Default Surface).
     const std::regex         declaration( R"(\b(?:void|Common::BoolResultStr)\s+(\w+)\s*\()" );
     std::vector<std::string> declared;
     for ( auto it = std::sregex_iterator( header.begin(), header.end(), declaration );

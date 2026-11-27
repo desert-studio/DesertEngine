@@ -681,19 +681,23 @@ namespace Desert::Graphic::API::Vulkan
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetPipelineCache();
         // The record moves to the compile: from here on only the compile writes it, and publishes it.
         std::shared_ptr<BuiltPipeline> next = std::move( m_Building );
+        // EVERY COMPILE IS COUNTED AND NAMED, on this thread and on a worker alike: the splash names the
+        // pipeline while it is in the driver. A compile on the calling thread is pending only while this call
+        // runs it, so the reveal gate's Pending(Engine) still means "a worker holds one".
+        const uint64_t ticket = PipelineBuilds::Get().OnStarted( m_Role, m_Specification.DebugName );
         if ( where == CompileOn::CallingThread )
         {
             Compile( device, pipelineCache, std::move( next ) );
+            PipelineBuilds::Get().OnFinished( ticket );
             return;
         }
         m_State.store( BuildState::Compiling, std::memory_order_release );
         ::Desert::Graphic::PipelineReadinessCounter().fetch_add( 1u, std::memory_order_acq_rel );
-        PipelineBuilds::Get().OnStarted( m_Role );
         m_Compile = Common::JobSystem::Get().Async(
-             [this, device, pipelineCache, role = m_Role, next = std::move( next )]() mutable noexcept
+             [this, device, pipelineCache, ticket, next = std::move( next )]() mutable noexcept
              {
                  Compile( device, pipelineCache, std::move( next ) );
-                 PipelineBuilds::Get().OnFinished( role );
+                 PipelineBuilds::Get().OnFinished( ticket );
              } );
     }
 

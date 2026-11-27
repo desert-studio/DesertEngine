@@ -1,6 +1,7 @@
 #include <Engine/Scripting/Luau/LuauRuntime.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Platform/ThreadCpuClock.hpp>
 #include <Engine/Reflection/ReflectionTypes.hpp>
 #include <Engine/Scripting/Luau/LuauBinder.hpp>
 #include <Engine/Scripting/Luau/LuauDebugger.hpp>
@@ -33,7 +34,13 @@ namespace Desert::Scripting
         };
         using Bytecode = std::unique_ptr<char, FreeBytecode>;
 
-        using Clock = std::chrono::steady_clock;
+        // The watchdog counts the CPU the calling thread spent, not the wall: a call is stopped for running away,
+        // never because the thread was preempted, paged in or blocked by the engine (ThreadCpuClock.hpp). Reading
+        // the thread's CPU time is a syscall, so every safepoint reads only the wall (a thread's CPU never runs
+        // ahead of its wall): the CPU clock is read once the wall passes its gate, and the gate then moves by the
+        // CPU budget still left.
+        using Clock     = Common::Platform::ThreadCpuClock;
+        using WallClock = std::chrono::steady_clock;
 
         /// Luau numbers its memory categories 0..LUA_MEMORY_CATEGORIES-1; 0 is the engine's own (libraries,
         /// prototypes, the console). One category per SCRIPT, so the count is of distinct scripts, not slots.
@@ -69,9 +76,10 @@ namespace Desert::Scripting
         /// function that calls back into a script keeps the outer call's deadline and category on return.
         struct Guard
         {
-            bool              Armed = false;
-            Clock::time_point Deadline;
-            int               Category = 0;
+            bool                  Armed = false;
+            Clock::time_point     Deadline;     // on RunClock(): the CPU budget's end
+            WallClock::time_point WallDeadline; // on RunWall(): before it the CPU budget cannot be spent
+            int                   Category = 0;
         };
 
         LuauLimits                              Limits;
@@ -80,9 +88,10 @@ namespace Desert::Scripting
         int                                     ConsoleRef = LUA_NOREF;
         bool                                    Native     = false;
         bool                                    Debuggable = false;
-        // How long calls of this runtime were held at debugger stops: the watchdog's clock leaves it out, so a
-        // call resumed after a minute at a breakpoint still has the budget it had when it stopped.
+        // How long calls of this runtime were held at debugger stops, on both watchdog clocks: they leave it out,
+        // so a call resumed after a minute at a breakpoint still has the budget it had when it stopped.
         Clock::duration                         Held{};
+        WallClock::duration                     HeldWall{};
         std::unordered_map<std::string, Script> Scripts;
         std::unordered_map<LuauSlot, Slot>      Slots;
         LuauSlot                                NextSlot     = 1;
@@ -100,22 +109,35 @@ namespace Desert::Scripting
         {
             if ( gc >= 0 ) // a GC step, not a safepoint of the script: nothing may be thrown here
                 return;
-            const Impl& impl = Of( state );
+            Impl& impl = Of( state );
             if ( !impl.Active.Armed )
                 return;
-            if ( impl.RunClock() > impl.Active.Deadline )
-                luaL_errorL( state, "stopped by the watchdog: the call ran longer than %lld ms",
-                             static_cast<long long>( impl.Limits.CallBudget.count() ) );
+            const WallClock::time_point wall = impl.RunWall();
+            if ( wall > impl.Active.WallDeadline )
+            {
+                const Clock::time_point cpu = impl.RunClock();
+                if ( cpu > impl.Active.Deadline )
+                    luaL_errorL( state, "stopped by the watchdog: the call ran longer than %lld ms",
+                                 static_cast<long long>( impl.Limits.CallBudget.count() ) );
+                impl.Active.WallDeadline =
+                     wall + std::chrono::duration_cast<WallClock::duration>( impl.Active.Deadline - cpu );
+            }
             if ( impl.Active.Category != 0 &&
                  lua_totalbytes( state, impl.Active.Category ) > impl.Limits.ScriptMemoryBytes )
                 luaL_errorL( state, "stopped: the script holds more than %zu bytes",
                              impl.Limits.ScriptMemoryBytes );
         }
 
-        /// The watchdog's clock: steady time minus the time held at debugger stops.
+        /// The watchdog's clock: the thread's CPU time minus the CPU it spent held at debugger stops.
         [[nodiscard]] Clock::time_point RunClock() const
         {
             return Clock::now() - Held;
+        }
+
+        /// The watchdog's gate clock: the wall minus the wall time held at debugger stops.
+        [[nodiscard]] WallClock::time_point RunWall() const
+        {
+            return WallClock::now() - HeldWall;
         }
 
         static int Print( lua_State* state )
@@ -149,7 +171,10 @@ namespace Desert::Scripting
                                    const std::string& what )
         {
             const Guard outer = Active;
-            Active = Guard{ .Armed = true, .Deadline = RunClock() + Limits.CallBudget, .Category = category };
+            Active            = Guard{ .Armed        = true,
+                                       .Deadline     = RunClock() + Limits.CallBudget,
+                                       .WallDeadline = RunWall() + Limits.CallBudget,
+                                       .Category     = category };
             if ( Debuggable )
                 LuauDebugger::Get().EnterCall();
             const int status = lua_pcall( thread, nargs, nresults, 0 );
@@ -300,7 +325,12 @@ namespace Desert::Scripting
                          visit( LuauLoadedScript{
                               .Script = name, .Prototype = script.Prototype, .Lines = script.Lines } );
                  },
-                 .Held = [&impl]( Clock::duration held ) { impl.Held += held; } } );
+                 .Held =
+                      [&impl]( WallClock::duration heldWall, Clock::duration heldCpu )
+                 {
+                     impl.HeldWall += heldWall;
+                     impl.Held += heldCpu;
+                 } } );
     }
 
     LuauRuntime::~LuauRuntime()

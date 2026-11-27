@@ -92,11 +92,14 @@ namespace Desert::Editor
         // @p startupLoading is the layer's start-up staging or content settle, still running.
         // @p hlodBuild: a Build HLODs started by a command - still baking, its progress and its outcome
         // (WorldPartitionPanel::TickBuild).
+        // @p liveCoding: a Live Coding patch scanning, compiling, linking or waiting for the frame boundary, and
+        // the last patch's outcome (LiveCoding::LiveCodingSession::Report).
         // @p meshDropsLoading: a viewport's AsyncMeshLoader still imports or has not spawned a dropped mesh.
         // @p modelingPreviewOutstanding: the active viewport's modeling tool preview has not landed
         // (ViewportPanel::ModelingPreviewOutstanding).
         void SampleFrameQuiescence( bool startupLoading, bool reflectionCapturesFilling, bool texturesStreaming,
-                                    const Control::BackgroundReport& hlodBuild, bool miniMapBuildRunning,
+                                    const Control::BackgroundReport& hlodBuild,
+                                    const Control::BackgroundReport& liveCoding, bool miniMapBuildRunning,
                                     bool meshDropsLoading, bool editorHLODsReading,
                                     bool modelingPreviewOutstanding );
         // CAPTURING THE COMPOSITED FRAME, in two halves, because a swapchain image may only be touched
@@ -139,7 +142,8 @@ namespace Desert::Editor
                                                                bool              materialPipelinesCompiling,
                                                                bool              grassInstancesSettling );
 
-        // OnDetach: abandon a request still in flight (logged, never answered) and remove the socket file.
+        // OnDetach: drain a window PNG still being written (its ticket back to the swap chain), abandon a request
+        // still in flight (logged, never answered) and remove the socket file.
         void Close();
 
     private:

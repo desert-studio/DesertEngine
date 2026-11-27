@@ -77,4 +77,81 @@ namespace Desert::Editor::Core
     {
         SetAndPersist( EditorPreferences::Get().PersistentSnap, on );
     }
-} // namespace Desert::Editor::Core
+
+    auto GizmoState::SetEntityGestureEntry( std::optional<uint64_t> revision ) -> void
+    {
+        s_EntityGestureEntry = revision;
+    }
+
+    auto GizmoState::EntityGestureEntry() -> std::optional<uint64_t>
+    {
+        return s_EntityGestureEntry;
+    }
+
+    auto GizmoState::SetEntityInteraction( bool held ) -> void
+    {
+        s_EntityInteraction = held;
+    }
+
+    auto GizmoState::EntityInteraction() -> bool
+    {
+        return s_EntityInteraction;
+    }
+
+    auto GizmoState::SetControlInteraction( bool held ) -> void
+    {
+        s_ControlInteraction = held;
+    }
+
+    auto GizmoState::ControlInteraction() -> bool
+    {
+        return s_ControlInteraction;
+    }
+
+    auto GizmoState::SetPoseInteraction( bool held ) -> void
+    {
+        s_PoseInteraction = held;
+    }
+
+    auto GizmoState::PoseInteraction() -> bool
+    {
+        return s_PoseInteraction;
+    }
+
+    auto GizmoState::EffectiveSpace( Operation op ) -> Space
+    {
+        return SpaceIsForced( op ) ? Space::Local : s_Space;
+    }
+
+    auto GizmoState::SetSpace( Space space ) -> void
+    {
+        s_Space = space;
+    }
+
+    auto GizmoState::GetSpace() -> Space
+    {
+        return s_Space;
+    }
+
+    auto GizmoState::Set( Operation op ) -> void
+    {
+        s_Operation = op;
+    }
+
+    auto GizmoState::Get() -> Operation
+    {
+        return s_Operation;
+    }
+
+    GizmoState::Operation GizmoState::s_Operation = Operation::None;
+
+    GizmoState::Space GizmoState::s_Space = Space::World;
+
+    bool GizmoState::s_PoseInteraction = false;
+
+    bool GizmoState::s_ControlInteraction = false;
+
+    bool GizmoState::s_EntityInteraction = false;
+
+    std::optional<uint64_t> GizmoState::s_EntityGestureEntry;
+}

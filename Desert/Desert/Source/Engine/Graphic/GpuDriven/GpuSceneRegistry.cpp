@@ -41,13 +41,19 @@ namespace Desert::Graphic::GpuDriven
         }
 
         bool SameInstances( const std::span<const GpuSceneInstance> held,
-                            const std::span<const glm::mat4>        transforms )
+                            const std::span<const glm::mat4>        transforms,
+                            const std::span<const uint32_t>         componentInstances )
         {
             if ( held.size() != std::max<size_t>( transforms.size(), 1u ) )
                 return false;
             for ( size_t i = 0; i < transforms.size(); ++i )
-                if ( held[i].InstanceToPrimitive != PackAffine( transforms[i] ) )
+            {
+                const uint32_t component =
+                     componentInstances.empty() ? static_cast<uint32_t>( i ) : componentInstances[i];
+                if ( held[i].InstanceToPrimitive != PackAffine( transforms[i] ) ||
+                     held[i].ComponentInstance != component )
                     return false;
+            }
             return true;
         }
     } // namespace
@@ -660,12 +666,14 @@ namespace Desert::Graphic::GpuDriven
         const bool changed = inserted || entry.Mesh != field.Mesh || entry.Geometry != GeometryOf( field.Mesh ) ||
                              entry.Flags != field.Flags || entry.BoundsPad != field.BoundsPad ||
                              entry.CullStart != field.CullDistanceStart || entry.CullEnd != field.CullDistanceEnd ||
-                             !SameInstances( m_Scene.Instances( entry.Primitive ), field.Transforms );
+                             !SameInstances( m_Scene.Instances( entry.Primitive ), field.Transforms,
+                                             field.ComponentInstances );
         if ( !changed )
             return;
         PrimitiveDesc desc;
         desc.Mesh                = field.Mesh;
         desc.InstanceToPrimitive = field.Transforms;
+        desc.ComponentInstances  = field.ComponentInstances;
         desc.CullDistanceStart   = field.CullDistanceStart;
         desc.CullDistanceEnd     = field.CullDistanceEnd;
         desc.Flags               = field.Flags;

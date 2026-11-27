@@ -10,23 +10,9 @@
 // material row and the wind by value. GL_EXT_buffer_reference(_uvec2) is enabled for every stage by the assembler
 // (DShaderParser.cpp AssembleStage); a stage that includes this needs GL_ARB_shader_draw_parameters for
 // gl_DrawIDARB, which the draw-row permutation's assembly enables (device feature shaderDrawParameters,
-// DeviceCapabilities::SupportsShaderDrawParameters).
+// GpuCapabilities::SupportsShaderDrawParameters).
 
-// std430, 96 bytes, mirrors GpuInstanceDrawRow.
-struct GpuInstanceDrawRow
-{
-    uvec2 Instances;      // mat4 per instance (the per-variety path's InstanceTransforms)
-    uvec2 Ids;            // the list's ids into Instances (GpuInstanceIds); (0, 0): the slot is the row
-    uvec2 BladeShape;     // the variety's GrassBladeShape; (0, 0): not a blade
-    uvec2 MeshVisibility; // GrassMeshVisibilityGpu rows; (0, 0): not drawn through the visibility buffer
-    uint  MaterialRow;    // the scene material table's row (the per-variety path's MaterialIndex push)
-    uint  PrimitiveFlags;
-    uint  Reserved0;
-    uint  Reserved1;
-    vec4  WindA;          // the per-variety path's WindA / WindB push (PackViewInstanceWind)
-    vec4  WindB;
-    vec4  Caster;         // a cascade caster's (GRASS-SHADOW-BINS-1): xyz the thin origin, w the ring's inner
-};
+#include <Generated/GpuInstances/GpuInstances.glslh> // GpuInstanceDrawRow: GpuInstancesLayout.hpp
 
 layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer GpuInstanceDrawRowRef
 {

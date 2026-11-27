@@ -1,6 +1,6 @@
 // GPU-DRIVEN contract (C0): the rows of the scene's persistent GPU tables and of the culled-draw tables.
 //
-// C++ twin: Engine/Graphic/GpuDriven/GpuSceneLayout.hpp (std430; every offset below is a static_assert there).
+// The rows' one declaration: Engine/Graphic/GpuDriven/GpuSceneLayout.hpp (std430), generated into the include below.
 // UE: FPrimitiveSceneShaderData / FInstanceSceneShaderData (SceneData.ush) and the InstanceCulling draw records.
 //
 // Readers: the instance cull (Programs/GpuDriven/InstanceCull.shader) and, through VisibleInstances[gl_InstanceIndex],
@@ -19,93 +19,10 @@
 #include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
 #include <Common/ShadowWind.glslh>       // the shadow wind distance's rule, shared with the CPU walk
 
-// GpuDriven::PrimitiveFlags
-#define DESERT_GPU_PRIMITIVE_CASTS_SHADOW        1u
-#define DESERT_GPU_PRIMITIVE_WORLD_BOUNDS        2u
-#define DESERT_GPU_PRIMITIVE_SKINNED             4u
-#define DESERT_GPU_PRIMITIVE_NO_CONTACT_SHADOW   8u
-#define DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION      16u
-#define DESERT_GPU_PRIMITIVE_MOVABLE_CASTER      32u
-#define DESERT_GPU_PRIMITIVE_PREVIOUS_POSITIONS  64u
-// The impostor pair (GpuSceneLayout.hpp kImpostorSource / kImpostorCard): InstanceCull's ImpostorGate.
-#define DESERT_GPU_PRIMITIVE_IMPOSTOR_SOURCE     256u
-#define DESERT_GPU_PRIMITIVE_IMPOSTOR_CARD       512u
-// 128 is DESERT_GPU_DRAW_EMISSION_IS_LIGHT (below), never a primitive bit; 256/512 are the impostor pair.
-#define DESERT_GPU_PRIMITIVE_NO_DECALS           1024u
-// Never in Primitives[]: DesertResolveDrawOf sets it on a resolved draw's Flags from its slot's
-// DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT (the submesh's material has Emissive Lights Scene on), so the binned
-// G-buffer cell marks the shading word's EMISSION_IS_LIGHT (Mesh/Surface/Pass_GBuffer.glslh).
-#define DESERT_GPU_DRAW_EMISSION_IS_LIGHT        128u
-
-// GpuDriven::CullViewFlags
-#define DESERT_GPU_CULL_VIEW_ORTHOGRAPHIC  1u
-#define DESERT_GPU_CULL_VIEW_TEST_HZB      2u
-#define DESERT_GPU_CULL_VIEW_SHADOW_CASTER 4u
-#define DESERT_GPU_CULL_VIEW_LOD_DISABLED  8u
-#define DESERT_GPU_CULL_VIEW_VSM_PAGE_MASK 16u
-#define DESERT_GPU_CULL_VIEW_CASTER_STATIC_LAYER  32u
-#define DESERT_GPU_CULL_VIEW_CASTER_MOVABLE_LAYER 64u
-#define DESERT_GPU_CULL_VIEW_CONTENT_HASH 128u // GpuDriven::CullViewFlags::kContentHash
-#define DESERT_GPU_CULL_VIEW_DEPTH_OCCLUDER 256u // GpuDriven::CullViewFlags::kDepthOccluder
-#define DESERT_GPU_CULL_VIEW_LOD_DITHER 512u // GpuDriven::CullViewFlags::kLodDither
-// GpuDriven::CascadeContentHash (GpuSceneLayout.hpp)
-#define DESERT_CONTENT_HASH_GRID 16u
-#define DESERT_CONTENT_HASH_CELLS_PER_MAP 8u
-#define DESERT_CONTENT_HASH_MAX_SPAN 4u
-#define DESERT_CONTENT_HASH_CELLS 257u
-#define DESERT_CONTENT_HASH_WORDS 4u
-
-// GpuDriven::CullVisibility (one word per view x instance of the cull's Visibility[])
-#define DESERT_GPU_CULL_VISIBILITY_LOD_MASK     0xFFu
-#define DESERT_GPU_CULL_VISIBILITY_POST_VISIBLE 0x20000000u
-#define DESERT_GPU_CULL_VISIBILITY_OCCLUDED     0x40000000u
-#define DESERT_GPU_CULL_VISIBILITY_IN_VIEW      0x80000000u
-
-#define DESERT_GPU_INVALID_INDEX 0xFFFFFFFFu
-
-// An affine transform packed 3x4 (GpuDriven::GpuAffine3x4, UE FRenderTransform): the matrix's first three ROWS,
-// the fourth (0, 0, 0, 1) implicit; Rows[r].w is the translation's r. 48 bytes. Read ONLY through
+// The rows, the PrimitiveFlags / CullViewFlags / CascadeContentHash / CullVisibility / draw-slot / visible-entry bits:
+// generated at build time from GpuDriven/GpuSceneLayout.hpp (meanings there). Read the transforms ONLY through
 // GpuScene_LocalToWorld / GpuScene_PrevLocalToWorld / GpuScene_InstanceToPrimitive below.
-struct GpuAffine3x4
-{
-    vec4 Rows[3];
-};
-
-// One per primitive of the scene; stable index for its life. 208 bytes.
-struct GpuScenePrimitive
-{
-    GpuAffine3x4 LocalToWorld;  // offset 0
-    GpuAffine3x4 PrevLocalToWorld; // offset 48
-    vec4  LocalBoundsCenter;    // offset 96 — xyz cm, w = wind reach past the bounds (cm)
-    vec4  LocalBoundsExtent;    // offset 112 — xyz cm, w = impostor switch screen size (0 = none)
-    uint  FirstInstance;        // offset 128
-    uint  InstanceCount;        // offset 132
-    uint  FirstLodScreenSize;   // offset 136 — into LodScreenSizes[]
-    uint  LodCount;             // offset 140
-    int   LodBias;              // offset 144
-    int   ForcedLod;            // offset 148 — -1 = auto
-    uint  Flags;                // offset 152 — DESERT_GPU_PRIMITIVE_*
-    uint  Entity;               // offset 156
-    uint  BoneOffset;           // offset 160 — skinned: this frame's palette in ObjectBones
-    uint  PrevBoneOffset;       // offset 164 — skinned: last frame's palette
-    uint  SkinCacheAddressLo;   // offset 168 — skinned, skin cache on; 0 = skin in the vertex stage
-    uint  SkinCacheAddressHi;   // offset 172
-    uint  SkinCacheVertexCount; // offset 176
-    float WindSpeed;            // offset 180 — foliage wind (Graphic::InstanceWind): Hz; Wind.z 0 = does not sway
-    float WindSeconds;          // offset 184 — the wind clock this frame (InstanceWind::Seconds)
-    float WindPrevSeconds;      // offset 188 — ...at the previous gameplay step (InstanceWind::PrevSeconds)
-    vec4  Wind;                 // offset 192 — (dir.x, dir.z, Strength cm, Height cm); read through GpuScene_WindA
-};
-
-// One per instance (one for a non-instanced primitive, one per ISM instance). 64 bytes.
-struct GpuSceneInstance
-{
-    GpuAffine3x4 InstanceToPrimitive; // offset 0
-    uint  Primitive;           // offset 48
-    float CullDistanceStart;   // offset 52 — cm; 0/0 = no distance cull
-    float CullDistanceEnd;     // offset 56
-    uint  WorldBoundsRow;      // offset 60 — DESERT_GPU_INVALID_INDEX unless the primitive has WORLD_BOUNDS
-};
+#include <Generated/GpuDriven/GpuScene.glslh>
 
 // THE ONLY UNPACK of a packed transform (GpuDriven::UnpackAffine is its C++ twin): Rows are the matrix's rows, GLSL
 // mat4 takes columns, so column c = (Rows[0][c], Rows[1][c], Rows[2][c], c == 3 ? 1 : 0).
@@ -136,116 +53,6 @@ vec4 GpuScene_WindB( const GpuScenePrimitive p, const bool previous )
 {
     return vec4( p.WindSpeed, previous ? p.WindPrevSeconds : p.WindSeconds, 0.0, 0.0 );
 }
-
-// A per-frame world box replacing the local bounds of one instance (skinned pose). 32 bytes.
-struct GpuSceneWorldBounds
-{
-    vec4 Min; // offset 0
-    vec4 Max; // offset 16
-};
-
-// Per (primitive, pass): slot of (lod, submesh) = FirstDrawSlot + lod * SubmeshCount + submesh. 16 bytes.
-struct GpuPrimitivePassDraws
-{
-    uint FirstDrawSlot; // offset 0
-    uint SubmeshCount;  // offset 4 — 0 = not drawn in this pass
-    uint LodCount;      // offset 8
-    uint Pad;           // offset 12
-};
-
-// Per cached draw of a pass. 16 bytes.
-struct GpuDrawSlot
-{
-    uint Bin;              // offset 0 — DESERT_GPU_INVALID_INDEX = the submesh does not draw in this pass
-    uint MaterialRow;      // offset 4 — row in Materials[]
-    uint SubmeshTransform; // offset 8 — row in SubmeshTransforms[] (Submesh::Transform, relative to the primitive)
-    uint Flags;            // offset 12 — DESERT_GPU_DRAW_SLOT_*
-};
-// GpuDriven::kDrawSlotDitheredLod: the slot's cell clips, an instance in a LOD transition draws both levels here.
-#define DESERT_GPU_DRAW_SLOT_DITHERED_LOD 1u
-// GpuDriven::kDrawSlotEmissionIsLight: the slot's material has Emissive Lights Scene on (its emission is a MegaLights
-// light source); the resolved draw carries it as DESERT_GPU_DRAW_EMISSION_IS_LIGHT.
-#define DESERT_GPU_DRAW_SLOT_EMISSION_IS_LIGHT 2u
-// GpuDriven::kDrawSlotSoftwareRaster: the slot's cell neither clips nor culls front faces, so its small virtual
-// geometry clusters may go to the compute raster (ClusterCut.shader, Programs/VirtualGeometry/SoftwareRaster.shader).
-#define DESERT_GPU_DRAW_SLOT_SOFTWARE_RASTER 4u
-// GpuDriven::kDrawSlotTwoSided: the slot's cell culls no face (the compute raster keeps both windings).
-#define DESERT_GPU_DRAW_SLOT_TWO_SIDED 8u
-
-// Per bin of a pass (pass x pipeline x mesh x submesh x LOD). 32 bytes.
-struct GpuDrawBin
-{
-    uint IndexCount;   // offset 0
-    uint FirstIndex;   // offset 4
-    int  VertexOffset; // offset 8
-    uint FirstVisible; // offset 12
-    uint Capacity;     // offset 16
-    uint Group;        // offset 20
-    uint Pad0;         // offset 24
-    uint Pad1;         // offset 28
-};
-
-// VkDrawIndexedIndirectCommand + its bin, 32-byte stride. Written by the cull / compact.
-struct GpuIndirectDraw
-{
-    uint IndexCount;    // offset 0
-    uint InstanceCount; // offset 4
-    uint FirstIndex;    // offset 8
-    int  VertexOffset;  // offset 12
-    uint FirstInstance; // offset 16 — the bin's FirstVisible
-    uint Bin;           // offset 20
-    uint Pad0;          // offset 24
-    uint Pad1;          // offset 28
-};
-
-// VisibleInstances[gl_InstanceIndex] in a binned draw. 8 bytes.
-struct GpuVisibleInstance
-{
-    uint Instance; // offset 0
-    uint DrawSlot; // offset 4 — the row in DrawSlots[] | DESERT_GPU_VISIBLE_REST_POSE
-};
-// GpuDriven::kVisibleRestPose, the top bit of GpuVisibleInstance.DrawSlot: the cull drew this swaying instance in
-// its rest pose (GpuCull_CastsRestPose: a caster view, past the shadow wind distance), the vertex stage bends it
-// by no wind. DesertResolveDrawOf masks it off the slot row.
-#define DESERT_GPU_VISIBLE_REST_POSE 0x80000000u
-// GpuDriven::kVisibleLodFadeOut / kVisibleLodFadeIn / kVisibleSlotMask: the entry is the older / the newer level
-// of a dithered LOD transition (DESERT_GPU_CULL_VIEW_LOD_DITHER); the rest of the word is the DrawSlots[] row.
-#define DESERT_GPU_VISIBLE_LOD_FADE_OUT 0x40000000u
-#define DESERT_GPU_VISIBLE_LOD_FADE_IN  0x20000000u
-#define DESERT_GPU_VISIBLE_SLOT_MASK    0x1FFFFFFFu
-
-// Phase 1 rejected by the previous frame's HZB, re-tested by phase 2. 8 bytes.
-struct GpuOccludedInstance
-{
-    uint Instance; // offset 0
-    uint View;     // offset 4
-};
-
-// Per (view x pass) the cull serves. 656 bytes.
-struct GpuCullView
-{
-    mat4  ViewProjection;     // offset 0   — unjittered
-    mat4  PrevViewProjection; // offset 64
-    mat4  LodProjection;      // offset 128 — Geometry::LODView::Projection
-    vec4  FrustumPlanes[6];   // offset 192 — Core::Frustum planes, xyz normal / w distance, zero = open
-    vec4  LodOrigin;          // offset 288 — xyz = LODView::Origin, w = the shadow wind distance (cm, caster views)
-    vec4  CullOrigin;         // offset 304 — xyz = ISM distance-cull origin, w = lens scale (DrawDistanceScale)
-    uvec4 HzbExtent;          // offset 320 — xy = mip-0 size, z = mip count (0 = no HZB)
-    uint  Pass;               // offset 336 — GpuDriven::MeshPass
-    uint  Flags;              // offset 340 — DESERT_GPU_CULL_VIEW_*
-    uint  VsmLevel;           // offset 344
-    uint  ViewIndex;          // offset 348 — the caller's view index
-    vec4  CasterRing;         // offset 352 — x = cascade c-2's split (cm), y = the light's fall; 0 = no ring
-    vec4  StripPlanes[12];    // offset 368 — a scrolled cascade's static layer: strip s's planes at 6s
-    uvec4 Strips;             // offset 560 — x = the strips (0: the whole frustum, at most 2)
-    ivec4 ContentCells;       // offset 576 — a content-hash view: xy = TexelOrigin, z = cell texels, w = region
-    vec4  DepthOccluder;      // offset 592 — a depth-occluder view: x = the minimum screen radius, squared
-    vec4  LodTemporalOrigins[2]; // offset 608 — the dithered LOD transition's eye samples, [0] older, [1] newer
-    float LodDistanceScale;   // offset 640 — Geometry::LODView::DistanceScale (r.StaticMeshLODDistanceScale), LOD only
-    uint  LodPad0;            // offset 644
-    uint  LodPad1;            // offset 648
-    uint  LodPad2;            // offset 652
-};
 
 // WHO SWAYS IN THE SHADOWS in a cull view: a caster view's instance of a swaying primitive (Wind.z = Strength > 0)
 // casts its rest pose by Common/ShadowWind.glslh's one rule (its bounds centre in the world, ShadowWindInstancePoint,

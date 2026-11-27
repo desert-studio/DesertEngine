@@ -8,6 +8,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Common/Json/Document.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 #include <Engine/Core/Serialize/ComponentRegistry.hpp>
 #include <Engine/Core/Serialize/EntitySerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -376,8 +377,9 @@ namespace Desert::Core
     Common::BoolResultStr SceneSerializer::DeserializeFromJson( const std::string& json,
                                                                 std::string_view   source ) const
     {
-        // THE VERSION GATE: an older file is upgraded in memory, a newer one refused (SceneUpgrade.hpp). The
-        // gate's parse is the load's only one - its result is what Deserialize takes.
+        // THE VERSION GATE: an older file is upgraded in memory, a newer one refused
+        // (Core/SceneUpgrade/SceneUpgrade.hpp). The gate's parse is the load's only one - its result is what
+        // Deserialize takes.
         auto loadable = ParseLoadableScene( source, json );
         if ( !loadable )
         {

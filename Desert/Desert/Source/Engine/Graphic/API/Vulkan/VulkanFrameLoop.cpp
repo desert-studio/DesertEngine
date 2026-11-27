@@ -472,9 +472,9 @@ namespace Desert::Graphic::API::Vulkan
                 const VkResult reset = vkResetFences( m_Device, 1, &m_Fences[slot] );
                 if ( reset != VK_SUCCESS )
                 {
-                    (void)NoteIfDeviceLost( reset, "vkResetFences", __FILE__, __LINE__ );
-                    return Common::MakeFormattedError<bool>( "vkResetFences of frame slot {} failed: {}", slot,
-                                                             VkResultToString( reset ) );
+                    const bool lost = NoteIfDeviceLost( reset, "vkResetFences", __FILE__, __LINE__ );
+                    return Common::MakeFormattedError<bool>( "vkResetFences of frame slot {} failed: {}{}", slot,
+                                                             VkResultToString( reset ), lost ? " (device lost)" : "" );
                 }
             }
 
@@ -536,9 +536,9 @@ namespace Desert::Graphic::API::Vulkan
         {
             // The ONE place the CPU learns that a submitted frame finished, so a device that died mid-frame
             // reports it here first and nowhere else.
-            (void)NoteIfDeviceLost( waited, "vkWaitForFences", __FILE__, __LINE__ );
-            return Common::MakeFormattedError<bool>( "vkWaitForFences of frame slot {} failed: {}", slot,
-                                                     VkResultToString( waited ) );
+            const bool lost = NoteIfDeviceLost( waited, "vkWaitForFences", __FILE__, __LINE__ );
+            return Common::MakeFormattedError<bool>( "vkWaitForFences of frame slot {} failed: {}{}", slot,
+                                                     VkResultToString( waited ), lost ? " (device lost)" : "" );
         }
         return Common::MakeSuccess( true );
     }
@@ -650,9 +650,9 @@ namespace Desert::Graphic::API::Vulkan
                 return Common::MakeSuccess( true );
             if ( status == VK_NOT_READY )
                 return Common::MakeSuccess( false );
-            (void)NoteIfDeviceLost( status, "vkGetFenceStatus", __FILE__, __LINE__ );
-            return Common::MakeFormattedError<bool>( "vkGetFenceStatus of frame slot {} failed: {}", slot,
-                                                     VkResultToString( status ) );
+            const bool lost = NoteIfDeviceLost( status, "vkGetFenceStatus", __FILE__, __LINE__ );
+            return Common::MakeFormattedError<bool>( "vkGetFenceStatus of frame slot {} failed: {}{}", slot,
+                                                     VkResultToString( status ), lost ? " (device lost)" : "" );
         }
         DESERT_PROFILE_WAIT( "Vulkan: one frame's fence wait" );
         const VkResult waited = vkWaitForFences( m_Device, 1, &m_Fences[slot], VK_TRUE, UINT64_MAX );

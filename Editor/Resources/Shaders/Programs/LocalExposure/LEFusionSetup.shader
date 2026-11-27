@@ -6,8 +6,9 @@ Shader "LEFusionSetup"
         // LOCAL EXPOSURE FUSION SETUP — UE 5.4 FusionSetupCS (PostProcessLocalExposure.usf). Per scene pixel: the
         // exposed luminance, its highlight (x HighlightScale = 2^-EV) and shadow (x ShadowScale = 2^+EV) exposures
         // through the fusion curve (Common/LocalExposure.glslh), and their normalised well-exposedness weights.
-        // The exposure is the composite's own (SceneComposite: auto = key / adapted luminance, else manual), read
-        // from the same 1x1 adapted luminance in the same frame, so the setup and the apply agree on it.
+        // The exposure is the composite's own (SceneComposite: auto = middle grey / the adapted luminance over
+        // 2^compensation, the texel's .g, else manual), read from the same 1x1 adapted luminance in the same
+        // frame, so the setup and the apply agree on it.
 
         LocalSize(8, 8, 1);
 
@@ -23,8 +24,8 @@ Shader "LEFusionSetup"
         {
             float InversePreExposure; // the scene colour is stored pre-exposed
             float ManualExposure;     // the composite's Exposure (used when AutoExposure < 0.5)
-            float ExposureKey;        // the composite's ExposureKey
-            float AutoExposure;       // > 0.5: exposure = key / adapted luminance
+            float MiddleGrey;         // the composite's MiddleGrey (Graphic::kExposureMiddleGrey)
+            float AutoExposure;       // > 0.5: exposure = middle grey / adapted luminance
             float HighlightScale;     // 2^-lerp(6, 0, highlight contrast)
             float ShadowScale;        // 2^+lerp(6, 0, shadow contrast)
             float TargetLuminance;    // UE r.LocalExposure.ExposureFusion.TargetLuminance
@@ -41,7 +42,7 @@ Shader "LEFusionSetup"
                 return;
             float exposure = ManualExposure;
             if ( AutoExposure > 0.5 )
-                exposure = ExposureKey / max( texelFetch( AverageLuminanceTexture, ivec2( 0 ), 0 ).r, 1.0e-4 );
+                exposure = MiddleGrey / max( texelFetch( AverageLuminanceTexture, ivec2( 0 ), 0 ).g, 1.0e-4 );
 
             const bool  reinhard = Reinhard > 0.5;
             const vec3  scene    = texelFetch( SceneColorTexture, coord, 0 ).rgb;

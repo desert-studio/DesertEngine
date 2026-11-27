@@ -24,7 +24,7 @@ fail=0
 # (a) every suite of the manifest, one run per suite: a whole runner (EngineTests holds 273 suites) cannot fit one
 # cap and its single exit code names no suite. Parallel for time; a suite that fails in parallel is re-run ALONE
 # before it counts as red, so two suites sharing a temp path cannot manufacture a red.
-BIN=build/Bin/Tests/Debug
+BIN="build/Bin/Tests/$DEV_CONFIG"
 MANIFEST=build/TestManifest.txt
 # run_one (records each run's window), tree_state and trace_leaks — step (h) — live in tree_leaks.sh, which
 # also runs the same check standalone on named suites.

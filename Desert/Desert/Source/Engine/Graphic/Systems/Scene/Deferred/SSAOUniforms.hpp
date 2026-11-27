@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/Systems/Scene/Deferred/SSAOLayout.hpp>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
@@ -9,21 +11,10 @@
 namespace Desert::Graphic::System
 {
     // The GTAO compute pass's parameter block (SSAO.shader's SSAOUB), built on the CPU once per frame and uploaded
-    // as a graph buffer (SSAORenderer::UploadUniforms). Header-only and free of the renderer so the std140 census
-    // (Desert/Tests/Engine/UniformBlockLayout) can include it alone.
+    // as a graph buffer (SSAORenderer::UploadUniforms). Header-only and free of the renderer; the
+    // block itself (SSAOUBData) is declared in SSAOLayout.hpp.
     struct SSAOUniforms
     {
-        // The SSAOUB block, std140, member for member.
-        struct SSAOUBData
-        {
-            glm::mat4 InvJitteredViewProjection; // world position from the G-buffer depth
-            glm::mat4 WorldToView;               // the camera's View matrix
-            glm::vec4 Target;                    // xy = AO target size (px), zw = 1 / size
-            glm::vec4 Horizon; // x = world radius (cm), y = thickness blend, z = taps per direction, w = px per cm
-                               // at depth 1
-            glm::vec4 Temporal; // xy = cos/sin of the slice rotation, z = step offset, w = slice angles
-        };
-
         // What one GTAO dispatch is asked: its view, its target and the search (UE FGTAOShaderParameters).
         struct Inputs
         {

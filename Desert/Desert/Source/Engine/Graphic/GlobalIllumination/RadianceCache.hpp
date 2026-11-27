@@ -3,6 +3,8 @@
 #include <Common/Settings/RenderMethods.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Graphic/GlobalIllumination/GILayout.hpp>
+#include <Engine/Graphic/GlobalIllumination/RadianceCacheCeiling.hpp>
 
 #include <glm/glm.hpp>
 
@@ -10,7 +12,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 // THE WORLD RADIANCE CACHE — the interface (GI-CACHE-IFACE). Port of UE Lumen's radiance cache:
 // LumenRadianceCache.h (FRadianceCacheInputs, FRadianceCacheInterpolationParameters), LumenRadianceCache.cpp /
@@ -41,8 +43,7 @@
 namespace Desert::Graphic::RadianceCache
 {
     // ---- Fixed shape: UE CVar defaults that BaseScalability does not vary ----------------------------------
-    // RADIANCE_PROBE_MAX_CLIPMAPS.
-    inline constexpr uint32_t kMaxClipmaps = 6;
+    // kMaxClipmaps (RADIANCE_PROBE_MAX_CLIPMAPS): RadianceCacheCeiling.hpp.
     // r.Lumen.ScreenProbeGather.RadianceCache.NumClipmaps.
     inline constexpr uint32_t kClipmaps = 4;
     // Cells per clipmap side (…RadianceCache.GridResolution).
@@ -143,22 +144,7 @@ namespace Desert::Graphic::RadianceCache
         return clipmaps;
     }
 
-    // ---- The GPU record (std430; must match Common/RadianceCache.glslh). 176 bytes. --------------------------
-    struct RadianceCacheParamsPayload
-    {
-        glm::vec4 ClipmapCornerAndCellSize[kMaxClipmaps]{}; // xyz = corner (world, cm), w = cell size (cm)
-        // Per clipmap, the distance a probe's rays skip before they may hit, cm (UE RadianceProbeSettings.x,
-        // GetRadianceProbeTMin). [0].xyzw = clipmaps 0..3, [1].xy = 4..5.
-        glm::vec4 ClipmapProbeTMin[2]{};
-        // x = clipmaps, y = grid resolution, z = traced probe resolution, w = final probe resolution (with border)
-        glm::uvec4 Shape{ 0u };
-        // x = probe atlas resolution in probes, y = irradiance probe resolution, z = probes per frame,
-        // w = distance-moment probe resolution
-        glm::uvec4 Atlas{ 0u };
-        // x = reprojection radius scale, y = 1 / clipmap fade size (cells), z = 1 / final radiance atlas texels
-        glm::vec4 Sampling{ 0.0f };
-    };
-    static_assert( sizeof( RadianceCacheParamsPayload ) == 176 );
+    // ---- The GPU record: RadianceCacheParamsPayload (GILayout.hpp, Generated/GI/RadianceCache.glslh). ----------
 
     // ---- The update's own shape (GI-RADIANCE-CACHE) -----------------------------------------------------------
     // Probe slots in the atlases: one per atlas cell.
@@ -205,18 +191,6 @@ namespace Desert::Graphic::RadianceCache
     // r.Lumen.RadianceCache... temporal update), lower where the lights of the probe's cell changed.
     inline constexpr float kHistoryWeight      = 0.9f;
     inline constexpr float kDirtyHistoryWeight = 0.3f;
-
-    // One probe slot's state (std430; Common/RadianceCache.glslh RadianceCacheProbe). 64 bytes.
-    struct RadianceCacheProbePayload
-    {
-        glm::ivec4 Cell{ 0 }; // xyz = world cell (cells of its clipmap from the world origin), w = clipmap
-        glm::uvec4 Frames{
-             0u }; // x = last used, y = last traced (0 = never), z = traced light hash, w = light hash
-        glm::vec4  Offset{ 0.0f }; // xyz = the probe's relocation out of geometry (cm), w = 0
-        glm::uvec4 Priority{
-             0u }; // x = priority bucket this frame, y = 1: a coverage reader stamped it (0: fallback)
-    };
-    static_assert( sizeof( RadianceCacheProbePayload ) == 64 );
 
     // PURE. The GPU record of this frame's cache.
     [[nodiscard]] inline RadianceCacheParamsPayload

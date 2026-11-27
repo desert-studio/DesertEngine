@@ -1,6 +1,6 @@
 #pragma once
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
@@ -50,6 +50,15 @@ namespace Desert::ECS
 
     class InstancedStaticMeshComponent;
     bool SetInstancedStaticMesh( entt::registry& registry, entt::entity entity, const InstancedStaticMeshDesc& desc );
+
+    // The share of an instance snapshot drawn at a density below 1, and the snapshot index of each transform.
+    struct ThinnedInstances
+    {
+        std::shared_ptr<const std::vector<glm::mat4>> Snapshot;
+        std::shared_ptr<const std::vector<glm::mat4>> Transforms;
+        std::shared_ptr<const std::vector<uint32_t>>  InstanceIds;
+        float                                         Density = 1.0f;
+    };
 
     // UE-style Instanced Static Mesh: ONE mesh + ONE material drawn N times (per-instance world transforms)
     // as a single instanced draw call. The per-instance transforms live in a GPU storage buffer the
@@ -154,15 +163,21 @@ namespace Desert::ECS
         {
             return m_RuntimeInstanceSnapshotRevision;
         }
+        // The snapshot's share the renderer draws below full density (MeshECSSystem::ThinIsmRecord); valid for
+        // the Snapshot and Density it names.
+        [[nodiscard]] ThinnedInstances& RuntimeThinnedInstances()
+        {
+            return m_RuntimeThinnedInstances;
+        }
+        [[nodiscard]] const ThinnedInstances& RuntimeThinnedInstances() const
+        {
+            return m_RuntimeThinnedInstances;
+        }
 
     private:
         void Assign( const InstancedStaticMeshDesc& desc );
         [[nodiscard]] bool Matches( const InstancedStaticMeshDesc& desc ) const;
-        [[nodiscard]] static uint64_t NextInstanceRevision()
-        {
-            static std::atomic<uint64_t> s_Revision{ 0 };
-            return s_Revision.fetch_add( 1, std::memory_order_relaxed ) + 1;
-        }
+        [[nodiscard]] static uint64_t NextInstanceRevision();
 
         Assets::AssetHandle              MeshHandle;
         std::vector<Assets::AssetHandle> MaterialSlots;
@@ -216,6 +231,7 @@ namespace Desert::ECS
         // A copied component carries both the revision and the snapshot taken at it, so the pair stays true.
         std::shared_ptr<const std::vector<glm::mat4>> m_RuntimeInstanceSnapshot;
         uint64_t                                      m_RuntimeInstanceSnapshotRevision = 0;
+        ThinnedInstances                              m_RuntimeThinnedInstances; // derived from the snapshot
 
         friend bool SetInstancedStaticMesh( entt::registry& registry, entt::entity entity, const InstancedStaticMeshDesc& desc );
     };
@@ -306,5 +322,7 @@ namespace Desert::ECS
         RetireRenderCaches( c.RuntimeMaterialInstances() );
         RetireRenderCaches( c.RuntimeDisplacedInstances() );
         RetireRenderCache( c.RuntimeInstanceSnapshot() );
+        RetireRenderCache( c.RuntimeThinnedInstances().Transforms );
+        RetireRenderCache( c.RuntimeThinnedInstances().InstanceIds );
     }
 } // namespace Desert::ECS

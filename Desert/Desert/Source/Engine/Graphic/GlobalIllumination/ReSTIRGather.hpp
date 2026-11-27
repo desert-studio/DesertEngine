@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/GlobalIllumination/GILayout.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -65,18 +66,6 @@ namespace Desert::Graphic::GlobalIllumination
     // skipped when !bIsHistoryValid): no validation rays, no previous texture declared, and its reservoirs ARE the
     // view's reservoir history - the temporal pass is not added (ReSTIRGather::AddPasses). ReSTIRGIInitial.shader.
     inline constexpr std::string_view kReSTIRInitialNoHistoryDefine = "RESTIR_INITIAL_NO_HISTORY";
-
-    // std430 — must match `struct ReSTIRParams` in Common/ReSTIRGI.glslh. 96 bytes.
-    struct ReSTIRParamsPayload
-    {
-        glm::uvec4 Extent{ 0u };     // xy = reservoir extent, z = spatial samples, w = 0 (unused)
-        glm::uvec4 Frame{ 0u };      // x = frame index
-        glm::vec4  Tuning{ 0.0f };   // x = temporal M cap, y = spatial radius, z = depth tolerance, w = normal cos
-        glm::vec4  Jitter{ 0.0f };   // xy = this frame's NDC jitter, zw = last frame's
-        glm::vec4  RayClamp{ 0.0f }; // x = the largest radiance a ray carries (absolute)
-        glm::vec4  Validation{ 0.0f }; // x = luminance change, y = hit distance change (relative), z = floor (abs)
-    };
-    static_assert( sizeof( ReSTIRParamsPayload ) == 96 );
 
     // The reservoir extent of a G-buffer extent (rounded up).
     [[nodiscard]] constexpr glm::uvec2 ReSTIRReservoirExtent( const glm::uvec2 extent )

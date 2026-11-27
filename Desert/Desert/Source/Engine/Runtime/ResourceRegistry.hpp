@@ -23,13 +23,12 @@ namespace Desert::Runtime
     class FontService;
     class IconService;
     class AnimatedImageService;
-    class VideoService;
+    class IVideoService;
     class CloudNoiseService;
     class CloudTypeService;
     class CloudModellingService;
     class CloudLayoutService;
     class UIThemeService;
-    class FoliageTypeService;
     class WorldParametersService;
     class WeatherPresetService;
     class SubsurfaceProfileService;
@@ -53,12 +52,16 @@ namespace Desert::Runtime
         static SkyboxService*   GetSkyboxService();
         static TextureService*  GetTextureService();
         static ShaderService*   GetShaderService();
-        static ImageService*    GetImageService();
         static FontService*     GetFontService();
         static IconService*     GetIconService();
+        // The image service is RenderCore's: Runtime::GetImageService (Services/Image/ImageService.hpp). The
+        // environment cache writer is the skybox service's (SkyboxService::EnvironmentCache).
 
         static AnimatedImageService* GetAnimatedImageService();
-        static VideoService*         GetVideoService();
+        // The UI's video clips: the Media module's VideoService, which its StartupModule provides; nullptr in
+        // an executable that links no Media module.
+        static IVideoService*        GetVideoService();
+        static void                  ProvideVideoService( IVideoService* service );
         static CloudNoiseService*    GetCloudNoiseService();
         static CloudTypeService*     GetCloudTypeService();
         // The sculpted hero-cloud bodies (`.dcmv`), slot A of the cloud field's seam.
@@ -71,12 +74,6 @@ namespace Desert::Runtime
         // per viewport. Owns nothing on the GPU: the one device object a theme reaches (a font atlas)
         // belongs to FontService, which is where this one binds its font paths.
         static UIThemeService* GetUIThemeService();
-
-        // The `.defoliage` types foliage fields name (FO-5): read on demand, held as the assets themselves, so
-        // the renderer's cull distance follows a paint-panel edit. Owns nothing on the GPU.
-        static FoliageTypeService* GetFoliageTypeService();
-
-        // The `.dfrac` fractures destructible entities name (DST-03b): read on demand, held as the assets.
 
         // The `.dworldparams` collections scenes name (WTH-PARAMS): read on first ask, held as the assets.
         static WorldParametersService* GetWorldParametersService();

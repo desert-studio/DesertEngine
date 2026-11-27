@@ -13,15 +13,16 @@
 #include <utility>
 
 
+namespace Desert::Graphic
+{
+    class Image2D;
+}
+
 namespace Desert::Graphic::Render
 {
     // The next GenericMeshDrawParams::Revision: process-unique, never 0, never reused (a params object built at a
     // freed one's address is another revision).
-    [[nodiscard]] inline uint64_t NextGenericMeshDrawParamsRevision() noexcept
-    {
-        static std::atomic<uint64_t> next{ 1u };
-        return next.fetch_add( 1u, std::memory_order_relaxed );
-    }
+    [[nodiscard]] uint64_t NextGenericMeshDrawParamsRevision() noexcept;
 
     // A DRAW'S PER-OBJECT VALUES KEPT BY ITS PRODUCER (UE: a proxy's material relevance built on change, not per
     // frame): the material overrides and the program hit a producer builds when its colour/emission/atlas moves

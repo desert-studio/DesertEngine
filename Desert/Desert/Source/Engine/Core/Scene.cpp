@@ -3,6 +3,9 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/DebugDraw.hpp>
 #include <Engine/Core/GameMode.hpp>
+#include <Engine/Core/LevelTravel.hpp>
+#include <UI/UIWorld.hpp>
+#include <Common/Core/CrashWorlds.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/WeatherState.hpp>
 #include <Engine/Core/WorldParameterInstance.hpp>
@@ -10,6 +13,8 @@
 #include <Engine/Core/Serialize/EntityPackages.hpp>
 #include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/ECS/System/System.hpp>
+#include <Engine/ECS/PostProcessVolumeComponent.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 #include <Engine/Graphic/ExtensionPass.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
@@ -27,15 +32,6 @@
 #include <Engine/Core/PlayerStart.hpp>
 
 #include <Engine/Graphic/SceneRenderer.hpp>
-#include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
-#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
-#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
-#include <Engine/Graphic/Systems/Scene/Skybox/SceneAtmosphere.hpp>
-#include <Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp>
-#include <Engine/Graphic/LocalShadowCache.hpp>
-#include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
-#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
-#include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
@@ -45,7 +41,8 @@
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 #if DESERT_DEV_INSTRUMENTS
-#include <Engine/ECS/System/ScriptSystem.hpp>
+#include <Engine/Core/WorldContext.hpp>
+#include <Engine/Input/LocalPlayerInput.hpp>
 #endif
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
@@ -55,7 +52,6 @@
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
-#include <Engine/World/Foliage/FoliagePrefabs.hpp>
 
 #include <algorithm>
 #include <cfloat>
@@ -483,6 +479,8 @@ namespace Desert::Core
         std::optional<Common::Content::TextAssetHeaderSerialized> AssetHeader;
         std::optional<Common::Json::TextDocument>                 LoadedDocument;
         std::optional<WorldPartitionSerialized>                   WorldPartition;
+        std::string                                               Path; // see GetFilePath
+        Common::Crash::CrashWorld                                 Crash;
     };
 
     struct Scene::FrameRendererInfos
@@ -495,54 +493,12 @@ namespace Desert::Core
         return LiveSceneList();
     }
 
-    Scene::Scene()
-         : m_ExtensionPasses( std::make_unique<Graphic::ExtensionPassRegistry>() ),
+    Scene::Scene( std::string sceneName, Graphic::SceneRenderer* sceneRenderer, WorldKind kind )
+         : m_Kind( kind ), m_ExtensionPasses( std::make_unique<Graphic::ExtensionPassRegistry>() ),
            m_DebugDraw( std::make_unique<DebugDrawWorld>() ),
 #if DESERT_DEV_INSTRUMENTS
            m_GameplayDebugger( std::make_unique<Debug::GameplayDebugger>() ),
 #endif
-           m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
-           m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
-           m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
-           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
-           m_Atmosphere( std::make_shared<Graphic::SceneAtmosphere>() ),
-           m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields(
-                std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
-           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) ),
-           m_WorldTime( std::make_unique<WorldTime>() ),
-           m_WorldParameters( std::make_unique<WorldParameterInstance>() ),
-           m_Deformation( std::make_unique<World::DeformationWorld>() ),
-           m_DecalImpacts( std::make_unique<World::DecalImpactPool>() ),
-           m_Weather( std::make_unique<WeatherState>() ), m_GameMode( std::make_unique<GameMode>() ),
-           m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
-           m_Settings( std::make_unique<SceneSettings>() ), m_Packages( std::make_shared<EntityPackages>() ),
-           m_File( std::make_unique<FileState>() )
-    {
-        // Engine's component serializers (Core's registry): this reference links the provider in.
-        Serialize::LinkEngineComponentProvider();
-        StartupEngineModules();
-        for ( const SceneModuleStateMaker make : ModuleHooks().SceneStates )
-            m_ModuleStates.push_back( make() );
-        LiveSceneList().push_back( this );
-        m_Subsystems.Begin();
-    }
-
-    Scene::Scene( std::string&& sceneName, Graphic::SceneRenderer* sceneRenderer )
-         : m_ExtensionPasses( std::make_unique<Graphic::ExtensionPassRegistry>() ),
-           m_DebugDraw( std::make_unique<DebugDrawWorld>() ),
-#if DESERT_DEV_INSTRUMENTS
-           m_GameplayDebugger( std::make_unique<Debug::GameplayDebugger>() ),
-#endif
-           m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
-           m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
-           m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
-           m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
-           m_Atmosphere( std::make_shared<Graphic::SceneAtmosphere>() ),
-           m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields(
-                std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
-           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) ),
            m_WorldTime( std::make_unique<WorldTime>() ),
            m_WorldParameters( std::make_unique<WorldParameterInstance>() ),
            m_Deformation( std::make_unique<World::DeformationWorld>() ),
@@ -550,13 +506,22 @@ namespace Desert::Core
            m_Weather( std::make_unique<WeatherState>() ), m_GameMode( std::make_unique<GameMode>() ),
            m_FrameRendererInfos( std::make_unique<FrameRendererInfos>() ),
            m_Settings( std::make_unique<SceneSettings>() ), m_SceneName( std::move( sceneName ) ),
-           m_Packages( std::make_shared<EntityPackages>() ), m_File( std::make_unique<FileState>() )
+           m_Packages( std::make_shared<EntityPackages>() ), m_File( std::make_unique<FileState>() ),
+           m_Travel( std::make_unique<LevelTravel>() )
     {
+        m_Registry.set<UI::UIWorld>();
+        // The worlds a crash report names: the played ones. A preview or a bake is the tool's, not the user's.
+        if ( m_Kind == WorldKind::Game || m_Kind == WorldKind::Document )
+            m_File->Crash = Common::Crash::CrashWorld( m_Kind == WorldKind::Game ? "game" : "document" );
+        ReportToCrashHandler();
+
         // Engine's component serializers (Core's registry): this reference links the provider in.
         Serialize::LinkEngineComponentProvider();
         StartupEngineModules();
+        if ( const SceneRenderStateMaker makeRenderState = ModuleHooks().SceneRenderState )
+            m_RenderState = makeRenderState( m_LedgerInstance );
         for ( const SceneModuleStateMaker make : ModuleHooks().SceneStates )
-            m_ModuleStates.push_back( make() );
+            m_ModuleStates.push_back( make( m_Registry ) );
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
 
@@ -591,6 +556,35 @@ namespace Desert::Core
         {
             m_SingleFramePending = false; // a step belongs to the pause it was asked in
         }
+        ReportToCrashHandler();
+    }
+
+    void Scene::ReportToCrashHandler() noexcept
+    {
+        m_File->Crash.Update( m_File->Path, m_State == SceneState::Play     ? "play"
+                                            : m_State == SceneState::Paused ? "paused"
+                                                                            : "edit" );
+    }
+
+    const std::string& Scene::GetFilePath() const
+    {
+        return m_File->Path;
+    }
+
+    void Scene::SetFilePath( std::string path )
+    {
+        m_File->Path = std::move( path );
+        ReportToCrashHandler();
+    }
+
+    LevelTravel& Scene::Travel()
+    {
+        return *m_Travel;
+    }
+
+    UI::UIWorld& Scene::GetUIWorld()
+    {
+        return m_Registry.ctx<UI::UIWorld>();
     }
 
     const std::optional<Common::Content::TextAssetHeaderSerialized>& Scene::GetAssetHeader() const
@@ -648,6 +642,11 @@ namespace Desert::Core
 
     NO_DISCARD Common::BoolResultStr Scene::Init( InitPurpose purpose )
     {
+        // A world nobody made systems for would draw an empty frame with no error anywhere.
+        if ( m_Systems.empty() )
+            return Common::MakeError<bool>(
+                 std::format( "world '{}' has no systems: CreateWorldSystems was not called", m_SceneName ) );
+
         for ( auto& view : m_Views.All() )
             view.Renderer->Init();
 
@@ -978,12 +977,13 @@ namespace Desert::Core
         for ( auto& system : m_Systems )
             system->SetEditorTick( editorTs );
 
-        // Prefab foliage (FO-8) before the systems: a field's instances are entities, and the systems below must
-        // see them where the field's transforms say they stand this frame — after a stroke, an undo or a cell
-        // streaming in. Main thread: it creates and destroys entities.
+        // The modules' world state before the systems (ModuleHookLists::PreSystems): prefab foliage's instances
+        // are entities, and the systems below must see them where the field's transforms say they stand this
+        // frame — after a stroke, an undo or a cell streaming in. Main thread: it creates and destroys entities.
         {
-            DESERT_PROFILE_SCOPE( "Prefab Foliage" );
-            World::Foliage::RealizePrefabFoliage( *this );
+            DESERT_PROFILE_SCOPE( "Module pre-systems" );
+            for ( const ScenePreSystems preSystems : ModuleHooks().PreSystems )
+                preSystems( *this );
         }
 
         // THE WEATHER before the systems read the fog, the clouds and the wind: advanced by gameplay time (a
@@ -1020,8 +1020,8 @@ namespace Desert::Core
             DESERT_PROFILE_SCOPE( "Gameplay Debugger" );
             const Input::LocalPlayerInput* playerInput = nullptr;
             if ( m_State != SceneState::Edit )
-                if ( auto* scripts = FindSystem<ECS::ScriptSystem>() )
-                    playerInput = &scripts->PlayerInput();
+                if ( auto* scripts = FindSystem<Core::ScriptHostSystem>() )
+                    playerInput = &scripts->Host().PlayerInput();
             m_GameplayDebugger->Tick( *this, playerInput,
                                      m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
                                      m_State != SceneState::Paused || TicksGameplay() );
@@ -1191,32 +1191,18 @@ namespace Desert::Core
             // and the scene's budget and card tracer are stated before the first view opens, so the one update the
             // first view to reach the cache runs captures the cards in front of every viewport, not its own.
             DESERT_PROFILE_SCOPE( "Scene: Surface cache + retire" );
-            // The parked caches and captures die at the fence, the same frame numbers as before (stamped here).
-            ::Desert::Engine::RenderTask::Get().AfterViews(
-                 [this, absoluteFrame, framesInFlight]()
-                 {
-                     ::Desert::Engine::RenderTask::CheckRenderStateWrite( "Scene: retire queues (Collect)" );
-                     m_RetiringSurfaceCaches.Collect( absoluteFrame, framesInFlight );
-                     m_RetiringReflectionCaptures.Collect( absoluteFrame, framesInFlight );
-                 } );
-            std::vector<glm::vec3> origins;
-            for ( const auto& view : m_Views.All() )
-                if ( view.Camera )
-                    origins.push_back( view.Camera->GetPosition() );
-            // The registry is read HERE, on the game thread (the scene's unbound volumes); the command takes the
-            // values. The cache outlives the command: a Clear parks it (m_RetiringSurfaceCaches) for frames.
-            const Core::PostProcessSettings scenePost =
-                 Graphic::ResolveViewSettings( m_Registry, std::nullopt ).Post;
-            const bool deferred = m_Settings->RenderingPath == RenderPath::Deferred;
-            Graphic::SurfaceCache::SurfaceCacheRenderer* const cache = m_SurfaceCache.get();
-            ::Desert::Engine::RenderTask::Get().Enqueue(
-                 "Scene: Surface cache frame",
-                 [cache, absoluteFrame, origins, scenePost, deferred]() -> Common::BoolResultStr
-                 {
-                     DESERT_PROFILE_SCOPE( "Scene: Surface cache frame" );
-                     cache->BeginFrame( absoluteFrame, origins, scenePost, deferred );
-                     return BOOLSUCCESS;
-                 } );
+            // The parked caches and captures die at the fence, the same frame numbers as before (stamped here);
+            // the registry is read on the game thread, the surface cache's command takes the values
+            // (ISceneRenderState::BeginFrame).
+            if ( m_RenderState )
+            {
+                std::vector<glm::vec3> origins;
+                for ( const auto& view : m_Views.All() )
+                    if ( view.Camera )
+                        origins.push_back( view.Camera->GetPosition() );
+                m_RenderState->BeginFrame( m_Registry, m_Settings->RenderingPath == RenderPath::Deferred,
+                                           absoluteFrame, framesInFlight, std::move( origins ) );
+            }
         }
         {
             // THE SCENE'S REFLECTION CAPTURES FIRST, ONCE: their face views are frames of their own, closed before
@@ -1236,7 +1222,7 @@ namespace Desert::Core
                      DESERT_PROFILE_SCOPE( "Scene: Reflection Captures (fence)" );
                      for ( auto& view : m_Views.All() )
                      {
-                         if ( !view.Renderer->ReadsReflectionCaptures() )
+                         if ( !m_RenderState || !view.Renderer->ReadsReflectionCaptures() )
                              continue;
                          // ONE LIGHTING STATE, NOT EACH INPUT: a sun the sky light is being (or will be) captured
                          // again for is rendered into the captures with that sky, not under the old one. Index 0
@@ -1247,7 +1233,7 @@ namespace Desert::Core
                               view.Renderer->SkyLightRecapturesFor(
                                    ECS::Rules::AtmosphereSunDirection( glm::vec3( suns.front().Direction ) ) );
                          const std::optional<Graphic::Environment> environment = view.Renderer->GetEnvironment();
-                         m_ReflectionCaptures->RenderCaptureViews(
+                         m_RenderState->RenderReflectionCaptures(
                               *this,
                               [recorded]( Graphic::SceneRenderer& face )
                               {
@@ -1460,6 +1446,12 @@ namespace Desert::Core
             row.Prepare( r );
         r.prepare<ECS::UIAnimComponent>(); // AudioECSSystem reads the UI clips' Audio voices
         r.prepare<ECS::SocketAttachmentComponent>();
+    }
+
+    void Scene::SetQuality( const Common::Scalability::ResolvedQuality& quality )
+    {
+        for ( auto& system : m_Systems )
+            system->SetQuality( quality );
     }
 
     void Scene::ExecuteSystems( const Common::Timestep& gameplayTs )
@@ -1723,46 +1715,27 @@ namespace Desert::Core
         // components died (ECS::RetireRenderCachesOf) go too, with any other world's.
         ::Desert::Engine::RenderTask::Get().JoinOnGameThread();
         ::Desert::Engine::RenderTask::CheckRenderStateWrite( "Scene::ReleaseParkedRenderers" );
-        m_RetiringSurfaceCaches.Clear();
-        m_RetiringReflectionCaptures.Clear();
+        if ( m_RenderState )
+            m_RenderState->ReleaseParked();
         ::Desert::Engine::FrameManager::GetInstance().ReleaseRetiredNow();
     }
 
     void Scene::Clear()
     {
         m_Subsystems.End();
-        m_Registry.clear();
+        m_Registry.clear(); // the context stays: the world's UI state is emptied below, not remade
+        GetUIWorld().Reset();
+        m_File->Path.clear();
+        ReportToCrashHandler();
         // A reload empties this object and refills it: a new world at the same address. Entity ids restart, so
         // a view's history keyed by (generation, entity) must not survive it (SceneRenderer::BeginScene).
         m_Generation   = NextSceneGeneration();
-        // The GPU scene is keyed by entity (MotionKey): the restarted ids would inherit the old world's
-        // primitives and previous transforms, so the reloaded world gets a registry of its own.
-        m_GpuScene     = std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>();
         // THE OLD WORLD'S RENDERER STATE GOES WITH IT (UE: the FScene is destroyed with its world, and the next
-        // world's is built empty). Kept, the distance-field brick atlas, the captures' cubes, the cached shadow
-        // depth and the ray-tracing variants of the old world stayed resident under the next scene and were
-        // still there when a reopen built the same ones again (FIELD-MEM p3). Their device objects are queued for
-        // deletion here; the opener drains the queue before the new world loads (SceneWorkspace).
-        // The captures' renderer records into the views' frame graphs (faces, its face surface cache and global
-        // distance field, its own retire queues): frames in flight still read them, so it is parked whole like the
-        // surface cache below and dies with its queues once those frames retired (OnUpdate collects).
-        const std::uint64_t clearFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
-        m_RetiringReflectionCaptures.Park( std::move( m_ReflectionCaptures ), clearFrame );
-        m_ReflectionCaptures = std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance );
-        m_RayTracingCache    = std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance );
-        m_LocalShadows       = std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance );
-        // The brick atlas is the project's pool, not the world's: the next world takes it over empty
-        // (DistanceFieldSceneData::AdoptPool) - freed and allocated again, Stop's 384 MiB was resident twice
-        // while the driver gave the old one back (FOLIAGE-LOOK-8).
-        {
-            auto next = std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance );
-            next->AdoptPool( *m_DistanceFields );
-            m_DistanceFields = std::move( next );
-        }
-        // The surface cache's atlases, capture framebuffer and pipelines are still read by the frames in flight
-        // (its pipelines are released at once, not queued): parked until those frames retired (OnUpdate collects).
-        m_RetiringSurfaceCaches.Park( std::move( m_SurfaceCache ), clearFrame );
-        m_SurfaceCache     = std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance );
+        // world's is built empty): what frames in flight still read is parked from this frame
+        // (Graphic::SceneRenderState::Clear); the opener drains the device queue before the new world loads
+        // (SceneWorkspace).
+        if ( m_RenderState )
+            m_RenderState->Clear( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
         m_Players.clear();
         m_ViewTarget   = entt::null;
         m_GameMode->Reset();
@@ -1853,6 +1826,8 @@ namespace Desert::Core
         // A reload is a new hierarchy: every cache derived from the old one is dropped.
         m_HierarchyRevision.Bump();
         m_Registry.ctx_or_set<ECS::HierarchyRevisionLink>().Revision = &m_HierarchyRevision;
+        // The scene's settings (gravity, ...) for the readers that have only the registry (Core::SceneSettingsLink).
+        m_Registry.ctx_or_set<Core::SceneSettingsLink>().Settings = m_Settings.get();
     }
 
     void Scene::OnTransformWorldPending( entt::registry& registry, entt::entity entity )

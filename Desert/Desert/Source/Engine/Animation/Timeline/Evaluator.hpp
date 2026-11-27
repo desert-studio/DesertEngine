@@ -34,7 +34,8 @@
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 
-#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/AssetGuid.hpp>
+#include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>

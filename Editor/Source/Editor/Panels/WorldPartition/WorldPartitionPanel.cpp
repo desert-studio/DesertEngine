@@ -62,7 +62,7 @@
 #include <Engine/World/Partition/HLODLayerComponent.hpp>
 #include <Engine/World/Partition/LocationVolumeComponent.hpp>
 #include <Common/Json/ReadWrite.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Editor
 {
@@ -2237,7 +2237,7 @@ namespace Desert::Editor
             // A mesh, material or texture saved since the last status may have made rows stale.
             if ( ::Desert::Assets::ContentRegistry::WriteSerial() != m_RegistrySerial )
                 m_HLODStatusStale = true;
-            (void)PanelHLODStatus();
+            const HLODStatus* const hlod = PanelHLODStatus();
             if ( ImGui::CollapsingHeader( "HLODs", ImGuiTreeNodeFlags_DefaultOpen ) )
             {
                 if ( m_Builder )
@@ -2245,15 +2245,15 @@ namespace Desert::Editor
                                         std::format( "Building HLODs: {}...", m_Builder->Progress() ).c_str() );
                 else if ( !m_HLODStatusError.empty() )
                     ImGui::TextWrapped( "HLOD status: %s", m_HLODStatusError.c_str() );
-                else if ( m_HLODStatus && !m_HLODStatus->Built )
-                    ImGui::Text( "HLODs not built: %zu wanted HLOD", m_HLODStatus->World.Wanted() );
-                else if ( m_HLODStatus )
-                    ImGui::Text( "%zu wanted HLOD, %zu outdated", m_HLODStatus->World.Wanted(),
-                                 m_HLODStatus->World.Outdated() );
-                if ( m_HLODStatus && m_HLODStatus->World.Outdated() > 0 && ImGui::IsItemHovered() )
+                else if ( hlod && !hlod->Built )
+                    ImGui::Text( "HLODs not built: %zu wanted HLOD", hlod->World.Wanted() );
+                else if ( hlod )
+                    ImGui::Text( "%zu wanted HLOD, %zu outdated", hlod->World.Wanted(),
+                                 hlod->World.Outdated() );
+                if ( hlod && hlod->World.Outdated() > 0 && ImGui::IsItemHovered() )
                 {
                     ImGui::BeginTooltip();
-                    for ( const std::string& unit : m_HLODStatus->World.OutdatedNames() )
+                    for ( const std::string& unit : hlod->World.OutdatedNames() )
                         ImGui::TextUnformatted( unit.c_str() );
                     ImGui::EndTooltip();
                 }
@@ -2567,7 +2567,7 @@ namespace Desert::Editor
                 static_cast<void>( textures->Require( *m_MiniMapHandle ) ); // starts the read; drawn once ready
                 const auto* texture = textures->Get( *m_MiniMapHandle );
                 auto*       image   = texture ? static_cast<Graphic::Image2D*>(
-                                               ::Desert::Runtime::ResourceRegistry::GetImageService()->Resolve(
+                                               ::Desert::Runtime::GetImageService()->Resolve(
                                                     texture->GetImageHandle() ) )
                                               : nullptr;
                 if ( image != nullptr )

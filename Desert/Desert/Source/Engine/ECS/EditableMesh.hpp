@@ -8,7 +8,7 @@
 #include <span>
 #include <vector>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 namespace Desert::Geometry
 {

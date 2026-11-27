@@ -51,6 +51,7 @@
 #include <Engine/Runtime/SelectionContext.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/EntityLock.hpp>
+#include <Engine/ECS/FoliageEditing.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
@@ -100,8 +101,9 @@
 #include <Engine/UI/Ecs/UIToggleComponent.hpp>
 #include <Engine/GameplayDebugger/GameplayDebugger.hpp>
 #include <VFX/Public/VFXWorld.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
+#include "ViewportUIAnchors.hpp"
 
 namespace Desert::Editor
 {
@@ -113,83 +115,6 @@ namespace Desert::Editor
         // (Editor/Panels/UI/UIElementCatalog.hpp) — this file used to carry its own copy of AddUIChild and its
         // own hand-written menu, and the two lists had already drifted: the viewport offered UI Image and the
         // panel did not.
-
-        // Unity/UE-style anchor presets. Each axis is Min/Center/Max (a fixed-size box pinned to that edge,
-        // keeping the element's current size) or Stretch (anchors 0..1, zero offsets -> fills the parent on
-        // that axis). Stretch+Stretch = "fill parent" (the full-quad the UI needs). Offsets are in the same
-        // screen-px space UICanvasLayout/RenderCanvas2D resolve layout in.
-        enum class AnchorAxis
-        {
-            Min,
-            Center,
-            Max,
-            Stretch
-        };
-
-        void AnchorAxisValues( AnchorAxis m, float size, float& aMin, float& aMax, float& offMin, float& offMax )
-        {
-            switch ( m )
-            {
-                case AnchorAxis::Stretch:
-                    aMin   = 0.0f;
-                    aMax   = 1.0f;
-                    offMin = 0.0f;
-                    offMax = 0.0f;
-                    break;
-                case AnchorAxis::Min:
-                    aMin   = 0.0f;
-                    aMax   = 0.0f;
-                    offMin = 0.0f;
-                    offMax = size;
-                    break;
-                case AnchorAxis::Center:
-                    aMin   = 0.5f;
-                    aMax   = 0.5f;
-                    offMin = -size * 0.5f;
-                    offMax = size * 0.5f;
-                    break;
-                case AnchorAxis::Max:
-                    aMin   = 1.0f;
-                    aMax   = 1.0f;
-                    offMin = -size;
-                    offMax = 0.0f;
-                    break;
-            }
-        }
-
-        void ApplyAnchorPreset( entt::registry& reg, entt::entity e, const ::Desert::UI::Rect& viewRect,
-                                AnchorAxis hx, AnchorAxis vy )
-        {
-            if ( !reg.has<ECS::UILayoutComponent>( e ) )
-                return;
-            auto& L = reg.get<ECS::UILayoutComponent>( e ).Data;
-
-            // Element size in DESIGN space (the space UILayout offsets are stored in). GetElementRect returns
-            // the on-screen rect, so divide by the canvas scale. Fall back to the element's authored size when
-            // it isn't resolvable (e.g. not parented under a canvas yet) so Fill/presets never silently no-op.
-            //
-            // The canvas is THIS ELEMENT's own — derived from the tree it is in, not from whichever canvas
-            // the scene lists first. An element in the second canvas used to get the first one's scale.
-            const entt::entity canvas = ::Desert::UI::CanvasOf( reg, e );
-            const auto         scaleR = ::Desert::UI::CanvasScale( reg, canvas, viewRect );
-            const float        scale  = scaleR ? scaleR.GetValue() : 1.0f;
-            const float        inv    = scale > 0.0001f ? 1.0f / scale : 1.0f;
-            float              sizeX  = std::max( 1.0f, L.OffsetMax.x - L.OffsetMin.x );
-            float              sizeY  = std::max( 1.0f, L.OffsetMax.y - L.OffsetMin.y );
-            if ( ::Desert::UI::Rect er; ::Desert::UI::GetElementRect( reg, canvas, e, viewRect, er ) )
-            {
-                sizeX = er.W * inv;
-                sizeY = er.H * inv;
-            }
-
-            float axMin, axMax, oMinX, oMaxX, ayMin, ayMax, oMinY, oMaxY;
-            AnchorAxisValues( hx, sizeX, axMin, axMax, oMinX, oMaxX );
-            AnchorAxisValues( vy, sizeY, ayMin, ayMax, oMinY, oMaxY );
-            L.AnchorMin = glm::vec2( axMin, ayMin );
-            L.AnchorMax = glm::vec2( axMax, ayMax );
-            L.OffsetMin = glm::vec2( oMinX, oMinY );
-            L.OffsetMax = glm::vec2( oMaxX, oMaxY );
-        }
 
         ImGuiMouseCursor CursorForHandle( UIHandle h )
         {
@@ -357,6 +282,15 @@ namespace Desert::Editor
         m_LandscapePaintTool = std::make_unique<Tools::LandscapePaintTool>();
 
         s_Live.push_back( this );
+        Core::ViewportMode::SetChangeListener( &ViewportPanel::OnEditorModeChanged );
+        m_Scene->GetRegistry().ctx_or_set<::Desert::ECS::FoliageEditing>().Active = Core::ViewportMode::IsFoliage();
+    }
+
+    void ViewportPanel::OnEditorModeChanged( const Core::EditorMode mode )
+    {
+        for ( ViewportPanel* panel : s_Live )
+            panel->m_Scene->GetRegistry().ctx_or_set<::Desert::ECS::FoliageEditing>().Active =
+                 mode == Core::EditorMode::Foliage;
     }
 
     // Out-of-line so unique_ptr<AsyncMeshLoader> destroys with the complete type (joins the worker thread) —
@@ -1598,7 +1532,16 @@ namespace Desert::Editor
                 // UE's viewport "Realtime": while editing, whether the world's preview time moves — the
                 // cloud wind, particles, a material's Time node. The user's answer, so it lives in
                 // editor.json beside the Show flags and never in the level (Core::WorldTime).
-                viewChanged |= ImGui::Checkbox( "Realtime", &EditorPreferences::Get().ViewportRealtime );
+                // A command's session answer (UIPreview::Realtime) is shown while it stands; a click is the
+                // user's own and ends it.
+                auto& session  = Core::UIPreview::Get().Realtime;
+                bool  realtime = session.value_or( EditorPreferences::Get().ViewportRealtime );
+                if ( ImGui::Checkbox( "Realtime", &realtime ) )
+                {
+                    session.reset();
+                    EditorPreferences::Get().ViewportRealtime = realtime;
+                    viewChanged                               = true;
+                }
                 if ( ImGui::IsItemHovered() )
                     ImGui::SetTooltip( "Advance world time while editing (wind, particles, material Time)" );
                 if ( ImGui::Checkbox( "Allow Cinematic Control", &m_AllowCinematicControl ) &&

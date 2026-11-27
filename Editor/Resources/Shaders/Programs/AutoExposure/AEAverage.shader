@@ -52,7 +52,7 @@ Shader "AEAverage"
             vec4  LocalExposureContrast;  // highlight, shadow, detail (0: a bucket is its own base), enabled
             vec4  LocalExposureThreshold; // hi thr, sh thr, hi strength, sh strength
             float LocalExposureLogMiddleGrey;
-            float ExposureKey;
+            float MiddleGrey;       // Graphic::kExposureMiddleGrey
             float CompensationBias; // UE AutoExposureBias (EV)
             float CompensationKeys; // the Exposure Compensation Curve's key count (0 = no curve)
             vec4  CurveEV100;       // its keys' EV100, ascending
@@ -188,7 +188,7 @@ Shader "AEAverage"
             float averageLocalExposure = 1.0;
             if ( LocalExposureContrast.w > 0.5 && total > 0u )
             {
-                const float logExposure = log2( ExposureKey / max( s_Exposed, 1e-4 ) );
+                const float logExposure = log2( MiddleGrey / max( s_Exposed, 1e-4 ) );
                 float term = 0.0;
                 if ( count > 0u )
                 {

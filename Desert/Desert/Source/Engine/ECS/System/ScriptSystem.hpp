@@ -11,7 +11,7 @@
 #include <Engine/Input/LocalPlayerInput.hpp>
 #include <Engine/Libraries/InputLibrary.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
-#include <UI/UIDataStore.hpp>
+#include <UI/UIWorld.hpp>
 
 #include <Common/Core/KeyCodes.hpp>
 #include <Common/Core/Logger.hpp>
@@ -36,7 +36,10 @@ namespace Desert::ECS
     // DOES NOT HONOUR VisibilityComponent, AND MUST NOT: it runs gameplay Lua and owns the frame's cursor
     // capture. A hidden entity whose script stops running is a behaviour change, not a drawing one.
     // Verdict and mutation gate: Desert/Tests/Engine/VisibilityHonoured.
-    class ScriptSystem final : public System
+    // Placed in the script language's module (cmake/DesertModuleTable.cmake): it owns the ScriptEngine that module
+    // implements. Engine reaches it only as Core::ScriptHostSystem; the module's StartupModule registers its world
+    // system row (Engine/Scripting/Luau/LuauScriptingModule.cpp).
+    class ScriptSystem final : public System, public Core::ScriptHostSystem
     {
     public:
         explicit ScriptSystem( Core::Scene* scene, Assets::AssetManager* assetManager = nullptr )
@@ -55,6 +58,13 @@ namespace Desert::ECS
         [[nodiscard]] Input::LocalPlayerInput& PlayerInput()
         {
             return m_Engine.PlayerInput();
+        }
+
+        /// The world's running script host (Core::ScriptHostSystem): what Engine code reads the player's input
+        /// through.
+        [[nodiscard]] Core::ScriptHost& Host() override
+        {
+            return m_Engine;
         }
 
         /// The scene's scripts while they run: what the gameplay debugger reads a slot's live state from.
@@ -272,7 +282,7 @@ namespace Desert::ECS
             // Deliver whatever the canvas raised this frame (button actions, pointer events, drops) to
             // every script defining OnUIMessage. Drained here rather than pushed by the UI, so the canvas
             // stays unaware that scripting exists — and so a message queued while paused isn't lost.
-            for ( const std::string& msg : UI::UIMessageQueue::Get().Drain() )
+            for ( const std::string& msg : m_Scene->GetUIWorld().Messages.Drain() )
                 m_Engine.BroadcastUIMessage( msg );
 
             // Fire due Timer.after callbacks (scheduled by OnStart/OnUpdate/earlier timers). Game

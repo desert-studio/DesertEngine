@@ -9,7 +9,7 @@
 #include <Engine/Runtime/Services/Image/ImageService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
-#include <Engine/Runtime/Services/Video/VideoService.hpp>
+#include <Engine/Runtime/Services/IVideoService.hpp>
 
 namespace Desert::UI
 {
@@ -31,7 +31,7 @@ namespace Desert::UI
         if ( texture == nullptr )
             return {};
         return RefOf( dynamic_cast<Graphic::Image2D*>(
-             Runtime::ResourceRegistry::GetImageService()->Resolve( texture->GetImageHandle() ) ) );
+             Runtime::GetImageService()->Resolve( texture->GetImageHandle() ) ) );
     }
 
     uint64_t RegistryUICanvasResources::ImageAtPath( const std::string& path )
@@ -53,8 +53,11 @@ namespace Desert::UI
 
     TextureRef RegistryUICanvasResources::VideoFrame( uint64_t video, float volume, bool muted )
     {
-        return RefOf( Runtime::ResourceRegistry::GetVideoService()->Resolve(
-             video, { .Volume = volume, .Muted = muted } ) );
+        // No Media module linked: no clip is drawn, as for one that cannot be opened (the resolver said why).
+        Runtime::IVideoService* videos = Runtime::ResourceRegistry::GetVideoService();
+        if ( videos == nullptr )
+            return RefOf( nullptr );
+        return RefOf( videos->Resolve( video, { .Volume = volume, .Muted = muted } ) );
     }
 
     const UIThemeRuntime* RegistryUICanvasResources::Theme( const Common::AssetHandle& theme )

@@ -1058,6 +1058,10 @@ namespace Desert::Editor
                 }
             }
             const Attempt& stored = chosenIsProbe ? probe : chosen;
+            // A TEXTURE-ARRAY SLOT (a landscape layer) shares one format with every other slot of its array, so
+            // an encode that the gates refuse is still stored: the cook decides the slot format, and the runtime
+            // array never meets an uncompressed layer among block-compressed ones. The numbers are still logged.
+            const bool arraySlot = asset.Import.Settings.ArraySlotFormat;
 
             if ( authoredIntent == Fmt::TextureIntent::Unspecified )
             {
@@ -1073,6 +1077,17 @@ namespace Desert::Editor
                               "the Details of '{5}' to say what it is for.",
                               abs, probe.Grade.Psnr, probe.Grade.MaxAbsoluteDelta, probe.Pixels.size(),
                               data.Pixels.size(), assetPath.filename().string() );
+                    data.Format = probeFormat;
+                    data.Levels = probe.Levels;
+                    data.Pixels = std::move( probe.Pixels );
+                }
+                else if ( probe.Encoded && arraySlot )
+                {
+                    LOG_INFO( "[TextureImporter] '{0}' is stored as BC7 because it fills a texture-array slot, "
+                              "whose format every slot shares; the gates alone would keep it uncompressed "
+                              "({1:.2f} dB, floor {2:.2f}; worst texel off by {3}, ceiling {4}).",
+                              abs, probe.Grade.Psnr, kBlockPsnrFloorDb, probe.Grade.MaxAbsoluteDelta,
+                              kBlockMaxDeltaCeiling );
                     data.Format = probeFormat;
                     data.Levels = probe.Levels;
                     data.Pixels = std::move( probe.Pixels );
@@ -1125,6 +1140,18 @@ namespace Desert::Editor
                 data.Levels = stored.Levels;
                 // `stored` is a reference to one of two locals and one of them is still needed for the
                 // sentence above, so the copy is taken rather than moved out of a const reference.
+                data.Pixels = stored.Pixels;
+            }
+            else if ( stored.Encoded && arraySlot )
+            {
+                LOG_INFO( "[TextureImporter] '{0}' is authored as {1} and stored as format {2} ({3}) because it "
+                          "fills a texture-array slot, whose format every slot shares; the gates alone would keep "
+                          "it uncompressed ({4:.2f} dB, floor {5:.2f}; worst texel off by {6}, ceiling {7}).",
+                          abs, Fmt::TextureIntentName( authoredIntent ), static_cast<uint32_t>( policy.Format ),
+                          policy.Because, stored.Grade.Psnr, kBlockPsnrFloorDb, stored.Grade.MaxAbsoluteDelta,
+                          kBlockMaxDeltaCeiling );
+                data.Format = policy.Format;
+                data.Levels = stored.Levels;
                 data.Pixels = stored.Pixels;
             }
             else if ( stored.Encoded )
@@ -1223,11 +1250,11 @@ namespace Desert::Editor
         return { &Common::Constants::Path::TEXTUREDIR_PATH, &Common::Constants::Path::MESH_PATH };
     }
 
-    std::vector<std::filesystem::path> LooseTextureSources()
+    std::vector<std::filesystem::path> LooseTextureCandidates()
     {
         namespace fs = std::filesystem;
 
-        std::vector<fs::path> sources;
+        std::vector<fs::path> candidates;
         for ( const fs::path* root : LooseTextureRoots() )
         {
             std::error_code ec;
@@ -1243,25 +1270,33 @@ namespace Desert::Editor
                 std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
                 // THE ONE ORDERED LIST, asked rather than re-spelled -- see TextureSourceFormats.hpp for the
                 // two hand-written copies that had already drifted before it existed.
-                if ( ext == Assets::kTextureAssetExtension )
-                {
-                    // A `.detex` that is not a texture asset (the pre-asset JSON sidecar) is not listed: its
-                    // image is, and that image's import refuses it by path (ImportSourceAsset).
-                    if ( Assets::IsTextureSourceAssetFile( entry.path() ) )
-                        sources.push_back( entry.path() );
-                    continue;
-                }
-                if ( TextureSourceFormatRank( ext ) == kTextureSourceExtensionCount )
-                    continue;
-                // An image whose asset exists is that asset's provenance, not a second texture.
-                if ( Assets::IsTextureSourceAssetFile( TextureIntentPath( entry.path() ) ) )
-                    continue;
-
-                sources.push_back( entry.path() );
+                if ( ext == Assets::kTextureAssetExtension ||
+                     TextureSourceFormatRank( ext ) != kTextureSourceExtensionCount )
+                    candidates.push_back( entry.path() );
             }
         }
         // Sorted, so two runs over the same tree cook — and log — in the same order on every platform.
-        std::sort( sources.begin(), sources.end() );
+        std::sort( candidates.begin(), candidates.end() );
+        return candidates;
+    }
+
+    bool IsLooseTextureSource( const std::filesystem::path& candidate )
+    {
+        // A `.detex` that is not a texture asset (the pre-asset JSON sidecar) is not listed: its image is, and
+        // that image's import refuses it by path (ImportSourceAsset).
+        std::string ext = candidate.extension().string();
+        std::transform( ext.begin(), ext.end(), ext.begin(), ::tolower );
+        if ( ext == Assets::kTextureAssetExtension )
+            return Assets::IsTextureSourceAssetFile( candidate );
+        // An image whose asset exists is that asset's provenance, not a second texture.
+        return !Assets::IsTextureSourceAssetFile( TextureIntentPath( candidate ) );
+    }
+
+    std::vector<std::filesystem::path> LooseTextureSources()
+    {
+        std::vector<std::filesystem::path> sources = LooseTextureCandidates();
+        std::erase_if( sources, []( const std::filesystem::path& candidate )
+                       { return !IsLooseTextureSource( candidate ); } );
         return sources;
     }
 

@@ -22,7 +22,7 @@
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 #include <Engine/Graphic/Render/Commands/DrawMeshCommand.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <cstdint>
 #include <functional>

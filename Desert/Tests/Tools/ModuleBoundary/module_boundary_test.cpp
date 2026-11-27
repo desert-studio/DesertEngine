@@ -202,7 +202,8 @@ TEST( ModuleBoundary, NamedFilesSitInTheirModules )
          { "Desert/Desert/Source/Engine/Graphic/SceneRenderer.hpp", "Renderer" },
          { "Desert/Desert/Source/Engine/Core/Scene.hpp", "Engine" },
          { "Desert/Desert/Source/Engine/World/Foliage/FoliageCells.hpp", "Foliage" },
-         { "Desert/Desert/Source/Platform/MacOS/MacOSWindow.cpp", "ApplicationCore" },
+         { "Desert/Desert/Source/Engine/Core/Input.cpp", "ApplicationCore" },
+         { "Desert/Desert/Source/Platform/MacOS/MacOSWindow.cpp", "RenderCore" },
          // plan C11: a module's generated registration belongs to the module, not to the folder it is written in
          { "Desert/Desert/Source/Engine/Generated/Reflection_Foliage.gen.cpp", "Foliage" },
          { "Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp", "Engine" },

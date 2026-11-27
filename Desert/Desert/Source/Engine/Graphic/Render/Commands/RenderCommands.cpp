@@ -18,7 +18,26 @@
 #include "VolumetricCloudCommand.hpp"
 #include "WindGustCommand.hpp"
 #include <Engine/Geometry/SkinnedMesh.hpp>
+#include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+
+#include <Common/Core/Logger.hpp>
+
+namespace Desert::Graphic
+{
+    // Defined here, in Engine, beside the commands that call it (BINT-ENG): it needs only the mesh, and Engine's
+    // commands must not import a symbol from the Renderer module above them.
+    void SceneRenderer::PrepareMesh( Mesh& mesh )
+    {
+        // THE ONE PLACE A MESH'S GPU SIDE IS MADE FROM ITS CPU DATA: the renderer's intake, on the game thread at
+        // the update's fence (RenderCommand::Prepare, Scene::OnUpdate). Geometry set or edited on the game side
+        // (ECS::SetEditableMesh's new mesh, DynamicMesh::Update) only raised the mesh's pending flag; the render
+        // revision, the BLAS release and the device buffers change here, with no view job reading the mesh
+        // (Mesh::EnsureGpuResources). A failed upload is reported once and the replays drop the draw.
+        if ( const auto uploaded = mesh.EnsureGpuResources(); !uploaded.IsSuccess() )
+            LOG_ERROR( "[SceneRenderer] a mesh could not be uploaded and is not drawn: {}", uploaded.GetError() );
+    }
+} // namespace Desert::Graphic
 
 namespace Desert::Graphic::Render
 {

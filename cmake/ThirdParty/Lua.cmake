@@ -1,8 +1,7 @@
 # Lua: PUC Lua as a C library, archive named LuaPuc. `lua_ident` is renamed so it
 # cannot collide with Luau's symbol of the same name in one binary.
 set(_root "${DESERT_ROOT}/ThirdParty/lua")
-file(GLOB _src CONFIGURE_DEPENDS "${_root}/*.c" "${_root}/*.h")
-list(SORT _src)
+_desert_thirdparty_glob(_src "${_root}/*.c" "${_root}/*.h")
 list(REMOVE_ITEM _src "${_root}/lua.c" "${_root}/onelua.c" "${_root}/ltests.c")
 desert_add_library(Lua FOLDER ThirdParty SOURCES ${_src})
 set_target_properties(Lua PROPERTIES OUTPUT_NAME LuaPuc)

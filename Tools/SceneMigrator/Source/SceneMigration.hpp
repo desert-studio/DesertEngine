@@ -25,7 +25,19 @@
 #include <span>
 #include <string_view>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
-#include <Engine/Core/Serialize/SceneUpgrade.hpp>
+#include <Engine/Core/SceneUpgrade/SceneUpgrade.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/AssetRef1ReflectedRefs.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/Light1Rotation.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V71VolumetricFog.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V72TracedRequest.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V73ComposedGI.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V74FilmicDefault.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V75GrassRasterPath.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V76LandscapeSplineEntities.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V77TubeSourceLength.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/V78ExposureBiasOnly.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/WP13EntityHLODLayer.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/WP14ImpostorLayers.hpp>
 
 // The `.deprefab` payload and its gate. A prefab's entities ARE Core::SceneSerialized::Entities - the
 // same struct, written by the same ComponentRegistry - so it is raised by the SAME step chain rather
@@ -394,7 +406,8 @@ namespace Desert::Migration
     //       sky's SkyAndAerialPerspectiveLuminanceFactor (LUTs, aerial perspective, distant light, bake) and
     //       becomes the light's AtmosphereSunDiskColorScale (the disc). The volume's manual Exposure (a
     //       multiplier m, default 1) is ManualExposureEV100 = log2(key / m) + 3 at the volume's AutoExposureKey
-    //       (default 0.18) - the same scale through Graphic::ManualExposureScale. A physical sky with no
+    //       (default 0.18) - the same scale through the v57 Graphic::ManualExposureScale (v78 then folds that
+    //       key into AutoExposureBias as log2(key / 0.18), Core::MigrateExposureKeyV77ToV78). A physical sky with no
     //       atmosphere sun light, or a light of zero illuminance under a lit sky, is refused
     //       (MigrateSkySunFromLightV56ToV57). Scenes and prefabs alike.
     inline constexpr int kSceneVersionSkySunFromLight = 57;
@@ -469,8 +482,9 @@ namespace Desert::Migration
     //       Load All. A ROOT record of a scene with a WorldPartition block states no siblingIndex; children keep
     //       theirs (MigrateRootSiblingIndexV69ToV70, this tool's last step). Scenes only.
     //
-    //  71 .. 77 - THE ENGINE'S (SCENE-UPGRADE-ON-LOAD): every step at or above Core::kSceneUpgradeFloor (70) lives
-    //       in Engine/Core/Serialize/SceneUpgrade.hpp, the one copy the loader raises a file with in memory. This
+    //  71 ..    - THE ENGINE'S (SCENE-UPGRADE-ON-LOAD): every step at or above Core::kSceneUpgradeFloor (70) lives
+    //       in Engine/Core/SceneUpgrade/Steps/ (one file each, ordered by the table in SceneUpgradeSteps.cpp),
+    //       the one copy the loader raises a file with in memory. This
     //       tool is the resave: it runs its own steps up to the floor, then Core::UpgradeSceneRecords, then writes.
     using Core::kSceneVersionComposedGI;
     using Core::kSceneVersionFilmicDefault;
@@ -578,22 +592,18 @@ namespace Desert::Migration
     //       it. Scenes only carry layers; a prefab's chain raises the number and changes nothing. (v10 and v11 are
     //       the WP-INT-1117 integration's steps.)
     //       This step is this tool's last World Partition step: v12 is Core::kWorldPartitionUpgradeFloor.
-    //  13, 14 - additive, the engine's (SceneUpgrade.hpp).
+    //  13, 14 - additive, the engine's (Core/SceneUpgrade/Steps/WP13EntityHLODLayer.hpp, WP14ImpostorLayers.hpp).
     using Core::kWorldPartitionVersionEntityHLODLayer;
     using Core::kWorldPartitionVersionHLODBuilderSettings;
     using Core::kWorldPartitionVersionImpostorLayers;
 
-    // THE ASSET-REFERENCE, LIGHT AND POST-PROCESS CHAINS (kAssetRefVersionReflected, kLightVersionRotation,
-    // kPostProcessVersionBloom) are the engine's
-    // whole (SceneUpgrade.hpp): Core::UpgradeSceneRecords runs them, this tool hands it a MaterialGuidLookup over
-    // its assets root.
+    // THE ASSET-REFERENCE AND LIGHT CHAINS (kAssetRefVersionReflected, kLightVersionRotation) are the engine's
+    // whole (Core/SceneUpgrade/Steps/AssetRef1ReflectedRefs.hpp, Light1Rotation.hpp): Core::UpgradeSceneRecords
+    // runs them, this tool hands it a MaterialGuidLookup over its assets root.
     using Core::kAssetRefVersionReflected;
     using Core::kLightVersionRotation;
-    using Core::kPostProcessVersionBloom;
     using Core::MigrateLightRotationV0ToV1;
-    using Core::MigratePostProcessBloomV0ToV1;
     using Core::MigrateReflectedAssetRefsV0ToV1;
-    using Core::PostProcessBloomReport;
     using Core::ReflectedAssetRefsReport;
     using Core::SunRotationReport;
 
@@ -939,7 +949,7 @@ namespace Desert::Migration
     // prefab override. PURE.
     DisplayTransferReport MigrateDisplayTransferV64ToV65( std::vector<Assets::EntityData>& entities );
 
-    // v72..v75 (SceneUpgrade.hpp).
+    // v72..v75 (Core/SceneUpgrade/Steps/V72TracedRequest.hpp .. V75GrassRasterPath.hpp).
     using Core::ComposedGIReport;
     using Core::FilmicDefaultReport;
     using Core::GrassRasterPathReport;
@@ -1090,25 +1100,10 @@ namespace Desert::Migration
 
     // The ANGR 5 text of an ANGR 4 `.danimgraph` (PAWN-MANNEQUIN): every Blend Space 1D sample - of a node's
     // BlendSpace and of a state's BlendSpace.Space, in the graph and every layer graph - states RateScale 1.0 (UE
-    // FBlendSample::RateScale: the clip plays at its own rate, as every ANGR 4 sample did). UNTYPED: ANGR 5 is not
-    // the engine's generation, so the text goes on to MigrateAnimGraphV5ToV6, which re-reads it. A file that does
-    // not state ANGR 4 is an error naming what it states. PURE - no filesystem access.
+    // FBlendSample::RateScale: the clip plays at its own rate, as every ANGR 4 sample did). Re-read and re-written
+    // by the engine's own reader and writer. A file that does not state ANGR 4 is an error naming what it states.
+    // PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateAnimGraphV4ToV5( const std::string& text );
-
-    // ANGR 5 -> 6 (ANIM-BS2D-RUNTIME): every blend space (node payload and state) gains Axes = [{Min = lowest
-    // sample Value, Max = highest (Min + 1 when equal), Wrap false, SmoothingTime 0, Smoothing "Average",
-    // DampingRatio 1, MaxSpeed 0}], each sample Value -> X and Y = 0, WeightEaseInOut false, ScaleAxis -1; a
-    // state's Axis -> AxisParameters [Axis]. Re-read and re-written by the engine's own reader and writer. A file
-    // that does not state ANGR 5 is an error naming what it states; a blend space with no samples, or a sample
-    // whose Value is missing or not a number, is an error naming the node or state and the sample index. The
-    // result carries how many blend spaces and samples were raised. PURE - no filesystem access.
-    struct AnimGraphAxesRaise
-    {
-        std::string Text;
-        std::size_t Spaces  = 0;
-        std::size_t Samples = 0;
-    };
-    Common::ResultStr<AnimGraphAxesRaise> MigrateAnimGraphV5ToV6( std::string_view text );
 
     // The current VFXS text of a VFXS 1 .. 5 `.dfx`: one step per generation, each on the UNTYPED body (no step
     // reads a typed struct of a later layout), then the engine's reader, validator and writer (current header,
@@ -1241,6 +1236,10 @@ namespace Desert::Migration
     // UseFalloffCurve false (a v10 volume grew the type at full density to its edge), the header's GUID kept. A
     // file that does not state FOLT 10 is an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateFoliageTypeV10ToV11( const std::string& text );
+    // The v12 text of a v11 `.defoliage`: every v11 value kept, EnableDensityScaling joins, true for a Mesh type
+    // without collision and with a cull distance, the header's GUID kept. A file that does not state FOLT 11 is an
+    // error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateFoliageTypeV11ToV12( const std::string& text );
     // The v6 text of a v5 `.decloudtype`: every v5 value kept, `Shape.Profile.Density` written as
     // Graphic::CloudProfileDensityBaseRamp (CLTY 5 had no altitude density, so every v5 type was dense from
     // its base up — the box H-BASE takes away), the header's GUID kept. A file that does not state CLTY 5 is

@@ -156,11 +156,22 @@ namespace Desert::Editor
         namespace LevelTL = Animation::Timeline;
 
         /// A refusal, said where the person looks (a toast) and where a script reads (the Output Log).
-        Common::BoolResultStr Refused( const std::string_view what, const std::string& why )
+        void Say( const std::string& refusal )
         {
-            LOG_WARN( "[Sequencer] {} refused: {}", what, why );
-            ToastManager::Push( std::format( "{} refused: {}", what, why ), ToastLevel::Error, 6.0f );
-            return Common::MakeFormattedError<bool>( "{} refused: {}", what, why );
+            LOG_WARN( "[Sequencer] {}", refusal );
+            ToastManager::Push( refusal, ToastLevel::Error, 6.0f );
+        }
+
+        std::string Refusal( const std::string_view what, const std::string& why )
+        {
+            return std::format( "{} refused: {}", what, why );
+        }
+
+        /// Says @p result's refusal; a UI edit has no caller above it to return the refusal to.
+        void SayIfRefused( const Common::BoolResultStr& result )
+        {
+            if ( !result )
+                Say( result.GetError() );
         }
 
         /// The actor entity, its animator and the bone index a Bone binding names in @p registry.
@@ -191,61 +202,61 @@ namespace Desert::Editor
         }
     } // namespace
 
-    Common::BoolResultStr SequencerPanel::AddLevelBoneTrack( const LevelTL::BindingGuid& actor,
+    void SequencerPanel::AddLevelBoneTrack( const LevelTL::BindingGuid& actor,
                                                              const std::string_view      bone )
     {
         const auto asset = ResolveLevelAsset();
         const auto scene = m_Scene.lock();
         if ( !asset || !scene )
-            return Refused( "Add Bone Track", "the Level Sequence or its scene is gone" );
+            return Say( Refusal( "Add Bone Track", "the Level Sequence or its scene is gone" ) );
         LevelTL::Sequence& sequence = asset->EditSequence();
         // Checked before the undo step opens, so a refusal leaves no empty step behind.
         LevelTL::Sequence probe = sequence;
         if ( const auto added = ECS::AddBoneBinding( probe, scene->GetRegistry(), actor, bone ); !added )
-            return Refused( "Add Bone Track", added.GetError() );
+            return Say( Refusal( "Add Bone Track", added.GetError() ) );
         const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
         if ( const auto added = ECS::AddBoneBinding( sequence, scene->GetRegistry(), actor, bone ); !added )
-            return Refused( "Add Bone Track", added.GetError() );
-        return BOOLSUCCESS;
+            return Say( Refusal( "Add Bone Track", added.GetError() ) );
+        return;
     }
 
-    Common::BoolResultStr SequencerPanel::RemoveLevelBoneTrack( const LevelTL::BindingGuid& bone )
+    void SequencerPanel::RemoveLevelBoneTrack( const LevelTL::BindingGuid& bone )
     {
         const auto asset = ResolveLevelAsset();
         if ( !asset )
-            return Refused( "Remove Bone Track", "the Level Sequence is gone" );
+            return Say( Refusal( "Remove Bone Track", "the Level Sequence is gone" ) );
         const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
         if ( const auto removed = ECS::RemoveBoneBinding( asset->EditSequence(), bone ); !removed )
-            return Refused( "Remove Bone Track", removed.GetError() );
+            return Say( Refusal( "Remove Bone Track", removed.GetError() ) );
         if ( m_LevelSelBone == bone )
             SelectLevelBone( bone ); // picking the selected row again gives the gizmo back
-        return BOOLSUCCESS;
+        return;
     }
 
-    Common::BoolResultStr SequencerPanel::KeyLevelBone( const LevelTL::BindingGuid& bone )
+    void SequencerPanel::KeyLevelBone( const LevelTL::BindingGuid& bone )
     {
         const auto asset = ResolveLevelAsset();
         const auto scene = m_Scene.lock();
         if ( !asset || !scene )
-            return Refused( "Key Bone", "the Level Sequence or its scene is gone" );
+            return Say( Refusal( "Key Bone", "the Level Sequence or its scene is gone" ) );
         LevelTL::Sequence& sequence = asset->EditSequence();
         auto&              registry = scene->GetRegistry();
         const auto         target   = ResolveBone( sequence, registry, bone );
         if ( !target )
-            return Refused( "Key Bone", target.GetError() );
+            return Say( Refusal( "Key Bone", target.GetError() ) );
         const std::string& name = LevelTL::FindBinding( sequence, bone )->Locator;
         // What the viewer sees is what gets keyed — KeyLevelTransform's rule, for a bone.
         const auto shown = ECS::BonePose( registry, target.GetValue().Entity, name );
         const auto under = ECS::BonePreLayerPose( registry, target.GetValue().Entity, name );
         if ( !shown )
-            return Refused( "Key Bone", shown.GetError() );
+            return Say( Refusal( "Key Bone", shown.GetError() ) );
         if ( !under )
-            return Refused( "Key Bone", under.GetError() );
+            return Say( Refusal( "Key Bone", under.GetError() ) );
         const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
         if ( const auto keyed = ECS::SetBoneKey( sequence, bone, m_LevelTick, shown.GetValue(), under.GetValue() );
              !keyed )
-            return Refused( "Key Bone", keyed.GetError() );
-        return BOOLSUCCESS;
+            return Say( Refusal( "Key Bone", keyed.GetError() ) );
+        return;
     }
 
     Common::BoolResultStr SequencerPanel::SetLevelBoneProperty( const std::string&        name,
@@ -254,39 +265,39 @@ namespace Desert::Editor
         const auto asset = ResolveLevelAsset();
         const auto scene = m_Scene.lock();
         if ( !asset || !scene )
-            return Refused( name, "the Level Sequence or its scene is gone" );
+            return Common::MakeError<bool>( Refusal( name, "the Level Sequence or its scene is gone" ) );
         const LevelTL::Sequence& current  = asset->GetSequence();
         auto&                    registry = scene->GetRegistry();
         const auto               parsed   = LevelBoneEdit::Parse( current, name );
         if ( !parsed )
-            return Refused( name, parsed.GetError() );
+            return Common::MakeError<bool>( Refusal( name, parsed.GetError() ) );
         const LevelBoneEdit::Address& address = parsed.GetValue();
         if ( address.Bone.IsNull() )
         {
             // No track: say first whether the rig has the bone at all, then that it is not tracked.
             const auto actor = ECS::BoneActorEntity( current, registry, address.Actor );
             if ( !actor )
-                return Refused( name, actor.GetError() );
+                return Common::MakeError<bool>( Refusal( name, actor.GetError() ) );
             if ( const auto pose = ECS::BonePose( registry, actor.GetValue(), address.BoneName ); !pose )
-                return Refused( name, pose.GetError() );
-            return Refused( name,
+                return Common::MakeError<bool>( Refusal( name, pose.GetError() ) );
+            return Common::MakeError<bool>( Refusal( name,
                             std::format( "{} of {} has no bone track (Add Bone Track {} {})", address.BoneName,
-                                         address.ActorLabel, address.ActorLabel, address.BoneName ) );
+                                         address.ActorLabel, address.ActorLabel, address.BoneName ) ) );
         }
         const auto target = ResolveBone( current, registry, address.Bone );
         if ( !target )
-            return Refused( name, target.GetError() );
+            return Common::MakeError<bool>( Refusal( name, target.GetError() ) );
         const auto under = ECS::BonePreLayerPose( registry, target.GetValue().Entity, address.BoneName );
         if ( !under )
-            return Refused( name, under.GetError() );
+            return Common::MakeError<bool>( Refusal( name, under.GetError() ) );
 
         if ( address.Field == "Weight" || address.Field == "Blend" )
         {
             if ( value.size() != 1 )
-                return Refused( name, std::format( "takes one number, not {}", value.size() ) );
+                return Common::MakeError<bool>( Refusal( name, std::format( "takes one number, not {}", value.size() ) ) );
             const auto blend = ECS::BoneSectionBlendOf( current, address.Bone );
             if ( !blend )
-                return Refused( name, blend.GetError() );
+                return Common::MakeError<bool>( Refusal( name, blend.GetError() ) );
             LevelTL::SectionBlendType type   = blend.GetValue().Blend;
             float                     weight = blend.GetValue().Weight;
             if ( address.Field == "Weight" )
@@ -295,17 +306,17 @@ namespace Desert::Editor
                 type =
                      value[0] == 1.0F ? LevelTL::SectionBlendType::Additive : LevelTL::SectionBlendType::Absolute;
             else
-                return Refused( name, std::format( "{} is no blend (0 Absolute, 1 Additive)", value[0] ) );
+                return Common::MakeError<bool>( Refusal( name, std::format( "{} is no blend (0 Absolute, 1 Additive)", value[0] ) ) );
             const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
             if ( const auto set = ECS::SetBoneSectionBlend( asset->EditSequence(), address.Bone, type, weight,
                                                             under.GetValue() );
                  !set )
-                return Refused( name, set.GetError() );
+                return Common::MakeError<bool>( Refusal( name, set.GetError() ) );
             return BOOLSUCCESS;
         }
 
         if ( value.size() != 3 )
-            return Refused( name, std::format( "takes three numbers, not {}", value.size() ) );
+            return Common::MakeError<bool>( Refusal( name, std::format( "takes three numbers, not {}", value.size() ) ) );
         // The channel value at the playhead, one part replaced; with no section there yet, the shown pose.
         Animation::BoneTransform channel;
         if ( const auto at = ECS::BoneChannelValue( current, address.Bone, m_LevelTick ) )
@@ -313,7 +324,7 @@ namespace Desert::Editor
         else if ( const auto shown = ECS::BonePose( registry, target.GetValue().Entity, address.BoneName ) )
             channel = shown.GetValue();
         else
-            return Refused( name, shown.GetError() );
+            return Common::MakeError<bool>( Refusal( name, shown.GetError() ) );
         const glm::vec3 v( value[0], value[1], value[2] );
         if ( address.Field == "Location" )
             channel.Translation = v;
@@ -325,7 +336,7 @@ namespace Desert::Editor
         if ( const auto keyed =
                   ECS::SetBoneChannelKey( asset->EditSequence(), address.Bone, m_LevelTick, channel );
              !keyed )
-            return Refused( name, keyed.GetError() );
+            return Common::MakeError<bool>( Refusal( name, keyed.GetError() ) );
         return BOOLSUCCESS;
     }
 
@@ -352,13 +363,13 @@ namespace Desert::Editor
                 {
                     actions.push_back( DocumentAction{ std::format( "Add Bone Track {} {}", actor.Label, bone ),
                                                        [this, guid = actor.Guid, name = bone]
-                                                       { (void)AddLevelBoneTrack( guid, name ); } } );
+                                                       { AddLevelBoneTrack( guid, name ); } } );
                     continue;
                 }
                 actions.push_back( DocumentAction{ std::format( "Key Bone {} {}", actor.Label, bone ),
-                                                   [this, bound] { (void)KeyLevelBone( bound ); } } );
+                                                   [this, bound] { KeyLevelBone( bound ); } } );
                 actions.push_back( DocumentAction{ std::format( "Remove Bone Track {} {}", actor.Label, bone ),
-                                                   [this, bound] { (void)RemoveLevelBoneTrack( bound ); } } );
+                                                   [this, bound] { RemoveLevelBoneTrack( bound ); } } );
             }
         }
     }
@@ -378,7 +389,7 @@ namespace Desert::Editor
         for ( const std::string& bone : bones )
             if ( ImGui::MenuItem( bone.c_str(), nullptr, false,
                                   ECS::FindBoneBinding( sequence, actor, bone ).IsNull() ) )
-                (void)AddLevelBoneTrack( actor, bone );
+                AddLevelBoneTrack( actor, bone );
         ImGui::EndMenu();
     }
 
@@ -404,31 +415,31 @@ namespace Desert::Editor
                 SelectLevelBone( bone.Guid );
             SameLineAtLevelControls( contentX0 );
             if ( ImGui::SmallButton( ICON_MDI_KEY " Key" ) )
-                (void)KeyLevelBone( bone.Guid );
+                KeyLevelBone( bone.Guid );
             if ( const auto blend = ECS::BoneSectionBlendOf( sequence, bone.Guid ) )
             {
                 ImGui::SameLine();
                 int type = blend.GetValue().Blend == LevelTL::SectionBlendType::Additive ? 1 : 0;
                 ImGui::SetNextItemWidth( 90.0f );
                 if ( ImGui::Combo( "##LevelBoneBlend", &type, "Absolute\0Additive\0" ) )
-                    (void)SetLevelBoneProperty(
+                    SayIfRefused( SetLevelBoneProperty(
                          LevelBoneEdit::PropertyName( LevelTL::FindBinding( sequence, actor )->Label, bone.Locator,
                                                       "Blend" ),
-                         { static_cast<float>( type ) } );
+                         { static_cast<float>( type ) } ) );
                 ImGui::SameLine();
                 // Committed on Enter: InputFloat keeps its own text while it is edited, so one edit is one step.
                 float weight = blend.GetValue().Weight;
                 ImGui::SetNextItemWidth( 56.0f );
                 if ( ImGui::InputFloat( "##LevelBoneWeight", &weight, 0.0f, 0.0f, "%.2f",
                                         ImGuiInputTextFlags_EnterReturnsTrue ) )
-                    (void)SetLevelBoneProperty(
+                    SayIfRefused( SetLevelBoneProperty(
                          LevelBoneEdit::PropertyName( LevelTL::FindBinding( sequence, actor )->Label, bone.Locator,
                                                       "Weight" ),
-                         { weight } );
+                         { weight } ) );
             }
             ImGui::SameLine();
             if ( ImGui::SmallButton( ICON_MDI_DELETE ) )
-                (void)RemoveLevelBoneTrack( bone.Guid );
+                RemoveLevelBoneTrack( bone.Guid );
             DrawLevelKeyLane( sequence, bone.Guid, laneX0, laneW, rowY, rowH );
             ImGui::SetCursorScreenPos( ImVec2( contentX0, rowY + rowH + 4.0f ) );
             ImGui::PopID();
@@ -444,7 +455,7 @@ namespace Desert::Editor
             m_LevelSelBone  = {};
             m_LevelBoneHeld = false;
             live.Focus( m_AuthoringOwner, m_Authoring );
-            (void)live.SetMode( m_AuthoringOwner, m_Authoring, Core::AuthoringMode::Object );
+            SayIfRefused( live.SetMode( m_AuthoringOwner, m_Authoring, Core::AuthoringMode::Object ) );
             return;
         }
         const auto asset = ResolveLevelAsset();
@@ -455,7 +466,7 @@ namespace Desert::Editor
         const auto target   = ResolveBone( asset->GetSequence(), registry, bone );
         if ( !target )
         {
-            (void)Refused( "Select Bone", target.GetError() );
+            Say( Refusal( "Select Bone", target.GetError() ) );
             return;
         }
         const auto* uuid = registry.try_get<ECS::UUIDComponent>( target.GetValue().Entity );
@@ -511,14 +522,14 @@ namespace Desert::Editor
             // The buffer itself, not its matrix: the matrix round trip is not the identity (Animator.hpp).
             const Animation::BoneTransform dragged = animator->GetAuthoringPose()[target.GetValue().Index];
             if ( !under )
-                (void)Refused( "Auto Key Bone", under.GetError() );
+                Say( Refusal( "Auto Key Bone", under.GetError() ) );
             else
             {
                 const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
                 if ( const auto keyed =
                           ECS::SetBoneKey( sequence, m_LevelSelBone, m_LevelTick, dragged, under.GetValue() );
                      !keyed )
-                    (void)Refused( "Auto Key Bone", keyed.GetError() );
+                    Say( Refusal( "Auto Key Bone", keyed.GetError() ) );
             }
         }
         // Between drags the gizmo's buffer is the pose on screen, so a grab starts from what the viewer sees

@@ -3,19 +3,25 @@
 // THE WINDOW BELONGS TO THE SPLASH'S OWN THREAD. A Win32 window is serviced by the thread that created
 // it, so a window made on the main thread would stop painting (and turn "Not Responding") for exactly as
 // long as the start keeps that thread busy — the failure the splash exists to cover. The thread below
-// creates the window, runs its message loop, and is the only thing that ever touches it; `SetProgress` and
-// `Close` only post messages to it. This is the arrangement UE's FWindowsPlatformSplash uses.
+// creates the window, runs its message loop, and is the only thing that ever touches it; `Close` only posts
+// a message to it. This is the arrangement UE's FWindowsPlatformSplash uses.
 //
-// THE MOTION (SplashLayout.hpp: fade in, crossfade out) is driven by a timer on the same thread, so it
-// keeps running however long the main thread is away. The fades are the layered window's own alpha.
+// THE TEXT IS PULLED, NOT PUSHED (STARTUP-PROGRESS, R6). Every kFrameMs the thread samples the start's
+// progress (`Desert::Core::StartupProgress::Sample`) and repaints, so the phase, the running items with their
+// ages, the time left and the bar all move while the main thread is blocked inside one long call. The thread is
+// the progress's only sampler, as `Sample` requires.
+//
+// THE MOTION (SplashLayout.hpp: fade in, crossfade out) is driven by the same timer. The fades are the
+// layered window's own alpha.
 //
 // Drawn with plain GDI into a memory bitmap and blitted in one piece, so a repaint never flickers. GDI
 // has no alpha for text, so "white at 62 %" is the grey that white at 62 % over black gives, and the soft
-// shadow under the small text is the same text in near-black one pixel down.
-//
-// NOT RUN ON THE MACHINE IT WAS WRITTEN ON (macOS). What CI proves for this file is that it compiles.
+// shadow under the small text is the same text in near-black one pixel down. The picture is scaled to the
+// window ONCE into a bitmap of its own: a 30 Hz HALFTONE stretch of the 2400x1350 source would cost the
+// splash thread most of a core.
 
 #include <Common/Core/EngineThread.hpp>
+#include <Editor/Core/StartupRecord.hpp>
 #include <Editor/Splash/SplashControls.hpp>
 #include <Editor/Splash/SplashImage.hpp>
 #include <Editor/Splash/SplashLayout.hpp>
@@ -23,11 +29,18 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <stb_image/stb_image_write.h>
+
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <vector>
 
@@ -43,16 +56,19 @@ namespace Desert::Editor::Splash
 {
     namespace
     {
-        constexpr UINT     kStatusMessage = WM_APP + 1;
-        constexpr UINT_PTR kFrameTimer    = 1;
-        constexpr UINT     kFrameMs       = 33;
-        constexpr wchar_t  kClassName[]   = L"DesertEngineSplash";
-        constexpr COLORREF kBackground    = RGB( 20, 19, 18 );
-        constexpr COLORREF kWhite         = RGB( 255, 255, 255 );
-        constexpr COLORREF kDim           = RGB( 158, 158, 158 ); // white at kStageAlpha over black
-        constexpr COLORREF kFaint         = RGB( 115, 115, 115 ); // white at kItemAlpha over black
-        constexpr COLORREF kShadow        = RGB( 8, 8, 8 );
-        constexpr COLORREF kTrack         = RGB( 46, 46, 46 ); // white at kBarTrackAlpha over black
+        constexpr UINT_PTR kFrameTimer      = 1;
+        constexpr UINT     kFrameMs         = 33;
+        constexpr int64_t  kCapturePeriodMs = 1000;
+        // After Finish the fade out waits for the bar to reach 1 (it closes its gap in
+        // StartupProgress::kBarFinishSeconds); past this hold it fades anyway, and says so.
+        constexpr float    kFinishHoldSeconds = 1.0f;
+        constexpr wchar_t  kClassName[]     = L"DesertEngineSplash";
+        constexpr COLORREF kBackground      = RGB( 20, 19, 18 );
+        constexpr COLORREF kWhite           = RGB( 255, 255, 255 );
+        constexpr COLORREF kDim             = RGB( 158, 158, 158 ); // white at kStageAlpha over black
+        constexpr COLORREF kFaint           = RGB( 115, 115, 115 ); // white at kItemAlpha / kLogAlpha over black
+        constexpr COLORREF kShadow          = RGB( 8, 8, 8 );
+        constexpr COLORREF kTrack           = RGB( 46, 46, 46 ); // white at kBarTrackAlpha over black
         constexpr COLORREF kSand =
              RGB( static_cast<int>( kBarFillRed * 255.0f ), static_cast<int>( kBarFillGreen * 255.0f ),
                   static_cast<int>( kBarFillBlue * 255.0f ) );
@@ -67,13 +83,28 @@ namespace Desert::Editor::Splash
             MultiByteToWideChar( CP_UTF8, 0, text.data(), static_cast<int>( text.size() ), wide.data(), length );
             return wide;
         }
+
+        // Whether pixel (@p x, @p y) of a @p w x @p h box lies inside its rounded rectangle of corner @p r.
+        bool InsideRounded( const int x, const int y, const int w, const int h, const float r )
+        {
+            const float px = static_cast<float>( x ) + 0.5f;
+            const float py = static_cast<float>( y ) + 0.5f;
+            const float cx = px < r ? r : ( px > static_cast<float>( w ) - r ? static_cast<float>( w ) - r : px );
+            const float cy = py < r ? r : ( py > static_cast<float>( h ) - r ? static_cast<float>( h ) - r : py );
+            const float dx = px - cx;
+            const float dy = py - cy;
+            return dx * dx + dy * dy <= r * r;
+        }
     } // namespace
 
     class SplashScreenWindows final : public SplashScreen
     {
     public:
-        explicit SplashScreenWindows( const SplashContent& content ) : m_Content( content )
+        SplashScreenWindows( const SplashContent&                           content,
+                             std::shared_ptr<Desert::Core::StartupProgress> progress )
+             : m_Content( content ), m_Progress( std::move( progress ) )
         {
+            OpenCapture();
             m_Thread = Common::StartEngineThread( "Splash Screen", Common::ThreadPriority::Normal,
                                                   [this]() noexcept { Run(); } );
             // Show() promises the window is on screen when it returns.
@@ -88,16 +119,9 @@ namespace Desert::Editor::Splash
                 m_Thread.join();
         }
 
-        void SetProgress( const ProgressSnapshot& progress ) override
+        // The main-thread half of the window: none on Windows, where the splash's thread owns all of it.
+        void PumpMainThread() override
         {
-            HWND window = nullptr;
-            {
-                std::lock_guard<std::mutex> lock( m_Mutex );
-                m_Status = progress;
-                window   = m_Window;
-            }
-            if ( window )
-                PostMessageW( window, kStatusMessage, 0, 0 );
         }
 
         void Close() override
@@ -123,9 +147,6 @@ namespace Desert::Editor::Splash
             auto* self = reinterpret_cast<SplashScreenWindows*>( GetWindowLongPtrW( window, GWLP_USERDATA ) );
             switch ( message )
             {
-                case kStatusMessage:
-                    InvalidateRect( window, nullptr, FALSE );
-                    return 0;
                 case WM_NCHITTEST:
                 {
                     // THE PICTURE MOVES THE WINDOW: everything but the two buttons answers as a caption, so
@@ -159,19 +180,50 @@ namespace Desert::Editor::Splash
                         self->Tick( window );
                     return 0;
                 case WM_CLOSE:
-                    // Not destroyed here: the fade out runs first, and Tick destroys it at the end.
-                    if ( self && !self->m_Closing )
+                    // Not destroyed here: Tick starts the fade out (after the bar reached 1 on a finished
+                    // start) and destroys the window at its end.
+                    if ( self && !self->m_CloseAsked )
                     {
-                        self->m_Closing   = true;
-                        self->m_ClosingAt = std::chrono::steady_clock::now();
+                        self->m_CloseAsked   = true;
+                        self->m_CloseAskedAt = std::chrono::steady_clock::now();
                     }
                     return 0;
                 case WM_DESTROY:
+                    if ( self )
+                        self->ReleaseBackground();
                     PostQuitMessage( 0 );
                     return 0;
                 default:
                     return DefWindowProcW( window, message, wParam, lParam );
             }
+        }
+
+        // --splash-capture: the folder and the CSV are made before the window, so a refusal is said once and
+        // the start goes on without the capture.
+        void OpenCapture()
+        {
+            if ( m_Content.CaptureDir.empty() )
+                return;
+            std::error_code error;
+            std::filesystem::create_directories( m_Content.CaptureDir, error );
+            if ( error )
+            {
+                LOG_WARN( "[Splash] capture folder '{}' could not be made ({}); the splash is not captured",
+                          m_Content.CaptureDir.string(), error.message() );
+                return;
+            }
+            const std::filesystem::path csv = m_Content.CaptureDir / "progress.csv";
+            m_Csv.open( csv, std::ios::out | std::ios::trunc );
+            if ( !m_Csv )
+            {
+                LOG_WARN( "[Splash] '{}' could not be opened for writing; the splash is not captured",
+                          csv.string() );
+                return;
+            }
+            m_Csv << kCaptureCsvHeader << '\n';
+            m_Capturing = true;
+            LOG_INFO( "[Splash] capturing into '{}' (splash-<ms>.png every {} ms, progress.csv per repaint)",
+                      m_Content.CaptureDir.string(), kCapturePeriodMs );
         }
 
         void Run()
@@ -196,6 +248,9 @@ namespace Desert::Editor::Splash
             const int x       = work.left + ( static_cast<int>( workW ) - w ) / 2;
             const int y       = work.top + ( static_cast<int>( workH ) - h ) / 2;
 
+            // The first sample before the first paint, so the window never shows an empty frame.
+            m_View = m_Progress->Sample( Desert::Core::StartupClock::now(), BarMinVisibleStep( m_Scale ) );
+
             HWND window =
                  // An APP window with a minimize box, not a tool window: minimized, it has a taskbar button to
                  // come back from.
@@ -219,15 +274,18 @@ namespace Desert::Editor::Splash
                 SetForegroundWindow( window );
                 UpdateWindow( window );
 
-                // How early, from the kernel's record of when this process began (the macOS file says why).
-                FILETIME created, exited, kernel, user, now;
-                if ( GetProcessTimes( GetCurrentProcess(), &created, &exited, &kernel, &user ) )
+                // How early, from the kernel's record of when this process began (Editor/Core/StartupRecord.hpp,
+                // the one copy of that clock).
+                if ( const auto started = ProcessStartTime() )
                 {
-                    GetSystemTimeAsFileTime( &now );
-                    const auto ticks = []( const FILETIME& t )
-                    { return ( static_cast<unsigned long long>( t.dwHighDateTime ) << 32 ) | t.dwLowDateTime; };
                     LOG_INFO( "[Splash] on screen {:.0f} ms after the process started",
-                              static_cast<double>( ticks( now ) - ticks( created ) ) / 10000.0 );
+                              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
+                                                                         started.GetValue() )
+                                   .count() );
+                }
+                else
+                {
+                    LOG_WARN( "[Splash] on screen; the process start could not be read ({})", started.GetError() );
                 }
             }
             else
@@ -248,9 +306,11 @@ namespace Desert::Editor::Splash
 
             // THE PICTURE, after the window is already up with its live text on the dark background — and
             // on a thread of its own, because this one has to keep pumping: the fade in is a timer
-            // message, and a decode run here (1.2 s in Debug) would hold the window invisible.
-            std::thread decoder = Common::StartEngineThread( "Splash Decoder", Common::ThreadPriority::Normal,
-                 [this, window]() noexcept
+            // message, and a decode run here (1.2 s in Debug) would hold the window invisible. The next
+            // timer tick repaints with it.
+            std::thread decoder = Common::StartEngineThread(
+                 "Splash Decoder", Common::ThreadPriority::Normal,
+                 [this]() noexcept
                  {
                      auto pixels = LoadSplashPixels( m_Content.CookedImage );
                      if ( !pixels.IsSuccess() )
@@ -266,11 +326,8 @@ namespace Desert::Editor::Splash
                           "[Splash] {}x{} picture decoded from '{}' in {:.1f} ms (BC7 on the CPU, off the main "
                           "thread)",
                           image.Width, image.Height, m_Content.CookedImage.string(), image.DecodeMs );
-                     {
-                         std::lock_guard<std::mutex> lock( m_Mutex );
-                         m_Picture = std::move( image );
-                     }
-                     PostMessageW( window, kStatusMessage, 0, 0 ); // repaint; a no-op if the window is gone
+                     std::lock_guard<std::mutex> lock( m_Mutex );
+                     m_Picture = std::move( image );
                  } );
 
             MSG message;
@@ -293,8 +350,24 @@ namespace Desert::Editor::Splash
             return std::chrono::duration<float>( std::chrono::steady_clock::now() - then ).count();
         }
 
+        // Every kFrameMs: the fade, then one sample of the progress and a repaint with it.
         void Tick( HWND window )
         {
+            if ( m_CloseAsked && !m_Closing )
+            {
+                // A finished start fades once its bar shows 100 %; a stopped one (close clicked) at once.
+                const float held   = SecondsSince( m_CloseAskedAt );
+                const bool  landed = !m_View.Finished || m_View.Fraction >= 1.0;
+                if ( landed || held >= kFinishHoldSeconds )
+                {
+                    if ( !landed )
+                        LOG_WARN( "[Splash] the bar reached {:.1f} % in {:.1f} s after the start finished; the "
+                                  "splash fades without it",
+                                  m_View.Fraction * 100.0, held );
+                    m_Closing   = true;
+                    m_ClosingAt = std::chrono::steady_clock::now();
+                }
+            }
             const float opacity = m_Closing ? SplashOpacity( SecondsSince( m_ClosingAt ), true )
                                             : SplashOpacity( SecondsSince( m_ShownAt ), false );
             SetLayeredWindowAttributes( window, 0, static_cast<BYTE>( opacity * 255.0f + 0.5f ), LWA_ALPHA );
@@ -304,6 +377,17 @@ namespace Desert::Editor::Splash
                 DestroyWindow( window );
                 return;
             }
+
+            m_View = m_Progress->Sample( Desert::Core::StartupClock::now(), BarMinVisibleStep( m_Scale ) );
+            if ( m_Capturing )
+                AppendCsvRow();
+            InvalidateRect( window, nullptr, FALSE );
+        }
+
+        // One row per sample: what N1..N5 of the acceptance are read from.
+        void AppendCsvRow()
+        {
+            m_Csv << CaptureCsvRow( m_View ) << '\n';
         }
 
         RECT Scaled( const Rect& designFromBottom ) const
@@ -336,6 +420,95 @@ namespace Desert::Editor::Splash
             DrawTextW( dc, text.c_str(), static_cast<int>( text.size() ), &r, flags );
         }
 
+        // The picture scaled to the window, made once when it has arrived; the plain background until then.
+        void DrawBackground( HDC dc, HDC screen, const RECT& client, const int w, const int h )
+        {
+            if ( !m_Background )
+            {
+                std::lock_guard<std::mutex> lock( m_Mutex );
+                if ( m_Picture )
+                {
+                    m_Background   = CreateCompatibleBitmap( screen, w, h );
+                    HDC     bg     = CreateCompatibleDC( screen );
+                    HGDIOBJ oldBmp = SelectObject( bg, m_Background );
+
+                    BITMAPINFO info              = {};
+                    info.bmiHeader.biSize        = sizeof( BITMAPINFOHEADER );
+                    info.bmiHeader.biWidth       = static_cast<LONG>( m_Picture->Width );
+                    info.bmiHeader.biHeight      = -static_cast<LONG>( m_Picture->Height ); // top row first
+                    info.bmiHeader.biPlanes      = 1;
+                    info.bmiHeader.biBitCount    = 32;
+                    info.bmiHeader.biCompression = BI_RGB;
+                    SetStretchBltMode( bg, HALFTONE );
+                    SetBrushOrgEx( bg, 0, 0, nullptr );
+                    StretchDIBits( bg, 0, 0, w, h, 0, 0, static_cast<int>( m_Picture->Width ),
+                                   static_cast<int>( m_Picture->Height ), m_Picture->Rgba.data(), &info,
+                                   DIB_RGB_COLORS, SRCCOPY );
+                    SelectObject( bg, oldBmp );
+                    DeleteDC( bg );
+                    // The source is not needed again: the window's size does not change.
+                    m_Picture.reset();
+                }
+            }
+            if ( m_Background )
+            {
+                HDC     bg     = CreateCompatibleDC( screen );
+                HGDIOBJ oldBmp = SelectObject( bg, m_Background );
+                BitBlt( dc, 0, 0, w, h, bg, 0, 0, SRCCOPY );
+                SelectObject( bg, oldBmp );
+                DeleteDC( bg );
+                return;
+            }
+            HBRUSH background = CreateSolidBrush( kBackground );
+            FillRect( dc, &client, background );
+            DeleteObject( background );
+        }
+
+        void ReleaseBackground()
+        {
+            if ( m_Background )
+                DeleteObject( m_Background );
+            m_Background = nullptr;
+        }
+
+        // The detail log's backing: black at LogPanelAlpha with rounded corners, as one premultiplied
+        // per-pixel-alpha blend (GDI's only way to blend a shape that is not a rectangle).
+        void PaintLogPanel( HDC dc, const Layout& layout ) const
+        {
+            const RECT box = Scaled( layout.LogPanel );
+            const int  w   = box.right - box.left;
+            const int  h   = box.bottom - box.top;
+            if ( w <= 0 || h <= 0 )
+                return;
+            BITMAPINFO info              = {};
+            info.bmiHeader.biSize        = sizeof( BITMAPINFOHEADER );
+            info.bmiHeader.biWidth       = w;
+            info.bmiHeader.biHeight      = -h;
+            info.bmiHeader.biPlanes      = 1;
+            info.bmiHeader.biBitCount    = 32;
+            info.bmiHeader.biCompression = BI_RGB;
+            void*   bits                 = nullptr;
+            HBITMAP panel                = CreateDIBSection( dc, &info, DIB_RGB_COLORS, &bits, nullptr, 0 );
+            if ( !panel || !bits )
+                return;
+            auto*       pixels = static_cast<uint32_t*>( bits );
+            const auto  alpha  = static_cast<uint32_t>( layout.LogPanelAlpha * 255.0f + 0.5f );
+            const float radius = kLogPanelRadius * m_Scale;
+            for ( int y = 0; y < h; ++y )
+                for ( int x = 0; x < w; ++x )
+                    // Black premultiplied by its alpha is black: only the alpha byte is set.
+                    pixels[static_cast<std::size_t>( y ) * static_cast<std::size_t>( w ) +
+                           static_cast<std::size_t>( x )] =
+                         InsideRounded( x, y, w, h, radius ) ? ( alpha << 24 ) : 0u;
+            HDC           panelDc = CreateCompatibleDC( dc );
+            HGDIOBJ       oldBmp  = SelectObject( panelDc, panel );
+            BLENDFUNCTION blend{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+            GdiAlphaBlend( dc, box.left, box.top, w, h, panelDc, 0, 0, w, h, blend );
+            SelectObject( panelDc, oldBmp );
+            DeleteObject( panel );
+            DeleteDC( panelDc );
+        }
+
         void Paint( HWND window )
         {
             PAINTSTRUCT paint;
@@ -349,41 +522,10 @@ namespace Desert::Editor::Splash
             HBITMAP canvas = CreateCompatibleBitmap( screen, w, h );
             HGDIOBJ oldBmp = SelectObject( dc, canvas );
 
-            ProgressSnapshot status;
-            {
-                std::lock_guard<std::mutex> lock( m_Mutex );
-                status = m_Status;
-                // Once close is clicked the load is being abandoned; the last stage is not what happens.
-                if ( CloseRequested() )
-                {
-                    status.Stage = "Closing...";
-                    status.Item.clear();
-                }
-                if ( m_Picture )
-                {
-                    BITMAPINFO info              = {};
-                    info.bmiHeader.biSize        = sizeof( BITMAPINFOHEADER );
-                    info.bmiHeader.biWidth       = static_cast<LONG>( m_Picture->Width );
-                    info.bmiHeader.biHeight      = -static_cast<LONG>( m_Picture->Height ); // top row first
-                    info.bmiHeader.biPlanes      = 1;
-                    info.bmiHeader.biBitCount    = 32;
-                    info.bmiHeader.biCompression = BI_RGB;
-                    const int srcW               = static_cast<int>( m_Picture->Width );
-                    const int srcH               = static_cast<int>( m_Picture->Height );
-                    SetStretchBltMode( dc, HALFTONE );
-                    SetBrushOrgEx( dc, 0, 0, nullptr );
-                    StretchDIBits( dc, 0, 0, w, h, 0, 0, srcW, srcH, m_Picture->Rgba.data(), &info, DIB_RGB_COLORS,
-                                   SRCCOPY );
-                }
-                else
-                {
-                    HBRUSH background = CreateSolidBrush( kBackground );
-                    FillRect( dc, &client, background );
-                    DeleteObject( background );
-                }
-            }
+            DrawBackground( dc, screen, client, w, h );
 
-            const Layout layout = ComputeLayout( status.Fraction );
+            const Desert::Core::StartupView& view   = m_View;
+            const Layout             layout = ComputeLayout( view.Fraction );
 
             const auto makeFont = [this]( const float size, const int weight )
             {
@@ -394,17 +536,25 @@ namespace Desert::Editor::Splash
             HFONT   projectFont = makeFont( kProjectFontSize, FW_SEMIBOLD );
             HFONT   smallFont   = makeFont( kStageFontSize, FW_NORMAL );
             HFONT   itemFont    = makeFont( kItemFontSize, FW_NORMAL );
+            HFONT   logFont     = makeFont( kLogFontSize, FW_NORMAL );
             HGDIOBJ oldFont     = SelectObject( dc, smallFont );
             SetBkMode( dc, TRANSPARENT );
 
             Text( dc, projectFont, Widen( m_Content.ProjectName ), layout.Project, kWhite, DT_LEFT );
             Text( dc, smallFont, Widen( m_Content.Version ), layout.Version, kDim, DT_RIGHT );
-            Text( dc, smallFont, Widen( status.Stage ), layout.Stage, kDim, DT_LEFT );
-            Text( dc, itemFont, Widen( status.Item ), layout.Item, kFaint, DT_LEFT );
-            // Segoe UI's digits are tabular already, so the percentage does not shift as it counts. No
-            // stage yet means no plan yet: a "0%" there would be a number that says nothing.
-            if ( !status.Stage.empty() )
-                Text( dc, smallFont, Widen( FormatPercent( status.Fraction ) ), layout.Percent, kDim, DT_RIGHT );
+            Text( dc, smallFont, Widen( StageText( view ) ), layout.Stage, kDim, DT_LEFT );
+            // Segoe UI's digits are tabular already, so the percentage and the times do not shift as they
+            // count.
+            Text( dc, smallFont, Widen( PercentText( view ) ), layout.Percent, kDim, DT_RIGHT );
+            Text( dc, itemFont, Widen( ItemText( view ) ), layout.Item, kFaint, DT_LEFT );
+            Text( dc, itemFont, Widen( TimeText( view ) ), layout.Time, kFaint, DT_RIGHT );
+
+            if ( !view.Log.empty() )
+            {
+                PaintLogPanel( dc, layout );
+                for ( std::size_t row = 0; row < kLogLines; ++row )
+                    Text( dc, logFont, Widen( LogRowText( view, row ) ), layout.LogLines[row], kFaint, DT_LEFT );
+            }
 
             HBRUSH track     = CreateSolidBrush( kTrack );
             RECT   trackRect = Scaled( layout.BarTrack );
@@ -425,10 +575,51 @@ namespace Desert::Editor::Splash
             DeleteObject( projectFont );
             DeleteObject( smallFont );
             DeleteObject( itemFont );
+            DeleteObject( logFont );
             SelectObject( dc, oldBmp );
+            // GetDIBits wants the bitmap out of every device context, so the capture reads it here.
+            CaptureIfDue( dc, canvas, w, h );
             DeleteObject( canvas );
             DeleteDC( dc );
             EndPaint( window, &paint );
+        }
+
+        // --splash-capture: the painted canvas (window pixels, the design times m_Scale) as
+        // splash-<ms>.png once per kCapturePeriodMs, <ms> since the process started.
+        void CaptureIfDue( HDC dc, HBITMAP canvas, const int w, const int h )
+        {
+            if ( !m_Capturing || w <= 0 || h <= 0 )
+                return;
+            const auto atMs = static_cast<int64_t>( m_View.ElapsedSeconds * 1000.0 );
+            if ( m_LastCaptureMs >= 0 && atMs - m_LastCaptureMs < kCapturePeriodMs )
+                return;
+            m_LastCaptureMs = atMs;
+
+            BITMAPINFO info              = {};
+            info.bmiHeader.biSize        = sizeof( BITMAPINFOHEADER );
+            info.bmiHeader.biWidth       = w;
+            info.bmiHeader.biHeight      = -h; // top row first, as PNG wants
+            info.bmiHeader.biPlanes      = 1;
+            info.bmiHeader.biBitCount    = 32;
+            info.bmiHeader.biCompression = BI_RGB;
+            std::vector<unsigned char> pixels( static_cast<std::size_t>( w ) * static_cast<std::size_t>( h ) *
+                                               4u );
+            if ( GetDIBits( dc, canvas, 0, static_cast<UINT>( h ), pixels.data(), &info, DIB_RGB_COLORS ) != h )
+            {
+                LOG_WARN( "[Splash] capture at {} ms: the canvas could not be read (error {})", atMs,
+                          static_cast<unsigned long>( GetLastError() ) );
+                return;
+            }
+            for ( std::size_t i = 0; i + 3 < pixels.size(); i += 4 )
+            {
+                std::swap( pixels[i], pixels[i + 2] ); // BGRA -> RGBA
+                pixels[i + 3] = 255;                   // GDI leaves the alpha byte undefined
+            }
+            const std::filesystem::path file =
+                 m_Content.CaptureDir / ( "splash-" + std::to_string( atMs ) + ".png" );
+            if ( stbi_write_png( file.string().c_str(), w, h, 4, pixels.data(), w * 4 ) == 0 )
+                LOG_WARN( "[Splash] capture '{}' could not be written", file.string() );
+            m_Csv.flush();
         }
 
         RECT ToPixels( const Rect& rect ) const
@@ -464,10 +655,11 @@ namespace Desert::Editor::Splash
             const bool         down  = ( message == WM_LBUTTONDOWN ) ||
                               ( message == WM_MOUSEMOVE && ( GetKeyState( VK_LBUTTON ) & 0x8000 ) != 0 );
             const SplashButton clicked = m_Buttons.Update( under, down );
-            if ( clicked == SplashButton::Close && !CloseRequested() )
+            if ( clicked == SplashButton::Close && !m_Progress->StopRequested() )
             {
+                // The start's one stop flag: the long calls ask it between their items.
                 LOG_INFO( "[Splash] close clicked; the editor stops loading and exits" );
-                NoteCloseClicked();
+                m_Progress->RequestStop();
             }
             else if ( clicked == SplashButton::Minimize )
                 ShowWindow( window, SW_MINIMIZE );
@@ -528,8 +720,9 @@ namespace Desert::Editor::Splash
         bool          m_TrackingLeave  = false;
         bool          m_IconFontLoaded = false;
 
-        SplashContent m_Content;
-        float         m_Scale = 1.0f;
+        SplashContent                          m_Content;
+        std::shared_ptr<Desert::Core::StartupProgress> m_Progress; // sampled by the splash's thread only
+        float                                  m_Scale = 1.0f;
 
         std::thread             m_Thread;
         mutable std::mutex      m_Mutex;
@@ -537,16 +730,25 @@ namespace Desert::Editor::Splash
         HWND                    m_Window  = nullptr;
         bool                    m_Started = false;
         bool                    m_Closed  = false;
+        // Under m_Mutex: written by the decoder thread, taken by the splash thread.
+        std::optional<SplashPixels> m_Picture;
         // Splash thread only.
         std::chrono::steady_clock::time_point m_ShownAt;
+        std::chrono::steady_clock::time_point m_CloseAskedAt;
+        bool                                  m_CloseAsked = false; // WM_CLOSE came; the fade may still wait
         std::chrono::steady_clock::time_point m_ClosingAt;
         bool                                  m_Closing = false;
-        ProgressSnapshot                      m_Status;
-        std::optional<SplashPixels>           m_Picture;
+        Desert::Core::StartupView             m_View;
+        HBITMAP                               m_Background = nullptr;
+        // --splash-capture (opened on the main thread before the splash's thread starts, then its only).
+        std::ofstream m_Csv;
+        bool          m_Capturing     = false;
+        int64_t       m_LastCaptureMs = -1;
     };
 
-    std::unique_ptr<SplashScreen> SplashScreen::Show( const SplashContent& content )
+    std::unique_ptr<SplashScreen> SplashScreen::Show( const SplashContent&                           content,
+                                                      std::shared_ptr<Desert::Core::StartupProgress> progress )
     {
-        return std::make_unique<SplashScreenWindows>( content );
+        return std::make_unique<SplashScreenWindows>( content, std::move( progress ) );
     }
 } // namespace Desert::Editor::Splash

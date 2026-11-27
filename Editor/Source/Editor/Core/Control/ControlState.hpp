@@ -147,7 +147,7 @@ namespace Desert::Editor::Control
         bool        PreviewsBindPose = false; ///< Skeleton only — 07 §1.3; the scene render shows it
     };
 
-    /// THE GPU AND WHAT ITS NEURAL-NETWORK KERNELS RUN ON (NN-RUNTIME): Engine::DeviceCapabilities::Neural as
+    /// THE GPU AND WHAT ITS NEURAL-NETWORK KERNELS RUN ON (NN-RUNTIME): Engine::GpuCapabilities::Neural as
     /// plain values, so a scenario reads the kernel path and the fields it was chosen from beside the "[nn_caps]"
     /// log line, not from a log tail that may have scrolled past it.
     struct DeviceSnapshot
@@ -165,7 +165,7 @@ namespace Desert::Editor::Control
         bool NnSubgroupSizeControl         = false;
         bool NnCooperativeMatrix           = false;
         bool NnCooperativeMatrixCompute    = false;
-        bool NnVulkanMemoryModel           = false;
+        bool NnMemoryModel                 = false;
         bool NnComputeRequiredSubgroupSize = false;
 
         uint32_t NnSubgroupSize               = 0;
@@ -191,7 +191,7 @@ namespace Desert::Editor::Control
 
         // RAY TRACING (NO-RT): what the device offers and what the main viewport resolved to, so a scenario on a
         // card without RT (or with it hidden by machine.json) reads the fallback from one source.
-        /// bufferDeviceAddress row (DeviceCapabilities::SupportsBufferDeviceAddress): independent of `Rt`; the GI
+        /// bufferDeviceAddress row (GpuCapabilities::SupportsBufferDeviceAddress): independent of `Rt`; the GI
         /// emissive light list needs only this.
         bool                     BufferDeviceAddress = false;
         std::string              Rt;      ///< "on" | "off" (the device has none) | "hidden" (machine.json HideRayTracing)
@@ -405,11 +405,15 @@ namespace Desert::Editor::Control
         // The scene-owned GI pools (UE: FScene's FDistanceFieldSceneData and FLumenSceneData), over every live
         // Core::Scene: Scenes, the live scenes; DistanceFieldPools, those whose mesh distance-field brick atlas is
         // resident (DistanceFieldSceneData::GetBrickAtlas); SurfaceCaches, those whose surface cache atlases are
-        // (Scene::GetSurfaceCache, IsConfigured). One world seen by several viewports or played in PIE is one
-        // scene: one of each, however many views read it.
+        // (Graphic::SceneRenderState::GetSurfaceCache, IsConfigured). One world seen by several viewports or played
+        // in PIE is one scene: one of each, however many views read it.
         uint32_t Scenes             = 0;
         uint32_t DistanceFieldPools = 0;
         uint32_t SurfaceCaches      = 0;
+        // The bytes of every live scene's brick atlas as grown (DistanceFieldStreamingStats::CapacityBricks x the
+        // R8 brick's voxels): the scene's need under its Scalability ceiling, never a per-view size - a second
+        // viewport of one world adds nothing.
+        uint64_t DistanceFieldAtlasBytes = 0;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -656,6 +660,7 @@ namespace Desert::Editor::Control
             views["scenes"]                = Num( snapshot.Scenes );
             views["distanceFieldPools"]    = Num( snapshot.DistanceFieldPools );
             views["surfaceCaches"]         = Num( snapshot.SurfaceCaches );
+            views["distanceFieldAtlasBytes"] = Num( static_cast<double>( snapshot.DistanceFieldAtlasBytes ) );
             root["views"]         = Common::Json::Value( views );
         }
 
@@ -754,7 +759,7 @@ namespace Desert::Editor::Control
             nn["subgroupSizeControl"]         = Common::Json::Value( device.NnSubgroupSizeControl );
             nn["cooperativeMatrix"]           = Common::Json::Value( device.NnCooperativeMatrix );
             nn["cooperativeMatrixCompute"]    = Common::Json::Value( device.NnCooperativeMatrixCompute );
-            nn["vulkanMemoryModel"]           = Common::Json::Value( device.NnVulkanMemoryModel );
+            nn["vulkanMemoryModel"]           = Common::Json::Value( device.NnMemoryModel );
             nn["computeRequiredSubgroupSize"] = Common::Json::Value( device.NnComputeRequiredSubgroupSize );
             nn["subgroupSize"]                = Num( device.NnSubgroupSize );
             nn["minSubgroupSize"]             = Num( device.NnMinSubgroupSize );

@@ -36,10 +36,7 @@ Shader "SkyDistantLight"
         layout(binding = 0, rgba32f) restrict writeonly uniform image2D DistantSkyLightTexture;
 
         // The SAME sky parameter buffer every other sky consumer reads (Graphic::kSkyPayloadBinding).
-        ReadBuffer(1) SkyBuffer
-        {
-            vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT];
-        };
+        #include <Generated/Sky/SkyBuffer.glslh>
 
         // The cached pair, valid whenever this pass runs — SkyboxRenderer dispatches them first.
         // Bindings = Graphic::kSkyTransmittanceLutBinding / kSkyMultiScatterLutBinding.
@@ -81,9 +78,7 @@ Shader "SkyDistantLight"
         {
             uint index = gl_LocalInvocationIndex;
 
-            SkyPacked s;
-            for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
-                s.v[i] = SkyPackedData[i];
+            SkyPacked s = SkyPackedData;
 
             SkyAtmParams atm = SkyMakeAtmParams(UnpackMediumRayleigh(s), UnpackMediumMie(s),
                                                 UnpackMediumMieAbsorption(s), UnpackMediumOzone(s),

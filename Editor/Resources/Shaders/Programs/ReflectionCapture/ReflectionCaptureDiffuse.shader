@@ -33,12 +33,7 @@ Shader "ReflectionCaptureDiffuse"
         Uniform sampler LinearClampSampler;
         Uniform(5) textureCube EnvironmentIrradianceTexture; // the sky's irradiance cube, as the view's pixels read it
         #define EnvironmentIrradianceTexture samplerCube(EnvironmentIrradianceTexture, LinearClampSampler)
-        struct DiffusePoint
-        {
-            vec4  Point;      // xyz = the capture point (world cm)
-            uvec4 CubeForced; // x = cube index in the array (the staging cube for a recapture), y = 1 measure
-                              // unconditionally (the cube being written)
-        };
+        #include <Generated/ReflectionCaptures/ReflectionCaptures.glslh> // ReflectionCaptures/ReflectionCaptureLayout.hpp
         ReadBuffer(6) ReflectionCaptureDiffusePointsUB
         {
             DiffusePoint DiffusePoints[];

@@ -54,7 +54,7 @@ namespace Desert::Graphic::System
             if ( tex == nullptr )
                 return {};
             return { .Image = dynamic_cast<const Image2D*>(
-                          Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) ),
+                          Runtime::GetImageService()->Resolve( tex->GetImageHandle() ) ),
                      .FullWidth  = tex->GetFullWidth(),
                      .FullHeight = tex->GetFullHeight() };
         }

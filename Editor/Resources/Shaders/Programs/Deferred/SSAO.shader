@@ -53,15 +53,8 @@ Shader "SSAO"
         };
         #endif
 
-        Uniform(0) SSAOUB
-        {
-        	mat4 InvJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
-        	mat4 WorldToView;               // the camera's View matrix (right-handed, -z forward)
-        	vec4 Target;                    // xy = AO target size in pixels, zw = 1 / size
-        	vec4 Horizon;                   // x = world radius (cm), y = thickness blend (UE-remapped), z = taps per
-        	                                //     direction, w = pixels per world unit at view depth 1
-        	vec4 Temporal;                  // xy = cos/sin of this frame's slice rotation, z = step offset, w = angles
-        };
+        #include <Generated/Post/SSAOUBData.glslh>
+        Uniform(0) SSAOUB { DESERT_SSAOUBData_MEMBERS };
 
         const float kPiHalf             = 1.5707963;
         const float kPi                 = 3.1415927;

@@ -13,7 +13,7 @@
 # and the link proves the closure, because no render library is on this line to resolve a symbol from. Nothing here
 # names an Apple framework: the Linux build adds a platform, not a target.
 
-desert_glob(_sources "Source/*.cpp" "Source/*.hpp")
+desert_sources(_sources "Source" MATCHING "\\.(cpp|hpp)$")
 desert_add_executable(DesertServer FOLDER Server SOURCES ${_sources})
 target_compile_definitions(DesertServer PRIVATE DESERT_SERVER=1)
 target_precompile_headers(DesertServer PRIVATE "${DESERT_ROOT}/Desert/Desert/Source/pch.hpp")
@@ -51,5 +51,5 @@ endforeach()
 # DesertNet: the transport, handshake and the mesh-of-one roles (gateway, sim, store; NET-ARCH §2M.2). Device-free.
 # PhysicsCore (Jolt, render-free): the pawns' collision world (Net/PhysicsPawnMoveWorld.hpp).
 target_link_libraries(DesertServer PRIVATE DesertNet ${DESERT_MODULE_PhysicsCore_LIBRARIES} ${_server_libs}
-    LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
+    Luau ${DESERT_OPTICK} ${DESERT_COMMONSPECIFIC_LIBRARIES})
 desert_link_mimalloc(DesertServer)

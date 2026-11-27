@@ -21,7 +21,10 @@ namespace Desert::ECS
     {
         REFLECT()
 
+        // An ocean's only (UE IsWaveSupported: a river has no waves of its own; at its mouth it carries the waves of
+        // the ocean it enters, Water::RiverMouth).
         PROPERTY( DisplayName( "Water Waves" ), Category( "Wave" ), Summary, Asset<WaterWavesAsset>,
+                  EditCondition( "Type == Ocean" ),
                   Tooltip( "The wave set of this body (UE WaterWaves) — drag a .dwaves from the Content "
                            "Browser. An empty slot is a flat ocean; a set that cannot be read is refused at "
                            "Play by name." ) )
@@ -31,11 +34,6 @@ namespace Desert::ECS
                   Tooltip( "The footprint of the ocean around the entity, X by Z (UE OceanExtents). A point "
                            "outside it is not in this body." ) )
         glm::vec2 OceanExtents{ 51200.0f, 51200.0f };
-
-        PROPERTY( DisplayName( "Target Wave Mask Depth" ), Category( "Wave" ), Length, Range( 1.0f, 100000.0f ),
-                  Tooltip( "Water depth at which the waves reach their full height; shallower water damps "
-                           "them (UE TargetWaveMaskDepth)." ) )
-        float TargetWaveMaskDepth = 2048.0f;
 
         PROPERTY( DisplayName( "Water Material" ), Category( "Rendering" ), Summary, Asset<MaterialAsset>,
                   Role( WaterMaterial ),
@@ -76,18 +74,21 @@ namespace Desert::ECS
                            "cross-fades to the other phase. Shorter stretches less, longer pulses less." ) )
         float RiverFlowPeriod = 1.0f;
 
-        // The effects at the foot of each of the river's falls, played by the code as transient entities
-        // (Water/WaterFallEffects): as wide as the fall (User.Extent), as dense as the water lands
-        // fast. Empty = none.
-        PROPERTY( DisplayName( "Fall Foam" ), Category( "River" ), Asset<VFXSystemAsset>,
-                  EditCondition( "Type == River" ), Tooltip( "The .dfx on the water where a fall lands" ) )
-        Assets::AssetHandle FallFoam;
+        // The effects of each of the river's falls, played by the code as transient entities
+        // (Water/WaterFallEffects) where the fall lands (Water::FallPlunge): as wide as the fall and its boil
+        // (User.Extent), as dense and loud as the water lands fast. Empty = none. The boil's foam is the water's
+        // own foam field (WaterFoamUpdate), not an effect.
         PROPERTY( DisplayName( "Fall Spray" ), Category( "River" ), Asset<VFXSystemAsset>,
                   EditCondition( "Type == River" ), Tooltip( "The .dfx of the drops a fall throws up" ) )
         Assets::AssetHandle FallSpray;
         PROPERTY( DisplayName( "Fall Mist" ), Category( "River" ), Asset<VFXSystemAsset>,
                   EditCondition( "Type == River" ), Tooltip( "The .dfx of the mist off a fall" ) )
         Assets::AssetHandle FallMist;
+        PROPERTY( DisplayName( "Fall Sound" ), Category( "River" ), Asset<SoundAsset>,
+                  EditCondition( "Type == River" ),
+                  Tooltip( "The looping sound of each of the river's falls, played at the point of the sheet nearest "
+                           "the listener, as loud as the water lands fast. Empty = silent." ) )
+        Assets::AssetHandle FallSound;
 
         // WATER-BUOYANCY: the fluid this body is, read by every BuoyancyComponent's pontoons in it (the one
         // source of the water's density - a body floats by the water it is in, not by a value of its own).
@@ -113,7 +114,7 @@ namespace Desert::ECS
 
     struct WaterBodyComponent
     {
-        COMPONENT( Key( "WaterBody" ), Block( Data ), Run( SkyAndAtmosphere ) )
+        COMPONENT( Key( "WaterBody" ), Block( Data ), Run( SkyAndAtmosphere ), Version( 3 ) )
         WaterBodyData Data;
     };
 } // namespace Desert::ECS

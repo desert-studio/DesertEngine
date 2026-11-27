@@ -13,7 +13,7 @@
 #include <gtest/gtest.h>
 #include <Engine/ECS/EntityLock.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <vector>
 #include <Engine/ECS/LockComponent.hpp>

@@ -32,14 +32,10 @@ Shader "RadianceCacheTrace"
         {
             GIFrame giFrame;
         };
-        ReadBuffer(7) PointLightsUB
-        {
-            PointLight pointLights[];
-        };
-        ReadBuffer(8) SpotLightsUB
-        {
-            SpotLight spotLights[];
-        };
+        #define POINT_LIGHTS_UB_BINDING 7
+        #include <Mesh/PointLightsUB.glslh>
+        #define SPOT_LIGHTS_UB_BINDING 8
+        #include <Mesh/SpotLightsUB.glslh>
         ReadBuffer(9) LightGridParamsUB
         {
             LightGridParams lightGrid;
@@ -62,7 +58,7 @@ Shader "RadianceCacheTrace"
         #define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
         Uniform(19) texture2D GBufferEmissiveTexture;
         #define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
-        // The shading word (uint): a hit's EMISSION_IS_LIGHT (Common/GIHitLighting.glslh GIHitMaterial). 23: the
+        // The shading word (uint): a hit's far side and emission mark (GIHitMaterial). 23: the
         // one slot below the surface cache (24..30) and the shared scene-read range (25 up) left by 16..22.
         layout(binding = 23) uniform utexture2D GBufferShadingWordTexture;
         #define GBufferShadingWordTexture usampler2D(GBufferShadingWordTexture, PointClampSampler)

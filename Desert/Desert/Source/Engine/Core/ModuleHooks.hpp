@@ -4,10 +4,14 @@
 // plugin's subsystems, component classes and asset types; the engine then calls through these, never naming the
 // module). The registration point is Engine/Core/Modules.cpp; the lists are read by the engine code named per hook.
 
+#include <Common/Core/ResultStr.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Common/Core/Math/Ray.hpp>
+#include <Engine/Core/SceneRenderState.hpp>
+#include <Engine/Core/WorldSystems.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/vec3.hpp>
 
 #include <cstdint>
@@ -26,10 +30,20 @@ namespace Desert::Assets
     class AssetRootSet;
 } // namespace Desert::Assets
 
+namespace Desert::Assets::Serialization
+{
+    struct FoliageTypeData;
+} // namespace Desert::Assets::Serialization
+
 namespace Desert::Core::Rules
 {
     class HLODBuilderRegistry;
 } // namespace Desert::Core::Rules
+
+namespace Desert::Debug
+{
+    class IGameplayDebuggerCategory;
+} // namespace Desert::Debug
 
 namespace Desert::Core
 {
@@ -79,7 +93,8 @@ namespace Desert::Core
         virtual void Reset()                                                        = 0;
         virtual void Clear()                                                        = 0;
     };
-    using SceneModuleStateMaker = std::unique_ptr<ISceneModuleState> ( * )();
+    /// Makes a scene's state over the scene's registry, which outlives it.
+    using SceneModuleStateMaker = std::unique_ptr<ISceneModuleState> ( * )( entt::registry& registry );
 
     /// The assets a module's asset names (Assets/AssetEviction.cpp's reachability walk): Visit calls @p visitGuid
     /// with each asset-GUID text the asset under @p handle stores, when that asset is the module's type.
@@ -97,10 +112,6 @@ namespace Desert::Core
         std::string_view AssetKind;
         const std::string* ( *Label )( std::uint64_t handle ) = nullptr;
     };
-
-    /// A module's render-data collectors (ECS systems emitting render commands), added to every scene after the
-    /// engine's own (Core/SceneRenderCollectors.cpp).
-    using RenderCollectorAdder = void ( * )( Scene& scene );
 
     /// A surface a scene raycast meets beside the entities' meshes (Scene::Raycast / RaycastComplex; UE: a
     /// landscape's collision answering the scene query): the hit names the entity the surface belongs to.
@@ -134,13 +145,33 @@ namespace Desert::Core
     using SceneSaveWriter =
          std::function<std::optional<std::string>( Scene& scene, const std::filesystem::path& scenePath )>;
 
+    /// A module's gameplay-debugger category (UE: IGameplayDebugger::RegisterCategory from a module's
+    /// StartupModule): every GameplayDebugger makes one, at its digit Key among the engine's own (1 Basic,
+    /// 2 Physics, 4 Rendering, 5 WorldPartition). Read only where DESERT_DEV_INSTRUMENTS builds the debugger.
+    struct GameplayDebuggerCategoryMaker
+    {
+        std::uint8_t Key = 0;
+        std::unique_ptr<Debug::IGameplayDebuggerCategory> ( *Make )() = nullptr;
+    };
+    /// The script language's reader of a script file's SaveGame property names (Core::ScriptFileSaveGameLookup;
+    /// UE: the script class's SaveGame-flagged properties).
+    using ScriptSaveGameReader = Common::ResultStr<std::vector<std::string>> ( * )( const std::string& scriptPath );
+
+    /// Once per scene update, before the systems tick: a module brings what it owns in the world up to date
+    /// for them to read (Scene::OnUpdate; UE: a plugin's world tick in TG_PrePhysics) - the foliage module
+    /// realizes its prefab foliage.
+    using ScenePreSystems = void ( * )( Scene& scene );
+    /// A foliage type's data by its asset handle, null while it is being read or when it failed (the module's
+    /// service says why once); read by the engine's foliage collision and instanced-mesh fade.
+    using FoliageTypeLookup = const Assets::Serialization::FoliageTypeData* ( * )( const Common::AssetHandle& handle );
+
     struct ModuleHookLists
     {
         std::vector<ModuleService>   Services;
         std::vector<AssetRootWalker> AssetRoots;
         std::vector<RegistryPrepare> Prepares;
         std::vector<AssetAnnouncer>       AssetTypes;
-        std::vector<RenderCollectorAdder> RenderCollectors;
+        std::vector<WorldSystemRegistration> WorldSystems; // Core/WorldSystems.hpp
         std::vector<SceneModuleStateMaker> SceneStates;
         std::vector<HotReloadPoller>       HotReloads;
         std::vector<AssetReferenceVisitor> AssetReferences;
@@ -152,13 +183,20 @@ namespace Desert::Core
         /// A module's shared tables brought up to date serially before each parallel system group, so the
         /// group's readers only read them (Scene's update; the landscape's tile table).
         std::vector<RegistryPrepare> BeforeParallelGroup;
+        std::vector<GameplayDebuggerCategoryMaker> DebuggerCategories;
+        /// One per process: set by the script language module's StartupModule; SaveGame refuses a script
+        /// lookup while it is unset.
+        ScriptSaveGameReader ScriptSaveGameNames = nullptr;
+        std::vector<ScenePreSystems> PreSystems;
+        /// The renderer's state of each scene (Core/SceneRenderState.hpp), made by the Renderer module's
+        /// StartupModule; one renderer per process, so one maker. A process without it (the dedicated server)
+        /// makes scenes without renderer state.
+        SceneRenderStateMaker SceneRenderState = nullptr;
+        /// See FoliageTypeLookup: set by the foliage module's StartupModule, the one owner of foliage types.
+        FoliageTypeLookup FoliageTypes = nullptr;
     };
 
-    inline ModuleHookLists& ModuleHooks()
-    {
-        static ModuleHookLists hooks;
-        return hooks;
-    }
+    ModuleHookLists& ModuleHooks();
 
     /// Starts the feature modules the executable links (idempotent; Engine/Core/Modules.cpp). Scene calls it,
     /// which links that file in.

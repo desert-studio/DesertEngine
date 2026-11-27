@@ -1,12 +1,76 @@
-# WATER-LOOK-OCEAN: the water surface's ripples (WaterSurface.shader WaterRipples): octaves of several sizes, the slopes a
-# pixel cannot draw become roughness, the ocean swell stays visible under them.
+# WATER-LOOK-OCEAN: the sea at a sand beach by day. The shore (scripts/Content/water_shore_landscape.py): still water meets
+# the sand at z = -300, 3 % beach, trough at 70 m, bars at 100 m and 180 m out, floor -40 m; the sun 25 degrees up,
+# seaward right; the wind blows ashore. References: F:/aftmp/water_ref. Three consecutive frames (a, b, c) show the motion.
+# Numbers on the frames: autocorrelation of 2_far_sea's far water < 0.15 at 250 m and < 0.25 at 1000 m; foam's mean
+# linear lightness 0.5..0.9 of diffuse white with < 2 % of its pixels under 0.1; holes 15..45 % of full cover; soft edge
+# >= 10 cm on the sand; wet to dry albedo 0.4..0.7. Log: 0 VUID, no "[Water]" refusals.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Ocean.desce
-Дано --subject viewport set Camera.Position 0,180,-1200
+Дано run View "View mode: Lit"
+Дано run View "Realtime: On"
+# 4 m up: the near frames look down on the surf; at 1.8 m the bores ran over the camera (b_wf8 1_near_b/c teal).
+Дано --subject viewport set Camera.Position 0,400,-2500
 Дано --subject viewport set Camera.Direction 0,-0.2,1
-Тогда-вид 1_near мелкая мягкая рябь нескольких размеров, без щетины, видны и зыбь, и мелкие волны
-Дано --subject viewport set Camera.Position 0,600,-6000
+Когда frames 64
+Тогда-вид 1_near_a нет отвесной стены и вытянутых полос; пена - белое кружево, между ячейками видно дно
+Когда frames 1
+Тогда-вид 1_near_b нет отвесной стены и вытянутых полос; пена - белое кружево, между ячейками видно дно
+Когда frames 1
+Тогда-вид 1_near_c нет отвесной стены и вытянутых полос; пена - белое кружево, между ячейками видно дно
+Когда frames 1
+Дано --subject viewport set Camera.Direction 0.7,-0.15,-0.7
+Тогда-вид 1_near_sun_a против солнца гребень светится сине-зелёным, дно темнеет с глубиной
+Когда frames 1
+Тогда-вид 1_near_sun_b против солнца гребень светится сине-зелёным, дно темнеет с глубиной
+Когда frames 1
+Тогда-вид 1_near_sun_c против солнца гребень светится сине-зелёным, дно темнеет с глубиной
+Когда frames 1
+Дано --subject viewport set Camera.Position 0,600,-35000
 Дано --subject viewport set Camera.Direction 0,-0.08,1
-Тогда-вид 2_far ровный широкий блик, без шума и повторяющегося узора; на отмели буруны с ярким фронтом и кружевным следом, без сплошного листа на бугре и без резкого края
-Дано --subject viewport set Camera.Position 0,1500,-1500
+Тогда-вид 2_far_a волны идут к берегу, растут и рушатся на линиях баров (100 и 180 м от уреза); блик ровный, белого шума нет
+Когда frames 1
+Тогда-вид 2_far_b волны идут к берегу, растут и рушатся на линиях баров (100 и 180 м от уреза); блик ровный, белого шума нет
+Когда frames 1
+Тогда-вид 2_far_c волны идут к берегу, растут и рушатся на линиях баров (100 и 180 м от уреза); блик ровный, белого шума нет
+Когда frames 1
+Дано --subject viewport set Camera.Direction 0,-0.04,-1
+Тогда-вид 2_far_sea открытое море до горизонта: повторяющегося узора и белого шума нет (кадр для автокорреляции)
+Дано --subject viewport set Camera.Position 0,1500,-900
 Дано --subject viewport set Camera.Direction 0,-0.98,0.2
-Тогда-вид 3_above без видимой плитки, цвет воды по глубине; пена сходит на нет мягко, между бурунами видно дно
+Тогда-вид 3_above_a полоса мокрого песка шире и темнее сухого, край пены мягкий; дно видно между бурунами; камень в воде без ореола
+Когда frames 1
+Тогда-вид 3_above_b полоса мокрого песка шире и темнее сухого, край пены мягкий; дно видно между бурунами; камень в воде без ореола
+Когда frames 1
+Тогда-вид 3_above_c полоса мокрого песка шире и темнее сухого, край пены мягкий; дно видно между бурунами; камень в воде без ореола
+Когда frames 1
+# The swash frames advance simulated time, so the sea runs under Simulate; 3.5 m up, above the run-up (b_wf8 4_swash_a was
+# shot from under the water at 1.7 m).
+Когда run Action "Simulate"
+Дано --subject viewport set Camera.Position 0,350,-900
+Дано --subject viewport set Camera.Direction 0,-0.5,0.85
+Тогда-вид 4_swash_a урез виден, песок за ним мокрый и темнее сухого
+Когда advance 2
+Тогда-вид 4_swash_b урез сдвинулся, мокрый след остался
+Когда advance 2
+Тогда-вид 4_swash_c урез снова сдвинулся, след сохнет
+Когда run Action "Stop"
+Дано --subject viewport set Camera.Position 0,400,-200
+Дано --subject viewport set Camera.Direction 0,-0.1,1
+Тогда-вид 5_behind за пляжем ландшафт: сухой песок, галька, дюны с травой, холмы; примитивов нет, воды за берегом нет
+Дано --subject viewport set Camera.Position 6500,400,-2200
+Дано --subject viewport set Camera.Direction 0.75,-0.2,0.65
+Тогда-вид 5_rocks выход скалы пересекает прибой: валуны, пена у камней, ореола нет; на урезе плавник
+Дано --subject viewport set Camera.Position 600,60,-4200
+Дано --subject viewport set Camera.Direction 0,-0.6,0.8
+Тогда-вид caustics на светлом дне мелководья сетка каустики от солнца бежит с волнами; в логе нет сообщений валидации
+Когда run Landscape "Sculpt mode"
+Дано --subject viewport set Camera.Position -1500,900,-2000
+Дано --subject viewport set Camera.Direction 0,-0.6,0.8
+# The clock stands between the two frames: what differs is the edit, not the sea.
+Когда run View "Realtime: Off"
+Когда frames 16
+Тогда-вид edit_before пена и мокрый песок до правки рельефа
+Когда run Landscape "Stroke at the viewport centre"
+Когда frames 8
+Тогда-вид edit рельеф под кистью изменился, вода и пена под ней - по новому дну; пена вне правленого прямоугольника не изменилась против edit_before (часы стоят)
+Когда run Action "Undo"
+Когда run View "Realtime: On"

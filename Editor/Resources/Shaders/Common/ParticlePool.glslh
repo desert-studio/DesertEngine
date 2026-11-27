@@ -13,17 +13,8 @@
 #define PARTICLE_GROUP_SIZE 64u
 
 // Alive lists: each emitter has two halves, [2 Base + h Count, 2 Base + (h + 1) Count); compact c writes half c & 1
-// and slot c & 1 (FirstVertex = 6 x the half's start), compact c+1 reads half c & 1 back.
-struct ParticleDrawSlot
-{
-    uint VertexCount;
-    uint InstanceCount;
-    uint FirstVertex;
-    uint FirstInstance;
-    uint FreeCount;
-    uint Touched; // the particles compact c+1 scans: compact c's alive + step c's spawned
-    uint Pad1;
-    uint Pad2;
-};
+// and slot c & 1 (FirstVertex = 6 x the half's start), compact c+1 reads half c & 1 back. The slot is
+// struct ParticleDrawSlot.
+#include <Generated/VFX/Particles.glslh> // VFX/Public/ParticleLayout.hpp
 
 #endif // PARTICLE_POOL_GLSLH

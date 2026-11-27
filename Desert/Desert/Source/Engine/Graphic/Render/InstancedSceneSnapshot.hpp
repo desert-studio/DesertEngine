@@ -29,7 +29,9 @@ namespace Desert::Graphic::Render
         MaterialInstancePtr                           Material;            // the section group's slot instance
         MaterialInstancePtr                           DisplacedMaterial;   // its displaced sibling, or null
         uint64_t                                      HiddenSubmeshes = 0; // the sections of the other slots
-        std::shared_ptr<const std::vector<glm::mat4>> Transforms;          // the component's instance snapshot
+        std::shared_ptr<const std::vector<glm::mat4>> Transforms;          // the instances drawn
+        // The component's index of each transform when the density thinned the field; null = all, in order.
+        std::shared_ptr<const std::vector<uint32_t>> InstanceIds;
         bool                                          CastShadows       = true;
         bool                                          CastContactShadow = true; // UE bCastContactShadow
     };

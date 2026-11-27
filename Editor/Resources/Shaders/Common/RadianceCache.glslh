@@ -2,7 +2,7 @@
 #define RADIANCE_CACHE_GLSLH
 
 // THE WORLD RADIANCE CACHE, GPU side (UE LumenRadianceCacheInterpolation.ush). The C++ side and the design notes are
-// Graphic/GlobalIllumination/RadianceCache.hpp; the record here must match it byte for byte. Binding-free: the
+// Graphic/GlobalIllumination/RadianceCache.hpp; its records are generated (GILayout.hpp). Binding-free: the
 // includer passes the parameters (`RadianceCacheParams`) and declares the indirection and atlas images.
 //
 // Positions are WORLD space, cm. UE works in translated world space (camera-relative, for Large World
@@ -11,15 +11,7 @@
 #define RADIANCE_CACHE_MAX_CLIPMAPS 6u
 #define RADIANCE_CACHE_INVALID_PROBE 0xFFFFFFFFu
 
-// std430 — must match RadianceCache::RadianceCacheParamsPayload (176 bytes).
-struct RadianceCacheParams {
-    vec4  clipmapCornerAndCellSize[RADIANCE_CACHE_MAX_CLIPMAPS]; // xyz = min corner (world, cm), w = cell size (cm)
-    vec4  clipmapProbeTMin[2];                                    // per clipmap: [0].xyzw = 0..3, [1].xy = 4..5
-    uvec4 shape;    // x = clipmaps, y = grid resolution, z = traced probe resolution, w = final probe resolution
-    uvec4 atlas;    // x = probe atlas resolution in probes, y = irradiance probe resolution, z = probes per frame,
-                    // w = distance-moment probe resolution
-    vec4  sampling; // x = reprojection radius scale, y = 1 / clipmap fade size (cells), z = 1 / final atlas texels
-};
+#include <Generated/GI/RadianceCache.glslh> // GlobalIllumination/GILayout.hpp
 
 // Which cache covers a ray origin (UE FRadianceCacheCoverage).
 struct RadianceCacheCoverage {
@@ -112,14 +104,6 @@ RadianceCacheCoverage RadianceCacheCoverageAt( RadianceCacheParams cache, vec3 r
 }
 
 // ---- The update's addressing (GI-RADIANCE-CACHE) ------------------------------------------------------------------
-// std430 — must match RadianceCache::RadianceCacheProbePayload (64 bytes).
-struct RadianceCacheProbe {
-    ivec4 cell;     // xyz = world cell (cells of its clipmap from the world origin), w = clipmap
-    uvec4 frames;   // x = last used, y = last traced (0 = never), z = traced light hash, w = light hash
-    vec4  offset;   // xyz = relocation out of geometry (cm)
-    uvec4 priority; // x = priority bucket this frame, y = 1 when a coverage reader stamped it this frame (0: the fallback only)
-};
-
 // An indirection entry: a probe index, RADIANCE_CACHE_INVALID_PROBE, or a probe index with this bit set while the
 // probe holds no traced radiance yet (allocated this frame, traced by a later one) — readers skip it.
 #define RADIANCE_CACHE_PROBE_UNTRACED 0x80000000u

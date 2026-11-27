@@ -146,11 +146,9 @@ namespace Common
             return Slot != k_Unbound;
         }
         /// The calling thread's binding (one per thread; Engine::FrameManager::ScopedRecordingFrame writes it).
-        [[nodiscard]] static RecordingFrame& OfThisThread() noexcept
-        {
-            static thread_local RecordingFrame t_Binding;
-            return t_Binding;
-        }
+        /// Defined in JobSystem.cpp: a thread_local in a header function would be one per module DLL, so a
+        /// binding written by RenderCore would be invisible to a job reading it in another module (BINT-STATE).
+        [[nodiscard]] static RecordingFrame& OfThisThread() noexcept;
     };
 
     // WHO A JOB SERVES, AND SO WHICH ONE A FREE WORKER TAKES FIRST (UE ENamedThreads / LowLevelTasks

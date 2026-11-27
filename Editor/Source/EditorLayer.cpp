@@ -11,7 +11,6 @@
 #include <Editor/Core/SaveShortcut.hpp>
 #include <Editor/Core/ContentCreateCommands.hpp>
 #include <Editor/Core/DetailsNavigation.hpp>
-#include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 #include <Engine/Assets/BootContent.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
@@ -135,7 +134,6 @@
 // 4. Misc
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <Engine/Core/SceneRenderCollectors.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp> // view 0's scene colour, copied for --shot-hdr
 #include <Engine/ECS/System/MeshECSSystem.hpp>
 #include <Engine/ECS/System/TextECSSystem.hpp>
@@ -168,7 +166,7 @@
 #include <Engine/Animation/AnimationLibrary.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
-#include <Engine/Runtime/Services/Video/VideoService.hpp>
+#include <Engine/Runtime/Services/IVideoService.hpp>
 #include <Landscape/Public/LandscapeGenerator.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
@@ -220,10 +218,11 @@ namespace Desert::Editor
     // this constructor (Г26 added the autosave-migration call below). Named as debt, not fixed here.
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     EditorLayer::EditorLayer( Engine::Application* application, const std::string& layerName,
-                              std::unique_ptr<Splash::SplashScreen> splash )
+                              std::unique_ptr<Splash::SplashScreen>            splash,
+                              std::shared_ptr<::Desert::Core::StartupProgress> startup )
          : Common::Layer( layerName ), m_Application( application ),
            m_Startup( application, m_AssetManager, m_ImportManager, m_AnimationLibrary, m_Workspace, m_SceneFiles,
-                      m_AssetCompiling, m_RealFrameDrawn, std::move( splash ) )
+                      m_AssetCompiling, m_RealFrameDrawn, std::move( splash ), std::move( startup ) )
 
     {
         m_AssetManager = std::make_shared<Assets::AssetManager>();
@@ -461,6 +460,10 @@ namespace Desert::Editor
     {
         DESERT_PROFILE_SCOPE( "Layer::OnUpdate" );
 
+        // LIVE CODING AT THE FRAME BOUNDARY, before anything of this frame runs: a patch prepared on a worker
+        // redirects its functions here, with every other thread suspended, so no frame sees old and new code mixed.
+        m_LiveCoding.ApplyPending();
+
         // THE CONTROL CHANNEL GOES FIRST, ahead of the startup-loading return below and not after it.
         //
         // A client connects while the editor is still cooking assets — that is the normal case, since it
@@ -484,7 +487,7 @@ namespace Desert::Editor
         Graphic::SetSdrCaptureRendition( m_Control.WindowShotPending() );
         m_ScriptDebug.Service();
 
-        // THE EDITOR'S FRAME BOUNDARY FOR Core::OpenLevel (UEngine::TickWorldTravel for the PIE world context).
+        // THE EDITOR'S FRAME BOUNDARY FOR A LEVEL TRAVEL (UEngine::TickWorldTravel for the PIE world context).
         // In Play the queued level replaces the PLAYED world and Stop still returns to the authored one
         // (PlayWorldTravel); outside Play there is no game world and the request is refused with its target.
         if ( const auto travelled = m_Play.ServiceTravel(); !travelled )
@@ -528,8 +531,6 @@ namespace Desert::Editor
         // volume, and doing that before the frame's passes resolve their inputs is what lets the volume
         // be used by the same frame it arrived in rather than by the next one.
         Assets::AsyncAssetLoader::Get().Pump();
-        // The environment cache's readbacks land here and go to a worker for the encode (AL1-3).
-        Graphic::EnvironmentCacheWriter::Get().Pump();
         m_Startup.UpdateContentSettling();
 
         // Scene loads wait until the startup stages finished (a scene expects cooked/preloaded assets).
@@ -565,12 +566,12 @@ namespace Desert::Editor
                      if ( const auto presented = Engine::PresentInterimFrame( *window ); !presented.IsSuccess() )
                          LOG_ERROR( "[Editor] the scene-open loading frame: {}", presented.GetError() );
                  } );
-            if ( m_SceneFiles.ServiceLoadRequest() )
+            if ( m_SceneFiles.ServiceLoadRequest( m_Startup.SceneLoadSink() ) )
             {
                 m_Startup.BeginContentSettle( readsFinishedBefore );
                 m_SceneFiles.InitializeIfLoadRefused();
             }
-            m_SceneFiles.ServiceNewRequest();
+            m_SceneFiles.ServiceNewRequest( m_Startup.SceneLoadSink() );
         }
 
         // Opening an extra scene view, a second angle or the four-up grid allocates a SceneRenderer + Init()
@@ -773,7 +774,7 @@ namespace Desert::Editor
                                                                 m_WorldPartitionPanel->HLODBuildProgress(),
                                                                 m_WorldPartitionPanel->HLODBuildOutcome() }
                                    : Control::BackgroundReport{},
-             m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingMiniMap(),
+             m_LiveCoding.Report(), m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingMiniMap(),
              ViewportPanel::AnyMeshDropLoading(),
              m_WorldPartitionPanel && m_WorldPartitionPanel->IsReadingEditorHLODs(),
              ViewportPanel::ModelingPreviewOutstanding() );
@@ -1119,8 +1120,6 @@ namespace Desert::Editor
         // Before the panels rather than after: a panel's own teardown must never be able to queue one last
         // preview into a service that has already let its renderer go.
         ThumbnailService::Get().Shutdown();
-        // The same reason for the environment cache: its readbacks own staging buffers and command buffers.
-        Graphic::EnvironmentCacheWriter::Get().Drain();
 
         // The SECOND half of the same problem, and the half the sentence above still does not cover: the
         // component widgets keep their thumbnail caches in function-statics (StaticMeshComponent.cpp,

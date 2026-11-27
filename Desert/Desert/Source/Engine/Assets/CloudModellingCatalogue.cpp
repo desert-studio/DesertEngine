@@ -495,7 +495,7 @@ namespace Desert::Assets
             return catalogue;
         }
 
-        uint32_t Index( CloudModellingSpecies species )
+        uint32_t SpeciesIndex( CloudModellingSpecies species )
         {
             const uint32_t index = static_cast<uint32_t>( species );
             return index < kCloudModellingSpeciesCount ? index : 0u;
@@ -509,7 +509,7 @@ namespace Desert::Assets
              "Stratocumulus",   "Stratus",           "Altocumulus",       "Cirrus",
              "Lenticular",      "Freeform (arch)",
         };
-        return names[Index( species )];
+        return names[SpeciesIndex( species )];
     }
 
     const char* CloudModellingSpeciesKey( CloudModellingSpecies species )
@@ -518,11 +518,11 @@ namespace Desert::Assets
              "humilis", "mediocris",   "congestus", "cumulonimbus", "stratocumulus",
              "stratus", "altocumulus", "cirrus",    "lenticular",   "freeform",
         };
-        return keys[Index( species )];
+        return keys[SpeciesIndex( species )];
     }
 
     const CloudModellingVolumeRecipe& CloudModellingCatalogueRecipe( CloudModellingSpecies species )
     {
-        return Catalogue()[Index( species )];
+        return Catalogue()[SpeciesIndex( species )];
     }
 } // namespace Desert::Assets

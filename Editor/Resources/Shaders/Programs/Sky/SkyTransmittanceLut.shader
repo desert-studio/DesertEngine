@@ -19,12 +19,8 @@ Shader "SkyTransmittanceLut"
         layout(binding = 0, rgba16f) restrict writeonly uniform image2D TransmittanceLutTexture;
 
         // The SAME sky parameter buffer every other sky consumer reads (Graphic::kSkyPayloadBinding);
-        // the medium block is vec4s 7-12. The binding is bound explicitly from C++
-        // (ComputePipeline::SetStorageBuffer), so this number and that constant must stay equal.
-        ReadBuffer(1) SkyBuffer
-        {
-            vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT];
-        };
+        // the medium block is its Medium* members.
+        #include <Generated/Sky/SkyBuffer.glslh>
 
         // The step budget is SKY_TRANSMITTANCE_SAMPLE_COUNT, declared in Common/SkyMedium.glslh next to
         // the march it drives: the CPU evaluation that reddens the directional light
@@ -39,9 +35,7 @@ Shader "SkyTransmittanceLut"
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
-            SkyPacked s;
-            for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
-                s.v[i] = SkyPackedData[i];
+            SkyPacked s = SkyPackedData;
 
             SkyAtmParams atm = SkyMakeAtmParams(UnpackMediumRayleigh(s), UnpackMediumMie(s),
                                                 UnpackMediumMieAbsorption(s), UnpackMediumOzone(s),

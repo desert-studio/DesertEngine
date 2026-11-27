@@ -5,15 +5,15 @@
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
-#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
+#include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureLayout.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Common/Core/Timestep.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 #include <glm/glm.hpp>
 
 #include <array>
@@ -40,19 +40,6 @@ namespace Desert::Graphic
     {
         class Builder;
     }
-
-    // ONE CAPTURE AS THE LIGHTING PASSES READ IT — Shaders/Common/ReflectionCaptureGpu.glslh, std430, the same
-    // layout (four vec4s, a uvec4, a mat4: no member straddles a 16-byte boundary, so std430 adds no padding).
-    struct ReflectionCaptureGpu
-    {
-        glm::vec4  PositionRadius{ 0.0f };          // xyz = influence centre (world cm), w = sphere radius
-        glm::vec4  CaptureOffsetBrightness{ 0.0f }; // xyz = capture point - centre (world cm), w = Brightness
-        glm::vec4  BoxExtentTransition{ 0.0f };     // xyz = box half extent (cm), w = box transition (cm)
-        glm::uvec4 ShapeCube{ 0u }; // x = 0 sphere / 1 box, y = cube index in the array, z = the capture's
-                                    // presence (float bits, 0..1: PackReflectionCaptures)
-        glm::mat4  WorldToBox{ 1.0f };              // world -> box space ([-1, 1]^3)
-    };
-    static_assert( sizeof( ReflectionCaptureGpu ) == 128, "ReflectionCaptureGpu must match the std430 struct" );
 
     // THE CAPTURE CUBE'S FACE, for every capture of the scene: one cube array holds them all, and an array has one
     // face size. It is the Scalability parameter Reflections.CaptureSize (UE: r.ReflectionCaptureResolution, a
@@ -354,14 +341,6 @@ namespace Desert::Graphic
         // outlive the frames in flight that recorded its passes.
         std::unique_ptr<DistanceField::GlobalDistanceField>                           m_FaceField;
         Assets::FrameRetireQueue<std::unique_ptr<DistanceField::GlobalDistanceField>> m_RetiringFields;
-        // THE FACES' ONE SURFACE CACHE (UE: one Lumen scene per FScene, a view owns no cards): the Lumen scene of
-        // the capture point's cards, lent to each face before its frame (SceneRenderer::ShareSurfaceCache) - one
-        // face renders per engine frame, so the cache is updated once per frame and the cards one face captured
-        // serve the next. Made with the faces (uninitialised until a face brings it up), released with them and
-        // parked like them: its atlases, capture framebuffer and pipelines outlive the frames in flight that
-        // recorded its passes.
-        std::unique_ptr<SurfaceCache::SurfaceCacheRenderer>                           m_FaceSurfaceCache;
-        Assets::FrameRetireQueue<std::unique_ptr<SurfaceCache::SurfaceCacheRenderer>> m_RetiringSurfaceCaches;
 
         ResourceOwnerInstance m_Scene; // see the constructor
 

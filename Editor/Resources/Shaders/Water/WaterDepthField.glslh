@@ -1,0 +1,39 @@
+#ifndef DESERT_WATER_DEPTH_FIELD_GLSLH
+#define DESERT_WATER_DEPTH_FIELD_GLSLH
+
+// The world's floor and shore (Water::WaterShoreField), sampled exactly as Water::SampleWaterShoreField samples
+// its texels on the CPU: one bilinear, and past the grid the floor falls by the skirt's slope to the open sea's.
+// Needs WaterShoreFrame / WaterShoreShape of the WaterTiles block.
+
+// RGBA16F: the ground over the reference level, the signed shore distance (both cm), the shore direction.
+layout( binding = 25 ) uniform texture2D WaterShoreTexture;
+
+const float WATER_SHORE_FAR_CM = 60000.0;
+
+// WaterShoreSample (GroundCm, ShoreDistanceCm, ShoreDirection): Water/Public/WaterLayout.hpp.
+#include <Generated/Water/WaterShoreSample.glslh>
+
+WaterShoreSample WaterShoreAt( vec2 worldXZ )
+{
+    const ivec2 size  = textureSize( WaterShoreTexture, 0 );
+    const vec2  p     = ( worldXZ - WaterShoreFrame.xy ) * WaterShoreFrame.z - 0.5;
+    const vec2  q     = clamp( p, vec2( 0.0 ), vec2( size - 1 ) );
+    const ivec2 i0    = ivec2( floor( q ) );
+    const ivec2 i1    = min( i0 + 1, size - 1 );
+    const vec2  f     = q - vec2( i0 );
+    const vec4  t00   = texelFetch( WaterShoreTexture, i0, 0 );
+    const vec4  t10   = texelFetch( WaterShoreTexture, ivec2( i1.x, i0.y ), 0 );
+    const vec4  t01   = texelFetch( WaterShoreTexture, ivec2( i0.x, i1.y ), 0 );
+    const vec4  t11   = texelFetch( WaterShoreTexture, i1, 0 );
+    const vec4  t     = mix( mix( t00, t10, f.x ), mix( t01, t11, f.x ), f.y );
+    const float past  = length( p - q ) / WaterShoreFrame.z;
+    const float floorCm = t.x + WaterShoreFrame.w;
+
+    WaterShoreSample s;
+    s.GroundCm        = max( floorCm - WaterShoreShape.z * past, min( floorCm, WaterShoreShape.x ) );
+    s.ShoreDistanceCm = clamp( t.y + past, -WATER_SHORE_FAR_CM, WATER_SHORE_FAR_CM );
+    s.ShoreDirection  = t.zw;
+    return s;
+}
+
+#endif

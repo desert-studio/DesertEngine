@@ -11,7 +11,7 @@
 #include <system_error>
 #include <unordered_map>
 #include <Common/Json/ReadWrite.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Core::DescriptorIndex
 {

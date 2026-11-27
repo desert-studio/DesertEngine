@@ -13,6 +13,8 @@
 #include <Engine/Graphic/ViewMemory.hpp>
 
 #include <memory>
+#include <mutex>
+#include <unordered_map>
 #include <vector>
 #include <array>
 
@@ -126,7 +128,7 @@ namespace Desert::Graphic::API::Vulkan
         /// (see SwapChain::RecordFrameCapture). Fails, naming the reason, if the surface cannot be read at all.
         [[nodiscard]] Common::BoolResultStr RecordFrameCapture() override;
 
-        [[nodiscard]] bool HasPendingCapture() const noexcept
+        [[nodiscard]] bool HasPendingFrameCapture() const noexcept override
         {
             return m_CaptureStaging != VK_NULL_HANDLE;
         }
@@ -134,7 +136,7 @@ namespace Desert::Graphic::API::Vulkan
         /// Release a recorded capture that will not be collected (the frame it was recorded on was judged and
         /// is not the answer; the swapchain is being released). The caller has waited for the device: the copy
         /// into the staging buffer must be finished. No-op when nothing is recorded.
-        void DiscardFrameCapture();
+        void DiscardFrameCapture() override;
 
         /// Collect what RecordFrameCapture asked for, as tightly packed 8-bit RGBA. Call after the present
         /// that carried the copy; it waits for the device first. Releases the staging buffer either way,
@@ -142,6 +144,13 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] Common::ResultStr<std::vector<uint8_t>>
         TakeCapturedFrameRGBA8( uint32_t& outWidth, uint32_t& outHeight ) override;
 
+        /// SwapChain's three halves: the ticket is the detached staging (DetachCapturedFrame), held in m_Tickets.
+        [[nodiscard]] Common::ResultStr<CapturedFrameTicket> TakeCapturedFrameTicket() override;
+        [[nodiscard]] Common::ResultStr<std::vector<uint8_t>>
+        ResolveCapturedFrame( const CapturedFrameTicket& ticket ) override;
+        void ReleaseCapturedFrame( const CapturedFrameTicket& ticket ) override;
+
+    private:
         /// A collected capture as the surface held it: the staging bytes, before the RGBA8 pack.
         struct CapturedFrame
         {
@@ -184,6 +193,8 @@ namespace Desert::Graphic::API::Vulkan
         /// VK_COMPOSITE_ALPHA_OPAQUE; nothing is obliged to leave alpha meaningful).
         [[nodiscard]] static Common::ResultStr<std::vector<uint8_t>>
         PackCapturedFrame( const CapturedFrame& frame );
+
+    public:
 
         [[nodiscard]] std::shared_ptr<::Desert::Graphic::Framebuffer> GetCompositeFramebuffer() const
         {
@@ -245,6 +256,13 @@ namespace Desert::Graphic::API::Vulkan
         void*    m_CaptureAllocation = nullptr;
         uint32_t m_CaptureWidth      = 0;
         uint32_t m_CaptureHeight     = 0;
+
+        /// The detached captures handed out as tickets (TakeCapturedFrameTicket), each until its ReleaseCapturedFrame;
+        /// whatever is still held when the swap chain dies is released by the destructor. The lock is the
+        /// resolving worker's against the game thread's take and release.
+        mutable std::mutex                              m_TicketLock;
+        std::unordered_map<uint64_t, CapturedStaging>   m_Tickets;
+        uint64_t                                        m_NextTicket = 1;
 
         struct
         {

@@ -10,6 +10,7 @@
 // (SceneFileDialogs.cpp). A member of EditorLayer BY VALUE, declared after SceneWorkspace and ViewportCapture.
 
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Core/WorkSink.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include "Editor/Core/CommandPalette.hpp"
 
@@ -21,6 +22,7 @@
 
 namespace Desert::Editor
 {
+    class PlaySession;
     class SceneWorkspace;
     class ViewportCapture;
 
@@ -28,7 +30,7 @@ namespace Desert::Editor
     {
     public:
         SceneFiles( SceneWorkspace& workspace, const std::shared_ptr<Assets::AssetManager>& assets,
-                    ViewportCapture& capture );
+                    ViewportCapture& capture, PlaySession& play );
 
         // Replaces the world WITHOUT asking about unsaved edits — only for callers that are not a user
         // choosing a scene, or that come after the ask (Desert/Tests/Editor/AssetOpenRoute holds the list).
@@ -61,11 +63,12 @@ namespace Desert::Editor
         // Drains Core::SceneOpenRequest through the unsaved-changes gate.
         void ConsumeOpenRequest();
         // Between frames, in this order: ServiceLoadRequest (true when a load ran — the host begins the
-        // content settle there), InitializeIfLoadRefused after a load, then ServiceNewRequest.
-        [[nodiscard]] bool ServiceLoadRequest();
+        // content settle there), InitializeIfLoadRefused after a load, then ServiceNewRequest. @p sink (null:
+        // nobody watches) names each step of the open while it runs (the start's splash).
+        [[nodiscard]] bool ServiceLoadRequest( Desert::Core::WorkSink* sink );
         // A refused load left the scene uninitialised (OnAttach skipped Init for it): Init + registry here.
         void InitializeIfLoadRefused();
-        void ServiceNewRequest();
+        void ServiceNewRequest( Desert::Core::WorkSink* sink );
 
         // Serializes the active scene to @p path (startup content). False when the bytes did not land.
         [[nodiscard]] bool SaveSceneTo( const std::string& path );
@@ -84,11 +87,6 @@ namespace Desert::Editor
         [[nodiscard]] const Common::Filepath& OpenScenePath() const
         {
             return m_OpenScenePath;
-        }
-        // A scene built and written by the editor itself is an open file like any other from then on.
-        void AdoptOpenPath( const Common::Filepath& path )
-        {
-            m_OpenScenePath = path;
         }
 
         // THE BASIC LEVEL TEMPLATE (UE: TemplateMapInfos' Basic): a sun and a sky, engine content, which New
@@ -114,8 +112,10 @@ namespace Desert::Editor
             File,
             Untitled
         };
-        void LoadSceneInternal( const Common::Filepath& requested, OpenAs openAs = OpenAs::File );
-        void NewSceneInternal();
+        void LoadSceneInternal( const Common::Filepath& requested, OpenAs openAs, Desert::Core::WorkSink* sink );
+        void NewSceneInternal( Desert::Core::WorkSink* sink );
+        // The open scene is this file from now on (empty: no file); the world is told, for its crash line.
+        void SetOpenPath( const Common::Filepath& path );
         // Drops the scene's text header when `destination` is not the file it was opened as (a copy is a new
         // asset with a new GUID); returns the header it had, for a failed save to put back.
         std::optional<Common::Content::TextAssetHeaderSerialized>
@@ -134,6 +134,7 @@ namespace Desert::Editor
         SceneWorkspace&                              m_Workspace;
         const std::shared_ptr<Assets::AssetManager>& m_Assets;
         ViewportCapture&                             m_Capture;
+        PlaySession&                                 m_Play; // ended before its level is replaced
 
         // The CommandHistory revision at the last save/load.
         uint64_t                        m_SavedRevision = 0;

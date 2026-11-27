@@ -102,8 +102,6 @@ namespace Desert::Graphic::API::Vulkan
 
         [[nodiscard]] virtual VkImageView GetMipView( uint32_t level ) const = 0;
 
-        // Destroy + recreate this image's VkSampler from the current RenderConfig filter (live filter swap).
-        virtual void RecreateSampler() = 0;
 
         // --- The render graph's import (VulkanRendererAPI::ImportImage): ONE path for every image kind ---
         // What the graph knows of this image: its kind (2D, a volume, a cube), extent (a volume's depth),
@@ -355,7 +353,7 @@ namespace Desert::Graphic::API::Vulkan
         /// Submits a copy of every level of every face, in the image's OWN format, tightly packed in table
         /// order (level 0's six faces, then level 1's), and does not wait: poll the readback, then
         /// ReadBytes() — on any thread. See the definition for why it converts nothing.
-        NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> RT_BeginReadAllLevels();
+        NO_DISCARD Common::ResultStr<std::shared_ptr<ImageReadback>> RT_BeginReadAllLevels() override;
 
     private:
         Common::BoolResultStr CreateResource();

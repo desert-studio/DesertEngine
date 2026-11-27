@@ -3,7 +3,7 @@
 #include <vk-bootstrap/VkBootstrap.h>
 
 #include <array>
-#include <Engine/Graphic/TextureStreamingDemand.hpp>
+#include <Engine/Graphic/GpuMemoryBudget.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -563,7 +563,7 @@ namespace Desert::Graphic::API::Vulkan
             }
             // The texture streaming pool (TEX-STREAMING): what its textures hold against r.Streaming.PoolSize.
             {
-                const auto& pool = TextureStreamingDemand::Get().Pool();
+                const auto& pool = GpuMemoryBudget::Get().TextureStreamingPool();
                 bySubsystem += std::format(
                      "\n  {:<40} x{:<6} {:9.1f} MB resident / budget {:.1f} MB (wanted {:.1f} MB, full chains "
                      "{:.1f} MB, {} streaming)",

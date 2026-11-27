@@ -139,6 +139,6 @@ namespace Desert::Graphic::System
         m_FramesSinceReport = 0;
         LOG_INFO( "[Crowd] skeletal {}, vat {}, draws {}, grown to min screen size {} (max x{:.2f}), anim CPU {:.4f} "
                   "ms",
-                  skeletal, vat, draws, grown, maxScale, Animation::g_AnimationCpuMsPerFrame.load( std::memory_order_relaxed ) );
+                  skeletal, vat, draws, grown, maxScale, Animation::AnimationCpuMsPerFrame() );
     }
 } // namespace Desert::Graphic::System

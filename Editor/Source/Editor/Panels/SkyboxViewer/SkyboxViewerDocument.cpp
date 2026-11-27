@@ -56,7 +56,7 @@ namespace Desert::Editor
             const auto material = Runtime::ResourceRegistry::GetSkyboxService()->Get( skybox );
             if ( !material || !material->GetEnvironment().PreFilteredMap.IsValid() )
                 return 0u;
-            const auto* image = Runtime::ResourceRegistry::GetImageService()->Resolve(
+            const auto* image = Runtime::GetImageService()->Resolve(
                  material->GetEnvironment().PreFilteredMap );
             return image != nullptr ? image->GetMipmapLevels() : 0u;
         }
@@ -119,7 +119,7 @@ namespace Desert::Editor
                  Graphic::SampledCube source;
                  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): all three keys name cubes
                  source.Cube = static_cast<Graphic::ImageCube*>(
-                      Runtime::ResourceRegistry::GetImageService()->Resolve( key ) );
+                      Runtime::GetImageService()->Resolve( key ) );
                  source.Lod = level->Lod;
                  // The file as authored, turned by THIS WINDOW's rotation; gain and tint stay identity (the
                  // component's knobs belong to a scene, not to the asset).
@@ -188,11 +188,10 @@ namespace Desert::Editor
         // Level, projection and rotation are sampled inside the resolver, where the render gate cannot see
         // them; the fingerprint is how a change to any of them asks for a frame.
         m_Preview->SetContentFingerprint( SkyboxView::Fingerprint( m_View ) );
-        // The viewer's EV is a scale (2^EV); the pane grades in Manual EV100 at the volume's default key, so it is
-        // stated as the EV100 whose Graphic::ManualExposureScale is that scale.
+        // The viewer's EV is a scale (2^EV); the pane grades in Manual EV100, so it is stated as the EV100 whose
+        // Graphic::ManualExposureScale is that scale.
         m_Preview->Setup().ExposureEV100 =
-             Graphic::LuminanceToEV100( ::Desert::Core::PostProcessSettings{}.AutoExposureKey /
-                                        SkyboxView::ExposureFromEV( m_View.ExposureEV ) );
+             Graphic::LuminanceToEV100( Graphic::kExposureMiddleGrey / SkyboxView::ExposureFromEV( m_View.ExposureEV ) );
         m_Preview->Update( m_RenderSize.x, m_RenderSize.y );
     }
 

@@ -25,20 +25,7 @@ Shader "TranslucencyLightingVolume"
 
         // Graphic::TranslucencyLightingVolumeGpuPayload (TranslucencyLightingVolume.hpp), member for member; the
         // pipeline's own block (SetStorageBuffer kTranslucencyLightingVolumeParamsBinding), not a graph binding.
-        layout(std430, binding = 1) readonly buffer TranslucencyLightingVolumeParams
-        {
-            mat4 TlvViewProjection;       // world -> clip, this frame's unjittered camera (the light grid's)
-            mat4 TlvCascadeViewProj[4];   // the sun's cascades, standard Z (Graphic::CascadeFit::ViewProj)
-            vec4 TlvCamera;               // xyz = camera position (cm), w = cells per cascade edge
-            vec4 TlvRenderSize;           // xy = render size in pixels (the light grid's), zw unused
-            vec4 TlvSunDirection;         // xyz = TOWARD the sun (unit), w = 1 when a sun lights the volume
-            vec4 TlvSunRadiance;          // rgb = the sun's irradiance as the surfaces receive it, w = cascades
-            vec4 TlvCascadeBias;          // per cascade: depth bias in map units (texel world size / depth range)
-            mat4 TlvCloudShadowWorldToMap;   // the cloud layer's shadow map (Graphic::CloudShadowUniforms), the
-            vec4 TlvCloudShadowParams;       //   surfaces' pair: y = 0 when no layer casts (never fetched then)
-            mat4 TlvRainOcclusionWorldToMap; // the view's rain occlusion (Graphic::RainOcclusionUniforms): what
-            vec4 TlvRainOcclusionParams;     //   covers a cell from the sky; y = 0 when the view has no map
-        };
+        #include <Generated/Post/TranslucencyLightingVolumeParams.glslh>
 
         layout(binding = 0, rgba16f) restrict writeonly uniform image3D TranslucencyLightingVolumeOutput;
 

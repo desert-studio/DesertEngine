@@ -82,19 +82,23 @@ namespace Desert::Graphic
         return std::log2( std::max( luminance, 1e-30f ) ) + 3.0f;
     }
 
-    // MANUAL EXPOSURE IN EV100 (UE's Manual metering mode). A manual exposure states the EV100 the meter
-    // would otherwise have read; the scale is then the auto path's own law with that reading — key over the
-    // luminance the EV stands for — so a manual EV100 and an auto-exposure adapted to the same EV100 give the
-    // same picture, and the key (UE's Exposure Compensation, in our engine AutoExposureKey) offsets both.
-    inline float ManualExposureScale( float ev100, float key )
+    // THE MIDDLE GREY the exposure law maps the metered (or stated) EV100 to: UE's and Frostbite's fixed 0.18
+    // calibration (Lagarde 2014 eq. 61-63). Not a setting: UE's only offset is Exposure Compensation
+    // (Core::PostProcessSettings::AutoExposureBias, 2^bias on the scale). The composite, the bloom bright pass,
+    // the local-exposure fusion and the auto-exposure average receive it as their MiddleGrey uniform.
+    inline constexpr float kExposureMiddleGrey = 0.18f;
+
+    // MANUAL EXPOSURE IN EV100 (UE's Manual metering mode): the auto path's own law at the stated reading, so a
+    // manual EV100 and an auto-exposure adapted to the same EV100 give the same picture.
+    inline float ManualExposureScale( float ev100 )
     {
-        return key / EV100ToLuminance( ev100 );
+        return kExposureMiddleGrey / EV100ToLuminance( ev100 );
     }
 
     // The smallest exposure scale the auto-exposure can settle on: the meter clamped at its Max EV100.
-    inline float LowestAutoExposureScale( float maxEV100, float key )
+    inline float LowestAutoExposureScale( float maxEV100 )
     {
-        return key / EV100ToLuminance( maxEV100 );
+        return kExposureMiddleGrey / EV100ToLuminance( maxEV100 );
     }
 
     // THE SKY'S ON-SCREEN LUMINANCE CEILING, derived rather than chosen in cd/m^2.

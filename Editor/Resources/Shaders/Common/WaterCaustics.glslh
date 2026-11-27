@@ -21,19 +21,24 @@
 // square is not in the map, so its edge is darker than the water around it.
 #define WATER_CAUSTICS_BORDER_UV 0.08
 
-// THE FRAME ROW (Graphic::System::WaterCausticsFrameHead + WaterCausticsBodyRow, its C++ twins). The includer
-// declares, at a slot free in ITS layout, before including this file:
+// THE FRAME ROW (Water/Public/WaterLayout.hpp WaterCausticsFrameHead + WaterCausticsBodyRow, declared once there;
+// Generated/Water/WaterCaustics.glslh). The includer declares, at a slot free in ITS layout, before including
+// this file:
 //
-//     a std430 buffer WaterCausticsFrameUB { vec4 WaterCausticsWindow; vec4 WaterCausticsShape;
-//                                            vec4 WaterCausticsBodies[]; }
+//     #include <Generated/Water/WaterCaustics.glslh>
+//     a std430 buffer WaterCausticsFrameUB { DESERT_WaterCausticsFrameHead_MEMBERS
+//                                            WaterCausticsBody WaterCausticsBodies[]; }
 //     #define WATER_CAUSTICS_FRAME
 //
 // WaterCausticsWindow: xy = world (X, Z) of the map's lower corner, z = 1 / its side (cm), w = 1 when this frame
-// has a map. WaterCausticsShape: x = the bodies in the table, y = the depth over which the caustics come in under
-// the surface (cm), z = the depth over which they fade (cm), w = their strength (1 = the map as computed).
-// WaterCausticsBodies: two vec4 per body whose footprint meets the map's square - [2i] its footprint (xy = min
-// (X, Z), zw = max), [2i + 1].x its still surface Y (cm), .y its wave lane (1 + the frame's wave set in WaterTiles'
-// WaterWaveSets, 0 = a flat body; WaterRenderer::GetFrameBodyWaveLanes, the tiles' WaterTileRow.Body.z).
+// has a map. WaterCausticsShape: x = the bodies in the table.
+// WaterCausticsBodies: one row per body whose footprint meets the map's square - Footprint (xy = min (X, Z), zw =
+// max), Level.x its still surface Y (cm), .y its wave lane (1 + the frame's wave set in WaterTiles'
+// WaterWaveSets, 0 = a flat body; WaterRenderer::GetFrameBodyWaveLanes, the tiles' WaterTileRow.Body.z), .z its share
+// of the beach slope (1 = an ocean, 0 = a river: WaterPixelSurface's rule); Look, its material's look under the
+// surface: x = the depth over which the caustics come in (cm: the refracted beams need some depth to cross, and a
+// waterline must not cut a hard caustic edge), y = the depth their contrast falls by 1/e over (cm: the sun's disc
+// and the water's scattering widen the lines), z = their strength (1 = the map).
 #ifdef WATER_CAUSTICS_FRAME
 // The body whose still surface is the nearest one above @p worldPos (its footprint holds the point, the point
 // lies under its level), or -1: the water the light reaching that point came down through.
@@ -44,10 +49,10 @@ int WaterCausticsBodyOver( vec3 worldPos )
     const int count = int( WaterCausticsShape.x );
     for ( int i = 0; i < count; ++i )
     {
-        const vec4 footprint = WaterCausticsBodies[2 * i];
+        const vec4 footprint = WaterCausticsBodies[i].Footprint;
         if ( any( lessThan( worldPos.xz, footprint.xy ) ) || any( greaterThan( worldPos.xz, footprint.zw ) ) )
             continue;
-        const float depth = WaterCausticsBodies[2 * i + 1].x - worldPos.y;
+        const float depth = WaterCausticsBodies[i].Level.x - worldPos.y;
         if ( depth > 0.0 && depth < least )
         {
             found = i;
@@ -59,17 +64,17 @@ int WaterCausticsBodyOver( vec3 worldPos )
 // The still surface Y of body @p body (WaterCausticsBodyOver).
 float WaterCausticsBodyLevel( int body )
 {
-    return WaterCausticsBodies[2 * body + 1].x;
-}
-// The TargetWaveMaskDepth of body @p body (cm; WaterMeshTiles.glslh WaterWaveAttenuation).
-float WaterCausticsBodyWaveMaskDepth( int body )
-{
-    return WaterCausticsBodies[2 * body + 1].z;
+    return WaterCausticsBodies[body].Level.x;
 }
 // The wave lane of body @p body (the splat turns it into its wave set with WaterMeshTiles.glslh WaterWaveSetOf).
 float WaterCausticsBodyWaveLane( int body )
 {
-    return WaterCausticsBodies[2 * body + 1].y;
+    return WaterCausticsBodies[body].Level.y;
+}
+// The share of the beach slope body @p body's surface takes (1 = an ocean, 0 = a river).
+float WaterCausticsBodyBeachSlope( int body )
+{
+    return WaterCausticsBodies[body].Level.z;
 }
 #endif // WATER_CAUSTICS_FRAME
 
@@ -100,10 +105,11 @@ float WaterCausticsFactor( vec3 worldPos )
     const float depth   = WaterCausticsBodyLevel( body ) - worldPos.y;
     const vec2  edge    = min( uv, vec2( 1.0 ) - uv );
     const float border  = smoothstep( 0.0, WATER_CAUSTICS_BORDER_UV, min( edge.x, edge.y ) );
-    const float onset   = smoothstep( 0.0, max( WaterCausticsShape.y, 1.0 ), depth );
-    const float fade    = exp( -depth / max( WaterCausticsShape.z, 1.0 ) );
+    const vec3  look    = WaterCausticsBodies[body].Look.xyz;
+    const float onset   = smoothstep( 0.0, max( look.x, 1.0 ), depth );
+    const float fade    = exp( -depth / max( look.y, 1.0 ) );
     const float caustic = textureLod( WaterCausticsTexture, uv, 0.0 ).r;
-    return mix( 1.0, caustic, border * onset * fade * WaterCausticsShape.w );
+    return mix( 1.0, caustic, border * onset * fade * look.z );
 }
 #endif // WaterCausticsTexture
 

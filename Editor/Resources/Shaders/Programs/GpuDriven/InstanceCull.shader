@@ -192,8 +192,9 @@ Shader "InstanceCull"
             return float( word >> 8u ) * ( 1.0 / 16777216.0 );
         }
 
-        // Graphic::KeepsInstanceAtDistance with ScaledByLens( cull, DrawDistanceScale( main view ) ).
-        bool KeepsInstanceAtDistance( GpuCullView view, GpuSceneInstance instance, uint index, vec3 position )
+        // Graphic::KeepsInstanceAtDistance with ScaledByLens( cull, DrawDistanceScale( main view ) ), seeded with
+        // the instance's component index (GpuSceneInstance.ComponentInstance, Graphic::ComponentInstanceIndex).
+        bool KeepsInstanceAtDistance( GpuCullView view, GpuSceneInstance instance, vec3 position )
         {
             const float scale = view.CullOrigin.w;
             const float minD  = instance.CullDistanceStart * scale;
@@ -207,7 +208,7 @@ Shader "InstanceCull"
             if ( distanceSq <= minD * minD )
                 return true;
             const float fade = ( sqrt( distanceSq ) - minD ) / ( maxD - minD );
-            return InstanceFadeThreshold( index ) >= fade;
+            return InstanceFadeThreshold( instance.ComponentInstance ) >= fade;
         }
 
         // Geometry::BoundsScreenRadiusSquared (LODSelection.hpp) of the instance's local bounds sphere in @p view's LOD
@@ -586,7 +587,7 @@ Shader "InstanceCull"
             // A caster view's swaying instance past the shadow wind distance casts its rest pose (the layer split
             // after the LOD, below).
             const bool restPose = GpuCull_CastsRestPose( view, primitive, world );
-            if ( !KeepsInstanceAtDistance( view, instance, instanceRow - primitive.FirstInstance, world[3].xyz ) )
+            if ( !KeepsInstanceAtDistance( view, instance, world[3].xyz ) )
             {
                 Visibility[cell] = 0u;
                 return;

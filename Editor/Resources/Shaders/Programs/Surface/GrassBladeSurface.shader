@@ -33,7 +33,7 @@ Shader "GrassBladeSurface"
         // Material half of the sun-shadow receive decision (as StandardSurface).
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
         Float       ReceiveDecals ("Receive Decals", Range(0,1), Category("Decals")) = 1
-        // The light a blade lets through, as a tint of its own albedo (UE's SubsurfaceColor pin).
+        // The light a blade lets through against the light it reflects (Common/FoliageEnergy.glslh).
         Color       SubsurfaceColor ("Subsurface Color", Category("Foliage")) = (1, 1, 1, 1)
         // UE's Opacity pin of a subsurface model: how dense the medium the sun crosses to reach the blade is
         // (UE SubsurfaceDensityFromOpacity, Common/SubsurfaceDensity.glslh). The shadow map sees a field of thin
@@ -72,8 +72,8 @@ Shader "GrassBladeSurface"
             s.AmbientOcclusion  = orm.x * mix( Material.RootOcclusion, 1.0, i.UV1.y );
             s.ReceiveSunShadows = Material.ReceiveSunShadows;
             s.ReceiveDecals     = Material.ReceiveDecals;
-            // TwoSidedFoliage's payload: SubsurfaceColor as its square root (UE EncodeSubsurfaceColor).
-            const vec3 subsurface = sqrt( clamp( s.BaseColor * Material.SubsurfaceColor.rgb, 0.0, 1.0 ) );
+            // TwoSidedFoliage's payload: the far side's tint as its square root (SurfacePayload.glslh splits).
+            const vec3 subsurface = sqrt( clamp( Material.SubsurfaceColor.rgb, 0.0, 1.0 ) );
             s.CustomData0       = subsurface.r;
             s.CustomData1       = subsurface.g;
             s.CustomData2       = subsurface.b;

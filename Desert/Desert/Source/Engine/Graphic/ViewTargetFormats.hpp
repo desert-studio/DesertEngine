@@ -41,6 +41,7 @@ namespace Desert::Graphic::ViewTargetFormats
     // GBufferD CustomData), texture count and the no-sun-shadows bit, as a uvec2. World position is NOT stored:
     // every reader rebuilds it from kGBufferDepth (Common/ReconstructPosition.glslh).
     inline constexpr ImageFormat kGBufferShadingWord = ImageFormat::RG32_UINT;
+    // Emissive.rgb; a = the material AO and, in its sign, the model's far side (Common/GBufferOcclusion.glslh).
     inline constexpr ImageFormat kGBufferEmissive = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kGBufferDepth    = ImageFormat::DEPTH32F;
     // The view's DBuffer (DECALS-DBUFFER, Common/DBuffer.glslh; UE DBufferA/B/C, all RGBA8): premultiplied base
@@ -125,10 +126,12 @@ namespace Desert::Graphic::ViewTargetFormats
     // hundred values).
     inline constexpr ImageFormat kHZB = ImageFormat::R32F;
     // The screen-space denoiser (System::ScreenSpaceDenoiser), every signal: the reconstructed signal, its
-    // accumulation history and its output (premultiplied / straight rgb + coverage); the history's sample count,
-    // one 32-bit float (R32F: the single-channel storage format every device writes).
+    // accumulation history and its output (premultiplied / straight rgb + coverage); the history's sample count
+    // and the view depth (cm) of the surface that wrote it (the temporal pass's disocclusion test).
     inline constexpr ImageFormat kDenoiserSignal      = ImageFormat::RGBA16F;
-    inline constexpr ImageFormat kDenoiserSampleCount = ImageFormat::R32F;
+    inline constexpr ImageFormat kDenoiserSampleCount = ImageFormat::RG16F;
+    // The luminance moments beside a surface light's history: its mean and the root of its mean square.
+    inline constexpr ImageFormat kDenoiserMoments = ImageFormat::RG16F;
     // The traced GI's final gather, per pixel: diffuse irradiance and specular radiance (rgb), written by the
     // screen probe gather (GlobalIllumination::ScreenProbeGather: its temporal filter's output, which the view
     // keeps as the next frame's history, ScreenProbeGatherHistory) or the irradiance field gather

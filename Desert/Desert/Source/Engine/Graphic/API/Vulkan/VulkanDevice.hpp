@@ -4,6 +4,7 @@
 
 #include <Engine/Core/Device.hpp>
 #include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
+#include <Engine/Graphic/Rhi/RhiSelection.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanBindlessTextureTable.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingFunctions.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanResourceSharing.hpp>
@@ -144,7 +145,7 @@ namespace Desert::Graphic::API::Vulkan
 
         VkFormat m_DepthFormat = VK_FORMAT_UNDEFINED;
 
-        Engine::DeviceCapabilities m_Capabilities;
+        Engine::GpuCapabilities m_Capabilities;
         bool                       m_SurfaceProbed = false;
         VkSurfaceKHR               m_ProbedSurface = VK_NULL_HANDLE; // the surface the catalog was completed with
         // What the vendor runtimes answered when the catalog was last built (RefreshRuntimeOffers).
@@ -174,14 +175,16 @@ namespace Desert::Graphic::API::Vulkan
     {
     public:
         explicit VulkanLogicalDevice( std::shared_ptr<VulkanPhysicalDevice> physicalDevice );
-        // Selects and probes the device (DeviceCapsProbe), refuses one without the required set, creates it.
-        [[nodiscard]] static Common::ResultStr<std::shared_ptr<VulkanLogicalDevice>> Create();
+        // Selects and probes the device (DeviceCapsProbe) the selection's adapter preference names, plays its
+        // device profile, refuses one without the required set, creates it. VulkanRhi::CreateDevice is the caller.
+        [[nodiscard]] static Common::ResultStr<std::shared_ptr<VulkanLogicalDevice>>
+        Create( const RhiSelection& selection );
         // The engine's device (EngineContext) as the Vulkan device: the one accessor every Vulkan-side file uses.
         [[nodiscard]] static std::shared_ptr<VulkanLogicalDevice> Current();
         ~VulkanLogicalDevice() override;
 
         // Device interface implementation
-        [[nodiscard]] const Engine::DeviceCapabilities& GetCapabilities() const override;
+        [[nodiscard]] const Engine::GpuCapabilities& GetCapabilities() const override;
         virtual void                                    WaitIdle() const override;
         [[nodiscard]] Engine::DeviceMemoryReport        QueryMemory() const override;
         [[nodiscard]] virtual std::string               GetName() const override;

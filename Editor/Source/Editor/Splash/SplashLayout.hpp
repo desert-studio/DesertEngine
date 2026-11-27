@@ -10,9 +10,17 @@
 // Units are POINTS of the 1200x675 design, with the origin at the BOTTOM-LEFT, because that is how the
 // design was written ("y = 58 from the bottom") and how AppKit layers measure. A platform whose origin is
 // at the top converts with `FlipY` below rather than keeping a second copy of the numbers.
+//
+// WHAT THE LINES SAY is here too (`StageText` … `LogText`), from one `Desert::Core::StartupView` the splash's own
+// thread samples off the start's progress (STARTUP-PROGRESS): both platforms draw the same words.
+
+#include <Engine/Core/StartupProgress.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <string>
 
 namespace Desert::Editor::Splash
@@ -27,8 +35,11 @@ namespace Desert::Editor::Splash
     inline constexpr float kPercentFontSize = 12.0f; // monospaced digits, white at 62 %
     inline constexpr float kItemFontSize    = 11.0f; // regular, white at 45 %
     inline constexpr float kVersionFontSize = 12.0f; // regular, white at 62 %
+    inline constexpr float kTimeFontSize    = 11.0f; // monospaced digits, white at 45 %
+    inline constexpr float kLogFontSize     = 11.0f; // regular, white at 45 %
     inline constexpr float kStageAlpha      = 0.62f;
     inline constexpr float kItemAlpha       = 0.45f;
+    inline constexpr float kLogAlpha        = 0.45f;
 
     // The three text lines, bottom edges from the bottom of the splash: the project over the stage over
     // the item the stage is working on, all above the bar and all below the wordmark.
@@ -45,6 +56,19 @@ namespace Desert::Editor::Splash
     inline constexpr float kBarFillGreen = 0.74f;
     inline constexpr float kBarFillBlue  = 0.45f;
 
+    // THE DETAIL LOG (Unity's Background Tasks list): the last finished phases and long items, in the
+    // RIGHT half above the version line, so it never reaches the wordmark (left half). Its bottom edge at
+    // y 96 clears the version box (y 70 + 18.2) by 7.8 points. Black at 35 % under the lines keeps them
+    // legible over the sky.
+    inline constexpr float  kLogPanelX      = 648.0f;
+    inline constexpr float  kLogPanelY      = 96.0f;
+    inline constexpr float  kLogPanelW      = 504.0f; // to the right margin: 648 + 504 = 1200 - 48
+    inline constexpr float  kLogPanelH      = 90.0f;
+    inline constexpr float  kLogPanelAlpha  = 0.35f;
+    inline constexpr float  kLogPanelRadius = 6.0f;
+    inline constexpr float  kLogInset       = 10.0f; // the lines' left and right padding inside the panel
+    inline constexpr std::size_t kLogLines  = Desert::Core::StartupProgress::kLogShown;
+
     struct Rect
     {
         float X = 0.0f;
@@ -58,10 +82,15 @@ namespace Desert::Editor::Splash
         Rect Project; // left-aligned
         Rect Stage;   // left-aligned
         Rect Percent; // right-aligned, on the stage's line
-        Rect Item;    // left-aligned, the whole width: "Cooking texture T_Rock_Albedo (37 / 212)"
+        Rect Item;    // left-aligned, the left 2/3: "DeferredLighting Direct · 12.4 s,  Bistro_Facade.tex"
+        Rect Time;    // right-aligned, the right 1/3 of the item's line: "3:12 · about 1:05 left"
         Rect Version; // right-aligned, on the project's line
         Rect BarTrack;
         Rect BarFill; // same origin as the track, width = track * fraction
+        Rect LogPanel; // the detail log's backing, black at LogPanelAlpha, corners kLogPanelRadius
+        // Left-aligned, inside the panel; [0] is the BOTTOM line and holds the newest entry.
+        std::array<Rect, kLogLines> LogLines{};
+        float                       LogPanelAlpha = kLogPanelAlpha;
     };
 
     /// A text box is its font's line height tall. 1.3 em holds the descenders of every system face
@@ -86,17 +115,29 @@ namespace Desert::Editor::Splash
         const float  inner   = kWidth - 2.0f * kMargin;
         // Half of each text column: the stage label takes the left, the percentage the right. A label
         // longer than its half is truncated by the platform, never drawn under the percentage. The item
-        // line has no right-hand neighbour and takes the whole width: asset names are long.
-        const float half = inner * 0.5f;
+        // line gives its left two thirds to the running items (names are long) and the right third to
+        // the elapsed time and the time left.
+        const float half      = inner * 0.5f;
+        const float itemWidth = inner * 2.0f / 3.0f;
+        const float timeWidth = inner - itemWidth;
+        const float logLine   = LineHeight( kLogFontSize );
+        // The lines are centred in the panel: 6 x 14.3 = 85.8 of its 90 points.
+        const float logBottom = kLogPanelY + ( kLogPanelH - logLine * static_cast<float>( kLogLines ) ) * 0.5f;
 
         Layout layout;
         layout.Project  = { kMargin, kProjectY, half, LineHeight( kProjectFontSize ) };
         layout.Stage    = { kMargin, kStageY, half, LineHeight( kStageFontSize ) };
         layout.Percent  = { kMargin + half, kStageY, half, LineHeight( kPercentFontSize ) };
-        layout.Item     = { kMargin, kItemY, inner, LineHeight( kItemFontSize ) };
+        layout.Item     = { kMargin, kItemY, itemWidth, LineHeight( kItemFontSize ) };
+        layout.Time     = { kMargin + itemWidth, kItemY, timeWidth, LineHeight( kTimeFontSize ) };
         layout.Version  = { kMargin + half, kProjectY, half, LineHeight( kVersionFontSize ) };
         layout.BarTrack = { kMargin, kBarY, inner, kBarHeight };
         layout.BarFill  = { kMargin, kBarY, static_cast<float>( inner * clamped ), kBarHeight };
+        layout.LogPanel = { kLogPanelX, kLogPanelY, kLogPanelW, kLogPanelH };
+        for ( std::size_t i = 0; i < kLogLines; ++i )
+            layout.LogLines[i] = { kLogPanelX + kLogInset, logBottom + logLine * static_cast<float>( i ),
+                                   kLogPanelW - 2.0f * kLogInset, logLine };
+        layout.LogPanelAlpha = kLogPanelAlpha;
         return layout;
     }
 
@@ -140,5 +181,170 @@ namespace Desert::Editor::Splash
     [[nodiscard]] constexpr Rect FlipY( const Rect& rect )
     {
         return { rect.X, kHeight - rect.Y - rect.H, rect.W, rect.H };
+    }
+
+    /// The smallest change of the bar's fraction a window can show: one device pixel of the bar's width
+    /// (kWidth - 2 kMargin points at @p pixelsPerPoint), in (0, 0.1] as StartupProgress::Sample takes it.
+    [[nodiscard]] inline double BarMinVisibleStep( const float pixelsPerPoint )
+    {
+        const double pixels = static_cast<double>( kWidth - 2.0f * kMargin ) * static_cast<double>( pixelsPerPoint );
+        return pixels > 10.0 ? 1.0 / pixels : 0.1;
+    }
+
+    // ===== What the lines say, from one sample of the start's progress =====
+
+    // U+00B7 in UTF-8: the separator of every live line.
+    inline constexpr const char* kDot = "\xC2\xB7";
+
+    /// "Indexing content · phase 5 / 17 · 1240 / 1910" for a Planned phase once its N is given, "· 812 done" for a
+    /// Discovered one, nothing for a Timed one; "Closing..."
+    /// once a person asked the start to stop; empty only for a plan without phases (before the first BeginPhase
+    /// the sample names the plan's first phase).
+    [[nodiscard]] inline std::string StageText( const Desert::Core::StartupView& view )
+    {
+        if ( view.StopRequested )
+            return "Closing...";
+        if ( view.Phase.empty() )
+            return {};
+        std::string text = view.Phase + "  " + kDot + "  phase " + std::to_string( view.PhaseNumber ) + " / " +
+                           std::to_string( view.PhaseCount );
+        switch ( view.Count )
+        {
+            case Desert::Core::PhaseCountKind::Planned:
+                if ( view.Total > 0 )
+                    text += std::string( "  " ) + kDot + "  " + std::to_string( view.Done ) + " / " +
+                            std::to_string( view.Total );
+                break;
+            case Desert::Core::PhaseCountKind::Discovered:
+                text += std::string( "  " ) + kDot + "  " + std::to_string( view.Done ) + " done";
+                break;
+            case Desert::Core::PhaseCountKind::Timed:
+                break;
+        }
+        return text;
+    }
+
+    /// "62 %", rounded DOWN so that "100 %" is never shown before the start is over; empty before the first
+    /// phase (a "0 %" there would be a number that says nothing).
+    [[nodiscard]] inline std::string PercentText( const Desert::Core::StartupView& view )
+    {
+        if ( view.Phase.empty() && !view.Finished )
+            return {};
+        const double clamped = view.Fraction < 0.0 ? 0.0 : ( view.Fraction > 1.0 ? 1.0 : view.Fraction );
+        return std::to_string( static_cast<int>( std::floor( clamped * 100.0 ) ) ) + " %";
+    }
+
+    /// One running item: "textures streaming · 357 in flight  12.4 s" -- its name, its detail when it has one,
+    /// and its seconds, always (an item without its seconds cannot be told from a hang).
+    [[nodiscard]] inline std::string ActiveText( const Desert::Core::ActiveWork& work )
+    {
+        char seconds[32];
+        std::snprintf( seconds, sizeof( seconds ), "%.1f s", work.Seconds < 0.0 ? 0.0 : work.Seconds );
+        std::string text = work.Name;
+        if ( !work.Detail.empty() )
+            text += std::string( " " ) + kDot + " " + work.Detail;
+        return text + "  " + seconds;
+    }
+
+    /// The running items (the sample holds at most kActiveShown); in `scene.stream` the first are what the
+    /// reveal waits for. Empty once a person asked to stop.
+    [[nodiscard]] inline std::string ItemText( const Desert::Core::StartupView& view )
+    {
+        if ( view.StopRequested )
+            return {};
+        std::string text;
+        for ( const Desert::Core::ActiveWork& work : view.Active )
+        {
+            if ( !text.empty() )
+                text += ",  ";
+            text += ActiveText( work );
+        }
+        return text;
+    }
+
+    /// The ETA rounded UP to a whole second: the shown number is never below the model's.
+    [[nodiscard]] inline double EtaShownSeconds( const Desert::Core::StartupView& view )
+    {
+        return std::ceil( view.EtaSeconds < 0.0 ? 0.0 : view.EtaSeconds );
+    }
+
+    /// "3:12 · about 1:05 left" while the ETA is known, "3:12 · longer than expected" once the start has overrun
+    /// it; only the elapsed time once the start is over; empty before the first phase.
+    [[nodiscard]] inline std::string TimeText( const Desert::Core::StartupView& view )
+    {
+        if ( view.Phase.empty() && !view.Finished )
+            return {};
+        const std::string elapsed = Desert::Core::FormatDuration( view.ElapsedSeconds );
+        if ( view.Finished )
+            return elapsed;
+        if ( !view.EtaKnown )
+            return elapsed + " " + kDot + " longer than expected";
+        return elapsed + " " + kDot + " about " + Desert::Core::FormatDuration( EtaShownSeconds( view ) ) + " left";
+    }
+
+    /// One line of the detail log: "0:31  Building shader maps  2254 items  95.4 s" — the time since the
+    /// process started, then what the progress noted.
+    [[nodiscard]] inline std::string LogText( const Desert::Core::StartupLogLine& line )
+    {
+        return Desert::Core::FormatDuration( line.AtSeconds ) + "  " + line.Text;
+    }
+
+    /// The text of log line @p row of the layout ([0] the bottom one): the newest entry at the bottom, older
+    /// ones above it, empty where the log is shorter than the panel.
+    [[nodiscard]] inline std::string LogRowText( const Desert::Core::StartupView& view, const std::size_t row )
+    {
+        if ( row >= view.Log.size() )
+            return {};
+        return LogText( view.Log[view.Log.size() - 1 - row] );
+    }
+
+    // ===== --splash-capture's progress.csv: one row per sample, the same on both platforms =====
+
+    inline constexpr const char* kCaptureCsvHeader =
+         "ms,fraction,phase,kind,done,total,eta,eta_known,active0,active0_seconds";
+
+    /// The count kind's column value.
+    [[nodiscard]] inline const char* CountKindName( const Desert::Core::PhaseCountKind kind )
+    {
+        switch ( kind )
+        {
+            case Desert::Core::PhaseCountKind::Planned:
+                return "planned";
+            case Desert::Core::PhaseCountKind::Discovered:
+                return "discovered";
+            case Desert::Core::PhaseCountKind::Timed:
+                break;
+        }
+        return "timed";
+    }
+
+    /// One CSV field, quoted: phase labels and item names may hold commas.
+    [[nodiscard]] inline std::string CsvField( const std::string& text )
+    {
+        std::string quoted = "\"";
+        for ( const char c : text )
+        {
+            if ( c == '"' )
+                quoted += '"';
+            quoted += c;
+        }
+        return quoted + "\"";
+    }
+
+    /// The row of one sample, without the line end: ms since the process started, the fraction, the phase, its
+    /// count kind and count, the ETA as shown (whole seconds, rounded up) and whether it is known, the first
+    /// active item and its seconds -- the acceptance reads every number of the picture from here.
+    [[nodiscard]] inline std::string CaptureCsvRow( const Desert::Core::StartupView& view )
+    {
+        char head[64];
+        std::snprintf( head, sizeof( head ), "%.0f,%.6f,", view.ElapsedSeconds * 1000.0,
+                       static_cast<double>( view.Fraction ) );
+        char eta[48];
+        std::snprintf( eta, sizeof( eta ), ",%.0f,%d,", EtaShownSeconds( view ), view.EtaKnown ? 1 : 0 );
+        char seconds[32];
+        std::snprintf( seconds, sizeof( seconds ), ",%.3f", view.Active.empty() ? 0.0 : view.Active.front().Seconds );
+        return std::string( head ) + CsvField( view.Phase ) + "," + CountKindName( view.Count ) + "," +
+               std::to_string( view.Done ) + "," + std::to_string( view.Total ) + eta +
+               CsvField( view.Active.empty() ? std::string{} : view.Active.front().Name ) + seconds;
     }
 } // namespace Desert::Editor::Splash

@@ -57,10 +57,6 @@ namespace Desert::Editor::Core
         }
 
     private:
-        static std::vector<SubjectId>& Pending()
-        {
-            static std::vector<SubjectId> s_Pending;
-            return s_Pending;
-        }
+        static std::vector<SubjectId>& Pending();
     };
 } // namespace Desert::Editor::Core

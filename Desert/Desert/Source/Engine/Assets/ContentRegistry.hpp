@@ -1,11 +1,12 @@
 #pragma once
 
 #include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Assets/ContentGatherWatch.hpp>
 
 #include <Common/Content/AssetMove.hpp>
 #include <Common/Content/AssetTrash.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Common/Content/ImportRecord.hpp>
 
@@ -25,6 +26,11 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+namespace Desert::Core
+{
+    class WorkSink;
+}
 
 namespace Desert::Assets
 {
@@ -143,7 +149,8 @@ namespace Desert::Assets
 
         // THE COOK. Walks every content root, enters files that have no row, drops rows whose file is
         // gone, and re-reads dependency edges from `manager` for every asset it holds. Writes the file
-        // when anything changed. Editor only.
+        // when anything changed. Editor only. @p sink (null: nobody watches) counts and names each file
+        // while its header is read.
         struct RefreshOutcome
         {
             std::size_t               Rows    = 0;
@@ -154,7 +161,7 @@ namespace Desert::Assets
             bool                      Written = false;
             [[nodiscard]] std::string Describe() const;
         };
-        [[nodiscard]] Common::ResultStr<RefreshOutcome> Refresh( AssetManager& manager );
+        [[nodiscard]] Common::ResultStr<RefreshOutcome> Refresh( AssetManager& manager, Core::WorkSink* sink );
 
         // Writes the current rows to `Common::Utils::AssetRegistry::DefaultPath()`. Separate from
         // `Refresh` so the editor can flush rows that `NoteAsset` added during a session without
@@ -192,14 +199,9 @@ namespace Desert::Assets
 
             // A FUNCTION-LOCAL STATIC, for `AssetPathIndex`'s reason: `NoteAsset` is reachable from
             // `AssetManager::CreateAsset`, which a translation unit's static initialiser can reach, and a
-            // namespace-scope object would then be read before its own constructor ran. It is also the
-            // spelling that makes this header-only: one definition, shared across every translation unit
-            // that includes this file, without a `.cpp` for anyone to have to link.
-            inline State& Get_()
-            {
-                static State state;
-                return state;
-            }
+            // namespace-scope object would then be read before its own constructor ran. It is defined in
+            // ContentRegistry.cpp (BINT-STATE): a header definition gave every module DLL its own registry.
+            State& Get_();
 
             // Lower-cased so a `.TEX` on a case-preserving filesystem matches the census row, exactly as
             // `AssetPreloader`'s scan used to lower-case before comparing.
@@ -224,50 +226,13 @@ namespace Desert::Assets
             }
         } // namespace Detail
 
-        // THE EDITOR'S REGISTRY BUILDS ITSELF, as UE's asset registry does at editor start: a walk of the
-        // content roots reading each file's header only (`Common::Content::GatherContentRegistry`), with this
-        // machine's cache (`RegistryCachePath`, outside git) sparing the headers of unchanged files. No cache
-        // is the ordinary first start, not a warning. The cache is written back when the gather read anything.
-        // `refused`, when given, receives the sentence of every file that could not enter (the packager
-        // refuses on them; the editor only reports them). `meshesWithoutHeaderBounds`, when given, receives
-        // the keys of meshes whose header states no box (cooked before it did): the engine-linking caller
-        // reads those bodies once and hands the boxes back through `NoteBounds`, and the cache keeps them.
+        // The gather itself, with a watcher, is ContentRegistry::GatherWatched (ContentGatherWatch.hpp, defined
+        // in ContentRegistryCook.cpp); this is that gather nobody watches.
         inline Common::ResultStr<std::size_t>
         Gather( std::vector<std::string>* refused                   = nullptr,
                 std::vector<std::string>* meshesWithoutHeaderBounds = nullptr )
         {
-            Common::Content::RegistryCache cache;
-            const std::filesystem::path    cachePath = Common::Content::RegistryCachePath();
-            if ( Common::Utils::FileSystem::Exists( cachePath ) )
-            {
-                const auto text   = Common::Utils::FileSystem::ReadFileContent( cachePath );
-                auto       parsed = text ? Common::Content::ParseRegistryCache( text.GetValue() )
-                                         : Common::MakeError<Common::Content::RegistryCache>( text.GetError() );
-                if ( parsed )
-                    cache = parsed.GetValue();
-                else
-                    LOG_WARN( "[ContentRegistry] the local cache '{}' is unusable and is rebuilt from the "
-                              "content: {}",
-                              cachePath.string(), parsed.GetError() );
-            }
-
-            Common::Content::GatheredRegistry gathered = Common::Content::GatherContentRegistry( cache );
-            for ( const std::string& refusal : gathered.Refused )
-                LOG_ERROR( "[ContentRegistry] a content file could not enter the registry: {}", refusal );
-            if ( refused )
-                *refused = gathered.Refused;
-            if ( meshesWithoutHeaderBounds )
-                *meshesWithoutHeaderBounds = gathered.MeshesWithoutHeaderBounds;
-            LOG_INFO( "[ContentRegistry] gathered {} row(s): {} from the local cache, {} header(s) read",
-                      gathered.Registry.Count(), gathered.FromCache, gathered.Read );
-
-            const bool        changed = gathered.Read > 0 || gathered.Registry.Count() != cache.Registry.Count();
-            const std::size_t bound   = Detail::Publish( std::move( gathered.Registry ) );
-            if ( changed )
-            {
-                Detail::Get_().Dirty = true;
-            }
-            return Common::MakeSuccess( bound );
+            return GatherWatched( refused, meshesWithoutHeaderBounds, nullptr );
         }
 
         // A PACKAGED GAME'S REGISTRY: the one the packager cooked into the pak at `AssetRegistry::DefaultPath`.

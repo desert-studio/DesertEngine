@@ -130,7 +130,8 @@ namespace Desert::Assets
         // registered-but-unread shader shell is loaded here before its manifest (Role) is asked anything.
         void ResolveShader( AssetManager* manager );
 
-        bool         m_ReadyForUse  = false;
+        bool         m_Read         = false; // the file was read (Load); not yet ready, see ResolveDependencies
+        bool         m_ReadyForUse  = false; // read AND its template resolved: set only by ResolveDependencies
         Common::UUID m_MaterialUUID = Common::UUID::Null();
         MaterialData m_Data;
         std::string         m_ShaderName;                 // display only

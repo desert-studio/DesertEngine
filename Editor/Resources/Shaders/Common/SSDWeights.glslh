@@ -1,0 +1,29 @@
+// The screen-space denoiser's weights against an outlying sample (UE SSDSignalFramework.ush, KARIS_WEIGHTING;
+// MegaLightsDenoiserSpatial.usf, the brightness weight by the accumulated deviation). Neither is applied to one
+// frame's RAW samples of the surface signals: a light few pixels of a frame sample is bright in those and black in the
+// rest, its mean is the signal, and a weight against the bright ones takes the energy with the noise.
+
+float SSDLuminance(vec3 c)
+{
+	return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// UE KARIS_WEIGHTING: a sample weighs 1 / (1 + its luminance), so one firefly cannot drag the kernel.
+float SSDKarisWeight(vec3 c)
+{
+	return 1.0 / (1.0 + SSDLuminance(c));
+}
+
+// The standard deviation of a signal's luminance from its accumulated moments (HistoryMomentsTexture: r = the mean,
+// g = sqrt(the mean square)).
+float SSDDeviation(vec2 moments)
+{
+	return sqrt(max(moments.y * moments.y - moments.x * moments.x, 0.0));
+}
+
+// exp2(-|dL| / sigma) of a tap against the pixel: the edge the light itself draws (a lit leaf against a dark one on
+// the same plane) is kept, noise of the signal's own size is averaged.
+float SSDBrightnessWeight(vec3 tap, float centreLight, float deviation)
+{
+	return exp2(-abs(SSDLuminance(tap) - centreLight) / max(deviation, 1e-4 + 0.01 * centreLight));
+}

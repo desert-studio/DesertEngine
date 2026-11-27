@@ -135,8 +135,8 @@ namespace Desert::Geometry
     [[nodiscard]] Common::ResultStr<DisplacementTopology> DecodeDisplacementTopology( std::span<const uint8_t> );
 
     // ---------------------------------------------------------------------------------------------------------
-    // One cluster tessellated. Every record is plain data the emit pass reads (std430 layouts in
-    // Shaders/Common/DisplacementRecords.glslh mirror these four structs).
+    // One cluster tessellated. Every record is plain data the emit pass reads as packed uint words; no GLSL
+    // struct declares them, so the sizes below are the whole of the contract.
 
     // A displaced point, described canonically: P = (B0*W[0] + B1*W[1] + (Max-B0-B1)*W[2]) / Max over welded
     // vertices W ascending (unused slots repeat the last id with weight 0). Its height is the average of its

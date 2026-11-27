@@ -13,6 +13,7 @@
 // nothing else.
 
 #include <Common/Core/CrashHandler.hpp>
+#include <Common/Core/CrashWorlds.hpp>
 #include <RuntimeCrashTest.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -581,9 +582,10 @@ namespace
                 }
             }
 
-            // Both context setters are exercised, because a value that is never written is a field the
-            // report would always show as "none" and nobody would notice.
-            Common::Crash::SetScenePath( "Scenes/CrashHandlerSuite.desce" );
+            // A live world and every context setter are exercised, because a value that is never written is a
+            // field the report would always lack and nobody would notice.
+            Common::Crash::CrashWorld world( "document" );
+            world.Update( "Scenes/CrashHandlerSuite.desce", "play" );
             Common::Crash::SetGpu( { .name          = "test harness, no device",
                                      .vendorId      = 0x10DE,
                                      .deviceId      = 0x2482,

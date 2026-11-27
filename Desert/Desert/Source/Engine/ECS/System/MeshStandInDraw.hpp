@@ -10,7 +10,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <cstdint>
 #include <functional>
@@ -57,11 +57,7 @@ namespace Desert::ECS
 
     using MeshStandInDrawFactory = std::unique_ptr<IMeshStandInDraw> ( * )();
 
-    inline std::vector<MeshStandInDrawFactory>& MeshStandInDraws()
-    {
-        static std::vector<MeshStandInDrawFactory> factories;
-        return factories;
-    }
+    std::vector<MeshStandInDrawFactory>& MeshStandInDraws();
 
     inline void RegisterMeshStandInDraw( MeshStandInDrawFactory factory )
     {

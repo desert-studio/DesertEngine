@@ -33,6 +33,7 @@
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 #include <TestSupport/ui_canvas_resources_mock.hpp>
+#include <TestSupport/ui_registry.hpp>
 
 #include <gtest/gtest.h>
 
@@ -96,7 +97,7 @@ namespace
     // apart in every channel so "which state did it draw" is a exact-equality question, not a threshold.
     struct Fixture
     {
-        entt::registry Registry;
+        entt::registry Registry = ::TestSupport::UIRegistry();
         entt::entity   Canvas = entt::null;
         entt::entity   Button = entt::null;
 
@@ -653,7 +654,7 @@ namespace
     {
         static constexpr float kItemH = 50.0f;
 
-        entt::registry Registry;
+        entt::registry Registry = ::TestSupport::UIRegistry();
         entt::entity   Canvas = entt::null;
         entt::entity   Box    = entt::null;
         entt::entity   Item[3]{ entt::null, entt::null, entt::null };
@@ -826,7 +827,7 @@ namespace
     // under test; the button is what the pointer is really over.
     struct Nested
     {
-        entt::registry Registry;
+        entt::registry Registry = ::TestSupport::UIRegistry();
         entt::entity   Canvas = entt::null;
         entt::entity   Panel  = entt::null;
         entt::entity   Button = entt::null;
@@ -1212,7 +1213,7 @@ namespace
     // drawn is a question the vertex buffer answers.
     struct TwoCanvases
     {
-        entt::registry Registry;
+        entt::registry Registry = ::TestSupport::UIRegistry();
         entt::entity   CanvasA = entt::null, CanvasB = entt::null;
         entt::entity   PanelA = entt::null, PanelB = entt::null;
 
@@ -1378,7 +1379,7 @@ namespace
     // the list ARE its screen corners. Rotation / Scale / Pivot are the test's to set.
     struct XformFixture
     {
-        entt::registry Registry;
+        entt::registry Registry = ::TestSupport::UIRegistry();
         entt::entity   Canvas = entt::null;
         entt::entity   Panel  = entt::null;
 
@@ -1956,7 +1957,7 @@ namespace
     // pixels and of the pointer.
     struct TwoCanvasFixture
     {
-        entt::registry Registry;
+        entt::registry Registry = ::TestSupport::UIRegistry();
         entt::entity   Lower = entt::null, LowerButton = entt::null;
         entt::entity   Upper = entt::null, UpperButton = entt::null;
 

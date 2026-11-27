@@ -2,15 +2,14 @@
 # Configure (cmake --preset) and build Desert Engine on macOS with Ninja.
 #
 # Usage:
-#   scripts/MacOS/BuildMacOS.sh [Debug|Release|Shipping] [--unity] [--gen-only] [--no-analyze]
+#   scripts/MacOS/BuildMacOS.sh [Development|DebugGame|Shipping] [--gen-only] [--no-analyze]
 #                               [--project=<Name>]...
 #
 # Examples:
-#   scripts/MacOS/BuildMacOS.sh              # Debug build, static analysis on
-#   scripts/MacOS/BuildMacOS.sh Release      # Release build
+#   scripts/MacOS/BuildMacOS.sh              # Development: module dylibs, unity, static analysis on
+#   scripts/MacOS/BuildMacOS.sh DebugGame    # unoptimised, for a debugger session
 #   scripts/MacOS/BuildMacOS.sh Shipping     # what a player gets: no capture, no profiler, no counters
-#   scripts/MacOS/BuildMacOS.sh Release --unity      # the CI speed build (preset macos-clang-ninja-unity)
-#   scripts/MacOS/BuildMacOS.sh Debug --no-analyze   # skip clang-tidy, and SAY so
+#   scripts/MacOS/BuildMacOS.sh DebugGame --no-analyze   # skip clang-tidy, and SAY so
 #   scripts/MacOS/BuildMacOS.sh Shipping --project=Runtime --project=GamePackager
 #                                    # those targets and what CMake says they depend on
 #
@@ -26,8 +25,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
-CONFIG="Debug"
-PRESET="macos-clang-ninja"
+CONFIG="Development"
 GEN_ONLY=0
 ANALYZE=1
 # CMake targets to build. Empty = the whole workspace. Ninja builds each named target's dependencies
@@ -47,14 +45,20 @@ for arg in "$@"; do
         # Shipping is accepted here because the packager's own "Runtime binary not found" message tells
         # people to run `scripts/MacOS/BuildMacOS.sh Shipping` — advice a script that refused the word
         # would turn into a second dead end.
-        Debug|Release|Shipping) CONFIG="$arg" ;;
-        --unity)       PRESET="macos-clang-ninja-unity" ;;
+        Development|DebugGame|Shipping) CONFIG="$arg" ;;
         --gen-only)    GEN_ONLY=1 ;;
         --no-analyze)  ANALYZE=0 ;;
         --project=?*)  PROJECTS+=("${arg#--project=}") ;;
         *) echo "Unknown argument: $arg" >&2; exit 1 ;;
     esac
 done
+
+# One configuration per build tree (single-config Ninja, CMakePresets.json), each in build/cmake/<preset>.
+case "$CONFIG" in
+    Development) PRESET="mac-dev" ;;
+    DebugGame)   PRESET="mac-debug" ;;
+    Shipping)    PRESET="mac-ship" ;;
+esac
 
 for tool in cmake ninja; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -170,8 +174,8 @@ else
     echo "--- ccache ON: $(pool_ccache --version | head -1), cache at $POOL_HOME/ccache"
 fi
 
-# Build presets are <configure preset>-<lowercase config> (CMakePresets.json).
-BUILD_PRESET="$PRESET-$(echo "$CONFIG" | tr '[:upper:]' '[:lower:]')"
+# The build preset carries the configure preset's name (CMakePresets.json).
+BUILD_PRESET="$PRESET"
 CORES="$(sysctl -n hw.ncpu)"
 TARGET_ARGS=()
 for project in "${PROJECTS[@]+"${PROJECTS[@]}"}"; do

@@ -29,6 +29,11 @@ namespace Desert::Core::Serialize
     /// the registry. One registered after the registry was built is refused loudly: it could not be placed.
     void RegisterModuleSerializer( const ModuleSerializer& serializer );
 
+    /// Hands Engine the executable's generated module list (Components.gen.cpp calls it at static initialisation;
+    /// UE: the target's module list). Engine names no module's generated rows; one linked after the registry was
+    /// built is refused loudly.
+    void LinkModuleComponentRows( void ( *registerRows )( ComponentRegistrar& ) );
+
     /// Installs Engine's component provider (idempotent; also done at static initialisation). Scene calls it, so
     /// every executable with a Scene links the provider (EngineComponentProvider.cpp).
     void LinkEngineComponentProvider();

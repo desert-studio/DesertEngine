@@ -130,33 +130,17 @@ namespace Desert::Graphic
         // the editor's `TextureImporter` is the one place that decodes, and everything at run time reads
         // the container it writes. Desert/Tests/Engine/RuntimeSourceDecoders keeps it that way.
 
-        /// Builds a texture from a texture ASSET (`.detex`): its platform data -- pixels and the whole mip
-        /// chain -- comes out of the DDC under the key the asset describes (`LoadTexturePlatformData`) and
-        /// is uploaded as it is. No image decoder runs here, and no blit chain is built.
-        ///
-        /// The refusal names the file and the reason — a stale JSON manifest, a truncated container, a
-        /// level table that does not describe the file — because "the texture is missing" with no
-        /// sentence attached is the most expensive kind of missing.
-        static Common::ResultStr<std::shared_ptr<Texture2D>>
-        CreateFromAsset( const std::filesystem::path& asset,
-                         const TextureBackend&        backend = TextureBackend::Device() );
-
-        /// `CreateFromAsset` in its two halves (AM2), so the on-demand path can put them on different threads.
-        /// `ReadCooked` is CPU only -- the DDC read, and the cook on a DDC miss, then the container decode -- and
-        /// is safe on a worker. `CreateFromCooked` creates the GPU image and uploads it, on the main thread.
-        static Common::ResultStr<CookedTexture2D>            ReadCooked( const std::filesystem::path& cookedPath );
-        /// The streaming read (TEX-STREAMING): `ReadCooked`, then only the levels from @p firstMip down are kept
-        /// (CookedTexture2D::KeepFromMip). @p firstMip = kStreamingTail keeps the mip tail: the first level no
-        /// larger than @p tailSize on its longer side, which is all a texture holds before the frame asks.
-        static constexpr uint32_t                 kStreamingTail = UINT32_MAX;
-        static Common::ResultStr<CookedTexture2D> ReadCookedMips( const std::filesystem::path& cookedPath,
-                                                                  uint32_t firstMip, uint32_t tailSize );
+        /// Reading a cooked asset (the DDC read, the cook on a miss, the container decode) is Engine's asset policy:
+        /// Assets::CreateTextureFromAsset / ReadCookedTexture / ReadCookedTextureMips (Assets/CookedTextureLoad.hpp).
+        /// CreateFromCooked creates the GPU image and uploads it, on the main thread. kStreamingTail asks
+        /// ReadCookedTextureMips for the mip tail instead of a first level.
+        static constexpr uint32_t kStreamingTail = UINT32_MAX;
         static Common::ResultStr<std::shared_ptr<Texture2D>>
         CreateFromCooked( CookedTexture2D cooked, const TextureBackend& backend = TextureBackend::Device() );
 
         /// THE STREAMED MIP CHANGE (TEX-STREAMING; UE FTexture2DUpdate + RHIUpdateTextureReference), in two steps
         /// because a recording view may read the live image (OVERLAP-ON-7). StageLevels: @p cooked -- this
-        /// texture's own asset read from another first level (ReadCookedMips) -- is uploaded to a NEW device
+        /// texture's own asset read from another first level (Assets::ReadCookedTextureMips) -- is uploaded to a NEW device
         /// image nothing reads yet; any thread that may upload, any time. AdoptStagedLevels: the texture's
         /// EXISTING Image2D takes it (Image2D::TakeDeviceImageFrom: its views, its layout, its bindless row), so
         /// it runs only where no view records (TextureService queues it behind the render work in flight,

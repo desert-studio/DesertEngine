@@ -23,13 +23,8 @@ Shader "HeterogeneousVolumeUpsample"
         Uniform(4) texture2D SceneDepthTexture;
         #define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
 
-        ReadBuffer(17) HeterogeneousVolumeMarchParams
-        {
-            uvec4 HvCounts;
-            vec4  HvTarget;  // xy = half-res size, zw = render size
-            vec4  HvHistory;
-            vec4  HvRect;    // uv min xy, max zw
-        };
+        #include <Generated/Fog/HeterogeneousVolume.glslh>
+        ReadBuffer(17) HeterogeneousVolumeMarchParams { DESERT_HeterogeneousVolumeMarchGpu_MEMBERS };
 
         LocalSize(8, 8, 1);
 

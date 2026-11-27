@@ -228,10 +228,6 @@ namespace Desert::Editor::Core
         }
 
     private:
-        static std::vector<AssetFieldRequest>& Pending()
-        {
-            static std::vector<AssetFieldRequest> s_Pending;
-            return s_Pending;
-        }
+        static std::vector<AssetFieldRequest>& Pending();
     };
 } // namespace Desert::Editor::Core

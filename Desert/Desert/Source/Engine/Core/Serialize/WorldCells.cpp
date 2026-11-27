@@ -44,6 +44,7 @@
 #include <utility>
 #include <vector>
 #include <Common/Json/ReadWrite.hpp>
+#include <Common/Content/ContentPaths.hpp>
 
 namespace Desert::Core::WorldCells
 {

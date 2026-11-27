@@ -64,27 +64,15 @@ namespace Desert::Editor::Core
 
         // Deliberately NOT persisted: which handle you last dragged is where you are in a task, not a
         // preference, and every session starts in Select the way the editor's other modal state does.
-        static Operation Get()
-        {
-            return s_Operation;
-        }
+        static Operation Get();
 
-        static void Set( Operation op )
-        {
-            s_Operation = op;
-        }
+        static void Set( Operation op );
 
         // The transform space the USER chose. Not persisted either, and for the same reason as Operation:
         // it is a position in a task, not a setting. UE keeps it per viewport and resets it per session.
-        static Space GetSpace()
-        {
-            return s_Space;
-        }
+        static Space GetSpace();
 
-        static void SetSpace( Space space )
-        {
-            s_Space = space;
-        }
+        static void SetSpace( Space space );
 
         // ── WHY THIS IS NOT JUST `GetSpace()` ────────────────────────────────────────────────────────
         //
@@ -102,10 +90,7 @@ namespace Desert::Editor::Core
         // have. So the toolbar, the gizmo and any test all ask THIS function what space is in force, and
         // the toggle is disabled (showing Local) while Scale is the active operation. One value, one
         // reader, and the button cannot claim something ImGuizmo will not do.
-        static Space EffectiveSpace( Operation op )
-        {
-            return SpaceIsForced( op ) ? Space::Local : s_Space;
-        }
+        static Space EffectiveSpace( Operation op );
 
         static Space EffectiveSpace()
         {
@@ -134,57 +119,33 @@ namespace Desert::Editor::Core
         // Written by `GizmoController::RenderBone` (the pose branch) and read by `SequencerPanel`, which
         // hands it to `Animation::ControlKeyer::Observe`. Neither of those two files is compiled by any
         // test suite, which is why the RULE is in the keyer and only the BIT is here.
-        static bool PoseInteraction()
-        {
-            return s_PoseInteraction;
-        }
+        static bool PoseInteraction();
 
-        static void SetPoseInteraction( bool held )
-        {
-            s_PoseInteraction = held;
-        }
+        static void SetPoseInteraction( bool held );
 
         // THE SAME BIT FOR A CONTROL. A control gesture (the shape drag or the axis gizmo) is held in
         // `LightGizmoRenderer`, and the Sequencer's auto-key needs its edges exactly as the bone gizmo's
         // are needed above; a second bit rather than reusing that one, because the bone transaction
         // (`PoseEditTransaction::Observe`) must not open on a control gesture that writes no bone.
-        static bool ControlInteraction()
-        {
-            return s_ControlInteraction;
-        }
+        static bool ControlInteraction();
 
-        static void SetControlInteraction( bool held )
-        {
-            s_ControlInteraction = held;
-        }
+        static void SetControlInteraction( bool held );
 
         // THE SAME BIT FOR AN ACTOR. The entity gizmo's drag (`GizmoController::Render`) — what a level
         // sequence's Auto Key keys on the release of (`ECS::LevelSequenceAutoKey`). A third bit rather than
         // either of the two above: an actor gesture writes no bone and no control, and the transactions
         // reading those must not open on it.
-        static bool EntityInteraction()
-        {
-            return s_EntityInteraction;
-        }
+        static bool EntityInteraction();
 
-        static void SetEntityInteraction( bool held )
-        {
-            s_EntityInteraction = held;
-        }
+        static void SetEntityInteraction( bool held );
 
         // The undo history's revision right after the entity gizmo's LAST release recorded its move
         // (`RecordTransformEdits`), or empty when that release recorded nothing (a click without a drag) or a
         // new drag started since. The level sequence's Auto Key joins its key entry to exactly this one
         // (`CommandHistory::JoinFollowUp`): the move and its key are one Ctrl+Z, as in UE.
-        static std::optional<uint64_t> EntityGestureEntry()
-        {
-            return s_EntityGestureEntry;
-        }
+        static std::optional<uint64_t> EntityGestureEntry();
 
-        static void SetEntityGestureEntry( std::optional<uint64_t> revision )
-        {
-            s_EntityGestureEntry = revision;
-        }
+        static void SetEntityGestureEntry( std::optional<uint64_t> revision );
 
         // Snap increments, owned by EditorPreferences (~/.desertengine/editor.json). Snapping is active
         // when the persistent toggle is ON, or while Ctrl is held — and Ctrl INVERTS the toggle (so with
@@ -208,11 +169,11 @@ namespace Desert::Editor::Core
         }
 
     private:
-        inline static Operation s_Operation = Operation::None;
-        inline static Space     s_Space     = Space::World; // UE's default, and the behaviour before this existed
-        inline static bool      s_PoseInteraction = false;
-        inline static bool      s_ControlInteraction = false;
-        inline static bool      s_EntityInteraction  = false;
-        inline static std::optional<uint64_t> s_EntityGestureEntry;
+        static Operation s_Operation;
+        static Space s_Space; // UE's default, and the behaviour before this existed
+        static bool s_PoseInteraction;
+        static bool s_ControlInteraction;
+        static bool s_EntityInteraction;
+        static std::optional<uint64_t> s_EntityGestureEntry;
     };
 } // namespace Desert::Editor::Core

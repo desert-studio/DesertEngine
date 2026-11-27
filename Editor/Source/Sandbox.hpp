@@ -6,7 +6,6 @@
 #include <Editor/Core/CommandLine.hpp>
 #include <Editor/Builders/WorldPartitionBuilder.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
-#include <Engine/Graphic/API/Vulkan/DeviceCapsProbe.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/PipelineCacheFile.hpp>
 #include <Editor/Core/StartupRefusal.hpp>
@@ -18,6 +17,9 @@
 #include <Projects/StartupLayout.hpp>
 #include <Editor/Splash/SplashImage.hpp>
 #include <Editor/Splash/SplashScreen.hpp>
+#include <Editor/Core/StartupRecord.hpp>
+#include <Editor/LevelEditor/EditorStartup.hpp>
+#include <Engine/Core/StartupProgress.hpp>
 #include <Common/Core/Version.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -29,6 +31,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -37,7 +41,9 @@ namespace Desert
     class Sandbox : public Engine::Application
     {
     public:
-        Sandbox( const Engine::ApplicationInfo& appinfo, std::unique_ptr<Editor::Splash::SplashScreen> splash );
+        // @p startup is the start's progress (never null); @p appinfo's Startup points at it.
+        Sandbox( const Engine::ApplicationInfo& appinfo, std::unique_ptr<Editor::Splash::SplashScreen> splash,
+                 std::shared_ptr<Core::StartupProgress> startup );
 
         virtual void OnCreate() override;
         virtual void OnDestroy() override;
@@ -45,6 +51,10 @@ namespace Desert
     private:
         // Held from before the renderer exists until the editor layer takes it over in OnCreate.
         std::unique_ptr<Editor::Splash::SplashScreen> m_Splash;
+        // THE START'S PROGRESS, OWNED HERE from CreateApplication to the end of the process: the application's
+        // constructor reports into it through ApplicationInfo::Startup before any layer exists, the editor layer
+        // shares it from OnCreate, and the splash thread reads it until the splash is gone.
+        std::shared_ptr<Core::StartupProgress> m_StartupProgress;
     };
 } // namespace Desert
 
@@ -279,20 +289,12 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     Desert::Core::ClientNetOptions::Launch()                         = options.NetClient;
     Desert::Editor::Control::ControlChannelOptions::Get().SocketPath = options.ControlSocket;
     Desert::Graphic::SetViewBudgetOverrideMiB( options.ViewBudgetMiB );
-    Desert::Graphic::RenderConfig::CloudVisualize = options.CloudVisualize;
-    Desert::Graphic::RenderConfig::RdgCompileCache = options.RdgCompileCache;
-    Desert::Graphic::RenderConfig::ParallelSetupOverride = options.ParallelSetup;
+    Desert::Graphic::RenderConfig::SetCloudVisualize( options.CloudVisualize );
+    Desert::Graphic::RenderConfig::SetRdgCompileCache( options.RdgCompileCache );
+    Desert::Graphic::RenderConfig::SetParallelSetupOverride( options.ParallelSetup );
 
-    // The device profile, before the device exists (VulkanLogicalDevice::Create reads it once). An unknown name
-    // stops the start with the table's list: a frame of the full device saved under a GTX name is the silent
-    // fallback this command line refuses everywhere else.
     if ( options.LogLevel )
         Common::Logger::SetLevel( *options.LogLevel ); // --log-level: the gate, before the device logs its start
-    if ( !options.DeviceProfile.empty() )
-    {
-        if ( const auto set = Desert::Graphic::API::Vulkan::RequestDeviceProfile( options.DeviceProfile ); !set )
-            Desert::Editor::RefuseToStart( 2, set.GetError() );
-    }
 
     // The language, before the first frame for the same reason: a run that renders two frames of two
     // languages is not a capture of either. An empty value leaves the process in its source language,
@@ -320,18 +322,40 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // Vulkan instance and device, the renderer, the shader preload in OnAttach — is the wait it covers.
     // A BUILDER RUN HAS NO SPLASH, and so no window is ever shown: the editor reveals its hidden main window only
     // over a splash (Splash::MayReveal), and a builder run is a process nobody is looking at.
+    //
+    // THE START'S PROGRESS, BEFORE THE SPLASH THAT READS IT (Engine/Core/StartupProgress.hpp): the whole plan, the
+    // engine's phases then the editor's, each weighed by what it took on this machine's previous start. A builder
+    // run makes it too (its timings are logged at the end of its start) and shows no splash.
+    std::vector<Desert::Core::StartupPhaseSpec> plan = ApplicationStartupPhases();
+    for ( Desert::Core::StartupPhaseSpec& phase : Desert::Editor::EditorStartupPhases() )
+        plan.push_back( std::move( phase ) );
+    // The history is the file's (EditorStartup::FinishStartup reads it again at the write, appending this start).
+    const std::filesystem::path    historyFile = Desert::Editor::StartupHistoryFile();
+    Desert::Core::StartupHistory   history;
+    if ( auto loaded = Desert::Core::LoadStartupHistory( historyFile ); loaded )
+        history = loaded.ExtractValue();
+    else
+        LOG_WARN( "[Startup] no phase timings from a previous start ('{}': {}); this start is weighed by the "
+                  "defaults",
+                  historyFile.string(), loaded.GetError() );
+    auto processStart = Desert::Editor::ProcessStartTime();
+    if ( !processStart )
+        LOG_WARN( "[Startup] the process start could not be read ({}); the start's clock begins now",
+                  processStart.GetError() );
+    auto startup = std::make_shared<Desert::Core::StartupProgress>(
+         std::move( plan ), std::move( history ),
+         processStart ? processStart.ExtractValue() : Desert::Core::StartupClock::now() );
+
     std::unique_ptr<Desert::Editor::Splash::SplashScreen> splash;
     if ( !options.Builder.Active() )
-    {
-        splash = Desert::Editor::Splash::SplashScreen::Show( { Desert::Editor::ProjectContext::Current().Name,
-                                                               Common::Version::Base(),
-                                                               Desert::Editor::Splash::SplashTextureFile() } );
-        // The plan is not made yet — the editor layer that owns it does not exist — so the bar is empty; the
-        // renderer's start is not weighed, and the first weighed stage is the shader preload.
-        splash->SetProgress( { "Starting the renderer...", "", 0.0 } );
-    }
+        splash = Desert::Editor::Splash::SplashScreen::Show(
+             { Desert::Editor::ProjectContext::Current().Name, Common::Version::Base(),
+               Desert::Editor::Splash::SplashTextureFile(), options.SplashCapture },
+             startup );
 
     ApplicationInfo appInfo;
+    // The application's constructor begins the app.* phases through this (non-owning; Sandbox owns it).
+    appInfo.Startup = startup.get();
     // The editor's driver pipeline cache lives in ~/.desertengine, one folder per project (PKG1). Before the
     // application: the device reads it while it is being created.
     Desert::Graphic::PipelineCacheFile::DeclareHost( Desert::Graphic::PipelineCacheFile::Host::Editor );
@@ -351,6 +375,14 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // (move, minimize/maximize/close, double-click to toggle) is drawn and handled by
     // Editor::UI::WindowChrome; what it cannot give back is listed there.
     appInfo.Decorated = false;
+    // The backend, the adapter and the device profile the command line asked for. The application resolves them
+    // against machine.json once, before the window (Graphic::ResolveRhiSelection), and refuses an unknown name
+    // with the list: a frame of the full device saved under a GTX name is the silent fallback refused everywhere.
+    // A stated flag goes through as stated, an empty value too (refused there, as the Runtime refuses it): only an
+    // absent flag leaves the choice to machine.json.
+    appInfo.Rhi.CommandLineRhi           = options.Rhi;
+    appInfo.Rhi.CommandLineAdapter       = options.Adapter;
+    appInfo.Rhi.CommandLineDeviceProfile = options.DeviceProfile;
 
-    return std::make_unique<Desert::Sandbox>( appInfo, std::move( splash ) );
+    return std::make_unique<Desert::Sandbox>( appInfo, std::move( splash ), std::move( startup ) );
 }

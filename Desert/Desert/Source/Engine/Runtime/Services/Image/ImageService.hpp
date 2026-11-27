@@ -82,4 +82,10 @@ namespace Desert::Runtime
         // Both vectors are guarded by m_Lock and never leave this class.
         std::vector<uint32_t> m_Generations;
     };
+
+    // THE process's image service: one function-local static in RenderCore, the lowest module that registers
+    // into it (Texture2D, the RHI's images) - constructed on first use, destroyed after every Engine static that
+    // holds a Texture2D (Engine unloads before RenderCore; ResourceRegistry's ImageServiceConstructedFirst orders
+    // the statics inside one module). ResourceRegistry::ClearAll empties it last at shutdown.
+    [[nodiscard]] ImageService* GetImageService();
 } // namespace Desert::Runtime

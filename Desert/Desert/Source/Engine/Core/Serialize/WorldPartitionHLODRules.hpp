@@ -88,7 +88,7 @@
 #include <vector>
 #include <Common/Core/Core.hpp>
 #include <Common/Json/ReadWrite.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 
 namespace Desert::Core::Rules
 {
@@ -158,11 +158,7 @@ namespace Desert::Core::Rules
 
     namespace Detail
     {
-        inline std::vector<HLODBuilderComponent>& HLODBuilderComponentList()
-        {
-            static std::vector<HLODBuilderComponent> rows;
-            return rows;
-        }
+        std::vector<HLODBuilderComponent>& HLODBuilderComponentList();
     } // namespace Detail
 
     inline void RegisterHLODBuilderComponent( const HLODBuilderComponent& row )

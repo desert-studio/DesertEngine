@@ -25,6 +25,22 @@ namespace Desert::Core
         /// A SaveGame load wrote the SaveGame properties into the ScriptComponents: the running scripts get
         /// the loaded values now (UGameplayStatics::LoadGameFromSlot's caller reads them on its next line).
         virtual void ApplySaveGameProperties() = 0;
+
+        /// The local player of the world the host runs (UE ULocalPlayer's Enhanced Input): the viewport the
+        /// world is played in feeds its keys, the possessed pawn reads its actions, the net driver possesses
+        /// the pawn the server spawned for this player.
+        virtual Input::LocalPlayerInput& PlayerInput() = 0;
+    };
+
+    /// The world system that runs a world's scripts (ECS::ScriptSystem, the script language's module): how
+    /// Engine code reaches the world's running host without naming the module - Scene::FindSystem of this
+    /// interface (UE: the world's script subsystem found by its interface).
+    class ScriptHostSystem
+    {
+    public:
+        virtual ~ScriptHostSystem() = default;
+
+        [[nodiscard]] virtual ScriptHost& Host() = 0;
     };
 
     /// THE WORLD A SCRIPT CALL RUNS IN — UE's WorldContextObject, supplied by the host instead of spelled by

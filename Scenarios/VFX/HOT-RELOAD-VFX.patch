@@ -1,0 +1,12 @@
+diff --git a/Desert/VFX/Source/VFX/Private/VFXEmitterSpawn.cpp b/Desert/VFX/Source/VFX/Private/VFXEmitterSpawn.cpp
+index a30a99c17..994419c94 100644
+--- a/Desert/VFX/Source/VFX/Private/VFXEmitterSpawn.cpp
++++ b/Desert/VFX/Source/VFX/Private/VFXEmitterSpawn.cpp
+@@ -409,6 +409,6 @@ namespace Desert::VFX
+                     born += static_cast<std::uint32_t>( whole );
+                 }
+             }
+-        return born;
++        return 0;
+     }
+ } // namespace Desert::VFX

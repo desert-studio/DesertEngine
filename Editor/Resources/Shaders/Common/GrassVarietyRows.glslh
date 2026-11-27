@@ -2,7 +2,7 @@
 #define DESERT_GRASS_VARIETY_ROWS_GLSLH
 
 // THE GRASS VARIETY TABLE (GRASS-CULL-2; UE GPUScene / InstanceCulling: one table describes every primitive's
-// instances, and one dispatch culls them all). GrassRenderer writes it once per frame (GrassRenderer.cpp
+// instances, and one dispatch culls them all). GrassRenderer writes it once per frame (GrassLayout.hpp
 // GrassVarietyTableGpu / GrassVarietyRowGpu, std430, WriteVarietyTable): the camera's side planes, then one row per
 // variety a pass covers - the camera cull's varieties first (m_FrameCull), the generating ones after them
 // (m_FrameGenerate). A row names the variety's own buffers by DEVICE ADDRESS (StorageBuffer::GetDeviceAddress: the
@@ -11,68 +11,7 @@
 // write to the frame graph (PassBuilder::Read / Write), which places the barriers by them.
 // GL_EXT_buffer_reference(_uvec2) is enabled for every stage by the assembler (DShaderParser.cpp AssembleStage).
 
-struct GrassVarietyRow
-{
-    uvec2 Instances;   // mat4 per law slot, LawCapacity of them: the law's rows (THE ROWS below)
-    uvec2 Args;        // GpuInstances.hpp: header (bucket count, capacity, record count, drawn), the draw records,
-                       // then per bucket count, first, capacity, half screen size
-    uvec2 CameraIds;   // the camera's list: per slot the row of Instances (GPU-COST-22)
-    uvec2 CameraArgs;  // Args' layout, then four phase words per bucket (GrassCull.shader)
-    uvec2 Candidates;  // per slot two uvec4: the hidden instance's sphere, its row of Instances
-    uvec2 PostArgs;    // Args' layout: phase 2's draws
-    uvec2 Feedback;    // this frame in flight's copy: per bucket the generator's count, the written mark, the full
-                       // list's, the camera's phase-1 and phase 2's drawn counts, one per cascade view
-    uvec2 CascadeArgs; // per cascade list one copy of Args' layout (GrassGenerate.shader CascadeArgs)
-    uvec4 Info;        // x = bucket count, y = the bucket table's first word in Args, z = flags (kGrassRowBlade),
-                       // w = the cascade views with a list of their own (bit v: view v; GPU-COST-21)
-    vec4  Bounds;      // x = bounds radius (local), y = bounds centre height (local), z = the cull pad (cm: a mesh's
-                       // sway past its bounds), w = 0
-    // GRASS-CULL-UNIFY-1: the cascades' lists are culled per frame from the view-independent Instances by
-    // GrassCull.shader (CascadeCull), no longer by the tile cull. CascadeIds: per cascade list k the slots of
-    // CascadeIds at k x capacity (ids of Instances' rows); CascadeWords: x = one list's words in CascadeArgs
-    // (Args' layout and its rest twin),
-    // y = the first of a list's rest counts (one per bucket); CascadeRings: list k's movers' ring at [k / 2].xy
-    // (k even) / .zw (k odd): x = inner, y = wind distance (0: no mover), cm.
-    uvec2 CascadeIds;
-    uvec2 CascadeWords;
-    vec4  CascadeRings[4];
-    // GRASS-VIEW-LAW-1: Chunks holds the build's chunks, one per (tile slot, cluster) - the chunk contract below; its
-    // header: x = the chunks (tile slots x kTileClusters), z = the same room, y = w = 0. The view law reads a chunk's
-    // records from the pool's segments, named by the segment table TilePool (THE POOL'S SEGMENTS below;
-    // kGrassTilePoolWords uvec4 per record, Common/GrassTileRecord.glslh), the variety's params
-    // from Params and the field from Field, and appends the rows it keeps to FullIds: the full list, Args' buckets,
-    // the union of the camera's planes and the cascades' lists, which RT and the list-less cascades draw.
-    uvec2 Chunks;
-    uvec2 Params;
-    uvec2 Field;
-    uvec2 TilePool;
-    uvec2 FullIds;
-    // GRASS-CULL-COST-3, THE LAW'S SLOTS (UE GPU Scene: an instance's data is written once when it changes, the views
-    // only cull it): Instances holds, per slot, the row the view law made of a record (GrassCull.shader LawChunk),
-    // LawCapacity slots of it. LawGeneration is the generation of the law's inputs (GrassRenderer
-    // VarietyGpu::LawGeneration: the params with the field eye, the field, the pool, Args, Instances; never 0): a
-    // chunk whose law word carries it was lawed from the same inputs, so its slots, rows, codes and box stand.
-    uint  LawGeneration;
-    uint  LawCapacity;
-    // CPU-GRASS-POOL-5: Instances and the id lists are ranges of shared pools (GrassRenderer m_InstancesPool,
-    // m_IdsPool): the range's first row of Instances and first slot of FullIds / CameraIds / CascadeIds. Every id
-    // GrassCull writes is row + InstancesBase, every record's firstInstance its list's slot + the list's base.
-    uint  InstancesBase;
-    uint  FullIdsBase;
-    uint  CameraIdsBase;
-    uint  CascadeIdsBase;
-    // CPU-GRASS-POOL-7: Feedback is the variety's range of one readback pool; FinalizeFull writes this mark
-    // (GrassRenderer VarietyGpu::FeedbackMark, never 0) as the written mark: a range's earlier holder is told apart.
-    uint  FeedbackMark;
-    // LOD-DITHER-GRASS-SIDE, THE LAW'S TWO LOD EYES (UE FTemporalLODState for the grass HISM's instances, the
-    // dithered LOD transition): xyz = the view's two temporal LOD samples (ViewFrame::TemporalLOD, [0] older,
-    // [1] newer) snapped to the field eye's tile grid (GrassRenderer FieldEye), so they change with the law
-    // generation only. A mesh's level is selected at both (GrassCull.shader GrassViewLaw); where they differ the
-    // law writes a fade twin (LawChunk). Both are the field eye for a blade, a one-level mesh and a view without
-    // samples. std430 places the array at the next 16 bytes (256).
-    vec4  LodEyes[2];
-    // The row ends here; std430 rounds it to its 16-byte alignment.
-};
+#include <Generated/Grass/Grass.glslh>
 
 // Info.z: the variety's records come in sets of one record per bucket (a blade strip's, one set per shadow LOD),
 // not in a group of records per bucket (a mesh's levels).
@@ -184,7 +123,7 @@ layout( buffer_reference, std430, buffer_reference_align = 16 ) buffer GrassQuad
 // own device-local buffer, appended as the pool grows (GrassRenderer VarietyGpu::TileSegments). The row's TilePool
 // and GrassGenerate's TilePool binding are the pool's SEGMENT TABLE: per segment its buffer's device address. Record
 // r is record GrassSegmentRecord( r ) of segment GrassPoolSegment( table, r ); a page never straddles two segments.
-const uint kGrassTileSegmentPages   = 1024u; // mirrors GrassRenderer.cpp kGrassTileSegmentPages
+const uint kGrassTileSegmentPages   = GRASS_TILE_SEGMENT_PAGES;
 const uint kGrassTileSegmentRecords = kGrassTileSegmentPages * 64u;
 layout( buffer_reference, std430, buffer_reference_align = 8 ) readonly buffer GrassSegments
 {

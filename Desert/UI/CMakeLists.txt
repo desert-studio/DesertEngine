@@ -1,8 +1,8 @@
-# UI: the DesertUI static library (module "DesertUI", own project).
-desert_glob(_sources "Source/UI/*.cpp" "Source/UI/*.hpp")
-desert_add_library(DesertUI SOURCES "Source/pch.cpp" "Source/pch.hpp" ${_sources})
+# UI: the DesertUI module library (a DLL in Development/DebugGame, static in Shipping: desert_module_library).
+desert_sources(_sources "Source/UI" MATCHING "\\.(cpp|hpp)$")
+desert_module_library(DesertUI SOURCES ${_sources})
 desert_enable_unity(DesertUI)
-target_precompile_headers(DesertUI PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/pch.hpp")
+desert_shared_pch(DesertUI Common "${DESERT_ROOT}/Desert/Common/Source/Common/CommonPCH.hpp")
 target_include_directories(DesertUI PRIVATE "Source/")
 desert_closure_includes(DesertUI DesertUI)
 target_link_libraries(DesertUI PRIVATE Render2DCore Common)

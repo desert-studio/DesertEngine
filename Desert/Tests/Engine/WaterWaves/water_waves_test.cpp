@@ -15,7 +15,7 @@
 #include <Water/Public/GerstnerWaterWaves.hpp>
 #include <Water/Public/WaterBodyQuery.hpp>
 
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 
 #include <glm/geometric.hpp>
 #include <gtest/gtest.h>
@@ -33,19 +33,10 @@ namespace
 {
     using namespace Desert::Water;
 
-    constexpr float kHeightToleranceCm = 0.01f;
-
     struct ReferenceWave
     {
         float DirX, DirZ, WaveLength, Amplitude, Steepness;
     };
-    struct ReferenceHeight
-    {
-        glm::vec2 Plane;
-        float     Time;
-        float     Height;
-    };
-
     void ExpectWaves( const std::vector<GerstnerWave>& waves, const std::vector<ReferenceWave>& reference )
     {
         ASSERT_GE( waves.size(), reference.size() );
@@ -58,13 +49,6 @@ namespace
             EXPECT_NEAR( waves[i].Amplitude, r.Amplitude, 1e-4f ) << "wave " << i;
             EXPECT_NEAR( waves[i].Steepness, r.Steepness, 1e-6f ) << "wave " << i;
         }
-    }
-
-    void ExpectHeights( const std::vector<GerstnerWave>& waves, const std::vector<ReferenceHeight>& reference )
-    {
-        for ( const ReferenceHeight& r : reference )
-            EXPECT_NEAR( WaveHeightAt( waves, r.Plane, r.Time ).Height, r.Height, kHeightToleranceCm )
-                 << "at (" << r.Plane.x << ", " << r.Plane.y << "), t = " << r.Time;
     }
 
     // The wind the gusty set is raised by (WaterWavesService hands the scene's to the generator).
@@ -103,18 +87,6 @@ TEST( WaterWaves, ASeededRandomisedGeneratorMakesUEsWaves )
          << "the same seed must give the same waves";
 }
 
-TEST( WaterWaves, TheHeightAtAPointIsUEs )
-{
-    ExpectHeights( GenerateGerstnerWaves( GerstnerWaveGenerator{}, 0.0f ),
-                   { { { 0.0f, 0.0f }, 0.0f, 508.12500f },
-                     { { 1234.5f, -987.25f }, 3.5f, -55.03937f },
-                     { { -4000.0f, 2500.0f }, 12.25f, -198.52424f } } );
-    ExpectHeights( GenerateGerstnerWaves( Gusty(), kGustyWindDeg ),
-                   { { { 0.0f, 0.0f }, 0.0f, 259.74839f },
-                     { { 1234.5f, -987.25f }, 3.5f, -158.39438f },
-                     { { -4000.0f, 2500.0f }, 12.25f, -102.80332f } } );
-}
-
 TEST( WaterWaves, ZeroAmplitudeDisplacesNothing )
 {
     std::vector<GerstnerWave> waves = GenerateGerstnerWaves( Gusty(), kGustyWindDeg );
@@ -127,38 +99,8 @@ TEST( WaterWaves, ZeroAmplitudeDisplacesNothing )
         EXPECT_EQ( d.x, 0.0f );
         EXPECT_EQ( d.y, 0.0f );
         EXPECT_EQ( d.z, 0.0f );
-        const WaveHeightSample s = WaveHeightAt( waves, plane, 7.0f );
-        EXPECT_EQ( s.Height, 0.0f );
-        EXPECT_EQ( s.Normal, glm::vec3( 0.0f, 1.0f, 0.0f ) );
-        EXPECT_EQ( WaveSimpleHeightAt( waves, plane, 7.0f ), 0.0f );
     }
     EXPECT_EQ( MaxWaveHeight( waves ), 0.0f );
-}
-
-// Steepness 0: no sideways motion, so the height at a point is A cos(phase) and the normal is the gradient's.
-TEST( WaterWaves, ASwellIsACosineAndItsNormalIsTheGradients )
-{
-    const GerstnerWave     wave{ glm::normalize( glm::vec2( 0.6f, 0.8f ) ), 1000.0f, 50.0f, 0.0f };
-    const std::vector      waves{ wave };
-    const glm::vec2        plane( 321.0f, -77.0f );
-    const float            t     = 2.0f;
-    const float            k     = 2.0f * std::numbers::pi_v<float> / wave.WaveLength;
-    const float            phase = glm::dot( plane, wave.Direction * k ) - std::sqrt( k * 980.0f ) * t;
-    const WaveHeightSample s     = WaveHeightAt( waves, plane, t );
-    EXPECT_NEAR( s.Height, wave.Amplitude * std::cos( phase ), 1e-3f );
-    EXPECT_NEAR( s.Height, WaveSimpleHeightAt( waves, plane, t ), 1e-4f );
-    const glm::vec3 expected =
-         glm::normalize( glm::vec3( wave.Amplitude * k * std::sin( phase ) * wave.Direction.x, 1.0f,
-                                    wave.Amplitude * k * std::sin( phase ) * wave.Direction.y ) );
-    EXPECT_NEAR( glm::length( s.Normal - expected ), 0.0f, 1e-5f );
-}
-
-TEST( WaterWaves, DepthAttenuationIsUEs )
-{
-    EXPECT_EQ( WaveDepthAttenuation( 0.0f, 2000.0f ), 0.0f );
-    EXPECT_EQ( WaveDepthAttenuation( -50.0f, 2000.0f ), 0.0f );
-    EXPECT_NEAR( WaveDepthAttenuation( 2000.0f, 2000.0f ), 1.0f - std::exp( -2.0f ), 1e-6f );
-    EXPECT_NEAR( WaveDepthAttenuation( 1e6f, 2000.0f ), 1.0f, 1e-6f );
 }
 
 // The header the CPU evaluates compiles as GLSL, every function called, warnings as errors.
@@ -175,11 +117,7 @@ TEST( WaterWaves, TheSharedHeaderCompilesAsGlsl )
                                      "    vec2 p = vec2( float( gl_GlobalInvocationID.x ), 3.0 );\n"
                                      "    vec2 d = vec2( 1.0, 0.0 );\n"
                                      "    vec3 o = GerstnerWaveOffset( p, d, 500.0, 20.0, 0.3, 1.5 );\n"
-                                     "    vec4 h = GerstnerWaveHeightAt( p, d, 500.0, 20.0, 0.3, 1.5 );\n"
-                                     "    vec3 n = GerstnerFinalizeNormal( h.xyz );\n"
-                                     "    float s = GerstnerWaveSimpleHeight( p, d, 500.0, 20.0, 1.5 );\n"
-                                     "    float a = GerstnerDepthAttenuation( 300.0, 2000.0 );\n"
-                                     "    O[gl_GlobalInvocationID.x] = vec4( o + n, h.w + s * a );\n"
+                                     "    O[gl_GlobalInvocationID.x] = vec4( o, 1.0 );\n"
                                      "}\n";
     const shaderc::Compiler compiler;
     shaderc::CompileOptions options;
@@ -255,45 +193,12 @@ TEST( WaterQuery, AFlatOceanIsItsPlaneAndImmersionIsTheDistanceBelowIt )
 {
     Desert::Water::WaterBodyState body;
     body.Location = glm::vec3( 0.0f, 50.0f, 0.0f );
-    const auto r  = Desert::Water::QueryWaterBody( body, glm::vec3( 10.0f, 20.0f, 30.0f ), 3.0f, 0.0f );
+    const auto r  = Desert::Water::QueryWaterBody( body, glm::vec3( 10.0f, 20.0f, 30.0f ), 3.0f, nullptr );
     EXPECT_FLOAT_EQ( r.SurfaceLocation.y, 50.0f );
-    EXPECT_FLOAT_EQ( r.PlaneDepth, 50.0f );
     EXPECT_FLOAT_EQ( r.ImmersionDepth, 30.0f );
     EXPECT_TRUE( r.IsInWater() );
     EXPECT_FLOAT_EQ( r.WaveHeight, 0.0f );
     EXPECT_EQ( r.SurfaceNormal, glm::vec3( 0.0f, 1.0f, 0.0f ) );
-}
-
-TEST( WaterQuery, NoGroundOrGroundAboveThePlaneGivesTheFallbackDepth )
-{
-    const auto body  = WavedOcean( 0.0f );
-    const auto none  = Desert::Water::QueryWaterBody( body, glm::vec3( 0.0f ), 1.0f, std::nullopt );
-    const auto above = Desert::Water::QueryWaterBody( body, glm::vec3( 0.0f ), 1.0f, 40.0f );
-    EXPECT_FLOAT_EQ( none.PlaneDepth, Desert::Water::kOceanFallbackDepthCm );
-    EXPECT_FLOAT_EQ( above.PlaneDepth, Desert::Water::kOceanFallbackDepthCm );
-    // Under-landscape ocean: the waves are cancelled (UE :763-767).
-    EXPECT_FLOAT_EQ( above.WaveHeight, 0.0f );
-    EXPECT_FLOAT_EQ( above.WaveAttenuation, 0.0f );
-}
-
-TEST( WaterQuery, TheWavedSurfaceIsTheWaveHeightAtThePlanePointAttenuatedByDepth )
-{
-    const auto      body = WavedOcean( 25.0f );
-    const glm::vec3 point( 350.0f, -40.0f, 75.0f );
-    const float     time   = 2.5f;
-    const float     ground = -175.0f; // 200 cm of water
-    const auto      r      = Desert::Water::QueryWaterBody( body, point, time, ground );
-
-    const float att    = Desert::Water::WaveDepthAttenuation( 200.0f, body.TargetWaveMaskDepth );
-    const auto  sample = Desert::Water::WaveHeightAt(
-         *body.Waves, glm::vec2( point.x - body.Location.x, point.z - body.Location.z ), time );
-    EXPECT_FLOAT_EQ( r.WaveAttenuation, att );
-    EXPECT_FLOAT_EQ( r.WaveHeight, sample.Height * att );
-    EXPECT_FLOAT_EQ( r.SurfaceLocation.y, 25.0f + sample.Height * att );
-    EXPECT_FLOAT_EQ( r.SurfaceDepth, 200.0f + sample.Height * att );
-    EXPECT_FLOAT_EQ( r.ImmersionDepth, r.SurfaceLocation.y - point.y );
-    EXPECT_NEAR( glm::length( r.SurfaceNormal ), 1.0f, 1e-5f );
-    EXPECT_LE( std::abs( r.WaveHeight ), r.MaxWaveHeight + 1e-3f );
 }
 
 TEST( WaterQuery, ThePointIsAnsweredByTheBodyItIsDeepestInAndNoneOutsideEveryFootprint )

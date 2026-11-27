@@ -3,9 +3,10 @@
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 
 #include <glm/glm.hpp>
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -73,6 +74,11 @@ namespace Desert::Editor::Core
         // Draw the retained widget gallery (UI/Retained/WidgetGallery.hpp) over the level in this view, with
         // the preview's input -- "UI: Toggle the widget gallery". Feeds input as Preview does.
         bool WidgetGallery = false;
+
+        // The session's answer to the viewport's Realtime ("View: Realtime: On/Off"): set by a command, never
+        // saved, over the user's own (EditorPreferences::ViewportRealtime) and over a capture's clock.
+        std::optional<bool> Realtime;
+
         // WRITTEN BY THE PASS, read by the panel: the pointer shape the UI frame asked for
         // (UIViewContext::Cursor), shown by the ViewportPanel while the viewport is hovered.
         ::Desert::UI::UICursorShape Cursor = ::Desert::UI::UICursorShape::Default;
@@ -83,10 +89,6 @@ namespace Desert::Editor::Core
         // Viewport whenever the UI is fed no input at all (Design mode), since then no view can take a key.
         UIKeyboardHolder Keyboard = UIKeyboardHolder::Viewport;
 
-        static UIPreview& Get()
-        {
-            static UIPreview s;
-            return s;
-        }
+        static UIPreview& Get();
     };
 } // namespace Desert::Editor::Core

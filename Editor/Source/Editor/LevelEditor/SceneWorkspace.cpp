@@ -10,22 +10,16 @@
 #include "Editor/Panels/ViewportPanel/ViewportCameraPreset.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include <Editor/Core/Selection/SelectionManager.hpp>
+#include <Editor/Core/Selection/UIPreview.hpp>
 
+#include <Engine/Graphic/SceneRenderState.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
-#include <Engine/Core/SceneRenderCollectors.hpp>
-#include <Engine/ECS/System/AnimationECSSystem.hpp>
-#include <Engine/ECS/System/AttachmentSystem.hpp>
-#include <Engine/ECS/System/AudioECSSystem.hpp>
-#include <Engine/ECS/System/LevelSequenceSystem.hpp>
-#include <Engine/ECS/System/LocomotionSystem.hpp>
-#include <Engine/ECS/System/PhysicsECSSystem.hpp>
-#include <Engine/ECS/System/ComponentEventSystem.hpp>
-#include <Engine/ECS/System/ScriptSystem.hpp>
-#include <Engine/ECS/System/GameModeSystem.hpp>
+#include <Engine/Core/WorldSystems.hpp>
+#include <Engine/Core/WorldTime.hpp>
 #include <Engine/Core/EngineContext.hpp>
-#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/Rhi/Rhi.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Animation/AnimationLibrary.hpp>
@@ -34,6 +28,7 @@
 
 #include <array>
 #include <format>
+#include <optional>
 
 namespace Desert::Editor
 {
@@ -62,7 +57,8 @@ namespace Desert::Editor
         // The viewport panel is laid out on the first frame, after Scene::Init builds this renderer; the
         // panel's resize brings it to size then (see Graphic::kUnsizedViewExtent).
         m_SceneRenderer = Graphic::SceneRenderer::Create( Graphic::kUnsizedViewExtent );
-        m_ActiveScene   = std::make_shared<Desert::Core::Scene>( "New Scene", m_SceneRenderer.get() );
+        m_ActiveScene   = std::make_shared<Desert::Core::Scene>( "New Scene", m_SceneRenderer.get(),
+                                                             Desert::Core::WorldKind::Document );
         m_PrimaryScene  = m_ActiveScene; // the always-present document #-1 (see SetActiveScene)
     }
 
@@ -79,7 +75,7 @@ namespace Desert::Editor
             if ( viewport->Renderer )
                 sources.Renderers.push_back( viewport->Renderer.get() );
         if ( m_ActiveScene )
-            sources.Displacement = &m_ActiveScene->GetRayTracingCache().GetDisplacement();
+            sources.Displacement = &Graphic::RenderStateOf( *m_ActiveScene ).GetRayTracingCache().GetDisplacement();
         return sources;
     }
 
@@ -100,48 +96,45 @@ namespace Desert::Editor
 
     void SceneWorkspace::RebuildRenderRegistry()
     {
-        m_RenderRegistry.reset();
-        m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_ActiveScene );
+        RebuildRenderRegistry( m_ActiveScene );
     }
 
-    namespace
+    void SceneWorkspace::RebuildRenderRegistry( const std::shared_ptr<Desert::Core::Scene>& scene )
     {
-        Graphic::API::Vulkan::VulkanAllocator* DeviceAllocator()
-        {
-            const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
-                 EngineContext::GetInstance().GetRendererContext() );
-            return context ? context->GetVulkanAllocator().get() : nullptr;
-        }
-    } // namespace
+        std::unique_ptr<Render::RenderRegistry>* registry = &m_RenderRegistry;
+        for ( const auto& doc : m_ExtraScenes )
+            if ( doc->Scene == scene )
+                registry = &doc->Registry;
+        registry->reset();
+        *registry = std::make_unique<Render::RenderRegistry>( scene );
+    }
 
     void SceneWorkspace::BeginSceneOpenMeasure( std::string_view scene )
     {
-        if ( auto* allocator = DeviceAllocator() )
-            allocator->BeginSceneOpen( scene );
+        Graphic::Renderer::GetInstance().Rhi().BeginSceneOpenMeasure( scene );
     }
 
     void SceneWorkspace::SampleSceneOpenMeasure()
     {
-        if ( auto* allocator = DeviceAllocator() )
-            allocator->SampleSceneOpen();
+        Graphic::Renderer::GetInstance().Rhi().SampleSceneOpenMeasure();
     }
 
-    void SceneWorkspace::ReleaseActiveWorld()
+    void SceneWorkspace::ReleaseWorld( const std::shared_ptr<Desert::Core::Scene>& scene )
     {
         std::size_t views = 0;
-        if ( m_ActiveScene == m_PrimaryScene && m_SceneRenderer )
+        if ( scene == m_PrimaryScene && m_SceneRenderer )
         {
             m_SceneRenderer->ReleaseWorldResources();
             ++views;
         }
         for ( const auto& doc : m_ExtraScenes )
-            if ( doc->Scene == m_ActiveScene && doc->Renderer )
+            if ( doc->Scene == scene && doc->Renderer )
             {
                 doc->Renderer->ReleaseWorldResources();
                 ++views;
             }
         for ( const auto& viewport : m_ExtraViewports )
-            if ( viewport->Scene.lock() == m_ActiveScene && viewport->Renderer )
+            if ( viewport->Scene.lock() == scene && viewport->Renderer )
             {
                 viewport->Renderer->ReleaseWorldResources();
                 ++views;
@@ -153,43 +146,23 @@ namespace Desert::Editor
         // The surface cache Clear parked (five 49 MB atlases on FIELD_Barn) would otherwise live on until the
         // frame ring comes round, beside the one the next world builds (FOLIAGE-LOOK-8: SurfaceCache.* x2 at
         // Stop).
-        m_ActiveScene->ReleaseParkedRenderers();
-        const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
-             EngineContext::GetInstance().GetRendererContext() );
-        const std::size_t drained =
-             context && context->GetVulkanAllocator() ? context->GetVulkanAllocator()->DrainDeletionQueue() : 0;
+        scene->ReleaseParkedRenderers();
+        const std::size_t drained = Graphic::Renderer::GetInstance().Rhi().DrainDeferredDestruction();
         LOG_INFO( "[SceneLoad] the old world released: {} view(s), {} deferred GPU destruction(s) drained before "
                   "the next world loads",
                   views, drained );
     }
 
-    void SceneWorkspace::ActiveSceneReplaced()
+    void SceneWorkspace::SceneReplaced( const std::shared_ptr<Desert::Core::Scene>& scene )
     {
-        RebuildRenderRegistry();
-        Core::SelectionManager::ClearSelection();
+        RebuildRenderRegistry( scene );
+        if ( scene == m_ActiveScene ) // the selection is the active document's (SetActiveScene)
+            Core::SelectionManager::ClearSelection();
     }
 
-    void SceneWorkspace::BuildSceneSystems( Desert::Core::Scene& scene )
+    Common::BoolResultStr SceneWorkspace::CreateSystems( Desert::Core::Scene& scene ) const
     {
-        // The nine collectors that turn components into render data, and their order, live in ONE place
-        // (Engine/Core/SceneRenderCollectors.hpp). The gameplay systems below belong to the host: each needs a
-        // service only the host owns.
-        Desert::Core::AddSceneRenderCollectors( scene );
-        scene.AddSystem<ECS::AnimationECSSystem>( m_Animations.get(), m_Assets.get() );
-        // AttachmentSystem runs right AFTER animation: weapons-in-hand follow the freshly-posed bone this frame.
-        scene.AddSystem<ECS::AttachmentSystem>( &scene );
-        // ScriptSystem runs BEFORE physics: scripts set the character's move intent (+ look) which
-        // PhysicsECSSystem then executes the same frame.
-        scene.AddSystem<ECS::ScriptSystem>( &scene, m_Assets.get() );
-        scene.AddSystem<ECS::GameModeSystem>( &scene, m_Assets.get() );
-        scene.AddSystem<ECS::PhysicsECSSystem>( &scene );
-        scene.AddSystem<ECS::ComponentEventSystem>(); // the physics/destruction facts -> component events
-        // Maps character movement state (speed/onGround from physics) -> locomotion clip; after physics.
-        scene.AddSystem<ECS::LocomotionSystem>( &scene );
-        scene.AddSystem<ECS::AudioECSSystem>( &scene );
-        // Level sequences play last: a keyed Transform wins over this frame's physics and locomotion (UE
-        // evaluates sequences after the actors' own tick).
-        scene.AddSystem<ECS::LevelSequenceSystem>( &scene, m_Assets.get() );
+        return Desert::Core::CreateWorldSystems( scene, { m_Assets.get(), m_Animations.get() } );
     }
 
     void SceneWorkspace::SetActiveScene( uint64_t id )
@@ -271,9 +244,12 @@ namespace Desert::Editor
         doc->Name = std::format( "Scene {}", id + 1 ); // the main scene reads as "Scene 1"
 
         doc->Renderer = Graphic::SceneRenderer::Create( Graphic::kUnsizedViewExtent );
-        doc->Scene    = std::make_shared<Desert::Core::Scene>( std::string( doc->Name ), doc->Renderer.get() );
-        BuildSceneSystems( *doc->Scene );
-        if ( const auto inited = doc->Scene->Init(); !inited.IsSuccess() )
+        doc->Scene    = std::make_shared<Desert::Core::Scene>( doc->Name, doc->Renderer.get(),
+                                                          Desert::Core::WorldKind::Document );
+        auto inited = CreateSystems( *doc->Scene );
+        if ( inited.IsSuccess() )
+            inited = doc->Scene->Init();
+        if ( !inited.IsSuccess() )
             LOG_ERROR( "[EditorLayer] scene view '{}' failed to initialise: {}", doc->Name, inited.GetError() );
         doc->Registry = std::make_unique<Render::RenderRegistry>( doc->Scene );
 
@@ -613,13 +589,10 @@ namespace Desert::Editor
                                                       bool shotCounting, const std::optional<bool> controlCounting )
     {
         ApplyCameraSpeedOnce();
-        if ( auto r =
-                  TickWorld( *m_PrimaryScene, m_RenderRegistry.get(), ts, play, shotCounting, controlCounting );
-             !r )
+        if ( auto r = TickWorld( *m_PrimaryScene, m_RenderRegistry.get(), ts, play, shotCounting, controlCounting ); !r )
             return r;
         for ( const auto& doc : m_ExtraScenes )
-            if ( auto r = TickWorld( *doc->Scene, doc->Registry.get(), ts, play, shotCounting, controlCounting );
-                 !r )
+            if ( auto r = TickWorld( *doc->Scene, doc->Registry.get(), ts, play, shotCounting, controlCounting ); !r )
                 return r;
         return BOOLSUCCESS;
     }
@@ -663,6 +636,8 @@ namespace Desert::Editor
             // own copy with a cheaper cloud tier, and the other two keep the schema defaults.
             sr->SetQuality( Common::Scalability::QualityState::Resolved() );
         }
+        // The same answer to the scene's systems (Scene::SetQuality -> System::SetQuality): foliage density.
+        scene.SetQuality( Common::Scalability::QualityState::Resolved() );
 
         // THE WORLD'S CLOCK, set up for this frame before the scene ticks it (Core::WorldTime).
         //
@@ -672,11 +647,10 @@ namespace Desert::Editor
         // (the cloud wind accumulates) would make two captures of one scene differ. Without `--play` the counted
         // frames then step by a FIXED step from zero; under `--play` the preview never runs — Play resets the
         // clock and `ts` is already the fixed step (ShotOptions::FrameSeconds), so the clock just follows it.
-        // AN EDITOR THE CONTROL CHANNEL DRIVES (a scenario) steps its preview by the same fixed step, and only on
-        // the frames a `frames N` wait counts (ControlService::DrivenPreviewCounting): the runner's own pace
-        // between steps moves nothing, so a frame shot N frames after a change shows exactly N steps of it.
-        // Otherwise the measured step drives it, and the viewport's Realtime toggle decides whether preview time
-        // moves while editing.
+        // Outside a capture the measured step drives it, and the viewport's Realtime toggle decides whether
+        // preview time moves while editing.
+        // A command's Realtime (a scenario's frozen clock) is over both.
+        const std::optional<bool> realtime = Core::UIPreview::Get().Realtime;
         if ( const auto& shot = ShotOptions::Get(); shot.Active() )
         {
             const bool counting = shotCounting;
@@ -686,17 +660,19 @@ namespace Desert::Editor
             {
                 scene.GetWorldTime().Reset();
             }
-            scene.SetPreviewRealtime( counting && !shot.PlayActive() );
+            scene.SetPreviewRealtime( counting && !shot.PlayActive() && realtime.value_or( true ) );
         }
         else if ( controlCounting )
         {
+            // The control channel's `frames N` wait (ControlService::DrivenPreviewCounting): fixed steps, so a frame
+            // shot N frames after a change shows exactly N steps of it.
             scene.GetWorldTime().SetFixedStep( ShotOptions::PlayStepSeconds );
-            scene.SetPreviewRealtime( *controlCounting );
+            scene.SetPreviewRealtime( *controlCounting && realtime.value_or( true ) );
         }
         else
         {
             scene.GetWorldTime().SetFixedStep( std::nullopt );
-            scene.SetPreviewRealtime( EditorPreferences::Get().ViewportRealtime );
+            scene.SetPreviewRealtime( realtime.value_or( EditorPreferences::Get().ViewportRealtime ) );
         }
 
         // BEFORE the scene's frame, not between its phases: the scene opens and closes each view's

@@ -8,7 +8,7 @@
 // once, on the GPU).
 //
 // The renderer publishes, the physics step reads: FFTSurfaceMirror is the one thread-safe hand-over
-// (Runtime::WaterWavesService owns it, as it owns the spectra the snapshots are keyed by).
+// (one per world, in its Water::WaterFFTSurface).
 
 #include <Water/Public/FFTOceanSpectrum.hpp>
 
@@ -16,16 +16,16 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <vector>
 
 namespace Desert::Water
 {
     /// Texels per side per cascade the GPU reads back (every kFFTReadbackStride-th texel of the 256^2 cascade:
-    /// 64^2 x 3 x 16 B = 192 KB a frame). The C++ twin of WaterFFTFinalize.shader WATER_FFT_READBACK_SIZE.
+    /// 64^2 x 4 x 16 B = 256 KB a frame). The C++ twin of WaterFFTFinalize.shader WATER_FFT_READBACK_SIZE.
     inline constexpr uint32_t kFFTReadbackSize   = 64;
     inline constexpr uint32_t kFFTReadbackStride = kFFTOceanResolution / kFFTReadbackSize;
     static_assert( kFFTReadbackStride * kFFTReadbackSize == kFFTOceanResolution );
@@ -51,18 +51,11 @@ namespace Desert::Water
         FFTSurfaceRead                          Current;
     };
 
-    struct FFTSurfaceSample
-    {
-        float     Height = 0.0f;              // above the still plane, cm
-        glm::vec3 Normal{ 0.0f, 1.0f, 0.0f }; // unit
-    };
-
-    /// The FFT surface over the plane point @p plane (relative to the body's WaveOrigin, cm) at wave time @p time:
-    /// the choppy displacement inverted (the still point whose displaced position is @p plane, a fixed-point
-    /// iteration), the cascades summed, the normal from the displaced surface's central differences. Nullopt when
-    /// the snapshot holds no read.
-    [[nodiscard]] std::optional<FFTSurfaceSample> FFTSurfaceAt( const FFTSurfaceSnapshot& snapshot,
-                                                                glm::vec2 plane, double time ) noexcept;
+    /// The summed cascades' displacement of the still particle at @p plane (relative to the body's WaveOrigin, cm) at
+    /// wave time @p time, cm. @p snapshot holds a whole Current read.
+    /// @p bandWeights scales each cascade: the depth's transform of its band there (the drawn surface's weights).
+    [[nodiscard]] glm::vec3 FFTDisplacementAt( const FFTSurfaceSnapshot& snapshot, glm::vec2 plane, double time,
+                                               const std::array<float, kFFTOceanCascades>& bandWeights ) noexcept;
 
     /// The renderer-to-physics hand-over: the newest snapshot of the frame's FFT ocean. Publish adopts @p read as
     /// the newest read of @p spectrum's ocean (the previous newest becomes Previous; another spectrum starts

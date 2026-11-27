@@ -1,5 +1,7 @@
 #include "Template.hpp"
 
+#include <Common/Json/Document.hpp>
+
 #include <Common/Core/NumberText.hpp>
 
 #include <algorithm>
@@ -1567,6 +1569,11 @@ namespace Common::Text
         Template tpl;
         tpl.m_Body = std::move( body );
         return MakeSuccess( std::move( tpl ) );
+    }
+
+    ResultStr<std::string> Render( const Template& tpl, const Json::Value& data, const TemplateLoader& loader )
+    {
+        return Render( tpl, Json::Root( data ), loader );
     }
 
     ResultStr<std::string> Render( const Template& tpl, const Json::Node& data, const TemplateLoader& loader )

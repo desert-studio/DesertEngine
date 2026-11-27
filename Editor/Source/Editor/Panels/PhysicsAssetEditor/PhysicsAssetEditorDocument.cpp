@@ -20,7 +20,7 @@
 #include <Engine/Physics/RagdollDescBuilder.hpp>
 #include <Engine/Physics/RagdollPose.hpp>
 
-#include <Common/Content/ContentKinds.hpp>
+#include <Common/Content/ContentPaths.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 

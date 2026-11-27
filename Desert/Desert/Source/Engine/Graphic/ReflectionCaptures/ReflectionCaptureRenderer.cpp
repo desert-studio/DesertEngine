@@ -30,7 +30,7 @@
 #include <Engine/ECS/SpotLightComponent.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
-#include <Common/Json/DocumentStruct.hpp>
+#include <Common/Json/Detail/RflBridge.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 
 namespace
@@ -113,12 +113,6 @@ namespace Desert::Graphic
             glm::vec4                Probe; // x = the distance a direction is projected at
         };
 
-
-        struct DiffusePointGpu
-        {
-            glm::vec4  Point{ 0.0f };    // xyz = the capture point (world cm)
-            glm::uvec4 CubeForced{ 0u }; // x = cube index, y = 1 measure unconditionally (the cube being written)
-        };
 
         [[nodiscard]] uint32_t GroupCount( uint32_t texels )
         {
@@ -427,7 +421,6 @@ namespace Desert::Graphic
         const auto& frames = Engine::FrameManager::GetInstance();
         m_RetiringFaces.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
         m_RetiringFields.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
-        m_RetiringSurfaceCaches.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
 
         const uint32_t faceSize = ReflectionCaptureFaceSize();
         if ( !std::has_single_bit( faceSize ) )
@@ -570,8 +563,6 @@ namespace Desert::Graphic
                               frames.GetAbsoluteFrameCount(), m_Writes, released );
                 if ( m_FaceField )
                     m_RetiringFields.Park( std::move( m_FaceField ), frames.GetAbsoluteFrameCount() );
-                if ( m_FaceSurfaceCache )
-                    m_RetiringSurfaceCaches.Park( std::move( m_FaceSurfaceCache ), frames.GetAbsoluteFrameCount() );
                 return;
             }
             m_Pending      = static_cast<uint32_t>( next );
@@ -609,8 +600,6 @@ namespace Desert::Graphic
         const SceneRenderer::UpdateInfo info{ timestep, realTimestep, m_PendingSuns };
         if ( !m_FaceField )
             m_FaceField = std::make_unique<DistanceField::GlobalDistanceField>( m_Scene ); // the scene's rows
-        if ( !m_FaceSurfaceCache )
-            m_FaceSurfaceCache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>( m_Scene ); // the scene's rows
         if ( !m_Faces[face] )
         {
             m_Faces[face] = std::make_unique<FaceView>();
@@ -627,14 +616,8 @@ namespace Desert::Graphic
         view.Renderer->BorrowEnvironment( environment );
         // The capture point's one field (m_FaceField), shared by the six faces.
         view.Renderer->ShareGlobalDistanceField( m_FaceField.get() );
-        // ... and its one surface cache (m_FaceSurfaceCache), whose one view this frame stands at the capture
-        // point. The scene's unbound volumes, read here on the game thread (the capture driver runs with nothing
-        // in flight: Scene::OnUpdate defers it behind the views, RenderTask::AfterJoin).
-        const Core::PostProcessSettings facePost = ResolveViewSettings( scene.GetRegistry(), std::nullopt ).Post;
-        m_FaceSurfaceCache->BeginFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
-                                        { capture.CapturePosition }, facePost,
-                                        scene.GetSettings().RenderingPath == Core::RenderPath::Deferred );
-        view.Renderer->ShareSurfaceCache( m_FaceSurfaceCache.get() );
+        // A face view runs no surface cache (ViewProfile::SceneCapture, SceneRendererImpl::SurfaceCacheRuns): the
+        // scene's one cache is the viewports' to bring up.
         if ( const auto begun = view.Renderer->BeginScene( scene, &view.View ); !begun )
         {
             LOG_ERROR( "[ReflectionCaptures] capture {} face {}: the face view did not open: {}", m_Pending, face,
@@ -942,13 +925,13 @@ namespace Desert::Graphic
         if ( forcedCube == kNoCapture && !stagingForced && !forceAll )
             return;
         // The written cubes (a cube nothing captured is black and never read: its diffuse means nothing).
-        std::vector<DiffusePointGpu> points;
+        std::vector<ReflectionCaptureDiffusePoint> points;
         for ( const ReflectionCaptureEntry& capture : m_Captures )
         {
             const uint32_t cube = capture.Gpu.ShapeCube.y;
             if ( cube != forcedCube && !( cube < m_Captured.size() && m_Captured[cube] ) )
                 continue;
-            DiffusePointGpu row;
+            ReflectionCaptureDiffusePoint row;
             row.Point      = glm::vec4( capture.CapturePosition, 1.0f );
             row.CubeForced = glm::uvec4( cube, forceAll || cube == forcedCube ? 1u : 0u, 0u, 0u );
             points.push_back( row );
@@ -957,7 +940,7 @@ namespace Desert::Graphic
         // layer, when written or when the estimator changed (it is blended into the live cube with that measure).
         if ( stagingSource < m_Captures.size() && ( stagingForced || forceAll ) )
         {
-            DiffusePointGpu row;
+            ReflectionCaptureDiffusePoint row;
             row.Point      = glm::vec4( m_Captures[stagingSource].CapturePosition, 1.0f );
             row.CubeForced = glm::uvec4( static_cast<uint32_t>( m_Captures.size() ), 1u, 0u, 0u );
             points.push_back( row );
@@ -967,7 +950,7 @@ namespace Desert::Graphic
 
         const FrameGraphRefs refs         = textures.GraphRefs();
         const RDG::BufferRef pointsBuffer = graph.CreateBuffer(
-             RDG::BufferDesc{ points.size() * sizeof( DiffusePointGpu ) }, "ReflectionCapture.DiffusePoints" );
+             RDG::BufferDesc{ points.size() * sizeof( ReflectionCaptureDiffusePoint ) }, "ReflectionCapture.DiffusePoints" );
         graph.QueueBufferUpload( pointsBuffer, std::as_bytes( std::span( points ) ) );
         ShaderPush::ReflectionCaptureDiffuse push;
         push.EstimatorParams =

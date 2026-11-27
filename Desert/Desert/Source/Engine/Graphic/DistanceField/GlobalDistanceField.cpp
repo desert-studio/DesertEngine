@@ -78,20 +78,6 @@ namespace Desert::Graphic::DistanceField
                        DFShared::DF_OBJECT_ROW_BOUNDS_MAX == 6 && DFShared::DF_OBJECT_ROW_FLAGS == 7 &&
                        DFShared::DF_OBJECT_ROW_TO_PREVIOUS_WORLD == 8 );
 
-        // std430 `struct MeshSDFCullParams` of Common/MeshSDFGrid.glslh.
-        struct MeshSDFCullPayload
-        {
-            MeshSDFGridPlacement     Grid;
-            glm::mat4                ClipToWorld{ 1.0f };
-            glm::vec4                ClipDepth{ 0.0f };
-            std::array<glm::vec4, 6> Planes{};
-            glm::uvec4               Counts{ 0u };
-        };
-        static_assert( sizeof( MeshSDFCullPayload ) == 304 );
-        // Common/MeshSDFGrid.glslh: MeshSDFGridHeaderStride, MeshSDFCullFeedbackUints.
-        constexpr uint32_t kGridHeaderStride  = 2u;
-        constexpr uint32_t kCullFeedbackUints = 4u;
-
         // The world plane of clip-space half-space row3 + sign * row(axis) >= 0, normalised.
         glm::vec4 ClipPlane( const glm::mat4& viewProjection, const int axis, const float sign )
         {
@@ -553,7 +539,7 @@ namespace Desert::Graphic::DistanceField
     GlobalDistanceField::AddUpdatePasses( RDG::Builder& graph, const ImportImage& import, const glm::vec3& camera,
                                           const GlobalDistanceFieldObjectSet& objects,
                                           DistanceFieldSceneData& scene, const uint64_t engineFrame,
-                                          const uint32_t poolMiB, const MeshFieldImports& imports )
+                                          const MeshFieldImports& imports )
     {
         // The owner's rows: the per-frame buffers grow on upload (GdfUpload) inside the asking view's scope.
         const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
@@ -593,7 +579,7 @@ namespace Desert::Graphic::DistanceField
         // The scene's frame: the first view of it decides the scene's resident fields, every later view finds them
         // as that one left them (DistanceFieldSceneData::BeginViewFrame) - from the set's distinct fields (the
         // list is the scene's, not culled), sealed with the set.
-        if ( const auto begun = scene.BeginViewFrame( engineFrame, poolMiB, objects.Fields ); !begun )
+        if ( const auto begun = scene.BeginViewFrame( engineFrame, objects.Fields ); !begun )
             return Common::MakeError<FrameField>( begun.GetError() );
         // Each field's slot in the resident set: resolved again only for another set or resident epoch.
         if ( m_SlotsIdentity != objects.Identity || m_SlotsEpoch != scene.GetResidentEpoch() )
@@ -1040,14 +1026,14 @@ namespace Desert::Graphic::DistanceField
                                              const GlobalDistanceField::ImportImage&       import,
                                              const GlobalDistanceFieldObjectSet&           objects,
                                              DistanceFieldSceneData& scene, const uint64_t engineFrame,
-                                             const uint32_t poolMiB, const NearFieldView& view )
+                                             const NearFieldView& view )
     {
         // This graph's view of the buffers a trace reads - the scene's records and table, the field's objects -
         // registered by the field's update in this graph through this view's imports (RegisterMeshFields).
         const GlobalDistanceField::MeshFieldImports imports{
              .Assets = &m_AssetImport, .Indirection = &m_IndirectionImport, .Objects = &m_ObjectImport };
-        auto updated = field.AddUpdatePasses( graph, import, view.CameraPosition, objects, scene, engineFrame,
-                                              poolMiB, imports );
+        auto updated =
+             field.AddUpdatePasses( graph, import, view.CameraPosition, objects, scene, engineFrame, imports );
         if ( !updated )
             return Common::MakeError<GlobalDistanceField::FrameField>( updated.GetError() );
         GlobalDistanceField::FrameField frame = updated.GetValue();
@@ -1107,7 +1093,7 @@ namespace Desert::Graphic::DistanceField
         m_NearFieldListRoom = std::max<uint64_t>(
              m_NearFieldListRoom,
              uint64_t{ total } * static_cast<uint64_t>( DFShared::DF_MESH_SDF_GRID_INITIAL_OBJECTS_PER_CELL ) );
-        const uint64_t gridUints = uint64_t{ total } * kGridHeaderStride + m_NearFieldListRoom;
+        const uint64_t gridUints = uint64_t{ total } * kMeshSDFGridHeaderStride + m_NearFieldListRoom;
         if ( gridUints > std::numeric_limits<uint32_t>::max() )
             return Common::MakeFormattedError<bool>(
                  "near-field grid: {} cells and {} list entries do not fit 32-bit indices", total,
@@ -1133,7 +1119,7 @@ namespace Desert::Graphic::DistanceField
         // The scatter's (object, key) pairs, one per list entry, sorted into the grid's lists by step 5.
         const RDG::BufferRef unsorted = graph.CreateBuffer( RDG::BufferDesc{ m_NearFieldListRoom * 8ull },
                                                             "DistanceField.NearField.Unsorted" );
-        const RDG::BufferRef feedback = graph.CreateBuffer( RDG::BufferDesc{ kCullFeedbackUints * 4ull },
+        const RDG::BufferRef feedback = graph.CreateBuffer( RDG::BufferDesc{ kMeshSDFCullFeedbackUints * 4ull },
                                                             "DistanceField.NearField.Feedback" );
 
         constexpr RDG::Access kR = RDG::Access::StorageRead;
@@ -1248,7 +1234,7 @@ namespace Desert::Graphic::DistanceField
         if ( stamp == 0u || !readback.Physical )
             return; // no cull ran in this slot yet, or its graph faulted before the extract
         const std::span<const std::byte>         bytes = readback.Physical->ReadForHost();
-        std::array<uint32_t, kCullFeedbackUints> values{};
+        std::array<uint32_t, kMeshSDFCullFeedbackUints> values{};
         if ( bytes.size() < sizeof( values ) )
         {
             LOG_ERROR( "[DistanceField] the near-field cull's feedback is not host-readable ({} bytes)",

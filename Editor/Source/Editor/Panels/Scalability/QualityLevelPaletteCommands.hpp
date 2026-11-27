@@ -115,11 +115,11 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         };
-        for ( const Parameter parameter : Common::Scalability::ListedParameters() )
+        for ( const ParameterSpec& spec : Common::Scalability::ParameterSpecs() )
         {
+            const Parameter parameter = spec.Id;
             if ( parameter == Parameter::RenderScalePercent )
                 continue;
-            const ParameterSpec&                    spec  = Common::Scalability::SpecOf( parameter );
             const std::span<const std::string_view> names = Common::Scalability::ParameterValueNames( parameter );
             if ( !names.empty() )
                 for ( std::size_t v = 0; v < names.size(); ++v )

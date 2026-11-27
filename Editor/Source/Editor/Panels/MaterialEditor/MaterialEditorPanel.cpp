@@ -22,6 +22,7 @@
 #include <Landscape/Public/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Assets/TextureAsset.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
@@ -185,6 +186,26 @@ namespace Desert::Editor
             }
             // Named by handle rather than "Material": two unnamed materials must still read as two windows.
             return std::format( "Material {}", static_cast<uint64_t>( material ) );
+        }
+
+        // A texture bound to a slot of a texture array (a landscape layer's `Element(<array>, i)` param) shares
+        // that array's one format with every other slot, so its asset is marked for the cook
+        // (TextureImportSettings::ArraySlotFormat) at the moment it is bound. A refusal is said, never swallowed.
+        void MarkArraySlotTexture( const ::Desert::Core::Formats::ShaderParam& p, const Assets::TextureAsset& texture )
+        {
+            if ( p.ElementOf.empty() )
+                return;
+            const std::filesystem::path asset = texture.GetMetadata().Filepath;
+            if ( asset.extension() != Assets::kTextureAssetExtension )
+            {
+                LOG_ERROR( "[MaterialEditor] '{}' is bound to the texture-array slot '{}' but is not a texture asset "
+                           "('{}'); the cook cannot be told to store it in the slot's format.",
+                           asset.generic_string(), p.Name, Assets::kTextureAssetExtension );
+                return;
+            }
+            if ( const auto marked = Assets::SetTextureArraySlotFormat( asset, true ); !marked )
+                LOG_ERROR( "[MaterialEditor] '{}' bound to the texture-array slot '{}' was not marked: {}",
+                           asset.generic_string(), p.Name, marked.GetError() );
         }
     } // namespace
 
@@ -582,7 +603,7 @@ namespace Desert::Editor
         // same registry and the same lifetime — but because a third call spelled differently beside two
         // guarded ones reads as a deliberate exception, and the next person has to work out which of the
         // three is wrong.
-        auto* imageService = Runtime::ResourceRegistry::GetImageService();
+        auto* imageService = Runtime::GetImageService();
         if ( !imageService )
             return {};
 
@@ -1624,6 +1645,7 @@ namespace Desert::Editor
                                 data.SetTexture(
                                      p.Name, tex->Guid(),
                                      Common::AssetHandle::StableKeyForPath( tex->GetMetadata().Filepath ) );
+                                MarkArraySlotTexture( p, *tex );
                                 changed = true;
                             }
                         }
@@ -1668,6 +1690,8 @@ namespace Desert::Editor
                                  row.Guid.has_value() && !row.Guid->IsNull() )
                             {
                                 data.SetTexture( p.Name, *row.Guid, row.Key );
+                                if ( const auto bound = m_AssetManager->FindByHandle<Assets::TextureAsset>( row.Handle ) )
+                                    MarkArraySlotTexture( p, *bound );
                                 changed = true;
                             }
                             if ( static_cast<uint64_t>( row.Handle ) == bound )

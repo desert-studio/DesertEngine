@@ -17,6 +17,8 @@
 
 namespace Common::Content
 {
+    struct ScanProgress; // ScanProgress.hpp
+
     // WALKING THE CONTENT ROOTS, ONCE — and comparing what is there with what the cooked registry says
     // is there.
     //
@@ -92,7 +94,9 @@ namespace Common::Content
     // shader service's engine-root rule (ShaderService::Register) ask it.
     [[nodiscard]] bool IsUnder( const std::filesystem::path& file, const std::filesystem::path& root );
 
+    // The second form says what it does while it runs (ScanProgress.hpp); the first is a scan nobody watches.
     [[nodiscard]] std::map<std::string, ContentFile> ScanContentRoots();
+    [[nodiscard]] std::map<std::string, ContentFile> ScanContentRoots( const ScanProgress& progress );
 
     // ── THE REGISTRY BUILDS ITSELF (UE: FAssetDataGatherer + CachedAssetRegistry.bin) ──────────────────
     //
@@ -132,7 +136,11 @@ namespace Common::Content
     [[nodiscard]] ResultStr<Utils::AssetRegistryEntry> RegistryRowFor( const std::string& key,
                                                                        const ContentFile& file );
 
+    // The second form says what it does while it runs (ScanProgress.hpp): Listed( the files the walk found ) once
+    // before the first cache check, then Begin/End around each file's cache check or header read. The first is
+    // a gather nobody watches. Same rows, same refusals, either way.
     [[nodiscard]] GatheredRegistry GatherContentRegistry( const RegistryCache& cache );
+    [[nodiscard]] GatheredRegistry GatherContentRegistry( const RegistryCache& cache, const ScanProgress& progress );
 
     // THE KINDS A RUNNING PROCESS CREATES ON DEMAND, from their registry row, when something names them by
     // handle (AL1-2): the noise volumes, the hero-cloud bodies and the painted layouts. No boot stage walks

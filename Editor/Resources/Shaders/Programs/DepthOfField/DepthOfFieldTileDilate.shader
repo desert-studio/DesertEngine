@@ -16,22 +16,8 @@ Shader "DepthOfFieldTileDilate"
         layout(binding = 1, rg16f) restrict writeonly uniform image2D DilatedTexture;
 
         // The C++ side is Graphic::DofParams (View/DepthOfField.hpp), offsets pinned by static_asserts.
-        layout(std430, binding = 2) readonly buffer DepthOfFieldBuffer
-        {
-            vec2  OutputSize;
-            vec2  RenderSize;
-            vec2  HalfSize;
-            vec2  TileCount;
-            vec4  DepthToView;
-            float FocalDistanceMm;
-            float FocalLengthMm;
-            float CocScale;
-            float MaxRadius;
-            int   Rings;
-            int   DilateTiles;
-            float Pad0;
-            float Pad1;
-        };
+        #include <Generated/Post/DofParams.glslh>
+        layout(std430, binding = 2) readonly buffer DepthOfFieldBuffer { DESERT_DofParams_MEMBERS };
 
         const int kTileSize = 8; // Graphic::kDofTileSize
 

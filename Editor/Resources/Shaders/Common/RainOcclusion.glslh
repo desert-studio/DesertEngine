@@ -16,10 +16,12 @@
 #ifndef DESERT_RAIN_OCCLUSION_DECLARED
 layout( binding = kRainOcclusionMapBinding ) uniform texture2D RainOcclusionMapTexture;
 Uniform sampler RainOcclusionSampler;
+// Graphic::RainOcclusionUniforms (Engine/Graphic/RainOcclusionLayout.hpp); ShoreFoam is the view's foam map
+// (Water/WaterFoamField.glslh).
+#include <Generated/Weather/RainOcclusion.glslh>
 layout( std140, binding = kRainOcclusionBlockBinding ) uniform RainOcclusionUB
 {
-    mat4 RainOcclusionWorldToMap; // world -> the map's clip (uv = (x, -y) * 0.5 + 0.5, z = depth)
-    vec4 RainOcclusionParams;     // x = depth range (cm), y = valid (>0.5), z = bias (cm), w = texel (cm)
+    DESERT_RainOcclusionUniforms_MEMBERS
 };
 #endif
 

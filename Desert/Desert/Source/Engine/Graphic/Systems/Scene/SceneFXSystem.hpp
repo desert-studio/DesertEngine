@@ -83,11 +83,7 @@ namespace Desert::Graphic::System
          SceneRenderer* sceneRenderer, const std::shared_ptr<Framebuffer>& targetFramebuffer );
 
     /// The registered FX system factory (module startup, Engine/Core/Modules.cpp); null without the VFX module.
-    inline SceneFXSystemFactory& SceneFXSystemFactorySlot()
-    {
-        static SceneFXSystemFactory factory = nullptr;
-        return factory;
-    }
+    SceneFXSystemFactory& SceneFXSystemFactorySlot();
 
     inline void RegisterSceneFXSystem( SceneFXSystemFactory factory )
     {

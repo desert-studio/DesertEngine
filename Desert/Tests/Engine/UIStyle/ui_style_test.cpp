@@ -22,6 +22,7 @@
 #include <Engine/Assets/UIThemeData.hpp>
 #include <UI/UIStyleResolver.hpp>
 #include <UI/UIStyleSlots.hpp>
+#include <Common/Content/ContentKinds.hpp>
 
 #include <gtest/gtest.h>
 
@@ -35,7 +36,7 @@
 #include <unordered_set>
 #include <vector>
 #include <Common/Core/Events/RoutedEvents.hpp>
-#include <Engine/Graphic/ShaderProtocols/Std140Block.hpp>
+#include <glm/glm.hpp>
 #include <UI/Args/UIButtonArgs.hpp>
 #include <UI/Args/UIControlArgs.hpp>
 #include <UI/Args/UIEventArgs.hpp>

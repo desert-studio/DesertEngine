@@ -20,25 +20,14 @@ namespace Desert::Graphic
      * @brief The GPU side of the seam's AUTHORED producer: the hero clouds of a frame, and the ONE place
      *        an entity's transform becomes an instance.
      *
-     * The GLSL half of this layout is the block in Editor/Resources/Shaders/Common/CloudAuthored.glslh,
-     * member for member and in this order. The static_asserts below make a divergence a build error
-     * instead of a frame in which a hero cloud is read from the wrong bytes — which does not look like a
-     * bug, it looks like the cloud being in the wrong place.
+     * The layout is declared once, in CloudLayout.hpp (CloudAuthoredInstanceGpu, CloudAuthoredPayload), and
+     * the GLSL half of Common/CloudAuthored.glslh is generated from it; this file is the packer.
      *
      * Units: KILOMETRES, and the frame is the FIELD's — x and z are world kilometres, y is the altitude
      * above the layer's base. That is the vector CloudRaymarch.shader hands SampleCloudField, and the
      * conversion from world centimetres happens here, exactly once, for the same reason PackCloudParams
      * converts the layer's distances exactly once.
      */
-
-    /// How many hero clouds one frame may carry. Mirrors CLOUD_AUTHORED_SLOTS in
-    /// Common/CloudAuthored.glslh; Desert/Tests/Engine/CloudAuthored asserts the two agree.
-    ///
-    /// EIGHT, AND MEMORY IS WHAT PICKS IT — see the note beside CLOUD_AUTHORED_SLOTS. Eight DISTINCT
-    /// bodies are 32.00 MiB of atlas; with the 20.67 MiB the subsystem already occupies that is 52.67 of
-    /// decision D-9's 64 MiB, and the trace and history targets take 9.4 MiB more at 1920x1080 than at the
-    /// 1280x766 that figure was measured at. Ten bodies would not leave room for the frame.
-    inline constexpr uint32_t kCloudAuthoredSlots = 8u;
 
     /// How many DIFFERENT sculpted bodies the atlas holds. The same number, and deliberately so: a body
     /// with no instance is not uploaded and an instance needs a body, so a second constant could only ever
@@ -75,60 +64,6 @@ namespace Desert::Graphic
         glm::mat4          WorldTransform{ 1.0f };
         std::string        Name;
     };
-
-    /**
-     * One hero cloud as the GPU reads it. TWENTY FLOATS, ALL READ — see the note on
-     * `CloudAuthoredInstance` in Common/CloudAuthored.glslh for why the translation is not among them.
-     */
-    struct CloudAuthoredInstanceGpu
-    {
-        glm::vec4 Row0;      // xyz = row 0 of field-km -> local cube, w = DetailFactor
-        glm::vec4 Row1;      // xyz = row 1,                          w = DensityFactor
-        glm::vec4 Row2;      // xyz = row 2,                          w = ExtinctionFactor
-        glm::vec4 BoundsMin; // xyz = field-space AABB min (km),      w = SIGNED Strength
-        glm::vec4 BoundsMax; // xyz = field-space AABB max (km),      w = AtlasSlabBaseW
-    };
-
-    static_assert( offsetof( CloudAuthoredInstanceGpu, Row0 ) == 0 );
-    static_assert( offsetof( CloudAuthoredInstanceGpu, Row1 ) == 16 );
-    static_assert( offsetof( CloudAuthoredInstanceGpu, Row2 ) == 32 );
-    static_assert( offsetof( CloudAuthoredInstanceGpu, BoundsMin ) == 48 );
-    static_assert( offsetof( CloudAuthoredInstanceGpu, BoundsMax ) == 64 );
-    static_assert( sizeof( CloudAuthoredInstanceGpu ) == 80,
-                   "Five vec4s. std430 gives an array of these a stride of 80, and the shader indexes it "
-                   "with that stride." );
-
-    /**
-     * The whole buffer: how many instances are live and the instances themselves.
-     *
-     * THE TWO INTS AFTER THE COUNTS ARE std430's ALIGNMENT AND NOT A RESERVED SLOT. A struct array
-     * aligns to 16, so two `int`s at offset 0 are followed by eight bytes no member occupies — there is
-     * nothing there to read, and the assert below pins the array's offset so that a future member cannot
-     * quietly move into the gap and be read at the wrong place by one of the two sides.
-     *
-     * A SEPARATE BUFFER FROM CloudGpuPayload, and the reason is what each of them IS. That one is the
-     * LAYER — one copy, repacked when the artist moves a slider. This is a per-frame LIST whose length
-     * changes when an entity is added to the scene, and appending it to the layer's block would make
-     * every scene without a hero cloud carry 656 bytes and a wider upload for nothing.
-     */
-    struct CloudAuthoredPayload
-    {
-        int32_t Count = 0;
-
-        /// How many DIFFERENT bodies the atlas bound this frame holds. It lives here and not on the
-        /// instance because every instance of a frame reads the same atlas: eight copies of one number are
-        /// eight chances for the copies to disagree.
-        int32_t                  SlabCount = 0;
-        int32_t                  Alignment[2]{ 0, 0 };
-        CloudAuthoredInstanceGpu Instances[kCloudAuthoredSlots]{};
-    };
-
-    static_assert( offsetof( CloudAuthoredPayload, Count ) == 0 );
-    static_assert( offsetof( CloudAuthoredPayload, SlabCount ) == 4 );
-    static_assert( offsetof( CloudAuthoredPayload, Instances ) == 16,
-                   "std430 aligns an array of structs to 16, so the two counts' eight trailing bytes are "
-                   "alignment. Both sides must agree that the array starts here." );
-    static_assert( sizeof( CloudAuthoredPayload ) == 656 );
 
     inline constexpr uint32_t kCloudAuthoredPayloadBytes = sizeof( CloudAuthoredPayload );
 

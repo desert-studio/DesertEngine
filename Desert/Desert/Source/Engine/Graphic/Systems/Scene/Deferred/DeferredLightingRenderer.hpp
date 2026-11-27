@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/PipelineBuilds.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
@@ -31,6 +32,7 @@
 #include <format>
 #include <vector>
 #include <map>
+#include <optional>
 #include <utility>
 #include <span>
 #include <string>
@@ -255,21 +257,14 @@ namespace Desert::Graphic::System
             m_Composite.Shader = Runtime::FindShader( "DeferredLighting" );
             if ( !m_Composite.Shader )
                 return Common::MakeError( "DeferredLighting shader not found" );
-            if ( const Common::BoolResultStr built = BuildComposite(); !built )
-                return Common::MakeError( std::format( "Deferred lighting: {}", built.GetError() ) );
-            m_Refusals = {};
+            // SUBMIT EVERYTHING, WAIT ONCE, THEN DECIDE (R9): every pipeline below goes to the driver on the
+            // JobSystem (CreateAsync), so the composite, the six arms and their tiled / per-model permutations
+            // compile in parallel instead of one after another on this thread. A spec refusal is answered at
+            // submit, a driver refusal after the wait; the ladder below reads both, as it read Create's answer.
+            Common::BoolResultStr                composite = BuildComposite();
+            std::array<Common::BoolResultStr, 6> programs{};
             for ( std::size_t index = 0; index < m_Programs.size(); ++index )
-            {
-                const Common::BoolResultStr built = BuildProgram( index );
-                if ( built )
-                    continue;
-                // The cascades' program draws CascadedMaps, the ladder's front: without it there is no deferred
-                // composite at all. Any other program serves only the Shadows methods it is named for: those are
-                // refused by name (ResolveRenderMethods walks on down the ladder), the composite keeps the rest.
-                if ( kProgramShadowMethods[index].empty() )
-                    return Common::MakeError( std::format( "Deferred lighting: {}", built.GetError() ) );
-                RefuseProgram( index, built.GetError() );
-            }
+                programs[index] = BuildProgram( index );
 
             m_GridShader = Runtime::FindShader( "LightGridBuild" );
             if ( !m_GridShader )
@@ -292,7 +287,29 @@ namespace Desert::Graphic::System
             if ( !classifyPipeline )
                 return Common::MakeError( classifyPipeline.GetError() );
             m_ClassifyPipeline = classifyPipeline.GetValue();
-            BuildTiledPrograms();
+            SubmitTiledPrograms();
+            WaitBuilt( AllPrograms() );
+
+            if ( composite )
+                composite = Settle( m_Composite );
+            if ( !composite )
+                return Common::MakeError( std::format( "Deferred lighting: {}", composite.GetError() ) );
+            m_Refusals = {};
+            for ( std::size_t index = 0; index < m_Programs.size(); ++index )
+            {
+                if ( programs[index] )
+                    programs[index] = Settle( m_Programs[index] );
+                if ( programs[index] )
+                    continue;
+                // The cascades' program draws CascadedMaps, the ladder's front: without it there is no deferred
+                // composite at all. Any other program serves only the Shadows methods it is named for: those are
+                // refused by name (ResolveRenderMethods walks on down the ladder), the composite keeps the rest.
+                if ( kProgramShadowMethods[index].empty() )
+                    return Common::MakeError(
+                         std::format( "Deferred lighting: {}", programs[index].GetError() ) );
+                RefuseProgram( index, programs[index].GetError() );
+            }
+            SettleTiledPrograms();
             return BOOLSUCCESS;
         }
 
@@ -304,7 +321,7 @@ namespace Desert::Graphic::System
 
         // True when this frame's direct program (the arm of @p shadow) and the composite have both tiled
         // permutations built and the classify is ready: the view may draw by tiles (RenderPipeline.TileClassify).
-        // A permutation that did not build was said at its build (BuildTiledPrograms), with its reason.
+        // A permutation that did not build was said with its reason (Submit/SettleTiledPrograms).
         [[nodiscard]] bool TileClassifyReady( const DeferredShadowInput& shadow ) const
         {
             if ( !m_ClassifyPipeline )
@@ -397,14 +414,24 @@ namespace Desert::Graphic::System
         void RetryRefusedPrograms()
         {
             m_Refusals = {};
+            // Submit every refused arm and the permutations it may now carry, wait once, then decide (as
+            // Initialize does).
+            std::array<std::optional<Common::BoolResultStr>, 6> retried{};
+            for ( std::size_t index = kScreenMaskSunProgram; index < m_Programs.size(); ++index )
+                if ( !m_Programs[index].Pipeline )
+                    retried[index] = BuildProgram( index );
+            SubmitTiledPrograms();
+            WaitBuilt( AllPrograms() );
             for ( std::size_t index = kScreenMaskSunProgram; index < m_Programs.size(); ++index )
             {
-                if ( m_Programs[index].Pipeline )
+                if ( !retried[index] )
                     continue;
-                if ( const Common::BoolResultStr built = BuildProgram( index ); !built )
-                    RefuseProgram( index, built.GetError() );
+                if ( *retried[index] )
+                    retried[index] = Settle( m_Programs[index] );
+                if ( !*retried[index] )
+                    RefuseProgram( index, retried[index]->GetError() );
             }
-            BuildTiledPrograms();
+            SettleTiledPrograms();
         }
 
         // The "Light Grid (World)" view mode's pipeline for a target of @p format at @p samples (the view's post
@@ -464,8 +491,8 @@ namespace Desert::Graphic::System
 
         // GRAPH BUILD (before the Composite node): the lights as graph buffers, each uploaded by the graph's
         // upload command. No light is one zeroed entry (a storage buffer is never empty); the counts are the
-        // material's LightsMetadata. @p grid = MakeLightGridParams of this view: its parameters are uploaded too
-        // and its cell buffer created, which "LightGrid" fills.
+        // material's LightsMetadata. @p grid = MakeLightGridParams of this view: its
+        // parameters are uploaded too and its cell buffer created, which "LightGrid" fills.
         // FPS-SET-MEMO4: every buffer is the view's kept one (@p kept, a stable VkBuffer per frame slot), not a
         // graph transient; refused when one cannot be made or imported.
         static Common::ResultStr<DeferredCompositeLights>
@@ -1046,7 +1073,9 @@ namespace Desert::Graphic::System
             spec.DepthWriteEnabled = false;
             spec.DebugName         = std::string( debugName );
             spec.Shader            = program.Shader;
-            const auto pipeline    = Graphic::GraphicsPipeline::Create( spec );
+            // Submitted, not built: the driver compile runs on the JobSystem; the caller waits once for all it
+            // submitted (WaitBuilt) and reads the driver's answer through Settle.
+            const auto pipeline = Graphic::GraphicsPipeline::CreateAsync( spec, PipelineRole::Engine );
             if ( !pipeline )
             {
                 program = CompositeProgram{};
@@ -1082,10 +1111,53 @@ namespace Desert::Graphic::System
                 return m_Composite;
             return m_TiledComposite[TiledIndex( tileClass )];
         }
-        // The tiled permutations of every direct program that built and of the composite, each one missing
-        // acquired and built again. One that does not build is said here with its reason; the view then draws
-        // the whole screen (TileClassifyReady is false for its arm), the picture is the same.
-        void BuildTiledPrograms()
+        // Every program of this renderer, so one wait covers all that were submitted.
+        [[nodiscard]] std::vector<CompositeProgram*> AllPrograms()
+        {
+            std::vector<CompositeProgram*> all;
+            all.push_back( &m_Composite );
+            for ( std::size_t index = 0; index < m_Programs.size(); ++index )
+            {
+                all.push_back( &m_Programs[index] );
+                for ( CompositeProgram& tiled : m_TiledPrograms[index] )
+                    all.push_back( &tiled );
+                for ( CompositeProgram& model : m_ModelPrograms[index] )
+                    all.push_back( &model );
+            }
+            for ( CompositeProgram& tiled : m_TiledComposite )
+                all.push_back( &tiled );
+            for ( CompositeProgram& model : m_ModelComposites )
+                all.push_back( &model );
+            return all;
+        }
+        // Blocks until no pipeline of @p programs is still in the driver (built or failed).
+        static void WaitBuilt( const std::span<CompositeProgram* const> programs )
+        {
+            PipelineBuilds::Get().WaitUntil(
+                 [programs]
+                 {
+                     for ( const CompositeProgram* program : programs )
+                         if ( program->Pipeline &&
+                              program->Pipeline->GetReadiness() == PipelineReadiness::Compiling )
+                             return false;
+                     return true;
+                 } );
+        }
+        // After WaitBuilt: a pipeline the driver refused leaves @p program empty, and the refusal is its reason.
+        static Common::BoolResultStr Settle( CompositeProgram& program )
+        {
+            if ( !program.Pipeline || program.Pipeline->GetReadiness() != PipelineReadiness::Failed )
+                return BOOLSUCCESS;
+            const std::string name = program.Pipeline->GetSpecification().DebugName;
+            program                = CompositeProgram{};
+            return Common::MakeError(
+                 std::format( "the driver refused pipeline '{}' (its VkResult is logged above)", name ) );
+        }
+        // The tiled permutations of every direct program submitted and of the composite, each one missing
+        // acquired and submitted. One refused at submit is said here with its reason, one the driver refuses by
+        // SettleTiledPrograms; the view then draws the whole screen (TileClassifyReady is false for its arm), the
+        // picture is the same.
+        void SubmitTiledPrograms()
         {
             const RenderTargetLayout direct{ .ColorFormats = { ViewTargetFormats::kDeferredDirectLighting },
                                              .DepthFormat  = std::nullopt,
@@ -1113,12 +1185,9 @@ namespace Desert::Graphic::System
                 if ( const Common::BoolResultStr built = BuildVariant( composite, variant, scene, name ); !built )
                     LOG_ERROR( "Deferred lighting: {}: {} (the view draws fullscreen)", name, built.GetError() );
             }
-            // FPS-DIRECT-TILES: a model has its own list when its folded permutation built for every arm that
-            // built; else its single-model tiles stay mixed (the dispatch: the same picture), said here.
-            uint32_t mask = 0u;
+            // FPS-DIRECT-TILES: the folded permutation of every model for every arm submitted.
             for ( const uint32_t model : TileModels() )
             {
-                bool every = true;
                 for ( std::size_t index = 0; index < m_Programs.size(); ++index )
                 {
                     CompositeProgram& program = m_ModelPrograms[index][model];
@@ -1129,11 +1198,8 @@ namespace Desert::Graphic::System
                     const std::string name = std::format( "{} Model{}Tiles", kProgramDebugNames[index], model );
                     const Core::ShaderVariant variant = ModelVariant( ProgramVariant( index ), model );
                     if ( const Common::BoolResultStr built = BuildVariant( program, variant, direct, name ); !built )
-                    {
                         LOG_ERROR( "Deferred lighting: {}: {} (model {}'s tiles draw mixed)", name,
                                    built.GetError(), model );
-                        every = false;
-                    }
                 }
                 // FPS-DIRECT-TILES2: the composite draws the same lists, so a model's list needs its folded
                 // composite as well - else the composite would not cover that model's tiles.
@@ -1145,12 +1211,50 @@ namespace Desert::Graphic::System
                     if ( const Common::BoolResultStr built =
                               BuildVariant( composite, variant, SceneTargetLayout(), name );
                          !built )
-                    {
                         LOG_ERROR( "Deferred lighting: {}: {} (model {}'s tiles draw mixed)", name,
                                    built.GetError(), model );
-                        every = false;
-                    }
                 }
+            }
+        }
+        // After WaitBuilt, once the arms are settled: the permutations of an arm that does not draw are dropped
+        // (only an arm that draws carries them), and one the driver refused is said with its reason and dropped.
+        // Then FPS-DIRECT-TILES: a model has its own list when its folded permutation built for every arm that
+        // built and its folded composite built; else its single-model tiles stay mixed (the dispatch: the same
+        // picture).
+        void SettleTiledPrograms()
+        {
+            const auto settle = []( CompositeProgram& program, const std::string_view consequence )
+            {
+                if ( const Common::BoolResultStr built = Settle( program ); !built )
+                    LOG_ERROR( "Deferred lighting: {} ({})", built.GetError(), consequence );
+            };
+            for ( std::size_t index = 0; index < m_Programs.size(); ++index )
+            {
+                if ( !m_Programs[index].Pipeline )
+                {
+                    for ( CompositeProgram& tiled : m_TiledPrograms[index] )
+                        tiled = CompositeProgram{};
+                    for ( CompositeProgram& model : m_ModelPrograms[index] )
+                        model = CompositeProgram{};
+                    continue;
+                }
+                for ( CompositeProgram& tiled : m_TiledPrograms[index] )
+                    settle( tiled, "the view draws this arm fullscreen" );
+                for ( CompositeProgram& model : m_ModelPrograms[index] )
+                    settle( model, "this model's tiles draw mixed" );
+            }
+            for ( CompositeProgram& tiled : m_TiledComposite )
+                settle( tiled, "the view draws fullscreen" );
+            for ( CompositeProgram& model : m_ModelComposites )
+                settle( model, "this model's tiles draw mixed" );
+
+            uint32_t mask = 0u;
+            for ( const uint32_t model : TileModels() )
+            {
+                bool every = m_ModelComposites[model].Pipeline != nullptr;
+                for ( std::size_t index = 0; index < m_Programs.size(); ++index )
+                    if ( m_Programs[index].Pipeline && !m_ModelPrograms[index][model].Pipeline )
+                        every = false;
                 if ( every )
                     mask |= 1u << model;
             }

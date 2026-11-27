@@ -133,6 +133,8 @@ namespace Desert::Graphic::Render
             // The impostor switch's LOD distance scale (MeshRenderer::GetLODDistanceScale), 0 while the
             // renderer's LOD is off (MeshRenderer::IsLODEnabled: every pair draws its source side).
             float LODDistanceScale = 1.0f;
+            float DrawDistance     = 1.0f; // Geometry::LODView::DrawDistance: the draw-distance cull's factor
+            float TextureMipBias   = 0.0f; // TextureStreamingDemand::BiasedPixels: the demand's bias
             bool      operator==( const View& ) const = default;
         };
         struct MaterialDemand

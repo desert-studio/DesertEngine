@@ -1,14 +1,17 @@
 #pragma once
 
 #include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Assets/ItemProgress.hpp>
 
-#include <cstddef>
 #include <memory>
 
 namespace Desert::Animation
 {
     class AnimationLibrary;
+}
+
+namespace Desert::Core
+{
+    class StartupProgress;
 }
 
 namespace Desert::Assets
@@ -27,24 +30,20 @@ namespace Desert::Assets
     // `Desert/Tests/Editor/BootContentCensus` holds both hosts to calling every function declared here and
     // forbids a `Preload*` declaration anywhere in the engine, editor or runtime sources.
 
-    /// The number of shader programs (the engine's and the project's) `CompileShaders` works through — the
-    /// splash weighs its stage by it before the stage begins. One per `.shader` row of the content registry.
-    [[nodiscard]] std::size_t ShaderCount();
-
     /// Every `.shader` row (the engine's Shaders/ and the project's Content/Shaders/, one kind) created and
     /// registered with the ShaderService, compiling its programs. A registration the service refuses (a program
     /// name another file owns) is logged naming the file and is not counted.
     /// SYNCHRONOUS AND FIRST, which is §2.4(a)'s case: the render systems' default materials resolve their
     /// shaders in their constructors, so these must exist before any of them is built. A material's own
-    /// shader graph is still compiled on demand when the material is. @p stop is asked before each program;
-    /// true ends the compile there and leaves the rest unregistered (the splash's close button).
+    /// shader graph is still compiled on demand when the material is. @p progress (the editor's; null in the
+    /// Runtime) gets the three shader phases begun on it and is asked StopRequested before each program; a stop
+    /// ends the compile there and leaves the rest unregistered (the splash's close button).
     /// REFUSED when no loaded shader is the `Default Surface` template (or the project's DefaultSurfaceTemplate
     /// names none): the engine's slot-less meshes and every new material are authored on it, so an engine without
     /// it is refused at its start, naming the role, rather than carrying a null default into the renderer (the
     /// "no config = error" rule). A stop request ends the compile with success — the host is closing.
     [[nodiscard]] Common::BoolResultStr CompileShaders( const std::shared_ptr<AssetManager>& manager,
-                                                        const ItemProgress&                  progress = {},
-                                                        const StopRequested&                 stop     = {} );
+                                                        Core::StartupProgress*               progress = nullptr );
 
     /// The animation library indexed from the registry's clip rows plus the built-in procedural clips.
     /// Nothing is read: a clip is loaded when an animator first names it (AL1-6). Also the re-index behind

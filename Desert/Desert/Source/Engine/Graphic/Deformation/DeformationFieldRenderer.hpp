@@ -32,6 +32,7 @@
 // grass flattening (DEFORM-GROUND / DEFORM-GRASS) read FrameField from SceneRenderer before the base pass.
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/Deformation/DeformationLayout.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
@@ -119,15 +120,6 @@ namespace Desert::Graphic::Deformation
         std::array<RDG::TextureRef, kDeformationLevels> Detail{};
         std::array<glm::ivec2, kDeformationLevels>      WindowMin{};
     };
-
-    // The block the field's surface readers bind (DEFORM-GRASS, Deformation/DeformationFieldRead.glslh
-    // DeformationFieldParams), std430.
-    struct DeformationFieldParamsGpu
-    {
-        glm::ivec4 Windows{ 0 };   // xy: level 0's minimum cell, zw: level 1's
-        glm::vec4  Levels{ 0.0f }; // x, y: texel (cm) of level 0, 1; z, w: their resolution (0: no field)
-    };
-    static_assert( sizeof( DeformationFieldParamsGpu ) == 32 );
 
     // @p field's windows and levels; nullptr (the view has no field this frame) is all zero, which every reader
     // answers as untouched ground.

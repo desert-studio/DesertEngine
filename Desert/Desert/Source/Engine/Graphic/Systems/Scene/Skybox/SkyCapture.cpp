@@ -394,7 +394,7 @@ namespace Desert::Graphic::System
                        radianceFace, radiance != nullptr, irr != nullptr, pre != nullptr );
             return false;
         }
-        auto* images = Runtime::ResourceRegistry::GetImageService();
+        auto* images = Runtime::GetImageService();
         if ( keepRadiance )
         {
             m_RadianceHandle = images->Register( std::move( radiance ), Runtime::ImageHandle::Type::ImageCube );
@@ -446,7 +446,7 @@ namespace Desert::Graphic::System
 
     void SkyCapture::ReleaseCapture()
     {
-        auto* images = Runtime::ResourceRegistry::GetImageService();
+        auto* images = Runtime::GetImageService();
         if ( images != nullptr )
         {
             if ( m_IrradianceHandle.IsValid() )
@@ -475,7 +475,7 @@ namespace Desert::Graphic::System
             return true;
 
         // Every image this slice names is imported first, so a refusal adds no pass at all.
-        auto* images = Runtime::ResourceRegistry::GetImageService();
+        auto* images = Runtime::GetImageService();
         if ( !textures.Import( m_RadianceImage, "SkyCapture.Radiance" ).IsValid() ||
              !textures.Import( images->Share( m_IrradianceHandle ), "SkyCapture.Irradiance" ).IsValid() ||
              !textures.Import( images->Share( m_PrefilteredHandle ), "SkyCapture.Prefiltered" ).IsValid() )
@@ -739,7 +739,7 @@ namespace Desert::Graphic::System
 
     void SkyCapture::AddIrradiance( RDG::Builder& graph, FrameTextures& textures )
     {
-        auto*                 images   = Runtime::ResourceRegistry::GetImageService();
+        auto*                 images   = Runtime::GetImageService();
         const RDG::TextureRef radiance = textures.Import( m_RadianceImage, "SkyCapture.Radiance" );
         const RDG::TextureRef irradiance =
              textures.Import( images->Share( m_IrradianceHandle ), "SkyCapture.Irradiance" );
@@ -783,7 +783,7 @@ namespace Desert::Graphic::System
         }
         const RDG::BufferRef readback =
              graph.RegisterExternal( m_IrradianceReadbackImport, "SkyCapture.IrradianceReadback" );
-        auto*                 images = Runtime::ResourceRegistry::GetImageService();
+        auto*                 images = Runtime::GetImageService();
         const RDG::TextureRef irradiance =
              textures.Import( images->Share( m_IrradianceHandle ), "SkyCapture.Irradiance" );
 
@@ -834,7 +834,7 @@ namespace Desert::Graphic::System
 
     void SkyCapture::AddPrefilter( RDG::Builder& graph, FrameTextures& textures )
     {
-        auto*                 images   = Runtime::ResourceRegistry::GetImageService();
+        auto*                 images   = Runtime::GetImageService();
         const RDG::TextureRef radiance = textures.Import( m_RadianceImage, "SkyCapture.Radiance" );
         const RDG::TextureRef prefiltered =
              textures.Import( images->Share( m_PrefilteredHandle ), "SkyCapture.Prefiltered" );

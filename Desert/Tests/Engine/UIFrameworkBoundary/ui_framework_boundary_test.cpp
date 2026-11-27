@@ -117,7 +117,7 @@ namespace
                 return {};
         if ( path.starts_with( "Engine/" ) )
             return "an engine header: the engine is built ON this library, never under it";
-        if ( path.find( "entt" ) != std::string::npos )
+        if ( path.find( "entt" ) != std::string::npos || path.find( "Core/Entt.hpp" ) != std::string::npos )
             return "entt: the element tree is UI::IUITree, the registry is Engine/UI/Ecs/'s";
         if ( path.find( "vulkan" ) != std::string::npos || path.find( "vk_" ) != std::string::npos ||
              path.find( "VkBootstrap" ) != std::string::npos )

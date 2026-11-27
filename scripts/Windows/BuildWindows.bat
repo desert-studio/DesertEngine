@@ -3,14 +3,16 @@ setlocal EnableDelayedExpansion
 REM Configure (cmake --preset) and build Desert Engine on Windows with MSVC and Ninja.
 REM
 REM Usage:
-REM   scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--unity] [--gen-only] [--no-analyze]
+REM   scripts\Windows\BuildWindows.bat [Development^|DebugGame^|Shipping] [--gen-only] [--no-analyze]
 REM                                     [--no-tests] [--project ^<Target^>]...
 REM
 REM Examples:
-REM   scripts\Windows\BuildWindows.bat                  Debug build, static analysis on
-REM   scripts\Windows\BuildWindows.bat Release          Release build
-REM   scripts\Windows\BuildWindows.bat Shipping         what a player gets: no capture, no profiler, no counters
-REM   scripts\Windows\BuildWindows.bat Release --unity  the CI speed build ^(preset windows-msvc-ninja-unity^)
+REM   scripts\Windows\BuildWindows.bat                  Development: module DLLs, unity, static analysis on
+REM   scripts\Windows\BuildWindows.bat DebugGame        unoptimised, debug CRT, for a debugger session
+REM   scripts\Windows\BuildWindows.bat Shipping         what a player gets: static monolith, /LTCG, no instruments
+REM
+REM One configuration per build tree ^(single-config Ninja^): Development -^> preset win-dev, DebugGame -^> win-debug,
+REM Shipping -^> win-ship, each in build\cmake\^<preset^>.
 REM
 REM The test suites are configured unless --no-tests is passed ^(CMakePresets.json `base`: DESERT_WITH_TESTS=ON^).
 REM DESERT_WITH_TESTS is passed on EVERY configure, ON or OFF, so one --no-tests run cannot stick to the
@@ -23,7 +25,7 @@ REM ledger, compile cache^) is read by the module from the environment the same 
 REM --project ^<Target^> builds that CMake target instead of everything; repeatable ^(BuildMacOS.sh's --project=^).
 REM The MSVC environment comes from vcvars64.bat of the Visual Studio instance vswhere reports when
 REM cl.exe is not already on PATH, so a plain cmd works as well as a Developer Command Prompt.
-REM   scripts\Windows\BuildWindows.bat Debug --no-analyze   skip clang-tidy, and SAY so
+REM   scripts\Windows\BuildWindows.bat DebugGame --no-analyze   skip clang-tidy, and SAY so
 REM
 REM THE NAME USED TO BE A LIE, AND FOUR SCRIPTS SHARED THE CONFUSION. BuildWindows.bat once only
 REM generated a solution and built nothing — while CompileWindows.bat was the one
@@ -39,8 +41,7 @@ cd /d "%~dp0..\.."
 set "ROOT=%CD%"
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 
-set "CONFIG=Debug"
-set "PRESET=windows-msvc-ninja"
+set "CONFIG=Development"
 set "GEN_ONLY=0"
 set "ANALYZE=1"
 set "WITH_TESTS=ON"
@@ -60,15 +61,14 @@ set "ANALYZER=%ROOT%\scripts\CI\CheckTidy.bat"
 
 :parse_args
 if "%~1"=="" goto args_done
-if /I "%~1"=="Debug"        (set "CONFIG=Debug"          & shift & goto parse_args)
-if /I "%~1"=="Release"      (set "CONFIG=Release"        & shift & goto parse_args)
+if /I "%~1"=="Development"  (set "CONFIG=Development"    & shift & goto parse_args)
+if /I "%~1"=="DebugGame"    (set "CONFIG=DebugGame"      & shift & goto parse_args)
 REM SHIPPING WAS REJECTED HERE, ON THE PLATFORM THE GAME SHIPS FOR. The configuration arrived with its
 REM macOS wrapper taught the word (scripts/MacOS/BuildMacOS.sh) and this one not, so
 REM `BuildWindows.bat Shipping` answered "[ERROR] Unknown argument: Shipping" -- while the packager's
 REM own "Runtime binary not found" message is what sends people here to build that configuration.
 REM Two dead ends in a row is how a configuration stops being used at all.
 if /I "%~1"=="Shipping"     (set "CONFIG=Shipping"       & shift & goto parse_args)
-if /I "%~1"=="--unity"      (set "PRESET=windows-msvc-ninja-unity" & shift & goto parse_args)
 if /I "%~1"=="--gen-only"   (set "GEN_ONLY=1"            & shift & goto parse_args)
 if /I "%~1"=="--no-analyze" (set "ANALYZE=0"             & shift & goto parse_args)
 if /I "%~1"=="--no-tests"   (set "WITH_TESTS=OFF"        & shift & goto parse_args)
@@ -80,9 +80,12 @@ if /I "%~1"=="--project" (
     shift & shift & goto parse_args
 )
 echo [ERROR] Unknown argument: %~1 1>&2
-echo         Usage: scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--unity] [--gen-only] [--no-analyze] [--no-tests] [--project ^<Target^>]... 1>&2
+echo         Usage: scripts\Windows\BuildWindows.bat [Development^|DebugGame^|Shipping] [--gen-only] [--no-analyze] [--no-tests] [--project ^<Target^>]... 1>&2
 exit /b 1
 :args_done
+set "PRESET=win-dev"
+if /I "%CONFIG%"=="DebugGame" set "PRESET=win-debug"
+if /I "%CONFIG%"=="Shipping"  set "PRESET=win-ship"
 
 REM The x64 MSVC environment: kept when cl.exe is already on PATH ^(a Developer Command Prompt, CI's
 REM msvc-dev-cmd^), otherwise vcvars64.bat of the newest Visual Studio with the C++ toolset. Checked by
@@ -145,10 +148,8 @@ if "%GEN_ONLY%"=="1" (
     exit /b 0
 )
 
-REM Build presets are ^<configure preset^>-^<lowercase config^> ^(CMakePresets.json^).
-set "BUILD_PRESET=%PRESET%-debug"
-if /I "%CONFIG%"=="Release"  set "BUILD_PRESET=%PRESET%-release"
-if /I "%CONFIG%"=="Shipping" set "BUILD_PRESET=%PRESET%-shipping"
+REM The build preset carries the configure preset's name ^(CMakePresets.json^).
+set "BUILD_PRESET=%PRESET%"
 
 echo --- Building ^(%BUILD_PRESET%^)
 echo     Tip: close Editor.exe first — a running one makes the link fail with LNK1168.
@@ -198,8 +199,7 @@ if not exist "%ANALYZER%" (
     REM "Could not run" is transient — a missing binary, a wrong version, a broken database — and it
     REM must refuse, because it is indistinguishable from "ran and found nothing" by output alone.
     REM This is not that. The Windows entry point has never been written. The MSVC compile database
-    REM it needs now exists ^(build\cmake\windows-msvc-ninja\compile_commands.json, filtered to one
-    REM configuration by scripts\CI\GenCompileCommands.sh^); the entry point and clang-tidy's MSVC
+    REM it needs now exists ^(build\cmake\win-dev\compile_commands.json, one configuration per tree^); the entry point and clang-tidy's MSVC
     REM driver mode are what is owed. Refusing until somebody writes it does not produce analysis — it produces a platform whose build always fails, which
     REM is how "--no-analyze" becomes the command everybody types and the gate dies unnoticed.
     REM

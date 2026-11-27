@@ -89,10 +89,6 @@ namespace Desert::Graphic::RayTracing
             RayTracingSbtWriteCounts                Previous;
             std::optional<RayTracingSbtWriteCounts> Reported;
         };
-        static State& Get()
-        {
-            static State state;
-            return state;
-        }
+        static State& Get();
     };
 } // namespace Desert::Graphic::RayTracing

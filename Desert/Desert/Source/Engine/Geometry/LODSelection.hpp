@@ -88,8 +88,11 @@ namespace Desert::Geometry
         // UE r.StaticMeshLODDistanceScale / r.SkeletalMeshLODDistanceScale (CINEMATIC-LOD): the level is chosen
         // as if every object stood at its distance x this (UE ComputeLODForMeshes' FactorScale = 1 / scale on
         // the screen radius). < 1 keeps finer levels farther; 1 = the authored screen sizes. Set by the mesh
-        // renderer from Scalability ViewDistance.LODDistanceScalePercent (MeshRenderer::LodView).
+        // renderer from Scalability ViewDistance.LODDistanceScalePercent (MeshRenderer::MainLODView).
         float DistanceScale = 1.0f;
+        // UE r.ViewDistanceScale: authored draw and cull distances are multiplied by this (1 = as authored;
+        // Graphic::DrawDistanceScale). Never the LOD. Scalability ViewDistance.DrawDistanceScalePercent.
+        float DrawDistance = 1.0f;
     };
 
     // THE PER-VIEW STATE the samples come from (UE FTemporalLODState::UpdateTemporalLODTransition): the newer

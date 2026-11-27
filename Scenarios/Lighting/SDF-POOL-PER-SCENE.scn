@@ -1,0 +1,29 @@
+# SDF-POOL-PER-SCENE: the mesh distance-field brick atlas is the scene's and grows to the scene's need under the
+# Scalability ceiling (GlobalIllumination.DistanceFieldPoolMiB, High = 384 MiB) in 8 MiB steps; a second viewport of
+# one world adds nothing, PIE adopts the atlas, an empty new world holds one step. Default machine settings (no
+# machine.json), Quality High. Camera as GI-SHADE-DARK-FIELD.scn.
+# Bistro run: the same file against F:/BistroFoliageProj, scene B16_Bistro_Street, header "Bistro" - expect
+# [bistro_1]: "[DistanceField] streaming settled" with the same field count and ResidentByMips as B-INT, the atlas at
+# 384 MiB (need >= ceiling), no "grew" line after the first frame, the frame equal to the B-INT reference
+# (mean diff <= 0.5/255) and GPU frame time within +-2 %.
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run Quality "Quality: GlobalIllumination.Method SoftwareTraced"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Когда state
+Тогда-вид 1_one_view the barn on SoftwareTraced GI with distance-field AO
+Тогда [1_one_view] views.scenes=1, views.distanceFieldPools=1, views.surfaceCaches=1, views.distanceFieldAtlasBytes = A with A < 384 MiB and A a multiple of 8 MiB
+Дано run Scene "New Viewport (same scene)"
+Когда state
+Тогда-вид 2_two_views both viewports of this one frame show the same GI/AO look (mean diff <= 0.5/255 between them; against 1_one_view only time drift - clouds, wind, exposure - may differ)
+Тогда [2_two_views] views.live=2, views.scenes=1, views.distanceFieldPools=1, views.surfaceCaches=1, views.distanceFieldAtlasBytes = A (the second viewport adds 0)
+Дано run Action "Play from Here"
+Когда state
+Тогда-вид 3_play GI and AO in place on the pawn camera's own view (ground level, sun in frame - not 1_one_view's camera): no black or empty frame, no unlit black barn faces
+Тогда [3_play] views.scenes=1, views.distanceFieldPools=1, views.surfaceCaches=1, views.distanceFieldAtlasBytes = A (the atlas moved over by AdoptPool)
+Дано run Action "Stop"
+Дано run Scene "New Scene View"
+Когда state
+Тогда [4_new_world] views.scenes=2, views.distanceFieldPools <= 2, views.distanceFieldAtlasBytes <= A + 8 MiB (an empty second world holds at most one atlas step; before the change A + 384 MiB)
+Тогда [log] no "[DistanceField] ... could not hold" line, at most one "brick atlas grew" line per scene once settled, 0 VUID in editor.log

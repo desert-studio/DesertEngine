@@ -74,7 +74,7 @@ namespace Desert::Water
         bool      CanMorphTwice = false;
         /// An ocean drawn UNDER a river in a leaf the river's banks only partly cover (UE: the ocean under the
         /// river, the river-to-ocean transition): this tile is clipped to the complement of the river's bank mask
-        /// (WaterMeshTiles.glslh WaterBankClipped), the river's own tile in the same leaf to the mask, so the two
+        /// (WaterRiver.glslh WaterBankClipped), the river's own tile in the same leaf to the mask, so the two
         /// partition the leaf by the one mask the CPU query answers by (Water::QueryWater).
         bool UnderRiver = false;
         /// The lowest LOD's global morph toward the next one, from the camera's height (0 on every other LOD).

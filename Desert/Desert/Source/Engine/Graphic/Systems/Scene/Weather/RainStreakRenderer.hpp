@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
+#include <Engine/Graphic/Systems/Scene/Weather/WeatherLayout.hpp>
 
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -27,17 +28,6 @@ namespace Desert::Graphic::System
                                           RDG::Erase( RainOcclusionMapTexture ), RDG::Erase( RainOcclusionSampler ),
                                           RDG::Erase( RainOcclusionUB ) };
     };
-
-    // RainStreaks.shader's RainStreaksUB (std140).
-    struct RainStreaksUniforms
-    {
-        glm::mat4 ViewProjection{ 1.0f }; // the view's jittered view-projection
-        glm::vec4 Camera{ 0.0f };         // xyz camera (cm), w = scene time (s)
-        glm::vec4 Wind{ 0.0f };           // xz SceneWind directional velocity (cm/s), w = PreExposure
-        glm::vec4 Gust{ 0.0f };           // SceneWind gust fronts (ViewFrame::WindGust)
-        glm::vec4 Light{ 0.0f };          // x = RainDropShape.z
-    };
-    static_assert( sizeof( RainStreaksUniforms ) == 128, "RainStreaks.shader RainStreaksUB" );
 
     // The frame's graph resources the pass reads (created by SceneRendererImpl::AddFrameRainStreaks).
     struct RainStreaksFrameInputs

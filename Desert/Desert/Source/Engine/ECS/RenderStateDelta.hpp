@@ -2,7 +2,7 @@
 
 #include <Common/Core/DirtySet.hpp>
 
-#include <entt/entt.hpp>
+#include <Common/Core/Entt.hpp>
 
 #include <array>
 #include <cstddef>

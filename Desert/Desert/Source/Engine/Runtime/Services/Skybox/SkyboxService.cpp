@@ -1,6 +1,7 @@
 #include "SkyboxService.hpp"
 
 #include <Engine/Assets/RegistryDiscovery.hpp>
+#include <Engine/Graphic/Environment/EnvironmentBake.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Logger.hpp>
@@ -9,6 +10,12 @@
 
 namespace Desert::Runtime
 {
+    SkyboxService::SkyboxService() : m_EnvironmentCache( std::make_unique<Graphic::EnvironmentCacheWriter>() )
+    {
+    }
+
+    SkyboxService::~SkyboxService() = default;
+
     void SkyboxService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
     {
         m_Assets = assets;
@@ -68,7 +75,7 @@ namespace Desert::Runtime
                      return;
                  }
                  // A cache miss's conversion is recorded by the first frame graph that draws the skybox
-                 // (MaterialSkybox::AddConvolutionPasses), ahead of every pass that samples it, so the material
+                 // (AddSkyboxConvolutionPasses), ahead of every pass that samples it, so the material
                  // is handed out at once -- there is no fence to wait on.
                  m_Skyboxes[handle] = std::make_shared<Graphic::MaterialSkybox>( skybox );
              },

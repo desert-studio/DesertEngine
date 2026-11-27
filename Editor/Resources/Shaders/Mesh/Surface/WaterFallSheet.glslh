@@ -1,0 +1,50 @@
+#ifndef DESERT_WATER_FALL_SHEET_GLSLH
+#define DESERT_WATER_FALL_SHEET_GLSLH
+
+// A RIVER'S FALL (Water::RiverFall): a sheet that thins as it speeds up, tears into strands and whitens with them.
+// Included after Mesh/Surface/WaterRiver.glslh (the tile's Medium.zw speeds) and SurfaceTypes.glslh (the material's
+// SingleLayerWaterOutput, whose FallStrands the material samples down the sheet).
+struct WaterFallSheet
+{
+    vec3  Normal;      // in the sheet's own frame
+    float ThicknessCm; // of the water the light crosses
+    float Opacity;     // 0 where the sheet is torn
+    float Foam;        // 0..1 white water
+};
+
+WaterFallSheet WaterFallSheetNone()
+{
+    WaterFallSheet f;
+    f.Normal      = vec3( 0.0, 0.0, 1.0 );
+    f.ThicknessCm = 0.0;
+    f.Opacity     = 1.0;
+    f.Foam        = 0.0;
+    return f;
+}
+
+// The sheet at a fragment of a fall's row; `w` = the material's look (SingleLayerWaterOutput::FallStrands, FallShape:
+// the strand mask carried down the sheet, the tearing speeds, the lip's thickness, the frayed edge's width).
+WaterFallSheet WaterFallSheetAt( vec2 uv0, vec4 vertexColor, float time, SingleLayerWaterOutput w )
+{
+    const WaterTileRow row   = WaterFragmentTile( vertexColor );
+    const float        along = clamp( ( uv0.y * 100.0 - row.Lod.w ) / max( row.Zone.z, 1.0 ), 0.0, 1.0 );
+    const float        speed = mix( row.Medium.z, row.Medium.w, along );
+    const float        torn  = smoothstep( w.FallShape.x, w.FallShape.y, speed );
+    const float        h     = w.FallStrands.x;
+
+    WaterFallSheet f;
+    // Continuity: the flow at the lip, thinned by the speed it gains; the ropes take it from the gaps.
+    f.ThicknessCm = w.FallShape.z * max( row.Medium.z, 1.0 ) / max( speed, 1.0 ) * ( 0.4 + 1.2 * h );
+    f.Normal      = normalize( vec3( -w.FallStrands.y * 20.0 * ( 0.3 + 0.7 * torn ), 0.0, 1.0 ) );
+    const float cut = mix( -0.3, 0.45, torn );
+    f.Opacity     = smoothstep( cut, cut + 0.2, h );
+    // The frayed edge: the sheet's sides (UV0.x = cm across the centre line / 100, Tile.w = its width) break up over
+    // FallEdgeFray, deeper where the strands are thin.
+    const float width  = max( row.Tile.w, 1.0 );
+    const float across = abs( uv0.x * 100.0 ) / width;
+    f.Opacity *= smoothstep( 0.0, 1.0, ( 0.5 - across ) * width / max( w.FallShape.w, 1e-3 ) + ( h - 0.5 ) );
+    f.Foam        = torn * ( 0.35 + 0.65 * smoothstep( 0.35, 0.7, h ) );
+    return f;
+}
+
+#endif
