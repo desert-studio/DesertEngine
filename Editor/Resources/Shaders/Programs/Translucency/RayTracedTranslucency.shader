@@ -12,21 +12,21 @@ Shader "RayTracedTranslucency"
     // first interface by its Fresnel). The first opaque hit is lit in place as the hit-lit reflections light theirs
     // (Common/GIHitLighting.glslh GIHitRadianceLit, its emission included); a miss is the sky. A rough front layer
     // bends by one GGX visible normal per frame (the temporal upscaler sums them). Output: rgb = pre-exposed radiance
-    // x transmittance, a = 1 where the trace answered; past MaxRoughness a = 0 (the glass's screen tier answers), and
-    // past MaxInterfaces the scene copy is read where the path's last interface projects on screen.
-    Pass "Refraction"
+    // x transmittance, a = 1 where the trace answered; past MaxRoughness or MaxInterfaces a = 0 and the glass cell reads
+    // the scene copy itself (this pass never reads it).
+    Pass "Trace"
     {
         RayGen
         {
+            // THE SLOTS (System::RayTracedTranslucencyShaderParameters + SSRFrontLayerShaderParameters +
+            // SSRShaderParameters as SSRRenderer::DeclareTracedReads binds them; numbers are this program's).
             Uniform sampler LinearClampSampler;
             Uniform sampler PointClampSampler;
             Uniform(1) texture2D FrontLayerNormalTexture; // rgb = world normal, a = roughness (cleared: zero)
             #define FrontLayerNormalTexture sampler2D(FrontLayerNormalTexture, PointClampSampler)
             Uniform(2) texture2D GBufferDepthTexture;     // the opaque scene's device depth (GIHitLighting's screen material)
             #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
-            Uniform(3) texture2D SceneCopyTexture;        // the scene copy before the glass (RayTracedTranslucencyInputs::SceneCopy)
-            #define SceneCopyTexture sampler2D(SceneCopyTexture, LinearClampSampler)
-            layout(binding = 4, rgba16f) writeonly uniform image2D TranslucencyRefractionTexture; // System::kTranslucencyRefractionTexture
+            layout(binding = 4, rgba16f) writeonly uniform image2D RefractionOutputTexture; // System::RayTracedTranslucencyShaderParameters; the glass cell binds it as kTranslucencyRefractionTexture
             Uniform(5) texture2D FrontLayerDepthTexture;  // the front layer's device depth (cleared: far)
             #define FrontLayerDepthTexture sampler2D(FrontLayerDepthTexture, PointClampSampler)
 
@@ -35,22 +35,17 @@ Shader "RayTracedTranslucency"
             #include <Common/CameraUB.glslh> // the view block the hit groups read
             #include <Common/RayTracingSceneReads.glslh> // the world's table and rain occlusion the hits' weather reads
             #include <Common/GIHitLitReads.glslh>
+            #define GI_SURFACE_CACHE_BINDING 34 // GIHitLighting.glslh's includer statement; unread in place
+            #include <Common/GIHitLighting.glslh>
+            #if !defined( DESERT_GI_TRACER_HARDWARE ) || !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
+            #error "ray-traced refraction is the hardware tracer's, lit in place"
+            #endif
             #include <Common/RayTracingPayload.glslh>
             #include <Common/ReconstructPosition.glslh>
             #include <Common/MonteCarlo.glslh>
+            #include <Common/RayTracedTranslucencyPush.glslh> // InvJitteredViewProjection ... FrameIndex
 
             layout(location = 0) rayPayloadEXT DesertRayPayload payload;
-
-            // System::RayTracedTranslucencyParams, member for member (std430 push constants).
-            PushConstant RayTracedTranslucencyParams
-            {
-                mat4  InvJitteredViewProjection;
-                vec4  CameraPosition; // xyz world (cm), w = PreExposure
-                float MaxRayDistance; // cm, each segment
-                float MaxRoughness;   // above it the surface is not traced (a = 0)
-                uint  MaxInterfaces;  // dielectric interfaces followed before the path stops
-                uint  FrameIndex;     // the rough lobe's sequence
-            };
 
             // Solid glass reaches its tint after this many centimetres inside it (Beer's law): PathTracer.shader's
             // kPathTracingAbsorptionDistance, so the traced raster and the reference absorb alike.
@@ -78,7 +73,19 @@ Shader "RayTracedTranslucency"
                 payload.ConeWidth    = coneWidth;
                 payload.ConeSpread   = spread;
                 payload.Transmission = vec3(0.0);
+#if defined( DESERT_SER ) && DESERT_SER
+                // SHADER EXECUTION REORDERING (RayTracedTranslucencyRenderer::Variant(reorder)): regroup by the hit's
+                // SBT record before its closest hit, as SSRTrace.glslh TraceWorld; the result is the plain trace's.
+                hitObjectNV serHit;
+                hitObjectTraceRayNV(serHit, SceneTlas, gl_RayFlagsNoneEXT, 0xFFu, 0u, 1u, 0u, origin, 0.0, direction,
+                                    MaxRayDistance, 0);
+                reorderThreadNV(serHit, hitObjectIsHitNV(serHit) ? (hitObjectGetShaderBindingTableRecordIndexNV(serHit) & 0xFFFFu)
+                                                                 : 0xFFFFu,
+                                16u);
+                hitObjectExecuteShaderNV(serHit, 0);
+#else
                 traceRayEXT(SceneTlas, gl_RayFlagsNoneEXT, 0xFFu, 0u, 1u, 0u, origin, 0.0, direction, MaxRayDistance, 0);
+#endif
             }
 
             // A GGX visible normal around @p N for the view direction @p V (both world), keyed on the pixel and frame.
@@ -97,13 +104,13 @@ Shader "RayTracedTranslucency"
             void main()
             {
                 const ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
-                const ivec2 size  = imageSize(TranslucencyRefractionTexture);
+                const ivec2 size  = imageSize(RefractionOutputTexture);
                 if (pixel.x >= size.x || pixel.y >= size.y)
                     return;
                 const vec4 front = texelFetch(FrontLayerNormalTexture, pixel, 0);
                 if (dot(front.xyz, front.xyz) <= 0.0 || front.a > MaxRoughness)
                 {
-                    imageStore(TranslucencyRefractionTexture, pixel, vec4(0.0));
+                    imageStore(RefractionOutputTexture, pixel, vec4(0.0));
                     return;
                 }
                 const vec2  uv          = (vec2(pixel) + 0.5) / vec2(size);
@@ -117,13 +124,12 @@ Shader "RayTracedTranslucency"
 
                 vec3 transmittance = vec3(1.0);
                 vec3 absorption    = vec3(0.0); // 1/cm inside the solid the path is in
-                vec3 lastPoint     = frontPos;
                 for (uint crossing = 0u; crossing < MaxInterfaces; ++crossing)
                 {
                     RefractionTrace(origin, dir, coneWidth, spread);
                     if (payload.HitT < 0.0)
                     {
-                        imageStore(TranslucencyRefractionTexture, pixel,
+                        imageStore(RefractionOutputTexture, pixel,
                                    vec4(GIMissRadiance(dir) * transmittance * CameraPosition.w, 1.0));
                         return;
                     }
@@ -148,7 +154,7 @@ Shader "RayTracedTranslucency"
                         const vec3 lit = GIHitRadianceLit(hit, dir, GIHitSurface(payload.BaseColor, payload.Metallic,
                                                                                  payload.Roughness, payload.Emissive,
                                                                                  true, payload.ShadingWord));
-                        imageStore(TranslucencyRefractionTexture, pixel,
+                        imageStore(RefractionOutputTexture, pixel,
                                    vec4(lit * transmittance * CameraPosition.w, 1.0));
                         return;
                     }
@@ -160,7 +166,6 @@ Shader "RayTracedTranslucency"
                     if (crossing == 0u && front.a > 0.0)
                         N = RefractionRoughNormal(N, -dir, front.a, pixel);
                     const float offset = 0.05 + 1.0e-5 * distance(P, eye);
-                    lastPoint          = P;
                     if (thin)
                     {
                         transmittance *= payload.Transmission;
@@ -184,17 +189,9 @@ Shader "RayTracedTranslucency"
                     dir    = normalize(bent);
                     origin = P - payload.Normal * offset;
                 }
-                // The budget of interfaces is spent: the scene copy where the last interface projects on screen.
-                const vec4 clip = cameraUB.JitteredViewProjection * vec4(lastPoint, 1.0);
-                vec4 result = vec4(0.0);
-                if (clip.w > 0.0)
-                {
-                    const vec2 ndc   = clip.xy / clip.w;
-                    const vec2 exitUV = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-                    if (all(greaterThanEqual(exitUV, vec2(0.0))) && all(lessThan(exitUV, vec2(1.0))))
-                        result = vec4(textureLod(SceneCopyTexture, exitUV, 0.0).rgb * transmittance, 1.0);
-                }
-                imageStore(TranslucencyRefractionTexture, pixel, result);
+                // The budget of interfaces is spent: the trace did not answer (a = 0); the glass cell reads the scene
+                // copy itself (this pass never reads it).
+                imageStore(RefractionOutputTexture, pixel, vec4(0.0));
             }
         }
 

@@ -1,12 +1,13 @@
 #ifndef DESERT_GI_HIT_LIT_READS_GLSLH
 #define DESERT_GI_HIT_LIT_READS_GLSLH
 
-// THE READS OF A HIT LIT IN PLACE (Common/GIHitLighting.glslh GIHitRadianceLit under DESERT_GI_HIT_LIGHTING_IN_PLACE on
-// the hardware tracer): the GI frame record, the lights and the world light grid, the radiance cache's read, the sky,
-// the G-buffer's material (its shading word in set 1), then the tracer (23..33). The same names and numbers as
-// Common/SSRTrace.glslh's traced block (System::SSRRenderer::DeclareTracedReads binds them), so one C++ declaration
-// binds both programs. Slots 1..9 stay the includer's. The includer declares LinearClampSampler, PointClampSampler and
-// GBufferDepthTexture (the opaque scene's device depth) before this file.
+// THE READS OF A HIT LIT BY Common/GIHitLighting.glslh (System::SSRRenderer::TracedReads, bound by
+// SSRRenderer::DeclareTracedReads): the GI frame record, the lights and the world light grid, the radiance cache's read
+// (a neutral one, covering nothing, when the GI does not run it), the sky, the G-buffer's material (its shading word in
+// set 1), then the tracer (23..33). The one list of these slots: Common/SSRTrace.glslh and
+// Programs/Translucency/RayTracedTranslucency.shader include it. The includer declares LinearClampSampler,
+// PointClampSampler and GBufferDepthTexture before this file and includes Common/GIHitLighting.glslh after it (with
+// whatever it binds between: SSRTrace.glslh's surface cache and cascades).
 #include <Generated/SceneBindings.glslh> // kSsrFrontLayerSet / kSsrShadingWordBinding: set 1's shading word slot
 #include <Common/GIFrame.glslh>
 #include <Common/RadianceCache.glslh>
@@ -16,14 +17,10 @@ layout(std430, binding = 10) readonly buffer GIFrameUB
 {
 	GIFrame giFrame;
 };
-layout(std430, binding = 11) readonly buffer PointLightsUB
-{
-	PointLight pointLights[];
-};
-layout(std430, binding = 12) readonly buffer SpotLightsUB
-{
-	SpotLight spotLights[];
-};
+#define POINT_LIGHTS_UB_BINDING 11
+#include <Mesh/PointLightsUB.glslh>
+#define SPOT_LIGHTS_UB_BINDING 12
+#include <Mesh/SpotLightsUB.glslh>
 layout(std430, binding = 13) readonly buffer LightGridParamsUB
 {
 	LightGridParams lightGrid;
@@ -56,8 +53,13 @@ layout(binding = 21) uniform texture2D GBufferATexture;
 #define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
 layout(binding = 22) uniform texture2D GBufferEmissiveTexture;
 #define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
+// The shading word (uint): a hit's far side and emission mark (GIHitMaterial). Set 1, the
+// program's own set, beside the front layer's slots (Core::kSsrShadingWordBinding).
 layout(set = kSsrFrontLayerSet, binding = kSsrShadingWordBinding) uniform utexture2D GBufferShadingWordTexture;
 #define GBufferShadingWordTexture usampler2D(GBufferShadingWordTexture, PointClampSampler)
+// The traced radiance probes (the radiance read, RadianceCacheRadianceAt): the software tracer's world legs end a
+// rough texel's ray at the cache's minimum trace distance and read the cache past it (SSR.shader THE SOFTWARE
+// TRACER'S WORLD LEGS, FPS-SSR-FAR). Slot 41: after the surface cache's 34..40, before the lists' 42..47.
 layout(binding = 41) uniform texture2D RadianceCacheRadianceAtlasTexture;
 #define RadianceCacheRadianceAtlasTexture sampler2D(RadianceCacheRadianceAtlasTexture, LinearClampSampler)
 #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
@@ -66,7 +68,5 @@ layout(binding = 41) uniform texture2D RadianceCacheRadianceAtlasTexture;
 #include <Common/RadianceCache.glslh>
 #define GI_TRACER_BINDING 23
 #include <Common/GITracer.glslh>
-#define GI_SURFACE_CACHE_BINDING 34
-#include <Common/GIHitLighting.glslh>
 
 #endif // DESERT_GI_HIT_LIT_READS_GLSLH
