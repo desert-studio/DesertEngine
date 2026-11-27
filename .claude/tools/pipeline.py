@@ -497,7 +497,7 @@ def plan_refusal(s, code):
 def git(tree, *args):
     try:
         r = subprocess.run(["git", "-C", tree] + list(args), capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=60)
+                           errors="replace", timeout=600 if args and args[0] in ("worktree", "merge", "checkout") else 60)
         return r.returncode, r.stdout.strip()
     except (OSError, subprocess.SubprocessError) as e:
         return 1, str(e)
