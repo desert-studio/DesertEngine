@@ -95,6 +95,10 @@ namespace Desert::Net
         virtual void PlayerJoined( PlayerId player, std::uint64_t account )    = 0;
         virtual void PlayerLeft( PlayerId player )                             = 0;
         virtual void PlayerInput( PlayerId player, const InputMessage& input ) = 0;
+        // THE PLAYER'S VIEW (UE APlayerController::ServerUpdateCamera): the eye @p player's client reported, cm,
+        // passed on as each ViewReport arrives (the client's own rate) to the simulation that owns the pawn - the
+        // one that streams for it. The newest wins.
+        virtual void PlayerView( PlayerId player, const NetVec3& eye ) = 0;
         // The ack of §5.1: the last of @p player's input steps the sim has processed, the own pawn's movement
         // state after it, and the input steps still queued (the client's clock sync); nullopt before the first.
         struct AckedMove
@@ -143,6 +147,9 @@ namespace Desert::Net
         struct Settings
         {
             std::vector<NetVec3> SpawnPoints; // world cm; the n-th player takes point n % size
+            // The project's Net settings (the gateway's own): a reported eye is resolved against the pawn with
+            // them (ResolveViewPosition: at most MaxViewRangeCm from it).
+            RelevancySettings Relevancy;
         };
         // @p mover: THE GAME'S movement (Engine/Gameplay/CharacterMoveStep.hpp, the same step the client predicts
         // with, over the server's collision world of the streamed cells). Net queues and orders the input steps
@@ -156,6 +163,8 @@ namespace Desert::Net
         void PlayerJoined( PlayerId player, std::uint64_t account ) override;
         void PlayerLeft( PlayerId player ) override;
         void PlayerInput( PlayerId player, const InputMessage& input ) override;
+        // Kept on the player's pawn (dropped with it); a player without a pawn here has no view here.
+        void                                   PlayerView( PlayerId player, const NetVec3& eye ) override;
         [[nodiscard]] std::optional<AckedMove> LastProcessedInput( PlayerId player ) const override;
 
         // Server authority asks to move @p player's pawn to @p feet (UE TeleportTo). The request is refused, and
@@ -179,6 +188,17 @@ namespace Desert::Net
             NetVec3       Position;
         };
         [[nodiscard]] std::vector<Source> Sources() const;
+        // THE PLAYERS' VIEWS for the server's residency union (§2M.3, UE ServerUpdateCamera,
+        // WP-STREAM-SOURCE-VIEW: the ground under the body AND what the player looks at): per pawn in Sources
+        // whose player reported a view, the eye resolved against the pawn now. A player that never reported has
+        // none - its eye is its pawn, already a source. @p out is the caller's, cleared and refilled (no
+        // allocation once it has grown).
+        struct ViewSource
+        {
+            PlayerId Player = 0;
+            NetVec3  Position;
+        };
+        void                              Views( std::vector<ViewSource>& out ) const;
         [[nodiscard]] bool                HasPawn( PlayerId player ) const
         {
             return m_Pawns.contains( player );
@@ -296,6 +316,8 @@ namespace Desert::Net
                 float         LargestStep = 0.f;
             };
             std::optional<CatchUpRun>    CatchUp;
+            // The eye its player reported last (PlayerView); nullopt = never reported to this simulation.
+            std::optional<NetVec3> View;
         };
         // One fixed step of one pawn: its pending placement resolved first, then its queued input steps.
         void StepOne( PlayerId player, Pawn& pawn );
@@ -388,17 +410,6 @@ namespace Desert::Net
         {
             return m_Relevancy;
         }
-
-        // THE PLAYERS' VIEWS for the server's residency union (§2M.3, UE ServerUpdateCamera): per admitted
-        // connection with a pawn and a ViewReport, its eye resolved against that pawn (ResolveViewPosition: at
-        // most MaxViewRangeCm from it). A connection that never reported has none - its eye is its pawn, which
-        // the sim's sources already hold.
-        struct ViewSource
-        {
-            PlayerId Player = 0;
-            NetVec3  Position;
-        };
-        [[nodiscard]] std::vector<ViewSource> ViewSources() const;
 
     private:
         // PER CONNECTION x STABLE OBJECT: the version each field was last acked at (the baseline) and the version

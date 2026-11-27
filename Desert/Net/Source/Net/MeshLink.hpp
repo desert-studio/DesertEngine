@@ -310,6 +310,7 @@ namespace Desert::Net
         void PlayerJoined( PlayerId player, std::uint64_t account ) override;
         void PlayerLeft( PlayerId player ) override;
         void PlayerInput( PlayerId player, const InputMessage& input ) override;
+        void                                   PlayerView( PlayerId player, const NetVec3& eye ) override;
         [[nodiscard]] std::optional<AckedMove> LastProcessedInput( PlayerId player ) const override;
 
         // The coordinator's authority map and the sims' acks; true when @p type was a mesh message for this link.
@@ -323,6 +324,7 @@ namespace Desert::Net
 
     private:
         [[nodiscard]] std::optional<ConnectionId> Route( PlayerId player, std::string_view what );
+        void                                      SendView( PlayerId player, const NetVec3& eye, std::string_view what );
 
         MeshEndpoint&                                               m_Endpoint;
         NetLogSink                                                  m_Log;
@@ -330,6 +332,8 @@ namespace Desert::Net
         std::map<PlayerId, std::pair<std::uint32_t, std::uint32_t>>
              m_Authority; // player -> (sim, epoch) of its pawn
         std::map<PlayerId, AckedMove> m_Acks;
+        // player -> the last eye its client reported; re-sent to the new owner when its pawn's authority moves
+        std::map<PlayerId, NetVec3> m_Views;
         std::map<PlayerId, std::pair<std::uint32_t, std::uint32_t>> m_Routed; // player -> (sim, epoch) last logged
     };
 
