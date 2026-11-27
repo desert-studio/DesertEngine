@@ -32,7 +32,9 @@
 Запомнить b server player (\d+) account 2 \(
 Запомнить c server player (\d+) account 3 \(
 Консоль server teleport {b1} {a2+1000} {a3+300} {a4-1800}
-Ждать server 30 player \d+: pawn \d+ teleported to
+Ждать server 30 player {b1}: pawn \d+ teleported to
+# B's pawn net id: the server's teleport line names it, A's per-pawn lines and the dormant/awake lines carry it.
+Запомнить bp server player {b1}: pawn (\d+) teleported to
 Консоль server teleport {c1} {a2+3000} {a3+2000} {a4-30000}
 Ждать server 30 player \d+: pawn \d+ teleported to
 # Дано: server + A + B (20 m) + C (300 m) on WP_Protocol; both bots walk a circle.
@@ -96,21 +98,30 @@
 Сверить dd0 dd1 0.03
 Тогда A far15_dormant_5s D in the same place as far15_dormant (no drift, the same pixels within a few px), still one solid mannequin on the ground
 Нет A \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 60
-# MISSING VERB (bot pause/resume): "B stops for 5 s, then walks" and "on B's first moving step B walks with no lag
-# and no jump (A's log: B's delay is the same as before the stop)" need a bot that stops and walks again on a
-# controller command; DesertNetProbe --bot reads no console and has no stop/resume window, and a server teleport
-# is a jump, not a walk. Not played until net_scenario.py can drive a bot's walk.
-#
-# far15_budget - NOT PLAYED: MISSING VERB. It needs (1) a step that writes Net.BudgetBytesPerSecond = 2048 into the
-# platform layer Config/<Platform>/Engine.json of the run's tree and restores it after, (2) a second server start
-# with Bands of descending ToCm in the same file and a step that expects its exit code 7. net_scenario.py has
-# neither (one server role per run, no file step, no exit-code step).
-# Когда: the budget is lowered to 2048 B/s (platform layer Config/<Platform>/Engine.json in the runner's working
-#       copy - Config/Mac/Engine.json on macOS, Config/Windows/Engine.json on Windows - Net.BudgetBytesPerSecond),
-#       8 bots at 20-40 m.
-# Тогда [far15_budget] far15/budget.png: the server starts (validation passed) and its "[Server]" line shows
-#       "deferred > 0"; A's log - the nearest bot still "period 2", the farthest of the eight skip snapshots; all 8
-#       players are visible in A's frame; with Bands of descending ToCm in the same file the server refuses to start
-#       with the text of ValidateNetSettings (exit code 7). None of the eight starves: each gets an entry at least
-#       once a second (A's log for every bot - "period" <= 60; review 11-26: with no "Sent" record for a bot not yet
-#       sent, its priority did not grow).
+# Когда: B stops on a console command and walks on (NET-SCN-VERBS: a bot reads `stop | walk [cm]` on its console).
+# The server logs B's pawn dormant (unchanged); B keeps facing its last walk. Then B walks the rest of its circle.
+Консоль B stop
+Ждать B 5 console: stopped at step
+Ждать server 60 player \d+: pawn {bp1} dormant
+Ждать A 10 fresh \[Net\] pawn {bp1} \(player \d+\): .*delay \d+\.\d+ s
+Запомнить r0 A \[Net\] pawn {bp1} \(player \d+\): .*delay (\d+\.\d+) s
+Тогда A far15_pause B stands where it stopped, one solid mannequin on the ground, facing the way it walked (the heading of B's log "console: stopped ... facing N deg", not turned to -Z); _next identical (no drift, no turn); D stands as before
+Консоль B walk
+Ждать B 5 console: walk resumed at step
+Ждать server 30 pawn {bp1} awake
+Ждать A 10 fresh \[Net\] pawn {bp1} \(player \d+\): .*delay \d+\.\d+ s
+Запомнить r1 A \[Net\] pawn {bp1} \(player \d+\): .*delay (\d+\.\d+) s
+# B's interpolation delay in A's log is the same before the stop and after the walk, within 30 ms (no lag on its
+# first moving step: a resume is a walk, not a teleport).
+Сверить r0 r1 0.03
+Тогда A far15_resume B walks on from where it stopped along its circle: one mannequin, no jump back, no second mannequin left at the stop, feet on the ground; _next shows it one frame of walk further
+# Когда: the budget (Net.BudgetBytesPerSecond, the defaults' 65536 B/s here) is read off the server's own "net
+# settings" line, never copied from a file; with two bots and D nothing is deferred.
+Запомнить budget server \[Server\] net settings: .* budget (\d+) B/s
+Всегда server \[Server\] net rates.*player {a1}: (\d+) B/s <= {budget1}
+Всегда server \[Server\] net rates.*player {a1}: [^;]*longest wait (\d+) step <= 60
+Число server \[Server\] net rates.*player {a1}: [^;]*deferred (\d+) == 0
+Ждать A 30 fresh \[Net\] interpolation buffer: .*\(0 snap\(s\)\)
+Тогда A far15_budget B walking its circle and D standing, each one solid mannequin on the ground; nothing deferred (the server's last "net rates" line for A: "deferred 0", every line "longest wait" <= 60 steps)
+# The lowered budget (2048 B/s, 8 bots at 20-40 m: "deferred > 0", none starving) and the refused start (Bands of
+# descending ToCm through DesertServer --config: ValidateNetSettings, exit code 7) are Scenarios/Network/NET-SCN-VERBS.scn.

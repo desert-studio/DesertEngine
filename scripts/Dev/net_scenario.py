@@ -26,21 +26,34 @@ Line format (one step per line in order, `#` comments; a step's REGEX is the res
                                               `--mesh-port`; store, sim and gateway get `--coordinator` (the coordinator
                                               role starts first); all, sim and gateway get the world. The client port
                                               (`--port --audience --issuer-key`, the link flags) is the role clients
-                                              connect to: all or gateway, one per run.
+                                              connect to: all or gateway, one LIVE at a time - a server that has
+                                              exited (a refused start, «Выход») frees it and the next gets a new port.
   Роль|Role <name> probe <args…>              a HOSTILE MESH PEER: DesertNetProbe --mesh-peer with the run's mesh CA
                                               and `--store` (the store role's mesh address; the store role starts
                                               first); its console (stdin) takes «Консоль» lines as a server's does.
-  Ждать|Wait <role> <seconds> [<N>x] <REGEX>  the role writes a line matching REGEX (N of them) after the previous
+  Ждать|Wait <role> <seconds> [fresh] [<N>x] <REGEX>
+                                              the role writes a line matching REGEX (N of them) after the previous
                                               event; refused after <seconds> or when the role has exited. An event is
                                               a Ждать match or a Консоль line: lines written before it never satisfy a
                                               later Ждать (UE Gauntlet: wait for the NEXT log event).
-  Консоль|Console <role> <line>               write the line to the role's console (stdin); {var} placeholders
+  Консоль|Console <role> <line>               write the line to the console (stdin) of a server, probe or bot role
+                                              (a bot: `stop | walk [cm] | drop <Kind> [n] | corrupt <Kind> [n]`);
+                                              an editor has none; an exited role is refused
   Сигнал|Signal <role> STOP|CONT|TERM         send the signal to the server role's process group (a mesh peer that
                                               stops answering, resumes, or dies); an event like a Консоль line
   Запомнить|Read <var> <role> <REGEX>         the role's LAST line matching REGEX so far: its numeric groups become
                                               {var1}, {var2}, … ({var1-20000} adds, for a console line)
-  Сверить|Compare <var> <var> <cm>            every component of the two equal within <cm>
+  Сверить|Compare <var> <var> <tol>           every component of the two equal within <tol> (cm, s: the values' unit)
   Нет|Never <role> <REGEX>                    the role's whole log so far has no line matching REGEX
+  Число|Number <role> <REGEX> <op> <value>    the role's LAST line matching REGEX so far: its first group, a number,
+                                              compared by op (<= >= < > == !=) with value (a number or {var}); no
+                                              line, no group or a group that is not a number fails with the text
+  Всегда|Every <role> <REGEX> <op> <value>    EVERY line of the role's whole log so far matching REGEX holds the
+                                              same comparison; no matching line at all fails (an unproven
+                                              statement); the first line that breaks it is named in the failure
+  Выход|Exit <role> <seconds> <code>          the role's process ends with exit code <code> within <seconds>; the
+                                              role stays readable (Ждать/Нет/Число on its log), Консоль/Сигнал to it
+                                              are refused, and the client port it held is free for the next server
   Порядок|Order <role> <REGEX> < <role> <REGEX>
                                               the first role's LAST line matching its REGEX so far was written
                                               before the second role's LAST matching line, by the lines' own
@@ -50,9 +63,13 @@ Line format (one step per line in order, `#` comments; a step's REGEX is the res
                                               passes (a cross-process order finer than that is not in the logs); a
                                               second line more than 12 h "earlier" is read as past midnight.
   Тогда|Then <role> <frame> <what it shows…>  the next frame the editor role draws, as <frame>.png (index.txt)
+{var} placeholders ({var1}, {var2-300}: the numbers a Запомнить read, an integer without a fraction) are replaced in
+every REGEX and value (Ждать, Запомнить, Нет, Число, Всегда, Порядок) and in a Консоль line; inside a REGEX the number
+is escaped; a variable not read yet fails the step.
 Output: <scratch>/<CODE>/frames/scn-<time>/ (scn-latest points at it): <role>.log per role, the frames, index.txt,
 result.txt, trace.txt (each step's time and what it read), the scenario, cook.log. Every role is ended when the steps end or one fails.
 """
+import operator
 import os
 import re
 import shlex
@@ -70,7 +87,10 @@ KEYWORDS = {
     "ждать": "wait", "wait": "wait", "консоль": "console", "console": "console", "запомнить": "read",
     "read": "read", "сверить": "compare", "compare": "compare", "нет": "never", "never": "never",
     "тогда": "then", "then": "then", "сигнал": "signal", "signal": "signal", "порядок": "order", "order": "order",
+    "число": "number", "number": "number", "всегда": "every", "every": "every", "выход": "exit", "exit": "exit",
 }
+COMPARE = {"<=": operator.le, ">=": operator.ge, "<": operator.lt, ">": operator.gt, "==": operator.eq,
+           "!=": operator.ne}  # Число / Всегда
 STAMP = re.compile(r"^\[(\d\d):(\d\d):(\d\d)\.(\d{3})\]")  # a role log line's wall-clock stamp
 DAY_MS = 24 * 3600 * 1000
 SERVER_ROLES = ("all", "coordinator", "store", "sim", "gateway")
@@ -105,6 +125,7 @@ class Role:
         self.hold = False  # a Тогда is choosing its frame: nothing announced is deleted meanwhile
         self.claimed = {}  # sequence frame number -> the «Тогда» statement that took it
         self.frames = 0  # the line after the last frame a «Тогда» took; Ждать never reads it
+        self.exited = False  # a «Выход» saw the process end: its log is still read, its console is closed
         self.reader = open(logpath, encoding="utf-8", errors="replace")
 
     def pump(self):
@@ -135,6 +156,7 @@ class Run:
         self.proj = os.path.join(tree, "Projects", "Desert", "Desert.deproj")
         self.world = self.cooked = None
         self.port = None  # the client port: the one `--role all` or gateway clients connect to
+        self.port_role = None  # the server role that holds self.port (one live at a time)
         self.coordinator = None  # "127.0.0.1:<mesh port>" once the coordinator role has started
         self.meshca = None
         self.store = None  # "127.0.0.1:<mesh port>" once the store role has started (a probe role's --store)
@@ -178,6 +200,18 @@ class Run:
         if name not in self.roles:
             raise Fail(f"no role {name} started yet")
         return self.roles[name]
+
+    def subst(self, text, regex=False):
+        """{var1}, {var2+300}: the numbers a «Запомнить» read; an integer is written without a fraction (a net id or a
+        step >= 1e6 stays an integer); inside a REGEX the number is escaped. A variable not read yet fails."""
+        def value(m):
+            name, k = m.group(1), int(m.group(2))
+            if name not in self.vars or not 1 <= k <= len(self.vars[name]):
+                raise Fail(f"{m.group(0)}: nothing read into {name}")
+            v = self.vars[name][k - 1] + float(m.group(3) or 0)
+            said = str(int(v)) if v == int(v) else f"{v:g}"
+            return re.escape(said) if regex else said
+        return PLACEHOLDER.sub(value, text)
 
     # --- steps -------------------------------------------------------------------------------------------------
     def set_project(self, rest):
@@ -268,8 +302,9 @@ class Run:
                 raise Fail(f"server role {name} (--role {mesh}) before the coordinator role")
             argv += ["--coordinator", self.coordinator]
         if mesh in ("all", "gateway"):
-            if self.port:
-                raise Fail("one client port per run (one --role all or gateway)")
+            if self.port_role and self.port_role.proc.poll() is None:
+                raise Fail(f"server role {name}: {self.port_role.name} still serves the client port (one live "
+                           f"--role all or gateway at a time; «Выход» waits for its end)")
             self.port = self.free_port()
             argv += ["--port", str(self.port), "--audience", AUDIENCE,
                      "--issuer-key", os.path.join(self.auth(), "issuer.public")]
@@ -331,17 +366,19 @@ class Run:
                 argv += [flag, opts[key]]
         log = open(logpath, "w", encoding="utf-8", errors="replace")
         proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT,
-                                stdin=subprocess.PIPE if kind in ("server", "probe") else subprocess.DEVNULL,
+                                stdin=subprocess.PIPE if kind in ("server", "probe", "bot") else subprocess.DEVNULL,
                                 text=True, start_new_session=not WIN)
         log.close()
         self.roles[name] = Role(name, kind, proc, logpath, seqdir)
+        if kind == "server" and serves_clients:
+            self.port_role = self.roles[name]
 
     def wait(self, rest):
         parts = rest.split(None, 2)
         if len(parts) < 3 or not parts[1].isdigit():
             raise Fail("«Ждать» takes <role> <seconds> [fresh] [<N>x] <regex>")
         r, deadline = self.role(parts[0]), time.time() + int(parts[1])
-        count, pattern = 1, parts[2]
+        count, pattern = 1, self.subst(parts[2], regex=True)
         # `fresh`: match only lines read from now on. A Ждать on another role pumped this one and deleted the frames
         # after its old lines, so a Тогда following a stale match has no frame; a fresh match still has its frame.
         m = re.match(r"fresh\s+(.*)", pattern)
@@ -355,6 +392,7 @@ class Run:
         rx = re.compile(pattern)
         found = 0
         while True:
+            exited = r.proc.poll() is not None  # before the pump: the lines a role wrote before it ended are read
             self.poll()
             while r.cursor < len(r.lines):
                 i = r.cursor
@@ -364,7 +402,7 @@ class Run:
                     if found == count:
                         self.event(r, i)
                         return
-            if r.proc.poll() is not None:
+            if exited:
                 raise Fail(f"role {r.name} exited (rc {r.proc.returncode}) after {found}/{count} of «{pattern}»")
             if time.time() > deadline:
                 raise Fail(f"{found}/{count} of «{pattern}» in {r.name}'s log within {parts[1]} s")
@@ -373,15 +411,11 @@ class Run:
     def console(self, rest):
         name, _, line = rest.strip().partition(" ")
         r = self.role(name)
-        if r.kind not in ("server", "probe"):
-            raise Fail(f"«Консоль» writes to a server's or a probe's console, {name} is a {r.kind}")
-
-        def value(m):
-            if m.group(1) not in self.vars or int(m.group(2)) > len(self.vars[m.group(1)]):
-                raise Fail(f"{m.group(0)}: nothing read into {m.group(1)}")
-            v = self.vars[m.group(1)][int(m.group(2)) - 1] + float(m.group(3) or 0)
-            return str(int(v)) if v == int(v) else f"{v:g}"  # a net id or a step >= 1e6 stays an integer
-        text = PLACEHOLDER.sub(value, line.strip())
+        if r.kind not in ("server", "probe", "bot"):
+            raise Fail(f"«Консоль» writes to a server's, a probe's or a bot's console, {name} is a {r.kind}")
+        if r.exited or r.proc.poll() is not None:
+            raise Fail(f"role {name} exited (rc {r.proc.returncode}): its console is closed")
+        text = self.subst(line.strip())
         self.event()
         r.proc.stdin.write(text + "\n")
         r.proc.stdin.flush()
@@ -398,8 +432,8 @@ class Run:
             raise Fail(f"«Сигнал» is for a server role, {r.name} is a {r.kind}")
         if WIN:
             raise Fail("«Сигнал» needs POSIX process groups (SIGSTOP/SIGCONT): not on Windows")
-        if r.proc.poll() is not None:
-            raise Fail(f"role {r.name} already exited (rc {r.proc.returncode})")
+        if r.exited or r.proc.poll() is not None:
+            raise Fail(f"role {r.name} exited (rc {r.proc.returncode})")
         self.event()
         os.killpg(r.proc.pid, getattr(signal, SIGNALS[words[1].upper()]))
         return f"{words[1].upper()} -> {r.name}"
@@ -408,7 +442,7 @@ class Run:
         parts = rest.split(None, 2)
         if len(parts) < 3:
             raise Fail("«Запомнить» takes <var> <role> <regex>")
-        r, rx = self.role(parts[1]), re.compile(parts[2])
+        r, rx = self.role(parts[1]), re.compile(self.subst(parts[2], regex=True))
         self.poll()
         for line in reversed(r.lines):
             m = rx.search(line)
@@ -424,16 +458,89 @@ class Run:
             raise Fail(f"«Сверить» {a} {b}: read both first, same number of values")
         worst = max(abs(x - y) for x, y in zip(va, vb))
         if worst > float(tol):
-            raise Fail(f"{a} {va} vs {b} {vb}: {worst:g} cm apart > {tol}")
-        return f"{a} {va} = {b} {vb} within {worst:g} cm"
+            raise Fail(f"{a} {va} vs {b} {vb}: {worst:g} apart > {tol}")
+        return f"{a} {va} = {b} {vb} within {worst:g}"
 
     def never(self, rest):
         name, _, pattern = rest.strip().partition(" ")
-        r, rx = self.role(name), re.compile(pattern)
+        r, rx = self.role(name), re.compile(self.subst(pattern, regex=True))
         self.poll()
         hit = next((line for line in r.lines if rx.search(line)), None)
         if hit:
             raise Fail(f"{name}'s log has «{pattern}»: {hit.strip()[:200]}")
+
+    def _measure(self, rest, verb):
+        """«Число» / «Всегда» <role> <REGEX> <op> <value>: the role, the REGEX, the comparison and the value."""
+        head = rest.strip().rsplit(None, 2)
+        name, _, pattern = head[0].partition(" ") if head else ("", "", "")
+        if len(head) != 3 or not pattern.strip() or head[1] not in COMPARE:
+            raise Fail(f"«{verb}» takes <role> <regex> <op> <value>, op one of {' '.join(COMPARE)}")
+        r, rx = self.role(name), re.compile(self.subst(pattern.strip(), regex=True))
+        said = self.subst(head[2])
+        try:
+            value = float(said)
+        except ValueError:
+            raise Fail(f"«{verb}» value «{head[2]}» is {said!r}, not a number")
+        if rx.groups < 1:
+            raise Fail(f"«{verb}» «{pattern.strip()}» has no group: the number is its first group")
+        self.poll()
+        return r, rx, head[1], value
+
+    @staticmethod
+    def _judge(line, m, op, value):
+        """The line's first group against value by op; a missing or non-numeric group is a failure, never a pass."""
+        group = m.group(1)
+        try:
+            number = float(group)
+        except (TypeError, ValueError):
+            raise Fail(f"the first group of «{line.strip()[:200]}» is {group!r}, not a number")
+        return COMPARE[op](number, value), number
+
+    def number(self, rest):
+        r, rx, op, value = self._measure(rest, "Число")
+        for line in reversed(r.lines):
+            m = rx.search(line)
+            if m:
+                held, number = self._judge(line, m, op, value)
+                if not held:
+                    raise Fail(f"{number:g} {op} {value:g} is false - {r.name}: {line.strip()[:200]}")
+                return f"{number:g} {op} {value:g} - {line.strip()[:160]}"
+        raise Fail(f"no line of {r.name} matches «{rx.pattern}»")
+
+    def every(self, rest):
+        r, rx, op, value = self._measure(rest, "Всегда")
+        numbers = []
+        for line in r.lines:
+            m = rx.search(line)
+            if m:
+                held, number = self._judge(line, m, op, value)
+                if not held:
+                    raise Fail(f"line {len(numbers) + 1} of the matching ones breaks it: {number:g} {op} {value:g} "
+                               f"is false - {r.name}: {line.strip()[:200]}")
+                numbers.append(number)
+        if not numbers:
+            raise Fail(f"unproven: no line of {r.name} matches «{rx.pattern}»")
+        return f"{len(numbers)} line(s), each {op} {value:g} (min {min(numbers):g}, max {max(numbers):g})"
+
+    def exit_code(self, rest):
+        """The role's process ends with the code within the seconds (UE Gauntlet checks a role's exit code). The role
+        stays in self.roles: its log is read on; the client port it held is free for the next server role."""
+        words = rest.split()
+        if len(words) != 3 or not words[1].isdigit() or not re.fullmatch(r"-?\d+", words[2]):
+            raise Fail("«Выход» takes <role> <seconds> <code>")
+        r = self.role(words[0])
+        try:
+            rc = r.proc.wait(timeout=int(words[1]))
+        except subprocess.TimeoutExpired:
+            raise Fail(f"role {r.name} still runs after {words[1]} s (exit code {words[2]} expected)")
+        r.exited = True
+        self.poll()
+        if self.port_role is r:
+            self.port, self.port_role = None, None
+        if rc != int(words[2]):
+            last = r.lines[-1].strip()[:200] if r.lines else "no line"
+            raise Fail(f"role {r.name} exited with code {rc}, not {words[2]} - its last line: {last}")
+        return f"{r.name} exited {rc}"
 
     def order(self, rest):
         sides = rest.split(" < ")
@@ -443,7 +550,7 @@ class Run:
         found = []
         for side in sides:
             name, _, pattern = side.strip().partition(" ")
-            r, rx = self.role(name), re.compile(pattern)
+            r, rx = self.role(name), re.compile(self.subst(pattern, regex=True))
             line = next((l for l in reversed(r.lines) if rx.search(l)), None)
             stamp = STAMP.match(line) if line else None
             found.append((name, pattern, line, stamp))
@@ -527,7 +634,7 @@ class Run:
     def end(self):
         """Gauntlet ends every role when the test ends: the server is asked first (SIGINT), then the rest."""
         for r in sorted(self.roles.values(), key=lambda r: r.kind == "server"):
-            if r.proc.poll() is None:
+            if not r.exited and r.proc.poll() is None:  # a role «Выход» saw end is not ended again
                 try:
                     if not WIN and r.kind == "server":  # a STOPped role answers no SIGINT until it runs again
                         os.killpg(r.proc.pid, signal.SIGCONT)
@@ -582,7 +689,8 @@ def main():
                 continue
             said = {"world": run.set_world, "role": run.start_role, "wait": run.wait, "console": run.console,
                     "read": run.read, "compare": run.compare, "never": run.never, "then": run.then,
-                    "signal": run.signal, "order": run.order}[op](rest)
+                    "signal": run.signal, "order": run.order, "number": run.number, "every": run.every,
+                    "exit": run.exit_code}[op](rest)
             if op == "then":
                 index.append(said)
                 frames += 1

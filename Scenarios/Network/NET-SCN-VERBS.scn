@@ -1,0 +1,119 @@
+# NET-SCN-VERBS: the network runner's three verbs - a number off a log line (Число / Всегда), a role's exit code
+# (Выход) and a bot's console (Консоль B stop | walk | drop | corrupt) - proven on the case they were missing for:
+# WP-FAR-15's lowered budget (far15_budget, 8 bots at 20-40 m) and its refused start, a bot that stops and walks on,
+# and one message kind dropped or corrupted on purpose (DesertNetProbe's FaultTransport, a decorator over the bot's
+# transport). Played by scripts/Dev/net_scenario.py through play_scenario.py, as WP-FAR-15: DesertServer --role all
+# on WP_Protocol with a 30 ms jitter on its send link, observer A = Editor (--shot-player-view, every frame recorded),
+# bots B1..B8 = DesertNetProbe --bot walking a circle (--turn-deg-s 36), every client on a 75 ms / 2 % link.
+# The budget is the server's command-line config layer (DesertServer --config Net.BudgetBytesPerSecond=2048, laid
+# over Config/Engine.json and its platform layer; nothing in the tree is written) and is read back off the server's
+# own "net settings" line, never copied from the scenario.
+# Numbers that must agree: bad's exit code 7; budget1 == 2048; every "net rates" line <= 2048 B/s for A; deferred > 0
+# in the last; longest wait <= 60 steps in every line; period 2 for B1 inside 50 m; |r0 - r1| <= 0.03 s; exactly
+# three "malformed Input dropped"; no "malformed Snapshot"; "0 snap(s)" in every A line.
+Мир Content/Scenes/WP_Protocol.desce
+# A refused start: Bands of descending ToCm through --config. ValidateNetSettings judges them (the one rule of the Net
+# section) and the server exits 7 before it opens its port; that port is free again for the real server.
+Роль bad server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-421,650 --spawn 0,-464,150 --spawn 300,-418,150 --spawn -300,-511,150 --steps 1000000 --config 'Net.Bands=[{"ToCm":40000,"EverySteps":2},{"ToCm":5000,"EverySteps":4},{"ToCm":0,"EverySteps":10}]'
+Ждать bad 60 \[Server\] ValidateNetSettings: Net band 1 reaches 5000 cm, not past band 0 \(40000 cm\): ToCm must ascend
+Выход bad 30 7
+Нет bad \[Server\] listening on port
+# The real server, budget lowered to 2048 B/s by the same layer.
+Роль server server lag=75 jitter=30 loss=2 --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-421,650 --spawn 0,-464,150 --spawn 300,-418,150 --spawn -300,-511,150 --steps 1000000 --config Net.BudgetBytesPerSecond=2048
+Ждать server 60 \[Server\] net settings: .* budget 2048 B/s, .* --config sets 1 key\(s\): Net\.BudgetBytesPerSecond
+Запомнить budget server \[Server\] net settings: .* budget (\d+) B/s
+Число server \[Server\] net settings: .* budget (\d+) B/s == 2048
+Ждать server 60 \[Server\] listening on port
+Роль A editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --shot-player-view --quality PostProcess.MotionBlurQuality=0
+Ждать A 1800 \[Net\] in session
+Ждать server 60 player \d+ account 1 \(
+Запомнить a server player (\d+) account 1 \((-?\d+), (-?\d+), (-?\d+)\)
+# Eight bots, each put as soon as it is in: along -Z from A (A's player view looks down -Z) and +-X, 20-40 m away,
+# dropped from 5 m above A's height onto the ground; each walks its circle for the whole run.
+Роль B1 bot account=2 lag=75 loss=2 --seconds 15000 --walk-cm 100000000 --turn-deg-s 36
+Ждать server 60 player \d+ account 2 \(
+Запомнить ba server player (\d+) account 2 \(
+Консоль server teleport {ba1} {a2+600} {a3+500} {a4-1900}
+Ждать server 30 player {ba1}: pawn \d+ teleported to
+# B1's pawn net id: A's per-pawn lines and the server's dormant/awake lines carry it.
+Запомнить bp server player {ba1}: pawn (\d+) teleported to
+Роль B2 bot account=3 lag=75 loss=2 --seconds 15000 --walk-cm 100000000 --turn-deg-s 36
+Ждать server 60 player \d+ account 3 \(
+Запомнить bb server player (\d+) account 3 \(
+Консоль server teleport {bb1} {a2-600} {a3+500} {a4-1900}
+Ждать server 30 player {bb1}: pawn \d+ teleported to
+Роль B3 bot account=4 lag=75 loss=2 --seconds 15000 --walk-cm 100000000 --turn-deg-s 36
+Ждать server 60 player \d+ account 4 \(
+Запомнить bc server player (\d+) account 4 \(
+Консоль server teleport {bc1} {a2+1400} {a3+500} {a4-2400}
+Ждать server 30 player {bc1}: pawn \d+ teleported to
+Роль B4 bot account=5 lag=75 loss=2 --seconds 15000 --walk-cm 100000000 --turn-deg-s 36
+Ждать server 60 player \d+ account 5 \(
+Запомнить bd server player (\d+) account 5 \(
+Консоль server teleport {bd1} {a2-1400} {a3+500} {a4-2400}
+Ждать server 30 player {bd1}: pawn \d+ teleported to
+Роль B5 bot account=6 lag=75 loss=2 --seconds 15000 --walk-cm 100000000 --turn-deg-s 36
+Ждать server 60 player \d+ account 6 \(
+Запомнить be server player (\d+) account 6 \(
+Консоль server teleport {be1} {a2+0} {a3+500} {a4-2800}
+Ждать server 30 player {be1}: pawn \d+ teleported to
+Роль B6 bot account=7 lag=75 loss=2 --seconds 15000 --walk-cm 100000000 --turn-deg-s 36
+Ждать server 60 player \d+ account 7 \(
+Запомнить bf server player (\d+) account 7 \(
+Консоль server teleport {bf1} {a2+1200} {a3+500} {a4-3600}
+Ждать server 30 player {bf1}: pawn \d+ teleported to
+Роль B7 bot account=8 lag=75 loss=2 --seconds 15000 --walk-cm 100000000 --turn-deg-s 36
+Ждать server 60 player \d+ account 8 \(
+Запомнить bg server player (\d+) account 8 \(
+Консоль server teleport {bg1} {a2-1200} {a3+500} {a4-3600}
+Ждать server 30 player {bg1}: pawn \d+ teleported to
+Роль B8 bot account=9 lag=75 loss=2 --seconds 15000 --walk-cm 100000000 --turn-deg-s 36
+Ждать server 60 player \d+ account 9 \(
+Запомнить bh server player (\d+) account 9 \(
+Консоль server teleport {bh1} {a2+0} {a3+500} {a4-4000}
+Ждать server 30 player {bh1}: pawn \d+ teleported to
+# Дано: 8 bots at 20-40 m from A, each walking; 8 x ~35 B x 30 Hz is far over 2048 B/s, so the budget defers.
+# The budget is per connection and per second: no line for A over it; the nearest bot keeps its band's period; none of
+# the eight starves (the longest wait of a relevant, changing pawn of A's connection stays within 60 steps).
+Ждать server 60 6x \[Server\] net rates
+Всегда server \[Server\] net rates.*player {a1}: (\d+) B/s <= {budget1}
+Число server \[Server\] net rates.*player {a1}: [^;]*deferred (\d+) > 0
+Всегда server \[Server\] net rates.*player {a1}: [^;]*longest wait (\d+) step <= 60
+Число A \[Net\] pawn {bp1} \(player \d+\): (?:[1-4]?\d) m, period (\d+) == 2
+Ждать A 30 fresh \[Net\] interpolation buffer: .*\(0 snap\(s\)\)
+Тогда A verbs_budget all eight mannequins in A's view, each exactly one, feet on the ground, walking its circle; none frozen (_next shows each one step of walk further); the server's "net rates" line of the same second: "player <A>: <= 2048 B/s ... deferred > 0, longest wait <= 60 step(s)"
+# Когда: B1 stops on its console, then walks on. Its pawn goes dormant (unchanged) on the server; its heading is
+# kept (not turned to -Z); its interpolation delay in A's log is the same before the stop and after the walk.
+Консоль B1 stop
+Ждать B1 5 console: stopped at step
+Ждать server 60 player \d+: pawn {bp1} dormant
+Ждать A 10 fresh \[Net\] pawn {bp1} \(player \d+\): .*delay \d+\.\d+ s
+Запомнить r0 A \[Net\] pawn {bp1} \(player \d+\): .*delay (\d+\.\d+) s
+Тогда A verbs_stop B1 stands where it stopped, one mannequin on the ground, facing the way it walked (B1's log "console: stopped ... facing N deg"; its shoulders not turned to -Z against verbs_budget, the frame before the stop); _next identical; the other seven walk on; server log "pawn <B1> dormant"
+Консоль B1 walk
+Ждать B1 5 console: walk resumed at step
+Ждать server 30 pawn {bp1} awake
+Ждать A 10 fresh \[Net\] pawn {bp1} \(player \d+\): .*delay \d+\.\d+ s
+Запомнить r1 A \[Net\] pawn {bp1} \(player \d+\): .*delay (\d+\.\d+) s
+Сверить r0 r1 0.03
+Тогда A verbs_resume B1 walks on along its circle from where it stopped: one mannequin, no jump back, no second mannequin left at the stop, feet on the ground; _next shows it one frame of walk further; A's log: B1's delay before the stop and after the walk equal within 30 ms (r0/r1)
+# Когда: B2's next three Input messages are cut to two bytes (the server drops each as malformed and the input is
+# sent again), then its next thirty Snapshot messages are dropped on receipt (the acks stop, the unacked inputs grow,
+# and drain once snapshots arrive again). The session survives both.
+# None before the fault: every "malformed Input dropped" after it is one of B2's three.
+Нет server connection \d+: malformed Input dropped
+Консоль B2 corrupt Input 3
+Ждать server 10 3x connection \d+: malformed Input dropped
+Ждать B2 5 fault done: corrupt Input x3
+Ждать B2 5 fresh unacked inputs [0-9], ack step
+Нет B2 session closed
+Консоль B2 drop Snapshot 30
+Ждать B2 5 unacked inputs (?:1[5-9]|[2-9]\d),
+Ждать B2 10 fault done: drop Snapshot x30
+Ждать B2 5 fresh unacked inputs [0-9],
+Нет B2 session closed
+Нет server connection \d+: malformed Snapshot
+Ждать A 30 fresh \[Net\] interpolation buffer: .*\(0 snap\(s\)\)
+Тогда A verbs_fault B2 walks its circle, one mannequin, feet on the ground (no jump, no ghost after the dropped snapshots); the server logged exactly three "malformed Input dropped" and no "malformed Snapshot"; B2's log "unacked inputs 0-9" again and no "session closed"
+Нет A \(([1-9]\d*) snap\(s\)\)
+Нет server malformed ViewReport
