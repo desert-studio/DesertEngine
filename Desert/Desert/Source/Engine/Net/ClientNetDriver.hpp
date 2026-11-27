@@ -151,6 +151,16 @@ namespace Desert::Core
         std::unique_ptr<Net::INetTransport>     m_Transport;
         std::unique_ptr<Net::ReplicationClient> m_Client;
         std::map<std::uint32_t, entt::entity>   m_Entities; // NetId -> pawn root
+        // What this client last drew for a remote pawn (UE: the simulated proxy's mesh placement): the sample's
+        // teleport count and position. A changed count is a cut - the proxy's pose is re-evaluated in that tick at
+        // the new place (ECS::MarkPoseTeleported), as for the own pawn. Erased with the pawn's entity.
+        struct DrawnProxy
+        {
+            std::uint8_t TeleportCount = 0;
+            glm::vec3    Position{};
+            bool         Seen = false;
+        };
+        std::map<std::uint32_t, DrawnProxy> m_DrawnProxies; // NetId -> the last drawn remote pawn
         struct PendingStable; // the changes whose entity is not resident yet (ClientNetDriver.cpp)
         std::shared_ptr<PendingStable>          m_PendingStable;
         std::set<std::uint32_t>                 m_ReportedUnits;   // what the server was last told is resident

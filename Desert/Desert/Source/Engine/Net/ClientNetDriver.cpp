@@ -623,6 +623,7 @@ namespace Desert::Core
                 continue;
             const entt::entity pawn = found->second;
             m_Entities.erase( found );
+            m_DrawnProxies.erase( id );
             if ( !reg.valid( pawn ) )
                 continue;
             if ( scene.RemoveRemotePlayer( pawn ) )
@@ -658,11 +659,28 @@ namespace Desert::Core
                 }
                 continue;
             }
+            // A changed replicated teleport count is a cut (UE ETeleportType::TeleportPhysics on the proxy's
+            // mesh): the pose and LOD are evaluated in this tick at the new place, not from the old place's
+            // feedback.
+            DrawnProxy& drawn = m_DrawnProxies[id];
+            if ( drawn.Seen && drawn.TeleportCount != sample->TeleportCount )
+            {
+                ECS::MarkPoseTeleported( reg, entity );
+                const auto          remote = m_Client->Pawns().find( id );
+                const auto          player = remote != m_Client->Pawns().end() ? remote->second.Player : 0u;
+                const Net::NetVec3& v      = sample->Velocity;
+                LOG_INFO( "[Net] pawn {} (player {}) teleport cut: drawn ({:.0f}, {:.0f}, {:.0f}) -> ({:.0f}, "
+                          "{:.0f}, {:.0f}) cm, {:.0f} cm; sampled velocity ({:.0f}, {:.0f}, {:.0f}) cm/s; pose "
+                          "re-evaluated this tick",
+                          id, player, drawn.Position.x, drawn.Position.y, drawn.Position.z, position.x, position.y,
+                          position.z, glm::length( position - drawn.Position ), v.X, v.Y, v.Z );
+            }
             ECS::LocalTransform local = reg.get<ECS::TransformComponent>( entity ).GetLocal();
             local.Rotation            = { 0.0f, sample->Yaw, 0.0f };
             ECS::SetLocalTransform( reg, entity, local );
             PlaceNetPawn( reg, entity, m_Prediction->Movement.Settings, position, MoveStateOf( *sample ).Mode );
             WriteMoveState( scene, entity, *sample );
+            drawn = { sample->TeleportCount, position, true };
         }
     }
 
@@ -1023,12 +1041,13 @@ namespace Desert::Core
             if ( const auto own = m_Entities.find( m_Client->OwnPawn() ); own != m_Entities.end() )
                 ECS::MarkPoseTeleported( scene.GetRegistry(), own->second );
         LOG_INFO(
-             "[Net] correction {} at input step {}: the server has the own pawn at ({:.1f}, {:.1f}, {:.1f}) cm; "
+             "[Net] correction {} at input step {}{}: the server has the own pawn at ({:.1f}, {:.1f}, {:.1f}) cm; "
              "{} unacked step(s) replayed; drawn offset {:.1f} cm {}; predicted ({:.1f}, {:.1f}, {:.1f}) v "
              "({:.0f}, "
              "{:.0f}, {:.0f}) {} vs server v ({:.0f}, {:.0f}, {:.0f}) {}; input move ({:.2f}, {:.2f}) actions {}",
-             predictor.Corrections(), authority->AckStep, authority->State.Position.X, authority->State.Position.Y,
-             authority->State.Position.Z, predictor.Unacked(), glm::length( offset ),
+             predictor.Corrections(), authority->AckStep, predictor.LastCorrectionReacked() ? " (re-acked)" : "",
+             authority->State.Position.X, authority->State.Position.Y, authority->State.Position.Z,
+             predictor.Unacked(), glm::length( offset ),
              smooth ? "smoothed" : "beyond the smoothing distance - drawn at once", mispredicted.Position.X,
              mispredicted.Position.Y, mispredicted.Position.Z, mispredicted.Velocity.X, mispredicted.Velocity.Y,
              mispredicted.Velocity.Z, mispredicted.Grounded ? "grounded" : "falling", authority->State.Velocity.X,
@@ -1045,6 +1064,7 @@ namespace Desert::Core
             if ( entity != scene.GetPlayerPawn() )
                 scene.RemoveRemotePlayer( entity );
         m_Entities.clear();
+        m_DrawnProxies.clear();
         m_Client.reset();
         m_Transport.reset();
         LOG_INFO( "[Net] Play as client ended" );
