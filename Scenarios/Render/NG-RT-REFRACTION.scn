@@ -1,25 +1,46 @@
-# NG-RT-REFRACTION: ray-traced refraction of glass and shop windows (design F:/aftmp/NG-RT-REFRACTION-DESIGN.md,
-# «## Приёмка»). One editor session in F:/BistroFoliageProj: the bistro's shop windows by day (B16_Bistro_Street)
-# and by night (GI_Bistro_Night), three frames side by side per time of day - path tracer | Translucency.Refraction
-# ScreenSpace | HardwareTraced - one camera, one exposure, one time.
+# NG-RT-REFRACTION: ray-traced refraction of glass and shop windows, day half (design
+# F:/aftmp/NG-RT-REFRACTION3-DESIGN.md, «## Приёмка»; physics F:/aftmp/NG-RT-REFRACTION2-DESIGN.md). One editor
+# session in F:/BistroFoliageProj, B16_Bistro_Street: three frames of the shop window - path tracer |
+# Translucency.Refraction ScreenSpace | HardwareTraced - one camera, one exposure, one time, one tier.
 # The path tracer is the reference: GlobalIllumination + Reflections PathTraced (the tracer pairs them). The raster
-# frames keep Reflections / GI HardwareTraced so the front layer G-buffer (Reflections.TranslucentFrontLayer,
-# default 1) exists, and only Translucency.Refraction changes between _ss and _rt.
-# Numbers (D11, D12): mean L over the glass area of _ss / _rt against _pt (scripts/Dev/frames_compare.py); the
-# profile-dump replies (line_NNN_profile-dump.txt) after day_ss / day_rt / night_ss / night_rt: the pass
-# "Translucency: Ray Traced Refraction" <= 1.0 ms at 1080p, GPU frame <= +1.2 ms over the _ss dump; [Memory] in budget.
-# Frame wait: `frames N` (N presented frames). D10: turn_a -> 16 one-degree yaw steps, one frame each -> turn_b.
+# frames keep Reflections / GI HardwareTraced; only Translucency.Refraction changes between day_ss and day_rt.
+# The tier (D7): every group of the preset is pinned at High before any row (a group level drops that group's rows,
+# so the pins come first); the benchmark preset (perf index 45 and 89 on one GPU within 8 minutes) chooses
+# nothing in this run. An unattended run keeps every Quality change in this process (QualityState::KeepInSession):
+# machine.json is never written; the tail still clears the rows. There is no group "Level" command: the next run
+# starts from the machine's own selection.
+# D1: Reflections.TranslucentFrontLayer 0 is set on purpose (the Low / Medium value; High alone would give 1).
+# HardwareTraced refraction must draw the front layer it needs by itself - the day proves the consumer declares its
+# dependency, it is never pinned to 1 here.
+# The window rule (D6): a GPU time is a budget number only when the window is free - in BOTH dumps of a pair (ss
+# and rt) "ClearMainFramebuffer" <= 0.2 ms, and their "GPU frame" differ by less than 2x; else the number is not
+# a measurement and the run is repeated. Budget at 1080p = ms x 2073600 / (viewport width x height), the
+# viewport size from editor.log (1787x657 today = 1.17 Mpx). Every measured capture has its own profile-dump
+# (reply line_NNN_profile-dump.txt) right before it.
+# Frame wait: `frames N` (N presented frames). Every capture stands >= 256 frames after the last
+# GlobalIllumination.Method switch (GI accumulation converged; else the opaque pixels drift).
 # The camera faces the cafe shop window Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4711
 # (MASTER_Glass_Exterior, StaticMeshGlass; pane pivot -108,197,-719, centre ~y 320) from 3 m out on the terrace.
-# One exposure per scene: AutoExposure off (at the scene's own ManualExposureEV100), back on in the tail. The
-# night half is NG-RT-REFRACTION-NIGHT.scn: a `set` dirties the scene, and Open Scene would stop at its confirm
-# popup. Every capture stands >= 256 frames after the last GlobalIllumination.Method switch or camera turn (GI
-# accumulation converged; else the opaque pixels drift).
-# Every Quality / Anti-Aliasing override is saved to machine.json: the tail clears them.
+# One exposure: AutoExposure off (at the scene's own ManualExposureEV100), back on in the tail. The night half is
+# NG-RT-REFRACTION-NIGHT.scn: a `set` dirties the scene, and Open Scene would stop at its confirm popup.
 Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
 Дано run View "View mode: Lit"
+Дано run Quality "Quality: Textures High"
+Дано run Quality "Quality: Filtering High"
+Дано run Quality "Quality: Shadows High"
+Дано run Quality "Quality: GlobalIllumination High"
+Дано run Quality "Quality: Reflections High"
+Дано run Quality "Quality: PostProcess High"
+Дано run Quality "Quality: Effects High"
+Дано run Quality "Quality: ViewDistance High"
+Дано run Quality "Quality: AntiAliasing High"
+Дано run Quality "Quality: ResolutionScale High"
+Дано run Quality "Quality: Shading High"
+Дано run Quality "Quality: PathTracing High"
+Дано run Quality "Quality: Foliage High"
 Дано run Anti-Aliasing "Anti-Aliasing: TAA"
 Дано run Quality "Quality: Resolution.Percent 100"
+Дано run Quality "Quality: Reflections.TranslucentFrontLayer 0"
 # The profile-dumps carry GPU times only with GPU profiling on (Profiler "GPU"; off, every scope reads gpu 0.000).
 Дано run Debug "GPU profiling: On"
 Дано --subject viewport set Camera.Position -370,300,-861
@@ -35,21 +56,23 @@
 Когда run Quality "Quality: Translucency.Refraction ScreenSpace"
 Когда frames 256
 Когда profile-dump
-Тогда-вид day_ss day, Translucency.Refraction ScreenSpace: differences D1-D9 against day_pt recorded (D11) - share of the glass area that differs, mean L error of the glass area vs day_pt; no object in front of the glass bleeding into the refraction (D4)
+Тогда-вид day_ss day, Translucency.Refraction ScreenSpace, front layer reflections off (Reflections.TranslucentFrontLayer 0): the comparison frame for day_rt - mean L of the glass area vs day_pt recorded; profile-dump: the window rule (ClearMainFramebuffer <= 0.2 ms)
 Когда run Quality "Quality: Translucency.Refraction HardwareTraced"
-Когда frames 32
+Когда frames 256
 Когда profile-dump
-Тогда-вид day_rt day, HardwareTraced: the interior behind the window matches day_pt in position and brightness - mean L of the glass area within ±25 % of day_pt, tables and frames not shifted; an object in front of the glass not visible in the refraction; profile-dump: "Translucency: Ray Traced Refraction" <= 1.0 ms, GPU frame <= +1.2 ms vs day_ss (D12)
+Тогда-вид day_rt day, HardwareTraced under Reflections.TranslucentFrontLayer 0: the preset row does not stop it - the refracted interior behind the shop window, the frame differs from day_ss on the glass; editor.log has no line "the glass refracts the scene copy"; profile-dump: "Translucency: Ray Traced Refraction" executed with a non-zero GPU time, the window rule holds against the day_ss dump (GPU frame within 2x, ClearMainFramebuffer <= 0.2 ms)
+Тогда refr_pt mean brightness of the glass area: day_rt within ±25 % of day_pt, night_rt within ±25 % of night_pt (night frames: NG-RT-REFRACTION-NIGHT.scn of the same build; scripts/Dev/frames_compare.py over the pane _4711)
 Когда --subject viewport set Camera.Direction 0.9940,0.07,0.1094
 Когда frames 32
 Тогда-вид day_rt_edge day, HardwareTraced, camera yawed 22 degrees: the window at the frame's edge - the interior beyond the frame's edge is seen through the glass (under ScreenSpace that is a stretched edge)
 Когда --subject viewport set Camera.Direction 0.8806,0.07,0.4738
-# --- tail: view mode and machine.json back to defaults
+# --- tail: view mode and the rows back to the tier (the group pins live in this process only, see the head)
 Когда run View "View mode: Lit"
 Когда run Quality "Quality: Translucency.Refraction Level"
+Когда run Quality "Quality: Reflections.TranslucentFrontLayer Level"
 Когда run Quality "Quality: Reflections.Method Level"
 Когда run Quality "Quality: GlobalIllumination.Method Level"
 Когда run Quality "Quality: Resolution.Percent Level"
 Когда run Debug "GPU profiling: Off"
 Когда set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure true
-Тогда rt_reset Quality and View mode reset; editor.log 0 VUID over the whole run; the pass "Translucency: Ray Traced Refraction" executed (no "did not execute" line naming it)
+Тогда rt_reset Quality and View mode reset; editor.log 0 VUID over the whole run; the pass "Translucency: Ray Traced Refraction" executed (no "did not execute" line naming it); no line refusing Translucency.Refraction HardwareTraced
