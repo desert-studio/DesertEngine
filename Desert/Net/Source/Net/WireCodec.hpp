@@ -2,8 +2,11 @@
 
 // The byte codec of the replication messages (Replication.hpp, Relevancy.hpp ViewReport): a message is its type
 // byte then little-endian fields. Shared by the .cpp files that encode and decode them (Replication.cpp,
-// Relevancy.cpp); not part of the Net API - nothing outside Desert/Net/Source/Net includes it.
+// Relevancy.cpp) and by the mesh handover (HandoverWire.cpp, whose type bytes are not EReplicationMessage codes:
+// the raw-type Writer and the body Reader); not part of the Net API - nothing outside Desert/Net/Source/Net
+// includes it.
 
+#include <Net/InputWire.hpp>
 #include <Net/Replication.hpp>
 
 #include <algorithm>
@@ -26,6 +29,11 @@ namespace Desert::Net::Wire
         explicit Writer( EReplicationMessage type )
         {
             U8( static_cast<std::uint8_t>( type ) );
+        }
+        // A message whose type byte belongs to another range (HandoverWire.hpp EMessage).
+        explicit Writer( std::uint8_t rawType )
+        {
+            U8( rawType );
         }
         void U8( std::uint8_t value )
         {
@@ -70,6 +78,26 @@ namespace Desert::Net::Wire
             U8( pawn.Movement );
             U8( pawn.TeleportCount );
         }
+        void Bytes( std::span<const std::byte> bytes )
+        {
+            m_Out.insert( m_Out.end(), bytes.begin(), bytes.end() );
+        }
+        // The CharacterMovement state: Position, Velocity, Yaw, the flag byte (Replication.hpp MoveFlagsOf).
+        void Move( const PawnMoveState& move )
+        {
+            Vec( move.Position );
+            Vec( move.Velocity );
+            F32( move.Yaw );
+            U8( MoveFlagsOf( move ) );
+        }
+        // An input step with its number and every field (InputWire.hpp AppendInputStepFull). False when the wire
+        // does not carry the step (nothing appended).
+        [[nodiscard]] bool InputStepFull( const InputStep& step )
+        {
+            const std::size_t before = m_Out.size();
+            AppendInputStepFull( m_Out, step );
+            return m_Out.size() != before;
+        }
         std::vector<std::byte> Take()
         {
             return std::move( m_Out );
@@ -86,6 +114,10 @@ namespace Desert::Net::Wire
         {
             std::uint8_t first = 0;
             m_Ok               = U8( first ) && first == static_cast<std::uint8_t>( type );
+        }
+        // A message body whose type byte the caller already consumed (the mesh handlers).
+        explicit Reader( std::span<const std::byte> body ) : m_Data( body )
+        {
         }
         bool U8( std::uint8_t& value )
         {
@@ -137,6 +169,27 @@ namespace Desert::Net::Wire
         {
             return U32( pawn.Id ) && Vec( pawn.Position ) && F32( pawn.Yaw ) && Vec( pawn.Velocity ) &&
                    U8( pawn.Movement ) && U8( pawn.TeleportCount );
+        }
+        bool Move( PawnMoveState& move )
+        {
+            std::uint8_t flags = 0;
+            if ( !( Vec( move.Position ) && Vec( move.Velocity ) && F32( move.Yaw ) && U8( flags ) ) )
+                return false;
+            SetMoveFlags( move, flags );
+            return true;
+        }
+        bool InputStepFull( InputStep& step )
+        {
+            std::span<const std::byte> rest = Rest();
+            if ( !ReadInputStepFull( rest, step ) )
+                return m_Ok = false;
+            m_At = m_Data.size() - rest.size();
+            return true;
+        }
+        // The bytes not read yet.
+        [[nodiscard]] std::span<const std::byte> Rest() const
+        {
+            return m_Data.subspan( m_At );
         }
         // Whole message read, nothing left over.
         [[nodiscard]] bool Done() const
