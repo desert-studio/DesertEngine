@@ -29,6 +29,7 @@
 #include <Net/NetHandshake.hpp>
 #include <Net/Replication.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -63,10 +64,13 @@ namespace Desert::Net::Handover
     // than ten store round trips inside one datacentre and well under the client's input ring
     // (Replication.hpp kMaxUnackedInputSteps = 128 steps), so a held pawn loses no input.
     inline constexpr std::uint32_t kOfferDeadlineSteps = 30;
-    // A receiver that accepted and heard no decision (Commit / Refused) for this many steps is IN DOUBT and
-    // re-sends its Accept; the store answers with the offer's outcome (HandoverLedger.hpp). Twice the sender's
-    // deadline, so the sender's own Withdraw has been decided by then; then again as often while no answer comes.
-    inline constexpr std::uint32_t kInDoubtSteps = 2 * kOfferDeadlineSteps;
+    // A receiver that accepted and heard no decision (Commit / Refused) for this long is IN DOUBT and re-sends
+    // its Accept; the store answers with the offer's outcome (HandoverLedger.hpp). Twice the sender's deadline
+    // (kOfferDeadlineSteps at the 60 Hz mesh step = 0.5 s), so the sender's own Withdraw has been decided by then;
+    // then again as often while no answer comes. WALL TIME on NetClock, not mesh steps, as a two-phase-commit
+    // participant's timeout is: after a stall the sim runs the ticks that queued in one burst, and a wait counted
+    // in steps would expire in a few milliseconds, before the store's answer could arrive.
+    inline constexpr std::chrono::milliseconds kInDoubtWait{ 1000 };
     // After a refusal or a withdrawal the sender keeps the pawn and does not offer it again for this many steps
     // (2 s); a new authority map from the coordinator ends the backoff early.
     inline constexpr std::uint32_t kRetryBackoffSteps = 120;
