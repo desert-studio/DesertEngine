@@ -310,10 +310,10 @@ namespace Desert::Core
             // below R': the rate keeps the number moving, never under the plan.
             const double gap  = m_ShownEta - etaRemaining;
             const double fall = dt + gap * ( 1.0 - std::exp( -dt / kEtaCatchUpSeconds ) );
-            // A rising plan (a slower pace, a grown queue) is followed by at most kEtaMaxRise per sample: the
-            // number never jumps, and overrun is decided from the plan (R), not from the shown value.
+            // A rising plan (a slower pace, a grown queue) is followed at most kEtaMaxRiseRate per second: the
+            // number never jumps however often the splash repaints, and overrun is decided from the plan (R), not from the shown value.
             const double followed = std::max( m_ShownEta - std::max( fall, kEtaMinRate * dt ), etaRemaining );
-            m_ShownEta            = std::min( followed, m_ShownEta + kEtaMaxRise );
+            m_ShownEta            = std::min( followed, m_ShownEta + kEtaMaxRiseRate * dt );
             const double minBarRate = kBarStepMargin * step / kBarMaxStallSeconds;
             const double maxStep =
                  m_Finished ? std::max( kBarMaxStep, m_FinishGap * dt / kBarFinishSeconds ) : kBarMaxStep;
