@@ -19,17 +19,20 @@
 # Когда: A walks the shuttle across B's view (B's pawn camera faces -Z at the segment's middle).
 Роль A bot account=2 lag=75 loss=2 --seconds 15000 --waypoints "-200,-440,150;200,-440,150" --dir 0.02,0,0 --hold-actions 4 --hold-from 6 --hold-until 10
 Ждать B 120 \[Net\] remote pawn net id \d+ \(player \d+\) spawned
+# [pawn_mannequin_proxy] the bot holds IA_Crouch (mask 4 = PawnActions bit 2) from 6 s to 10 s of its run; the server
+# replicates the crouched mode bit, B's WriteMoveState sets IsCrouched, Mannequin_Locomotion enters Crouch. Shot first, while
+# A is still before 6 s: `fresh` on A takes only this run's crouch-start line as it is logged (an already-logged line times
+# out instead of shooting outside the window); `fresh` on B skips B's lines logged during that wait, so the shot is 2 B
+# reports (~2 s, well over lag + interpolation delay) after the crouch starts and before it ends at 10 s.
+Ждать A 60 fresh \] actions 4 at
+Ждать B 30 fresh 2x \[Net\] t=
+Тогда B pawn_mannequin_proxy B's view inside the bot's crouch window: A walks crouched (pelvis visibly lower, knees bent, crouch-walk step), facing its walk, its feet on the ground - not sunk, not hanging; no capsule anywhere
 Ждать B 60 3x \[Net\] t=
 Тогда B net5_remote_walk1 B's view: A as one solid mannequin (grey body, dark joints, head, arms, legs) on the slope 5 m ahead, walking FACING the waypoint it walks to, its feet on the ground (none sunk, none hanging), not in a jump pose; its shadow at its feet; no ghost, no trail
 Ждать B 60 5x \[Net\] t=
 Тогда B net5_remote_walk2 A a few cm further along the shuttle, still one solid mannequin facing its walk, feet on the ground, not in a jump pose, its shadow at its feet; no stray shadow elsewhere
 Ждать B 60 5x \[Net\] t=
 Тогда B net5_remote_walk3 A further along again, same: solid mannequin facing its walk, feet on the ground, not in a jump pose, shadow at its feet, no ghost/trail
-# [pawn_mannequin_proxy] the bot holds IA_Crouch (mask 4 = PawnActions bit 2) from 6 s to 10 s of its run; the server
-# replicates the crouched mode bit, B's WriteMoveState sets IsCrouched, Mannequin_Locomotion enters Crouch.
-Ждать A 60 \] actions 4 at
-Ждать B 30 2x \[Net\] t=
-Тогда B pawn_mannequin_proxy B's view inside the bot's crouch window: A walks crouched (pelvis visibly lower, knees bent, crouch-walk step), facing its walk, its feet on the ground - not sunk, not hanging; no capsule anywhere
 # Тогда [net5_remote_shadow]: interpolation delay 100-200 ms, 0 snaps.
 Ждать B 30 \[Net\] interpolation buffer: delay 1\d\d ms .*\(0 snap\(s\)\)
 Нет B \(([1-9]\d*) snap\(s\)\)
