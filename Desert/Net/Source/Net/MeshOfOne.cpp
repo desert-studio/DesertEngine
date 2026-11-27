@@ -159,13 +159,12 @@ namespace Desert::Net
     // far the queue runs ahead, which a slow client frame's burst of steps exceeds while the hole is still
     // being resent). A starved pawn holds; a queue above the sync's target drains two per step.
     // THE CATCH-UP IS BOUNDED PER STEP (UE CharacterMovement: the server applies a tick's worth of move per
-    // received move, never a backlog at once): a pawn resumed after a hold with tens of queued steps applies at
-    // most kMaxInputsPerStep of them each step, so one authoritative step moves it at most twice what the walk or
-    // sprint gives in one client step - the backlog is spread over the steps that follow, none dropped.
+    // received move, never a backlog at once): a pawn resumed after a hold (sender) or adopted by a commit
+    // (receiver) with tens of queued steps applies at most kMaxInputsPerStep of them each step, so one
+    // authoritative step moves it at most twice what the walk or sprint gives in one client step - the backlog
+    // is spread over the steps that follow, none dropped.
     void PawnSimulation::StepPawn( Pawn& pawn ) const
     {
-        constexpr std::size_t kDrainAbove       = 4;
-        constexpr int         kMaxInputsPerStep = 2;
         pawn.QueuedAtStep = static_cast<std::uint8_t>( std::min<std::size_t>( pawn.Pending.size(), 255 ) );
         const NetVec3 before  = pawn.Move.Position;
         const int     consume = pawn.Pending.size() > kDrainAbove ? kMaxInputsPerStep : 1;
@@ -209,8 +208,8 @@ namespace Desert::Net
         // proxy's Hermite tangent does not carry it on along the speed it had when the placement was asked.
         if ( pawn.Placement )
             pawn.Move.Velocity = NetVec3{};
-        // The resume's catch-up, measured on every authoritative step it takes (planar, what a proxy and the
-        // client's correction see); reported once the queue is back at the sync's target.
+        // The resume's or the commit's catch-up, measured on every authoritative step it takes (planar, what a
+        // proxy and the client's correction see); reported once the queue is back at the sync's target.
         if ( pawn.CatchUp )
         {
             const float dx = pawn.Move.Position.X - before.X, dz = pawn.Move.Position.Z - before.Z;
@@ -218,10 +217,15 @@ namespace Desert::Net
             ++pawn.CatchUp->Steps;
             if ( pawn.Pending.size() <= kDrainAbove )
             {
-                m_Log( std::format( "pawn net id {}: resume catch-up of {} queued input(s) done in {} step(s), "
-                                    "at most {} input(s) per step; largest step {:.1f} cm",
-                                    pawn.State.Id, pawn.CatchUp->Queued, pawn.CatchUp->Steps, kMaxInputsPerStep,
-                                    pawn.CatchUp->LargestStep ) );
+                const CatchUpRun& run = *pawn.CatchUp;
+                const std::string what =
+                    run.Adopted ? std::format( "handover catch-up ({} mesh step(s) since the offer froze it)",
+                                               run.Behind )
+                                : std::string( "resume catch-up" );
+                m_Log( std::format( "pawn net id {}: {} of {} queued input(s) done in {} step(s), at most {} "
+                                    "input(s) per step; largest step {:.1f} cm",
+                                    pawn.State.Id, what, run.Queued, run.Steps, kMaxInputsPerStep,
+                                    run.LargestStep ) );
                 pawn.CatchUp.reset();
             }
         }
@@ -379,7 +383,7 @@ namespace Desert::Net
         if ( it == m_Pawns.end() || it->second.Hold != EHold::Offered )
             return std::nullopt;
         it->second.Hold    = EHold::Owned;
-        it->second.CatchUp = Pawn::ResumeCatchUp{ .Queued = it->second.Pending.size() };
+        it->second.CatchUp = Pawn::CatchUpRun{ .Queued = it->second.Pending.size() };
         return it->second.Pending.size();
     }
 
@@ -429,9 +433,11 @@ namespace Desert::Net
             m_Gateway.PawnDestroyed( id );
             return std::nullopt;
         }
-        pawn.Hold = EHold::Owned;
-        for ( std::uint32_t i = 0; i < catchUpSteps; ++i )
-            StepOne( player, pawn );
+        // The inputs that queued while the pawn was frozen are applied by the steps that follow, at most
+        // kMaxInputsPerStep each (StepPawn), as after Resume: replaying the catch-up here moved the pawn a whole
+        // backlog in one authoritative step.
+        pawn.Hold    = EHold::Owned;
+        pawn.CatchUp = Pawn::CatchUpRun{ .Adopted = true, .Behind = catchUpSteps, .Queued = pawn.Pending.size() };
         m_Store.Write( pawn.State );
         return pawn.Gateway;
     }

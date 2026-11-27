@@ -226,8 +226,8 @@ namespace Desert::Net
         // queued, its net id lives on in the next owner. nullopt when @p player's pawn is not offered.
         [[nodiscard]] std::optional<HandoverPawn> Release( PlayerId player );
         // Offered -> Owned (the offer was refused or withdrawn): the steps that follow apply the queued input
-        // steps, at most kMaxInputsPerStep each (MeshOfOne.cpp; the catch-up is spread, never replayed in one
-        // step), and the largest authoritative step of that catch-up is logged when the queue is back at the
+        // steps, at most kMaxInputsPerStep each (the catch-up is spread, never replayed in one step), and the
+        // largest authoritative step of that catch-up is logged when the queue is back at the
         // sync's target. Returns how many are queued; nullopt when @p player's pawn is not offered.
         std::optional<std::size_t> Resume( PlayerId player );
         // Whether the world of this simulation can hold @p pawn: a cell of its grid under the pawn (or under its
@@ -236,8 +236,11 @@ namespace Desert::Net
         // Holds @p pawn as Incoming, the player connected through @p gateway; false when this simulation already
         // has a pawn for that player.
         bool Expect( HandoverPawn pawn, std::uint32_t gateway );
-        // Incoming -> Owned (the store committed it here): runs @p catchUpSteps steps of it, the mesh steps that
-        // passed here since the offer froze it, and writes its state. Returns the gateway given to Expect; nullopt
+        // Incoming -> Owned (the store committed it here): writes its state; the steps that follow apply the
+        // inputs that queued while it was frozen (handed over and arrived here since), at most kMaxInputsPerStep
+        // each, as Resume does - never @p catchUpSteps steps replayed in this one (UE CharacterMovement: a tick's
+        // worth of move per tick). @p catchUpSteps, the mesh steps that passed here since the offer froze it, is
+        // named in the catch-up's line. Returns the gateway given to Expect; nullopt
         // when @p player's pawn is not incoming, or when its player left while it was incoming - then this
         // simulation, the holder now, removes it (PawnRemove to the store, PawnDestroyed to the gateways).
         std::optional<std::uint32_t> Commit( PlayerId player, std::uint32_t catchUpSteps );
@@ -246,6 +249,11 @@ namespace Desert::Net
         bool Abandon( PlayerId player );
 
     private:
+        // The queue above which a step consumes kMaxInputsPerStep input steps instead of one (the sync's target).
+        static constexpr std::size_t kDrainAbove       = 4;
+        // The most input steps one authoritative step applies: a catch-up moves a pawn at most this many client
+        // steps' worth of walk or sprint per step.
+        static constexpr int         kMaxInputsPerStep = 2;
         enum class EHold : std::uint8_t
         {
             Owned,
@@ -275,15 +283,18 @@ namespace Desert::Net
             std::uint8_t QueuedAtStep = 0;
             // The spawn or teleport not landed yet; while set the pawn is HELD (its inputs acked, not applied).
             std::optional<PendingPlacement> Placement;
-            // The catch-up after Resume: the inputs that queued while the pawn was held, applied over the steps
-            // that follow. Measured per authoritative step (planar cm) until the queue is back at the target.
-            struct ResumeCatchUp
+            // The catch-up after Resume (sender) or Commit (receiver): the inputs that queued while the pawn was
+            // held, applied over the steps that follow. Measured per authoritative step (planar cm) until the queue
+            // is back at the target.
+            struct CatchUpRun
             {
-                std::size_t   Queued      = 0; // at the resume
+                bool          Adopted     = false; // Commit (the receiver's) rather than Resume
+                std::uint32_t Behind      = 0;     // Commit: the mesh steps since the offer froze the pawn
+                std::size_t   Queued      = 0;     // at the resume or the commit
                 std::uint32_t Steps       = 0; // authoritative steps it has taken so far
                 float         LargestStep = 0.f;
             };
-            std::optional<ResumeCatchUp> CatchUp;
+            std::optional<CatchUpRun>    CatchUp;
         };
         // One fixed step of one pawn: its pending placement resolved first, then its queued input steps.
         void StepOne( PlayerId player, Pawn& pawn );
