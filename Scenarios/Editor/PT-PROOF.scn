@@ -10,7 +10,10 @@
 # auto-exposure. Waits are DesertCtl `frames N` (no click into the viewport: a click selects, and a selection outline would
 # read as the awning's "yellow contour", design D9). 1024 paths need <= 1200 frames (PT-OIDN-1: 1024 paths in 19 s).
 # Pair numbers after the run: python scripts/Dev/frames_compare.py <raster.png> <pt.png>; the owner gets reference | raster | PT.
-# `state device` replies are kept as line_NNN_state.txt in the run folder (device.pathTracing: active, methods).
+# `state device` / `state log` replies are kept as line_NNN_state.txt in the run folder: device.pathTracing (available,
+# active, methods) beside the PT frames; log.error (the editor's error count) before pt_log. The state has NO accumulated
+# path count yet (OidnLastPaths only moves under OIDN): day_pt's "1024 paths" is read once the state carries it.
+# play_scenario.py does not fail a run on log errors: pt_log is the error budget the acceptance reads (0), not the verdict.
 # Every Quality override is saved to machine.json: each scene clears its own, the tail checks none is left.
 # Path traced on Bistro, the other places: PT-FIELD-PROOF.scn proves the content types on FIELD_Barn (Bistro is not added there);
 # RT-WIN-PROOF.scn keeps the hardware-traced cards and points here for the path tracer.
@@ -71,4 +74,5 @@
 Когда run Quality "Quality: Reflections.Method Level"
 Когда run Quality "Quality: PathTracing.Denoiser Level"
 Когда run Quality "Quality: PathTracing.SamplesPerPixel Level"
+Когда state log
 Тогда pt_log editor.log за весь прогон - 0 строк «states no readable identity», 0 «names texture handle», 0 «re-cook the registry», 0 VUID, 0 «did not execute»; ошибок всего 0; переопределения качества сняты
