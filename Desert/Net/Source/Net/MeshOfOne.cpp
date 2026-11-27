@@ -158,11 +158,17 @@ namespace Desert::Net
     // sends is given up: a message that starts past it (the client's ring overflowed - never a guess from how
     // far the queue runs ahead, which a slow client frame's burst of steps exceeds while the hole is still
     // being resent). A starved pawn holds; a queue above the sync's target drains two per step.
+    // THE CATCH-UP IS BOUNDED PER STEP (UE CharacterMovement: the server applies a tick's worth of move per
+    // received move, never a backlog at once): a pawn resumed after a hold with tens of queued steps applies at
+    // most kMaxInputsPerStep of them each step, so one authoritative step moves it at most twice what the walk or
+    // sprint gives in one client step - the backlog is spread over the steps that follow, none dropped.
     void PawnSimulation::StepPawn( Pawn& pawn ) const
     {
-        constexpr std::size_t kDrainAbove = 4;
+        constexpr std::size_t kDrainAbove       = 4;
+        constexpr int         kMaxInputsPerStep = 2;
         pawn.QueuedAtStep = static_cast<std::uint8_t>( std::min<std::size_t>( pawn.Pending.size(), 255 ) );
-        const int consume = pawn.Pending.size() > kDrainAbove ? 2 : 1;
+        const NetVec3 before  = pawn.Move.Position;
+        const int     consume = pawn.Pending.size() > kDrainAbove ? kMaxInputsPerStep : 1;
         for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i )
         {
             const auto next = pawn.Pending.begin();
@@ -203,6 +209,22 @@ namespace Desert::Net
         // proxy's Hermite tangent does not carry it on along the speed it had when the placement was asked.
         if ( pawn.Placement )
             pawn.Move.Velocity = NetVec3{};
+        // The resume's catch-up, measured on every authoritative step it takes (planar, what a proxy and the
+        // client's correction see); reported once the queue is back at the sync's target.
+        if ( pawn.CatchUp )
+        {
+            const float dx = pawn.Move.Position.X - before.X, dz = pawn.Move.Position.Z - before.Z;
+            pawn.CatchUp->LargestStep = std::max( pawn.CatchUp->LargestStep, std::sqrt( dx * dx + dz * dz ) );
+            ++pawn.CatchUp->Steps;
+            if ( pawn.Pending.size() <= kDrainAbove )
+            {
+                m_Log( std::format( "pawn net id {}: resume catch-up of {} queued input(s) done in {} step(s), "
+                                    "at most {} input(s) per step; largest step {:.1f} cm",
+                                    pawn.State.Id, pawn.CatchUp->Queued, pawn.CatchUp->Steps, kMaxInputsPerStep,
+                                    pawn.CatchUp->LargestStep ) );
+                pawn.CatchUp.reset();
+            }
+        }
         pawn.State.Position = pawn.Move.Position;
         pawn.State.Yaw      = pawn.Move.Yaw;
         pawn.State.Velocity = pawn.Move.Velocity;
@@ -356,7 +378,8 @@ namespace Desert::Net
         const auto it = m_Pawns.find( player );
         if ( it == m_Pawns.end() || it->second.Hold != EHold::Offered )
             return std::nullopt;
-        it->second.Hold = EHold::Owned;
+        it->second.Hold    = EHold::Owned;
+        it->second.CatchUp = Pawn::ResumeCatchUp{ .Queued = it->second.Pending.size() };
         return it->second.Pending.size();
     }
 
