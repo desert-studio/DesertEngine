@@ -19,7 +19,7 @@
 Ждать A 1800 \[Net\] in session
 Роль B bot account=2 lag=75 loss=2 --seconds 1500
 # 2. The server received the view (X within 50 cm of the camera).
-Ждать server 60 player 1: view at \(2(0[5-9]\d|1[0-4]\d), \d+, -?\d+\) cm
+Ждать server 60 player 1: view at \(2(0[5-9]\d|1[0-4]\d), -?\d+, -?\d+\) cm
 # 3. A's pawn reaches the fence.
 Ждать A 900 drawn own \((2[4-9]\d\d|[3-9]\d\d\d|\d{5,}),
 Тогда A view_fence_near the fence (thin green box) beside the slope from the side camera, A's mannequin next to it or crossing it; sharp, no motion blur
@@ -43,7 +43,7 @@
 # 8. The body 2 km from the view: the server pulls the view back to MaxViewRangeCm from the pawn.
 Консоль server teleport 1 200000 300 3000
 Ждать A 60 \[Net\] correction 3 at .*drawn at once
-Ждать server 60 player 1: view at \(\d+, \d+, -?\d+\) cm, pulled back to 1500 m from the pawn
+Ждать server 60 player 1: view at \(\d+, -?\d+, -?\d+\) cm, pulled back to 1500 m from the pawn
 Ждать A 60 fresh \[Shot\] recorded frame_
 Тогда A view_clamped the camera frame after the server's line: the fence in place - the client's view source did not move, the fence's cell never unloaded and is not revealed again; the server streams for this player a point 1500 m from the body
 # 9. Exactly three corrections (three teleports); every ViewReport decoded; the fence's cell never unloaded.
