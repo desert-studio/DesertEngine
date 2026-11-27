@@ -140,6 +140,7 @@ namespace Desert::Core
         static constexpr double kReserveShare       = 0.15; // rule 4
         static constexpr double kEtaCatchUpSeconds  = 5.0;  // rule 4
         static constexpr double kEtaMinRate         = 0.25; // s of ETA per s: a whole second at least every 4 s
+        static constexpr double kEtaMaxRise         = 2.0;  // s of ETA a rising plan adds per sample (rule 4)
         static constexpr double kBarMaxStep         = 0.004; // of the bar per sample (rule 5): under a 0.5 % step
         static constexpr double kBarMaxStallSeconds = 2.0;
         static constexpr double kBarFinishSeconds   = 0.3; // rule 5: after Finish the bar's gap closes in this

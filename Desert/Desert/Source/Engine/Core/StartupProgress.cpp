@@ -307,10 +307,13 @@ namespace Desert::Core
         {
             // dE/dt = -(1 + (E - R') / kEtaCatchUpSeconds) solved over dt with R' falling one second per second
             // across the gap (so the gap decays as exp(-dt / kEtaCatchUpSeconds)), at least kEtaMinRate, never
-            // below R': the rate keeps the number moving, never under the plan; when the plan rises E rises with it.
+            // below R': the rate keeps the number moving, never under the plan.
             const double gap  = m_ShownEta - etaRemaining;
             const double fall = dt + gap * ( 1.0 - std::exp( -dt / kEtaCatchUpSeconds ) );
-            m_ShownEta        = std::max( m_ShownEta - std::max( fall, kEtaMinRate * dt ), etaRemaining );
+            // A rising plan (a slower pace, a grown queue) is followed by at most kEtaMaxRise per sample: the
+            // number never jumps, and overrun is decided from the plan (R), not from the shown value.
+            const double followed = std::max( m_ShownEta - std::max( fall, kEtaMinRate * dt ), etaRemaining );
+            m_ShownEta            = std::min( followed, m_ShownEta + kEtaMaxRise );
             const double minBarRate = kBarStepMargin * step / kBarMaxStallSeconds;
             const double maxStep =
                  m_Finished ? std::max( kBarMaxStep, m_FinishGap * dt / kBarFinishSeconds ) : kBarMaxStep;
