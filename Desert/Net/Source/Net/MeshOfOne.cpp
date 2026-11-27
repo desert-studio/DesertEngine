@@ -217,7 +217,7 @@ namespace Desert::Net
             ++pawn.CatchUp->Steps;
             if ( pawn.Pending.size() <= kDrainAbove )
             {
-                const CatchUpRun& run = *pawn.CatchUp;
+                const Pawn::CatchUpRun& run = *pawn.CatchUp;
                 const std::string what =
                     run.Adopted ? std::format( "handover catch-up ({} mesh step(s) since the offer froze it)",
                                                run.Behind )
