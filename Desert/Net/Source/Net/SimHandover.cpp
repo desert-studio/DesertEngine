@@ -41,11 +41,23 @@ namespace Desert::Net
         for ( const MeshRegion& region : m_Map.Regions )
             m_Log( std::format( "sim {}: authority map: {}{}", m_Sim, DescribeMeshRegion( region ),
                                 region.Sim == m_Sim ? " (this sim)" : "" ) );
-        // A new map can make a refused receiver right (a region reassigned): every pawn may be offered again.
-        if ( !m_BackoffEnd.empty() )
+        // A new map can make a refused receiver right (a region reassigned): every pawn may be offered again. A
+        // HELD pawn's entry is not a backoff but its withdrawal mark (AfterStep) and stays until the store
+        // answers.
+        std::size_t ended = 0;
+        for ( auto it = m_BackoffEnd.begin(); it != m_BackoffEnd.end(); )
+        {
+            if ( m_Offers.contains( it->first ) )
+            {
+                ++it;
+                continue;
+            }
+            it = m_BackoffEnd.erase( it );
+            ++ended;
+        }
+        if ( ended != 0 )
             m_Log( std::format( "sim {}: the new authority map ends the handover backoff of {} pawn(s)", m_Sim,
-                                m_BackoffEnd.size() ) );
-        m_BackoffEnd.clear();
+                                ended ) );
         return true;
     }
 
@@ -54,21 +66,46 @@ namespace Desert::Net
     void SimHandover::AfterStep( std::uint32_t step, PawnSimulation& sim, RemoteGatewayLink& gateways,
                                  RemoteReplicationStore& )
     {
-        // THE DEADLINE: an offer the store has not decided within kOfferDeadlineSteps is withdrawn, and the pawn
-        // goes on here (the sender never let its authority go).
+        // THE DEADLINE: an offer the store has not decided within kOfferDeadlineSteps is withdrawn - ONCE; the
+        // pawn stays held until the store answers that Withdraw (the coordinator of the two-phase commit decides:
+        // its Committed may already be on the way, and then the authority is the receiver's). The withdrawal is
+        // marked by the held pawn's m_BackoffEnd entry (the step it was sent at): a held pawn has no backoff
+        // otherwise. Without a link to the store no answer can come and nothing can have committed since it went:
+        // the pawn resumes here at once.
+        const bool storeLinked = !m_Endpoint.PeersOfRole( EMeshRole::Store ).empty();
         std::vector<std::pair<PlayerId, OpenOffer>> late;
         for ( const auto& [player, offer] : m_Offers )
             if ( StepsSince( step, offer.Step ) >= Handover::kOfferDeadlineSteps )
                 late.emplace_back( player, offer );
         for ( const auto& [player, offer] : late )
         {
+            const auto withdrawn = m_BackoffEnd.find( player );
+            if ( !storeLinked )
+            {
+                ++m_Stats.Withdrawn;
+                Resume( player,
+                        Refusal{ ERefusal::ReceiverSilent,
+                                 withdrawn != m_BackoffEnd.end()
+                                      ? std::format( "withdrawn at step {}, and the link to the store is gone",
+                                                     withdrawn->second )
+                                      : std::format( "sim {} answered nothing for {} steps, and no link to the "
+                                                     "store carries a Withdraw",
+                                                     offer.To, StepsSince( step, offer.Step ) ) },
+                        step, sim );
+                continue;
+            }
+            if ( withdrawn != m_BackoffEnd.end() )
+                continue; // the Withdraw went; the store's answer decides
             m_Endpoint.SendToRole( EMeshRole::Store,
                                    Handover::EncodeWithdraw( { OfferKey{ m_Sim, offer.Serial }, m_Sim, step } ) );
-            ++m_Stats.Withdrawn;
-            Resume( player,
-                    Refusal{ ERefusal::ReceiverSilent, std::format( "sim {} answered nothing for {} steps",
-                                                                    offer.To, StepsSince( step, offer.Step ) ) },
-                    step, sim );
+            m_BackoffEnd[player] = step;
+            m_Log(
+                 std::format( "sim {}: offer #{} of pawn net id {} (player {}) to sim {} - {}; Withdraw sent, the "
+                              "pawn stays held until the store answers",
+                              m_Sim, offer.Serial, offer.Id, player, offer.To,
+                              Handover::Describe( { ERefusal::ReceiverSilent,
+                                                    std::format( "sim {} answered nothing for {} steps", offer.To,
+                                                                 StepsSince( step, offer.Step ) ) } ) ) );
         }
 
         for ( const PawnSimulation::Source& source : sim.Sources() )
@@ -157,7 +194,8 @@ namespace Desert::Net
              "sim {}: offer #{} of pawn net id {} (player {}) to sim {} ended - {}{}; the pawn resumes "
              "on sim {} with {} queued input(s), next offer not before step {}",
              m_Sim, open.Serial, open.Id, player, open.To, Handover::Describe( why ),
-             why.Code == ERefusal::ReceiverSilent ? " - withdrawn" : "", m_Sim, *queued, backoffEnd ) );
+             why.Code == ERefusal::ReceiverSilent || why.Code == ERefusal::Withdrawn ? " - withdrawn" : "", m_Sim,
+             *queued, backoffEnd ) );
     }
 
     // ------------------------------------------------------------------------------------------- store messages
@@ -363,7 +401,10 @@ namespace Desert::Net
         // Refused: the side that still holds something lets go of the offer, never of the pawn's authority.
         if ( offer != m_Offers.end() )
         {
-            if ( IsReceiverRefusal( refusal.Code ) )
+            // The answer to this sim's Withdraw (or a refusal that crossed it) is the store's decision: resume.
+            if ( refusal.Code == ERefusal::Withdrawn )
+                ++m_Stats.Withdrawn;
+            else if ( IsReceiverRefusal( refusal.Code ) )
                 ++m_Stats.RefusedByReceiver;
             else
                 ++m_Stats.RefusedByStore;
