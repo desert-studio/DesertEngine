@@ -20,7 +20,7 @@
 #include <utility>
 #include <vector>
 
-namespace Common
+namespace Desert::Common
 {
     class StdinConsole
     {
@@ -57,4 +57,4 @@ namespace Common
         std::mutex               m_Mutex;
         std::vector<std::string> m_Lines;
     };
-} // namespace Common
+} // namespace Desert::Common
