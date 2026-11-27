@@ -39,14 +39,22 @@ Uniform sampler LinearRepeatSampler;
 // stage carries no texel trace, and every read through LinearClampSampler is the trace's - the scene colour history
 // below, the traced legs' radiance cache and sky (Common/GIHitLitReads.glslh) - so it declares neither the sampler
 // nor those textures (a shared sampler no stage samples is refused: ShaderMapBuild.cpp AssignSharedSamplerBindings).
+// The trace's are the point-clamped reads too (the HZB walk, the velocity, SSRSurfaceDepth), all but the front
+// layer's surface test (SSRSurfaceNormal: its depth against GBufferDepthTexture): without the front layer that stage
+// declares neither PointClampSampler nor GBufferDepthTexture, HzbTexture and VelocityTexture never. The CPU statement
+// of these conditions: SSRRenderer::TraceComputeReadsLinear and TraceComputeReadsDepth (DeclareTraceBindings).
 #if !defined( DESERT_SSR_TRACE_NO_LINEAR_READS )
 Uniform sampler LinearClampSampler;
 #endif
+#if !defined( DESERT_SSR_TRACE_NO_LINEAR_READS ) || defined( DESERT_REFLECTIONS_FRONT_LAYER )
 Uniform sampler PointClampSampler;
+#endif
 Uniform(1) texture2D GBufferNormalTexture;   // rgb = world normal, a = roughness
 #define GBufferNormalTexture sampler2D(GBufferNormalTexture, LinearRepeatSampler)
+#if !defined( DESERT_SSR_TRACE_NO_LINEAR_READS ) || defined( DESERT_REFLECTIONS_FRONT_LAYER )
 Uniform(2) texture2D GBufferDepthTexture;    // device depth (nearest): world position via SSRTraceUB's inverse
 #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+#endif
 #if !defined( DESERT_SSR_TRACE_NO_LINEAR_READS )
 Uniform(3) texture2D SceneColorTexture;      // LAST frame's lit opaque scene (SSRRenderer's scene colour history)
 #define SceneColorTexture sampler2D(SceneColorTexture, LinearClampSampler)
@@ -58,10 +66,12 @@ layout(binding = 5, rgba8) readonly uniform image2D TileMaskTexture;
 #else
 layout(binding = 5, rgba8) writeonly uniform image2D TileMaskTexture;
 #endif
+#if !defined( DESERT_SSR_TRACE_NO_LINEAR_READS )
 Uniform(7) texture2D HzbTexture;             // closest-depth hierarchy of this frame's depth (HZB.shader)
 #define HzbTexture sampler2D(HzbTexture, PointClampSampler)
 Uniform(8) texture2D VelocityTexture;        // NDC current - previous per pixel (View/Velocity.hpp), unjittered
 #define VelocityTexture sampler2D(VelocityTexture, PointClampSampler)
+#endif
 // The traced texel's ray, for the reconstruction's neighbour reuse (Denoise/SSDReconstructReflections.shader,
 // UE SSRT): xyz = the WORLD point the texel's estimate was reflected from (a neighbour re-aims its own ray at it), w = log2 of
 // the VNDF pdf with which this texel drew that direction. RGBA32F: ViewTargetFormats::kSSRTraceRay.
@@ -92,6 +102,7 @@ vec4 SSRSurfaceNormal(ivec2 p)
 #endif
 }
 
+#if !defined( DESERT_SSR_TRACE_NO_LINEAR_READS )
 // The reflecting surface's device depth at @p p (see SSRSurfaceNormal).
 float SSRSurfaceDepth(ivec2 p)
 {
@@ -102,6 +113,7 @@ float SSRSurfaceDepth(ivec2 p)
 #endif
 }
 #include <Common/HZBTrace.glslh>
+#endif
 
 #if defined( DESERT_REFLECTIONS_TRACED ) && !defined( DESERT_SSR_TRACE_NO_LINEAR_READS )
 // The traced legs' reads (System::SSRRenderer::TracedReads): what GIHitRadiance lights a hit with - the GI

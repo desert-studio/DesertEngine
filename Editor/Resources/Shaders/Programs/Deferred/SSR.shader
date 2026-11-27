@@ -69,7 +69,8 @@ Shader "SSR"
     {
         #if defined( DESERT_REFLECTIONS_HIT_LIGHTING )
         // Hit-lit, this compute only classifies (ClassifyTile returns after the tile mask; the "HitLighting" ray
-        // generation traces): no texel trace, so no read through LinearClampSampler and no declaration of it.
+        // generation traces): no texel trace, so no read through LinearClampSampler, none of the HZB or the velocity,
+        // and none through PointClampSampler but the front layer's surface test - none declared (Common/SSRTrace.glslh).
         #define DESERT_SSR_TRACE_NO_LINEAR_READS
         #endif
         #include <Common/SSRTrace.glslh>
