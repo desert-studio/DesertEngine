@@ -1115,7 +1115,10 @@ namespace Desert::Graphic
             RDG::TextureRef Depth;
         };
         // What the glass reads of it: the denoised reflection and the depth it belongs to, and the surface's normal
-        // (a = roughness) the traced refraction bends through. Invalid all: no front layer.
+        // (a = roughness) the traced refraction bends through. Invalid all: no front layer. Normal and Depth are
+        // valid whenever the surface was drawn; Reflection alone is invalid when the layer's reflections were not
+        // asked for (Reflections.TranslucentFrontLayer 0) or could not run - the glass then reflects the sky alone
+        // and the traced refraction still starts from the surface.
         struct FrameFrontLayer
         {
             RDG::TextureRef Reflection;
@@ -1126,11 +1129,17 @@ namespace Desert::Graphic
             RDG::TextureRef Refraction;
         };
         // "Translucency: Ray Traced Refraction" (RayTracedTranslucency.hpp) through @p frontLayer, from the opaque
-        // G-buffer @p gbuffer: the radiance the glass refracts. Invalid: Translucency.Refraction is ScreenSpace,
-        // no front layer is visible, or the pass was refused (logged once, the view stays ScreenSpace).
+        // G-buffer @p gbuffer: the radiance the glass refracts, one ray per 2x2 quad. @p sceneCopy: this frame's
+        // scene snapshot (the one the glass node reads), which lights a hit the view sees. Invalid result:
+        // !RefractionIsHardwareTraced(), no front layer is visible, or the pass was refused (logged once per
+        // reason, the view stays ScreenSpace). The dependencies it used to refuse on (the front layer, the TLAS)
+        // are declared by TranslucentFrontLayerRequired / ViewRayTracingSceneRequired, and the device without a ray
+        // tracing pipeline is Resolve's statement; what is left to refuse is what failed this frame: an invalid
+        // @p sceneCopy, a hit group, the pipeline or a read.
         [[nodiscard]] RDG::TextureRef AddFrameRayTracedRefraction( RDG::Builder& graph, FrameTextures& textures,
                                                                    const std::vector<RDG::TextureRef>& gbuffer,
                                                                    const FrameFrontLayer&              frontLayer,
+                                                                   RDG::TextureRef                     sceneCopy,
                                                                    const ViewFrame&                    frame );
         // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
         void AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
@@ -1434,15 +1443,33 @@ namespace Desert::Graphic
         // composes (SsrTexture); invalid when SSR did not run.
         // Reflections.TranslucentFrontLayer of the resolved quality.
         [[nodiscard]] bool TranslucentFrontLayerReflections() const;
-        // The front layer's G-buffer, then its reflections through the "FrontLayerReflectionsSystem" (an
-        // SSRRenderer tracing from TranslucentFrontLayer: the same tracer, hit lighting and denoiser as the opaque
-        // reflections). Empty: no translucent object is visible, or the reflections could not run (said by the
-        // step that refused).
+        // Whether this view's glass refraction is "Translucency: Ray Traced Refraction" this frame: the resolved
+        // Translucency.Refraction is HardwareTraced (Common::Scalability's Resolve already lowered it to
+        // ScreenSpace, with the reason, on a device without a ray tracing pipeline - the device is not asked
+        // again here), the frame is the deferred lit one (m_RenderPath Deferred with a G-buffer, not path traced)
+        // and the view's profile traces the screen (m_ViewProfile.ScreenSpaceReflections: not a preview, thumbnail
+        // or capture view). THE ONE STATEMENT of "the refraction traces": the front layer, the TLAS and
+        // AddFrameRayTracedRefraction all ask it, none repeats a term of it.
+        [[nodiscard]] bool RefractionIsHardwareTraced() const;
+        // Whether "Translucency: Front Layer G-buffer" is drawn this frame: its reflections are on
+        // (TranslucentFrontLayerReflections) or the traced refraction starts from it (RefractionIsHardwareTraced).
+        [[nodiscard]] bool TranslucentFrontLayerRequired() const;
+        // Whether this view needs the frame's ray tracing scene (TLAS, hit group instances, grass blade BLAS):
+        // RayTracing::RayTracingSceneRequired( m_RenderMethods ) or RefractionIsHardwareTraced(). The surface
+        // cache's own term (SurfaceCacheUpdateTracesRayQuery) stays at the TLAS plan, its one user.
+        [[nodiscard]] bool ViewRayTracingSceneRequired() const;
+        // The front layer's G-buffer and, when @p reflect, its reflections through the
+        // "FrontLayerReflectionsSystem" (an SSRRenderer tracing from TranslucentFrontLayer: the same tracer, hit
+        // lighting and denoiser as the opaque reflections; registered on the first frame that reflects). Called
+        // when TranslucentFrontLayerRequired(); @p reflect = the screen-trace reflections run and
+        // TranslucentFrontLayerReflections(). Empty: no translucent object is visible or the surface could not be
+        // drawn. Reflections not asked for or refused (said by the step that refused): Reflection invalid, Normal
+        // and Depth kept. @p screenTrace is read only when @p reflect.
         FrameFrontLayer AddFrameTranslucentFrontLayer( RDG::Builder& graph, FrameTextures& textures,
                                                        System::MeshRenderer*               meshRenderer,
                                                        const std::vector<RDG::TextureRef>& gbuffer,
                                                        const FrameScreenTrace& screenTrace, const ViewFrame& frame,
-                                                       const FrontLayerSurface* prepared );
+                                                       bool reflect, const FrontLayerSurface* prepared );
         // "Translucency: Front Layer G-buffer": the nearest translucent surface of each pixel (FrontLayerSurface).
         // Nothing when no translucent object is visible or a target cannot be described (logged). Under Shadows
         // VirtualMaps it is drawn before the virtual shadow map, whose receivers its depth marks, and @p prepared

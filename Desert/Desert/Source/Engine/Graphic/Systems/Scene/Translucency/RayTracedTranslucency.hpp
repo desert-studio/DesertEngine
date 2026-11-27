@@ -1,23 +1,31 @@
 #pragma once
 
-// NG-RT-REFRACTION contract (design F:/aftmp/NG-RT-REFRACTION-DESIGN.md). Owned by nobody while the packages run.
+// NG-RT-REFRACTION3A contract (design F:/aftmp/NG-RT-REFRACTION3A-DESIGN.md). Owned by nobody while the packages
+// run.
 //
 // RAY-TRACED TRANSLUCENCY (UE RayTracedTranslucency: refraction rays from the translucent front layer, lit at the
-// hit): one graph pass, "Translucency: Ray Traced Refraction", that starts a ray at every pixel of the front layer
-// G-buffer, lets the surface hit groups answer each dielectric interface (DesertRayPayload Transmission / Ior),
-// follows Snell through at most `MaxInterfaces` of them, lights the first opaque hit as the hit-lit reflections do
-// (Common/GIHitLighting.glslh GIHitRadianceLit) and writes what the glass sees THROUGH itself. The glass cell
-// (Mesh/Surface/Pass_Forward_Translucent.glslh) reads the result where its fragment is the front layer; where the
-// trace did not answer (a = 0) the cell reads the scene copy itself - this pass never reads the scene copy.
+// hit): one graph pass, "Translucency: Ray Traced Refraction", at HALF the render resolution: one ray per 2x2 quad
+// of the front layer G-buffer (kRayTracedTranslucencyQuad). The ray generation picks the quad's pixel by
+// FrameIndex & 3 (index = x + 2 * y inside the quad), or the quad's first pixel that holds a front layer when
+// that one does not; a quad without one writes zero and traces nothing. The ray lets the surface hit groups
+// answer each dielectric interface (DesertRayPayload Transmission / Ior), follows Snell through at most
+// `MaxInterfaces` of them and lights the first opaque hit SCREEN FIRST: a hit the view sees (its projection by
+// giFrame.viewProjection lies in the frame and the G-buffer depth there is the hit within
+// GIRayBias().screenTolerance, the test Common/GIHitLighting.glslh GIHitMaterial makes) takes this frame's lit
+// scene colour from the scene copy; any other hit is lit in place as the hit-lit reflections light theirs
+// (GIHitRadianceLit). The glass cell (Mesh/Surface/Pass_Forward_Translucent.glslh through
+// Mesh/Surface/TranslucencyRefraction.glslh) reads the half-size result where its fragment is the front layer;
+// where no quad around it answered for its layer the cell reads the scene copy itself (the ScreenSpace tier).
 //
 // The pass is a ray tracing pipeline over THIS FRAME's hit group table, exactly as "Deferred: Reflections
 // (HitLighting)" is (SSRRenderer::EnsureHitLightingPipeline / RecordHitLighting): the pipeline's hit groups are the
 // table's Templates, so it is ensured per frame, never at start-up, and everything the hit groups and the in-place
 // hit lighting read is the reflections' own record, SSRRenderer::TracedReads - no field of it is repeated here.
 //
-// Package A implements the class (RayTracedTranslucency.cpp), produces the reads and calls it from the frame.
-// Package B writes the ray generation program and the glass cell's read.
-// Package C binds `RefractionOutputs::Radiance` into the glass draw (MeshRenderer) by kTranslucencyRefractionTexture.
+// Package A (the frame, CPU side) produces RayTracedTranslucencyInputs and the push and calls AddPass.
+// Package B (the pass and its shaders) implements the class (RayTracedTranslucency.cpp), the ray generation program
+// and the glass cell's read. MeshRenderer's binding of `RefractionOutputs::Radiance` into the glass draw by
+// kTranslucencyRefractionTexture is unchanged and belongs to neither.
 //
 // THE PUSH BLOCK is declared once, in the shader header Common/RayTracedTranslucencyPush.glslh (contract file):
 // DesertHeaderTool generates ShaderPush::RayTracedTranslucencyPush from it on every build
@@ -48,10 +56,20 @@ namespace Desert::Graphic::System
     // The graph pass's name (profile-dump, the acceptance's "did execute" line).
     inline constexpr std::string_view kRayTracedTranslucencyPass = "Translucency: Ray Traced Refraction";
     // The glass cell's texture (bound by name, the number is the program build's): rgb = the pre-exposed radiance
-    // seen through the surface, already multiplied by the path's transmittance; a = 1 where the trace answered,
-    // 0 where it did not (the cell then reads the scene copy, the ScreenSpace tier's statement).
+    // seen through the surface, already multiplied by the path's transmittance. HALF size: texel q answers for
+    // the full-resolution quad [2q, 2q + 1]. a IS A CODE, never filtered (read by texelFetch): 0 = no answer for
+    // this quad (no front layer in it, too rough, the interface budget exhausted, or Composite 0); 1 + i
+    // (i = 0..3, exact in rgba16f) = answered, and the ray started at the quad's pixel 2q + ( i & 1, i >> 1 ).
+    // The cell's function (DesertTranslucencyRefraction) turns it into the 0..1 weight its caller mixes by. The
+    // graph's transparent black when the view does not trace: a = 0 everywhere.
     inline constexpr std::string_view kTranslucencyRefractionTexture = "TranslucencyRefractionTexture";
     // The output's format is the scene colour's (ViewTargetFormats: linear HDR, pre-exposed).
+    // The quad's side: launch and output are ceil( render resolution / kRayTracedTranslucencyQuad ) per axis.
+    inline constexpr uint32_t kRayTracedTranslucencyQuad = 2;
+    [[nodiscard]] constexpr uint32_t RayTracedTranslucencyLaunchSize( const uint32_t full )
+    {
+        return ( full + kRayTracedTranslucencyQuad - 1 ) / kRayTracedTranslucencyQuad;
+    }
 
     // Translucency.Refraction of Common::Scalability: what answers the refraction. The row's value names are
     // Common::Scalability::kTranslucencyRefractionMethodNames, index = this enum's value. THE ORDER CHECK'S OWNER is
@@ -71,9 +89,10 @@ namespace Desert::Graphic::System
          .Hits   = GlobalIllumination::HitLighting::InPlace };
 
     // The frame's defaults of ShaderPush::RayTracedTranslucencyPush (the block has no defaults of its own).
-    inline constexpr float    kRayTracedTranslucencyMaxRayDistance = 30000.0f; // cm, each segment
-    inline constexpr float    kRayTracedTranslucencyMaxRoughness   = 0.4f;     // above it the surface is not traced
-    inline constexpr uint32_t kRayTracedTranslucencyMaxInterfaces  = 4;        // UE MaxPrimaryHitEvents
+    // MaxInterfaces and Composite have none here: they are the tier's rows
+    // (Common::Scalability::Parameter::TranslucencyRefractionMaxInterfaces / TranslucencyRefractionComposite).
+    inline constexpr float kRayTracedTranslucencyMaxRayDistance = 30000.0f; // cm, each segment
+    inline constexpr float kRayTracedTranslucencyMaxRoughness   = 0.4f;     // above it the surface is not traced
 
     // THE SLOT NAMES, spelled once for the C++ bindings (A) and the program's declarations (B). The whole set the
     // ray generation declares BY THESE NAMES (a ray tracing pipeline's layout is its ray generation's):
@@ -89,7 +108,10 @@ namespace Desert::Graphic::System
     // Binding NUMBERS are the program's; nothing on the C++ side names one.
     struct RayTracedTranslucencyShaderParameters
     {
-        DESERT_SHADER_PARAMETER( StorageTexture, RefractionOutputTexture ); // rgba16f, written per front-layer pixel
+        DESERT_SHADER_PARAMETER( StorageTexture, RefractionOutputTexture ); // rgba16f, half size, one texel per quad
+        // This frame's scene snapshot (the opaque lit scene, pre-exposed): the radiance of a hit the view sees.
+        // Sampled through LinearClampSampler at the hit's screen uv.
+        DESERT_SHADER_PARAMETER( Texture, SceneColorCopyTexture );
         DESERT_SHADER_PARAMETER( UniformBuffer, CameraUB );
         // The OPAQUE scene depth: Common/GIHitLighting.glslh (GIHitMaterial) checks a hit against the screen with it.
         DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
@@ -111,7 +133,14 @@ namespace Desert::Graphic::System
         // (valid), GIFrame, lights, world light grid, radiance cache, EnvSpecular, G-buffer A / emissive / shading
         // word. SurfaceCache, ShadowCascades and Shadow stay empty (TracedReadsCascades is false for this tracer).
         SSRRenderer::TracedReads HitLighting;
-        // The render resolution: the output's size and the launch size.
+        // This frame's scene snapshot (FrameTransients::SceneColorCopy, the texture the glass node reads), bound
+        // as SceneColorCopyTexture: a declared read of the pass (RDG::Access::SampledCompute).
+        RDG::TextureRef SceneCopy;
+        // The render resolution: the front layer's and the opaque G-buffer's size.
+        uint32_t FullWidth  = 0;
+        uint32_t FullHeight = 0;
+        // The launch size and the output's size: RayTracedTranslucencyLaunchSize( FullWidth / FullHeight ).
+        // AddPass refuses any other pair.
         uint32_t Width  = 0;
         uint32_t Height = 0;
     };
@@ -146,8 +175,9 @@ namespace Desert::Graphic::System
         // ScreenSpace.
         [[nodiscard]] Common::BoolResultStr EnsurePipeline( const std::vector<std::string>& templates );
 
-        // Adds the pass to @p graph: declares the bindings named above, creates the output, and records one ray
-        // generation per pixel (Renderer::TraceRays with @p in.HitLighting.HitGroups). The pass captures the
+        // Adds the pass to @p graph: declares the bindings named above, creates the output (in.Width x in.Height),
+        // and records one ray generation per quad (Renderer::TraceRays with @p in.HitLighting.HitGroups). It is
+        // added whatever push.Composite says (0 changes the answer's a, never the rays). The pass captures the
         // pipeline EnsurePipeline published at this graph build (a shared_ptr), never the member a later frame may
         // republish. The error is the frame's reason for having no traced refraction: EnsurePipeline did not
         // succeed for this table's templates, or an input is missing (it names which).
