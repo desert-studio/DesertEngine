@@ -118,8 +118,19 @@ namespace Desert::Graphic::System
             return Common::MakeError<RefractionOutputs>( "Ray traced refraction: no CameraUB" );
         if ( !in.OpaqueDepth.IsValid() )
             return Common::MakeError<RefractionOutputs>( "Ray traced refraction: no opaque G-buffer depth" );
-        if ( in.Width == 0 || in.Height == 0 )
+        if ( !in.SceneCopy.IsValid() )
+            return Common::MakeError<RefractionOutputs>(
+                 "Ray traced refraction: no scene copy (the radiance of a hit the view sees)" );
+        if ( in.FullWidth == 0 || in.FullHeight == 0 )
             return Common::MakeError<RefractionOutputs>( "Ray traced refraction: the render resolution is empty" );
+        if ( in.Width != RayTracedTranslucencyLaunchSize( in.FullWidth ) ||
+             in.Height != RayTracedTranslucencyLaunchSize( in.FullHeight ) )
+            return Common::MakeFormattedError<RefractionOutputs>(
+                 "Ray traced refraction: the launch {}x{} is not one ray per {}x{} quad of the render resolution "
+                 "{}x{} ({}x{})",
+                 in.Width, in.Height, kRayTracedTranslucencyQuad, kRayTracedTranslucencyQuad, in.FullWidth,
+                 in.FullHeight, RayTracedTranslucencyLaunchSize( in.FullWidth ),
+                 RayTracedTranslucencyLaunchSize( in.FullHeight ) );
         // The permutation statement, not the record's fields (GITracing.hpp: a consumer hands the frame on).
         if ( GlobalIllumination::TracerVariant( in.HitLighting.Tracer.Pipeline ).Hash() !=
              GlobalIllumination::TracerVariant( kRayTracedTranslucencyTracer ).Hash() )
@@ -130,6 +141,7 @@ namespace Desert::Graphic::System
              !missing.empty() )
             return Common::MakeFormattedError<RefractionOutputs>( "Ray traced refraction: {}", missing );
 
+        // HALF size: one texel per 2x2 quad of the front layer, its a the code of the quad's traced pixel.
         const RDG::TextureRef radiance =
              graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = in.Width, .Height = in.Height },
                                                     .Format = ViewTargetFormats::kSceneColor },
@@ -142,6 +154,8 @@ namespace Desert::Graphic::System
                  auto block = pass.Bindings( self.Layout.Get( self.Program ), RDG::NoOtherRouteFill() );
                  block.Storage( RayTracedTranslucencyShaderParameters::RefractionOutputTexture, radiance,
                                 RDG::Access::StorageWrite )
+                      .Texture( RayTracedTranslucencyShaderParameters::SceneColorCopyTexture, in.SceneCopy,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                       .Uniform( RayTracedTranslucencyShaderParameters::CameraUB, in.Camera )
                       .Texture( RayTracedTranslucencyShaderParameters::GBufferDepthTexture, in.OpaqueDepth,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )

@@ -362,22 +362,28 @@
                 "Reflections.RaysPerPixel": 1,
                 "Reflections.Method": "Captures",
                 "Reflections.DenoiserRadius": 1,
-                "Reflections.TranslucentFrontLayer": 0
+                "Reflections.TranslucentFrontLayer": 0,
+                "Translucency.RefractionMaxInterfaces": 2
             },
             "Medium": {
                 "Reflections.MaxSteps": 32,
                 "Reflections.RaysPerPixel": 1,
                 "Reflections.Method": "ScreenSpace",
                 "Reflections.DenoiserRadius": 1,
-                "Reflections.TranslucentFrontLayer": 0
+                "Reflections.TranslucentFrontLayer": 0,
+                "Translucency.RefractionMaxInterfaces": 2
             },
             "High": {
                 "Reflections.MaxSteps": 48,
                 "Reflections.RaysPerPixel": 2,
-                "Reflections.Method": "SoftwareTraced"
+                "Reflections.Method": "SoftwareTraced",
+                "Translucency.RefractionMaxInterfaces": 2
             },
-            "Epic": {},
+            "Epic": {
+                "Translucency.Refraction": "HardwareTraced"
+            },
             "Cinematic": {
+                "Translucency.Refraction": "HardwareTraced",
                 "Reflections.MaxSteps": 96,
                 "Reflections.CaptureSize": 256,
                 "Reflections.RaysPerPixel": 8,
