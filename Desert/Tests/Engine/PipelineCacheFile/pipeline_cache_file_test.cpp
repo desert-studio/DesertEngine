@@ -153,10 +153,10 @@ TEST( PipelineCacheFile, PersistsDuringTheRunNotOnlyAtExit )
 TEST( PipelineBuilds, CountsPendingAndStartedMonotonically )
 {
     Desert::Graphic::PipelineBuilds::Tracker builds;
-    builds.OnStarted( Engine );
-    builds.OnStarted( Engine );
+    const uint64_t first = builds.OnStarted( Engine, "test" );
+    [[maybe_unused]] const uint64_t second = builds.OnStarted( Engine, "test" );
     EXPECT_EQ( builds.Pending( Engine ), 2u );
-    builds.OnFinished( Engine );
+    builds.OnFinished( first );
     EXPECT_EQ( builds.Pending( Engine ), 1u );
     EXPECT_EQ( builds.Started( Engine ), 2u )
          << "started never goes down: ContentGate reads it as 'asked this frame'";
@@ -165,27 +165,27 @@ TEST( PipelineBuilds, CountsPendingAndStartedMonotonically )
 TEST( PipelineBuilds, CountsEngineAndMaterialCompilesApart )
 {
     Desert::Graphic::PipelineBuilds::Tracker builds;
-    builds.OnStarted( Engine );
-    builds.OnStarted( Material );
-    builds.OnStarted( Material );
+    [[maybe_unused]] const uint64_t engine = builds.OnStarted( Engine, "test" );
+    const uint64_t                  material = builds.OnStarted( Material, "test" );
+    [[maybe_unused]] const uint64_t second   = builds.OnStarted( Material, "test" );
     EXPECT_EQ( builds.Pending( Engine ), 1u );
     EXPECT_EQ( builds.Pending( Material ), 2u );
     EXPECT_EQ( builds.Started( Material ), 2u );
-    builds.OnFinished( Material );
+    builds.OnFinished( material );
     EXPECT_EQ( builds.Pending( Engine ), 1u ) << "a material landing must not release the engine's count";
 }
 
 TEST( PipelineBuilds, WaitIdleReturnsOnlyAfterTheLastCompileFinished )
 {
     Desert::Graphic::PipelineBuilds::Tracker builds;
-    builds.OnStarted( Material );
+    const uint64_t    ticket = builds.OnStarted( Material, "test" );
     std::atomic<bool> finished{ false };
     std::thread       worker(
          [&]
          {
              std::this_thread::sleep_for( 50ms );
              finished = true;
-             builds.OnFinished( Material );
+             builds.OnFinished( ticket );
          } );
     builds.WaitIdle();
     EXPECT_TRUE( finished ) << "hot reload would replace a shader a compile is still reading (material ones too)";
@@ -204,13 +204,14 @@ TEST( PipelineBuilds, ContentGateWaitsForAnEnginePipelineStillInTheDriver )
     const uint64_t                           assetsStarted     = 7;
     gate.BeginWorld( assetsStarted + builds.Started( Engine ) );
 
-    builds.OnStarted( Engine ); // the first frame built the G-buffer pass: its pipeline went to a worker
+    // the first frame built the G-buffer pass: its pipeline went to a worker
+    const uint64_t ticket = builds.OnStarted( Engine, "test" );
     for ( int frame = 0; frame < 10; ++frame )
         EXPECT_FALSE(
              gate.Tick( assetsOutstanding + builds.Pending( Engine ), assetsStarted + builds.Started( Engine ) ) );
     EXPECT_TRUE( gate.Loading() ) << "opened while a system pipeline was still compiling: that frame skips a pass";
 
-    builds.OnFinished( Engine );
+    builds.OnFinished( ticket );
     bool opened = false;
     for ( int frame = 0; frame < 3 && !opened; ++frame )
         opened =

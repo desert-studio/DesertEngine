@@ -4,6 +4,7 @@
 #include <memory>
 
 #include <string>
+#include <vector>
 #include <optional>
 #include <cstdint>
 #include <unordered_set>
@@ -34,6 +35,14 @@
 // `Common::Layer::OnUIRender`, and what a layer draws in it is the layer's business (the Editor records
 // ImGui; the Runtime records its own Render2D batches).
 
+// Forward declarations: Application.hpp is opened by every layer host, StartupProgress.hpp pulls <map>, <mutex>,
+// <functional> and ResultStr.
+namespace Desert::Core
+{
+    class StartupProgress;
+    struct StartupPhaseSpec;
+} // namespace Desert::Core
+
 namespace Desert::Engine
 {
     struct ApplicationInfo
@@ -59,7 +68,12 @@ namespace Desert::Engine
         // The host's command-line preferences (--rhi, --adapter, --device-profile); the Application adds
         // machine.json's and resolves them once, before the window (Engine/Graphic/Rhi/RhiSelection.hpp).
         Graphic::RhiSelectionInputs Rhi;
+        // The host's start progress, which this constructor reports its phases to (ApplicationStartupPhases).
+        Core::StartupProgress* Startup = nullptr; // non-owning; the host's (null: nobody watches)
     };
+
+    // The phases the Application constructor begins, in order: the engine's half of the host's start plan.
+    std::vector<Core::StartupPhaseSpec> ApplicationStartupPhases();
 
     class Application;
 

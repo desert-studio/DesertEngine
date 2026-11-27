@@ -143,7 +143,7 @@ TEST( BootStageTimingCensus, TheShippingRuntimeWrapsEveryBootContentCallInAStage
 
     // A boot function either loads silently (void) or refuses the boot (BoolResultStr, CompileShaders with
 
-    // no Default Surface); ShaderCount is the splash's weight, not a stage.
+    // no Default Surface).
 
     static const std::regex  declaration( R"(\b(?:void|Common::BoolResultStr)\s+(\w+)\s*\()" );
     std::vector<std::string> declared;
@@ -189,15 +189,25 @@ TEST( BootStageTimingCensus, BothHostsUseTheOneAccumulationRule )
 
     // A host is the set of files that make it up: the editor's boot moved out of EditorLayer.cpp into
     // LevelEditor/EditorStartup.cpp (EDL-7), and the rule is about the host, not about one file name.
+    // ONE RULE PER HOST, NEVER TWO: the Runtime times its boot with BootTimeline (m_Boot) and prints its
+    // summary; the editor's boot is the phases of Core::StartupProgress, whose Finish prints the summary
+    // (STARTUP-PROGRESS), and the editor keeps no BootTimeline next to it.
     struct Host
     {
         const char*              Name;
         std::vector<const char*> Files;
+        std::vector<const char*> Required;  // what the host's one rule is written with
+        std::vector<const char*> Forbidden; // the other rule, which must not sit next to it
     };
     const Host hosts[] = {
          { "the editor (EditorLayer.cpp + LevelEditor/EditorStartup.cpp)",
-           { "Editor/Source/EditorLayer.cpp", "Editor/Source/Editor/LevelEditor/EditorStartup.cpp" } },
-         { "Runtime/Source/RuntimeLayer.cpp", { "Runtime/Source/RuntimeLayer.cpp" } },
+           { "Editor/Source/EditorLayer.cpp", "Editor/Source/Editor/LevelEditor/EditorStartup.cpp" },
+           { "m_Startup->Finish" },
+           { "m_Boot" } },
+         { "Runtime/Source/RuntimeLayer.cpp",
+           { "Runtime/Source/RuntimeLayer.cpp" },
+           { "m_Boot", "m_Boot.LogSummary" },
+           {} },
     };
     for ( const Host& host : hosts )
     {
@@ -211,12 +221,13 @@ TEST( BootStageTimingCensus, BothHostsUseTheOneAccumulationRule )
             text += part;
             text += '\n';
         }
-        EXPECT_NE( text.find( "m_Boot" ), std::string::npos )
-             << layer
-             << " keeps its own startup timing instead of the shared BootTimeline, so its "
-                "numbers are not comparable with the other host's";
-        EXPECT_NE( text.find( "m_Boot.LogSummary" ), std::string::npos )
-             << layer << " never prints the per-stage summary, so the stages are only in the scrollback";
+        for ( const char* token : host.Required )
+            EXPECT_NE( text.find( token ), std::string::npos )
+                 << layer << " has no '" << token
+                 << "': its boot is not timed by its one rule, or never prints the per-stage summary";
+        for ( const char* token : host.Forbidden )
+            EXPECT_EQ( text.find( token ), std::string::npos )
+                 << layer << " still has '" << token << "' next to its own startup timing: two timing rules";
     }
 
     // AND THE OLD ACCUMULATOR IS GONE, not merely unused. The contract forbids keeping the replaced path:

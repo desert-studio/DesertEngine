@@ -216,10 +216,11 @@ namespace Desert::Editor
     // this constructor (Г26 added the autosave-migration call below). Named as debt, not fixed here.
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     EditorLayer::EditorLayer( Engine::Application* application, const std::string& layerName,
-                              std::unique_ptr<Splash::SplashScreen> splash )
+                              std::unique_ptr<Splash::SplashScreen>            splash,
+                              std::shared_ptr<::Desert::Core::StartupProgress> startup )
          : Common::Layer( layerName ), m_Application( application ),
            m_Startup( application, m_AssetManager, m_ImportManager, m_AnimationLibrary, m_Workspace, m_SceneFiles,
-                      m_AssetCompiling, m_RealFrameDrawn, std::move( splash ) )
+                      m_AssetCompiling, m_RealFrameDrawn, std::move( splash ), std::move( startup ) )
 
     {
         m_AssetManager = std::make_shared<Assets::AssetManager>();

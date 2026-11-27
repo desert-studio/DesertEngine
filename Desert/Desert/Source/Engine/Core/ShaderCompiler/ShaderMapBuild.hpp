@@ -20,6 +20,8 @@
 
 namespace Desert::Core
 {
+    class WorkSink;
+
     // One program to build: the asset's text, the file it came from (includes resolve against it), the pass
     // (empty = the default program), the variant, and the name the logs call it by.
     struct ShaderMapRequest
@@ -69,5 +71,8 @@ namespace Desert::Core
 
     // BuildShaderMap for every request on the job system. The answer for requests[i] is outcomes[i] —
     // written by index, never appended — so the result does not depend on which worker finished first.
-    std::vector<ShaderMapOutcome> BuildShaderMaps( std::span<const ShaderMapRequest> requests );
+    // @p sink (optional) is told the count once and one item per request (name ":" pass); a request started
+    // after its StopRequested is skipped and its outcome says "stopped".
+    std::vector<ShaderMapOutcome> BuildShaderMaps( std::span<const ShaderMapRequest> requests,
+                                                   WorkSink*                         sink = nullptr );
 } // namespace Desert::Core

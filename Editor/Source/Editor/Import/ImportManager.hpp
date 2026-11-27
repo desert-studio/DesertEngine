@@ -11,11 +11,15 @@
 #include "TextureImporter.hpp"
 
 #include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Assets/ItemProgress.hpp>
 
 namespace Desert::Assets
 {
     class TextureAsset;
+}
+
+namespace Desert::Core
+{
+    class WorkSink;
 }
 
 namespace Desert::Editor
@@ -87,8 +91,9 @@ namespace Desert::Editor
 
         /// Imports every loose image under `LooseTextureRoots()` that has no `.detex` yet; returns the count.
         /// See the definition for why the mesh scan could not do this and why there is no `force`.
-        /// @p progress names each source as it is reached (the splash's item line).
-        size_t ImportLooseTextures( const Assets::ItemProgress& progress = {} );
+        /// @p sink (optional) is told the count and gets one item per source (the splash's item line); a stop
+        /// requested on it ends the import before the next source.
+        size_t ImportLooseTextures( ::Desert::Core::WorkSink* sink = nullptr );
 
         // Import a source texture into its `.detex` asset and create its TextureAsset in @p mgr; null on failure.
         // The cook stops at the asset: registering it with the runtime's TextureService is the caller's

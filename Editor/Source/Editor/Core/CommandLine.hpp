@@ -13,6 +13,7 @@
 #include <charconv>
 #include <cerrno>
 #include <cmath>
+#include <filesystem>
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -97,6 +98,7 @@ namespace Desert::Editor
          { "--shot-sequence", true, "/tmp/seq" },
          { "--shot-every", true, "1" },
          { "--control-socket", true, "/tmp/desert-editor.sock" },
+         { "--splash-capture", true, "C:/aftmp/splash" },
          { "--language", true, "ru" },
          { "--view-budget-mib", true, "512" },
          { "--cloud-visualize", true, "1" },
@@ -165,6 +167,10 @@ namespace Desert::Editor
         /// The path is named rather than fixed so two editors on one machine each get their own; a shared
         /// one would have them answering each other's clients, and the client could not tell.
         std::string ControlSocket;
+
+        /// `--splash-capture <dir>`: the splash writes its painted canvas there once a second and one row per
+        /// repaint into progress.csv (Splash::SplashContent::CaptureDir). Empty — the default — captures nothing.
+        std::filesystem::path SplashCapture;
 
         /// `--connect ip:port --net-token HEX --net-cooked DIR [--net-walk-cm D --net-walk-dir x,y,z
         /// --net-walk-mode walk|sprint --net-jump-every S]
@@ -451,6 +457,8 @@ namespace Desert::Editor
                 options.Shot.Sequence = value;
             else if ( arg == "--control-socket" )
                 options.ControlSocket = value;
+            else if ( arg == "--splash-capture" )
+                options.SplashCapture = value;
             else if ( arg == "--device-profile" )
                 options.DeviceProfile = value;
             else if ( arg == "--rhi" )
@@ -826,11 +834,11 @@ namespace Desert::Editor
                      "runs, the scene is the world it runs on" );
             }
             if ( options.Shot.Active() || options.Shot.Play || options.Shot.FlightRoute.has_value() ||
-                 !options.ControlSocket.empty() )
+                 !options.ControlSocket.empty() || !options.SplashCapture.empty() )
             {
                 return Common::MakeError<CommandLineOptions>(
-                     "--run WorldPartitionBuilder has no window: --shot, --shot-sequence, --play, --flight and "
-                     "--control-socket belong to an editor session, not to a builder run" );
+                     "--run WorldPartitionBuilder has no window: --shot, --shot-sequence, --play, --flight, "
+                     "--control-socket and --splash-capture belong to an editor session, not to a builder run" );
             }
         }
 

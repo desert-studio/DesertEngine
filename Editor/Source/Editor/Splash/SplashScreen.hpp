@@ -21,13 +21,12 @@
 //     (the arrangement UE's FWindowsPlatformSplash uses), so it paints however long the main thread is
 //     away.
 //
-// ONE INTERFACE, FOUR CALLS, and the callers never know which platform answered. `SetProgress` never
-// blocks on the window system: it records the newest snapshot and wakes the splash's thread, which applies
-// it. What the snapshot says — stage, item, weighted percentage — is `ProgressModel` (SplashProgress.hpp).
+// ONE INTERFACE, THREE CALLS, and the callers never know which platform answered. NOTHING IS PUSHED: the
+// splash's own thread samples the start's `Core::StartupProgress` (the phase, its items, elapsed, the time
+// left, the log) and draws it, so the main thread pays nothing for the picture however busy it is.
 
-#include <Editor/Splash/SplashProgress.hpp>
+#include <Engine/Core/StartupProgress.hpp>
 
-#include <atomic>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -44,6 +43,9 @@ namespace Desert::Editor::Splash
         // window is already up. A missing file is not an error the start stops for: the splash draws its
         // live text on a plain dark background and the log says why, once (see SplashImage.hpp).
         std::filesystem::path CookedImage;
+        // --splash-capture <dir>: the splash writes its painted canvas as splash-<ms>.png every second and one
+        // row per repaint into progress.csv (ms,fraction,phase,done,total,remaining,active0). Empty = off.
+        std::filesystem::path CaptureDir;
     };
 
     class SplashScreen
@@ -51,9 +53,9 @@ namespace Desert::Editor::Splash
     public:
         virtual ~SplashScreen() = default;
 
-        /// What the start is doing now: the stage, the item inside it and the share done. An empty stage
-        /// (the plan is not made yet) draws no percentage.
-        virtual void SetProgress( const ProgressSnapshot& progress ) = 0;
+        /// MAIN THREAD, once per startup frame and around each long call: the main-thread half of the window
+        /// (macOS: a minimize the person clicked). Windows: nothing.
+        virtual void PumpMainThread() = 0;
 
         /// Starts taking the window down — a kFadeOutSeconds crossfade into whatever is under it, the
         /// editor's window by then — and RETURNS AT ONCE: the editor is on screen and must not freeze for
@@ -61,25 +63,10 @@ namespace Desert::Editor::Splash
         /// (AppKit). Idempotent.
         virtual void Close() = 0;
 
-        /// The platform's splash, already on screen when this returns. Main thread only.
-        [[nodiscard]] static std::unique_ptr<SplashScreen> Show( const SplashContent& content );
-
-        /// A person pressed the splash's close button. Set from the splash's own thread — the click is
-        /// seen there, because the main thread is the one busy loading — and read by the main thread
-        /// between stages (and between shader programs of the preload). What it asks for is the
-        /// editor's ordinary close; nothing here ends the process.
-        [[nodiscard]] bool CloseRequested() const
-        {
-            return m_CloseRequested.load( std::memory_order_acquire );
-        }
-
-    protected:
-        void NoteCloseClicked()
-        {
-            m_CloseRequested.store( true, std::memory_order_release );
-        }
-
-    private:
-        std::atomic<bool> m_CloseRequested{ false };
+        /// The platform's splash, already on screen when this returns. Main thread only. It samples
+        /// @p progress on its own thread until Close; its close button calls `progress->RequestStop()`, which
+        /// the start reads as the editor's ordinary close (nothing here ends the process).
+        [[nodiscard]] static std::unique_ptr<SplashScreen> Show( const SplashContent&                   content,
+                                                                 std::shared_ptr<Core::StartupProgress> progress );
     };
 } // namespace Desert::Editor::Splash

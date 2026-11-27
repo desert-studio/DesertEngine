@@ -8,6 +8,7 @@
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/ShotDirector.hpp"
 #include "Editor/Core/ProjectContext.hpp"
+#include "Editor/Core/StartupRecord.hpp"
 #include "Editor/Core/ToastManager.hpp"
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
@@ -44,9 +45,11 @@
 #include <Engine/Assets/AssetManager.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
+#include <Engine/Graphic/PipelineBuilds.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <Engine/Runtime/Services/Texture/TextureService.hpp>
 
 namespace Desert::Editor
@@ -140,7 +143,8 @@ namespace Desert::Editor
         // could not parse is an editor showing an empty Content Browser over a project full of files,
         // and "looks almost right" is the failure mode that costs the most to find.
         std::vector<std::string> unboxedMeshes;
-        const auto               registry = Assets::ContentRegistry::Gather( nullptr, &unboxedMeshes );
+        BeginPhase( "content.gather" );
+        const auto registry = Assets::ContentRegistry::Gather( nullptr, &unboxedMeshes );
         if ( !registry )
             return Common::MakeFormattedError( "the cooked asset registry: {}", registry.GetError() );
         LOG_INFO( "[ContentRegistry] {} row(s), {} handle(s) bound before anything was loaded",
@@ -158,12 +162,15 @@ namespace Desert::Editor
 
         // Shaders must exist BEFORE the render systems below are constructed (their default materials
         // resolve shaders in the ctor). Meshes/skyboxes are staged instead. The longest single wait of the
-        // start, and one call: the splash says what it is before it begins, and cannot say more during it.
-        BeginShaderStage();
-        // The splash's close button, pressed during this one long call, stops it between programs.
-        if ( const auto shaders =
-                  Assets::CompileShaders( m_AssetManager, SplashItems(), [this]() { return CloseRequested(); } );
-             !shaders )
+        // start, and one call: it begins its own three phases (shaders.load, shaders.maps, shaders.register) and
+        // names every file and program it works through; the splash's close, pressed during it, stops it
+        // between programs (the progress's one stop flag).
+        if ( m_Splash )
+            m_Splash->PumpMainThread();
+        const auto shaders = Assets::CompileShaders( m_AssetManager, m_Startup.get() );
+        if ( m_Splash )
+            m_Splash->PumpMainThread();
+        if ( !shaders )
             return Common::MakeFormattedError( "the shaders: {}", shaders.GetError() );
         // The imported materials choose among these shaders' Import blocks; every cook below comes after.
         LOG_INFO( "[Import] {} import template(s) published from the loaded shaders",
@@ -172,19 +179,36 @@ namespace Desert::Editor
         return m_Workspace.CreateSystems( *m_Workspace.ActiveScene() );
     }
 
+    // The 11-26 warm Bistro start, phase by phase (with the engine's app.* phases about 44 s). Only the first
+    // start on a machine uses these; every later one weighs its phases by the history the previous wrote.
+    std::vector<::Desert::Core::StartupPhaseSpec> EditorStartupPhases()
+    {
+        return {
+             { "content.gather", "Indexing content", 1.5 },
+             { "shaders.load", "Loading shaders", 0.1 },
+             { "shaders.maps", "Building shader maps", 0.7 },
+             { "shaders.register", "Creating shader programs", 9.6 },
+             { "textures.import", "Importing textures", 0.05 },
+             { "clips.index", "Indexing animation clips", 0.01 },
+             { "strings.request", "Requesting string tables", 0.01 },
+             { "content.refresh", "Refreshing the content registry", 1.5 },
+             { "scene.load", "Loading the scene", 8.4 },
+             { "scene.reveal", "Finishing the first frame", 15.8 },
+        };
+    }
+
     namespace
     {
-        // The splash's cost per item of each weighed stage (EditorStartup::MakeSplashPlan), read off the
-        // "[Startup] ... item(s) in" lines of a Debug start on the M-series development machine.
-        constexpr double kSecondsPerShader = 0.048; // 78 programs in 3.73 s
-        // A texture whose cook is fresh costs its freshness check: 11 in 0.04 s.
-        constexpr double kSecondsPerTextureCheck = 0.0036;
-        constexpr double kSecondsPerClipRow      = 0.0002; // indexing a registry row reads nothing
-        // The settle costs its first frames whether or not a read is outstanding: 0.75 s with none. A read
-        // outstanding at its start adds one shader's worth; no measured start has had one.
-        constexpr double kSecondsSceneSettle  = 0.75;
-        constexpr double kSecondsPerSceneRead = kSecondsPerShader;
-
+        // The pipelines compiling now (every role), oldest first, with how long each has run: what the splash
+        // names in every phase while a compile it does not count is running.
+        std::vector<::Desert::Core::ActiveWork>
+        PipelinesInFlight( const ::Desert::Core::StartupClock::time_point now )
+        {
+            std::vector<::Desert::Core::ActiveWork> active;
+            for ( const auto& build : Graphic::PipelineBuilds::Get().InFlight( 3 ) )
+                active.push_back( { build.Name, std::chrono::duration<double>( now - build.Begin ).count() } );
+            return active;
+        }
     } // namespace
 
     EditorStartup::EditorStartup( Engine::Application*                          application,
@@ -193,11 +217,24 @@ namespace Desert::Editor
                                   std::unique_ptr<Animation::AnimationLibrary>& animationLibrary,
                                   SceneWorkspace& workspace, SceneFiles& sceneFiles,
                                   AssetCompiling& assetCompiling, const bool& realFrameDrawn,
-                                  std::unique_ptr<Splash::SplashScreen> splash )
+                                  std::unique_ptr<Splash::SplashScreen>            splash,
+                                  std::shared_ptr<::Desert::Core::StartupProgress> startup )
          : m_Application( application ), m_AssetManager( assetManager ), m_ImportManager( importManager ),
            m_AnimationLibrary( animationLibrary ), m_Workspace( workspace ), m_SceneFiles( sceneFiles ),
-           m_AssetCompiling( assetCompiling ), m_RealFrameDrawn( realFrameDrawn ), m_Splash( std::move( splash ) )
+           m_AssetCompiling( assetCompiling ), m_RealFrameDrawn( realFrameDrawn ),
+           m_Startup( std::move( startup ) ), m_Splash( std::move( splash ) )
     {
+        // THE AMBIENT SOURCE: a pipeline compiled inside any phase (a renderer's Register, an Initialize) is
+        // named on the splash while it runs, with its age. It counts into no phase. Pulled on the splash
+        // thread; the tracker is mutex-safe.
+        m_Startup->SetAmbient(
+             []( const ::Desert::Core::StartupClock::time_point now )
+             {
+                 ::Desert::Core::LiveCount count;
+                 count.Active = PipelinesInFlight( now );
+                 return count;
+             } );
+
         // STAGED: this used to run inline here and froze the window for seconds before the first frame.
         // The stages now execute one-per-frame from OnUpdate, each announced on the splash.
         // NOTE: shaders are NOT staged — they load synchronously in OnAttach, because the render systems
@@ -223,8 +260,7 @@ namespace Desert::Editor
         // cooks too. (This stage used to walk `Assets/Meshes/` twice; the second walk found everything
         // fresh.)
         m_StartupStages.push_back(
-             { "Importing textures...",
-               [this]
+             { "textures.import", [this]( ::Desert::Core::WorkSink* sink )
                {
                    // The editor derives texture platform data on a DDC miss; a packaged game
                    // has no builder.
@@ -249,29 +285,25 @@ namespace Desert::Editor
                    Assets::SetDisplacedMeshBuilder( &Editor::BuildDisplacedMeshBytes );
                    // A grass variety's cover look: its albedo map averaged over the texels its blades draw.
                    Assets::SetGrassCoverLookBuilder( &Editor::BuildGrassCoverLook );
-                   (void)m_ImportManager->ImportLooseTextures( SplashItems() );
-               },
-               kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr, 0 } );
+                   if ( const size_t imported = m_ImportManager->ImportLooseTextures( sink ); imported > 0 )
+                       LOG_INFO( "[Startup] {} loose texture(s) imported", imported );
+               } } );
         // THE ONLY CONTENT STAGES LEFT (AL1-9): nothing here creates an asset of any kind. Textures, materials,
         // meshes, skyboxes and the cloud kinds are created from their content-registry rows when something
         // names them, and the scene settle below waits for the ones the scene names.
-        m_StartupStages.push_back(
-             { "Indexing animation clips...",
-               [this] { Assets::IndexAnimationClips( *m_AssetManager, *m_AnimationLibrary ); }, kSecondsPerClipRow,
-               [] { return Assets::ContentRegistry::Rows( Common::Content::ContentKind::Animation ).size(); },
-               nullptr, 0 } );
+        m_StartupStages.push_back( { "clips.index", [this]( ::Desert::Core::WorkSink* )
+                                     { Assets::IndexAnimationClips( *m_AssetManager, *m_AnimationLibrary ); } } );
         // Order-free, and early among the optional stages on purpose: a missing translation shows up on
         // the very first frame drawn, and its log line is far easier to read before the rest of the
         // content's lines arrive.
-        m_StartupStages.push_back( { "Requesting string tables...",
-                                     [this] { Assets::RequestStringTables( m_AssetManager ); }, kSecondsPerClipRow,
-                                     nullptr, nullptr, 0 } );
+        m_StartupStages.push_back( { "strings.request", [this]( ::Desert::Core::WorkSink* )
+                                     { Assets::RequestStringTables( m_AssetManager ); } } );
     }
 
-    void EditorStartup::BeginShaderStage()
+    void EditorStartup::BeginPhase( const std::string_view key, ::Desert::Core::LiveSource source )
     {
-        MakeSplashPlan();
-        BeginSplashStage( m_ShaderStage );
+        if ( const auto begun = m_Startup->BeginPhase( key, std::move( source ) ); !begun )
+            LOG_ERROR( "[Startup] the phase '{}' could not begin: {}", key, begun.GetError() );
     }
 
     bool EditorStartup::RunStartupFrame()
@@ -286,8 +318,12 @@ namespace Desert::Editor
         //
         // CLOSE ON THE SPLASH ENDS THE START HERE, before the next stage: the editor leaves through the same
         // Application::Close the window frame's close button and the control channel's `quit` take.
-        const Splash::StartupStep step = Splash::NextStartupStep( m_Splash && m_Splash->CloseRequested(),
-                                                                  m_StartupNext, m_StartupStages.size() );
+        //
+        // The splash's main-thread duty first (the Mac minimise; nothing on Windows), once per startup frame.
+        if ( m_Splash )
+            m_Splash->PumpMainThread();
+        const Splash::StartupStep step =
+             Splash::NextStartupStep( m_Startup->StopRequested(), m_StartupNext, m_StartupStages.size() );
         if ( step == Splash::StartupStep::Quit && !m_QuitFromSplash )
         {
             m_QuitFromSplash = true;
@@ -311,31 +347,20 @@ namespace Desert::Editor
             //
             // A phase nobody can name is a phase every brief guesses at, and three of this project's
             // timed investigations went looking in the wrong one.
-            // THE TIMING AND THE LINE COME FROM `::Desert::Core::BootTimeline` NOW, not from a chrono pair
-            // here — because the shipping runtime needed the same thing and two copies of an
-            // accumulation rule is how the two numbers stop being comparable. The SCHEDULER stays
-            // here: running one stage per frame behind a progress overlay is this layer's own
-            // arrangement and has nothing to do with timing. See Engine/Core/BootTimeline.hpp.
-            BeginSplashStage( m_StartupStages[m_StartupNext].ProgressStage );
-            const auto stageStart = std::chrono::steady_clock::now();
-            m_StartupStages[m_StartupNext].Run();
-            const double stageMs =
-                 std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - stageStart )
-                      .count();
+            // THE TIMING AND THE TABLE ARE THE PROGRESS'S NOW (Engine/Core/StartupProgress.hpp): each stage is
+            // one of its phases, timed from its begin to the next phase's, and StartupProgress::Finish logs the
+            // table at the reveal. The SCHEDULER stays here: running one stage per frame behind the splash is
+            // this layer's own arrangement and has nothing to do with timing.
+            StartupStage& stage = m_StartupStages[m_StartupNext];
+            BeginPhase( stage.Key );
+            stage.Run( m_Startup.get() );
             ++m_StartupNext;
-            m_Boot.Record( m_StartupStages[m_StartupNext - 1].Label, stageMs );
 
             if ( !StartupLoading() )
             {
-                // THE SETTLE PHASE GETS ITS OWN LABEL. A splash that says nothing while it waits is
-                // indistinguishable from an editor that has hung, and this wait is the one the
-                // demand-driven model introduced.
-                // The count itself starts at the scene load (BeginContentSettle), from the loader's counters.
-                BeginSplashStage( m_SettleStage );
-                m_Boot.LogSummary();
-                LOG_INFO( "[Startup] all {} stage(s) done in {:.1f} ms; the editor is now answering "
-                          "about a project it has actually read.",
-                          m_StartupStages.size(), m_Boot.ElapsedMs() );
+                LOG_INFO( "[Startup] all {} stage(s) done; the editor is now answering about a project it has "
+                          "actually read.",
+                          m_StartupStages.size() );
                 // AND THE BOOT IS OVER HERE — not at the first frame, which the hidden window has
                 // been presented for the whole of the staged load. Every synchronous asset load
                 // after this line reports itself as a hitch. See Engine/Assets/SyncLoadLedger.hpp.
@@ -369,6 +394,7 @@ namespace Desert::Editor
                 // session depends on the cook: the editor is already running over the registry it
                 // read, and failing to write the next boot's copy is a reason to say so loudly, not
                 // a reason to stop editing.
+                BeginPhase( "content.refresh" );
                 if ( const auto cooked = Assets::ContentRegistry::Refresh( *m_AssetManager ); !cooked )
                 {
                     LOG_ERROR( "[ContentRegistry] the content registry could not be cooked: {}",
@@ -384,6 +410,13 @@ namespace Desert::Editor
                     LOG_INFO( "[ContentRegistry] {}; the cook itself did {}", cooked.GetValue().Describe(),
                               Common::Utils::ContentScanLedger::Report() );
                 }
+
+                // THE SCENE LOAD GETS ITS OWN PHASE. A splash that says nothing while it waits is
+                // indistinguishable from an editor that has hung, and this wait is the one the demand-driven
+                // model introduced. Its count is pulled on the splash thread, so it moves while a blocking load
+                // holds the main thread.
+                BeginPhase( "scene.load", SceneLoadSource() );
+                m_SceneLoadPhase = true;
             }
         }
         // The browser asked for its opening folder's pictures when it was built (OnAttach): the workers
@@ -415,15 +448,41 @@ namespace Desert::Editor
 
     void EditorStartup::ShowContentLine( const Assets::ContentProgressLine& line )
     {
-        const bool changed = line.Done != m_ContentProgress.Done || line.Total != m_ContentProgress.Total ||
-                             line.Item != m_ContentProgress.Item;
+        // The splash reads the scene load from its own source (SceneLoadSource); this line is the gate's and
+        // the post-reveal overlay's.
         m_ContentProgress = line;
-        if ( changed && !m_Revealed )
+    }
+
+    ::Desert::Core::LiveSource EditorStartup::SceneLoadSource()
+    {
+        // Both bases are taken now, on the main thread, before the scene load asks for anything: the phase
+        // counts only the reads and the engine pipelines started after its begin.
+        const Assets::LoadProgress base          = Assets::AsyncAssetLoader::Get().Progress();
+        const uint64_t             readsBase     = base.Finished;
+        const uint64_t             readsStarted  = base.Started;
+        const auto&                pipelines     = Graphic::PipelineBuilds::Get();
+        const uint64_t             pipesStarted  = pipelines.Started( Graphic::PipelineRole::Engine );
+        const uint64_t             pipesFinished = pipelines.Finished( Graphic::PipelineRole::Engine );
+        return [readsBase, readsStarted, pipesStarted,
+                pipesFinished]( const ::Desert::Core::StartupClock::time_point now )
         {
-            m_Progress.Step( line.Item.empty() ? std::string( "Scene assets" ) : line.Item, line.Done,
-                             std::max<std::size_t>( line.Total, 1 ) );
-            PushSplash();
-        }
+            // The loader and the tracker only (both mutex-safe); nothing of the gate, which is main-thread.
+            const Assets::LoadProgress reads  = Assets::AsyncAssetLoader::Get().Progress();
+            const auto&                builds = Graphic::PipelineBuilds::Get();
+            const auto                 since  = []( const uint64_t value, const uint64_t base ) -> uint64_t
+            { return value > base ? value - base : 0; };
+            ::Desert::Core::LiveCount count;
+            count.Total = since( reads.Started, readsStarted ) +
+                          since( builds.Started( Graphic::PipelineRole::Engine ), pipesStarted );
+            count.Done = std::min( count.Total,
+                                   since( reads.Finished, readsBase ) +
+                                        since( builds.Finished( Graphic::PipelineRole::Engine ), pipesFinished ) );
+            if ( !reads.Current.empty() )
+                count.Active.push_back( { std::filesystem::path( reads.Current ).filename().string(), 0.0 } );
+            for ( ::Desert::Core::ActiveWork& build : PipelinesInFlight( now ) )
+                count.Active.push_back( std::move( build ) );
+            return count;
+        };
     }
 
     Assets::AsyncAssetLoader::WaitFeedback EditorStartup::SceneLoadFeedback( const uint64_t finishedBefore )
@@ -442,44 +501,40 @@ namespace Desert::Editor
         m_Content.BeginWorld( Assets::ContentWorkNow().Started );
     }
 
-    // SECONDS PER ITEM, MEASURED — so the bar's share of a stage is the share of the wait it is. A Debug
-    // start of this project on the M-series development machine, read off the "[Startup] ... item(s) in"
-    // lines below; a machine twice as fast halves every stage alike and the shares do not move.
-    void EditorStartup::MakeSplashPlan()
+    void EditorStartup::ReportRevealWait( const Splash::RevealState& state )
     {
-        m_ShaderStage = m_Progress.AddStage( "Compiling shaders...", kSecondsPerShader, Assets::ShaderCount() );
-        for ( StartupStage& stage : m_StartupStages )
-            stage.ProgressStage =
-                 stage.ItemCosts ? m_Progress.AddStage( stage.Label, stage.SecondsPerItem, stage.ItemCosts() )
-                                 : m_Progress.AddStage( stage.Label, stage.SecondsPerItem,
-                                                        stage.CountItems ? stage.CountItems() : 1 );
-        // The scene's reads are started by the scene load and counted only when the settle begins.
-        m_SettleStage =
-             m_Progress.AddStage( "Loading scene content...", kSecondsPerSceneRead, 1, kSecondsSceneSettle );
-    }
-
-    void EditorStartup::BeginSplashStage( const std::size_t stage, const std::optional<std::size_t> items )
-    {
-        const double now =
-             std::chrono::duration<double>( std::chrono::steady_clock::now() - m_ProgressEpoch ).count();
-        if ( const auto finished = m_Progress.BeginStage( stage, now, items ) )
-            LOG_INFO( "[Startup] {} {} item(s) in {:.2f} s", finished->Name, finished->Units, finished->Seconds );
-        PushSplash();
-    }
-
-    void EditorStartup::PushSplash()
-    {
-        if ( m_Splash && !m_Revealed )
-            m_Splash->SetProgress( m_Progress.Snapshot() );
-    }
-
-    Assets::ItemProgress EditorStartup::SplashItems()
-    {
-        return [this]( const std::string& item, const std::size_t done, const std::size_t total )
+        // scene.reveal begins once the scene's content has settled (and covers the start whose scene asked for
+        // nothing, which has no settle at all).
+        if ( m_StartupFinished || !m_SceneLoadPhase || state.SceneLoadPending || state.ContentSettling )
+            return;
+        if ( !m_RevealPhase )
         {
-            m_Progress.Step( item, done, total );
-            PushSplash();
-        };
+            m_RevealPhase = true;
+            BeginPhase( "scene.reveal" );
+        }
+        // What the reveal still waits for, read here because the capture state is main-thread-only.
+        std::vector<std::string> reasons;
+        if ( state.TexturesStreaming )
+            reasons.push_back( std::format( "textures streaming: {} in flight",
+                                            Runtime::ResourceRegistry::GetTextureService()->InFlight() ) );
+        if ( state.ReflectionCapturesFilling )
+            reasons.push_back( "reflection captures: first fill" );
+        if ( !state.RealFrameDrawn )
+            reasons.push_back( "first real frame" );
+        m_Startup->SetWaitReasons( std::move( reasons ) );
+    }
+
+    void EditorStartup::FinishStartup()
+    {
+        m_StartupFinished = true;
+        // The progress's table ("[Startup] boot ... ms" and a line per phase), then the history the next start
+        // weighs its phases by. A history that cannot be written costs the next start its estimate, not this
+        // session anything: said loudly, and the editor goes on.
+        m_Startup->Finish();
+        const std::filesystem::path history = StartupHistoryFile();
+        if ( const auto saved = ::Desert::Core::SaveStartupHistory( history, m_Startup->Timings() ); !saved )
+            LOG_ERROR( "[Startup] the start's phase timings could not be written to '{}': {}", history.string(),
+                       saved.GetError() );
     }
 
     // SHOWN AFTER THE FIRST REAL FRAME IS PRESENTED, NOT BEFORE IT IS DRAWN. The window has been presented
@@ -488,13 +543,25 @@ namespace Desert::Editor
     // surface it reveals already holds the editor, and the splash crossfades into it from this instant.
     void EditorStartup::RevealWhenReady()
     {
-        if ( !Splash::MayReveal( CurrentRevealState() ) )
+        const Splash::RevealState state = CurrentRevealState();
+        ReportRevealWait( state );
+        if ( !m_Splash )
+        {
+            // A RUN WITH NO SPLASH (a builder run) has nothing to hand over, but its start ends at the same
+            // point: the same gate, as if a splash were up, finishes the progress once.
+            Splash::RevealState asIfShown = state;
+            asIfShown.HasSplash           = true;
+            // Its timings are logged by Finish and kept out of the history, which is the splash start's.
+            if ( !m_StartupFinished && Splash::MayReveal( asIfShown ) )
+            {
+                m_StartupFinished = true;
+                m_Startup->Finish();
+            }
             return;
-        const double now =
-             std::chrono::duration<double>( std::chrono::steady_clock::now() - m_ProgressEpoch ).count();
-        if ( const auto finished = m_Progress.Finish( now ) )
-            LOG_INFO( "[Startup] {} {} item(s) in {:.2f} s", finished->Name, finished->Units, finished->Seconds );
-        PushSplash();
+        }
+        if ( !Splash::MayReveal( state ) )
+            return;
+        FinishStartup();
         m_Revealed = true;
         if ( const auto& window = m_Application->GetWindow() )
             window->Show();

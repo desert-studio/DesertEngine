@@ -68,10 +68,12 @@ namespace Desert::Editor
             return m_Subsystems ? m_Subsystems->template Get<T>() : nullptr;
         }
 
-        // @p splash is the start-up splash CreateApplication put up before the renderer existed; this
-        // layer reports its steps to it and takes it down on the first real frame (RevealWhenReady).
+        // @p splash is the start-up splash CreateApplication put up before the renderer existed (null in a
+        // builder run); this layer takes it down on the first real frame (RevealWhenReady). @p startup is the
+        // start's progress CreateApplication made (never null); the layer's EditorStartup reports its phases.
         EditorLayer( Engine::Application* application, const std::string& layerName,
-                     std::unique_ptr<Splash::SplashScreen> splash );
+                     std::unique_ptr<Splash::SplashScreen>            splash,
+                     std::shared_ptr<::Desert::Core::StartupProgress> startup );
         ~EditorLayer();
 
         [[nodiscard]] Common::BoolResultStr OnAttach() override;
