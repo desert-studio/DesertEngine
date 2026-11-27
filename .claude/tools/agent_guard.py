@@ -450,7 +450,7 @@ def worker_pre(data, agent, agent_type, state, s):
     if tool == "Agent":
         kind = (tin.get("subagent_type") or "general-purpose").lower()
         child = code_of(str(tin.get("prompt") or ""))
-        chain = (kind == "reviewer" and agent_type in ("engineer", "general-purpose") and child.endswith("-REV")) or \
+        chain = (kind == "reviewer" and agent_type in ("engineer", "fixer", "general-purpose") and child.endswith("-REV")) or \
                 (kind == "acceptance" and agent_type == "lander")
         if chain:  # owner 11-27: the worker drives its own chain, the lead wakes once (limits.CHAIN_REVIEWS)
             if tin.get("run_in_background"):

@@ -42,7 +42,7 @@ NEXT = {"design": "studio.py plan {c} <design.md>",
         "accept": "агент acceptance по Scenarios; затем studio.py passed {c}",
         "land": "scripts/Dev/land_dev.sh; затем studio.py landed {c}"}
 NOT_COUNTED = ("explore", "board")
-WRITERS = ("engineer", "general-purpose")  # their hand-in is accepted by `studio.py accept`
+WRITERS = ("engineer", "fixer", "general-purpose")  # their hand-in is accepted by `studio.py accept`
 
 _PKG = re.compile(r"^### Пакет ([A-Z])\b[ \t]*(?:[—:–-][ \t]*)?([^\n]*)\n(.*?)(?=^### |^## |\Z)", re.S | re.M)
 _CONTRACT = re.compile(r"^### Контракт[^\n]*\n(.*?)(?=^### |^## |\Z)", re.S | re.M)
