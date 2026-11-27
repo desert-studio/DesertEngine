@@ -16,6 +16,7 @@
 #include <Editor/Core/GraphCanvas/GraphCanvasView.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Panels/Animation/BlendSpaceEdit.hpp>
 #include <Editor/Panels/Animation/AnimGraphCanvasPlan.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -1161,50 +1162,66 @@ namespace Desert::Editor
                                 tr.To = s.Name;
                     dirty = true;
                 }
-                // A state plays ONE clip or ONE Blend Space 1D (State::BlendSpace, Clip then empty): switching
-                // carries the clip over as the row's first sample and back, so nothing authored is dropped.
-                bool playsBlendSpace = s.BlendSpace.has_value();
-                if ( ImGui::Checkbox( "Plays a Blend Space 1D", &playsBlendSpace ) )
+                // A state plays ONE clip or ONE blend space of 1 or 2 axes (State::BlendSpace, Clip then empty):
+                // switching carries the clip over as every sample's clip and back, so nothing authored is dropped.
+                const char* kPlays[] = { "Clip", "Blend Space 1D", "Blend Space 2D" };
+                int         plays    = s.BlendSpace ? static_cast<int>( s.BlendSpace->AxisParameters.size() ) : 0;
+                ImGui::SetNextItemWidth( -1.0f );
+                if ( ImGui::Combo( "##plays", &plays, kPlays, IM_ARRAYSIZE( kPlays ) ) )
                 {
-                    if ( playsBlendSpace )
+                    const std::string clip = s.BlendSpace ? ( s.BlendSpace->Space.Samples.empty()
+                                                                   ? std::string()
+                                                                   : s.BlendSpace->Space.Samples.front().Clip )
+                                                          : s.Clip;
+                    if ( plays == 0 )
                     {
-                        G::StateBlendSpace space;
-                        const auto         axis = std::find_if(
-                             graph.Parameters.begin(), graph.Parameters.end(), []( const G::Parameter& p )
-                             { return static_cast<G::ParamType>( p.Type ) == G::ParamType::Float; } );
-                        if ( axis != graph.Parameters.end() )
-                            space.Axis = axis->Name;
-                        if ( !s.Clip.empty() )
-                            space.Space.Samples.push_back( G::BlendSample{ s.Clip, 0.0f } );
-                        s.BlendSpace = std::move( space );
-                        s.Clip.clear();
+                        s.Clip = clip;
+                        s.BlendSpace.reset();
                     }
                     else
                     {
-                        s.Clip = s.BlendSpace->Space.Samples.empty() ? std::string()
-                                                                     : s.BlendSpace->Space.Samples.front().Clip;
-                        s.BlendSpace.reset();
+                        G::StateBlendSpace space;
+                        space.Space = Graph::NewBlendSpaceSetup( static_cast<size_t>( plays ), clip );
+                        // Each axis reads the next declared Float (none declared: named empty, the plan says so).
+                        for ( const G::Parameter& p : graph.Parameters )
+                            if ( static_cast<G::ParamType>( p.Type ) == G::ParamType::Float &&
+                                 space.AxisParameters.size() < static_cast<size_t>( plays ) )
+                                space.AxisParameters.push_back( p.Name );
+                        space.AxisParameters.resize( static_cast<size_t>( plays ) );
+                        s.BlendSpace = std::move( space );
+                        s.Clip.clear();
                     }
                     dirty = true;
                 }
                 if ( s.BlendSpace )
                 {
-                    // The axis is named, not a pin: a state has none. Only declared Floats are offered; the plan
-                    // (PlanPoseGraph) states what is wrong with the row, e.g. samples out of order.
+                    // The axes are named, not pins: a state has none. Only declared Floats are offered; the plan
+                    // (PlanPoseGraph) states what is wrong with the setup, e.g. a sample outside its axis range.
                     ImGui::PushID( "stateBlendSpace" );
-                    if ( ImGui::BeginCombo( "Axis", s.BlendSpace->Axis.empty() ? "<no axis>"
-                                                                               : s.BlendSpace->Axis.c_str() ) )
+                    const char* kAxisLabels[] = { "X Axis", "Y Axis" };
+                    for ( size_t a = 0; a < s.BlendSpace->AxisParameters.size() && a < 2; ++a )
                     {
-                        for ( const auto& p : graph.Parameters )
-                            if ( static_cast<G::ParamType>( p.Type ) == G::ParamType::Float &&
-                                 ImGui::Selectable( p.Name.c_str(), p.Name == s.BlendSpace->Axis ) )
-                            {
-                                s.BlendSpace->Axis = p.Name;
-                                dirty              = true;
-                            }
-                        ImGui::EndCombo();
+                        std::string& axis = s.BlendSpace->AxisParameters[a];
+                        if ( ImGui::BeginCombo( kAxisLabels[a], axis.empty() ? "<no parameter>" : axis.c_str() ) )
+                        {
+                            for ( const auto& p : graph.Parameters )
+                                if ( static_cast<G::ParamType>( p.Type ) == G::ParamType::Float &&
+                                     ImGui::Selectable( p.Name.c_str(), p.Name == axis ) )
+                                {
+                                    axis  = p.Name;
+                                    dirty = true;
+                                }
+                            ImGui::EndCombo();
+                        }
                     }
-                    dirty |= DrawBlendSpaceRow( s.BlendSpace->Space, clipNames );
+                    dirty |= Graph::DrawBlendSpaceSetup( s.BlendSpace->Space, clipNames ).Changed;
+                    // The live run is the playing state's only (the animator's base stage).
+                    const G::State* live = anim.GraphEvaluator ? anim.GraphEvaluator->CurrentState() : nullptr;
+                    const Animation::Animator::BlendSpaceRun* run =
+                         anim.Animator && live != nullptr && live->Name == s.Name
+                              ? anim.Animator->GetStateBlendSpace()
+                              : nullptr;
+                    Graph::DrawBlendSpacePlot( s.BlendSpace->Space, run );
                     ImGui::PopID();
                 }
                 const char* preview = s.Clip.empty() ? "Select Clip" : s.Clip.c_str();

@@ -72,9 +72,11 @@ namespace
     G::StateBlendSpace Row()
     {
         G::StateBlendSpace space;
-        space.Axis  = "Speed";
-        space.Space = G::BlendSpace1DNode{
-             .Samples = { G::BlendSample{ "Walk", 0.0F }, G::BlendSample{ "Run", 300.0F } }, .WeightSpeed = 0.0F };
+        space.AxisParameters = { "Speed" };
+        space.Space          = G::BlendSpaceSetup{ .Axes        = { G::BlendSpaceAxis{ .Min = 0.0F, .Max = 600.0F } },
+                                                   .Samples     = { G::BlendSample{ .Clip = "Walk", .X = 0.0F },
+                                                                    G::BlendSample{ .Clip = "Run", .X = 300.0F } },
+                                                   .WeightSpeed = 0.0F };
         return space;
     }
 
@@ -97,7 +99,7 @@ namespace
         {
             const auto set = Anim.SetPoseGraph( MachineGraph() );
             EXPECT_TRUE( set ) << ( set ? std::string() : set.GetError() );
-            Anim.SetPoseGraphParameter( "Speed", speed );
+            Anim.SetGraphParameter( "Speed", speed );
             Anim.PlayBlendSpace( Row(), Clips );
         }
     };
@@ -111,11 +113,11 @@ TEST( AnimatorStateBlendSpace, AStateBlendSpacePlaysTheWeightedMixOfItsSamples )
     played.Anim.Update( Timestep( 0.0F ) );
     EXPECT_NEAR( SpineHeight( played.Anim ), 50.0F, 1e-3F ) << "Speed 150 is the half mix of Walk and Run";
 
-    played.Anim.SetPoseGraphParameter( "Speed", 300.0F );
+    played.Anim.SetGraphParameter( "Speed", 300.0F );
     played.Anim.Update( Timestep( 0.0F ) );
     EXPECT_NEAR( SpineHeight( played.Anim ), 100.0F, 1e-3F ) << "the axis is read every update, not on entry";
     ASSERT_NE( played.Anim.GetCurrentBlendSpace(), nullptr );
-    EXPECT_EQ( played.Anim.GetCurrentBlendSpace()->Axis, "Speed" );
+    EXPECT_EQ( played.Anim.GetCurrentBlendSpace()->AxisParameters, std::vector<std::string>{ "Speed" } );
 }
 
 // Red if the heaviest sample ran its own clock (Run 0.5 s into 2 s = 0.25) or the state's clock were not the
@@ -126,7 +128,7 @@ TEST( AnimatorStateBlendSpace, TheHeaviestSampleAtTheSharedPhaseIsTheStatesClock
     Played played( 200.0F );
     played.Anim.Update( Timestep( 0.5F ) );
 
-    const Animator::BlendSpaceRun* run = played.Anim.GetCurrentBlendRun();
+    const Animator::BlendSpaceRun* run = played.Anim.GetStateBlendSpace();
     ASSERT_NE( run, nullptr );
     EXPECT_NEAR( run->Phase, 0.3F, 1e-4F );
     EXPECT_EQ( played.Anim.GetCurrentClip(), &played.Run ) << "Run (2/3) is the heaviest sample";
@@ -135,7 +137,7 @@ TEST( AnimatorStateBlendSpace, TheHeaviestSampleAtTheSharedPhaseIsTheStatesClock
          << "the exit-time fraction is the shared phase";
 
     // Past the middle of the axis the heaviest sample, and so the clock, becomes Walk at the same phase.
-    played.Anim.SetPoseGraphParameter( "Speed", 60.0F );
+    played.Anim.SetGraphParameter( "Speed", 60.0F );
     played.Anim.Update( Timestep( 0.0F ) );
     EXPECT_EQ( played.Anim.GetCurrentClip(), &played.Walk );
     EXPECT_NEAR( played.Anim.GetCurrentTime() / played.Anim.GetDuration(), run->Phase, 1e-3F );
@@ -147,24 +149,24 @@ TEST( AnimatorStateBlendSpace, RequestingTheRowAlreadyPlayingDoesNotRestartIt )
 {
     Played played( 200.0F );
     played.Anim.Update( Timestep( 0.5F ) );
-    const float phase = played.Anim.GetCurrentBlendRun()->Phase;
+    const float phase = played.Anim.GetStateBlendSpace()->Phase;
     ASSERT_GT( phase, 0.0F );
 
     played.Anim.PlayBlendSpace( Row(), played.Clips );
     played.Anim.CrossFadeBlendSpace( Row(), played.Clips, 0.2F );
-    ASSERT_NE( played.Anim.GetCurrentBlendRun(), nullptr );
-    EXPECT_FLOAT_EQ( played.Anim.GetCurrentBlendRun()->Phase, phase );
+    ASSERT_NE( played.Anim.GetStateBlendSpace(), nullptr );
+    EXPECT_FLOAT_EQ( played.Anim.GetStateBlendSpace()->Phase, phase );
 
     // A sample resolved after the state was entered is taken without a restart.
     played.Anim.PlayBlendSpace( Row(), std::array<const AnimationClip*, 2>{ &played.Walk, nullptr } );
     played.Anim.PlayBlendSpace( Row(), played.Clips );
-    EXPECT_FLOAT_EQ( played.Anim.GetCurrentBlendRun()->Phase, phase );
+    EXPECT_FLOAT_EQ( played.Anim.GetStateBlendSpace()->Phase, phase );
 
     // A different row is a different state: it starts over.
     G::StateBlendSpace other     = Row();
-    other.Space.Samples[1].Value = 600.0F;
+    other.Space.Samples[1].X     = 600.0F;
     played.Anim.PlayBlendSpace( other, played.Clips );
-    EXPECT_FLOAT_EQ( played.Anim.GetCurrentBlendRun()->Phase, 0.0F );
+    EXPECT_FLOAT_EQ( played.Anim.GetStateBlendSpace()->Phase, 0.0F );
 }
 
 // Red without CrossFade's blend-space check: the heaviest sample IS Run, so the old `GetCurrentClip() == &clip`
@@ -177,5 +179,5 @@ TEST( AnimatorStateBlendSpace, CrossFadingToTheHeaviestSamplesClipStillFades )
 
     played.Anim.CrossFade( played.Run, 0.2F );
     EXPECT_EQ( played.Anim.GetCurrentBlendSpace(), nullptr ) << "the Run clip state fades in over the blend space";
-    EXPECT_EQ( played.Anim.GetCurrentBlendRun(), nullptr );
+    EXPECT_EQ( played.Anim.GetStateBlendSpace(), nullptr );
 }

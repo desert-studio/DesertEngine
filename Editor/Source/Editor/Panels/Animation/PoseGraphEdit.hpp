@@ -32,8 +32,15 @@ namespace Desert::Editor::Graph
     /// The kinds a person may add in @p scope, in menu order. LinkedInputPose only in a layer graph.
     [[nodiscard]] std::vector<Animation::Graph::PoseNodeKind> AddableKinds( Animation::Graph::GraphScope scope );
 
+    /// A new blend space of @p axisCount axes (1 or 2), every sample playing @p clip: 1D = two samples on X
+    /// {Min, Max}; 2D = three non-collinear samples (Min,Min) (Max,Min) (Min,Max). Axes 0..100, no smoothing.
+    /// A blend space with an empty @p clip is refused by the plan until the author picks the clips.
+    [[nodiscard]] Animation::Graph::BlendSpaceSetup NewBlendSpaceSetup( size_t             axisCount,
+                                                                        const std::string& clip );
+
     /// Appends a node of @p kind to @p nodes at (@p x, @p y), with its payload and one EMPTY wire slot per
-    /// Pose pin (an empty wire is an unwired pin). A Sequence Player plays @p clip; a Layered Blend Per
+    /// Pose pin (an empty wire is an unwired pin). A Sequence Player plays @p clip, a Blend Space every sample
+    /// of NewBlendSpaceSetup; a Layered Blend Per
     /// Bone starts with one layer (UE's default: base + one blend pose); a Linked Anim Layer calls the
     /// first layer of the first interface @p graph declares (none declared: named empty, and the plan
     /// says which interfaces exist). Refuses a LinkedInputPose outside a layer graph. Returns the name.
@@ -85,6 +92,10 @@ namespace Desert::Editor::Graph
 
     /// The parameter bound to @p pin of @p node, empty when unbound.
     [[nodiscard]] std::string BoundParameter( const Animation::Graph::PoseNode& node, std::string_view pin );
+
+    /// Every parameter pin of @p node in pin order: the kind's fixed pins (PinsOf), then a Layered Blend's
+    /// per-layer weights. What the canvas draws on the node (UE: the exposed X / Y / PlayRate / Alpha pins).
+    [[nodiscard]] std::vector<std::string> ParameterPinsOf( const Animation::Graph::PoseNode& node );
 
     /// The label of Pose pin @p pin of @p node: "Base Pose", "Blend Pose 0", "Additive", "In Pose".
     [[nodiscard]] std::string PosePinLabel( const Animation::Graph::PoseNode& node, int pin );

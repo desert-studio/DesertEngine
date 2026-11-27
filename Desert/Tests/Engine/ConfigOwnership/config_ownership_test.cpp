@@ -370,6 +370,8 @@ namespace
          // person wants to see of a sequence, never a fact about the sequence.
          { "SequencerFilterSelected", Owner::Machine, kSequencerTimeline },
          { "SequencerFilterKeyed", Owner::Machine, kSequencerTimeline },
+         // Lock Viewport to Camera Cuts is the same kind of per-user view choice (USequencerSettings too).
+         { "SequencerLockViewportToCameraCuts", Owner::Machine, kSequencerTimeline },
     };
 
     // ------------------------------------------------------------------------------------------------

@@ -313,7 +313,7 @@ TEST( BoneTrackBinding, ANewBindingToABoneGivenARenamedBonesOldNameGetsItsOwnGui
 {
     Timeline::Sequence          sequence;
     const Timeline::BindingGuid renamed = Animation::AddBoneTrack( sequence, "Hand" ).Binding;
-    EXPECT_EQ( renamed, Timeline::BindingGuid::ForObject( Timeline::BindingKind::Bone, "Hand" ) )
+    EXPECT_EQ( renamed, Timeline::BindingGuid::ForBone( {}, "Hand" ) )
          << "the first binding is derived, so the collision below is real";
 
     const std::array<Timeline::BoneRename, 1> rename{ Timeline::BoneRename{ "Hand", "Hand_L" } };

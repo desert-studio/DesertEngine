@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -124,9 +125,10 @@ namespace Desert::Editor
         // Old registry FIRST: its destructor unregisters the editor passes by name, and an assignment would run it
         // after the new registry had already registered them again.
         // THE WORLDS' FRAME (UE: UEditorEngine::Tick, the loop over the WorldContexts): the primary scene, then
-        // every document, each a full independent render. @p shotCounting is this frame's ShotRecordGate verdict.
+        // every document, each a full independent render. @p shotCounting is this frame's ShotRecordGate verdict;
+        // @p controlCounting the control channel's preview verdict (ControlService::DrivenPreviewCounting).
         [[nodiscard]] Common::BoolResultStr TickWorlds( const Common::Timestep& ts, PlaySession& play,
-                                                        bool shotCounting );
+                                                        bool shotCounting, std::optional<bool> controlCounting );
         // The worlds inside UI render-texture elements, of the primary scene and of every document, recorded
         // before any pass of the frame opens (Vulkan has no nested render pass).
         void TickRenderTextures( const Common::Timestep& ts );
@@ -257,7 +259,8 @@ namespace Desert::Editor
 
     private:
         static Common::BoolResultStr TickWorld( Desert::Core::Scene& scene, Render::RenderRegistry* registry,
-                                                const Common::Timestep& ts, PlaySession& play, bool shotCounting );
+                                                const Common::Timestep& ts, PlaySession& play, bool shotCounting,
+                                                std::optional<bool> controlCounting );
         // EditorPreferences::CameraSpeed reaches the editor camera once, on the first tick: Scene::Init makes the
         // camera and the first Init is deferred to the first scene load (SceneInitDeferral).
         void ApplyCameraSpeedOnce();

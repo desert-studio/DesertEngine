@@ -1,0 +1,72 @@
+# NET-HANDOVER-DUP-OFFER: the store refuses a hostile Offer without touching the live one (NET-HANDOVER-CONFIRM,
+# HandoverLedger.cpp Ledger::Opened). A refusal never names a key the store did not open for that message: a second
+# Offer under a key the store holds open, and an Offer that does not decode, are each refused under the key
+# (sim, #0) - serial 0, which no sender ever issues - so the real sender matches nothing, logs "holds nothing" and
+# does NOT resume its held pawn while the live offer goes on to commit once.
+# The hostile peer is DesertNetProbe --mesh-peer (role kind `probe`): it links to the store with sim 1's CA-signed
+# certificate beside the real sim 1 and speaks the handover wire (Net/HandoverWire.hpp) from its console; no engine
+# test hook. The store routes a message for sim 1 to the identity's route - the first link to say Hello as sim 1, the
+# real sim 1 (MeshEndpoint::PeerConnection; GNS connection handles are random, so never the lowest handle); the probe's
+# link is heard but never routed to, and the probe logs every handover message it receives, so a misroute shows.
+# The live offer stays open only while its receiver is silent: sim 2 is STOPped at X < 250, at least 0.55 s before A
+# reaches the margin (the NET-HANDOVER-CONFIRM stop margin), and CONTinued right after the probe fires - well inside
+# the sender's kOfferDeadline (500 ms wall), so the live offer commits instead of being withdrawn. The checks of the
+# refusals come after CONT (Запомнить reads the whole log): the runner polls every 50 ms, and a check before CONT
+# would eat into the deadline.
+# Layout as NET-HANDOVER-CONFIRM (five server roles, editor B above the cut, bot A walking +X at 90 cm/s from
+# X = -1000 to X = 1000; margin 300 cm, so the handover is at X ~ 300).
+Мир Content/Scenes/WP_Protocol.desce
+Роль coord server --role coordinator --region west:1:-100000,-100000,0,100000 --region east:2:0,-100000,100000,100000 --border-band 1500 --handover-margin 300 --steps 864000
+Ждать coord 60 listening for mesh peers on port
+Роль store server --role store
+# The spawn points are the ground (feet, cm): sim 1's placer measured the floor 782 cm under (-1000, 92, -500) and 758 cm
+# under (-1000, 92, -300) (scn-1127-081536 sim1.log "point free, floor N cm below it"); sim 2's (3000, -500) is -78 from the
+# WP_Protocol landscape tile samples (h=(s-32768)/128*ZScale 4, 200 cm spacing; reproduces every placer reading).
+Роль sim1 server --role sim --index 1 --source -1000,0,-500 --spawn -1000,-690,-500 --spawn -1000,-666,-300
+Роль sim2 server --role sim --index 2 --source 3000,0,-500 --spawn 3000,-78,-500
+Роль gw server --role gateway --pawn assets:Prefabs/Pawn_Player.deprefab
+Ждать sim1 120 NetId lease held - reported ready
+Ждать sim2 120 NetId lease held - reported ready
+Ждать gw 120 \[Server\] listening on port
+# Дано: the hostile peer is linked to the store as sim 1, after the real sim 1 (whose link the store routes to).
+Роль P probe --as-sim 1
+Ждать P 60 probe: mesh link to store 1 up \(connection \d+\) as sim 1
+# Дано: B stands on the east side and looks down at the cut from 8 m up; its frames are the judge of one capsule.
+Роль B editor account=3 --play --shot-frames 100000 --shot-every 1 --camera 300,800,1600 --look 0,-0.371,-0.928 --quality PostProcess.MotionBlurQuality=0
+Ждать B 1800 \[Net\] in session
+# Когда: A walks 2000 cm along +X through X = 0; >= 0.55 s short of X = 300 sim 2 stops answering, so the offer that
+# follows stays open at the store.
+Роль A bot account=1 --seconds 900 --walk-cm 2000 --dir 0.15,0,0
+Ждать A 120 \] t=\S+ pawns.* \d+\*=\((2[0-4]\d),
+Сигнал sim2 STOP
+Ждать sim1 10 held and offered to sim 2 \(offer #1, epoch 1, frozen at step \d+, \d+ unacked input\(s\)\)
+Запомнить off sim1 pawn net id (\d+) \(player \d+\) at .* held and offered to sim (\d+) \(offer #(\d+), epoch (\d+), frozen at step (\d+)
+# Когда: while offer (sim 1, #1) is open, the probe sends in one poll (a) a second Offer under that open key for the
+# same pawn and (b) an Offer whose header names that key and whose pawn record is cut short; then sim 2 resumes.
+Консоль P dup {off3} {off2} {off1} {off4} {off5}; undecodable {off3} {off2}
+Сигнал sim2 CONT
+# The live offer commits once: sim 2 accepts, the store moves the record, sim 1 releases on Committed.
+Ждать store 30 offer \(sim 1, #1\).*committed \(sim 1, epoch 1\) -> \(sim 2, epoch 2\)
+Ждать sim2 30 committed: incoming pawn promoted
+Ждать sim1 30 offer #1 .*committed by the store \(epoch 2\): released, \d+ queued input\(s\) forwarded
+Ждать gw 30 player \d+ pawn net id \d+ - authority \(sim 2, epoch 2\) from step \d+: its inputs re-routed to sim 2
+# Тогда: both hostile offers were refused under (sim 1, #0) - never under the open key (sim 1, #1).
+Запомнить pdup P probe: sent a duplicate Offer under the open key \(sim 1, #(\d+)\)
+Запомнить pbad P probe: sent an undecodable Offer: header key \(sim 1, #(\d+)\) to sim 2, pawn record cut off \((\d+) bytes\)
+Запомнить sdup store store: offer \(sim 1, #0\) of pawn net id (\d+) to sim 2 at step \d+ refused - Malformed: offer \(sim 1, #1\) names pawn net id \d+, which already has offer \(sim 1, #1\) open
+Запомнить sbad store store: offer \(sim 1, #0\) of pawn net id \d+ to sim \d+ at step \d+ refused - Malformed: the offer record from sim 1 did not decode \((\d+) bytes\)
+Нет store offer \(sim 1, #1\) of pawn net id \d+ .*refused -
+# Тогда: sim 1 holds nothing under (sim 1, #0) and keeps its held pawn: no resume, no withdrawal of #1.
+Запомнить s1dup sim1 sim 1: Refused of offer \(sim 1, #(0)\) - Malformed: offer \(sim 1, #1\) names pawn net id \d+, which already has offer \(sim 1, #1\) open; this sim holds nothing of it
+Запомнить s1bad sim1 sim 1: Refused of offer \(sim 1, #(0)\) - Malformed: the offer record from sim 1 did not decode \(\d+ bytes\); this sim holds nothing of it
+Нет sim1 offer #1 .*Refused by the store
+Нет sim1 resumes on sim 1
+Нет sim1 Withdraw sent
+Нет sim1 adopted .*from sim 1
+Нет P probe: received
+Ждать B 60 fresh \[Shot\] recorded frame_
+Тогда B dup_refused_zero_key B's view down on the cut after the handover: ONE A capsule just east of X = 300, moving continuously along +X (about 5 px per frame), no jump back, no second A at the old place; store.log refuses both hostile offers under (sim 1, #0) - the duplicate "which already has offer (sim 1, #1) open" and the cut record "did not decode" - and never refuses (sim 1, #1); sim1.log "Refused of offer (sim 1, #0) ... this sim holds nothing of it" twice, no resume, and offer #1 "committed by the store (epoch 2)" once; P.log received no handover message
+# Когда: the operator asks sim 1 for its handover counts; the store's own line follows every 300 steps.
+Консоль sim1 stat
+Ждать sim1 10 handovers: 1 offered, 1 committed, 0 adopted; refused 0 by store, 0 by receiver; 0 withdrawn; .*0 open as sender
+Ждать store 30 open offers 0, unadopted commits 0; committed 1, refused 2 \(Malformed 2\); withdrawn 0

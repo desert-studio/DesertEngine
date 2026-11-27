@@ -169,16 +169,17 @@ namespace
     }
 } // namespace
 
-// WP24: the player's pawn is where the world must exist (UE: the player controller is a streaming source).
-TEST( PawnIsAStreamingSource, SpawnDefaultPawnGivesThePawnASourceUnlessItsPrefabHasOne )
+// WP-STREAM-SOURCE-VIEW: the player streams from where it looks (PlayerStreamingView.hpp); a pawn is a streaming
+// source only by its own prefab (UE: a character carries its UWorldPartitionStreamingSourceComponent). Spawning
+// adds none - a second, implicit source on the body is the rule this replaced.
+TEST( PawnIsAStreamingSource, SpawnDefaultPawnAddsNoSourceThePrefabDidNotAuthor )
 {
-    const std::string src   = ReadSource( "Desert/Desert/Source/Engine/Core/PlayerStart.cpp" );
-    const auto        guard = src.find( "if ( !pawn.HasComponent<ECS::StreamingSourceComponent>() )" );
-    ASSERT_NE( guard, std::string::npos ) << "a prefab's own source (range, priority, Enabled off) must be kept";
-    const auto add = src.find( "pawn.AddComponent<ECS::StreamingSourceComponent>()", guard );
-    ASSERT_NE( add, std::string::npos ) << "the spawned pawn is not made a streaming source";
-    EXPECT_LT( add, src.find( "scene.SetPlayerPawn( pawn.GetHandle() )" ) )
-         << "the pawn must be a source before Play hands it on";
+    const std::string src = ReadSource( "Desert/Desert/Source/Engine/Core/PlayerStart.cpp" );
+    EXPECT_EQ( src.find( "AddComponent<ECS::StreamingSourceComponent>" ), std::string::npos )
+         << "the spawned pawn must not be made a streaming source: the player's view is";
+    const std::string prefab = ReadSource( "Projects/Desert/Content/Prefabs/Pawn_Player.deprefab" );
+    EXPECT_NE( prefab.find( "\"StreamingSource\"" ), std::string::npos )
+         << "Pawn_Player authors the source that keeps the ground under the body";
 }
 
 // UI-PAWN2: the PlayerStart's capsule is the pawn Play WOULD spawn (UE: APlayerStart draws the DefaultPawnClass

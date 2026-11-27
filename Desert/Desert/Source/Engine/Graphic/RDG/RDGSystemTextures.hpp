@@ -32,6 +32,11 @@ namespace Desert::Graphic::RDG
         // where its producer did not run (FrameTransients::MegaLightsVolume off). Registered by the frame setup
         // from FallbackTextures::GetBlackTexture3D; invalid in a graph without it.
         TextureRef Black3D;
+        // 1x1 RGBA8 all zero, alpha too (UE GTransparentBlackTexture): what a sampler2D whose alpha means "the
+        // producer answered" is handed where that producer did not run (the glass's traced refraction on the
+        // ScreenSpace tier: a = 0, bend the scene copy) - Black's a = 1 would be an answer of black. Registered by
+        // the frame setup from FallbackTextures::GetTransparentBlackTexture2D; invalid in a graph without it.
+        TextureRef TransparentBlack;
     };
 
     // Registers @p black, @p white and @p blackCube (externals already holding the engine images and their

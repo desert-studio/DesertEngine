@@ -14,7 +14,7 @@ float LocalExposureLuminance( vec3 c )
 }
 
 // Continuous slice coordinate of an UN-EXPOSED log2 luminance: slice i covers [i, i + 1). Not "LocalExposureSlice":
-// that is the push-constant member of SceneComposite/BloomDownsample, and block members share the global scope.
+// that is the push-constant member of SceneComposite/BloomSetup, and block members share the global scope.
 float LocalExposureSliceCoord( float logLum, float sliceLogMin, float invSliceEV )
 {
     return ( logLum - sliceLogMin ) * invSliceEV;

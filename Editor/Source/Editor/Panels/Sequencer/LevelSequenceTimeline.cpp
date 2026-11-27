@@ -8,6 +8,7 @@
 // file draws and routes, it does not decide.
 
 #include "SequencerPanel.hpp"
+#include "LevelBoneRows.hpp"
 #include "LevelMaterialProperties.hpp"
 #include "OutlinerColumn.hpp"
 #include "TrackFilter.hpp"
@@ -19,6 +20,7 @@
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Core/GizmoState.hpp>
 #include <Editor/Panels/Sequencer/TimelineRuler.hpp>
+#include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ToastManager.hpp>
 
@@ -181,11 +183,26 @@ namespace Desert::Editor
 
     void SequencerPanel::PreviewLevelIfChanged( const LevelTL::Sequence& sequence )
     {
+        // PLAY OWNS THE SCENE (UE: the editor's preview poses the editor world, not PIE). The preview's bone
+        // layers come off so a playing Level Sequence actor writes its own (an Animator holds one writer),
+        // and the next Edit frame scrubs afresh.
+        if ( const auto scene = m_Scene.lock();
+             scene && scene->GetState() == ::Desert::Core::Scene::SceneState::Play )
+        {
+            m_LevelPreview.ReleaseBoneLayers( scene->GetRegistry() );
+            m_LevelTickShown     = INT32_MIN;
+            m_LevelRevisionShown = UINT32_MAX;
+            return;
+        }
         // NOT EVERY FRAME: a per-frame pose would fight the gizmo the user moves an actor with before keying
         // it. The scene is posed when the playhead moved or the sequence changed (every edit, undo and redo
         // bumps Revision).
         if ( m_LevelTick.Value == m_LevelTickShown && sequence.Revision == m_LevelRevisionShown )
+        {
+            // The lock may have changed without a scrub (the viewport's "Unlock"): one compare per frame.
+            PushLevelCameraCut();
             return;
+        }
         const auto scene = m_Scene.lock();
         if ( !scene )
             return;
@@ -201,6 +218,39 @@ namespace Desert::Editor
             LOG_WARN( "[Sequencer] level preview: {}", refusal );
         m_LevelTickShown     = m_LevelTick.Value;
         m_LevelRevisionShown = sequence.Revision;
+
+        // THE CUT IN FORCE DRIVES THE VIEWPORTS (UE: FSequencer::UpdateCameraCut →
+        // UpdatePreviewLevelViewportClientFromCameraCut). The preview step already resolved it.
+        const auto* cutId =
+             step.CameraCut ? scene->GetRegistry().try_get<ECS::UUIDComponent>( *step.CameraCut ) : nullptr;
+        m_LevelCutCamera = cutId != nullptr ? std::optional<Common::UUID>( cutId->UUID ) : std::nullopt;
+        PushLevelCameraCut();
+    }
+
+    void SequencerPanel::PushLevelCameraCut()
+    {
+        const std::optional<Common::UUID> want =
+             EditorPreferences::Get().SequencerLockViewportToCameraCuts ? m_LevelCutCamera : std::nullopt;
+        // Every frame while locked (UE re-applies the cut each tick): a view opened later, or one that re-ticked,
+        // picks the cut up; SetCinematic skips a repeat, so this costs one compare per view.
+        if ( !want && !m_LevelCutPushed )
+            return;
+        const auto scene = m_Scene.lock();
+        if ( !scene )
+            return;
+        if ( m_LevelCutPushed && !want )
+            ReleaseCinematicCamera( *scene, *m_LevelCutPushed );
+        if ( want )
+            SetCinematicCamera( *scene, *want );
+        m_LevelCutPushed = want;
+    }
+
+    void SequencerPanel::SetLevelCameraCutLock( const bool locked )
+    {
+        EditorPreferences::Get().SequencerLockViewportToCameraCuts = locked;
+        if ( !EditorPreferences::Save() )
+            LOG_WARN( "[Sequencer] the camera-cut lock was not saved to the editor preferences" );
+        PushLevelCameraCut();
     }
 
     void SequencerPanel::AddLevelActor( const Common::UUID& entity, const std::string& label )
@@ -245,7 +295,7 @@ namespace Desert::Editor
             return;
         LevelTL::Sequence&       sequence = asset->EditSequence();
         const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
-        if ( const auto cut = ECS::AddCameraCut( sequence, camera, m_LevelTick, sequence.End ); !cut.IsSuccess() )
+        if ( const auto cut = ECS::AddCameraCut( sequence, camera, m_LevelTick ); !cut.IsSuccess() )
             ToastManager::Push( std::format( "Camera Cut refused: {}", cut.GetError() ), ToastLevel::Error, 6.0f );
     }
 
@@ -477,6 +527,9 @@ namespace Desert::Editor
                 end.Value[0]   = static_cast<float>( SecondsAt( sequence, track->Sections.front().End.Value ) );
                 out.push_back( std::move( end ) );
             }
+        // Each bone track's controls and section blend (UE: the FK Control Rig control's Details).
+        for ( EditableProperty& bone : LevelBoneEdit::Describe( sequence, m_LevelTick ) )
+            out.push_back( std::move( bone ) );
         return out;
     }
 
@@ -535,6 +588,8 @@ namespace Desert::Editor
             return Common::MakeError<bool>( "the Level Sequence this window edits is no longer loaded." );
         if ( name.starts_with( "Transport." ) || name.starts_with( "VFX." ) )
             return SetLevelTransportProperty( name, value );
+        if ( name.starts_with( LevelBoneEdit::kPrefix ) )
+            return SetLevelBoneProperty( name, value );
         // The row's field, by name: checked against the same census `properties` lists, then keyed at the
         // playhead through the one setter the field calls.
         const auto write = LevelMaterialEdit::Resolve( asset->GetSequence(), LevelMaterialSchema(), name, value );
@@ -748,10 +803,49 @@ namespace Desert::Editor
             ImGui::SetCursorScreenPos( ImVec2( contentX0, rangeY + 8.0f + 4.0f ) );
         }
 
-        // ── ROWS: one per possessable, then the Camera Cut track ─────────────────────────────────────
+        // ── ROWS: the Camera Cut track, then one per possessable, then the sequence-level rows ─────────
         if ( sequence.Bindings.empty() )
             ImGui::TextDisabled( "No tracks. + Track → Actor binds an entity of the scene." );
         const float lanesTop = ImGui::GetCursorScreenPos().y;
+
+        // The Camera Cut track (sequence level), FIRST under the ruler as UE pins it: one bar per cut, labelled
+        // with the camera binding.
+        // ONE row: the sequence's camera-cut track by its role (UE GetCameraCutTrack), the lookup authoring and
+        // playback share. A sequence-level track is bound to no actor: Selected hides it, Keyed asks its keys (a
+        // cut has none).
+        if ( const LevelTL::Track* cuts = LevelTL::FindCameraCutTrack( sequence );
+             cuts != nullptr && Sequencer::TrackPasses( *cuts, false, filters ) )
+        {
+            const LevelTL::Track& track = *cuts;
+            const float rowY = ImGui::GetCursorScreenPos().y;
+            ImGui::SetCursorScreenPos( ImVec2( contentX0, rowY ) );
+            DrawLevelRowLabel( ICON_MDI_VIDEO " Camera Cuts", contentX0, contentX0 );
+            // UE's camera icon on the Camera Cuts track: Lock Viewport to Camera Cuts (the user's preference).
+            SameLineAtLevelControls( contentX0 );
+            const bool locked = EditorPreferences::Get().SequencerLockViewportToCameraCuts;
+            if ( locked )
+                ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
+            const bool lockPressed = ImGui::SmallButton( ICON_MDI_VIDEO "##LockCameraCuts" );
+            if ( locked )
+                ImGui::PopStyleColor();
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Lock Viewport to Camera Cuts" );
+            if ( lockPressed )
+                SetLevelCameraCutLock( !locked );
+            for ( const auto& section : track.Sections )
+            {
+                const auto* cut = std::get_if<LevelTL::CameraCutSectionContent>( &section.Content );
+                if ( cut == nullptr )
+                    continue;
+                const auto* camera = LevelTL::FindBinding( sequence, cut->Camera );
+                const float x0     = xOf( section.Start.Value );
+                const float x1     = xOf( section.End.Value );
+                draw->AddRectFilled( ImVec2( x0, rowY + 2 ), ImVec2( x1, rowY + ImGui::GetFrameHeight() - 2 ),
+                                     IM_COL32( 70, 110, 170, 255 ), 3.0f );
+                draw->AddText( ImVec2( x0 + 4, rowY + 3 ), IM_COL32( 240, 240, 240, 255 ),
+                               camera != nullptr ? camera->Label.c_str() : "?" );
+            }
+        }
 
         // Copied: a button below may add a binding and reallocate the vector this loop walks.
         const std::vector<LevelTL::Binding> bindings = sequence.Bindings;
@@ -838,6 +932,8 @@ namespace Desert::Editor
                             AddLevelAnimation( binding.Guid, clip );
                     ImGui::EndMenu();
                 }
+                // UE: "+ Track ▸ Control Rig ▸ FK" — a bone of the actor's rig as its own keyed row.
+                DrawLevelBoneMenu( sequence, binding.Guid );
                 ImGui::EndPopup();
             }
             const float rowH  = ImGui::GetFrameHeight();
@@ -990,36 +1086,12 @@ namespace Desert::Editor
                 ImGui::SetCursorScreenPos( ImVec2( contentX0, matY + rowH + 4.0f ) );
                 ImGui::PopID();
             }
+            // The actor's bone rows (UE: the FK Control Rig track's controls under the binding).
+            DrawLevelBoneRows( sequence, binding.Guid, contentX0, laneX0, laneW );
             // The actor's Event track, a row under it (UE: an Event track on the binding).
             if ( ECS::HasEventTrack( sequence, binding.Guid ) && shows( ECS::kLevelSequenceEventProperty ) )
                 DrawLevelEventRow( sequence, binding.Guid, ICON_MDI_FLAG " Events", contentX0, laneX0, laneW );
             ImGui::PopID();
-        }
-
-        // The Camera Cut track (sequence level): one bar per cut, labelled with the camera binding.
-        for ( const auto& track : sequence.Tracks )
-        {
-            // A sequence-level track is bound to no actor: Selected hides it, Keyed asks its keys (a cut has
-            // none).
-            if ( track.Property != ECS::kLevelSequenceCameraCutProperty ||
-                 !Sequencer::TrackPasses( track, false, filters ) )
-                continue;
-            const float rowY = ImGui::GetCursorScreenPos().y;
-            ImGui::SetCursorScreenPos( ImVec2( contentX0, rowY ) );
-            DrawLevelRowLabel( ICON_MDI_VIDEO " Camera Cuts", contentX0, contentX0 );
-            for ( const auto& section : track.Sections )
-            {
-                const auto* cut = std::get_if<LevelTL::CameraCutSectionContent>( &section.Content );
-                if ( cut == nullptr )
-                    continue;
-                const auto* camera = LevelTL::FindBinding( sequence, cut->Camera );
-                const float x0     = xOf( section.Start.Value );
-                const float x1     = xOf( section.End.Value );
-                draw->AddRectFilled( ImVec2( x0, rowY + 2 ), ImVec2( x1, rowY + ImGui::GetFrameHeight() - 2 ),
-                                     IM_COL32( 70, 110, 170, 255 ), 3.0f );
-                draw->AddText( ImVec2( x0 + 4, rowY + 3 ), IM_COL32( 240, 240, 240, 255 ),
-                               camera != nullptr ? camera->Label.c_str() : "?" );
-            }
         }
 
         // The sequence's own Event track (UE: an Event track added at the sequence's root).
@@ -1099,6 +1171,7 @@ namespace Desert::Editor
         }
 
         UpdateLevelAutoKey( sequence );
+        UpdateLevelBoneGizmo( sequence );
         PreviewLevelIfChanged( sequence );
     }
 
@@ -2120,6 +2193,11 @@ namespace Desert::Editor
                                                        m_LevelSelKeys.push_back( LevelKeyRef{ b.Guid, t } );
                                            } } );
         actions.push_back( DocumentAction{ "Toggle Curves", [this] { m_LevelCurveView = !m_LevelCurveView; } } );
+        // UE's camera icon on the Camera Cuts track, as two idempotent actions (both always listed).
+        actions.push_back(
+             DocumentAction{ "Lock Viewport to Camera Cuts", [this] { SetLevelCameraCutLock( true ); } } );
+        actions.push_back(
+             DocumentAction{ "Unlock Viewport from Camera Cuts", [this] { SetLevelCameraCutLock( false ); } } );
         static constexpr std::array kTimePercents = { 0, 25, 50, 75, 100 };
         for ( const int percent : kTimePercents )
             actions.push_back( DocumentAction{ std::format( "Set Time {}%", percent ),
@@ -2236,6 +2314,7 @@ namespace Desert::Editor
                      [this, guid, clip] { AddLevelAnimation( guid, clip ); } } );
             }
         }
+        AppendLevelBoneActions( actions );
         return actions;
     }
 

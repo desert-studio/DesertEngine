@@ -7,47 +7,6 @@
 # One configuration per tree: win-dev / win-debug / win-ship (Development, DebugGame, Shipping; cmake/DesertWorkspace.cmake).
 cmake_minimum_required(VERSION 3.28)
 
-# A compiler launcher (sccache first, then ccache) when one is installed: chosen before project() so the
-# workspace settings below can switch the MSVC debug format to /Z7, which a cache can share.
-if(NOT DEFINED DESERT_COMPILER_LAUNCHER)
-    find_program(_desert_launcher NAMES sccache ccache)
-    set(DESERT_COMPILER_LAUNCHER "${_desert_launcher}" CACHE FILEPATH "Compiler launcher (sccache/ccache); empty for none")
-    unset(_desert_launcher CACHE)
-endif()
-if(DESERT_COMPILER_LAUNCHER)
-    set(_desert_launcher "${DESERT_COMPILER_LAUNCHER}")
-    # ccache outside Windows goes through scripts/Dev/ccache_launcher.sh: the cache settings that share it between
-    # trees (base_dir, a tree-independent digest of each PCH), whoever starts the build.
-    if(NOT WIN32 AND DESERT_COMPILER_LAUNCHER MATCHES "ccache$")
-        set(_desert_launcher "${CMAKE_SOURCE_DIR}/scripts/Dev/ccache_launcher.sh" "${DESERT_COMPILER_LAUNCHER}")
-    endif()
-    # ccache with MSVC: the cache settings travel on its command line (ccache KEY=VALUE compiler ...), so they are the
-    # build's own, not the machine's ccache.conf (BUILD-FAST-WIN, measured with CCACHE_DEBUG on one TU, 11-18):
-    #   depend_mode=false  depend mode takes a source's headers from /showIncludes lines that start with
-    #                      msvc_dep_prefix ("Note: including file:"); a localized cl (the Russian-only BuildTools
-    #                      here print the prefix in CP866; no 1033 pack, VSLANG ignored) matches none, so the manifest held no header and
-    #                      an edited header outside the PCH could be served stale (11-04). Preprocessor mode reads
-    #                      the #line output instead, whatever the language.
-    #   max_size=100G      an MSVC PCH result is ~1 GB raw / ~180 MB compressed; at 3 GB the cache evicted itself (9095
-    #                      cleanups), at 20 GB still 352 cleanups and 7 % hits on a batch build (11-24).
-    #   hash_dir=false     the working directory is not hashed. No base_dir: with base_dir ccache 4.14.1 rewrites the
-    #                      /showIncludes lines, and the CP866 lines of the Russian cl abort it (std::filesystem
-    #                      "Illegal byte sequence", code 3) on every cache miss (build #35, 11-27). Only the lead
-    #                      builds, in one tree, so nothing is lost.
-    #   compiler_check=content  the compiler is identified by its contents, not its mtime: a Visual Studio update that
-    #                      rewrites cl.exe without changing it keeps the cache.
-    #   sloppiness         a header's ctime/mtime (a checkout touches every file), the PCH's defines, __TIME__/__DATE__
-    #                      and system headers do not decide a hit; the contents do.
-    if(WIN32 AND DESERT_COMPILER_LAUNCHER MATCHES "ccache(\\.exe)?$")
-        set(_desert_launcher "${DESERT_COMPILER_LAUNCHER}" depend_mode=false max_size=100G
-            hash_dir=false compiler_check=content
-            "sloppiness=include_file_ctime,include_file_mtime,pch_defines,time_macros,system_headers")
-    endif()
-    set(CMAKE_C_COMPILER_LAUNCHER   ${_desert_launcher})
-    set(CMAKE_CXX_COMPILER_LAUNCHER ${_desert_launcher})
-    set(CMAKE_OBJCXX_COMPILER_LAUNCHER ${_desert_launcher})
-endif()
-
 project(Desert LANGUAGES C CXX)
 if(APPLE)
     # Objective-C++ is compiled by the C++ compiler project() just resolved, BY ITS FULL PATH. A bare name
@@ -57,6 +16,33 @@ if(APPLE)
         set(CMAKE_OBJCXX_COMPILER "${CMAKE_CXX_COMPILER}")
     endif()
     enable_language(OBJCXX)
+endif()
+# Every compile and link of every target goes through the machine's build pool (Tools/BuildPool/README.md): one owner
+# of the compiler and linker slots of the machine, admitting by measured memory, with ccache behind it. The home comes
+# from BUILDPOOL_HOME (unset: a private pool of this tree, said in the configure log). Before the workspace settings:
+# with a cache the MSVC debug information is embedded (/Z7, cmake/DesertWorkspace.cmake), which a cache can share.
+# The cache choices that are this project's (the identity settings the pool needs are the module's):
+#   CCACHE_NODEPEND    depend mode takes a source's headers from /showIncludes lines that start with msvc_dep_prefix
+#                      ("Note: including file:"); a localized cl (the Russian-only BuildTools here print the prefix in
+#                      CP866; no 1033 pack, VSLANG ignored) matches none, so the manifest held no header and an edited
+#                      header outside the PCH could be served stale (11-04). Preprocessor mode reads the #line output.
+#   CCACHE_MAXSIZE     an MSVC PCH result is ~1 GB raw / ~180 MB compressed; at 3 GB the cache evicted itself (9095
+#                      cleanups), at 20 GB still 352 cleanups and 7 % hits on a batch build (11-24).
+#   CCACHE_NOHASHDIR   the working directory is not hashed. No CCACHE_BASEDIR: with base_dir ccache 4.14.1 rewrites
+#                      the /showIncludes lines, and the CP866 lines of the Russian cl abort it (std::filesystem
+#                      "Illegal byte sequence", code 3) on every cache miss (build #35, 11-27).
+#   CCACHE_SLOPPINESS  a header's ctime/mtime (a checkout touches every file), the PCH's defines, __TIME__/__DATE__ and
+#                      system headers do not decide a hit; the contents do.
+# Outside Windows the cache runs behind scripts/Dev/ccache_launcher.sh, which owns base_dir, sloppiness and the
+# tree-independent PCH digest there.
+include(Tools/BuildPool/cmake/BuildPool.cmake)
+if(WIN32)
+    buildpool_enable(CACHE ccache CACHE_ENV
+        CCACHE_NODEPEND=1 CCACHE_MAXSIZE=100G CCACHE_NOHASHDIR=1
+        "CCACHE_SLOPPINESS=include_file_ctime,include_file_mtime,pch_defines,time_macros,system_headers")
+else()
+    buildpool_enable(CACHE ccache CACHE_WRAPPER "${CMAKE_SOURCE_DIR}/scripts/Dev/ccache_launcher.sh"
+        CACHE_ENV CCACHE_MAXSIZE=100G)
 endif()
 # clang writes the mtime of every header into a PCH and rejects the PCH when one differs; the mtimes differ per tree,
 # so a PCH (and the cache entries of the sources behind it) would only ever serve the tree that built it. Ninja's

@@ -254,13 +254,17 @@ namespace Desert::Core
             if ( next != m_Phases.end() )
                 running = static_cast<size_t>( next - m_Phases.begin() );
         }
-        double remaining    = 0.0; // R (rule 3): the bar's
-        double etaRemaining = 0.0; // R' (rule 4): the ETA's
+        double remaining     = 0.0; // R (rule 3): the bar's
+        double etaRemaining  = 0.0; // R' (rule 4): the ETA's
+        double phaseElapsed  = 0.0; // the running phase's, against its expected time (rule 4's overrun)
+        double phaseExpected = 0.0;
         if ( running )
         {
             const double pace    = PaceOf();
             const Phase& phase   = m_Phases[*running];
             const double elapsed = SecondsBetween( m_Current ? phase.Begin : m_ProcessStart, now );
+            phaseElapsed         = elapsed;
+            phaseExpected        = phase.Expected * pace;
             LiveCount    count;
             if ( m_Current )
                 count = CountOf( phase, now );
@@ -302,23 +306,28 @@ namespace Desert::Core
         else
         {
             // dE/dt = -(1 + (E - R') / kEtaCatchUpSeconds) solved over dt with R' falling one second per second
-            // across the gap (so the gap decays as exp(-dt / kEtaCatchUpSeconds)), at least kEtaMinRate.
+            // across the gap (so the gap decays as exp(-dt / kEtaCatchUpSeconds)), at least kEtaMinRate, never
+            // below R': the rate keeps the number moving, never under the plan.
             const double gap  = m_ShownEta - etaRemaining;
             const double fall = dt + gap * ( 1.0 - std::exp( -dt / kEtaCatchUpSeconds ) );
-            m_ShownEta -= std::max( fall, kEtaMinRate * dt );
+            // A rising plan (a slower pace, a grown queue) is followed at most kEtaMaxRiseRate per second: the
+            // number never jumps however often the splash repaints, and overrun is decided from the plan (R), not from the shown value.
+            const double followed = std::max( m_ShownEta - std::max( fall, kEtaMinRate * dt ), etaRemaining );
+            m_ShownEta            = std::min( followed, m_ShownEta + kEtaMaxRiseRate * dt );
             const double minBarRate = kBarStepMargin * step / kBarMaxStallSeconds;
             const double maxStep =
                  m_Finished ? std::max( kBarMaxStep, m_FinishGap * dt / kBarFinishSeconds ) : kBarMaxStep;
             const double move = std::min( std::max( target - m_ShownFraction, minBarRate * dt ), maxStep );
             m_ShownFraction   = std::min( m_ShownFraction + move, std::max( barCap, m_ShownFraction ) );
         }
-        // Rule 4's floor: below it the number would be a lie while work remains; the rest of the start says
-        // "longer than expected" instead.
-        if ( !m_Finished && m_EtaKnown && m_ShownEta <= kEtaFloorSeconds )
+        // Rule 4's overrun: the run has outlived its plan - no work left by the plan (R = 0) and the running
+        // phase past its expected time - so the rest of the start says "longer than expected" instead of the
+        // reserve, which alone holds R' up from here.
+        if ( !m_Finished && m_EtaKnown && remaining <= 0.0 && phaseElapsed >= phaseExpected )
         {
             m_EtaKnown = false;
-            LOG_INFO( "[Startup] the start runs longer than expected ({:.1f} s left by the plan, at {:.1f} s)",
-                      etaRemaining, view.ElapsedSeconds );
+            LOG_INFO( "[Startup] the start runs longer than expected (phase {:.1f} s of {:.1f} s planned, at {:.1f} s)",
+                      phaseElapsed, phaseExpected, view.ElapsedSeconds );
         }
         m_ShownEta      = std::max( m_ShownEta, 0.0 );
         m_LastSample    = now;

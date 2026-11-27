@@ -361,17 +361,19 @@ TEST( LevelSequenceDocument, PreviewPosesTheSceneAndClosingGivesItBack )
     EXPECT_FALSE( world.registry.has<ECS::VisibilityComponent>( world.door ) );
 }
 
-TEST( LevelSequenceDocument, AnOverlappingCameraCutLeavesTheSequenceAsItWas )
+TEST( LevelSequenceDocument, ASecondCameraCutTrimsTheCutInForce )
 {
+    // UE AddNewCameraCut: the cut in force at the playhead ends one tick before it, the new one runs to the End.
     T::Sequence sequence = AuthoredDoor();
     const auto  camera   = ECS::AddEntityBinding( sequence, Common::UUID( kCameraUuid ), "Camera" );
-    ASSERT_TRUE(
-         ECS::AddCameraCut( sequence, camera.GetValue(), A::FrameNumber{ 0 }, A::FrameNumber{ 40 } ).IsSuccess() );
-    const size_t tracks = sequence.Tracks.size();
-    EXPECT_FALSE( ECS::AddCameraCut( sequence, camera.GetValue(), A::FrameNumber{ 20 }, A::FrameNumber{ 60 } )
-                       .IsSuccess() );
-    EXPECT_EQ( sequence.Tracks.size(), tracks );
-    EXPECT_EQ( sequence.Tracks.back().Sections.size(), 1U );
+    ASSERT_TRUE( ECS::AddCameraCut( sequence, camera.GetValue(), A::FrameNumber{ 0 } ).IsSuccess() );
+    ASSERT_TRUE( ECS::AddCameraCut( sequence, camera.GetValue(), A::FrameNumber{ 20 } ).IsSuccess() );
+    const auto& cuts = sequence.Tracks.back().Sections;
+    ASSERT_EQ( cuts.size(), 2U );
+    EXPECT_EQ( cuts[0].Start.Value, 0 );
+    EXPECT_EQ( cuts[0].End.Value, 19 );
+    EXPECT_EQ( cuts[1].Start.Value, 20 );
+    EXPECT_EQ( cuts[1].End.Value, sequence.End.Value );
 }
 
 TEST( LevelSequenceDocument, AVisibilityTrackHidesTheActorFromItsKeyOn )

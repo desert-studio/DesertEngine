@@ -18,7 +18,8 @@ RUNNING_MAX_AGE_H = 4     # a run with no stop older than this died with its ses
 FIX_CALLS = (72, 80, 100)        # warn, soft limit, hard cap of a one-defect fix (owner 10-22, 10-23)
 FEATURE_CALLS = (100, 120, 140)  # the same for engineer / architect / reviewer (owner 11-27; was 270/300/320)
 CONTEXT_MAX = (85_000, 100_000)  # owner 11-27: a worker's context (tokens) - warn, then the finishing window opens
-CONTEXT_TAIL_BYTES = 262_144     # how much of a worker's transcript tail is read to find its last context size
+CONTEXT_FINISH_CALLS = 8        # owner 11-27: calls left after CONTEXT_MAX - commit, push, REMAINDER; the rest goes to a fresh agent
+CONTEXT_TAIL_BYTES = 262_144    # how much of a worker's transcript tail is read to find its last context size
 FIX_READ_LINES = 150             # code is read by ranges of at most this many lines
 FEATURE_READ_LINES = 400
 FIX_BRIEF = (2, 900)             # «## Сделать»: numbered items, characters (owner 10-05)
@@ -30,6 +31,7 @@ CONTINUE_MAX = 50                # owner 11-23: SendMessage to an agent past thi
 LEAD_OUTPUT_CAP = 6000           # characters one lead command may print (owner 11-25)
 
 # ---- one feature --------------------------------------------------------------------------------------------------
+PACKAGE_READ_CHARS = 250_000  # owner 11-27 SPEND_RULES: an engineer package's owned files, read volume at launch
 MAX_PACKAGES = 4          # owner 11-26: a design is 1..4 PARALLEL engineer runs over disjoint files
 FEATURES_IN_FLIGHT = 3    # features between `plan` and `landed`
 FEATURE_MAX_AGE_H = 24    # owner 11-26: nothing is stretched over days; an older unlanded feature stops new plans
@@ -113,3 +115,6 @@ CHAIN_REVIEWS = 2         # reviewer runs one worker may launch (second only aft
 # The lead /clears (not /compacts) at a batch boundary above this context: the state is on disk (studio.py digest).
 LEAD_FLOOR = 30_000        # TOKEN-AUDIT2 11-27: the lead context right after /clear (system + tools + CLAUDE.md + MEMORY.md); re-measure after a tool change
 CLEAR_AT = LEAD_FLOOR + 25_000  # TOKEN-AUDIT2: /clear when the history passes 25k above the floor; one /clear (~49k) pays back in ~11 requests
+
+# SPEND 11-27: one acceptance agent plays one scenario run; a repeat or a second scenario is a fresh agent.
+ACCEPTANCE_RUNS = 1

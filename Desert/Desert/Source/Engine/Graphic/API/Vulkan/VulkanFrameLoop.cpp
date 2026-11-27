@@ -1,6 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChainOutput.hpp>
@@ -77,7 +78,7 @@ namespace Desert::Graphic::API::Vulkan
                                       std::optional<uint32_t> computeFamily, uint32_t frameSlots )
          : m_Device( device ), m_QueueObjects( device, graphicsFamily, computeFamily, frameSlots ),
            m_Fences( std::max( 1u, frameSlots ), VK_NULL_HANDLE ), m_Work( std::max( 1u, frameSlots ) ),
-           m_SlotTicket( std::max( 1u, frameSlots ), 0 )
+           m_SlotTicket( std::max( 1u, frameSlots ), 0 ), m_SlotFrame( std::max( 1u, frameSlots ), kNoFrame )
     {
         // SIGNALLED: no frame is in flight yet, so the first wait on every slot returns at once.
         VkFenceCreateInfo info{};
@@ -178,6 +179,9 @@ namespace Desert::Graphic::API::Vulkan
         }
         const uint64_t ticket = ++m_NextTicket;
         m_SlotTicket[slot]    = ticket;
+        // The frame this thread records (bound per render-task job; the game thread's count inline): the number
+        // the frame's own readbacks were stamped with when they recorded into it (IsFrameDone).
+        m_SlotFrame[slot] = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         m_Queue.push_back( QueuedWork{ .Ticket = ticket, .Slot = slot, .Release = {} } );
         lock.unlock();
         m_Wake.notify_one();
@@ -468,9 +472,9 @@ namespace Desert::Graphic::API::Vulkan
                 const VkResult reset = vkResetFences( m_Device, 1, &m_Fences[slot] );
                 if ( reset != VK_SUCCESS )
                 {
-                    (void)NoteIfDeviceLost( reset, "vkResetFences", __FILE__, __LINE__ );
-                    return Common::MakeFormattedError<bool>( "vkResetFences of frame slot {} failed: {}", slot,
-                                                             VkResultToString( reset ) );
+                    const bool lost = NoteIfDeviceLost( reset, "vkResetFences", __FILE__, __LINE__ );
+                    return Common::MakeFormattedError<bool>( "vkResetFences of frame slot {} failed: {}{}", slot,
+                                                             VkResultToString( reset ), lost ? " (device lost)" : "" );
                 }
             }
 
@@ -532,9 +536,9 @@ namespace Desert::Graphic::API::Vulkan
         {
             // The ONE place the CPU learns that a submitted frame finished, so a device that died mid-frame
             // reports it here first and nowhere else.
-            (void)NoteIfDeviceLost( waited, "vkWaitForFences", __FILE__, __LINE__ );
-            return Common::MakeFormattedError<bool>( "vkWaitForFences of frame slot {} failed: {}", slot,
-                                                     VkResultToString( waited ) );
+            const bool lost = NoteIfDeviceLost( waited, "vkWaitForFences", __FILE__, __LINE__ );
+            return Common::MakeFormattedError<bool>( "vkWaitForFences of frame slot {} failed: {}{}", slot,
+                                                     VkResultToString( waited ), lost ? " (device lost)" : "" );
         }
         return Common::MakeSuccess( true );
     }
@@ -582,6 +586,83 @@ namespace Desert::Graphic::API::Vulkan
         // No loop runs, or its thread has exited (everything handed to it ran): the caller's thread pays, still
         // after every frame. The lease ended first, so a release that defers again takes a lease of its own.
         release();
+    }
+
+    bool VulkanFrameLoop::IsFrameDone( const uint32_t slot, const uint64_t frame )
+    {
+        const ActiveLoopLease  lease;
+        VulkanFrameLoop* const loop = lease.Get();
+        if ( loop == nullptr )
+            return false;
+        const Common::BoolResultStr done = loop->FrameDone( slot, frame, false );
+        return done.IsSuccess() && done.GetValue();
+    }
+
+    Common::BoolResultStr VulkanFrameLoop::WaitFrameDone( const uint32_t slot, const uint64_t frame )
+    {
+        const ActiveLoopLease  lease;
+        VulkanFrameLoop* const loop = lease.Get();
+        if ( loop == nullptr )
+            return Common::MakeFormattedError<bool>( "no frame loop runs; frame {} cannot be waited", frame );
+        return loop->FrameDone( slot, frame, true );
+    }
+
+    Common::BoolResultStr VulkanFrameLoop::FrameDone( const uint32_t slot, const uint64_t frame, const bool wait )
+    {
+        if ( !Graphic::DeviceLost::AllowWork() )
+            return Common::MakeFormattedError<bool>( "the device is lost; frame {} will not complete", frame );
+        if ( slot >= m_Fences.size() || m_Fences[slot] == VK_NULL_HANDLE )
+            return Common::MakeFormattedError<bool>( "frame slot {} has no fence (vkCreateFence failed)", slot );
+        if ( wait && t_OnSubmitThread )
+            return Common::MakeError( "the submit thread cannot wait for a frame it has to submit itself" );
+        {
+            std::unique_lock<std::mutex> lock( m_Mutex );
+            const uint64_t               handed = m_SlotFrame[slot];
+            // A later frame of the slot was handed over: its BeginSlot waited this frame's fence first.
+            if ( handed != kNoFrame && handed > frame )
+                return Common::MakeSuccess( true );
+            if ( handed == kNoFrame || handed < frame )
+            {
+                if ( !wait )
+                    return Common::MakeSuccess( false );
+                return Common::MakeFormattedError<bool>(
+                     "frame {} (slot {}) was never handed to the submit thread (its last hand-off is {}); nothing "
+                     "to wait for",
+                     frame, slot, handed == kNoFrame ? std::string( "none" ) : std::to_string( handed ) );
+            }
+            // This frame is the slot's last hand-off. Its submission resets the fence first: until the submit
+            // thread has run it, the fence is still the signalled one of the frame before.
+            if ( m_HandledTicket < m_SlotTicket[slot] )
+            {
+                if ( !wait )
+                    return Common::MakeSuccess( false );
+                WaitHandled( lock, m_SlotTicket[slot] );
+            }
+            if ( !m_Failure.empty() )
+                return Common::MakeFormattedError<bool>( "the submit thread failed a frame: {}", m_Failure );
+        }
+        // A later hand-off may reset the fence from here on: a poll then answers false once (the next one sees
+        // the later frame), a wait waits that later frame too. Neither answers true early.
+        if ( !wait )
+        {
+            const VkResult status = vkGetFenceStatus( m_Device, m_Fences[slot] );
+            if ( status == VK_SUCCESS )
+                return Common::MakeSuccess( true );
+            if ( status == VK_NOT_READY )
+                return Common::MakeSuccess( false );
+            const bool lost = NoteIfDeviceLost( status, "vkGetFenceStatus", __FILE__, __LINE__ );
+            return Common::MakeFormattedError<bool>( "vkGetFenceStatus of frame slot {} failed: {}{}", slot,
+                                                     VkResultToString( status ), lost ? " (device lost)" : "" );
+        }
+        DESERT_PROFILE_WAIT( "Vulkan: one frame's fence wait" );
+        const VkResult waited = vkWaitForFences( m_Device, 1, &m_Fences[slot], VK_TRUE, UINT64_MAX );
+        if ( waited != VK_SUCCESS )
+        {
+            (void)NoteIfDeviceLost( waited, "vkWaitForFences", __FILE__, __LINE__ );
+            return Common::MakeFormattedError<bool>( "vkWaitForFences of frame {} (slot {}) failed: {}", frame,
+                                                     slot, VkResultToString( waited ) );
+        }
+        return Common::MakeSuccess( true );
     }
 
     VkResult VulkanFrameLoop::RunOrdered( const std::function<VkResult()>& submit )

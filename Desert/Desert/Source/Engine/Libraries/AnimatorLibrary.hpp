@@ -33,5 +33,11 @@ namespace Desert::Libraries
         /// the evaluator may not exist yet (AnimationComponent::PendingGraphParams).
         FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "setAnimParam" ) )
         static bool SetAnimParam( ECS::Entity entity, const std::string& name, const Reflection::Value& value );
+
+        /// The bone's local rotation as the viewer sees it this frame (the published pose: the Sequencer's bone
+        /// layer included, Animator::GetPublishedLocal), as glm's Euler angles in degrees (pitch, yaw, roll).
+        /// Nothing (logged, naming the entity) without an Animator or with no such bone.
+        FUNCTION( ScriptCallable, ScriptMethod, ScriptName( "boneLocalRotation" ) )
+        static Reflection::Value BoneLocalRotation( ECS::Entity entity, const std::string& bone );
     };
 } // namespace Desert::Libraries

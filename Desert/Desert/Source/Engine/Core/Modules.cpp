@@ -1,3 +1,4 @@
+#include <Engine/Core/LandscapeHLODInputs.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
 
 // ENGINE'S OWN STARTUP (UE: the engine module's StartupModule). Registers Engine's world systems and the
@@ -19,6 +20,7 @@ namespace Desert::Core
             RegisterEngineWorldSystems();
             Desert::LandscapeCore::StartupModule(); // the landscape world-partition descriptor hooks
                                                     // (BUILD-MOD-6L)
+            RegisterLandscapeHLODInputs(); // what the engine's landscape HLOD builders read, into its rows
             return true;
         }();
         (void)started;

@@ -18,6 +18,7 @@
 #include <glm/glm.hpp>
 
 #include <Engine/Animation/ClipSkeletonMatch.hpp>
+#include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/TimeModel.hpp>
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
@@ -373,6 +374,35 @@ namespace Desert::Editor
         void SetLevelRecord( bool on );
         /// Per frame: the gizmo bit into `m_LevelAutoKey`; the release writes its keys inside one undo step.
         void UpdateLevelAutoKey( Animation::Timeline::Sequence& sequence );
+        // ── Level Sequence: bone keys (LevelBoneRows.cpp; UE: the FK Control Rig track) ──
+        /// The Bone rows nested under @p actor's row: the label (a click selects the bone for the viewport's
+        /// bone gizmo, `SelectLevelBone`), Blend and Weight, "Key" and the key lane.
+        void DrawLevelBoneRows( Animation::Timeline::Sequence& sequence, const Animation::Timeline::BindingGuid& actor,
+                                float contentX0, float laneX0, float laneW );
+        /// "+ Track ▸ Bone ▸ <bone>" in @p actor's popup: the actor skeleton's bones, a bound one greyed out.
+        void DrawLevelBoneMenu( const Animation::Timeline::Sequence&    sequence,
+                                const Animation::Timeline::BindingGuid& actor );
+        /// THE setters of a bone track — rows, palette and `set` all call these, one undo step each; a refusal
+        /// is returned by name and written to the Output Log.
+        void AddLevelBoneTrack( const Animation::Timeline::BindingGuid& actor, std::string_view bone );
+        void RemoveLevelBoneTrack( const Animation::Timeline::BindingGuid& bone );
+        /// Keys the bone's pose as the viewer sees it at the playhead (`ECS::SetBoneKey`).
+        void KeyLevelBone( const Animation::Timeline::BindingGuid& bone );
+        /// `set Bone.<actor>.<bone>.<field>` (LevelBoneRows.hpp).
+        [[nodiscard]] Common::BoolResultStr SetLevelBoneProperty( const std::string&        name,
+                                                                  const std::vector<float>& value );
+        /// "Add Bone Track / Key Bone / Remove Bone Track <actor> <bone>".
+        void AppendLevelBoneActions( std::vector<DocumentAction>& actions );
+        /// The bone row picked: the actor selected in the level, this document's authoring context in Pose mode
+        /// on that bone (the viewport's bone gizmo poses it); picking it again gives the gizmo back.
+        void SelectLevelBone( const Animation::Timeline::BindingGuid& bone );
+        /// Per frame while a bone row is selected: the animator's authoring pose follows the shown pose until
+        /// the bone gizmo is held; its release keys the dragged bone under Auto Key (one undo step).
+        void UpdateLevelBoneGizmo( Animation::Timeline::Sequence& sequence );
+        Animation::Timeline::BindingGuid m_LevelSelBone;
+        bool                             m_LevelBoneHeld = false;
+        Animation::LocalPose             m_LevelShownPose; ///< UpdateLevelBoneGizmo's copy of the shown pose
+
         /// The curve view of a Transform track — the selected key's binding, else the first keyed one.
         void DrawLevelCurve( Animation::Timeline::Sequence& sequence, float contentX0, float gutter, float laneW );
 
@@ -430,6 +460,13 @@ namespace Desert::Editor
         ECS::LevelSequencePreview m_LevelPreview;
         Animation::FrameNumber    m_LevelTick;
         int32_t                   m_LevelTickShown = INT32_MIN;
+        /// The Camera Cut in force at the playhead after the last scrub (nullopt = none): the preview's answer.
+        std::optional<Common::UUID> m_LevelCutCamera;
+        /// What this document last pushed to the viewports (nullopt = nothing in force from this document).
+        std::optional<Common::UUID> m_LevelCutPushed;
+        /// Pushes `lock ? m_LevelCutCamera : nullopt` when it differs from m_LevelCutPushed.
+        void PushLevelCameraCut();
+        void SetLevelCameraCutLock( bool locked );
         /// The value a Material Parameter row's field shows while it is being dragged (row id → value): keyed
         /// once, on release, so a drag is one key and one undo step (UE: one transaction per committed edit).
         std::optional<std::pair<std::string, glm::vec4>> m_LevelMaterialDraft;

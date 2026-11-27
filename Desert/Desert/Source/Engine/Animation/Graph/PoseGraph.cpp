@@ -40,7 +40,7 @@ namespace Desert::Animation::Graph
             if ( !clip.empty() )
                 names.push_back( clip );
         };
-        const auto addRow = [&add]( const BlendSpace1DNode& row )
+        const auto addRow = [&add]( const BlendSpaceSetup& row )
         {
             for ( const BlendSample& sample : row.Samples )
                 add( sample.Clip );
@@ -95,6 +95,8 @@ namespace Desert::Animation::Graph
                 return "LookAt";
             case PoseNodeKind::BlendSpace1D:
                 return "BlendSpace1D";
+            case PoseNodeKind::BlendSpace2D:
+                return "BlendSpace2D";
         }
         return "?";
     }
@@ -128,8 +130,15 @@ namespace Desert::Animation::Graph
                 return PoseNodePins{ .PoseInputs = 0, .ParameterPins = {} };
             case PoseNodeKind::BlendSpace1D:
             {
-                // A leaf like the sequence player: its samples play on their own clocks; X is the axis.
-                static constexpr std::array<const char*, 1> kPins{ kBlendSpaceAxisPin.data() };
+                // A leaf like the sequence player: its samples play at one synced phase; X is the axis, PlayRate
+                // scales the phase (UE FAnimNode_BlendSpacePlayer).
+                static constexpr std::array<const char*, 2> kPins{ kBlendSpaceXPin, kBlendSpacePlayRatePin };
+                return PoseNodePins{ .PoseInputs = 0, .ParameterPins = kPins };
+            }
+            case PoseNodeKind::BlendSpace2D:
+            {
+                static constexpr std::array<const char*, 3> kPins{ kBlendSpaceXPin, kBlendSpaceYPin,
+                                                                   kBlendSpacePlayRatePin };
                 return PoseNodePins{ .PoseInputs = 0, .ParameterPins = kPins };
             }
             case PoseNodeKind::TwoBoneIK:
@@ -146,106 +155,6 @@ namespace Desert::Animation::Graph
     bool IsSourceKind( PoseNodeKind kind )
     {
         return kind == PoseNodeKind::StateMachine || kind == PoseNodeKind::SequencePlayer;
-    }
-
-    std::string BlendSpace1DError( const BlendSpace1DNode& node )
-    {
-        if ( node.Samples.empty() )
-            return "it has no sample, so it plays nothing";
-        for ( size_t i = 0; i < node.Samples.size(); ++i )
-        {
-            const BlendSample& sample = node.Samples[i];
-            if ( sample.Clip.empty() )
-                return std::format( "sample {} names no clip", i );
-            if ( !std::isfinite( sample.Value ) )
-                return std::format( "sample {} ('{}') has a value that is not a number", i, sample.Clip );
-            if ( !( std::isfinite( sample.RateScale ) && sample.RateScale > 0.0F ) )
-                return std::format( "sample {} ('{}') has RateScale {}; it must be a number above 0", i,
-                                    sample.Clip, sample.RateScale );
-            if ( i > 0 && !( sample.Value > node.Samples[i - 1].Value ) )
-                return std::format(
-                     "sample {} ('{}', {}) does not lie above sample {} ('{}', {}); the samples are "
-                     "a row on the axis, strictly ascending",
-                     i, sample.Clip, sample.Value, i - 1, node.Samples[i - 1].Clip, node.Samples[i - 1].Value );
-        }
-        if ( !std::isfinite( node.WeightSpeed ) || node.WeightSpeed < 0.0F )
-            return std::format( "its weight speed {} is not a speed (0 = no smoothing, else weight per second)",
-                                node.WeightSpeed );
-        return {};
-    }
-
-    void BlendSpace1DTargetWeights( const BlendSpace1DNode& node, const float x, const std::span<float> out )
-    {
-        std::fill( out.begin(), out.end(), 0.0F );
-        const size_t count = std::min( out.size(), node.Samples.size() );
-        if ( count == 0 )
-            return;
-        if ( !( x > node.Samples.front().Value ) ) // also a NaN axis: the row's start
-        {
-            out[0] = 1.0F;
-            return;
-        }
-        if ( x >= node.Samples[count - 1].Value )
-        {
-            out[count - 1] = 1.0F;
-            return;
-        }
-        for ( size_t i = 1; i < count; ++i )
-        {
-            const float upper = node.Samples[i].Value;
-            if ( x > upper )
-                continue;
-            const float lower = node.Samples[i - 1].Value;
-            const float alpha = ( x - lower ) / ( upper - lower );
-            out[i - 1]        = 1.0F - alpha;
-            out[i]            = alpha;
-            return;
-        }
-    }
-
-    void InterpolateBlendWeights( const std::span<float> weights, const std::span<const float> target,
-                                  const float speedPerSecond, const float seconds )
-    {
-        const size_t count = std::min( weights.size(), target.size() );
-        if ( speedPerSecond <= 0.0F )
-        {
-            std::copy_n( target.begin(), count, weights.begin() );
-            return;
-        }
-        const float step  = speedPerSecond * std::max( seconds, 0.0F );
-        float       total = 0.0F;
-        for ( size_t i = 0; i < count; ++i )
-        {
-            weights[i] += std::clamp( target[i] - weights[i], -step, step );
-            total += weights[i];
-        }
-        if ( total <= 0.0F )
-        {
-            std::copy_n( target.begin(), count, weights.begin() );
-            return;
-        }
-        for ( size_t i = 0; i < count; ++i )
-            weights[i] /= total;
-    }
-
-    float AdvanceSyncedPhase( const float phase, const std::span<const float> weights,
-                              const std::span<const float> lengthSeconds, const float seconds, const bool loop )
-    {
-        float weighted = 0.0F;
-        float total    = 0.0F;
-        for ( size_t i = 0; i < std::min( weights.size(), lengthSeconds.size() ); ++i )
-            if ( weights[i] > 0.0F && lengthSeconds[i] > 0.0F )
-            {
-                weighted += weights[i] * lengthSeconds[i];
-                total += weights[i];
-            }
-        if ( total <= 0.0F )
-            return phase;
-        const float next = phase + seconds / ( weighted / total );
-        if ( !loop )
-            return std::clamp( next, 0.0F, 1.0F );
-        const float wrapped = next - std::floor( next );
-        return wrapped < 1.0F ? wrapped : 0.0F;
     }
 
     std::string LayerWeightPin( size_t layer )
@@ -388,8 +297,8 @@ namespace Desert::Animation::Graph
         }
 
         /// The rules of the linked-layer kinds: which scope may hold them, and what a call names.
-        /// Empty when `state` plays one clip or a playable blend space on a declared Float axis; otherwise why
-        /// not.
+        /// Empty when `state` plays one clip or a playable blend space whose every axis is a declared Float
+        /// parameter; otherwise why not.
         std::string StateBlendSpaceError( const AnimGraph& graph, const State& state, const GraphScope scope )
         {
             if ( !state.BlendSpace )
@@ -397,18 +306,26 @@ namespace Desert::Animation::Graph
             if ( !state.Clip.empty() )
                 return std::format( "it names clip '{}' and a blend space; a state plays one of them",
                                     state.Clip );
-            if ( std::string error = BlendSpace1DError( state.BlendSpace->Space ); !error.empty() )
+            const size_t axisCount = state.BlendSpace->AxisParameters.size();
+            if ( axisCount != 1 && axisCount != 2 )
+                return std::format(
+                     "its blend space names {} axis parameters; a state plays a Blend Space 1D (one) "
+                     "or 2D (two)",
+                     axisCount );
+            if ( std::string error = BlendSpaceError( state.BlendSpace->Space, axisCount ); !error.empty() )
                 return std::format( "its blend space: {}", error );
             // A layer graph's machines are sampled by the link's clocks (one clip per state), as its nodes are.
             if ( scope == GraphScope::Layer )
                 return "it plays a blend space in a layer graph; blend spaces play in the host graph only";
-            const auto axis =
-                 std::find_if( graph.Parameters.begin(), graph.Parameters.end(),
-                               [&]( const Parameter& p ) { return p.Name == state.BlendSpace->Axis; } );
-            if ( axis == graph.Parameters.end() || static_cast<ParamType>( axis->Type ) != ParamType::Float )
-                return std::format( "its blend space's axis '{}' is no declared Float parameter. The graph "
-                                    "declares: {}",
-                                    state.BlendSpace->Axis, DeclaredParameterList( graph ) );
+            for ( const std::string& name : state.BlendSpace->AxisParameters )
+            {
+                const auto axis = std::find_if( graph.Parameters.begin(), graph.Parameters.end(),
+                                                [&]( const Parameter& p ) { return p.Name == name; } );
+                if ( axis == graph.Parameters.end() || static_cast<ParamType>( axis->Type ) != ParamType::Float )
+                    return std::format( "its blend space's axis '{}' is no declared Float parameter. The graph "
+                                        "declares: {}",
+                                        name, DeclaredParameterList( graph ) );
+            }
             return {};
         }
 
@@ -570,21 +487,25 @@ namespace Desert::Animation::Graph
                 return std::format( "AnimGraph '{}': node '{}' ({}) {}", graph.Name, node.Name, KindName( kind ),
                                     node.LookAt ? "carries a look-at setup, which only a LookAt node has"
                                                 : "is a LookAt node with no look-at setup in it" );
-            if ( ( kind == PoseNodeKind::BlendSpace1D ) != node.BlendSpace.has_value() )
-                return std::format( "AnimGraph '{}': node '{}' ({}) {}", graph.Name, node.Name, KindName( kind ),
-                                    node.BlendSpace ? "carries a blend space, which only a BlendSpace1D node has"
-                                                    : "is a BlendSpace1D node with no samples setup in it" );
+            const bool blendSpaceKind = kind == PoseNodeKind::BlendSpace1D || kind == PoseNodeKind::BlendSpace2D;
+            if ( blendSpaceKind != node.BlendSpace.has_value() )
+                return std::format(
+                     "AnimGraph '{}': node '{}' ({}) {}", graph.Name, node.Name, KindName( kind ),
+                     node.BlendSpace ? "carries a blend space, which only a BlendSpace1D or BlendSpace2D node has"
+                                     : "is a blend-space node with no blend space setup in it" );
             if ( node.BlendSpace )
             {
-                if ( std::string error = BlendSpace1DError( *node.BlendSpace ); !error.empty() )
-                    return std::format( "AnimGraph '{}': BlendSpace1D node '{}': {}", graph.Name, node.Name,
-                                        error );
+                if ( std::string error =
+                          BlendSpaceError( *node.BlendSpace, kind == PoseNodeKind::BlendSpace2D ? 2 : 1 );
+                     !error.empty() )
+                    return std::format( "AnimGraph '{}': {} node '{}': {}", graph.Name, KindName( kind ),
+                                        node.Name, error );
                 // A layer graph's sources are sampled by the link's own clocks (SampleLinked), which play one clip
                 // per node; a blend space there would stand in the bind pose, so it is refused by name instead.
                 if ( scope == GraphScope::Layer )
-                    return std::format( "AnimGraph '{}': BlendSpace1D node '{}' is in a layer graph; blend spaces "
-                                        "play in the host graph only",
-                                        graph.Name, node.Name );
+                    return std::format( "AnimGraph '{}': {} node '{}' is in a layer graph; blend spaces play in "
+                                        "the host graph only",
+                                        graph.Name, KindName( kind ), node.Name );
             }
             if ( std::string linked = LinkedKindError( graph, node, scope ); !linked.empty() )
                 return linked;
@@ -798,234 +719,4 @@ namespace Desert::Animation::Graph
             return Common::MakeSuccess( std::move( plan ) );
         }
     } // namespace
-} // namespace Desert::Animation::Graph
-
-// Blend Space 2D (BlendSpace2D.hpp): its refusal, the Delaunay triangulation of its samples and the weights at a
-// point. Beside the 1D row's functions, for the reason those are here: the loader refuses an unplayable node and
-// links no runtime.
-namespace Desert::Animation::Graph
-{
-    namespace
-    {
-        using BlendPoint2 = std::array<double, 2>;
-
-        /// Below this a normalized triangle has no area and a point is on a circumcircle rather than inside it.
-        constexpr double kBlendPlaneEpsilon = 1e-9;
-
-        /// Twice the signed area of (o, a, b): positive when counter-clockwise.
-        double BlendCross2D( const BlendPoint2& o, const BlendPoint2& a, const BlendPoint2& b )
-        {
-            return ( a[0] - o[0] ) * ( b[1] - o[1] ) - ( a[1] - o[1] ) * ( b[0] - o[0] );
-        }
-
-        /// Whether `p` lies strictly inside the circumcircle of the counter-clockwise triangle (a, b, c).
-        bool InBlendCircumcircle( const BlendPoint2& a, const BlendPoint2& b, const BlendPoint2& c,
-                                  const BlendPoint2& p )
-        {
-            const double ax = a[0] - p[0];
-            const double ay = a[1] - p[1];
-            const double bx = b[0] - p[0];
-            const double by = b[1] - p[1];
-            const double cx = c[0] - p[0];
-            const double cy = c[1] - p[1];
-            const double det = ( ax * ax + ay * ay ) * ( bx * cy - cx * by ) -
-                               ( bx * bx + by * by ) * ( ax * cy - cx * ay ) +
-                               ( cx * cx + cy * cy ) * ( ax * by - bx * ay );
-            return det > kBlendPlaneEpsilon;
-        }
-
-        BlendPoint2 BlendPointOf( const std::array<float, 2>& point )
-        {
-            return BlendPoint2{ static_cast<double>( point[0] ), static_cast<double>( point[1] ) };
-        }
-    } // namespace
-
-    std::string BlendSpace2DError( const BlendSpace2DNode& node )
-    {
-        if ( node.Samples.size() < 3 )
-            return std::format( "a Blend Space 2D needs at least three samples spanning an area; it has {}",
-                                node.Samples.size() );
-        for ( size_t i = 0; i < node.Samples.size(); ++i )
-        {
-            const BlendSample2D& sample = node.Samples[i];
-            if ( sample.Clip.empty() )
-                return std::format( "sample {} names no clip", i );
-            if ( !std::isfinite( sample.X ) || !std::isfinite( sample.Y ) )
-                return std::format( "sample {} ('{}') is at a non-finite point", i, sample.Clip );
-            for ( size_t j = 0; j < i; ++j )
-                if ( node.Samples[j].X == sample.X && node.Samples[j].Y == sample.Y )
-                    return std::format( "samples {} ('{}') and {} ('{}') are both at ({}, {}): one point plays one "
-                                        "sample",
-                                        j, node.Samples[j].Clip, i, sample.Clip, sample.X, sample.Y );
-        }
-        if ( !std::isfinite( node.WeightSpeed ) || node.WeightSpeed < 0.0F )
-            return std::format( "WeightSpeed {} is not a finite value >= 0", node.WeightSpeed );
-        if ( TriangulateBlendSpace2D( node ).Triangles.empty() )
-            return "every sample lies on one line, which spans no area: that is a Blend Space 1D";
-        return {};
-    }
-
-    BlendSpace2DTriangulation TriangulateBlendSpace2D( const BlendSpace2DNode& node )
-    {
-        BlendSpace2DTriangulation out;
-        if ( node.Samples.empty() )
-            return out;
-
-        // Each axis over the samples' own range, mapped to [0, 1] (an axis with no range keeps scale 1).
-        float minX = node.Samples.front().X;
-        float maxX = minX;
-        float minY = node.Samples.front().Y;
-        float maxY = minY;
-        for ( const BlendSample2D& sample : node.Samples )
-        {
-            minX = std::min( minX, sample.X );
-            maxX = std::max( maxX, sample.X );
-            minY = std::min( minY, sample.Y );
-            maxY = std::max( maxY, sample.Y );
-        }
-        out.Origin = { minX, minY };
-        out.Scale  = { maxX > minX ? 1.0F / ( maxX - minX ) : 1.0F, maxY > minY ? 1.0F / ( maxY - minY ) : 1.0F };
-        out.Points.reserve( node.Samples.size() );
-        for ( const BlendSample2D& sample : node.Samples )
-            out.Points.push_back(
-                 { ( sample.X - out.Origin[0] ) * out.Scale[0], ( sample.Y - out.Origin[1] ) * out.Scale[1] } );
-
-        // Bowyer-Watson: start from one counter-clockwise triangle far around [0, 1]^2, insert each sample by
-        // re-triangulating the cavity of the triangles whose circumcircle holds it, then drop every triangle that
-        // still touches the outer one.
-        const auto            count = static_cast<uint32_t>( out.Points.size() );
-        std::vector<BlendPoint2> points;
-        points.reserve( out.Points.size() + 3 );
-        for ( const std::array<float, 2>& point : out.Points )
-            points.push_back( BlendPointOf( point ) );
-        points.push_back( BlendPoint2{ -1000.0, -1000.0 } );
-        points.push_back( BlendPoint2{ 1000.0, -1000.0 } );
-        points.push_back( BlendPoint2{ 0.0, 1000.0 } );
-
-        std::vector<std::array<uint32_t, 3>> triangles{ { count, count + 1, count + 2 } };
-        std::vector<std::array<uint32_t, 3>> kept;
-        std::vector<std::array<uint32_t, 2>> cavity;
-        for ( uint32_t i = 0; i < count; ++i )
-        {
-            kept.clear();
-            cavity.clear();
-            for ( const std::array<uint32_t, 3>& t : triangles )
-            {
-                if ( InBlendCircumcircle( points[t[0]], points[t[1]], points[t[2]], points[i] ) )
-                {
-                    cavity.push_back( { t[0], t[1] } );
-                    cavity.push_back( { t[1], t[2] } );
-                    cavity.push_back( { t[2], t[0] } );
-                }
-                else
-                    kept.push_back( t );
-            }
-            // The cavity's boundary is every edge exactly one removed triangle has; each, closed by the new
-            // sample, keeps its triangle's counter-clockwise winding.
-            for ( const std::array<uint32_t, 2>& edge : cavity )
-            {
-                const auto shared = std::count_if( cavity.begin(), cavity.end(),
-                                                   [&edge]( const std::array<uint32_t, 2>& other )
-                                                   {
-                                                       return ( other[0] == edge[0] && other[1] == edge[1] ) ||
-                                                              ( other[0] == edge[1] && other[1] == edge[0] );
-                                                   } );
-                if ( shared == 1 )
-                    kept.push_back( { edge[0], edge[1], i } );
-            }
-            std::swap( triangles, kept );
-        }
-
-        for ( const std::array<uint32_t, 3>& t : triangles )
-            if ( t[0] < count && t[1] < count && t[2] < count &&
-                 BlendCross2D( points[t[0]], points[t[1]], points[t[2]] ) > kBlendPlaneEpsilon )
-                out.Triangles.push_back( t );
-
-        for ( const std::array<uint32_t, 3>& t : out.Triangles )
-            for ( size_t e = 0; e < 3; ++e )
-            {
-                const uint32_t a     = t[e];
-                const uint32_t b     = t[( e + 1 ) % 3];
-                const bool     inner = std::any_of( out.Triangles.begin(), out.Triangles.end(),
-                                                    [a, b]( const std::array<uint32_t, 3>& other )
-                                                    {
-                                                        for ( size_t f = 0; f < 3; ++f )
-                                                            if ( other[f] == b && other[( f + 1 ) % 3] == a )
-                                                                return true;
-                                                        return false;
-                                                    } );
-                if ( !inner )
-                    out.Hull.push_back( { a, b } );
-            }
-        return out;
-    }
-
-    void BlendSpace2DTargetWeights( const BlendSpace2DTriangulation& triangulation, const float x, const float y,
-                                    const std::span<float> out )
-    {
-        std::fill( out.begin(), out.end(), 0.0F );
-        const size_t count = std::min( out.size(), triangulation.Points.size() );
-        const auto   valid = [count]( const uint32_t index ) { return static_cast<size_t>( index ) < count; };
-        const BlendPoint2 p{ ( static_cast<double>( x ) - triangulation.Origin[0] ) * triangulation.Scale[0],
-                             ( static_cast<double>( y ) - triangulation.Origin[1] ) * triangulation.Scale[1] };
-
-        // Inside a triangle: its three samples by barycentric coordinates (UE FBlendSpaceData::GetSamples2D).
-        for ( const std::array<uint32_t, 3>& t : triangulation.Triangles )
-        {
-            if ( !valid( t[0] ) || !valid( t[1] ) || !valid( t[2] ) )
-                continue;
-            const BlendPoint2 a    = BlendPointOf( triangulation.Points[t[0]] );
-            const BlendPoint2 b    = BlendPointOf( triangulation.Points[t[1]] );
-            const BlendPoint2 c    = BlendPointOf( triangulation.Points[t[2]] );
-            const double      area = BlendCross2D( a, b, c );
-            if ( area <= kBlendPlaneEpsilon )
-                continue;
-            const double wa = BlendCross2D( p, b, c ) / area;
-            const double wb = BlendCross2D( a, p, c ) / area;
-            const double wc = 1.0 - wa - wb;
-            if ( wa < -kBlendPlaneEpsilon || wb < -kBlendPlaneEpsilon || wc < -kBlendPlaneEpsilon )
-                continue;
-            const double ca  = std::max( wa, 0.0 );
-            const double cb  = std::max( wb, 0.0 );
-            const double cc  = std::max( wc, 0.0 );
-            const double sum = ca + cb + cc;
-            out[t[0]]        = static_cast<float>( ca / sum );
-            out[t[1]]        = static_cast<float>( cb / sum );
-            out[t[2]]        = static_cast<float>( cc / sum );
-            return;
-        }
-
-        // Outside the hull: the nearest point of the boundary, between its edge's two samples.
-        double   best      = -1.0;
-        uint32_t bestA     = 0;
-        uint32_t bestB     = 0;
-        double   bestAlong = 0.0;
-        for ( const std::array<uint32_t, 2>& edge : triangulation.Hull )
-        {
-            if ( !valid( edge[0] ) || !valid( edge[1] ) )
-                continue;
-            const BlendPoint2 a       = BlendPointOf( triangulation.Points[edge[0]] );
-            const BlendPoint2 b       = BlendPointOf( triangulation.Points[edge[1]] );
-            const double      dx      = b[0] - a[0];
-            const double      dy      = b[1] - a[1];
-            const double      length2 = dx * dx + dy * dy;
-            const double      along =
-                 length2 > 0.0 ? std::clamp( ( ( p[0] - a[0] ) * dx + ( p[1] - a[1] ) * dy ) / length2, 0.0, 1.0 )
-                                : 0.0;
-            const double ex       = a[0] + dx * along - p[0];
-            const double ey       = a[1] + dy * along - p[1];
-            const double distance = ex * ex + ey * ey;
-            if ( best < 0.0 || distance < best )
-            {
-                best      = distance;
-                bestA     = edge[0];
-                bestB     = edge[1];
-                bestAlong = along;
-            }
-        }
-        if ( best < 0.0 )
-            return;
-        out[bestA] += static_cast<float>( 1.0 - bestAlong );
-        out[bestB] += static_cast<float>( bestAlong );
-    }
 } // namespace Desert::Animation::Graph

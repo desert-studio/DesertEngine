@@ -28,7 +28,7 @@ namespace
         T::Binding b;
         b.Kind    = T::BindingKind::Entity;
         b.Locator = locator;
-        b.Guid    = T::BindingGuid::ForObject( b.Kind, b.Locator );
+        b.Guid    = T::BindingGuid::ForEntity( b.Locator );
         b.Label   = locator;
         return b;
     }

@@ -295,6 +295,16 @@ namespace Desert::Graphic
                 m_Refs.emplace( black3D.get(), System.Black3D );
                 m_Externals.emplace( black3D.get(), black3DExternal );
             }
+            // The zero 2D texture (UE GTransparentBlackTexture), for a sampler2D whose alpha says "answered".
+            const std::shared_ptr<Image2D> transparentBlack = FallbackTextures::Get().GetTransparentBlackTexture2D();
+            if ( RDG::ExternalTexture* transparentBlackExternal =
+                      ImportExternal( transparentBlack, "System.TransparentBlack" ) )
+            {
+                System.TransparentBlack =
+                     m_Graph.RegisterExternal( *transparentBlackExternal, "System.TransparentBlack" );
+                m_Refs.emplace( transparentBlack.get(), System.TransparentBlack );
+                m_Externals.emplace( transparentBlack.get(), transparentBlackExternal );
+            }
         }
 
         // @p image as an external holding its recorded layout, not yet registered; nullptr (logged) if it

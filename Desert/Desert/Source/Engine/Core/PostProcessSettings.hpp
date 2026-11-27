@@ -42,6 +42,15 @@ namespace Desert::Core
         Fusion    = 1,
     };
 
+    // UE EBloomMethod (Scene.h): BM_SOG - the sum of six Gaussians over a downsample chain (BloomGaussianRules);
+    // BM_FFT - the setup output convolved with BloomConvolutionKernel in the frequency domain. The method is the
+    // volume's choice, as in UE; scalability only sets the Gaussian's stage count (PostProcess.BloomQuality).
+    enum class BloomMethod : int
+    {
+        Gaussian    = 0,
+        Convolution = 1,
+    };
+
     // HOW A VIEW'S GRASS IS RASTERISED (FPS-GRASS-VISBUF; UE 5 Nanite foliage: the visibility buffer is the
     // renderer's choice, a project/scalability setting, not the look's). Both paths write the same G-buffer texel
     // through one writer (Mesh/Surface/GBufferOutputs.glslh), so the choice is a cost, never a picture:
@@ -227,10 +236,28 @@ namespace Desert::Core
         PROPERTY( DisplayName( "White Point (Reinhard)" ), Category( "Film" ), Range( 1.0f, 20.0f ) )
         float WhitePoint = 8.0f;
 
+        // UE's Metering Mode Auto Exposure Histogram is on by default (Scene.cpp:494-523): a volume that states
+        // nothing adapts. Files at post process v0 had their value stated by the v1 step and keep it.
         PROPERTY( DisplayName( "Auto Exposure" ), Category( "Exposure" ) )
-        bool AutoExposure = false;
-        PROPERTY( DisplayName( "Auto Exposure Speed" ), Category( "Exposure" ), Range( 0.0f, 10.0f ) )
-        float AutoExposureSpeed = 1.5f; // higher = adapts faster
+        bool AutoExposure = true;
+        // UE AutoExposureLowPercent / HighPercent: the histogram's darkest Low % and brightest (100 - High) % are
+        // left out of the average. Clamped to 1..99 with Low <= High at use (Graphic::MakeAutoExposureWindow, UE
+        // PostProcessEyeAdaptation.cpp:607-608). Post process v1 stated 0 / 95 on older files, the window they
+        // were graded under.
+        PROPERTY( DisplayName( "Low Percent" ), Category( "Exposure" ), Range( 1.0f, 99.0f ), Units( "%" ),
+                  Tooltip( "Darkest share of the histogram left out of the average (UE Low Percent)." ) )
+        float AutoExposureLowPercent = 10.0f;
+        PROPERTY( DisplayName( "High Percent" ), Category( "Exposure" ), Range( 1.0f, 99.0f ), Units( "%" ),
+                  Tooltip( "The average stops at this share of the histogram: the brightest rest is left out." ) )
+        float AutoExposureHighPercent = 90.0f;
+        // UE AutoExposureSpeedUp / SpeedDown, stops per second: adaptation runs in log2 luminance, exponential
+        // within 1.5 stops of the target and linear beyond (PostProcessHistogramCommon.ush:222-240).
+        PROPERTY( DisplayName( "Speed Up" ), Category( "Exposure" ), Range( 0.02f, 20.0f ),
+                  Tooltip( "Adaptation speed from dark to bright (UE Speed Up), stops per second." ) )
+        float AutoExposureSpeedUp = 3.0f;
+        PROPERTY( DisplayName( "Speed Down" ), Category( "Exposure" ), Range( 0.02f, 20.0f ),
+                  Tooltip( "Adaptation speed from bright to dark (UE Speed Down), stops per second." ) )
+        float AutoExposureSpeedDown = 1.0f;
         // UE AutoExposureMinBrightness / MaxBrightness with "Extend default luminance range" (the only mode UE5
         // ships): the range the metered average may adapt over, in EV100 - luminance = 2^(EV100 - 3) cd/m^2
         // (Graphic::EV100ToLuminance). The UE defaults span night to a 100 000 lux sun, so physical light values
@@ -299,20 +326,70 @@ namespace Desert::Core
                   Tooltip( "How fully the shadow threshold holds back compression (1 = fully)." ) )
         float LocalExposureShadowThresholdStrength = 1.0f;
 
-        PROPERTY( DisplayName( "Enable Bloom" ), Category( "Bloom" ) )
-        bool EnableBloom = false; // off by default -> no glow out of the box
-        PROPERTY( DisplayName( "Bloom Threshold" ), Category( "Bloom" ), Range( 0.0f, 10.0f ) )
-        float BloomThreshold = 2.0f;
-        PROPERTY( DisplayName( "Bloom Intensity" ), Category( "Bloom" ), Range( 0.0f, 5.0f ) )
-        float BloomIntensity = 0.8f;
+        // BLOOM — UE FPostProcessSettings bloom (Scene.cpp:453-485, defaults). On when Bloom Intensity > 0 and the
+        // method's own intensity (Gaussian Intensity or Convolution Intensity) > 0 - no separate switch, as in UE
+        // (PostProcessing.cpp:862-864). Gaussian: stage N of the six (1/2 .. 1/64 of the view) is blurred by a
+        // Gaussian Bloom N Size % of the view wide (x Size Scale) and added with Bloom N Tint x 1/6 x Intensity
+        // x Gaussian Intensity (Graphic::BloomGaussian). Post process v1 turned the former Enable Bloom = false
+        // into Intensity 0.
+        PROPERTY( DisplayName( "Method" ), Category( "Bloom" ) )
+        Core::BloomMethod BloomMethod = Core::BloomMethod::Gaussian;
+        PROPERTY( DisplayName( "Intensity" ), Category( "Bloom" ), Range( 0.0f, 8.0f ),
+                  Tooltip( "Scales the whole bloom (UE Bloom Intensity); 0 turns bloom off." ) )
+        float BloomIntensity = 0.675f;
+        PROPERTY( DisplayName( "Threshold" ), Category( "Bloom" ), Range( -1.0f, 8.0f ),
+                  Tooltip( "Exposed luminance where bloom starts to fade in (UE Bloom Threshold). -1: every pixel "
+                           "blooms in proportion to its energy - the physically correct default." ) )
+        float BloomThreshold = -1.0f;
+        PROPERTY( DisplayName( "Gaussian Intensity" ), Category( "Bloom" ), Range( 0.0f, 8.0f ) )
+        float BloomGaussianIntensity = 1.0f;
+        PROPERTY( DisplayName( "Size Scale" ), Category( "Bloom" ), Range( 0.0f, 64.0f ),
+                  Tooltip( "Multiplies every Bloom N Size (UE Bloom Size Scale)." ) )
+        float BloomSizeScale = 4.0f;
+        PROPERTY( DisplayName( "#1 Tint" ), Category( "Bloom" ), Color )
+        glm::vec3 Bloom1Tint = glm::vec3( 0.3465f );
+        PROPERTY( DisplayName( "#1 Size" ), Category( "Bloom" ), Range( 0.0f, 100.0f ), Units( "%" ),
+                  Tooltip( "Gaussian width of the 1/2 stage, percent of the view width (x Size Scale)." ) )
+        float Bloom1Size = 0.3f;
+        PROPERTY( DisplayName( "#2 Tint" ), Category( "Bloom" ), Color )
+        glm::vec3 Bloom2Tint = glm::vec3( 0.138f );
+        PROPERTY( DisplayName( "#2 Size" ), Category( "Bloom" ), Range( 0.0f, 100.0f ), Units( "%" ) )
+        float Bloom2Size = 1.0f;
+        PROPERTY( DisplayName( "#3 Tint" ), Category( "Bloom" ), Color )
+        glm::vec3 Bloom3Tint = glm::vec3( 0.1176f );
+        PROPERTY( DisplayName( "#3 Size" ), Category( "Bloom" ), Range( 0.0f, 100.0f ), Units( "%" ) )
+        float Bloom3Size = 2.0f;
+        PROPERTY( DisplayName( "#4 Tint" ), Category( "Bloom" ), Color )
+        glm::vec3 Bloom4Tint = glm::vec3( 0.066f );
+        PROPERTY( DisplayName( "#4 Size" ), Category( "Bloom" ), Range( 0.0f, 100.0f ), Units( "%" ) )
+        float Bloom4Size = 10.0f;
+        PROPERTY( DisplayName( "#5 Tint" ), Category( "Bloom" ), Color )
+        glm::vec3 Bloom5Tint = glm::vec3( 0.066f );
+        PROPERTY( DisplayName( "#5 Size" ), Category( "Bloom" ), Range( 0.0f, 100.0f ), Units( "%" ) )
+        float Bloom5Size = 30.0f;
+        PROPERTY( DisplayName( "#6 Tint" ), Category( "Bloom" ), Color )
+        glm::vec3 Bloom6Tint = glm::vec3( 0.061f );
+        PROPERTY( DisplayName( "#6 Size" ), Category( "Bloom" ), Range( 0.0f, 100.0f ), Units( "%" ),
+                  Tooltip( "Gaussian width of the 1/64 stage, the widest halo." ) )
+        float Bloom6Size = 64.0f;
+        // UE Bloom Dirt Mask (PostProcessTonemap.usf:394-396): the bloom is scaled by 1 + mask x Intensity x Tint,
+        // the mask stretched over the view. None or intensity 0 = no dirt.
+        PROPERTY( DisplayName( "Dirt Mask" ), Category( "Bloom" ), Asset<TextureAsset> )
+        Assets::AssetHandle BloomDirtMask;
+        PROPERTY( DisplayName( "Dirt Mask Intensity" ), Category( "Bloom" ), Range( 0.0f, 8.0f ) )
+        float BloomDirtMaskIntensity = 0.0f;
+        PROPERTY( DisplayName( "Dirt Mask Tint" ), Category( "Bloom" ), Color )
+        glm::vec3 BloomDirtMaskTint = glm::vec3( 0.5f );
+        PROPERTY( DisplayName( "Convolution Intensity" ), Category( "Bloom" ), Range( 0.0f, 8.0f ),
+                  Tooltip( "Scales the convolution bloom (UE Bloom Convolution Intensity)." ) )
+        float BloomConvolutionIntensity = 1.0f;
         PROPERTY( DisplayName( "Lens Dispersion" ), Category( "Bloom" ), Range( 0.0f, 3.0f ) )
-        float LensDispersion = 0.0f; // chromatic rainbow fringe on the bloom halo (glare); 0 = off
-        // CONVOLUTION BLOOM (UE BloomConvolutionTexture / BloomConvolutionSize; PostProcessFFTBloom). Read only
-        // where Scalability PostProcess.BloomMethod is Convolution (Epic, Cinematic): the thresholded
-        // half-resolution scene (Bloom Threshold above) is convolved with this image in the frequency domain, so a
-        // bright source wears the kernel's shape (diffraction star, streaks, glare). The kernel's centre is the
-        // image's centre (UE's default BloomConvolutionCenterUV 0.5, 0.5); its sum is normalised to 1, so the
-        // shape, not the energy, is what the image authors. None = the tier's convolution has nothing to convolve
+        float LensDispersion = 0.0f; // ours, beyond UE: chromatic rainbow fringe on the bloom halo; 0 = off
+        // CONVOLUTION BLOOM (UE BloomConvolutionTexture / BloomConvolutionSize; PostProcessFFTBloom). Read where
+        // Method is Convolution: the bloom setup output (Threshold above) is convolved with this image in the
+        // frequency domain, so a bright source wears the kernel's shape (diffraction star, streaks, glare). The
+        // kernel's centre is the image's centre (UE's default BloomConvolutionCenterUV 0.5, 0.5); its sum is
+        // normalised to 1, so the shape, not the energy, is what the image authors. None = nothing to convolve
         // with: that view keeps the Gaussian chain and says so once ("[Bloom] method=Gaussian ... no kernel").
         PROPERTY( DisplayName( "Convolution Kernel" ), Category( "Bloom" ), Asset<TextureAsset> )
         Assets::AssetHandle BloomConvolutionKernel;

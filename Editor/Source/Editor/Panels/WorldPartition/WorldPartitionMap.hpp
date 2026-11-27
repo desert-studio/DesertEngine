@@ -15,6 +15,7 @@
 // testable (suite WorldPartitionMap).
 
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
+#include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 
 #include <glm/glm.hpp>
@@ -179,14 +180,16 @@ namespace Desert::Editor::WorldPartitionMap
     {
         None,  // no HLOD built for the cell, or the cell batches nothing
         Built, // its stored HLOD draws something and was built from the cell as it is saved now
-        Stale, // its stored HLOD is missing or was built from other records (WorldCells::StaleHLODCells)
+        Stale, // its stored HLOD is missing or was built from other inputs (WorldCells::SavedHLODStatus)
     };
 
-    // One state per cell of @p plan: Stale when @p staleUnits names its residency unit (Rules::DescribeResidencyUnit),
-    // else Built when @p builtUnits does (the stored index's rows that hold a file), else None. PURE.
-    [[nodiscard]] std::vector<HLODState> HLODCellStates( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
-                                                         std::span<const std::string>                     builtUnits,
-                                                         std::span<const std::string>                     staleUnits );
+    // One state per cell of @p plan (of @p partition), read from @p status by the cell's HLOD node name
+    // (Rules::HLODRowName - the data-layer suffix included): Built when that node is Current, Stale when it is
+    // Missing or Stale, None when no node has the name or it wants no HLOD. PURE.
+    [[nodiscard]] std::vector<HLODState>
+    HLODCellStates( const ::Desert::Core::Rules::WorldPartitionPlan&   plan,
+                    const ::Desert::Core::WorldPartitionSerialized&    partition,
+                    const ::Desert::Core::WorldCells::HLODWorldStatus& status );
 
     // The outline an HLOD state draws around its cell (None draws nothing), and its legend name.
     [[nodiscard]] glm::vec4   ColorOf( HLODState state );

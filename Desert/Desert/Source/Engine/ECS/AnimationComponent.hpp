@@ -230,6 +230,14 @@ namespace Desert::ECS
         std::shared_ptr<Animation::SkinnedLodFeedback> LodFeedback;
         Animation::AnimUpdateRate                      UpdateRate;
         uint64_t                                       ReportedUpdateRate = UINT64_MAX; // last [SkinnedLOD] anim line
+        /**
+         * @brief THE INSTANCE WAS RELOCATED THIS TICK (UE ETeleportType::TeleportPhysics on the owning actor, and
+         *        the skeletal mesh's pose refresh before the render), TRANSIENT. Set by MarkPoseTeleported, taken
+         * by AnimationECSSystem on the same tick: what the renderer reported of the old place (level, screen size,
+         * the baked crowd) is dropped, and the pose is evaluated at every bone before this tick's render, so the
+         * first frame at the new place draws a current skeletal pose.
+         */
+        bool PendingTeleport = false;
 
         // Out of line (AnimationComponent.cpp): the owned Animator is only forward-declared here, so its
         // destruction and moves are compiled where Animator.hpp is complete.
@@ -239,4 +247,9 @@ namespace Desert::ECS
         AnimationComponent& operator=( AnimationComponent&& ) noexcept;
         ~AnimationComponent();
     };
+
+    /// A relocation of `root` (a net correction beyond the smoothing distance, a respawn): every
+    /// AnimationComponent in its hierarchy refreshes its pose this tick (AnimationComponent::PendingTeleport).
+    /// Called before the scene's systems run, so AnimationECSSystem takes it before the frame is drawn.
+    void MarkPoseTeleported( entt::registry& registry, entt::entity root );
 } // namespace Desert::ECS

@@ -1,6 +1,7 @@
 #include <Engine/Libraries/AnimatorLibrary.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/AssetManager.hpp>
@@ -10,6 +11,8 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+
+#include <glm/gtc/quaternion.hpp>
 #include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/TagComponent.hpp>
 
@@ -98,6 +101,27 @@ namespace Desert::Libraries
             return {};
         }
         return Reflection::Value::Float( *value );
+    }
+
+    Reflection::Value AnimatorLibrary::BoneLocalRotation( ECS::Entity entity, const std::string& bone )
+    {
+        const auto* anim = AnimationOf( entity );
+        if ( anim == nullptr || !anim->Animator )
+        {
+            LOG_ERROR( "[Anim] boneLocalRotation('{}'): entity '{}' has no Animator (a Skinned Mesh with an "
+                       "Animation component).",
+                       bone, entity ? EntityName( entity ) : std::string() );
+            return {};
+        }
+        const std::optional<uint32_t> index = anim->Animator->GetSkeleton().FindBoneIndex( bone );
+        if ( !index )
+        {
+            LOG_ERROR( "[Anim] boneLocalRotation('{}'): the skeleton of '{}' has no such bone.", bone,
+                       EntityName( entity ) );
+            return {};
+        }
+        const glm::vec3 degrees = glm::degrees( glm::eulerAngles( anim->Animator->GetPublishedLocal( *index ).Rotation ) );
+        return Reflection::Value::Vec3( { degrees.x, degrees.y, degrees.z } );
     }
 
     bool AnimatorLibrary::IsAnimNotifyStateActive( ECS::Entity entity, const std::string& name )

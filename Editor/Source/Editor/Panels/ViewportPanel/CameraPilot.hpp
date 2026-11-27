@@ -15,64 +15,87 @@ namespace Desert::Core
 
 namespace Desert::Editor
 {
-    // ── PILOT / EJECT, AS IN UE ─────────────────────────────────────────────────────────────────────
+    // ── WHAT THIS VIEWPORT LOOKS THROUGH: PILOT AND CAMERA CUT, AS IN UE ───────────────────────────────
     //
-    // A viewport PILOTING a camera entity is locked to it: every frame the viewport shows exactly what
-    // that camera sees (Core::CameraEntityViewOf — position, orientation with roll, FOV, Near, Far), so
-    // a value changed in the Details panel moves the view the next frame. Flying the viewport
-    // (WASD, RMB-look, F, a named angle) moves the CAMERA instead of the viewport, and each stretch of
-    // motion is one undo step. Eject puts the editor camera back where it was before the session.
+    // Two lock layers, UE's FLevelEditorViewportClient ActorLockStack:
+    //   CINEMATIC  — the Level Sequence's Camera Cut in force (UE SetCinematicActorLock), set by the
+    //                Sequencer through SetCinematicCamera below;
+    //   USER       — the user's Pilot (Details button, Outliner menu, palette).
+    // The ACTIVE entity is the cinematic one when set, else the user's. While an entity is active the
+    // viewport shows exactly what that camera sees (Core::CameraEntityViewOf — position, orientation with
+    // roll, FOV, Near, Far), and flying the viewport moves the ACTIVE entity (one undo step per stretch).
     //
-    // It REPLACES the Details button that moved the editor camera to the entity once (forward only: no
-    // roll, and none of the lens), which is what the owner reported as "I change the data and the view
-    // stays the same".
+    // The editor camera's pose is saved when the first layer is set and restored when the last one is
+    // cleared — never in between, so cut → cut → pilot → cut returns to where the user was.
     //
-    // THE ORDER INSIDE ONE FRAME. The scene ticks the editor camera (user input) and renders; then this
-    // runs from the viewport's UI pass: if the camera moved since the pose this wrote last frame, the
-    // move is the user's and goes INTO the entity; either way the entity's view is then put back onto
-    // the camera. So the entity is the single source of truth and the viewport only ever proposes.
+    // Every write to the EditorCamera happens in Update: the setters only record the request. When the
+    // active entity changes (a cut switch, Begin, Eject) Update places the camera WITHOUT reading the
+    // difference as the user's flight, and calls EditorCamera::FollowEntity so the view's camera identity
+    // changes: the renderer's history reset (SceneViewState, HistoryResetReason::CameraCut) fires on its own.
     class CameraPilot
     {
     public:
-        // Start piloting @p entity from @p camera. Refuses with the reason when the entity is missing or
-        // is not a camera. Starting on another entity while one is piloted moves the session over
-        // without losing the pose to eject to.
-        [[nodiscard]] Common::BoolResultStr Begin( const ::Desert::Core::Scene& scene, const Common::UUID& uuid,
-                                                   ::Desert::Core::EditorCamera& camera );
-
-        // End the session and restore the pose the editor camera had before it. @p camera may be null
-        // (the view was closed); the session ends either way.
+        // The user layer. Refuses with the reason when the entity is missing or not a camera of @p scene.
+        // Starting on another entity while one is piloted moves the session over.
+        [[nodiscard]] Common::BoolResultStr Begin( const ::Desert::Core::Scene& scene, const Common::UUID& uuid );
+        // Clears the user layer. With no cinematic layer the next Update restores the saved pose; @p camera is
+        // the view's editor camera when the view is still open (null: the view closed, nothing to restore).
         void Eject( ::Desert::Core::EditorCamera* camera );
+
+        // The cinematic layer (nullopt clears it). An entity that is not a camera is refused by the Sequencer
+        // host already (LevelSequenceEntityHost::SetCamera); one that stops being a camera is dropped by Update
+        // with a warning, as a user pilot is.
+        void                                             SetCinematic( const std::optional<Common::UUID>& uuid );
+        [[nodiscard]] const std::optional<Common::UUID>& Cinematic() const
+        {
+            return m_Cinematic;
+        }
 
         // Once per frame while the viewport shows the editor camera.
         void Update( const ::Desert::Core::Scene& scene, ::Desert::Core::EditorCamera& camera );
 
         [[nodiscard]] bool IsActive() const
         {
-            return m_Entity.has_value();
+            return m_Cinematic.has_value() || m_User.has_value();
         }
+        [[nodiscard]] bool IsCinematic() const
+        {
+            return m_Cinematic.has_value();
+        }
+        // The user layer's entity (the Details button asks "is THIS camera piloted").
         [[nodiscard]] const std::optional<Common::UUID>& Entity() const
         {
-            return m_Entity;
+            return m_User;
         }
-        // The piloted entity's name, for the viewport's "Piloting: <name>" caption.
+        // The active entity's name, for the caption ("Camera Cut: <name>" / "Piloting: <name>").
         [[nodiscard]] const std::string& EntityName() const
         {
-            return m_EntityName;
+            return m_ShownName;
         }
 
     private:
+        [[nodiscard]] std::optional<Common::UUID> ActiveEntity() const
+        {
+            return m_Cinematic ? m_Cinematic : m_User;
+        }
         void CloseSegment();
 
-        std::optional<Common::UUID>        m_Entity;
-        std::string                        m_EntityName;
+        std::optional<Common::UUID> m_User;
+        std::optional<Common::UUID> m_Cinematic;
+
+        // What Update placed last frame (nullopt = the editor camera's own pose) and its name.
+        std::optional<Common::UUID> m_Shown;
+        std::string                 m_ShownName;
+
+        // The editor camera's pose before the first layer; valid while m_HasSaved.
+        bool                               m_HasSaved = false;
         ::Desert::Core::EditorCamera::Pose m_Saved;
 
         // The pose this wrote onto the camera last frame; a difference is the user's flight.
         glm::vec3                 m_LastPosition{ 0.0f };
         ::Desert::Core::ViewBasis m_LastBasis;
 
-        // One undo step per stretch of motion: the entity's transform when the stretch began.
+        // One undo step per stretch of motion: the shown entity's transform when the stretch began.
         bool      m_InSegment = false;
         glm::vec3 m_SegmentTranslation{ 0.0f };
         glm::vec3 m_SegmentRotation{ 0.0f };
@@ -80,10 +103,15 @@ namespace Desert::Editor
     };
 
     // The seam the Details button, the Outliner's context menu and the command palette all go through:
-    // defined by ViewportPanel.cpp, which owns the pilots, so none of those callers needs the panel's
-    // header. Pilot acts on the viewport the user is working in (ViewportPanel::ActiveViewport).
+    // defined by ViewportPanel.cpp, which owns the pilots. Pilot acts on the active viewport.
     [[nodiscard]] Common::BoolResultStr PilotCameraEntity( const Common::UUID& entity );
     [[nodiscard]] Common::BoolResultStr EjectPilot();
-    // Is any viewport piloting @p entity right now (the Details button reads it to offer Eject instead).
-    [[nodiscard]] bool IsPiloted( const Common::UUID& entity );
+    [[nodiscard]] bool                  IsPiloted( const Common::UUID& entity );
+
+    // THE SEQUENCER'S SEAM (UE: FSequencer::UpdatePreviewLevelViewportClientFromCameraCut over every level
+    // viewport client that AllowsCinematicControl). Sets the cinematic layer of every live viewport showing
+    // @p scene that allows cinematic control.
+    void SetCinematicCamera( const ::Desert::Core::Scene& scene, const Common::UUID& camera );
+    // Clears it on those viewports whose cinematic camera is @p camera (another document's cut stays).
+    void ReleaseCinematicCamera( const ::Desert::Core::Scene& scene, const Common::UUID& camera );
 } // namespace Desert::Editor

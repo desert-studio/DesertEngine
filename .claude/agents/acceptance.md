@@ -11,3 +11,5 @@ You accept a batch that is already built. One editor at a time; only through `py
 For each scenario: play it, read the log for VUID, `did not execute` and `refused`, open EVERY frame, put it next to the reference and judge each «Тогда [кадр]» on its own. Not executed, black, or not looked at is FAIL. Compare numerically (`scripts/Dev/frames_compare.py`) before you claim a difference. Read the GPU pstate and VRAM budget before reporting any timing.
 
 Report a table: code, statement, PASS/FAIL, the frame's path, for FAIL one sentence on what is visible and where, and which package's files it points to. Never edit code, settings or scenes.
+
+You play ONE scenario run (limits.ACCEPTANCE_RUNS); a repeat run is another agent. Compare frames numerically first and open each frame once; do not re-open frames you already judged. Report only the table.

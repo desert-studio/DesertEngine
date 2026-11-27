@@ -586,20 +586,20 @@ namespace Desert::Editor
     }
 
     Common::BoolResultStr SceneWorkspace::TickWorlds( const Common::Timestep& ts, PlaySession& play,
-                                                      bool shotCounting )
+                                                      bool shotCounting, const std::optional<bool> controlCounting )
     {
         ApplyCameraSpeedOnce();
-        if ( auto r = TickWorld( *m_PrimaryScene, m_RenderRegistry.get(), ts, play, shotCounting ); !r )
+        if ( auto r = TickWorld( *m_PrimaryScene, m_RenderRegistry.get(), ts, play, shotCounting, controlCounting ); !r )
             return r;
         for ( const auto& doc : m_ExtraScenes )
-            if ( auto r = TickWorld( *doc->Scene, doc->Registry.get(), ts, play, shotCounting ); !r )
+            if ( auto r = TickWorld( *doc->Scene, doc->Registry.get(), ts, play, shotCounting, controlCounting ); !r )
                 return r;
         return BOOLSUCCESS;
     }
 
     Common::BoolResultStr SceneWorkspace::TickWorld( Desert::Core::Scene& scene, Render::RenderRegistry* registry,
                                                      const Common::Timestep& ts, PlaySession& play,
-                                                     bool shotCounting )
+                                                     bool shotCounting, const std::optional<bool> controlCounting )
     {
         // Editor-only VIEW state (from EditorPreferences, not scene data) pushed per scene before it
         // records this frame: the selection outline, and — since К2 — the debug/show flags that used to be
@@ -661,6 +661,13 @@ namespace Desert::Editor
                 scene.GetWorldTime().Reset();
             }
             scene.SetPreviewRealtime( counting && !shot.PlayActive() && realtime.value_or( true ) );
+        }
+        else if ( controlCounting )
+        {
+            // The control channel's `frames N` wait (ControlService::DrivenPreviewCounting): fixed steps, so a frame
+            // shot N frames after a change shows exactly N steps of it.
+            scene.GetWorldTime().SetFixedStep( ShotOptions::PlayStepSeconds );
+            scene.SetPreviewRealtime( *controlCounting && realtime.value_or( true ) );
         }
         else
         {

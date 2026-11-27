@@ -8,6 +8,8 @@
 #include <Common/Core/Constants.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/HLODMeshBuilder.hpp>
+#include <Engine/Core/PlayerStreamingView.hpp>
 #include <Engine/Core/Serialize/PrefabExpansion.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -101,6 +103,35 @@ namespace Desert::Core
         const Rules::CellBounds& UnitBounds( const Rules::WorldPartitionPlan& plan, const std::size_t unit )
         {
             return plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Bounds;
+        }
+
+        // ONE PLAN UNDER THE HLODs (WP-HLOD-HASH): SavedHLODStatus plans the snapshot itself, and Play places its
+        // hierarchy's depth-1 nodes on the executor's cell units by index. Both are made from the same records,
+        // bounds and partition, so they cut the same units; a unit that differs is an error naming it, never a
+        // node silently drawn on another cell or dropped.
+        Common::BoolResultStr SamePlanUnits( const WorldPartitionSerialized&  partition,
+                                             const Rules::WorldPartitionPlan& judged,
+                                             const Rules::WorldPartitionPlan& streamed )
+        {
+            const std::size_t units = Rules::ResidencyUnitCount( streamed );
+            if ( Rules::ResidencyUnitCount( judged ) != units ||
+                 judged.AlwaysLoaded.size() != streamed.AlwaysLoaded.size() )
+                return Common::MakeError( std::format(
+                     "the HLOD status planned {} cell unit(s) ({} always loaded) and the streaming {} ({})",
+                     Rules::ResidencyUnitCount( judged ), judged.AlwaysLoaded.size(), units,
+                     streamed.AlwaysLoaded.size() ) );
+            for ( std::size_t unit = 0; unit < units; ++unit )
+            {
+                const std::string judgedName   = Rules::HLODRowName( partition, judged, unit );
+                const std::string streamedName = Rules::HLODRowName( partition, streamed, unit );
+                if ( judgedName != streamedName ||
+                     Rules::ResidencyUnitMembers( judged, unit ) != Rules::ResidencyUnitMembers( streamed, unit ) )
+                    return Common::MakeError(
+                         std::format( "cell unit {} is {} in the HLOD status and {} in the streaming plan, or "
+                                      "holds other records",
+                                      unit, judgedName, streamedName ) );
+            }
+            return BOOLSUCCESS;
         }
     } // namespace
 
@@ -325,146 +356,161 @@ namespace Desert::Core
                     const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
                     const std::vector<Rules::EntityDescriptor> descriptors =
                          Rules::DescribeEntities( snapshot->Entities );
-                    auto stale = WorldCells::StaleHLODCells( held->Index, *snapshot, descriptors, registries );
-                    if ( !stale )
-                        return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
-                                                          "': " + stale.GetError() );
-                    const std::set<std::string> staleUnits( stale.GetValue().begin(), stale.GetValue().end() );
-                    hlodIssues = WorldCells::StaleHLODIssues( stale.GetValue() );
-                    std::unordered_map<std::string, const WorldCells::BuiltHLODCell*> rows;
-                    for ( const WorldCells::BuiltHLODCell& row : held->Index.Cells )
-                        rows.emplace( row.Unit, &row );
-                    auto hierarchy = Rules::PlanHLODHierarchy( *partition, plan );
-                    if ( !hierarchy )
-                        return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
-                                                          "': " + hierarchy.GetError() );
-                    if ( hierarchy.GetValue().Streams() )
+                    // THE ONE ANSWER (SavedHLODStatus): a node is drawn from its saved row only when Current. A
+                    // status that cannot be made (a builder this Play has not registered, a member that does not
+                    // read) is a logged error and Play goes on without HLODs, as with none saved.
+                    auto judged = WorldCells::SavedHLODStatus( *snapshot, descriptors, &held->Index, registries,
+                                                               HLODBuilders() );
+                    if ( !judged )
                     {
-                        // THE HLOD CELLS (WP-FAR-8): every node's row, read when its HLOD cell is wanted.
-                        std::vector<const WorldCells::BuiltHLODCell*> nodeRows;
-                        // One line for every node without a current HLOD, not one per node: an edit that dirties
-                        // a layer leaves hundreds of them, and the count with the first names says the same.
-                        std::vector<std::string> withoutHLOD;
-                        for ( const Rules::HLODNode& node : hierarchy.GetValue().Nodes )
-                        {
-                            const auto row = rows.find( node.Name );
-                            if ( staleUnits.contains( node.Name ) || row == rows.end() )
-                            {
-                                withoutHLOD.push_back( node.Name );
-                                nodeRows.push_back( nullptr );
-                                continue;
-                            }
-                            if ( !node.ForHLODCell )
-                                for ( const WorldCells::IndexNotInstanced& missing : row->second->NotInstanced )
-                                    holes.push_back( missing.Reason );
-                            for ( const std::uint64_t id : row->second->Ids )
-                                if ( byId.contains( Common::UUID( id ) ) )
-                                    return Common::MakeError<Result>(
-                                         "world streaming of '" + snapshot->SceneName + "': an HLOD record of " +
-                                         node.Name + " has a record's id; rename the world" );
-                            nodeRows.push_back( row->second->File.has_value() && !row->second->Ids.empty()
-                                                     ? row->second
-                                                     : nullptr );
-                        }
-                        if ( !withoutHLOD.empty() )
+                        LOG_ERROR(
+                             "[WorldPartition] Play of '{0}' runs WITHOUT HLODs: {1}. Run Build > Build HLODs.",
+                             snapshot->SceneName, judged.GetError() );
+                        hlodIssues.push_back( WorldCells::MissingHLODsIssue( judged.GetError() ) );
+                    }
+                    else
+                    {
+                        WorldCells::HLODWorldStatus status = judged.ExtractValue();
+                        hlodIssues                         = WorldCells::OutdatedHLODIssues( status );
+                        // One line for every node without a current HLOD, not one per node: an edit that dirties a
+                        // layer leaves hundreds of them, and the count with the first names says the same.
+                        if ( const std::vector<std::string> outdated = status.OutdatedNames(); !outdated.empty() )
                         {
                             std::string named;
-                            for ( std::size_t i = 0; i < withoutHLOD.size() && i < 8; ++i )
-                                named += ( i == 0 ? "" : ", " ) + withoutHLOD[i];
-                            LOG_ERROR( "[WorldPartition] Play of '{0}': the saved HLOD of {1} node(s) is missing or "
-                                       "stale, so they have none ({2}{3}). Run Build > Build HLODs.",
-                                       snapshot->SceneName, withoutHLOD.size(), named,
-                                       withoutHLOD.size() > 8 ? ", ..." : "" );
-                        }
-                        LOG_INFO(
-                             "[WorldPartition] Play of '{0}': {1} saved HLOD(s) in {2} HLOD cell(s) from {3}, "
-                             "{4} stale",
-                             snapshot->SceneName, nodeRows.size(), hierarchy.GetValue().Cells.size(),
-                             WorldCells::BuiltHLODDirectory( scenePath ).string(), staleUnits.size() );
-                        // The HLOD residency over the saved rows' record counts, and per unit its nodes' rows in
-                        // composite order (ResidencyUnitMembers' order) for the source.
-                        std::vector<std::size_t>               counts;
-                        std::vector<std::vector<Common::UUID>> nodeIds;
-                        for ( const WorldCells::BuiltHLODCell* row : nodeRows )
-                        {
-                            counts.push_back( row == nullptr ? 0 : row->Ids.size() );
-                            std::vector<Common::UUID>& ids = nodeIds.emplace_back();
-                            if ( row != nullptr )
-                            {
-                                for ( const std::uint64_t id : row->Ids )
-                                    ids.emplace_back( id );
-                                streamer->NoteImpostorPair( row->ImpostorCards, row->ImpostorFallbacks );
-                            }
-                        }
-                        auto residency = Rules::MakeHLODResidency( *partition, hierarchy.GetValue(), counts );
-                        if ( !residency )
-                            return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
-                                                              "': " + residency.GetError() );
-                        const Rules::HLODResidency&                                r = residency.GetValue();
-                        std::vector<std::vector<const WorldCells::BuiltHLODCell*>> unitRows(
-                             Rules::ResidencyUnitCount( r.Plan ) );
-                        for ( std::size_t a = 0; a < r.Plan.AlwaysLoaded.size(); ++a )
-                            unitRows[a].push_back( nodeRows[r.Plan.AlwaysLoaded[a]] );
-                        for ( std::size_t c = 0; c < r.Plan.Cells.size(); ++c )
-                            for ( const std::size_t n : r.Plan.Cells[c].Composites )
-                                unitRows[r.Plan.AlwaysLoaded.size() + c].push_back( nodeRows[n] );
-                        std::shared_ptr<const Rules::WorldCellSource> source =
-                             std::make_shared<StoredHLODCellSource>( held, std::move( unitRows ) );
-                        Rules::HLODHierarchy streamedHierarchy = hierarchy.ExtractValue();
-                        Rules::HLODResidency streamedResidency = residency.ExtractValue();
-                        if ( auto begun = streamer->BeginHLODCells(
-                                  std::move( streamedHierarchy ), std::move( streamedResidency ),
-                                  std::move( nodeIds ), std::move( source ), holes );
-                             !begun )
-                            return Common::MakeError<Result>( begun.GetError() );
-                        streamed = true;
-                    }
-                    for ( std::size_t unit = plan.AlwaysLoaded.size();
-                          !streamed && unit < Rules::ResidencyUnitCount( plan ); ++unit )
-                    {
-                        const std::string name = Rules::HLODRowName( *partition, plan, unit );
-                        const auto        row  = rows.find( name );
-                        if ( staleUnits.contains( name ) || row == rows.end() )
-                        {
+                            for ( std::size_t i = 0; i < outdated.size() && i < 8; ++i )
+                                named += ( i == 0 ? "" : ", " ) + outdated[i];
                             LOG_ERROR(
-                                 "[WorldPartition] Play of '{0}': the saved HLOD of {1} is missing or stale, "
-                                 "so that cell has none. Run Build > Build HLODs.",
-                                 snapshot->SceneName, name );
-                            continue;
+                                 "[WorldPartition] Play of '{0}': {1} saved HLOD node(s) are outdated, so they "
+                                 "have none ({2}{3}). Run Build > Build HLODs.",
+                                 snapshot->SceneName, outdated.size(), named, outdated.size() > 8 ? ", ..." : "" );
                         }
-                        for ( const WorldCells::IndexNotInstanced& missing : row->second->NotInstanced )
-                            holes.push_back( missing.Reason );
-                        // A row without a file, or whose file lists no record, stands in for nothing.
-                        if ( !row->second->File.has_value() || row->second->Ids.empty() )
-                            continue;
-                        // Read when BeginHLODs makes it, not now (CellHLOD): the read shares `held` (this block
-                        // ends before that call); `byId` and `snapshot` outlive it.
-                        const WorldCells::BuiltHLODCell* cell = row->second;
-                        streamer->NoteImpostorPair( cell->ImpostorCards, cell->ImpostorFallbacks );
-                        hlods.push_back( CellHLOD{
-                             unit,
-                             [held, &byId, &snapshot, cell,
-                              name]() -> Common::ResultStr<std::vector<Assets::EntityData>>
-                             {
-                                 using Records = std::vector<Assets::EntityData>;
-                                 auto records  = WorldCells::StoredCellRecords( *held, *cell );
-                                 if ( !records )
-                                     return Common::MakeError<Records>( "world streaming of '" +
-                                                                        snapshot->SceneName + "', " + name + ": " +
-                                                                        records.GetError() );
-                                 for ( const Assets::EntityData& record : records.GetValue() )
-                                     if ( byId.contains( *record.id ) )
-                                         return Common::MakeError<Records>(
-                                              "world streaming of '" + snapshot->SceneName +
-                                              "': an HLOD record of " + name +
-                                              " has a record's id; rename the world" );
-                                 return records;
-                             } } );
+                        // THE ONE HIERARCHY (UE: PIE reads the HLOD actors the builder saved, it never plans them
+                        // again): Play draws status.Hierarchy, node by node, from the row its status found. Its
+                        // depth-1 nodes stand for units of the status's plan, which must be the executor's units.
+                        if ( auto agreed = SamePlanUnits( *partition, status.Plan, plan ); !agreed )
+                        {
+                            LOG_ERROR( "[WorldPartition] Play of '{0}' runs WITHOUT HLODs: {1}. Run Build > Build "
+                                       "HLODs.",
+                                       snapshot->SceneName, agreed.GetError() );
+                            hlodIssues.push_back( WorldCells::MissingHLODsIssue( agreed.GetError() ) );
+                        }
+                        else if ( status.Hierarchy.Streams() )
+                        {
+                            // THE HLOD CELLS (WP-FAR-8): every node's row, read when its HLOD cell is wanted. A
+                            // node that is not Current draws nothing (no HLOD wanted, or outdated and named
+                            // above).
+                            std::vector<const WorldCells::BuiltHLODCell*> nodeRows;
+                            for ( std::size_t n = 0; n < status.Hierarchy.Nodes.size(); ++n )
+                            {
+                                const Rules::HLODNode&            node  = status.Hierarchy.Nodes[n];
+                                const WorldCells::HLODNodeStatus& state = status.Nodes.at( n );
+                                if ( state.State != WorldCells::HLODNodeState::Current )
+                                {
+                                    nodeRows.push_back( nullptr );
+                                    continue;
+                                }
+                                if ( !node.ForHLODCell )
+                                    for ( const WorldCells::IndexNotInstanced& missing : state.Row->NotInstanced )
+                                        holes.push_back( missing.Reason );
+                                for ( const std::uint64_t id : state.Row->Ids )
+                                    if ( byId.contains( Common::UUID( id ) ) )
+                                        return Common::MakeError<Result>( "world streaming of '" +
+                                                                          snapshot->SceneName +
+                                                                          "': an HLOD record of " + node.Name +
+                                                                          " has a record's id; rename the world" );
+                                nodeRows.push_back( state.Row->File.has_value() && !state.Row->Ids.empty()
+                                                         ? state.Row
+                                                         : nullptr );
+                            }
+                            LOG_INFO(
+                                 "[WorldPartition] Play of '{0}': {1} saved HLOD(s) in {2} HLOD cell(s) from {3}, "
+                                 "{4} stale",
+                                 snapshot->SceneName,
+                                 std::ranges::count_if( nodeRows, []( const WorldCells::BuiltHLODCell* row )
+                                                        { return row != nullptr; } ),
+                                 status.Hierarchy.Cells.size(),
+                                 WorldCells::BuiltHLODDirectory( scenePath ).string(), status.Outdated() );
+                            // The HLOD residency over the saved rows' record counts, and per unit its nodes' rows
+                            // in composite order (ResidencyUnitMembers' order) for the source.
+                            std::vector<std::size_t>               counts;
+                            std::vector<std::vector<Common::UUID>> nodeIds;
+                            for ( const WorldCells::BuiltHLODCell* row : nodeRows )
+                            {
+                                counts.push_back( row == nullptr ? 0 : row->Ids.size() );
+                                std::vector<Common::UUID>& ids = nodeIds.emplace_back();
+                                if ( row != nullptr )
+                                {
+                                    for ( const std::uint64_t id : row->Ids )
+                                        ids.emplace_back( id );
+                                    streamer->NoteImpostorPair( row->ImpostorCards, row->ImpostorFallbacks );
+                                }
+                            }
+                            auto residency = Rules::MakeHLODResidency( *partition, status.Hierarchy, counts );
+                            if ( !residency )
+                                return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
+                                                                  "': " + residency.GetError() );
+                            const Rules::HLODResidency&                                r = residency.GetValue();
+                            std::vector<std::vector<const WorldCells::BuiltHLODCell*>> unitRows(
+                                 Rules::ResidencyUnitCount( r.Plan ) );
+                            for ( std::size_t a = 0; a < r.Plan.AlwaysLoaded.size(); ++a )
+                                unitRows[a].push_back( nodeRows[r.Plan.AlwaysLoaded[a]] );
+                            for ( std::size_t c = 0; c < r.Plan.Cells.size(); ++c )
+                                for ( const std::size_t n : r.Plan.Cells[c].Composites )
+                                    unitRows[r.Plan.AlwaysLoaded.size() + c].push_back( nodeRows[n] );
+                            std::shared_ptr<const Rules::WorldCellSource> source =
+                                 std::make_shared<StoredHLODCellSource>( held, std::move( unitRows ) );
+                            Rules::HLODResidency streamedResidency = residency.ExtractValue();
+                            if ( auto begun = streamer->BeginHLODCells(
+                                      std::move( status.Hierarchy ), std::move( streamedResidency ),
+                                      std::move( nodeIds ), std::move( source ), holes );
+                                 !begun )
+                                return Common::MakeError<Result>( begun.GetError() );
+                            streamed = true;
+                        }
+                        else
+                        {
+                            // Every HLOD resident with its world cell: each Current depth-1 node's row, made by
+                            // BeginHLODs for the unit it stands for.
+                            for ( const WorldCells::HLODNodeStatus& state : status.Nodes )
+                            {
+                                const Rules::HLODNode& node = status.Hierarchy.Nodes.at( state.Node );
+                                if ( node.ForHLODCell || state.State != WorldCells::HLODNodeState::Current )
+                                    continue; // no HLOD wanted, or outdated and named above
+                                for ( const WorldCells::IndexNotInstanced& missing : state.Row->NotInstanced )
+                                    holes.push_back( missing.Reason );
+                                // A row without a file, or whose file lists no record, stands in for nothing.
+                                if ( !state.Row->File.has_value() || state.Row->Ids.empty() )
+                                    continue;
+                                // Read when BeginHLODs makes it, not now (CellHLOD): the read shares `held` (this
+                                // block ends before that call); `byId` and `snapshot` outlive it.
+                                const WorldCells::BuiltHLODCell* cell = state.Row;
+                                streamer->NoteImpostorPair( cell->ImpostorCards, cell->ImpostorFallbacks );
+                                hlods.push_back( CellHLOD{
+                                     node.StandsFor,
+                                     [held, &byId, &snapshot, cell,
+                                      name = state.Name]() -> Common::ResultStr<std::vector<Assets::EntityData>>
+                                     {
+                                         using Records = std::vector<Assets::EntityData>;
+                                         auto records  = WorldCells::StoredCellRecords( *held, *cell );
+                                         if ( !records )
+                                             return Common::MakeError<Records>( "world streaming of '" +
+                                                                                snapshot->SceneName + "', " +
+                                                                                name + ": " + records.GetError() );
+                                         for ( const Assets::EntityData& record : records.GetValue() )
+                                             if ( byId.contains( *record.id ) )
+                                                 return Common::MakeError<Records>(
+                                                      "world streaming of '" + snapshot->SceneName +
+                                                      "': an HLOD record of " + name +
+                                                      " has a record's id; rename the world" );
+                                         return records;
+                                     } } );
+                            }
+                            LOG_INFO(
+                                 "[WorldPartition] Play of '{0}': {1} saved HLOD(s) from {2}, {3} stale cell(s)",
+                                 snapshot->SceneName, hlods.size(),
+                                 WorldCells::BuiltHLODDirectory( scenePath ).string(), status.Outdated() );
+                        }
                     }
-                    if ( !streamed )
-                        LOG_INFO( "[WorldPartition] Play of '{0}': {1} saved HLOD(s) from {2}, {3} stale cell(s)",
-                                  snapshot->SceneName, hlods.size(),
-                                  WorldCells::BuiltHLODDirectory( scenePath ).string(), staleUnits.size() );
                 }
             }
             if ( !streamed )
@@ -620,6 +666,39 @@ namespace Desert::Core
         return Common::MakeSuccess( std::move( streamer ) );
     }
 
+    // THE PLAYER'S STREAMING VIEW (PlayerStreamingView.hpp): the view point read as eye and forward.
+    std::optional<PlayerStreamingView> PlayerStreamingViewOf( Scene& scene )
+    {
+        const std::optional<glm::mat4> view = scene.PlayerViewPoint();
+        if ( !view.has_value() )
+            return std::nullopt;
+        PlayerStreamingView eye;
+        eye.Position = glm::vec3( ( *view )[3] );
+        eye.Facing   = -glm::vec3( ( *view )[2] );
+        return eye;
+    }
+
+    Rules::StreamingSource PlayerViewStreamingSource( const PlayerStreamingView& view )
+    {
+        // The grid's range, priority 0, no shapes: one circle of the grid's loading range at the eye.
+        Rules::StreamingSource source;
+        source.Position = view.Position;
+        source.Facing   = view.Facing;
+        return source;
+    }
+
+    float PlayerViewYawDeg( const PlayerStreamingView& view )
+    {
+        // The axis (-sin yaw, -cos yaw) on the ground: yaw = atan2(-x, -z); 0 faces -Z, +90 faces -X.
+        constexpr float kFlat = 1e-4f;
+        if ( std::abs( view.Facing.x ) < kFlat && std::abs( view.Facing.z ) < kFlat )
+            return 0.0f;
+        constexpr double kDegreesPerRadian = 180.0 / 3.14159265358979323846;
+        return static_cast<float>(
+             std::atan2( -static_cast<double>( view.Facing.x ), -static_cast<double>( view.Facing.z ) ) *
+             kDegreesPerRadian );
+    }
+
     std::vector<Rules::StreamingSource>
     WorldStreamer::GatherSources( Scene& scene, std::span<const Rules::StreamingSource> instruments,
                                   std::vector<std::uint32_t>* entities, std::vector<std::uint32_t>* withoutCamera )
@@ -675,21 +754,21 @@ namespace Desert::Core
             if ( entities != nullptr )
                 entities->push_back( static_cast<std::uint32_t>( entity ) );
         }
+        // THE PLAYER (UE's APlayerController, a streaming source provider at GetPlayerViewPoint): the player is a
+        // source where it LOOKS from whenever Play has a view - its pawn's camera, an Auto Activate camera, Play
+        // from Here's editor camera, a camera pinned from outside - whether or not it has a pawn. A pawn that must
+        // stand on loaded ground away from the view carries its own component above (PlayerStreamingView.hpp).
+        // Right after the component sources, so the keyed sources (@p entities) lead the list.
+        if ( const std::optional<PlayerStreamingView> view = PlayerStreamingViewOf( scene ) )
+        {
+            sources.push_back( PlayerViewStreamingSource( *view ) );
+            if ( entities != nullptr )
+                entities->push_back( kPlayerViewSourceKey );
+        }
         // THE PROVIDERS: sources a script states with no entity (WorldPartition.provideSource).
         if ( const auto* provided = registry.try_ctx<ProvidedStreamingSources>(); provided != nullptr )
             for ( const auto& [name, source] : provided->Sources )
                 sources.push_back( source );
-        // THE PLAYER (UE's APlayerController, a streaming source provider at GetPlayerViewPoint): with a pawn
-        // the pawn's own component above stands for it; with none - a level without a Default Pawn, played from
-        // here or through an Auto Activate camera - the player is a source where it looks from.
-        if ( scene.GetPlayerPawn() == entt::null )
-            if ( const std::optional<glm::mat4> view = scene.PlayerViewPoint() )
-            {
-                Rules::StreamingSource player;
-                player.Position = glm::vec3( ( *view )[3] );
-                player.Facing   = -glm::vec3( ( *view )[2] );
-                sources.push_back( std::move( player ) );
-            }
         sources.insert( sources.end(), instruments.begin(), instruments.end() );
         return sources;
     }
@@ -815,23 +894,69 @@ namespace Desert::Core
         return static_cast<float>( std::min( 360.0, horizontal * 180.0 / 3.14159265358979323846 ) );
     }
 
-    void WorldStreamer::StampVelocities( std::vector<Rules::StreamingSource>& sources,
-                                         std::span<const std::uint32_t> entities, double nowSeconds )
+    std::vector<WorldStreamer::SourceJump>
+    WorldStreamer::StampVelocities( std::vector<Rules::StreamingSource>& sources,
+                                    std::span<const std::uint32_t> keys, double nowSeconds )
     {
-        // UE's UWorldPartitionSubsystem::UpdateStreamingSourcesVelocity: the distance an entity's source moved
-        // since the last Tick, over the time between them. A source new this Tick has none yet.
+        // UE's UWorldPartitionSubsystem::UpdateStreamingSourcesVelocity: the distance a keyed source moved since
+        // the last Tick, over the time between them. A source new this Tick has none yet. A move of
+        // kStreamingTeleportDistanceCm or more is a TELEPORT (UE FStreamingSourceVelocity): its history is the new
+        // place and its velocity 0, so no look-ahead sweeps along the jump and the order is not bent by it.
         const double                                 elapsed = nowSeconds - m_SourcesAt;
         std::unordered_map<std::uint32_t, glm::vec3> now;
-        for ( std::size_t index = 0; index < entities.size(); ++index )
+        std::vector<SourceJump>                      jumps;
+        for ( std::size_t index = 0; index < keys.size(); ++index )
         {
-            now[entities[index]] = sources[index].Position;
-            const auto before    = m_SourcePositions.find( entities[index] );
-            if ( before != m_SourcePositions.end() && elapsed > 0.0 )
+            now[keys[index]]  = sources[index].Position;
+            const auto before = m_SourcePositions.find( keys[index] );
+            if ( before == m_SourcePositions.end() )
+                continue;
+            const float distance = glm::length( sources[index].Position - before->second );
+            if ( distance >= kStreamingTeleportDistanceCm )
+            {
+                sources[index].Velocity = glm::vec3( 0.0f );
+                jumps.push_back( { keys[index], index, before->second, distance } );
+            }
+            else if ( elapsed > 0.0 )
                 sources[index].Velocity =
                      ( sources[index].Position - before->second ) / static_cast<float>( elapsed );
         }
         m_SourcePositions = std::move( now );
         m_SourcesAt       = nowSeconds;
+        return jumps;
+    }
+
+    Common::ResultStr<std::size_t>
+    WorldStreamer::CellsHeldByTeleport( std::span<const Rules::StreamingSource> origins ) const
+    {
+        // The resident cells @p origins want and no source keeps: outside every source's range grown by
+        // UnloadMargin (the band StepResidency keeps whether or not an origin wants it), so only what the hold
+        // alone keeps is counted - the cells the next step after the hold releases.
+        if ( origins.empty() )
+            return Common::MakeSuccess( std::size_t{ 0 } );
+        const Rules::WorldPartitionPlan& plan = Plan();
+        std::vector<Rules::StreamingSource> kept( m_LastSources.begin(), m_LastSources.end() );
+        for ( Rules::StreamingSource& source : kept ) // the widening StepResidency's keptWish applies
+            source = Rules::KeptStreamingSource( source, m_Settings );
+        auto origin = Rules::QueryStreamingCells( plan, m_Partition, origins );
+        if ( !origin.IsSuccess() )
+            return Common::MakeError<std::size_t>( "the teleport origins' cells: " + origin.GetError() );
+        auto here = Rules::QueryStreamingCells( plan, m_Partition, kept );
+        if ( !here.IsSuccess() )
+            return Common::MakeError<std::size_t>( "the cells the sources keep: " + here.GetError() );
+        std::vector<bool> keptHere( plan.Cells.size(), false );
+        for ( const Rules::WantedCell& cell : here.GetValue().Cells )
+            keptHere[cell.Cell] = true;
+        std::size_t held = 0;
+        for ( const Rules::WantedCell& cell : origin.GetValue().Cells )
+        {
+            const Rules::Residency state = Residency().Units[plan.AlwaysLoaded.size() + cell.Cell].State;
+            if ( !keptHere[cell.Cell] &&
+                 ( state == Rules::Residency::Activated || state == Rules::Residency::Activating ||
+                   state == Rules::Residency::Loaded ) )
+                ++held;
+        }
+        return Common::MakeSuccess( std::move( held ) );
     }
 
     void WorldStreamer::UseSources( std::vector<Rules::StreamingSource> sources )
@@ -866,42 +991,97 @@ namespace Desert::Core
                                 .Data.SectorAngle );
         // A NETWORK CLIENT STREAMS FROM ITS OWN PLAYER ONLY (UE: on a client the local player controller's view
         // is the streaming source; NET-ARCH §4.3). The server decides what is relevant to this client from its
-        // pawn's cell, so a second source here - a level's stand-in player, a script's provider, the editor's
-        // view - would keep cells resident that the server no longer deems relevant, and the client would show
-        // a world the server stopped telling it about. While the session holds the reveal gate, the sources are
-        // the possessed pawn's (its camera rides on it), or the player's view point when it carries none.
+        // view and its pawn, so a second source here (a level's stand-in, a script's provider, the editor's view)
+        // would keep cells resident that the server no longer deems relevant, and the client would show a world
+        // the server stopped telling it about. While the session holds the reveal gate, the sources are the
+        // player's view and the components of the entities the local player owns: its pawn and the pawn's
+        // descendants (RelationshipComponent).
         if ( m_NetRevealHold )
-            if ( const entt::entity pawn = m_Scene->GetPlayerPawn(); pawn != entt::null )
+        {
+            const entt::entity    pawn          = m_Scene->GetPlayerPawn();
+            const entt::registry& registry      = m_Scene->GetRegistry();
+            const auto            ownedByPlayer = [&]( entt::entity entity )
             {
-                std::vector<Rules::StreamingSource> own;
-                std::vector<std::uint32_t>          ownEntities;
-                for ( std::size_t i = 0; i < entities.size(); ++i )
-                    if ( entities[i] == static_cast<std::uint32_t>( pawn ) )
-                    {
-                        own.push_back( std::move( gathered[i] ) );
-                        ownEntities.push_back( entities[i] );
-                    }
-                if ( own.empty() )
-                    if ( const std::optional<glm::mat4> view = m_Scene->PlayerViewPoint() )
-                    {
-                        Rules::StreamingSource player;
-                        player.Position = glm::vec3( ( *view )[3] );
-                        player.Facing   = -glm::vec3( ( *view )[2] );
-                        own.push_back( std::move( player ) );
-                    }
-                if ( own.size() != gathered.size() && !m_SaidNetOwnSources )
+                if ( pawn == entt::null )
+                    return false;
+                for ( entt::entity at = entity; at != entt::null; )
                 {
-                    m_SaidNetOwnSources = true;
-                    LOG_INFO( "[WorldStreamer] '{}': a network client streams from its own player only - {} other "
-                              "streaming source(s) of this world (level entities, script providers, the editor's "
-                              "view) are not sources while the session lasts",
-                              m_SceneName, gathered.size() - std::min( gathered.size(), own.size() ) );
+                    if ( at == pawn )
+                        return true;
+                    const auto* relation = registry.try_get<ECS::RelationshipComponent>( at );
+                    at                   = relation != nullptr ? relation->Parent : entt::null;
                 }
-                gathered = std::move( own );
-                entities = std::move( ownEntities );
+                return false;
+            };
+            std::vector<Rules::StreamingSource> own;
+            std::vector<std::uint32_t>          ownKeys;
+            for ( std::size_t i = 0; i < entities.size(); ++i )
+                if ( entities[i] == kPlayerViewSourceKey ||
+                     ownedByPlayer( static_cast<entt::entity>( entities[i] ) ) )
+                {
+                    own.push_back( std::move( gathered[i] ) );
+                    ownKeys.push_back( entities[i] );
+                }
+            if ( own.size() != gathered.size() && !m_SaidNetOwnSources )
+            {
+                m_SaidNetOwnSources = true;
+                LOG_INFO( "[WorldStreamer] '{}': a network client streams from its own player only - {} other "
+                          "streaming source(s) of this world (level entities, script providers, the editor's "
+                          "view) are not sources while the session lasts",
+                          m_SceneName, gathered.size() - own.size() );
             }
-        StampVelocities( gathered, entities, nowSeconds );
+            gathered = std::move( own );
+            entities = std::move( ownKeys );
+        }
+        // The view source appears (or comes back after a stretch with none): said once, where it looks from.
+        const auto viewAt = std::find( entities.begin(), entities.end(), kPlayerViewSourceKey );
+        if ( viewAt == entities.end() )
+            m_SaidPlayerView = false;
+        else if ( !m_SaidPlayerView )
+        {
+            m_SaidPlayerView                     = true;
+            const Rules::StreamingSource& view   = gathered[static_cast<std::size_t>( viewAt - entities.begin() )];
+            const PlayerStreamingView     looked = { view.Position,
+                                                     view.Facing.value_or( glm::vec3( 0.0f, 0.0f, -1.0f ) ) };
+            LOG_INFO(
+                 "[WorldStreamer] '{}': the player's view is a streaming source at ({:.0f}, {:.0f}, {:.0f}) cm, "
+                 "yaw {:.0f}",
+                 m_SceneName, view.Position.x, view.Position.y, view.Position.z, PlayerViewYawDeg( looked ) );
+        }
+        const std::vector<SourceJump> jumps = StampVelocities( gathered, entities, nowSeconds );
         UseSources( std::move( gathered ) );
+        m_LastSourceKeys                          = std::move( entities );
+        const std::span<const std::uint32_t> keys = m_LastSourceKeys;
+        // THE TELEPORT HOLD (PlayerStreamingView.hpp, kStreamingTeleportDistanceCm): a jumped source keeps
+        // streaming from where it left, unmoving and last in the order, until the cell under every source is
+        // resident - the destination is made before the origin is let go (UE's bBlockOnSlowStreaming waits the
+        // same way; there the origin is torn down first). One origin per source key: the place before the hold
+        // (UE holds the pre-teleport state once per teleport); a held source's later jumps add none, so no
+        // destination nobody stands on is streamed. The residency steps over the sources and these origins;
+        // the wait (AssessStreaming) and everything said about the sources reads the sources alone.
+        for ( const SourceJump& jump : jumps )
+        {
+            if ( std::find( m_TeleportOriginKeys.begin(), m_TeleportOriginKeys.end(), jump.Key ) !=
+                 m_TeleportOriginKeys.end() )
+                continue;
+            Rules::StreamingSource origin = m_LastSources[jump.Index];
+            origin.Position               = jump.From;
+            origin.Velocity               = glm::vec3( 0.0f );
+            origin.LookAheadTime          = 0.0f;
+            origin.Priority               = std::numeric_limits<int>::min();
+            m_TeleportOrigins.push_back( std::move( origin ) );
+            m_TeleportOriginKeys.push_back( jump.Key );
+        }
+        std::vector<Rules::StreamingSource> withOrigins;
+        if ( !m_TeleportOrigins.empty() )
+        {
+            withOrigins.reserve( m_LastSources.size() + m_TeleportOrigins.size() );
+            withOrigins.assign( m_LastSources.begin(), m_LastSources.end() );
+            withOrigins.insert( withOrigins.end(), m_TeleportOrigins.begin(), m_TeleportOrigins.end() );
+        }
+        const std::span<const Rules::StreamingSource> stepped =
+             m_TeleportOrigins.empty() ? std::span<const Rules::StreamingSource>( m_LastSources )
+                                       : std::span<const Rules::StreamingSource>( withOrigins );
         const std::span<const Rules::StreamingSource> sources = m_LastSources;
 
         // UE's priority level streaming: while play waits behind the overlay, activation has more of the frame.
@@ -913,9 +1093,9 @@ namespace Desert::Core
         // The HLODs switch on the state this very tick leaves, before the frame is drawn.
         // NOLINTBEGIN(bugprone-unchecked-optional-access): a streamer that began holds its HLOD switch
         auto tick = m_HLODExecutor.has_value()
-                         ? Rules::TickWithHLODs( Executor(), *m_HLODExecutor, *m_HLODResidency, *m_HLODs, sources,
+                         ? Rules::TickWithHLODs( Executor(), *m_HLODExecutor, *m_HLODResidency, *m_HLODs, stepped,
                                                  nowSeconds, *this, *m_HLODCells, *this )
-                         : Rules::TickWithHLODs( Executor(), *m_HLODs, sources, nowSeconds, *this, *this );
+                         : Rules::TickWithHLODs( Executor(), *m_HLODs, stepped, nowSeconds, *this, *this );
         // NOLINTEND(bugprone-unchecked-optional-access)
         if ( !tick )
             return Common::MakeError( "world streaming of '" + m_SceneName + "': " + tick.GetError() );
@@ -978,6 +1158,52 @@ namespace Desert::Core
                  Rules::DescribeResidencyUnit( Executor().Plan(), m_LastTick.Streaming.UnderSource ) );
         }
         m_SaidCriticalUnblocked = criticalUnblocked;
+        // The teleport hold, said and let go: held while play waits for the cell under a source, so with blocking
+        // off (Engine.json) or nothing to wait for the origins go after the one step of the jump itself.
+        const bool waiting = m_LastTick.Streaming.Blocks();
+        for ( const SourceJump& jump : jumps )
+        {
+            // This source's own origin: the cells its jump alone holds.
+            std::size_t held = 0;
+            if ( waiting )
+            {
+                const auto keyAt =
+                     std::find( m_TeleportOriginKeys.begin(), m_TeleportOriginKeys.end(), jump.Key );
+                const auto own = CellsHeldByTeleport( std::span<const Rules::StreamingSource>(
+                     &m_TeleportOrigins[static_cast<std::size_t>( keyAt - m_TeleportOriginKeys.begin() )], 1 ) );
+                if ( !own )
+                    return Common::MakeError( "world streaming of '" + m_SceneName + "': " + own.GetError() );
+                held = own.GetValue();
+            }
+            const glm::vec3& to = m_LastSources[jump.Index].Position;
+            LOG_INFO( "[WorldStreamer] '{}': streaming source {} jumped {:.0f} cm to ({:.0f}, {:.0f}, {:.0f}) cm: "
+                      "velocity reset; {} cell(s) it left are held until the cell under it is resident",
+                      m_SceneName,
+                      jump.Key == kPlayerViewSourceKey ? std::string( "the player's view" )
+                                                       : std::format( "entity {}", jump.Key ),
+                      jump.Distance, to.x, to.y, to.z, held );
+            m_TeleportHeldSaid = std::max( m_TeleportHeldSaid, held );
+        }
+        if ( !m_TeleportOrigins.empty() )
+        {
+            if ( waiting )
+                ++m_TeleportHoldFrames;
+            else
+            {
+                if ( m_TeleportHoldFrames > 0 || m_TeleportHeldSaid > 0 )
+                {
+                    const auto leave = CellsHeldByTeleport( m_TeleportOrigins );
+                    if ( !leave )
+                        return Common::MakeError( "world streaming of '" + m_SceneName + "': " + leave.GetError() );
+                    LOG_INFO( "[WorldStreamer] '{}': teleport hold released after {} frame(s): {} cell(s) leave",
+                              m_SceneName, m_TeleportHoldFrames, leave.GetValue() );
+                }
+                m_TeleportOrigins.clear();
+                m_TeleportOriginKeys.clear();
+                m_TeleportHoldFrames = 0;
+                m_TeleportHeldSaid   = 0;
+            }
+        }
         if ( Rules::ReleasesCellAssets( done ) )
         {
             Assets::AssetEvictionSchedule::Request(
@@ -985,14 +1211,16 @@ namespace Desert::Core
                  " cell(s) deactivated, " + std::to_string( done.UnitsUnloaded ) + " unloaded" );
         }
         WorldStreamingWait wait{ m_LastTick.Streaming, m_FramesWaiting, {} };
-        // The entity sources lead the gathered list, in the order of entities.
-        for ( std::size_t index = 0; index < entities.size(); ++index )
+        // The keyed sources lead the list, in the order of their keys; the view is no entity a script asks about.
+        for ( std::size_t index = 0; index < keys.size(); ++index )
         {
+            if ( keys[index] == kPlayerViewSourceKey )
+                continue;
             auto completion = Rules::AssessSourceCompletion( Executor().Plan(), m_Partition, Executor().State(),
                                                              m_LastSources[index], Executor().UnitDataLayerStates() );
             if ( !completion )
                 return Common::MakeError( "world streaming of '" + m_SceneName + "': " + completion.GetError() );
-            wait.Sources.emplace( entities[index], completion.GetValue() );
+            wait.Sources.emplace( keys[index], completion.GetValue() );
         }
         m_Scene->GetRegistry().set<WorldStreamingWait>( std::move( wait ) );
         PublishStreamingEvents();

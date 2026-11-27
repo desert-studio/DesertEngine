@@ -1,0 +1,70 @@
+# NET-TELEPORT-ENCROACH: a server teleport lands the pawn on a valid spot (UE AActor::TeleportTo ->
+# UWorld::FindTeleportSpot; AGameModeBase::RestartPlayer through the same placement). The simulation holds a pending
+# placement per pawn (Net/MeshOfOne.hpp Pawn::Pending), asks the server's world whether the destination is resident
+# (Net::IWorldResidency, ServerWorld::ResidencyAt) and the game where the capsule may stand (Net::IPawnPlacer,
+# Gameplay::FindTeleportSpot: lifted out of the ground, snapped onto the floor, refused over nothing). A falling
+# pawn never passes 4000 cm/s (Gameplay::kTerminalVelocityCmPerS).
+# Before this feature (scn-1127-020957): `teleport 1 40000 300 3000` put the capsule 276 cm under the landscape
+# (ground 576 cm) and the pawn fell for 116 s to y=-6.66e6 (server.log:1246); a teleport to (200000, 300, 3000), in
+# no cell of the grid, was accepted. The console printed nothing but "player N has no pawn".
+# Played by scripts/Dev/net_scenario.py. A's frames come from its pawn camera (--shot-player-view): the landing is what
+# A sees. A sprints +X; its scripted walk ends at 300 m (server position), and the teleports come after it stopped, so
+# no input moves the landed pawn and the residency union 5 s later must hold the very spot. B joins only then, so
+# every pawn-1 velocity B ever receives is after the walk (a non-zero one is the slide of D4).
+# Net coordinates are Y-up (X, Y, Z), cm.
+Мир Content/Scenes/WP_Protocol.desce
+# The spawn points are the ground (feet, cm): the placer measured the floor 98 cm under (0, -300, 1150) and 127 cm
+# under (500, -300, -200) (NET-TELEPORT-ENCROACH scn-1127-050216 server.log "point free, floor N cm below it"), so a pawn spawns standing.
+Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-398,1150 --spawn 500,-427,-200 --steps 864000
+Ждать server 60 \[Server\] listening on port
+Роль A editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --shot-player-view --quality PostProcess.MotionBlurQuality=0 --net-walk-cm 30000 --net-walk-dir 1,0,0 --net-walk-mode sprint
+Ждать A 1800 \[Net\] in session
+# 1. The spawn goes through the placer: the pawn is set onto the floor at (0, -398, 1150) (the floor 98 cm under
+# (0, -300, 1150), scn-1127-050216/server.log) and the server's line names how it was found.
+Ждать server 60 player 1 \(account 1\): pawn net id 1 spawned
+Ждать server 60 player 1: pawn 1 spawned onto \(0, -3[0-9]\d, 1150\) cm: .*(free|lifted|snapped)
+# The scripted sprint ends (300 m of server position).
+Ждать A 900 \[Net\] walked \d+ cm \(server position\): stopping
+Роль B bot account=2 lag=75 loss=2 --seconds 1500
+Ждать server 120 player 2 \(account 2\): pawn net id \d+ spawned
+# 2. Teleport into the ground: (40000, 300, 3000) is 276 cm under the landscape (576 cm). The capsule is lifted onto
+# the surface (feet = ground + 2 cm skin), Grounded, velocity zero.
+Консоль server teleport 1 40000 300 3000
+Ждать server 120 player 1: pawn 1 teleported to \(40000, 5[6-9]\d, 3000\) cm: .*lifted 2\d\d cm
+# The own client takes the position AND the zero velocity (NET-TELEPORT-VELOCITY).
+Ждать A 120 correction \d+ at input step \d+: the server has the own pawn at \(40000\.0, 5[6-9]\d\.\d, 3000\.0\) cm.*server v \(0, 0, 0\)
+Тогда A tp_ground the frame of that correction tick from A's pawn camera: the landscape surface under the camera and the horizon in front - not the terrain's underside, not a void; the view is at standing height
+# Two seconds later (120 recorded frames at one shot per frame, 60 Hz).
+Ждать A 30 fresh 120x \[Shot\] recorded frame_
+Тогда A tp_ground_next the frame two seconds later, same camera: the same ground and horizon, the view at the same height - the pawn stands
+# The residency union 5 s later holds the same spot; the pawn never fell.
+Ждать server 400 player 1 account 1 \(40000, 5[6-9]\d, 3000\)
+Нет server teleported to \(40000, -
+# 2b. The proxy sees no slide (D4): B's probe prints, per pawn, the sampled position and the velocity of the newest
+# received snapshot (Tools/DesertNetProbe: " <id>=(x,y,z) v (vx, vy, vz) cm/s", {:.0f}, so |v| < 1 prints 0 or -0).
+# Pawn 1 is remote to B (no '*'): at the destination its replicated horizontal velocity is zero.
+Ждать B 120 \] t=\S+ pawns.* 1=\(40000,5[6-9]\d,3000\) v \(-?0, -?\d+, -?0\) cm/s
+# [teleport_velocity_zero] is these two log lines, not a frame: B is a bot and draws none (net_scenario.py refuses a
+# Тогда on it).
+Нет B \] t=\S+ pawns.* 1=\(40000,5[6-9]\d,3000\) v \((-?[1-9]\d*, \S+, \S+|\S+, \S+, -?[1-9]\d*)\) cm/s
+# 3. Teleport over nothing: (200000, 3000) is in no cell of the world's grid. PawnSimulation::Teleport refuses it at
+# the request (Net/MeshOfOne.cpp) - nothing is queued, the placer is never asked - and the console prints the reason.
+Консоль server teleport 1 200000 300 3000
+Ждать server 120 console 'teleport 1 200000 300 3000': no cell of the world's grid at \(200000, 3000\) cm: the pawn stays at \(40000, 5[6-9]\d, 3000\) cm
+Нет server teleport of pawn 1 to \(200000
+Ждать server 400 player 1 account 1 \(40000, 5[6-9]\d, 3000\)
+Ждать A 60 fresh \[Shot\] recorded frame_
+Тогда A tp_refused A's frame after the server line: the same ground and horizon as tp_ground_next; no cut, no correction
+Нет A correction 3 at
+# 3b. Teleport above every cell (NET-RESIDENCY-HEIGHT-OUTCOME): (40000, 3000) is in cells of the grid, but y = 10 km is
+# past their content height grown by the search's column (lift / drop), so ServerWorld::ResidencyAt's height check
+# says NoCell and states WHY (Net::PointResidency::Note: the cells there and the y span they reach); Teleport refuses
+# with that reason and nothing is queued. [teleport_search_nodefault] is these log lines: no default height, no
+# fallback placement.
+Консоль server teleport 1 40000 1000000 3000
+Ждать server 120 console 'teleport 1 40000 1000000 3000': no cell of the world's grid reaches \(40000, 1000000, 3000\) cm: the \d+ cell\(s\) at \(40000, 3000\) cm reach y -?\d+ to -?\d+ cm \(content height, lifted \d+ / dropped \d+ cm by the search\): the pawn stays at \(40000, 5[6-9]\d, 3000\) cm
+Нет server teleport of pawn 1 to \(40000, 1000000
+# 4. Proxies see no slide (D4): proven at 2b on B's pawns line.
+# 5. Terminal velocity / no fall: the client's streaming source never sees a >1000 cm per-frame move after the landing
+# (scn-1127-020957/A.log:3762 "jumped 1060 cm ... velocity reset" every ~0.2 s of the fall).
+Нет A jumped 1\d\d\d cm to \(40000

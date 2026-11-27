@@ -467,7 +467,7 @@ namespace Desert::Animation
         else
         {
             Timeline::Binding created;
-            created.Guid = Timeline::BindingGuid::ForObject( Timeline::BindingKind::Bone, bone );
+            created.Guid = Timeline::BindingGuid::ForBone( {}, bone );
             // The derived GUID is an identity only while no other binding holds it: a bone renamed away
             // from `bone` keeps the GUID derived from its OLD name, so a new binding to a bone that now
             // carries that old name would collide with it. Mint a fresh one then (GUIDs are minted once,

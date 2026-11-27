@@ -5,11 +5,12 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 76,
+            "PPRO": 1,
+            "SCNE": 77,
             "UNIT": 1,
             "WPAR": 14
         },
-        "Dependencies": ["8884199cca56479eb74dbb6bc00eaccc", "b358cba8e789c9745c4a129ddb82795b", "b6d4fee95b042ebf87fed0333d18e59b", "d8b10d8894994f29b2ae8a5b595cd531"]
+        "Dependencies": []
     },
     "Name": "Pawn_Player",
     "Entities": [
@@ -47,6 +48,23 @@
                         "Props": []
                     }
                 ]
+            },
+            "StreamingSource": {
+                "Enabled": true,
+                "OverrideLoadingRange": true,
+                "LoadingRange": 6400.0,
+                "Priority": -1,
+                "IsSector": false,
+                "SectorAngle": 360.0,
+                "SectorAngleFromCamera": false,
+                "ShapeOffset": [0.0, 0.0, 0.0],
+                "ShapeYaw": 0.0,
+                "UseVelocityForSorting": false,
+                "TargetGrids": [],
+                "TargetHLODLayers": [],
+                "TargetBehavior": 0,
+                "LookAheadTime": 0.0,
+                "MaxLookAhead": 100000.0
             }
         },
         {

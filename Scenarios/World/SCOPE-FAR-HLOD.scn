@@ -21,29 +21,106 @@
 Дано wait-idle 2400
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
+Тогда wp_index LAND-BACKLOG3: the world loads from its descriptor index - World Partition panel lists the cells; log: no "has no descriptor index" and no "Descriptors.dedesc is stale" for WP_Protocol (__ExternalEntities__/WP_Protocol/Descriptors.dedesc, EntityDescriptorIndex, 603 rows)
 Дано set 9000001 StreamingSourceData.Enabled false
 Дано set 9000003 StreamingSourceData.Enabled true
 Дано set 1003 CameraData.Far 800000
 Когда run Mode "Select mode"
 Когда run Action "Play from Here"
-Когда advance 10
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 0,40000,-60000
 Когда --subject viewport set Camera.Direction 0,-0.6,1
 Когда advance 2
 Тогда far_hlod_centre центр (флаер над X=0): здания вокруг центра настоящие, весь город до края 1 км - HLOD_Main (инстансы), без дыр; лог: 16 HLOD_Main loaded at the start of Play
-Когда advance 40
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 180000,30000,0
 Когда --subject viewport set Camera.Direction -1,-0.2,0
 Когда advance 2
 Тогда far_hlod_mid 1.8 км к +X: ближняя колонка (X 0.5-1 км) - HLOD_Main, дальние 3/4 города - слитые блоки HLOD_Main_Far, на границе колонок ни дыры, ни двойного; лог: 12 x HLOD_Main(x<1) unloaded
-Когда advance 40
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 500000,50000,0
 Когда --subject viewport set Camera.Direction -1,-0.1,0
 Когда advance 2
 Тогда far_hlod_far 5 км: весь город виден мелко - 16 блоков HLOD_Main_Far, ни одной ячейки Main/HLOD_Main; лог: последние 4 HLOD_Main(1,z) unloaded
-Когда advance 40
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 0,40000,-60000
 Когда --subject viewport set Camera.Direction 0,-0.6,1
-Когда advance 5
+Когда advance 2
+Когда advance 2
+Когда advance 1
 Тогда far_hlod_back снова центр: тот же вид, что far_hlod_centre (без двойной отрисовки); лог: 16 x HLOD_Main loaded, N HLOD record(s), затем Main cells loaded
+# WP-FAR-13 (proof by WP-PROOF-1126): the far shadow cascade (UE r.Shadow.FarShadow*) - one more level past the
+# cascades' Shadows.Distance out to Shadows.FarDistance (Scalability.json: Low 0 = none, Medium 50000, High the
+# default 100000), the HLOD/far meshes its casters, sampled where every cascade has run out. Control: Shadows Low
+# (FarDistance 0) shows where the cascades end.
+Когда run Quality "Quality: Shadows High"
+Когда --subject viewport set Camera.Position 0,4000,-60000
+Когда --subject viewport set Camera.Direction 0,-0.12,1
+Когда advance 2
+Тогда far_cascade WP-FAR-13: terrain 150-600 m in front shows sun shadows from the HLOD hills and blocks, continuous with the near cascades' shadows, no shadow cut-off line; log: no "[Shadows] far cascade of shadow slot ... is not cached - redrawn every frame"
+Когда run Quality "Quality: Shadows Low"
+Когда advance 2
+Тогда far_cascade_low control: the same view with FarDistance 0 - shadows end at the cascades' distance in a visible line, the terrain beyond unshadowed (the difference to far_cascade is the far cascade)
+Когда run Quality "Quality: Shadows High"
 Когда run Action "Stop"

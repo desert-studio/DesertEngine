@@ -1,4 +1,6 @@
 #include "Replication.hpp"
+#include "InputWire.hpp"
+#include "WireCodec.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -10,140 +12,8 @@ namespace Desert::Net
 {
     namespace
     {
-        // Little-endian on the wire, whatever the host.
-        class Writer
-        {
-        public:
-            explicit Writer( EReplicationMessage type )
-            {
-                U8( static_cast<std::uint8_t>( type ) );
-            }
-            void U8( std::uint8_t value )
-            {
-                m_Out.push_back( static_cast<std::byte>( value ) );
-            }
-            void U32( std::uint32_t value )
-            {
-                for ( int i = 0; i < 4; ++i )
-                    m_Out.push_back( static_cast<std::byte>( ( value >> ( 8 * i ) ) & 0xFFu ) );
-            }
-            void F32( float value )
-            {
-                U32( std::bit_cast<std::uint32_t>( value ) );
-            }
-            void U64( std::uint64_t value )
-            {
-                U32( static_cast<std::uint32_t>( value & 0xFFFFFFFFu ) );
-                U32( static_cast<std::uint32_t>( value >> 32 ) );
-            }
-            void Str( std::string_view text ) // u8 length: keys and field names are short
-            {
-                U8( static_cast<std::uint8_t>( std::min<std::size_t>( text.size(), 255 ) ) );
-                for ( std::size_t i = 0; i < text.size() && i < 255; ++i )
-                    m_Out.push_back( static_cast<std::byte>( text[i] ) );
-            }
-            [[nodiscard]] std::size_t Size() const
-            {
-                return m_Out.size();
-            }
-            void Vec( const NetVec3& v )
-            {
-                F32( v.X );
-                F32( v.Y );
-                F32( v.Z );
-            }
-            void Pawn( const PawnState& pawn )
-            {
-                U32( pawn.Id );
-                Vec( pawn.Position );
-                F32( pawn.Yaw );
-                Vec( pawn.Velocity );
-                U8( pawn.Movement );
-                U8( pawn.TeleportCount );
-            }
-            std::vector<std::byte> Take()
-            {
-                return std::move( m_Out );
-            }
-
-        private:
-            std::vector<std::byte> m_Out;
-        };
-
-        class Reader
-        {
-        public:
-            Reader( std::span<const std::byte> data, EReplicationMessage type ) : m_Data( data )
-            {
-                std::uint8_t first = 0;
-                m_Ok               = U8( first ) && first == static_cast<std::uint8_t>( type );
-            }
-            bool U8( std::uint8_t& value )
-            {
-                if ( m_At + 1 > m_Data.size() )
-                    return m_Ok = false;
-                value = static_cast<std::uint8_t>( m_Data[m_At++] );
-                return true;
-            }
-            bool U32( std::uint32_t& value )
-            {
-                if ( m_At + 4 > m_Data.size() )
-                    return m_Ok = false;
-                value = 0;
-                for ( int i = 0; i < 4; ++i )
-                    value |= static_cast<std::uint32_t>( m_Data[m_At + i] ) << ( 8 * i );
-                m_At += 4;
-                return true;
-            }
-            bool F32( float& value )
-            {
-                std::uint32_t bits = 0;
-                if ( !U32( bits ) )
-                    return false;
-                value       = std::bit_cast<float>( bits );
-                return m_Ok = m_Ok && std::isfinite( value );
-            }
-            bool Vec( NetVec3& v )
-            {
-                return F32( v.X ) && F32( v.Y ) && F32( v.Z );
-            }
-            bool U64( std::uint64_t& value )
-            {
-                std::uint32_t low = 0, high = 0;
-                if ( !U32( low ) || !U32( high ) )
-                    return false;
-                value = ( static_cast<std::uint64_t>( high ) << 32 ) | low;
-                return true;
-            }
-            bool Str( std::string& text )
-            {
-                std::uint8_t length = 0;
-                if ( !U8( length ) || m_At + length > m_Data.size() )
-                    return m_Ok = false;
-                text.assign( reinterpret_cast<const char*>( m_Data.data() + m_At ), length );
-                m_At += length;
-                return !text.empty() || ( m_Ok = false );
-            }
-            bool Pawn( PawnState& pawn )
-            {
-                return U32( pawn.Id ) && Vec( pawn.Position ) && F32( pawn.Yaw ) && Vec( pawn.Velocity ) &&
-                       U8( pawn.Movement ) && U8( pawn.TeleportCount );
-            }
-            // Whole message read, nothing left over.
-            [[nodiscard]] bool Done() const
-            {
-                return m_Ok && m_At == m_Data.size();
-            }
-            [[nodiscard]] bool Ok() const
-            {
-                return m_Ok;
-            }
-
-        private:
-            std::span<const std::byte> m_Data;
-            std::size_t                m_At = 0;
-            bool                       m_Ok = true;
-        };
+        using Wire::Reader;
+        using Wire::Writer;
 
         // Snapshot pawn count bound: a malformed count must not make the decoder reserve gigabytes.
         constexpr std::uint32_t kMaxSnapshotPawns = 4096;
@@ -164,25 +34,13 @@ namespace Desert::Net
     std::vector<std::byte> EncodeInput( const InputMessage& message )
     {
         Writer out( EReplicationMessage::Input );
-        static_assert( kMaxUnackedInputSteps <= 255, "the step count is one byte" );
         out.U32( message.Sequence );
-        // Every step the message holds - the client's ring (Replication.hpp kMaxUnackedInputSteps) never holds
-        // more; past it only a lost session's oldest steps go, as the ring itself drops them.
-        const std::size_t count = std::min( message.Steps.size(), kMaxUnackedInputSteps );
-        out.U8( static_cast<std::uint8_t>( count ) );
-        for ( std::size_t i = message.Steps.size() - count; i < message.Steps.size(); ++i )
-        {
-            out.U32( message.Steps[i].Step );
-            out.Vec( message.Steps[i].Move );
-            out.F32( message.Steps[i].Yaw );
-            // The pawn's declared action set, opaque (Replication.hpp InputStep): the bits, then the axes.
-            out.U32( message.Steps[i].Actions );
-            const std::size_t axes = std::min( message.Steps[i].Axes.size(), kMaxInputAxes );
-            out.U8( static_cast<std::uint8_t>( axes ) );
-            for ( std::size_t a = 0; a < axes; ++a )
-                out.F32( message.Steps[i].Axes[a] );
-        }
-        return out.Take();
+        // Every step the message holds, as one run (InputWire.hpp); a run the codec refuses (not consecutive, too
+        // long, too many axes) sends nothing - the empty buffer is the refusal, the caller reports it.
+        std::vector<std::byte> bytes = out.Take();
+        if ( !AppendInputRun( bytes, message.Steps ) )
+            return {};
+        return bytes;
     }
 
     std::vector<std::byte> EncodeSnapshot( const SnapshotMessage& message )
@@ -200,8 +58,11 @@ namespace Desert::Net
             out.U8( message.InputBuffered );
         }
         out.U32( static_cast<std::uint32_t>( message.Pawns.size() ) );
-        for ( const PawnState& pawn : message.Pawns )
-            out.Pawn( pawn );
+        for ( const SnapshotEntry& entry : message.Pawns )
+        {
+            out.Pawn( entry.Pawn );
+            out.U8( entry.PeriodSteps );
+        }
         return out.Take();
     }
 
@@ -231,24 +92,16 @@ namespace Desert::Net
 
     std::optional<InputMessage> DecodeInput( std::span<const std::byte> data )
     {
-        Reader       in( data, EReplicationMessage::Input );
-        InputMessage message;
-        std::uint8_t count = 0;
-        if ( !in.U32( message.Sequence ) || !in.U8( count ) || count == 0 || count > kMaxUnackedInputSteps )
+        // The message head (type, sequence), then the run to the end of the message (InputWire.hpp).
+        constexpr std::size_t kHeadBytes = 1 + sizeof( std::uint32_t );
+        if ( data.size() < kHeadBytes )
             return std::nullopt;
-        message.Steps.resize( count );
-        for ( InputStep& step : message.Steps )
-        {
-            std::uint8_t axes = 0;
-            if ( !in.U32( step.Step ) || !in.Vec( step.Move ) || !in.F32( step.Yaw ) || !in.U32( step.Actions ) ||
-                 !in.U8( axes ) || axes > kMaxInputAxes )
-                return std::nullopt;
-            step.Axes.resize( axes );
-            for ( float& axis : step.Axes )
-                if ( !in.F32( axis ) )
-                    return std::nullopt;
-        }
-        if ( !in.Done() )
+        Reader       in( data.first( kHeadBytes ), EReplicationMessage::Input );
+        InputMessage message;
+        if ( !in.U32( message.Sequence ) || !in.Done() )
+            return std::nullopt;
+        std::span<const std::byte> run = data.subspan( kHeadBytes );
+        if ( !ReadInputRun( run, message.Steps ) || !run.empty() )
             return std::nullopt;
         return message;
     }
@@ -273,9 +126,9 @@ namespace Desert::Net
         if ( !in.U32( count ) || count > kMaxSnapshotPawns )
             return std::nullopt;
         message.Pawns.resize( count );
-        for ( PawnState& pawn : message.Pawns )
-            if ( !in.Pawn( pawn ) )
-                return std::nullopt;
+        for ( SnapshotEntry& entry : message.Pawns )
+            if ( !in.Pawn( entry.Pawn ) || !in.U8( entry.PeriodSteps ) || entry.PeriodSteps == 0 )
+                return std::nullopt; // a period of 0 steps is no period: the entry is malformed
         if ( !in.Done() )
             return std::nullopt;
         return message;
@@ -402,7 +255,7 @@ namespace Desert::Net
             m_Samples.pop_front();
     }
 
-    PawnState InterpolationBuffer::Sample( double serverSeconds ) const
+    PawnState InterpolationBuffer::Sample( double serverSeconds, double extrapolationCap ) const
     {
         if ( m_Samples.empty() )
             return {};
@@ -413,12 +266,12 @@ namespace Desert::Net
             // Past the newest snapshot (a late or lost one): on along the newest velocity, capped, then held still.
             const PawnState& newest = m_Samples.back().State;
             const double     ahead  = serverSeconds - m_Samples.back().Time;
-            const float      dt     = static_cast<float>( std::min( ahead, kMaxExtrapolationSeconds ) );
+            const float      dt     = static_cast<float>( std::min( ahead, extrapolationCap ) );
             PawnState        out    = newest;
             out.Position.X += newest.Velocity.X * dt;
             out.Position.Y += newest.Velocity.Y * dt;
             out.Position.Z += newest.Velocity.Z * dt;
-            if ( ahead > kMaxExtrapolationSeconds )
+            if ( ahead > extrapolationCap )
                 out.Velocity = {}; // held: the locomotion stands rather than walking on the spot
             return out;
         }

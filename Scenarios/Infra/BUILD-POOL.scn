@@ -1,0 +1,15 @@
+# BUILD-POOL: one build pool per machine (Tools/BuildPool) -- several trees build side by side instead of in a queue.
+# Infrastructure: no editor frames; a "frame" is a step proven by the numbers of <home>/runs.tsv, <home>/ledger.tsv,
+# <home>/daemon.log and the build logs. Home S:/BuildPool (BUILDPOOL_HOME); builds through scripts/Dev/pool.sh run.
+# Reference side by side: T1 = 1792 s (clean win-dev, 1911 objects); a queue of K builds = the sum of their times.
+# Numbers that must hold: solo <= 1.03 x T1; pair <= 1.25 x T1; handin <= 0.5 x the queue; commit peak <= 38.6 GiB -
+# 3.2 GiB; 0 memory refusals; scripts/Dev/arch_census.py does not rise.
+Дано state
+Тогда bootstrap configure с BUILDPOOL_HOME=S:/BuildPool проходит; buildpool status отвечает; в build.ninja каждое правило компиляции и каждое правило линковки (включая vs_link_exe и архивы) проходит через buildpool; <tree>/build/cmake лежит на S: (pool.sh attach)
+Тогда solo одна чистая сборка через пул: rc=0, wall <= 1.03 x T1 (<= 1846 с); в ledger.tsv >= 1900 строк с пиком > 0; max_running <= 11
+Тогда pair два дерева одной ревизии, классы разные, кэш пуст, старт одновременно: обе rc=0; общий wall <= 1.25 x T1 (<= 2240 с; очередь = 3584 с); сумма настоящих компиляций <= 1.1 x 1911 (остальное — cache_reruns); peak_commit_used_mb <= commit limit - reserve; 0 строк C1060 / LNK1327 / C1076 в логах
+Тогда handin три дерева агентов (инкрементальная сборка после правки одного модуля) + чистая int-сборка лида, старт одновременно: каждая агентская <= 2 x своего solo; лид <= 1.2 x своего solo; сумма задержек сдачи (от старта до rc=0 каждой) <= 0.5 x той же суммы при очереди
+Тогда four четыре чистые сборки разных ревизий сразу: все rc=0; max_running <= 11; min_headroom_mb >= reserve/2; Kernel-Power 41 и Resource-Exhaustion 2004 за время шага — 0
+Тогда mispredict ledger.tsv удалён, reserve_mb поднят до половины RAM, две сборки сразу: обе rc=0; вытеснения допустимы и видны в daemon.log; ни одной упавшей задачи
+Тогда daemon_kill демон завершён по PID посреди двух сборок: обе rc=0; buildpool status показывает новый демон; идущие компиляции не перезапускались
+Тогда mac шаги bootstrap и pair на macOS (clang, ccache_launcher.sh как CACHE_WRAPPER) с теми же числами относительно mac-T1

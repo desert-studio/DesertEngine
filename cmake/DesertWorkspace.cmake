@@ -98,23 +98,18 @@ if(APPLE)
     set(CMAKE_OBJCXX_FLAGS_DEVELOPMENT "${CMAKE_CXX_FLAGS_DEVELOPMENT}" CACHE STRING "" FORCE)
     set(CMAKE_OBJCXX_FLAGS_SHIPPING    "${CMAKE_CXX_FLAGS_SHIPPING}" CACHE STRING "" FORCE)
 endif()
-# ── THE PROCESS ALLOCATOR AND THE LINK POOLS ──
+# ── THE PROCESS ALLOCATOR ──
 # UE: FMallocMimalloc / FMallocBinned as the process allocator. MSVC only.
 #   DESERT_MIMALLOC  mimalloc.dll + mimalloc-redirect.dll as the process allocator of the executables marked
 #                    desert_link_mimalloc (Editor, Runtime, DesertCtl) in Development and Shipping. DebugGame keeps
 #                    the debug CRT heap: the redirect patches ucrtbase.dll, which a /MDd process does not allocate from.
 # Whole-program optimisation is not a switch: it is what Shipping is (/GL on the desert_ltcg runtime libraries, /LTCG on
 # the link); no other configuration pays for it.
-# Link pools (Ninja): an executable links alone (desert_link_exe=1: Editor.exe holds every object of the editor, and two
-# such links beside the compile ran out of memory, LNK1327, ledger 11-24); module DLLs and libraries link three at a
-# time (desert_link_dll=3). Compiles keep running beside both. desert_finalize_targets() puts every executable in
-# desert_link_exe.
+# How many links run at once is the machine's build pool's decision (Tools/BuildPool, buildpool_enable in
+# CMakeLists.txt: admission by each link's measured memory), not a per-tree Ninja pool: Editor.exe holds every object of
+# the editor, and two such links beside the compile ran out of memory (LNK1327, ledger 11-24).
 if(MSVC)
     option(DESERT_MIMALLOC "MSVC: mimalloc + mimalloc-redirect as the process allocator (Development, Shipping)" ON)
-endif()
-if(CMAKE_GENERATOR MATCHES "Ninja")
-    set_property(GLOBAL APPEND PROPERTY JOB_POOLS desert_link_exe=1 desert_link_dll=3)
-    set(CMAKE_JOB_POOL_LINK desert_link_dll)
 endif()
 
 # ── THE INSTRUCTION SET (CPU-SIMD) ─────────────────────────────────────────────
@@ -697,10 +692,6 @@ function(desert_finalize_targets)
         get_target_property(_type ${target} TYPE)
         if(_type STREQUAL "INTERFACE_LIBRARY" OR _type STREQUAL "UTILITY")
             continue()
-        endif()
-        # An executable links alone (desert_link_exe, see THE LINK POOLS).
-        if(MSVC AND _type STREQUAL "EXECUTABLE")
-            set_property(TARGET ${target} PROPERTY JOB_POOL_LINK desert_link_exe)
         endif()
         get_target_property(_ascii ${target} DESERT_ASCII)
         if(DESERT_IS_WINDOWS AND NOT _ascii)

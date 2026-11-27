@@ -17,6 +17,7 @@
 #include <Engine/Graphic/Systems/Scene/Deferred/SubsurfaceRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Fog/VolumetricFogRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Fog/HeterogeneousVolumeRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Translucency/RayTracedTranslucency.hpp>
 #include <Engine/Graphic/Systems/Scene/Translucency/TranslucencyLightingVolume.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
@@ -223,6 +224,8 @@ namespace Desert::Editor
         // ShippedByCook refuses the miss by name):
         //   the tracing consumers   under every tracer permutation (GlobalIllumination::kTracerPermutations):
         //                           WorldRadianceCache, SurfaceCacheRenderer, SSRRenderer ProgramVariants;
+        //   the traced refraction   RayTracedTranslucencyRenderer ProgramVariants (its one tracer, both
+        //                           reorder values);
         //   the untraced systems    DeferredLightingRenderer, TemporalAA, TemporalSuperResolution,
         //                           TerrainRenderer, VolumetricFogRenderer ProgramVariants
         //                           (and SSR's untraced front layer in SSRRenderer's);
@@ -253,6 +256,7 @@ namespace Desert::Editor
             append( GI::ReSTIRGather::ProgramVariants() );
             append( Graphic::SurfaceCache::SurfaceCacheRenderer::ProgramVariants() );
             append( Graphic::System::SSRRenderer::ProgramVariants() );
+            append( Graphic::System::RayTracedTranslucencyRenderer::ProgramVariants() );
             append( Graphic::System::DeferredLightingRenderer::ProgramVariants() );
             append( Graphic::System::SSAORenderer::ProgramVariants() );
             append( Graphic::System::SubsurfaceRenderer::ProgramVariants() );

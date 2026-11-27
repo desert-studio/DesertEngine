@@ -8,6 +8,8 @@
 // and `<project>/.thumbnail.png` for the launcher tile. A member of EditorLayer BY VALUE, declared after the
 // SceneWorkspace whose active scene it reads.
 
+#include "Editor/LevelEditor/ShotDirector.hpp" // ShotDirector::RecordedFrame (WriteShotPng)
+
 #include <Engine/Graphic/SwapChain.hpp> // the shot's capture ticket (WindowPngWrite)
 
 #include <chrono>
@@ -28,16 +30,23 @@ namespace Desert::Editor
         {
         }
 
-        // Read the resolved viewport back off the GPU and write it to @p path as a PNG, creating the parent
-        // directory if it is missing. False on any failure, always with the reason logged.
+        // Read the resolved viewport back off the GPU NOW and write it to @p path as a PNG, creating the parent
+        // directory if it is missing. False on any failure, always with the reason logged. Only for a picture
+        // that names no frame (F9, the control channel's `shot.viewport`): a capture frame is WriteShotPng.
         bool WriteViewportPng( const std::string& path );
 
-        // `--shot-hdr`: view 0's HDR scene colour as the renderer holds it - before eye adaptation, tonemap, the
-        // sRGB encode and the 8-bit quantisation, in pre-exposed units (scene radiance x the frame's
+        // A FRAME OF THE CAPTURE: writes @p frame's own pixels (the copy recorded in its submission,
+        // RecordedFrame::Pixels) to @p path. Refused, with the reason logged, when the frame has no copy or the
+        // copy has not completed - never a live read in its place.
+        bool WriteShotPng( const std::string& path, const ShotDirector::RecordedFrame& frame );
+
+        // `--shot-hdr`: view 0's HDR scene colour as the renderer held it IN @p frame (RecordedFrame::SceneColor,
+        // copied in that frame's own submission beside its PNG; never a live read) - before eye adaptation,
+        // tonemap, the sRGB encode and the 8-bit quantisation, in pre-exposed units (scene radiance x the frame's
         // PreExposure, which with auto exposure off is the manual exposure scale) - written to @p path as a
         // PFM (32-bit float RGB, little endian). What a measurement of radiance compares: a PNG's tonemap
         // shoulder and clamp bias the mean of a noisy frame low. False on any failure, with the reason logged.
-        bool WriteSceneColorPfm( const std::string& path );
+        bool WriteSceneColorPfm( const std::string& path, const ShotDirector::RecordedFrame& frame );
 
         // Writes `<project>/.thumbnail.png` — 512x288, centre-cropped to 16:9, the launcher tile's picture.
         // Called after a scene save and on a clean exit; the callers treat a failure as non-fatal.
@@ -68,9 +77,7 @@ namespace Desert::Editor
             double                                JoinMs    = 0.0; // on the frame: the render task join
             double                                WaitMs    = 0.0; // on the frame: the device idle wait
             double                                CollectMs = 0.0; // on the frame: staging detach (read, pack: worker)
-            // The capture's ticket and the swap chain holding it: resolved by the worker, released by
-            // FinishWindowPng. This is the only owner: the worker holds a raw pointer, because the
-            // job keeps its lambda past Encode.get() and a copy there could make the worker destroy the surface after the window.
+            // The capture's ticket on its swap chain: resolved by the worker, released by FinishWindowPng.
             std::shared_ptr<Graphic::SwapChain> Source;
             Graphic::CapturedFrameTicket        Ticket;
             std::chrono::steady_clock::time_point Started;

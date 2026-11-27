@@ -14,8 +14,23 @@
 // one-way latency (both processes read the same machine's steady clock) and reports p50/p95/max back on Rpc.
 // --lag-ms is this process's one-way send lag: two processes at 75 make a 150 ms round trip.
 // Exit codes: 0 done, 1 failure (timeout, loss, disorder, p95 >= 400 ms, bad arguments), 2 refused by the server.
+//   --mesh-peer --mesh-ca DIR --store IP:P --as-sim N [--store-index I] [--seconds S]
+//            a HOSTILE MESH PEER (NET-HANDOVER-SCN-DUP-OFFER): links to the store with sim N's CA-signed
+//            certificate beside the real sim N, holds no pawn and speaks the handover wire (Net/HandoverWire.hpp)
+//            from console lines on stdin, as a defective or hostile sender would; the store must refuse each under
+//            the key (sim N, #0), which names no offer any sender holds:
+//              dup <serial> <to> <net id> <epoch> <step>    an Offer under the key (sim N, #serial), one the
+//                                                           store holds open
+//              undecodable <serial> <to>                    an Offer whose header (key (sim N, #serial)) decodes
+//                                                           and whose pawn record is cut short
+//            Several commands may share one console line, separated by ';' (sent in the same poll).
+//            Every handover message the store sends this link is logged ("probe: received ..."): a refusal that
+//            reached the probe instead of the real sim N is visible. Exit 0 after S seconds (default 900), 1 when
+//            the link cannot be made or is lost.
 
 #include "Net/ConnectToken.hpp"
+#include "Net/HandoverWire.hpp"
+#include "Net/MeshLink.hpp"
 #include "Net/NetHandshake.hpp"
 #include "Net/NetTransport.hpp"
 
@@ -36,14 +51,18 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <map>
 #include <set>
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 #include <memory>
+#include <mutex>
+#include <sstream>
 
 using namespace Desert::Net;
 
@@ -822,7 +841,8 @@ namespace
     }
 
     // A HEADLESS PLAYER (NET-1 scenario net1_two_clients; NET-ARCH §9 NET-10's bot client): the same
-    // ReplicationClient the engine's net driver runs, input sent at the 60 Hz client step.
+    // ReplicationClient the engine's net driver runs, input sent at the 60 Hz client step, its view reported like
+    // every client's (ViewReport, eye = its own pawn).
     //   --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir x,y,z
     //         --turn-deg-s R] [--waypoints x,y,z;x,y,z...] [--lag-ms L --loss P]
     //         [--hold-actions MASK --hold-from S --hold-until S]
@@ -1055,10 +1075,17 @@ namespace
                 Log( "[{}] actions {} at {:.2f} s (step {})", name, actions, now, step );
             lastActions = actions;
             client.SendInput( InputStep{ .Move = walking ? dir : NetVec3{}, .Yaw = yaw, .Actions = actions } );
-            // The cells around the SERVER's position of the own pawn, reported when they change.
+            // The cells around the SERVER's position of the own pawn, reported when they change; and the view, as
+            // every client reports it (UE ServerUpdateCamera; ClientNetDriver::ReportView): asked every step,
+            // ReplicationClient::ReportView sends it at the client's cadence. The bot has no camera: its eye is
+            // its own pawn, a circle with no range of its own (the connection's PawnCullRangeCm alone).
             if ( client.OwnPawn() != kInvalidNetId && client.Pawns().contains( client.OwnPawn() ) )
             {
                 const PawnState newest = client.Pawns().at( client.OwnPawn() ).History.Newest();
+                client.ReportView( ViewReport{ .Position       = newest.Position,
+                                               .FacingYawDeg   = yaw * 180.0f / 3.14159265f,
+                                               .SectorAngleDeg = 360.0f,
+                                               .RangeCm        = 0.0f } );
                 std::string     said;
                 if ( auto report = cells->Update( newest.Position, said ) )
                     client.ReportResidency( report->first, report->second );
@@ -1069,10 +1096,16 @@ namespace
             {
                 nextLog += 0.5;
                 std::string line;
+                // Each pawn's sampled position, then the velocity of its newest received snapshot (the replicated
+                // value, UE FRepMovement's LinearVelocity, not the interpolation's tangent).
                 for ( const auto& [id, pawn] : client.Pawns() )
                     if ( const auto sample = client.Sample( id ) )
-                        line += std::format( " {}{}=({:.0f},{:.0f},{:.0f})", id, pawn.Owned ? "*" : "",
-                                             sample->Position.X, sample->Position.Y, sample->Position.Z );
+                    {
+                        const NetVec3 velocity = pawn.History.Newest().Velocity;
+                        line += std::format( " {}{}=({:.0f},{:.0f},{:.0f}) v ({:.0f}, {:.0f}, {:.0f}) cm/s", id,
+                                             pawn.Owned ? "*" : "", sample->Position.X, sample->Position.Y,
+                                             sample->Position.Z, velocity.X, velocity.Y, velocity.Z );
+                    }
                 Log( "[{}] t={:.1f}s pawns{} ; unacked inputs {}, ack step {}", name, now,
                      line.empty() ? std::string( " none" ) : line, client.PendingInputs(),
                      client.LastAck() ? std::to_string( *client.LastAck() ) : std::string( "none" ) );
@@ -1084,18 +1117,209 @@ namespace
             const auto sample = client.Sample( id );
             if ( !sample || !firstSeen.contains( id ) )
                 continue;
+            const NetVec3 velocity = pawn.History.Newest().Velocity;
             Log( "[{}] FINAL {} pawn net id {} (player {}) at ({:.0f}, {:.0f}, {:.0f}) cm, moved {:.0f} cm from where "
-                 "this client first saw it",
+                 "this client first saw it, v ({:.0f}, {:.0f}, {:.0f}) cm/s",
                  name, pawn.Owned ? "own" : "remote", id, pawn.Player, sample->Position.X, sample->Position.Y,
-                 sample->Position.Z, distance( sample->Position, firstSeen[id] ) );
+                 sample->Position.Z, distance( sample->Position, firstSeen[id] ), velocity.X, velocity.Y, velocity.Z );
         }
         Log( "[{}] {} pawn(s) replicated; exit {}", name, client.Pawns().size(), result );
         return result;
+    }
+    // THE HOSTILE MESH PEER (--mesh-peer): see the header. Its own console thread, as DesertServer's
+    // ServerConsole.
+    class PeerConsole
+    {
+    public:
+        void Start()
+        {
+            std::thread(
+                 [this]
+                 {
+                     std::string line;
+                     while ( std::getline( std::cin, line ) )
+                     {
+                         const std::scoped_lock lock( m_Mutex );
+                         m_Lines.push_back( line );
+                     }
+                 } )
+                 .detach();
+        }
+        std::vector<std::string> Take()
+        {
+            const std::scoped_lock lock( m_Mutex );
+            return std::exchange( m_Lines, {} );
+        }
+
+    private:
+        std::mutex               m_Mutex;
+        std::vector<std::string> m_Lines;
+    };
+
+    // The Offer a defective sender would send: the header names the key, the pawn record carries only its net id
+    // (the store reads no further than the key and the pawn's id before it refuses).
+    std::vector<std::byte> HostileOffer( std::uint32_t sim, Handover::OfferSerial serial, std::uint32_t to,
+                                         NetId id, std::uint32_t epoch, std::uint32_t step )
+    {
+        PawnSimulation::HandoverPawn pawn;
+        pawn.State.Id = id;
+        return Handover::EncodeOffer( { { sim, serial }, epoch, to, step, 1 }, pawn );
+    }
+
+    int RunMeshPeer( int argc, char** argv )
+    {
+        std::string   caDirectory, store;
+        std::uint32_t sim = 0, storeIndex = 1;
+        double        seconds = 900.0;
+        for ( int i = 1; i < argc; ++i )
+        {
+            const std::string arg = argv[i];
+            if ( arg == "--mesh-peer" )
+                continue;
+            if ( i + 1 >= argc )
+            {
+                Log( "--mesh-peer: {} needs a value", arg );
+                return 1;
+            }
+            const std::string value = argv[++i];
+            if ( arg == "--mesh-ca" )
+                caDirectory = value;
+            else if ( arg == "--store" )
+                store = value;
+            else if ( arg == "--as-sim" )
+                sim = static_cast<std::uint32_t>( std::strtoul( value.c_str(), nullptr, 10 ) );
+            else if ( arg == "--store-index" )
+                storeIndex = static_cast<std::uint32_t>( std::strtoul( value.c_str(), nullptr, 10 ) );
+            else if ( arg == "--seconds" )
+                seconds = std::strtod( value.c_str(), nullptr );
+            else
+            {
+                Log( "--mesh-peer: unknown argument '{}'", arg );
+                return 1;
+            }
+        }
+        if ( caDirectory.empty() || store.empty() || sim == 0 || storeIndex == 0 || seconds <= 0.0 )
+        {
+            Log( "--mesh-peer takes --mesh-ca DIR --store IP:P --as-sim N (N >= 1) [--store-index I] [--seconds "
+                 "S]" );
+            return 1;
+        }
+        const NetLogSink               netLog    = []( std::string_view line ) { Log( "[Net] {}", line ); };
+        std::unique_ptr<INetTransport> transport = CreateGnsTransport( netLog );
+        const std::string              identity  = MeshIdentity( EMeshRole::Sim, sim );
+        std::string                    error;
+        if ( !transport || !transport->UseMeshCertificate( caDirectory, identity, error ) )
+        {
+            Log( "probe: mesh certificate '{}': {}", identity, transport ? error : std::string( "no transport" ) );
+            return 1;
+        }
+        MeshEndpoint endpoint( *transport, EMeshRole::Sim, sim, 0, netLog );
+        bool         lost = false;
+        endpoint.SetHandler(
+             { [&]( EMeshRole role, std::uint32_t index, ConnectionId connection, std::uint16_t )
+               {
+                   Log( "probe: mesh link to {} {} up (connection {}) as sim {} - a hostile peer, it holds no "
+                        "pawn",
+                        MeshRoleName( role ), index, connection, sim );
+               },
+               [&]( EMeshRole role, std::uint32_t index, ConnectionId )
+               {
+                   Log( "probe: mesh link to {} {} lost", MeshRoleName( role ), index );
+                   lost = true;
+               },
+               [&]( EMeshRole, std::uint32_t, ConnectionId, std::uint8_t type, std::span<const std::byte> body )
+               {
+                   if ( !Handover::IsHandoverMessage( type ) )
+                       return;
+                   const auto         message = static_cast<Handover::EMessage>( type );
+                   Handover::Decision decision;
+                   Handover::Refusal  refusal;
+                   const bool         refused = message == Handover::EMessage::Refused;
+                   if ( ( message == Handover::EMessage::Commit || message == Handover::EMessage::Committed ||
+                          refused ) &&
+                        Handover::DecodeDecision( body, decision, refused ? &refusal : nullptr ) )
+                       Log( "probe: received {} of offer (sim {}, #{}) - pawn net id {}{}",
+                            Handover::MessageName( message ), decision.Key.From, decision.Key.Serial, decision.Id,
+                            refused ? " - " + Handover::Describe( refusal ) : std::string() );
+                   else
+                       Log( "probe: received {} ({} bytes)", Handover::MessageName( message ), body.size() );
+               } } );
+        if ( !endpoint.ConnectTo( EMeshRole::Store, storeIndex, store, error ) )
+        {
+            Log( "probe: --store '{}': {}", store, error );
+            return 1;
+        }
+        PeerConsole console;
+        console.Start();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>( seconds );
+        while ( !lost && std::chrono::steady_clock::now() < deadline )
+        {
+            transport->Poll( endpoint );
+            // One console line may carry several commands separated by ';': they leave in one poll, so a
+            // scenario fires both into one open offer without a runner round trip between them.
+            std::vector<std::string> commands;
+            for ( const std::string& line : console.Take() )
+            {
+                std::istringstream parts( line );
+                for ( std::string command; std::getline( parts, command, ';' ); )
+                    commands.push_back( command );
+            }
+            for ( const std::string& line : commands )
+            {
+                std::istringstream words( line );
+                std::string        verb;
+                words >> verb;
+                const std::optional<ConnectionId> link = endpoint.PeerConnection( EMeshRole::Store, storeIndex );
+                if ( !link )
+                {
+                    Log( "probe: '{}' not sent - no mesh link to store {} yet", line, storeIndex );
+                    continue;
+                }
+                Handover::OfferSerial serial = 0;
+                std::uint32_t         to = 0, epoch = 0, step = 0;
+                NetId                 id = kInvalidNetId;
+                if ( verb == "dup" && words >> serial >> to >> id >> epoch >> step )
+                {
+                    const std::vector<std::byte> offer = HostileOffer( sim, serial, to, id, epoch, step );
+                    endpoint.Send( *link, offer );
+                    Log( "probe: sent a duplicate Offer under the open key (sim {}, #{}): pawn net id {} to sim "
+                         "{}, "
+                         "epoch {}, step {} ({} bytes)",
+                         sim, serial, id, to, epoch, step, offer.size() );
+                }
+                else if ( verb == "undecodable" && words >> serial >> to )
+                {
+                    // The type byte and the whole header (key, epoch, to, step, gateway: 6 x u32); the pawn record
+                    // that follows is cut off, so the key is readable and the record is not.
+                    constexpr std::size_t  kHeaderBytes = 1 + 6 * sizeof( std::uint32_t );
+                    std::vector<std::byte> offer        = HostileOffer( sim, serial, to, kInvalidNetId, 1, 0 );
+                    offer.resize( std::min( offer.size(), kHeaderBytes ) );
+                    endpoint.Send( *link, offer );
+                    Log( "probe: sent an undecodable Offer: header key (sim {}, #{}) to sim {}, pawn record cut "
+                         "off "
+                         "({} bytes)",
+                         sim, serial, to, offer.size() );
+                }
+                else
+                    Log( "probe: unknown console line '{}' (dup <serial> <to> <net id> <epoch> <step> | "
+                         "undecodable <serial> <to>)",
+                         line );
+            }
+            std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+        }
+        Log( "probe: {} after {:.0f} s", lost ? "mesh link lost" : "done", seconds );
+        return lost ? 1 : 0;
     }
 } // namespace
 
 int main( int argc, char** argv )
 {
+    for ( int i = 1; i < argc; ++i )
+        if ( std::strcmp( argv[i], "--mesh-peer" ) == 0 )
+            // Leave without static teardown: the detached console thread may still be inside std::getline on
+            // std::cin, and destroying the iostreams under it races. Log flushed every line; std::quick_exit is
+            // absent from Apple's libc, std::_Exit is the same exit on both platforms.
+            std::_Exit( RunMeshPeer( argc, argv ) );
     for ( int i = 1; i < argc; ++i )
         if ( std::strcmp( argv[i], "--bot" ) == 0 )
             return RunBot( argc, argv );

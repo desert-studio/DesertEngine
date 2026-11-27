@@ -61,9 +61,10 @@ namespace Desert::Net
     // ---- simulation --------------------------------------------------------------------------------------------
 
     PawnSimulation::PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, IPawnMover& mover,
-                                    Settings settings, NetLogSink log )
-         : m_Store( store ), m_Gateway( gateway ), m_Mover( mover ), m_Settings( std::move( settings ) ),
-           m_Log( std::move( log ) )
+                                    IPawnPlacer& placer, const IWorldResidency& residency, Settings settings,
+                                    NetLogSink log )
+         : m_Store( store ), m_Gateway( gateway ), m_Mover( mover ), m_Placer( placer ), m_Residency( residency ),
+           m_Settings( std::move( settings ) ), m_Log( std::move( log ) )
     {
         if ( m_Settings.SpawnPoints.empty() )
             m_Settings.SpawnPoints.push_back( {} );
@@ -75,15 +76,17 @@ namespace Desert::Net
         pawn.Account        = account;
         pawn.Index          = m_Joined++;
         pawn.State.Id       = m_Store.AllocateNetId();
-        pawn.State.Position = m_Settings.SpawnPoints[pawn.Index % m_Settings.SpawnPoints.size()];
-        // A spawned character starts falling and finds the floor under it on its first move (UE: the first
-        // PerformMovement's FindFloor; a spawn point stands above the ground). The replicated mode says so too:
-        // the owning client starts its prediction from this snapshot, and a server that began grounded took a
-        // ground step where the client took an air step (NET-4 run 11: 8.5 cm correction at input step 15,
-        // server vx +22 = one ground-acceleration step, vy +16 = one gravity step).
-        pawn.Move.Position  = pawn.State.Position;
-        pawn.Move.Grounded  = false;
+        const NetVec3 spawnPoint = m_Settings.SpawnPoints[pawn.Index % m_Settings.SpawnPoints.size()];
+        // The pawn is announced at the spawn point, still and falling (the Spawn message goes out now), and is
+        // PLACED by the first Step through the same placer a teleport takes (UE RestartPlayer -> SpawnActor
+        // AdjustIfPossibleButAlwaysSpawn -> FindTeleportSpot): one placement path, not a second hand-written one.
+        // The state it waits in is the one the snapshot says, so an ack before the landing corrects the client to
+        // exactly what it was told.
+        pawn.State.Position = spawnPoint;
         pawn.State.Movement = 0;
+        pawn.Move.Position  = spawnPoint;
+        pawn.Move.Grounded  = false;
+        pawn.Placement      = PendingPlacement{ spawnPoint, PendingPlacement::EWhy::Spawn, 0 };
         m_Store.Write( pawn.State );
         m_Log( std::format( "player {} (account {}): pawn net id {} spawned at ({:.0f}, {:.0f}, {:.0f}) cm",
                             player, account, pawn.State.Id, pawn.State.Position.X, pawn.State.Position.Y,
@@ -100,6 +103,16 @@ namespace Desert::Net
         if ( it == m_Pawns.end() )
             return;
         const NetId id = it->second.State.Id;
+        // An INCOMING copy is not this simulation's to remove: the record is the sender's until the store decides.
+        // It waits for the decision (SimHandover: Commit, Refused, or the store's answer to a receiver in doubt).
+        if ( it->second.Hold == EHold::Incoming )
+        {
+            it->second.Left = true;
+            m_Log( std::format( "player {}: left while its pawn net id {} is incoming - kept until the store "
+                                "decides the handover",
+                                player, id ) );
+            return;
+        }
         m_Log( std::format( "player {}: left, pawn net id {} destroyed", player, id ) );
         m_Pawns.erase( it );
         m_Store.Remove( id );
@@ -120,7 +133,11 @@ namespace Desert::Net
             // Already processed (a redundant copy) or already queued: the first arrival wins.
             if ( pawn.LastProcessed && !StepAfter( step.Step, *pawn.LastProcessed ) )
                 continue;
-            pawn.Pending.emplace( step.Step, step );
+            // An open catch-up counts every input newly queued while it runs, whichever path delivered it - the
+            // client's own repeat of its unacked steps or the previous owner's forward (SimHandover): which one
+            // lands first is a race, the backlog the run drains is the same.
+            if ( pawn.Pending.emplace( step.Step, step ).second && pawn.CatchUp )
+                ++pawn.CatchUp->Queued;
         }
         // A client that floods steps far ahead is held to the replay window, not buffered without bound.
         while ( pawn.Pending.size() > InputRing::kCapacity )
@@ -129,8 +146,9 @@ namespace Desert::Net
 
     std::optional<ISimLink::AckedMove> PawnSimulation::LastProcessedInput( PlayerId player ) const
     {
+        // An incoming pawn is not this simulation's yet: its ack is the sender's until the commit.
         const auto it = m_Pawns.find( player );
-        if ( it == m_Pawns.end() || !it->second.LastProcessed )
+        if ( it == m_Pawns.end() || !it->second.LastProcessed || it->second.Hold == EHold::Incoming )
             return std::nullopt;
         return AckedMove{ *it->second.LastProcessed, it->second.Move, it->second.QueuedAtStep };
     }
@@ -144,12 +162,18 @@ namespace Desert::Net
     // sends is given up: a message that starts past it (the client's ring overflowed - never a guess from how
     // far the queue runs ahead, which a slow client frame's burst of steps exceeds while the hole is still
     // being resent). A starved pawn holds; a queue above the sync's target drains two per step.
+    // THE CATCH-UP IS BOUNDED PER STEP (UE CharacterMovement: the server applies a tick's worth of move per
+    // received move, never a backlog at once): a pawn resumed after a hold (sender) or adopted by a commit
+    // (receiver) with tens of queued steps applies at most kMaxInputsPerStep of them each step, so one
+    // authoritative step moves it at most twice what the walk or sprint gives in one client step - the backlog
+    // is spread over the steps that follow, none dropped.
     void PawnSimulation::StepPawn( Pawn& pawn ) const
     {
-        constexpr std::size_t kDrainAbove = 4;
         pawn.QueuedAtStep = static_cast<std::uint8_t>( std::min<std::size_t>( pawn.Pending.size(), 255 ) );
-        const int consume = pawn.Pending.size() > kDrainAbove ? 2 : 1;
-        for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i )
+        const NetVec3 before  = pawn.Move.Position;
+        const int     consume = pawn.Pending.size() > kDrainAbove ? kMaxInputsPerStep : 1;
+        int           applied = 0;
+        for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i, ++applied )
         {
             const auto next = pawn.Pending.begin();
             if ( pawn.LastProcessed && next->first != *pawn.LastProcessed + 1 )
@@ -157,6 +181,10 @@ namespace Desert::Net
                 const std::uint32_t missing = *pawn.LastProcessed + 1;
                 if ( !pawn.ResendFloor || !StepAfter( *pawn.ResendFloor, missing ) )
                     break; // still in flight: every Input message repeats it until the ack
+                // An adopted pawn whose previous owner's forward has not landed: the frozen steps the client no
+                // longer resends are in that forward - the hole is not given up before its end-of-backlog mark.
+                if ( pawn.CatchUp && !pawn.CatchUp->BacklogLanded )
+                    break;
                 m_Log( std::format(
                      "pawn net id {}: input steps {}..{} never arrived and the client no longer resends "
                      "them (its unacked ring of {} steps overflowed); moving on (the client is "
@@ -166,17 +194,56 @@ namespace Desert::Net
             // A move is one CLIENT step long, whatever the server's frame took (UE FSavedMove's DeltaTime).
             // The step's action set is the game's to read (IPawnMover); the log names it in the game's words when
             // it changes, and once a second with the speed it gives (cm/s, planar).
+            // A HELD pawn (its placement pending) acks the step without moving: the client's prediction is
+            // corrected to the held state, as UE ClientAdjustPosition does every move while the server disagrees.
             const InputStep& input = next->second;
-            pawn.Move              = m_Mover.Step( pawn.Move, input, kNetStepSeconds );
-            const float speed      = std::sqrt( pawn.Move.Velocity.X * pawn.Move.Velocity.X +
-                                                pawn.Move.Velocity.Z * pawn.Move.Velocity.Z );
-            if ( !pawn.LastProcessed || input.Actions != pawn.LastActions || next->first % static_cast<std::uint32_t>( kNetStepHz ) == 0 )
-                m_Log( std::format( "pawn net id {}: input step {} actions {} (bits 0x{:x}, axes {}), speed {:.0f} cm/s",
-                                    pawn.State.Id, next->first, m_Mover.DescribeActions( input ), input.Actions,
-                                    input.Axes.size(), speed ) );
+            if ( !pawn.Placement )
+            {
+                pawn.Move         = m_Mover.Step( pawn.Move, input, kNetStepSeconds );
+                const float speed = std::sqrt( pawn.Move.Velocity.X * pawn.Move.Velocity.X +
+                                               pawn.Move.Velocity.Z * pawn.Move.Velocity.Z );
+                if ( !pawn.LastProcessed || input.Actions != pawn.LastActions ||
+                     next->first % static_cast<std::uint32_t>( kNetStepHz ) == 0 )
+                    m_Log( std::format(
+                         "pawn net id {}: input step {} actions {} (bits 0x{:x}, axes {}), speed {:.0f} cm/s",
+                         pawn.State.Id, next->first, m_Mover.DescribeActions( input ), input.Actions,
+                         input.Axes.size(), speed ) );
+            }
             pawn.LastActions   = input.Actions;
             pawn.LastProcessed = next->first;
             pawn.Pending.erase( next );
+        }
+        // A HELD pawn stands still: its velocity is zero in the movement state and in the replicated one, so a
+        // proxy's Hermite tangent does not carry it on along the speed it had when the placement was asked.
+        if ( pawn.Placement )
+            pawn.Move.Velocity = NetVec3{};
+        // The resume's or the commit's catch-up, measured on every authoritative step it takes (planar, what a
+        // proxy and the client's correction see); reported once the queue is back at the sync's target. An
+        // ADOPTED run closes only after the previous owner's end-of-backlog mark for the committed offer has
+        // landed (BacklogLanded) and on a step that applied an input: before the mark the forwarded backlog is
+        // still in flight - closing on the first applied input reported the commit's own queue (1) and left the
+        // backlog that landed tens of ms later to drain unmeasured; a starved step after it waits behind a hole of
+        // the client's direct inputs. A resume run has nothing in flight: it closes once the queue is back at the
+        // target.
+        if ( pawn.CatchUp )
+        {
+            const float dx = pawn.Move.Position.X - before.X, dz = pawn.Move.Position.Z - before.Z;
+            pawn.CatchUp->LargestStep = std::max( pawn.CatchUp->LargestStep, std::sqrt( dx * dx + dz * dz ) );
+            ++pawn.CatchUp->Steps;
+            const bool settled = !pawn.CatchUp->Adopted || ( pawn.CatchUp->BacklogLanded && applied > 0 );
+            if ( settled && pawn.Pending.size() <= kDrainAbove )
+            {
+                const Pawn::CatchUpRun& run = *pawn.CatchUp;
+                const std::string what =
+                    run.Adopted ? std::format( "handover catch-up ({} mesh step(s) since the offer froze it)",
+                                               run.Behind )
+                                : std::string( "resume catch-up" );
+                m_Log( std::format( "pawn net id {}: {} of {} queued input(s) done in {} step(s), at most {} "
+                                    "input(s) per step; largest step {:.1f} cm",
+                                    pawn.State.Id, what, run.Queued, run.Steps, kMaxInputsPerStep,
+                                    run.LargestStep ) );
+                pawn.CatchUp.reset();
+            }
         }
         pawn.State.Position = pawn.Move.Position;
         pawn.State.Yaw      = pawn.Move.Yaw;
@@ -184,83 +251,356 @@ namespace Desert::Net
         pawn.State.Movement = MoveFlagsOf( pawn.Move ); // Grounded and the game's mode (a proxy's crouch)
     }
 
+    void PawnSimulation::ResolvePlacement( PlayerId player, Pawn& pawn )
+    {
+        if ( !pawn.Placement )
+            return;
+        PendingPlacement&   placement = *pawn.Placement;
+        const NetVec3       feet      = placement.Feet;
+        const bool          spawn     = placement.Why == PendingPlacement::EWhy::Spawn;
+        const NetVec3       at        = pawn.Move.Position;
+        const auto          refuse    = [&]( const std::string& reason )
+        {
+            if ( spawn )
+                m_Log( std::format( "player {}: spawn of pawn {} at ({:.0f}, {:.0f}, {:.0f}) cm refused: {}; it "
+                                    "falls from there",
+                                    player, pawn.State.Id, feet.X, feet.Y, feet.Z, reason ) );
+            else
+                m_Log( std::format( "player {}: teleport of pawn {} to ({:.0f}, {:.0f}, {:.0f}) cm refused: {}; the "
+                                    "pawn stays at ({:.0f}, {:.0f}, {:.0f}) cm",
+                                    player, pawn.State.Id, feet.X, feet.Y, feet.Z, reason, at.X, at.Y, at.Z ) );
+            pawn.Placement.reset();
+        };
+        // ONE RULE for a point no cell of the grid holds (Teleport states it too): a TELEPORT there is refused
+        // when asked (Teleport returns the error, nothing could ever stream it in); a SPAWN at an authored point
+        // there is placed now against the always-loaded collision, as a resident one is. Only a cell still
+        // streaming holds the pawn.
+        // The world states its outcome with the reason; this logs it once - the first held step, or the step it is
+        // placed over no cell (a resident point is told by the placer's own line).
+        const PointResidency residency = m_Residency.ResidencyAt( feet );
+        if ( residency.Residency == EPointResidency::Loading )
+        {
+            if ( placement.Waited == 0 )
+                m_Log( std::format( "player {}: {} of pawn {} to ({:.0f}, {:.0f}, {:.0f}) cm held: {}", player,
+                                    spawn ? "spawn" : "teleport", pawn.State.Id, feet.X, feet.Y, feet.Z,
+                                    residency.Note ) );
+            if ( ++placement.Waited > kPlacementStreamingTimeoutSteps )
+                refuse( std::format( "the cell at ({:.0f}, {:.0f}) cm is not resident after {:.0f} s", feet.X,
+                                     feet.Z, double( kPlacementStreamingTimeoutSteps ) / kNetStepHz ) );
+            return;
+        }
+        if ( residency.Residency == EPointResidency::NoCell )
+            m_Log( std::format( "player {}: {} of pawn {} to ({:.0f}, {:.0f}, {:.0f}) cm placed against the "
+                                "always-loaded collision: {}",
+                                player, spawn ? "spawn" : "teleport", pawn.State.Id, feet.X, feet.Y, feet.Z,
+                                residency.Note ) );
+        const std::uint32_t waited = placement.Waited;
+        PlacedPawn          placed = m_Placer.Place( pawn.Move, feet );
+        if ( !placed.Ok() )
+        {
+            refuse( placed.Note );
+            return;
+        }
+        // UE OnTeleported: the pawn stands where the game found room, still, in the mode the floor gives it - and
+        // the REPLICATED state says the same (velocity included: a proxy takes it as its Hermite tangent).
+        pawn.Move           = *placed.Landed;
+        pawn.State.Position = pawn.Move.Position;
+        pawn.State.Yaw      = pawn.Move.Yaw;
+        pawn.State.Velocity = pawn.Move.Velocity;
+        pawn.State.Movement = MoveFlagsOf( pawn.Move );
+        ++pawn.State.TeleportCount;
+        pawn.Placement.reset();
+        const NetVec3& landed = pawn.Move.Position;
+        m_Log( std::format( "player {}: pawn {} {} ({:.0f}, {:.0f}, {:.0f}) cm: {} (held {} step(s) for the "
+                            "destination's cells)",
+                            player, pawn.State.Id, spawn ? "spawned onto" : "teleported to", landed.X, landed.Y,
+                            landed.Z, placed.Note, waited ) );
+    }
+
+    void PawnSimulation::StepOne( PlayerId player, Pawn& pawn )
+    {
+        ResolvePlacement( player, pawn );
+        StepPawn( pawn );
+    }
+
     void PawnSimulation::Step()
     {
         for ( auto& [player, pawn] : m_Pawns )
         {
-            StepPawn( pawn );
+            // A held pawn (offered or incoming) waits for the store's decision: its inputs queue, nothing moves.
+            if ( pawn.Hold != EHold::Owned )
+                continue;
+            StepOne( player, pawn );
             m_Store.Write( pawn.State );
         }
+    }
+
+    namespace
+    {
+        PawnSimulation::HandoverPawn MakeHandoverPawn( PlayerId player, std::uint64_t account, std::uint32_t index,
+                                                       const PawnState& state, const PawnMoveState& move,
+                                                       const std::optional<std::uint32_t>&                     lastProcessed,
+                                                       const std::optional<PawnSimulation::PendingPlacement>& placement,
+                                                       const std::map<std::uint32_t, InputStep>&               pending )
+        {
+            PawnSimulation::HandoverPawn out;
+            out.Player        = player;
+            out.Account       = account;
+            out.Index         = index;
+            out.State         = state;
+            out.LastProcessed = lastProcessed;
+            out.Move          = move;
+            out.Placement     = placement;
+            out.Pending.reserve( pending.size() );
+            for ( const auto& [step, input] : pending )
+                out.Pending.push_back( input );
+            return out;
+        }
+    } // namespace
+
+    std::optional<PawnSimulation::HandoverPawn> PawnSimulation::HandoverOf( PlayerId player ) const
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() || it->second.Hold != EHold::Owned )
+            return std::nullopt;
+        const Pawn& pawn = it->second;
+        return MakeHandoverPawn( player, pawn.Account, pawn.Index, pawn.State, pawn.Move, pawn.LastProcessed,
+                                 pawn.Placement, pawn.Pending );
+    }
+
+    Common::BoolResultStr PawnSimulation::Hold( PlayerId player )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() )
+            return Common::MakeError<bool>( std::format( "player {} has no pawn", player ) );
+        if ( it->second.Hold != EHold::Owned )
+            return Common::MakeError<bool>(
+                 std::format( "the pawn of player {} is already held ({})", player,
+                              it->second.Hold == EHold::Offered ? "offered" : "incoming" ) );
+        it->second.Hold = EHold::Offered;
+        return Common::MakeSuccess( true );
     }
 
     std::optional<PawnSimulation::HandoverPawn> PawnSimulation::Release( PlayerId player )
     {
         const auto it = m_Pawns.find( player );
-        if ( it == m_Pawns.end() )
+        if ( it == m_Pawns.end() || it->second.Hold != EHold::Offered )
             return std::nullopt;
-        HandoverPawn out;
-        out.Player        = player;
-        out.Account       = it->second.Account;
-        out.Index         = it->second.Index;
-        out.State         = it->second.State;
-        out.LastProcessed = it->second.LastProcessed;
-        out.Move          = it->second.Move;
-        for ( const auto& [step, input] : it->second.Pending )
-            out.Pending.push_back( input );
+        const Pawn&  pawn = it->second;
+        HandoverPawn out  = MakeHandoverPawn( player, pawn.Account, pawn.Index, pawn.State, pawn.Move,
+                                              pawn.LastProcessed, pawn.Placement, pawn.Pending );
         m_Pawns.erase( it );
         return out;
     }
 
-    void PawnSimulation::Adopt( HandoverPawn handed, std::uint32_t catchUpSteps )
+    std::optional<std::size_t> PawnSimulation::Resume( PlayerId player )
     {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() || it->second.Hold != EHold::Offered )
+            return std::nullopt;
+        it->second.Hold    = EHold::Owned;
+        it->second.CatchUp = Pawn::CatchUpRun{ .Queued = it->second.Pending.size() };
+        return it->second.Pending.size();
+    }
+
+    Common::BoolResultStr PawnSimulation::CanTake( const HandoverPawn& pawn ) const
+    {
+        const NetVec3 at = pawn.Placement ? pawn.Placement->Feet : pawn.State.Position;
+        const PointResidency residency = m_Residency.ResidencyAt( at );
+        if ( residency.Residency == EPointResidency::NoCell )
+            return Common::MakeError<bool>( std::format( "this world: {}", residency.Note ) );
+        return Common::MakeSuccess( true );
+    }
+
+    bool PawnSimulation::Expect( HandoverPawn handed, std::uint32_t gateway )
+    {
+        if ( m_Pawns.contains( handed.Player ) )
+            return false;
         Pawn pawn;
+        pawn.Hold          = EHold::Incoming;
+        pawn.Gateway       = gateway;
         pawn.Account       = handed.Account;
         pawn.Index         = handed.Index;
         pawn.State         = handed.State;
         pawn.LastProcessed = handed.LastProcessed;
         pawn.Move          = handed.Move;
+        pawn.Placement     = handed.Placement;
         for ( const InputStep& input : handed.Pending )
             pawn.Pending.emplace( input.Step, input );
-        for ( std::uint32_t i = 0; i < catchUpSteps; ++i )
-            StepPawn( pawn );
-        m_Store.Write( pawn.State );
-        m_Pawns.insert_or_assign( handed.Player, std::move( pawn ) );
+        m_Pawns.emplace( handed.Player, std::move( pawn ) );
+        return true;
     }
 
-    bool PawnSimulation::Teleport( PlayerId player, const NetVec3& position )
+    std::optional<std::uint32_t> PawnSimulation::Commit( PlayerId player, std::uint32_t catchUpSteps )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() || it->second.Hold != EHold::Incoming )
+            return std::nullopt;
+        Pawn& pawn = it->second;
+        if ( pawn.Left )
+        {
+            // The record is this simulation's now and its player is gone: the leave it waited with ends here.
+            const NetId id = pawn.State.Id;
+            m_Log( std::format( "player {}: left while incoming; the store committed pawn net id {} here - "
+                                "destroyed",
+                                player, id ) );
+            m_Pawns.erase( it );
+            m_Store.Remove( id );
+            m_Gateway.PawnDestroyed( id );
+            return std::nullopt;
+        }
+        // The inputs that queued while the pawn was frozen are applied by the steps that follow, at most
+        // kMaxInputsPerStep each (StepPawn), as after Resume: replaying the catch-up here moved the pawn a whole
+        // backlog in one authoritative step.
+        pawn.Hold    = EHold::Owned;
+        pawn.CatchUp = Pawn::CatchUpRun{ .Adopted       = true,
+                                         .BacklogLanded = pawn.BacklogLanded,
+                                         .Behind        = catchUpSteps,
+                                         .Queued        = pawn.Pending.size() };
+        m_Store.Write( pawn.State );
+        return pawn.Gateway;
+    }
+
+    bool PawnSimulation::AwaitsBacklog( PlayerId player ) const
+    {
+        const auto it = m_Pawns.find( player );
+        return it != m_Pawns.end() && it->second.CatchUp && it->second.CatchUp->Adopted &&
+               !it->second.CatchUp->BacklogLanded;
+    }
+
+    bool PawnSimulation::BacklogLanded( PlayerId player )
     {
         const auto it = m_Pawns.find( player );
         if ( it == m_Pawns.end() )
             return false;
-        it->second.State.Position = position;
-        ++it->second.State.TeleportCount;
-        // UE TeleportTo on a character: it is at the new place, still, and falls to the floor there (the next
-        // move's FindFloor) - a teleport onto the landscape lands on the terrain, not on a plane at its height.
-        it->second.Move.Position = position;
-        it->second.Move.Velocity = {};
-        it->second.Move.Grounded = false;
-        it->second.State.Movement = 0; // the replicated mode is the move's: falling
-        m_Store.Write( it->second.State );
-        m_Log( std::format( "player {}: pawn {} teleported to ({:.0f}, {:.0f}, {:.0f}) cm", player,
-                            it->second.State.Id, position.X, position.Y, position.Z ) );
+        Pawn& pawn = it->second;
+        if ( pawn.Hold == EHold::Incoming )
+        {
+            pawn.BacklogLanded = true;
+            return true;
+        }
+        if ( !pawn.CatchUp || !pawn.CatchUp->Adopted || pawn.CatchUp->BacklogLanded )
+            return false;
+        pawn.CatchUp->BacklogLanded = true;
         return true;
+    }
+
+    bool PawnSimulation::Abandon( PlayerId player )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() || it->second.Hold != EHold::Incoming )
+            return false;
+        m_Pawns.erase( it );
+        return true;
+    }
+
+    Common::BoolResultStr PawnSimulation::Teleport( PlayerId player, const NetVec3& feet )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() )
+            return Common::MakeError<bool>( std::format( "player {} has no pawn", player ) );
+        Pawn&          pawn = it->second;
+        const NetVec3& at   = pawn.Move.Position;
+        // A held pawn's state is the one offered to another simulation: a placement now would not travel with it.
+        if ( pawn.Hold != EHold::Owned )
+            return Common::MakeError<bool>( std::format( "the pawn of player {} is held for a handover: it stays at "
+                                                         "({:.0f}, {:.0f}, {:.0f}) cm",
+                                                         player, at.X, at.Y, at.Z ) );
+        // UE TeleportTo returns false and the actor stays: over no cell there is nothing that could ever hold it.
+        // The other half of the one rule (ResolvePlacement): a SPAWN at an authored point with no cell is placed.
+        // The refusal's reason is the world's (no cell at (X, Z), or the cells there do not reach Y).
+        const PointResidency residency = m_Residency.ResidencyAt( feet );
+        if ( residency.Residency == EPointResidency::NoCell )
+            return Common::MakeError<bool>( std::format( "{}: the pawn stays at ({:.0f}, {:.0f}, {:.0f}) cm",
+                                                         residency.Note, at.X, at.Y, at.Z ) );
+        // A newer request replaces an unlanded one (a spawn's too): the last asked point is where it goes.
+        pawn.Placement = PendingPlacement{ feet, PendingPlacement::EWhy::Teleport, 0 };
+        m_Log( std::format( "player {}: teleport of pawn {} to ({:.0f}, {:.0f}, {:.0f}) cm requested", player,
+                            pawn.State.Id, feet.X, feet.Y, feet.Z ) );
+        return Common::MakeSuccess( true );
+    }
+
+    void PawnSimulation::PlayerView( PlayerId player, const NetVec3& eye )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it != m_Pawns.end() )
+            it->second.View = eye;
+    }
+
+    void PawnSimulation::Views( std::vector<ViewSource>& out ) const
+    {
+        out.clear();
+        for ( const auto& [player, pawn] : m_Pawns )
+            if ( pawn.Hold != EHold::Incoming && pawn.View )
+            {
+                // The source of the pawn is where Sources puts it (a pending placement's destination).
+                const NetVec3 at = pawn.Placement ? pawn.Placement->Feet : pawn.State.Position;
+                out.push_back( { player, ResolveViewPosition( m_Settings.Relevancy, at,
+                                                              ViewReport{ .Position = *pawn.View } ) } );
+            }
     }
 
     std::vector<PawnSimulation::Source> PawnSimulation::Sources() const
     {
         std::vector<Source> sources;
         for ( const auto& [player, pawn] : m_Pawns )
-            sources.push_back( { player, pawn.Account, pawn.State.Id, pawn.State.Position } );
+            if ( pawn.Hold != EHold::Incoming )
+                sources.push_back( { player, pawn.Account, pawn.State.Id,
+                                     pawn.Placement ? pawn.Placement->Feet : pawn.State.Position } );
         return sources;
     }
 
     // ---- gateway -----------------------------------------------------------------------------------------------
 
-    Gateway::Gateway( INetTransport& transport, IReplicationStore& store, GatewayAdmission admission,
-                      std::uint64_t pawnPrefab, NetRelevancyGrid grid, NetLogSink log )
-         : m_Transport( transport ), m_Store( store ), m_Admission( std::move( admission ) ),
-           m_PawnPrefab( pawnPrefab ), m_Grid( std::move( grid ) ), m_Log( std::move( log ) )
+    namespace
     {
+        // The state the connection last received equals the store's: nothing to tell but a keep-alive (dormant).
+        bool SameState( const PawnState& a, const PawnState& b )
+        {
+            const auto same = []( const NetVec3& x, const NetVec3& y )
+            { return x.X == y.X && x.Y == y.Y && x.Z == y.Z; };
+            return a.Id == b.Id && same( a.Position, b.Position ) && a.Yaw == b.Yaw &&
+                   same( a.Velocity, b.Velocity ) && a.Movement == b.Movement &&
+                   a.TeleportCount == b.TeleportCount;
+        }
+
+        // One snapshot entry's size on the wire, measured from the encoder itself (one source of truth: the
+        // codec).
+        std::size_t MeasureEntryBytes()
+        {
+            SnapshotMessage one;
+            one.Pawns.emplace_back();
+            return EncodeSnapshot( one ).size() - EncodeSnapshot( SnapshotMessage{} ).size();
+        }
+
+        double HzOf( std::uint32_t periodSteps )
+        {
+            return kNetStepHz / static_cast<double>( periodSteps );
+        }
+    } // namespace
+
+    Gateway::Gateway( INetTransport& transport, IReplicationStore& store, GatewayAdmission admission,
+                      std::uint64_t pawnPrefab, NetRelevancyGrid grid, RelevancySettings relevancy,
+                      NetLogSink log )
+         : m_Transport( transport ), m_Store( store ), m_Admission( std::move( admission ) ),
+           m_PawnPrefab( pawnPrefab ), m_Grid( std::move( grid ) ), m_Relevancy( std::move( relevancy ) ),
+           m_EntryBytes( MeasureEntryBytes() ), m_Log( std::move( log ) )
+    {
+        std::string bands;
+        for ( std::size_t i = 0; i < m_Relevancy.Bands.size(); ++i )
+        {
+            const RateBand& band = m_Relevancy.Bands[i];
+            bands += i + 1 < m_Relevancy.Bands.size()
+                          ? std::format( "{:.0f} m at {:g} Hz, ", band.ToCm / 100.f, HzOf( band.EverySteps ) )
+                          : std::format( "beyond at {:g} Hz", HzOf( band.EverySteps ) );
+        }
+        m_Log( std::format( "replication by distance: {}; dormant at {:g} Hz; pawns seen within {:.0f} m (a "
+                            "reported view up to {:.0f} m), left past +{:.0f}%; {} B/s of pawn entries per "
+                            "connection ({} B per entry)",
+                            bands, HzOf( m_Relevancy.DormantEverySteps ),
+                            std::max( m_Relevancy.PawnCullRangeCm, m_Grid.MainGridLoadingRangeCm ) / 100.f,
+                            m_Relevancy.MaxViewRangeCm / 100.f, m_Relevancy.ExitMargin * 100.f,
+                            m_Relevancy.BudgetBytesPerSecond, m_EntryBytes ) );
     }
 
     void Gateway::OnConnected( ConnectionId connection, std::string_view address )
@@ -323,6 +663,7 @@ namespace Desert::Net
         }
         peer.Admitted              = true;
         peer.Player                = m_NextPlayer++;
+        peer.WindowStep            = m_ServerStep; // the byte-rate window opens at admission
         m_Connections[peer.Player] = connection;
         m_Transport.Send( connection, EncodeWelcome( m_Admission.CookHash, m_PawnPrefab ), ENetLane::Control );
         m_Log( std::format( "connection {}: admitted as player {} (account {}, issuer {}), pawn prefab {:016x}",
@@ -365,6 +706,32 @@ namespace Desert::Net
                 m_Log( std::format( "connection {}: malformed StateAck dropped", connection ) );
             return;
         }
+        if ( type == EReplicationMessage::ViewReport )
+        {
+            // The client's view point and shape (APlayerController::ServerUpdateCamera): the newest wins (State
+            // lane, unordered and lossy - the client resends it once a second). The eye is resolved against the
+            // own pawn where the pawn's position is the step's (UpdateRelevancy here, logged there; the
+            // simulation's Views for the residency union, so the eye goes on to the sim that owns the pawn).
+            if ( const std::optional<ViewReport> view = DecodeViewReport( data ) )
+            {
+                // The shape the gateway will use, logged whenever it changes (the clamps included).
+                const ViewShape before = ResolveViewShape( m_Relevancy, m_Grid.MainGridLoadingRangeCm, peer.View );
+                const ViewShape after  = ResolveViewShape( m_Relevancy, m_Grid.MainGridLoadingRangeCm, *view );
+                if ( !peer.View || after.CircleRangeCm != before.CircleRangeCm ||
+                     after.SectorRangeCm != before.SectorRangeCm || after.SectorAngleDeg != before.SectorAngleDeg ||
+                     after.FacingYawDeg != before.FacingYawDeg )
+                    m_Log( std::format( "player {}: view shape - circle {:.0f} m, sector {:.0f} deg facing {:.0f} deg "
+                                        "to {:.0f} m (reported {:.0f} m)",
+                                        peer.Player, after.CircleRangeCm / 100.f, after.SectorAngleDeg,
+                                        after.FacingYawDeg, after.SectorRangeCm / 100.f, view->RangeCm / 100.f ) );
+                peer.View = *view;
+                if ( m_Sim != nullptr )
+                    m_Sim->PlayerView( peer.Player, view->Position );
+            }
+            else
+                m_Log( std::format( "connection {}: malformed ViewReport dropped", connection ) );
+            return;
+        }
         if ( type != EReplicationMessage::Input )
             return;
         const std::optional<InputMessage> input = DecodeInput( data );
@@ -394,8 +761,11 @@ namespace Desert::Net
     {
         m_PawnInfo.erase( id );
         for ( auto& [connection, peer] : m_Peers )
+        {
+            peer.Sent.erase( id );
             if ( peer.Relevant.erase( id ) > 0 )
                 m_Transport.Send( connection, EncodeDestroy( { id, EDestroyReason::Destroyed } ), ENetLane::Rpc );
+        }
     }
 
     bool Gateway::StableRelevant( const Peer& peer, StableNetId id ) const
@@ -435,34 +805,81 @@ namespace Desert::Net
                 m_Log( std::format( "player {}: cell {} resident on the client", peer.Player, nameOf( unit ) ) );
     }
 
-    void Gateway::UpdateRelevancy( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns )
+    std::optional<NetVec3> Gateway::UpdateRelevancy( ConnectionId connection, Peer& peer,
+                                                     const std::vector<PawnState>& pawns, std::uint32_t serverStep )
     {
-        // The viewer is the client's own pawn (its streaming source): without one only its own pawn is.
+        // The viewer is the client's reported eye, bounded by its own pawn (UE FNetViewer from
+        // GetPlayerViewPoint; Relevancy.hpp ResolveViewPosition): without a pawn only its own pawn is relevant.
         std::optional<NetVec3> viewer;
         for ( const PawnState& pawn : pawns )
             if ( const auto info = m_PawnInfo.find( pawn.Id );
                  info != m_PawnInfo.end() && info->second.Owner == peer.Player )
-                viewer = pawn.Position;
+            {
+                viewer = ResolveViewPosition( m_Relevancy, pawn.Position, peer.View );
+                if ( peer.View )
+                {
+                    const bool pulledBack =
+                         GroundDistanceCm( pawn.Position, peer.View->Position ) > m_Relevancy.MaxViewRangeCm;
+                    const float moved = peer.LoggedView ? std::hypot( viewer->X - peer.LoggedView->X,
+                                                                      viewer->Y - peer.LoggedView->Y,
+                                                                      viewer->Z - peer.LoggedView->Z )
+                                                        : 0.f;
+                    if ( !peer.LoggedView || moved > kViewLogStepCm || pulledBack != peer.LoggedPulledBack )
+                    {
+                        m_Log( std::format( "player {}: view at ({:.0f}, {:.0f}, {:.0f}) cm{}", peer.Player,
+                                            viewer->X, viewer->Y, viewer->Z,
+                                            pulledBack ? std::format( ", pulled back to {:.0f} m from the pawn",
+                                                                      m_Relevancy.MaxViewRangeCm / 100.f )
+                                                       : std::string() ) );
+                        peer.LoggedView       = viewer;
+                        peer.LoggedPulledBack = pulledBack;
+                    }
+                }
+            }
+        const ViewShape shape = ResolveViewShape( m_Relevancy, m_Grid.MainGridLoadingRangeCm, peer.View );
         std::set<NetId> now;
         for ( const PawnState& pawn : pawns )
         {
             const auto info = m_PawnInfo.find( pawn.Id );
             if ( info == m_PawnInfo.end() )
                 continue; // a state with no spawn yet
-            const bool                 own = info->second.Owner == peer.Player;
-            std::optional<std::string> cell;
-            if ( !own && viewer && m_Grid.PawnCellInRange )
-                cell = m_Grid.PawnCellInRange( *viewer, pawn.Position );
-            if ( !own && !cell )
-                continue;
+            const bool own = info->second.Owner == peer.Player;
+            const bool had = peer.Relevant.contains( pawn.Id );
+            if ( !own )
+            {
+                if ( !viewer )
+                    continue;
+                // Enter inside the shape, leave only past it widened by the exit margin: between the two a pawn
+                // keeps what it had, so one walking along the edge is neither spawned nor destroyed (§3.5).
+                const float ratio = RangeRatio( shape, *viewer, pawn.Position );
+                if ( had ? ratio > 1.f + m_Relevancy.ExitMargin : ratio > 1.f )
+                    continue;
+            }
             now.insert( pawn.Id );
-            if ( peer.Relevant.contains( pawn.Id ) )
+            if ( had )
                 continue;
             m_Transport.Send( connection, EncodeSpawn( { pawn, own, info->second.Player } ), ENetLane::Rpc );
             ++m_Stats.Spawns;
-            m_Log( std::format( "player {}: pawn {} (player {}) relevant - its finest cell {} is in the client's "
-                                "loading range",
-                                peer.Player, pawn.Id, info->second.Player, cell ? *cell : std::string( "own" ) ) );
+            if ( own )
+                m_Log( std::format( "player {}: pawn {} relevant (player {}): own", peer.Player, pawn.Id,
+                                    info->second.Player ) );
+            else
+            {
+                // The reach at the pawn's bearing: the sector's when it stands in it, the circle's otherwise.
+                const float distance = GroundDistanceCm( *viewer, pawn.Position );
+                const float ratio    = RangeRatio( shape, *viewer, pawn.Position );
+                const float reach    = ratio > 0.f ? distance / ratio : shape.CircleRangeCm;
+                // Its wait starts now, one band period old: due on this snapshot, and its priority grows with
+                // every snapshot the budget defers it (Iris) - a pawn never sent cannot starve.
+                peer.Sent.insert_or_assign(
+                     pawn.Id, SentPawn{ serverStep - SendPeriodSteps( m_Relevancy, distance ), std::nullopt, false } );
+                m_Log( std::format( "player {}: pawn {} relevant (player {}): {:.0f} m inside {} {:.0f} m",
+                                    peer.Player, pawn.Id, info->second.Player, distance / 100.f,
+                                    reach > shape.CircleRangeCm
+                                         ? std::format( "sector {:.0f} deg", shape.SectorAngleDeg )
+                                         : std::string( "circle" ),
+                                    reach / 100.f ) );
+            }
         }
         for ( const NetId id : peer.Relevant )
         {
@@ -470,12 +887,26 @@ namespace Desert::Net
                 continue;
             m_Transport.Send( connection, EncodeDestroy( { id, EDestroyReason::NotRelevant } ), ENetLane::Rpc );
             ++m_Stats.Irrelevant;
-            const auto info = m_PawnInfo.find( id );
-            m_Log( std::format( "player {}: pawn {} (player {}) removed from relevancy - its finest cell is out "
-                                "of the client's loading range",
-                                peer.Player, id, info != m_PawnInfo.end() ? info->second.Player : 0 ) );
+            peer.Sent.erase( id );
+            const auto info  = m_PawnInfo.find( id );
+            const auto state = std::ranges::find( pawns, id, &PawnState::Id );
+            if ( viewer && state != pawns.end() )
+            {
+                const float distance = GroundDistanceCm( *viewer, state->Position );
+                const float ratio    = RangeRatio( shape, *viewer, state->Position );
+                m_Log( std::format(
+                     "player {}: pawn {} left: {:.0f} m past {:.0f} m (player {}) - Destroy NotRelevant",
+                     peer.Player, id, distance / 100.f,
+                     distance / ratio * ( 1.f + m_Relevancy.ExitMargin ) / 100.f,
+                     info != m_PawnInfo.end() ? info->second.Player : 0 ) );
+            }
+            else
+                m_Log(
+                     std::format( "player {}: pawn {} left: {} - Destroy NotRelevant", peer.Player, id,
+                                  viewer ? "no state in the store" : "the connection has no pawn to view from" ) );
         }
         peer.Relevant = std::move( now );
+        return viewer;
     }
 
     // THE WORLD DELTA REPLAY (§3.3): the destroyed stable ids of every cell the client has resident, once per
@@ -515,28 +946,12 @@ namespace Desert::Net
 
     void Gateway::SendSnapshots( std::uint32_t serverStep )
     {
+        // The gateway decides every step; a snapshot (and the stable state with it) goes on the cadence's steps.
+        if ( serverStep % m_Relevancy.Bands.front().EverySteps != 0 )
+            return;
         const std::vector<PawnState> pawns = m_Store.All();
         for ( const auto& [player, connection] : m_Connections )
-        {
-            Peer& peer = m_Peers[connection];
-            UpdateRelevancy( connection, peer, pawns );
-            SnapshotMessage snapshot;
-            snapshot.ServerStep = serverStep;
-            for ( const PawnState& pawn : pawns )
-                if ( peer.Relevant.contains( pawn.Id ) )
-                    snapshot.Pawns.push_back( pawn );
-            const std::optional<ISimLink::AckedMove> ack =
-                 m_Sim != nullptr ? m_Sim->LastProcessedInput( player ) : std::nullopt;
-            snapshot.HasAck = ack.has_value();
-            if ( ack )
-            {
-                snapshot.AckInputStep  = ack->Step;
-                snapshot.OwnState      = ack->State;
-                snapshot.InputBuffered = ack->Buffered;
-            }
-            // State lane: unreliable; a full send queue drops this snapshot, the next one supersedes it.
-            m_Transport.Send( connection, EncodeSnapshot( snapshot ), ENetLane::State );
-        }
+            SendSnapshot( connection, m_Peers[connection], pawns, serverStep );
         m_ServerStep = serverStep;
         for ( auto& [connection, peer] : m_Peers )
             if ( peer.Admitted )
@@ -545,6 +960,130 @@ namespace Desert::Net
                 ReplayWorldDelta( connection, peer );
                 SendStableState( connection, peer, serverStep );
             }
+    }
+
+    void Gateway::SendSnapshot( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns,
+                                std::uint32_t serverStep )
+    {
+        const std::optional<NetVec3> viewer  = UpdateRelevancy( connection, peer, pawns, serverStep );
+        const std::uint32_t          cadence = m_Relevancy.Bands.front().EverySteps;
+        SnapshotMessage              snapshot;
+        snapshot.ServerStep = serverStep;
+        // The due remote pawns: period by distance (the band); a pawn whose store state is what the connection
+        // last received is dormant - sent only every DormantEverySteps as a keep-alive, but its entry still
+        // carries the band period, so the client's interpolation delay does not grow while it stands (UE
+        // ReplicationPeriodFrame / NetDormancy keeps the net update rate). Dormancy shows in stats and log only.
+        struct Due
+        {
+            const PawnState* Pawn     = nullptr;
+            std::uint32_t    Period   = 0;
+            float            Priority = 0.f;
+        };
+        std::vector<Due> due;
+        peer.ByBand.assign( m_Relevancy.Bands.size(), 0 );
+        peer.Dormant = 0;
+        for ( const PawnState& pawn : pawns )
+        {
+            if ( !peer.Relevant.contains( pawn.Id ) )
+                continue;
+            const auto info = m_PawnInfo.find( pawn.Id );
+            if ( info != m_PawnInfo.end() && info->second.Owner == peer.Player )
+            {
+                // The own pawn: every snapshot (its ack cadence), outside the budget.
+                snapshot.Pawns.push_back( { pawn, static_cast<std::uint8_t>( cadence ) } );
+                continue;
+            }
+            if ( !viewer )
+                continue; // UpdateRelevancy keeps no remote pawn without a viewer
+            const float         distance = GroundDistanceCm( *viewer, pawn.Position );
+            const auto sent = peer.Sent.find( pawn.Id );
+            if ( sent == peer.Sent.end() )
+                continue; // UpdateRelevancy made the entry of every relevant remote pawn
+            const bool          dormant = sent->second.LastSent && SameState( *sent->second.LastSent, pawn );
+            const std::uint32_t period  = SendPeriodSteps( m_Relevancy, distance ); // the band: carried
+            const std::uint32_t every   = dormant ? m_Relevancy.DormantEverySteps : period; // the send cadence
+            if ( dormant )
+                ++peer.Dormant;
+            else
+                for ( std::size_t i = 0; i < m_Relevancy.Bands.size(); ++i )
+                    if ( m_Relevancy.Bands[i].EverySteps == period )
+                    {
+                        ++peer.ByBand[i]; // the first band of that period (bands of equal period print as one)
+                        break;
+                    }
+            if ( dormant != sent->second.Dormant )
+            {
+                sent->second.Dormant = dormant;
+                m_Log( dormant
+                            ? std::format( "player {}: pawn {} dormant - unchanged, sent every {} steps ({:g} Hz), "
+                                           "period {}",
+                                           peer.Player, pawn.Id, every, HzOf( every ), period )
+                            : std::format( "player {}: pawn {} awake - period {} ({:g} Hz) at {:.0f} m",
+                                           peer.Player, pawn.Id, period, HzOf( period ), distance / 100.f ) );
+            }
+            const std::uint32_t since = serverStep - sent->second.LastSentStep;
+            if ( since < every )
+                continue;
+            due.push_back( { &pawn, period, SendPriority( since, every, distance ) } );
+        }
+        // THE BUDGET CUT (§3.6, Iris): most overdue and nearest first, until this snapshot's bytes are spent; the
+        // rest wait for the next snapshot, their priority grown by the wait.
+        std::ranges::sort( due, std::ranges::greater{}, &Due::Priority );
+        const std::size_t budget = SnapshotEntryBudgetBytes( m_Relevancy, m_EntryBytes );
+        std::size_t       spent  = 0;
+        peer.Deferred            = 0;
+        for ( const Due& entry : due )
+        {
+            if ( spent + m_EntryBytes > budget )
+            {
+                ++peer.Deferred;
+                continue;
+            }
+            spent += m_EntryBytes;
+            snapshot.Pawns.push_back( { *entry.Pawn, static_cast<std::uint8_t>( entry.Period ) } );
+            SentPawn& sent    = peer.Sent[entry.Pawn->Id];
+            sent.LastSentStep = serverStep;
+            sent.LastSent     = *entry.Pawn;
+        }
+        m_Stats.Deferred += peer.Deferred;
+        m_Stats.SnapshotBytes += spent;
+        peer.BytesSent += spent;
+        if ( serverStep - peer.WindowStep >= static_cast<std::uint32_t>( kNetStepHz ) )
+        {
+            const double seconds = static_cast<double>( serverStep - peer.WindowStep ) / kNetStepHz;
+            peer.BytesPerSecond  = static_cast<std::uint64_t>(
+                 static_cast<double>( peer.BytesSent - peer.BytesAtWindow ) / seconds );
+            peer.BytesAtWindow = peer.BytesSent;
+            peer.WindowStep    = serverStep;
+        }
+
+        const std::optional<ISimLink::AckedMove> ack =
+             m_Sim != nullptr ? m_Sim->LastProcessedInput( peer.Player ) : std::nullopt;
+        snapshot.HasAck = ack.has_value();
+        if ( ack )
+        {
+            snapshot.AckInputStep  = ack->Step;
+            snapshot.OwnState      = ack->State;
+            snapshot.InputBuffered = ack->Buffered;
+        }
+        // State lane: unreliable; a full send queue drops this snapshot, the next one supersedes it. A lost entry
+        // is resent only at its next period (Sent records the send, not the receipt - as UE's unreliable property
+        // replication between full resends).
+        m_Transport.Send( connection, EncodeSnapshot( snapshot ), ENetLane::State );
+    }
+
+    Gateway::Stats Gateway::ReplicationStats() const
+    {
+        Stats stats = m_Stats;
+        for ( const auto& [player, connection] : m_Connections )
+        {
+            const auto peer = m_Peers.find( connection );
+            if ( peer == m_Peers.end() )
+                continue;
+            stats.Connections.push_back( { player, peer->second.BytesPerSecond, peer->second.ByBand,
+                                           peer->second.Dormant, peer->second.Deferred } );
+        }
+        return stats;
     }
 
     namespace

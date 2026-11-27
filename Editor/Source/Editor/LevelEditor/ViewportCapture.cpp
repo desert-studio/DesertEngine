@@ -5,10 +5,8 @@
 #include <Common/Core/Core.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Engine/Core/RenderTask.hpp>
-#include <Engine/Core/EngineContext.hpp>
-#include <Engine/Core/Window.hpp>
 #include <Engine/Graphic/SwapChain.hpp> // reading the PRESENTED frame back (shot.window)
-#include <Engine/Graphic/SceneRenderer.hpp>              // the view's HDR scene colour (--shot-hdr)
+#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/DisplayOutput.hpp>
 #include <stb_image/stb_image_write.h>
 
@@ -212,55 +210,71 @@ namespace Desert::Editor
         return written;
     }
 
-    bool ViewportCapture::WriteSceneColorPfm( const std::string& path )
+    bool ViewportCapture::WriteShotPng( const std::string& path, const ShotDirector::RecordedFrame& frame )
     {
-        const auto* scene = m_Workspace.ActiveScene().get();
-        if ( !scene )
+        const ShotDirector::FrameCopy& copy = frame.Pixels;
+        if ( !copy.Readback )
         {
-            LOG_ERROR( "[Shot] no scene to capture the scene colour of ('{}')", path );
+            LOG_ERROR( "[Shot] frame_{:05d} (game frame {}) has no copy of its own image: {} ('{}')",
+                       frame.SequenceIndex, frame.GameFrame,
+                       copy.Refusal.empty() ? std::string( "the frame never recorded one" ) : copy.Refusal, path );
+            return false;
+        }
+        if ( !copy.Readback->IsComplete() )
+        {
+            LOG_ERROR( "[Shot] frame_{:05d} (game frame {}): the copy of its image has not completed ('{}')",
+                       frame.SequenceIndex, frame.GameFrame, path );
             return false;
         }
         if ( !CreateParentDirectory( path ) )
             return false;
-        const Graphic::SceneRenderer* renderer = scene->GetViewRenderer( 0 );
-        const auto                    image    = renderer ? renderer->GetSceneColorImage() : nullptr;
-        if ( !image )
+        auto read = copy.Readback->ReadRGBA8();
+        if ( !read.IsSuccess() )
         {
-            LOG_ERROR( "[Shot] view 0 has no scene colour target ('{}')", path );
+            LOG_ERROR( "[Shot] frame_{:05d}: {} ('{}')", frame.SequenceIndex, read.GetError(), path );
             return false;
         }
-        const auto format = image->GetImageSpecification().Format;
-        if ( format != Desert::Core::Formats::ImageFormat::RGBA16F )
+        const std::vector<uint8_t>& px = read.GetValue();
+        const uint32_t              w  = copy.Width;
+        const uint32_t              h  = copy.Height;
+        if ( px.size() != static_cast<size_t>( w ) * h * 4 )
         {
-            LOG_ERROR( "[Shot] the scene colour is not RGBA16F (format {}); the PFM writer reads RGBA16F ('{}')",
-                       static_cast<int>( format ), path );
+            LOG_ERROR( "[Shot] frame_{:05d}: the copy is {} bytes, expected {}x{}x4 ('{}')", frame.SequenceIndex,
+                       px.size(), w, h, path );
             return false;
         }
+        const bool written = WritePngRGBA8( path, w, h, px.data() );
+        LOG_INFO( "[Shot] {} -> {} ({}x{})", written ? "wrote" : "FAILED to write", path, w, h );
+        return written;
+    }
 
-        Graphic::Renderer::GetInstance().WaitDeviceIdle();
-        auto begun = image->BeginReadbackBytes();
-        if ( !begun.IsSuccess() )
+    bool ViewportCapture::WriteSceneColorPfm( const std::string& path, const ShotDirector::RecordedFrame& frame )
+    {
+        const ShotDirector::FrameCopy& copy = frame.SceneColor;
+        if ( !copy.Readback )
         {
-            LOG_ERROR( "[Shot] scene colour readback refused: {} ('{}')", begun.GetError(), path );
+            LOG_ERROR( "[Shot] game frame {} has no copy of its scene colour: {} ('{}')", frame.GameFrame,
+                       copy.Refusal.empty() ? std::string( "the frame never recorded one" ) : copy.Refusal, path );
             return false;
         }
-        // The copy was submitted by BeginReadbackBytes; an idle device has finished it.
-        Graphic::Renderer::GetInstance().WaitDeviceIdle();
-        const auto& readback = begun.GetValue();
-        if ( !readback->IsComplete() )
+        if ( !copy.Readback->IsComplete() )
         {
-            LOG_ERROR( "[Shot] the scene colour copy did not complete on an idle device ('{}')", path );
+            LOG_ERROR( "[Shot] game frame {}: the copy of its scene colour has not completed ('{}')",
+                       frame.GameFrame, path );
             return false;
         }
-        auto bytes = readback->ReadBytes();
+        if ( !CreateParentDirectory( path ) )
+            return false;
+        auto bytes = copy.Readback->ReadBytes();
         if ( !bytes.IsSuccess() )
         {
             LOG_ERROR( "[Shot] scene colour readback failed: {} ('{}')", bytes.GetError(), path );
             return false;
         }
+        // RGBA16F, refused otherwise when the copy was recorded (EditorLayer::CaptureFramePresented).
         const std::vector<uint8_t>& texels      = bytes.GetValue();
-        const uint32_t              w           = image->GetWidth();
-        const uint32_t              h           = image->GetHeight();
+        const uint32_t              w           = copy.Width;
+        const uint32_t              h           = copy.Height;
         const size_t                count       = static_cast<size_t>( w ) * h;
         constexpr size_t            kTexelBytes = 4 * sizeof( uint16_t );
         if ( texels.size() != count * kTexelBytes )
@@ -287,10 +301,10 @@ namespace Desert::Editor
     // present. On the render task, behind the frame's interface.
     void ViewportCapture::RecordWindowCapture( const uint64_t frame )
     {
-        const auto          swapChain = EngineContext::GetInstance().GetWindow()->GetWindowSwapChain();
+        auto swapChain = EngineContext::GetInstance().GetWindow()->GetWindowSwapChain();
         WindowCaptureRecord record{ .Frame = frame };
         if ( !swapChain )
-            record.Error = "there is no swapchain to capture the presented frame from.";
+            record.Error = "there is no window swap chain to capture the presented frame from.";
         // ONE COPY AT A TIME, AND THE EARLIER FRAME KEEPS IT. With GameRenderPipelining this frame is built before
         // the previous one is announced, so the previous frame's copy may still wait for its judgement: that copy
         // is the one a discharge on the previous frame will collect. This frame records nothing - it is not a
@@ -326,7 +340,7 @@ namespace Desert::Editor
         // anyway, because the device-idle wait below must not race a submit on the render task.
         ::Desert::Engine::RenderTask::Get().Join();
         Graphic::Renderer::GetInstance().WaitDeviceIdle();
-        if ( const auto swapChain = EngineContext::GetInstance().GetWindow()->GetWindowSwapChain() )
+        if ( auto swapChain = EngineContext::GetInstance().GetWindow()->GetWindowSwapChain() )
             swapChain->DiscardFrameCapture();
         const std::scoped_lock lock( m_WindowRecordLock );
         m_WindowRecord.InFlight = false;
@@ -363,10 +377,10 @@ namespace Desert::Editor
             return false;
         }
 
-        const auto swapChain = EngineContext::GetInstance().GetWindow()->GetWindowSwapChain();
+        auto swapChain = EngineContext::GetInstance().GetWindow()->GetWindowSwapChain();
         if ( !swapChain )
         {
-            outError = "there is no swapchain to collect the captured frame from.";
+            outError = "there is no window swap chain to collect the captured frame from.";
             return false;
         }
 
@@ -434,9 +448,8 @@ namespace Desert::Editor
     std::string ViewportCapture::FinishWindowPng( WindowPngWrite& write ) const
     {
         std::string error = write.Encode.get();
-        // The worker is done reading the readback: it goes to the backend's deferred deletion.
-        if ( write.Source )
-            write.Source->ReleaseCapturedFrame( write.Ticket );
+        // The worker is done reading the staging: it goes to the allocator's deferred deletion.
+        write.Source->ReleaseCapturedFrame( write.Ticket );
         if ( !error.empty() )
             return error;
         const double encodeMs =

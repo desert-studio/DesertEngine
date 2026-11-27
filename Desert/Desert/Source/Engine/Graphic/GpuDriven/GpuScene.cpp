@@ -440,6 +440,10 @@ namespace Desert::Graphic::GpuDriven
         row.ForcedLod             = desc.ForcedLod;
         row.Flags                 = desc.Flags;
         row.Entity                = desc.Entity;
+        // Rewritten whole: no vertex source of the previous path survives (the path's writer sets it again).
+        row.SkinCacheAddressLo   = 0u;
+        row.SkinCacheAddressHi   = 0u;
+        row.SkinCacheVertexCount = 0u;
         WriteLodScreenSizes( primitive, desc.LodScreenSizes );
         WriteInstances( primitive, desc );
         MarkPrimitive( primitive );

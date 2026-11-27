@@ -74,6 +74,15 @@ namespace Desert::Editor
         // its own step.
         [[nodiscard]] std::optional<float> DrivenFrameSeconds() const;
 
+        // THE PREVIEW CLOCK OF AN EDITED WORLD THE CHANNEL DRIVES, the same rule outside Play: while this editor
+        // listens and no Play runs, preview time (UpdateAnimationInEditor, particles, wind) moves ONLY inside a
+        // `frames N` wait, one fixed step of ShotOptions::PlayStepSeconds per counted frame, and holds on every
+        // other frame. On the wall clock every step of a scenario cost the runner's poll (a second) of preview
+        // time, so `10 frames render` after a parameter change showed a blend space 2-3 s on, past its 1.5 s
+        // axis smoothing (ANIM-BS2D-RUNTIME fix 4). True on a counted frame, false on any other; empty when not
+        // listening or in Play (the caller keeps the preferences' Realtime and the measured step).
+        [[nodiscard]] std::optional<bool> DrivenPreviewCounting() const;
+
         // Drained at the TOP of OnUpdate: accept, read one request, execute it. Everything it can run is
         // a palette entry.
         void ServiceChannel();

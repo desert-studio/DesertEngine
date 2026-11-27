@@ -99,6 +99,9 @@ namespace
         void DriveEffect( const ResolvedBinding&, const VFXSample& ) override
         {
         }
+        void PoseBones( const ResolvedBinding&, BindingGuid, FrameTime ) override
+        {
+        }
     };
 } // namespace
 

@@ -389,21 +389,18 @@
         "PostProcess": {
             "Low": {
                 "PostProcess.AmbientOcclusionSamples": 4,
-                "PostProcess.BloomMips": 3,
-                "PostProcess.BloomMethod": "Gaussian",
+                "PostProcess.BloomQuality": 3,
                 "PostProcess.MotionBlurQuality": 0,
                 "PostProcess.DepthOfFieldQuality": 0
             },
             "Medium": {
                 "PostProcess.AmbientOcclusionSamples": 8,
-                "PostProcess.BloomMips": 4,
-                "PostProcess.BloomMethod": "Gaussian",
+                "PostProcess.BloomQuality": 4,
                 "PostProcess.MotionBlurQuality": 1,
                 "PostProcess.DepthOfFieldQuality": 1
             },
             "High": {
-                "PostProcess.AmbientOcclusionSamples": 16,
-                "PostProcess.BloomMethod": "Gaussian"
+                "PostProcess.AmbientOcclusionSamples": 16
             },
             "Epic": {},
             "Cinematic": {

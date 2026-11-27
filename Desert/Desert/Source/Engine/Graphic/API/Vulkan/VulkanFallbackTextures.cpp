@@ -24,6 +24,7 @@ namespace Desert::Graphic::API::Vulkan
         // format mismatch. Sampled 2D only - no integer cube, volume or storage image is read anywhere.
         CreateFallbackTexture2D( Core::Formats::ImageFormat::RG32_UINT );
         CreateBlackTexture3D();
+        CreateTransparentBlackTexture2D();
     }
 
     const std::shared_ptr<Image2D>&
@@ -246,6 +247,35 @@ namespace Desert::Graphic::API::Vulkan
         m_BlackTexture3D = texture;
     }
 
+    const std::shared_ptr<Image2D>& VulkanFallbackTextures::GetTransparentBlackTexture2D() const
+    {
+        return m_TransparentBlackTexture2D;
+    }
+
+    // The zero 2D texture: every channel 0, alpha too (a reader keeps "the producer answered" in alpha, so the
+    // opaque black would claim an answer of black).
+    void VulkanFallbackTextures::CreateTransparentBlackTexture2D()
+    {
+        const Core::Formats::Image2DSpecification spec = {
+             .Tag        = "VulkanFallbackTextures-TransparentBlack2D",
+             .Width      = 1,
+             .Height     = 1,
+             .Format     = Core::Formats::ImageFormat::RGBA8F,
+             .Mips       = 1,
+             .Data       = std::vector<unsigned char>{ 0, 0, 0, 0 },
+             .Usage      = Core::Formats::Image2DUsage::Image2D,
+             .Properties = Core::Formats::ImageProperties::Sample,
+        };
+        auto texture = std::make_shared<VulkanImage2D>( spec );
+        if ( const Common::BoolResultStr created = texture->RT_Invalidate(); !created )
+        {
+            LOG_ERROR( "VulkanFallbackTextures: the transparent black texture could not be created: {}",
+                       created.GetError() );
+            return;
+        }
+        m_TransparentBlackTexture2D = texture;
+    }
+
     void VulkanFallbackTextures::CreateFallbackStorageImage3D( Core::Formats::ImageFormat format )
     {
         Core::Formats::Image3DSpecification spec = {
@@ -314,6 +344,9 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( m_BlackTexture3D )
             release( m_BlackTexture3D );
+
+        if ( m_TransparentBlackTexture2D )
+            release( m_TransparentBlackTexture2D );
 
         if ( !firstError.empty() )
             return Common::MakeError( firstError );

@@ -8,6 +8,8 @@ set(DESERT_SOURCES
     "EngineRegistration.hpp"
     "GameSettings.cpp"
     "GameSettings.hpp"
+    "NetSettings.cpp"
+    "NetSettings.hpp"
     "ProjectContext.cpp"
     "ProjectContext.hpp"
     "RendererSettings.cpp"

@@ -1,15 +1,19 @@
 #pragma once
 
+#include <Common/Core/SimulationStep.hpp>
+
 // PAWN REPLICATION WIRE + CLIENT-SIDE BUFFERS (Docs/contracts/NET-ARCH.md §2, §3.1, §5).
 //
 // After the handshake (NetHandshake.hpp) a session speaks four messages:
 //   Input    client -> server, State lane (unreliable): every fixed step of input the server has not acked yet
-//            (all of them, up to kMaxUnackedInputSteps), each with the client's fixed-step number, under a
-//            sequence id - a lost packet loses no input: its steps ride in every later one until the ack (§2; UE
-//            ServerMove resent until ClientAckGoodMove, Overwatch-style full resend).
+//            (all of them, up to kMaxUnackedInputSteps) as one consecutive run from the first step's number, under
+//            a sequence id (the run's layout and quantization: InputWire.hpp) - a lost packet loses no input: its
+//            steps ride in every later one until the ack (§2; UE ServerMove resent until ClientAckGoodMove,
+//            Overwatch-style full resend).
 //   Snapshot server -> client, State lane (unreliable): the server step, the last input step the server has
 //            PROCESSED for this connection (the ack the client's prediction replays from, NET-4 §5.1), and the
-//            transform of every replicated pawn relevant to the connection.
+//            transform of every replicated pawn relevant to the connection that is DUE this step (WP-FAR-15: near
+//            pawns every snapshot, far ones every N-th, each entry stamped with its period; Relevancy.hpp).
 //   Spawn    server -> client, Rpc lane (reliable, ordered): a pawn entered the connection's view; `Owned` marks
 //            the connection's own pawn (UE: the PlayerController's possessed pawn, autonomous proxy).
 //   Destroy  server -> client, Rpc lane: the pawn left (its player disconnected, or it is no longer relevant).
@@ -38,7 +42,7 @@ namespace Desert::Net
 {
     using NetId                              = std::uint32_t;
     inline constexpr NetId  kInvalidNetId    = 0;
-    inline constexpr double kNetStepHz       = 60.0; // the server's fixed step (§2); the net frame number
+    inline constexpr double kNetStepHz       = Common::kSimulationStepHz; // the server's fixed step (§2); the net frame number
     // The unacked input steps the client keeps and resends (§2): the InputRing's capacity, 2.1 s at 60 Hz, and so
     // the most one Input message carries. The server moves a pawn by every step in order and waits for a missing
     // one, so every Input message carries EVERY unacked step - never only the newest few: a slow client frame
@@ -50,10 +54,12 @@ namespace Desert::Net
     // One input step's length - the move both the server and the predicting client simulate (the game's
     // Net::IPawnMover, MovePrediction.hpp).
     inline constexpr float kNetStepSeconds = static_cast<float>( 1.0 / kNetStepHz );
-    // Snapshots go out every second step: 30 Hz per connection (§2). A project setting once §3.6 lands.
-    inline constexpr int kSnapshotEverySteps = 2;
-    // How far behind the server clock remote pawns are drawn at least: three snapshot intervals, so one lost
-    // snapshot still interpolates between two received ones (UE / Source default 100 ms at 30 Hz).
+    // WP-FAR-15: the snapshot cadence and every pawn's send period are the project's Net settings
+    // (Relevancy.hpp RelevancySettings::Bands, Project::NetSettings); each snapshot entry says the period it went
+    // at (SnapshotEntry::PeriodSteps). There is no fixed snapshot step in code.
+    // How far behind the server clock remote pawns are drawn at least: three 30 Hz snapshot intervals, so one lost
+    // snapshot still interpolates between two received ones (UE / Source default 100 ms at 30 Hz). A pawn sent at
+    // a longer period is drawn farther behind (Relevancy.hpp PawnInterpolationDelay).
     inline constexpr double kInterpolationDelaySeconds = 0.1;
     // NET-5 (§5.3): the adaptive delay (ReplicationClient) - two snapshot intervals plus the measured arrival
     // jitter, never below kInterpolationDelaySeconds nor above kMaxInterpolationDelaySeconds; past the newest
@@ -73,8 +79,14 @@ namespace Desert::Net
         // NET-3 (§3.3, §4.3): client -> server, the WP cell units that became resident / unloaded on the client
         // (UE ServerUpdateLevelVisibility); server -> client, the world delta table's destroyed stable ids of the
         // cells the client has resident (UE DestroyedStartupOrDormantActors, replayed when the level streams in).
-        CellResidency  = kFirstSessionMessage + 22,
-        StableDestroy  = kFirstSessionMessage + 23,
+        CellResidency = kFirstSessionMessage + 22,
+        StableDestroy = kFirstSessionMessage + 23,
+        // WP-FAR-15 (§3.5, §3.6), WP-STREAM-SOURCE-VIEW: client -> server, State lane, the view point and its
+        // shape (the player's eye and its view streaming source's facing, sector angle, range) - the server's
+        // relevancy, send periods and per-player residency are measured from that eye, bounded by the own pawn
+        // (Relevancy.hpp ViewReport, ResolveViewPosition). Sent when the eye or the shape changes and once a
+        // second.
+        ViewReport = kFirstSessionMessage + 24,
     };
 
     struct NetVec3
@@ -85,11 +97,13 @@ namespace Desert::Net
     // One fixed step of a player's input. Net numbers it, carries it, acks it and resends it; it never reads what
     // it says. Move and Yaw are the pawn's movement intent (UE ServerMove's Acceleration + View; Mover's
     // MoveInput + OrientationIntent): the world-space direction the player asks to move in (length 0..1, already
-    // turned by its view on the client) and the yaw it faces, in degrees. Everything else is the PAWN'S DECLARED
-    // ACTION SET, opaque here (Mover 2.0: the game declares the input struct the net layer carries): bit i of
-    // Actions is the pawn's i-th declared digital action, Axes[j] its j-th declared analog one - the game's
-    // movement (Engine/Gameplay/PawnActions.hpp) names them and maps them to what they do. There is no sprint or
-    // jump here: a pawn that declares a new action sends it without a change to this file.
+    // turned by its view on the client) and the yaw it faces, in RADIANS about +Y (0 faces -Z; PawnState::Yaw).
+    // On the wire every field is quantized (InputWire.hpp OnWireLattice): a sent step is on that lattice.
+    // Everything else is the PAWN'S DECLARED ACTION SET, opaque here (Mover 2.0: the game declares the input
+    // struct the net layer carries): bit i of Actions is the pawn's i-th declared digital action, Axes[j] its j-th
+    // declared analog one - the game's movement (Engine/Gameplay/PawnActions.hpp) names them and maps them to
+    // what they do. There is no sprint or jump here: a pawn that declares a new action sends it without a change
+    // to this file.
     inline constexpr std::size_t kMaxInputActions = 32; // the bits of InputStep::Actions
     inline constexpr std::size_t kMaxInputAxes    = 8;
 
@@ -151,6 +165,15 @@ namespace Desert::Net
         state.Mode     = static_cast<std::uint8_t>( flags >> 1 );
     }
 
+    // One pawn in a snapshot and the period, in server steps, the gateway sends it to this connection at now
+    // (Relevancy.hpp SendPeriodSteps / DormantEverySteps): the client's interpolation delay for the pawn follows
+    // it (two of its intervals + jitter), so a 6 Hz pawn never runs out of samples and extrapolates into a hold.
+    struct SnapshotEntry
+    {
+        PawnState    Pawn;
+        std::uint8_t PeriodSteps = 2; // >= 1; one byte on the wire (a period is at most 255 steps = 4.25 s)
+    };
+
     struct SnapshotMessage
     {
         std::uint32_t          ServerStep   = 0;
@@ -159,9 +182,12 @@ namespace Desert::Net
         // With the ack: the own pawn's state after AckInputStep, and how many of this connection's input steps
         // wait in the server's queue - the client's clock sync dilates its step rate to keep it at a small target
         // (Overwatch / Rocket League input buffer feedback).
-        PawnMoveState          OwnState;
-        std::uint8_t           InputBuffered = 0;
-        std::vector<PawnState> Pawns;
+        PawnMoveState              OwnState;
+        std::uint8_t               InputBuffered = 0;
+        // The pawns DUE for this connection on this step (WP-FAR-15): a near pawn is in every snapshot, a far one
+        // in every N-th, a dormant one in every DormantEverySteps-th; the budget cut defers the least urgent to the
+        // next snapshot. A pawn absent from a snapshot is not gone - Destroy says that; it was not due.
+        std::vector<SnapshotEntry> Pawns;
     };
 
     struct SpawnMessage
@@ -171,6 +197,8 @@ namespace Desert::Net
         std::uint32_t Player = 0; // the server's player index (its PlayerController), for names and logs
     };
 
+    // Empty when the steps are not a run the wire carries (InputWire.hpp AppendInputRun: not consecutive, none, more
+    // than kMaxUnackedInputSteps, too many axes) - the caller reports it and sends nothing.
     std::vector<std::byte> EncodeInput( const InputMessage& message );
     std::vector<std::byte> EncodeSnapshot( const SnapshotMessage& message );
     std::vector<std::byte> EncodeSpawn( const SpawnMessage& message );
@@ -226,7 +254,10 @@ namespace Desert::Net
     {
     public:
         void                    Push( double serverSeconds, const PawnState& state );
-        [[nodiscard]] PawnState Sample( double serverSeconds ) const;
+        // @p extrapolationCap: how far past the newest sample the path is extrapolated before it holds - a pawn
+        // received every N steps gets a longer cap (WP-FAR-15, Relevancy.hpp PawnExtrapolationCap).
+        [[nodiscard]] PawnState Sample( double serverSeconds,
+                                        double extrapolationCap = kMaxExtrapolationSeconds ) const;
         // The newest snapshot's state as the server sent it (never extrapolated); {} when empty.
         [[nodiscard]] PawnState Newest() const
         {

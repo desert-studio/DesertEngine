@@ -6,6 +6,7 @@
 #include <Editor/Core/GraphCanvas/GraphCanvasView.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Panels/Animation/BlendSpaceEdit.hpp>
 #include <Editor/Panels/Animation/PoseGraphEdit.hpp>
 
 #include <Engine/Animation/Graph/AnimGraph.hpp>
@@ -247,7 +248,8 @@ namespace Desert::Editor
                 ImGui::TextDisabled( "%s",
                                      node.Sequence->Clip.empty() ? "<no clip>" : node.Sequence->Clip.c_str() );
             if ( node.BlendSpace )
-                ImGui::TextDisabled( "%zu samples", node.BlendSpace->Samples.size() );
+                ImGui::TextDisabled( "%zu samples, %zu axes", node.BlendSpace->Samples.size(),
+                                     node.BlendSpace->Axes.size() );
             if ( node.LinkedLayer )
                 ImGui::TextDisabled( "%s.%s", node.LinkedLayer->Interface.c_str(),
                                      node.LinkedLayer->Layer.c_str() );
@@ -261,6 +263,17 @@ namespace Desert::Editor
                 ImGui::Text( ICON_MDI_ARROW_RIGHT " %s",
                              Graph::PosePinLabel( node, static_cast<int>( p ) ).c_str() );
                 ed::EndPin();
+            }
+            // The parameter pins (UE's exposed X / Y / PlayRate / Alpha): each shows the graph parameter it reads
+            // every update, bound in the details below; an unbound pin reads its default.
+            for ( const std::string& pin : Graph::ParameterPinsOf( node ) )
+            {
+                const std::string bound = Graph::BoundParameter( node, pin );
+                if ( bound.empty() )
+                    ImGui::TextDisabled( ICON_MDI_ARROW_RIGHT " %s (unbound)", pin.c_str() );
+                else
+                    ImGui::TextColored( ImVec4( 0.6f, 0.9f, 0.6f, 1.0f ), "%s " ICON_MDI_ARROW_RIGHT " %s",
+                                        bound.c_str(), pin.c_str() );
             }
             ImGui::EndGroup();
             ImGui::SameLine( 0.0f, 24.0f );
@@ -458,57 +471,6 @@ namespace Desert::Editor
             MarkEdited();
     }
 
-    bool AnimGraphPanel::DrawBlendSpaceRow( G::BlendSpace1DNode& space, const std::vector<std::string>& clipNames )
-    {
-        bool dirty   = false;
-        int  removed = -1;
-        for ( size_t s = 0; s < space.Samples.size(); ++s )
-        {
-            G::BlendSample& sample = space.Samples[s];
-            ImGui::PushID( static_cast<int>( s ) );
-            ImGui::SetNextItemWidth( 140.0f );
-            if ( ImGui::BeginCombo( "##sampleClip", sample.Clip.empty() ? "<no clip>" : sample.Clip.c_str() ) )
-            {
-                for ( const std::string& clip : clipNames )
-                    if ( ImGui::Selectable( clip.c_str(), clip == sample.Clip ) )
-                    {
-                        sample.Clip = clip;
-                        dirty       = true;
-                    }
-                ImGui::EndCombo();
-            }
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth( 90.0f );
-            dirty |= ImGui::DragFloat( "##sampleValue", &sample.Value, 1.0f );
-            ImGui::SameLine();
-            // UE FBlendSample::RateScale: the clip's own rate times this, so its native speed meets the row value.
-            ImGui::SetNextItemWidth( 70.0f );
-            dirty |= ImGui::DragFloat( "##sampleRate", &sample.RateScale, 0.01f, 0.05f, 4.0f, "x%.2f",
-                                       ImGuiSliderFlags_AlwaysClamp );
-            if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "Rate Scale: this sample's playback rate against its clip" );
-            ImGui::SameLine();
-            if ( ImGui::SmallButton( "x" ) )
-                removed = static_cast<int>( s );
-            ImGui::PopID();
-        }
-        if ( removed >= 0 )
-        {
-            space.Samples.erase( space.Samples.begin() + removed );
-            dirty = true;
-        }
-        if ( ImGui::Button( "Add Sample" ) )
-        {
-            const float next = space.Samples.empty() ? 0.0f : space.Samples.back().Value + 100.0f;
-            space.Samples.push_back(
-                 G::BlendSample{ space.Samples.empty() ? std::string() : space.Samples.back().Clip, next } );
-            dirty = true;
-        }
-        dirty |= ImGui::DragFloat( "Weight Speed (/s, 0 = none)", &space.WeightSpeed, 0.1f, 0.0f, 100.0f );
-        dirty |= ImGui::Checkbox( "Loop##blendSpace", &space.Loop );
-        return dirty;
-    }
-
     bool AnimGraphPanel::DrawPinBinding( G::AnimGraph& graph, G::PoseNode& node, const std::string& pin )
     {
         const std::string bound   = Graph::BoundParameter( node, pin );
@@ -585,10 +547,24 @@ namespace Desert::Editor
         if ( node.BlendSpace )
         {
             // A thin view over the payload: the plan (PlanPoseGraph) states what is wrong with an edit, e.g.
-            // samples out of order; the axis is the X pin, bound below like any parameter pin.
-            ImGui::TextUnformatted( "Blend Space 1D samples (axis = X pin)" );
-            dirty |= DrawBlendSpaceRow( *node.BlendSpace, clipNames );
-            dirty |= DrawPinBinding( graph, node, std::string( G::kBlendSpaceAxisPin ) );
+            // a sample outside its axis range; the axes are the X (/ Y) pins, bound below like any parameter pin.
+            dirty |= Graph::DrawBlendSpaceSetup( *node.BlendSpace, clipNames ).Changed;
+            const bool twoD = static_cast<G::PoseNodeKind>( node.Kind ) == G::PoseNodeKind::BlendSpace2D;
+            ImGui::TextUnformatted( "X pin" );
+            dirty |= DrawPinBinding( graph, node, std::string( G::kBlendSpaceXPin ) );
+            if ( twoD )
+            {
+                ImGui::TextUnformatted( "Y pin" );
+                dirty |= DrawPinBinding( graph, node, std::string( G::kBlendSpaceYPin ) );
+            }
+            ImGui::TextUnformatted( "PlayRate pin" );
+            dirty |= DrawPinBinding( graph, node, std::string( G::kBlendSpacePlayRatePin ) );
+            // The live run is the host graph's only: a layer graph's nodes are not the animator's pose graph.
+            const Animation::Animator::BlendSpaceRun* run =
+                 target.Scope == G::GraphScope::Host && anim.Animator
+                      ? anim.Animator->GetPoseGraphBlendSpace( static_cast<size_t>( index ) )
+                      : nullptr;
+            Graph::DrawBlendSpacePlot( *node.BlendSpace, run );
         }
 
         if ( node.LayeredBlend )

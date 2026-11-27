@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
+#include <Engine/Gameplay/TeleportSpot.hpp>
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Json/ReadWrite.hpp>
@@ -11,13 +12,14 @@
 
 namespace Desert::Server
 {
-    ServerWorld::ServerWorld( Core::CookedWorldStart world ) : m_World( std::move( world ) )
+    ServerWorld::ServerWorld( Core::CookedWorldStart world, const Gameplay::TeleportSearch& search )
+         : m_World( std::move( world ) ), m_Search( search )
     {
     }
 
     Common::ResultStr<std::unique_ptr<ServerWorld>>
     ServerWorld::Begin( Core::CookedWorldStart world, const Core::Rules::ResidencySettings& settings,
-                        Physics::PhysicsWorld& physics )
+                        Physics::PhysicsWorld& physics, const Gameplay::TeleportSearch& search )
     {
         using Result = std::unique_ptr<ServerWorld>;
         // Every read of `world` is resolved before the plan is moved out of it: an argument list is not
@@ -26,7 +28,7 @@ namespace Desert::Server
         auto              observations = world.Indexed.Observations;
         auto              plan         = std::move( world.Indexed.Plan );
         auto              partition    = world.Index->WorldPartition;
-        Result            server( new ServerWorld( std::move( world ) ) );
+        Result            server( new ServerWorld( std::move( world ), search ) );
         auto              begun = Core::Rules::ResidencyExecutor::BeginFromAlwaysLoaded(
              std::move( plan ), std::move( partition ), settings, recordCount, observations );
         if ( !begun )
@@ -34,6 +36,14 @@ namespace Desert::Server
                                               "': " + begun.GetError() );
         server->m_Executor.emplace( begun.ExtractValue() );
         server->m_Held.assign( recordCount, false );
+        // A cell unit states its content's height span with its bounds (ResidencyAt reads both): an index whose cell
+        // has Bounds but no Height is malformed and refused here, by the cell's name - never skipped per query.
+        const auto& indexUnits = server->m_World.Index->Units;
+        for ( std::size_t unit = server->m_Executor->Plan().AlwaysLoaded.size(); unit < indexUnits.size(); ++unit )
+            if ( indexUnits[unit].Bounds && !indexUnits[unit].Height )
+                return Common::MakeError<Result>(
+                     std::format( "server world '{}': cell '{}' states Bounds but no Height",
+                                  server->m_World.Index->SceneName, indexUnits[unit].Name ) );
         server->m_Collision = std::make_unique<ServerCellCollision>( physics );
         // The always-loaded units are resident from the start (their records came with the index, never through
         // Activate): their collision - the landscape's root, a level-wide wall - is held for the server's life,
@@ -95,6 +105,67 @@ namespace Desert::Server
                 cells.push_back( { unit, m_World.Index->Units.at( unit ).Name,
                                    Core::Rules::ResidencyUnitRecords( plan, unit ) } );
         return cells;
+    }
+
+    Net::PointResidency ServerWorld::ResidencyAt( const Net::NetVec3& position ) const
+    {
+        const auto& indexUnits = m_World.Index->Units;
+        const auto& units      = m_Executor->State().Units;
+        // A CELL'S BOUNDS ARE 3D (UE UWorldPartitionRuntimeCell::GetContentBounds): what the placer can touch from
+        // `position` is the column it searches - up to LiftCm above the point (an encroached capsule is lifted) and
+        // DropCm below it (a free one needs a floor) - so a cell counts only when its content's height span, grown
+        // by those distances, reaches the point's Y. The distances are the one search main.cpp builds and gives both
+        // the game's placer (Gameplay::PawnTeleporter) and this world (MakeServerCollision's Search).
+        std::size_t        column    = 0; // cells whose bounds hold (X, Z)
+        std::size_t        reaching  = 0; // of those, the cells whose grown height span holds Y
+        std::size_t        activated = 0; // of those, the Activated ones
+        float              reachMinY = 0.0f;
+        float              reachMaxY = 0.0f;
+        const std::string* loading   = nullptr; // the first reaching cell not Activated
+        // Cell units only: an always-loaded unit is resident for the server's life and states no Bounds or Height.
+        // A cell with Bounds has a Height (refused at Begin otherwise).
+        for ( std::size_t unit = m_Executor->Plan().AlwaysLoaded.size(); unit < indexUnits.size(); ++unit )
+        {
+            const std::optional<Core::Rules::CellBounds>& bounds = indexUnits[unit].Bounds;
+            if ( !bounds )
+                continue;
+            if ( position.X < bounds->MinX || position.X > bounds->MaxX || position.Z < bounds->MinZ ||
+                 position.Z > bounds->MaxZ )
+                continue;
+            const Core::Rules::HeightSpan& height = *indexUnits[unit].Height;
+            const float                    lowY   = height.MinY - m_Search.LiftCm;
+            const float                    highY  = height.MaxY + m_Search.DropCm;
+            reachMinY                             = column == 0 || lowY < reachMinY ? lowY : reachMinY;
+            reachMaxY                             = column == 0 || highY > reachMaxY ? highY : reachMaxY;
+            ++column;
+            if ( position.Y < lowY || position.Y > highY )
+                continue;
+            ++reaching;
+            if ( unit < units.size() && units[unit].State == Core::Rules::Residency::Activated )
+                ++activated;
+            else if ( !loading )
+                loading = &indexUnits[unit].Name;
+        }
+        if ( column == 0 )
+            return { Net::EPointResidency::NoCell,
+                     std::format( "no cell of the world's grid at ({:.0f}, {:.0f}) cm", position.X, position.Z ) };
+        if ( reaching == 0 )
+            return {
+                 Net::EPointResidency::NoCell,
+                 std::format( "no cell of the world's grid reaches ({:.0f}, {:.0f}, {:.0f}) cm: the {} cell(s) "
+                              "at ({:.0f}, {:.0f}) cm reach y {:.0f} to {:.0f} cm (content height, lifted "
+                              "{:.0f} / dropped {:.0f} cm by the search)",
+                              position.X, position.Y, position.Z, column, position.X, position.Z, reachMinY,
+                              reachMaxY, m_Search.LiftCm, m_Search.DropCm ) };
+        if ( loading )
+            return {
+                 Net::EPointResidency::Loading,
+                 std::format( "cell '{}' at ({:.0f}, {:.0f}) cm is loading ({} of {} cell(s) reaching y {:.0f} cm "
+                              "activated)",
+                              *loading, position.X, position.Z, activated, reaching, position.Y ) };
+        return { Net::EPointResidency::Resident,
+                 std::format( "{} cell(s) reaching ({:.0f}, {:.0f}, {:.0f}) cm resident", reaching, position.X,
+                              position.Y, position.Z ) };
     }
 
     Common::BoolResultStr ServerWorld::Activate( std::size_t unit, std::size_t firstMember,

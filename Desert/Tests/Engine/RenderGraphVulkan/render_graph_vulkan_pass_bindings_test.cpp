@@ -6,10 +6,23 @@
 #include <string>
 #include <vector>
 
+// A bloom-like push block of the test's own (the engine's bloom passes moved to RENDER-BLOOM-UE's Gaussian
+// stages): a vec2 and a float, the shape these binding checks were written against.
+namespace Desert::Graphic::ShaderPush
+{
+    struct TestBloomLikePush
+    {
+        glm::vec2 SourceTexelSize{};
+        float     FilterRadius{};
+    };
+    template <>
+    inline constexpr bool IsBlock<TestBloomLikePush> = true;
+} // namespace Desert::Graphic::ShaderPush
+
 namespace
 {
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
-    struct RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters
+    struct RenderGraphVulkanPassBindingsTestBloomDownsample1ShaderParameters
     {
         DESERT_SHADER_PARAMETER( Texture, SourceMipTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
@@ -18,13 +31,13 @@ namespace
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
-    struct RenderGraphVulkanPassBindingsTestBloomUpsample1ReadShaderParameters
+    struct RenderGraphVulkanPassBindingsTestBloomDownsample1ReadShaderParameters
     {
         DESERT_SHADER_PARAMETER( Texture, DestinationMipTexture );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
-    struct RenderGraphVulkanPassBindingsTestBloomUpsample1WriteShaderParameters
+    struct RenderGraphVulkanPassBindingsTestBloomDownsample1WriteShaderParameters
     {
         DESERT_SHADER_PARAMETER( StorageTexture, SourceMipTexture );
     };
@@ -245,8 +258,8 @@ namespace
 
     using Verdict = Common::ResultStr<std::vector<RdgResolvedEntry>>;
 
-    const ShaderPush::BloomUpsample kPush{ .SourceTexelSize = glm::vec2( 1.0f / 32.0f, 1.0f / 32.0f ),
-                                           .FilterRadius    = 1.0f };
+    const ShaderPush::TestBloomLikePush kPush{ .SourceTexelSize = glm::vec2( 1.0f / 32.0f, 1.0f / 32.0f ),
+                                               .FilterRadius    = 1.0f };
 
     // What the setup BELIEVES the shader declares (a ShaderBindingLayout, as a stale ShaderBindingLayoutCache
     // entry would hold it): the slots the block fills and the push size it gives, so ValidatePassBindings passes
@@ -255,7 +268,7 @@ namespace
     ShaderBindingLayout Believed( std::vector<ShaderSlot> slots, uint32_t pushBytes )
     {
         return ShaderBindingLayout{
-             .ShaderName = "BloomUpsample", .Slots = std::move( slots ), .PushConstantBytes = pushBytes };
+             .ShaderName = "BloomDownsample", .Slots = std::move( slots ), .PushConstantBytes = pushBytes };
     }
 
     ShaderBindingLayout BelievedComplete()
@@ -279,20 +292,20 @@ namespace
         // NeverCull: the probe's product is the verdict, not an image. A block that writes nothing (the unfilled
         // DestinationMipTexture case) makes a pass with no externally visible write, which Compile culls before its exec runs.
         graph.AddPass(
-             "PostFX: BloomUpsample1", PassFlags::Compute | PassFlags::NeverCull,
+             "PostFX: BloomDownsample1", PassFlags::Compute | PassFlags::NeverCull,
              [&]( PassBuilder& pass )
              {
                  BindingBlockBuilder declared = pass.Bindings( believed, NoOtherRouteFill() );
                  fill( declared, chain );
                  if ( believed.PushConstantBytes != 0 )
-                     declared.PushConstants<ShaderPush::BloomUpsample>();
+                     declared.PushConstants<ShaderPush::TestBloomLikePush>();
              },
              [&]( PassContext& context ) -> Common::BoolResultStr
              {
                  PassBindings bindings( context, context.GetBindingBlock( block ) );
                  if ( believed.PushConstantBytes != 0 )
                      bindings.PushConstants( kPush );
-                 verdict = ResolveRdgPassBindings( reflection, "BloomUpsample", bindings, other );
+                 verdict = ResolveRdgPassBindings( reflection, "BloomDownsample", bindings, other );
                  return Common::MakeSuccess( true );
              } );
         NoOpBackend                 backend;
@@ -303,11 +316,11 @@ namespace
 
     void FillComplete( BindingBlockBuilder& block, TextureRef chain )
     {
-        block.Texture( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::SourceMipTexture, chain,
+        block.Texture( RenderGraphVulkanPassBindingsTestBloomDownsample1ShaderParameters::SourceMipTexture, chain,
                        Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-             .Sampler( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::LinearClampSampler,
+             .Sampler( RenderGraphVulkanPassBindingsTestBloomDownsample1ShaderParameters::LinearClampSampler,
                        SamplerDesc::LinearClamp() )
-             .Storage( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::DestinationMipTexture,
+             .Storage( RenderGraphVulkanPassBindingsTestBloomDownsample1ShaderParameters::DestinationMipTexture,
                        chain, Access::StorageWrite, 0 );
     }
 } // namespace
@@ -339,15 +352,16 @@ TEST( RenderGraphVulkanPassBindings, ANameTheShaderDoesNotDeclareIsRefused )
          {
              FillComplete( bindings, chain );
              bindings
-                  .Texture( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::u_Sorce, chain,
+                  .Texture( RenderGraphVulkanPassBindingsTestBloomDownsample1ShaderParameters::u_Sorce, chain,
                             Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-                  .Sampler( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::LinearClampSampler,
+                  .Sampler( RenderGraphVulkanPassBindingsTestBloomDownsample1ShaderParameters::LinearClampSampler,
                             SamplerDesc::LinearClamp() );
          } );
     ASSERT_FALSE( resolved.IsSuccess() );
     const std::string error = resolved.GetError();
-    EXPECT_NE( error.find( "PostFX: BloomUpsample1" ), std::string::npos ) << error;
-    EXPECT_NE( error.find( "'u_Sorce' is not a resource of shader 'BloomUpsample'" ), std::string::npos ) << error;
+    EXPECT_NE( error.find( "PostFX: BloomDownsample1" ), std::string::npos ) << error;
+    EXPECT_NE( error.find( "'u_Sorce' is not a resource of shader 'BloomDownsample'" ), std::string::npos )
+         << error;
 }
 
 // A sampled entry into a storage-image slot (and the reverse) is refused: the kind is checked against reflection.
@@ -361,13 +375,14 @@ TEST( RenderGraphVulkanPassBindings, AKindOtherThanTheReflectedOneIsRefused )
          []( BindingBlockBuilder& bindings, TextureRef chain )
          {
              bindings
-                  .Texture(
-                       RenderGraphVulkanPassBindingsTestBloomUpsample1ReadShaderParameters::DestinationMipTexture,
-                       chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-                  .Sampler( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::LinearClampSampler,
+                  .Texture( RenderGraphVulkanPassBindingsTestBloomDownsample1ReadShaderParameters::
+                                 DestinationMipTexture,
+                            chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
+                  .Sampler( RenderGraphVulkanPassBindingsTestBloomDownsample1ShaderParameters::LinearClampSampler,
                             SamplerDesc::LinearClamp() )
-                  .Storage( RenderGraphVulkanPassBindingsTestBloomUpsample1WriteShaderParameters::SourceMipTexture,
-                            chain, Access::StorageWrite, 0 );
+                  .Storage(
+                       RenderGraphVulkanPassBindingsTestBloomDownsample1WriteShaderParameters::SourceMipTexture,
+                       chain, Access::StorageWrite, 0 );
          } );
     ASSERT_FALSE( resolved.IsSuccess() );
     const std::string error = resolved.GetError();
@@ -385,9 +400,9 @@ TEST( RenderGraphVulkanPassBindings, AnUnfilledSlotIsRefused )
          []( BindingBlockBuilder& bindings, TextureRef chain )
          {
              bindings
-                  .Texture( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::SourceMipTexture,
+                  .Texture( RenderGraphVulkanPassBindingsTestBloomDownsample1ShaderParameters::SourceMipTexture,
                             chain, Access::SampledCompute, SubresourceRange::Mip( 1 ) )
-                  .Sampler( RenderGraphVulkanPassBindingsTestBloomUpsample1ShaderParameters::LinearClampSampler,
+                  .Sampler( RenderGraphVulkanPassBindingsTestBloomDownsample1ShaderParameters::LinearClampSampler,
                             SamplerDesc::LinearClamp() );
          } );
     ASSERT_FALSE( noOutput.IsSuccess() );
@@ -416,14 +431,15 @@ TEST( RenderGraphVulkanPassBindings, ASlotFilledByBothRoutesIsRefused )
     other.Filled.push_back( RdgSlotKey{ 0, 0 } );
     const Verdict both = ResolveInPass( UpsampleReflection(), other, BelievedComplete(), FillComplete );
     ASSERT_FALSE( both.IsSuccess() );
-    EXPECT_NE( both.GetError().find( "'SourceMipTexture' of shader 'BloomUpsample' is filled both" ), std::string::npos )
+    EXPECT_NE( both.GetError().find( "'SourceMipTexture' of shader 'BloomDownsample' is filled both" ),
+               std::string::npos )
          << both.GetError();
 
     RdgOtherRoute pushToo = MaterialFillsParams();
     pushToo.PushConstants = true;
     const Verdict push    = ResolveInPass( UpsampleReflection(), pushToo, BelievedComplete(), FillComplete );
     ASSERT_FALSE( push.IsSuccess() );
-    EXPECT_NE( push.GetError().find( "push constants of shader 'BloomUpsample' are given both" ),
+    EXPECT_NE( push.GetError().find( "push constants of shader 'BloomDownsample' are given both" ),
                std::string::npos )
          << push.GetError();
 }

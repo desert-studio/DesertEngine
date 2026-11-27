@@ -28,7 +28,11 @@ namespace Desert::Net
     // signed token envelope (Ed25519, claims), join options in the Hello, the refusal's text in the Refuse.
     // 6: the input step carries the pawn's declared action set (bits + axes), not engine-fixed buttons.
     // 7: the move state's flag byte carries the game's movement mode bits (crouched, swimming) beside Grounded.
-    inline constexpr std::uint32_t kProtocolVersion = 7;
+    // 8: snapshot entries carry their send period; ViewReport (WP-FAR-15).
+    // 9: packed Input run - quantized fields, one step number per run, per-step deltas (NET-INPUT-PACK,
+    //    InputWire.hpp); the mesh handover's pending steps carry their actions and axes.
+    // 10: ViewReport carries the eye (WP-STREAM-SOURCE-VIEW).
+    inline constexpr std::uint32_t kProtocolVersion = 10;
     // "DSNT": a Hello from something that is not our client is refused before its fields are read.
     inline constexpr std::uint32_t kHelloMagic = 0x544E5344u;
 

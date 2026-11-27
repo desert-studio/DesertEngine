@@ -6,6 +6,7 @@
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
 #include <Projects/ProjectContext.hpp>
 
@@ -37,6 +38,7 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <bit>
 #include <cctype>
 #include <cstdint>
@@ -277,10 +279,16 @@ namespace Desert::Editor
                 // the staged copy has none. The baked HLOD materials and textures they name are ordinary
                 // content: staged with the rest of the tree, rowed in the registry gathered above, and listed
                 // in each HLOD unit's asset closure through the records' references.
-                auto hlods  = ::Desert::Core::WorldCells::ReadBuiltHLODs( source );
+                // Judged current by the builders that built them (SavedHLODStatus folds each layer's builder
+                // settings).
+                auto hlods = ::Desert::Core::WorldCells::ReadBuiltHLODs( source );
+                std::optional<::Desert::Core::WorldCells::HLODsToPack> toPack;
+                if ( hlods )
+                    toPack.emplace( ::Desert::Core::WorldCells::HLODsToPack{ hlods.GetValue(),
+                                                                             ::Desert::Core::HLODBuilders() } );
                 auto cooked = ::Desert::Core::WorldCells::CookWorld(
                      scene.GetValue().Scene, registries, ::Desert::Core::WorldCells::PrefabFileReader(),
-                     hlods ? &hlods.GetValue() : nullptr );
+                     toPack.has_value() ? &*toPack : nullptr );
                 if ( !cooked )
                 {
                     error = "cooking the world '" + key + "': " + cooked.GetError() +

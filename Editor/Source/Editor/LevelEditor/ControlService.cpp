@@ -664,6 +664,13 @@ namespace Desert::Editor
         return m_AdvanceUntil ? ShotOptions::PlayStepSeconds : 0.0f;
     }
 
+    std::optional<bool> ControlService::DrivenPreviewCounting() const
+    {
+        if ( !m_ControlSocket.IsListening() || m_Play.InPlayMode() )
+            return std::nullopt;
+        return m_FramesUntil.has_value();
+    }
+
     std::optional<double> ControlService::PlaySimulatedSeconds() const
     {
         if ( !m_Play.InPlayMode() )
@@ -2315,6 +2322,13 @@ namespace Desert::Editor
                                             .Cells            = prepass.Cells,
                                             .GpuSections      = prepass.GpuSections,
                                             .DepthWriteInBase = prepass.DepthWriteInBase };
+                const Graphic::ExposureReadout exposure       = primary->GetExposureReadout();
+                snapshot.Exposure                             = { .Auto          = exposure.Auto,
+                                                                  .AdaptedEV100  = exposure.AdaptedEV100,
+                                                                  .MeasuredEV100 = exposure.MeasuredEV100,
+                                                                  .Exposure      = exposure.Exposure,
+                                                                  .LowPercent    = exposure.LowPercent,
+                                                                  .HighPercent   = exposure.HighPercent };
                 const Graphic::System::VsmPageStats& vsmPages = primary->GetVirtualShadowPageStats();
                 snapshot.VsmPagesDrawn                        = vsmPages.Drawn;
                 snapshot.VsmPagesStaticRedrawn                = vsmPages.StaticRedrawn;

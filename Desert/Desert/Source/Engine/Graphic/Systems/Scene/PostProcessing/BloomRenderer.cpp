@@ -11,6 +11,8 @@
 #include <bit>
 #include <cmath>
 #include <format>
+#include <span>
+#include <string>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 namespace Desert::Graphic::System
@@ -38,13 +40,19 @@ namespace Desert::Graphic::System
         if ( !CreatePipelines() )
             return Common::MakeError( "BloomRenderer: failed to create compute pipelines" );
 
-        if ( const auto valid = m_DownsampleLayout.Validate( m_DownsamplePipeline->GetSpecification().Shader, BloomDownsampleShaderParameters::kAll );
+        if ( const auto valid = m_SetupLayout.Validate( m_SetupPipeline->GetSpecification().Shader,
+                                                        BloomSetupShaderParameters::kAll );
              !valid )
             return valid;
-        if ( const auto valid = m_UpsampleLayout.Validate( m_UpsamplePipeline->GetSpecification().Shader, BloomUpsampleShaderParameters::kAll );
+        if ( const auto valid = m_DownsampleLayout.Validate( m_DownsamplePipeline->GetSpecification().Shader,
+                                                             BloomDownsampleShaderParameters::kAll );
              !valid )
             return valid;
-        // The convolution's programs: a failure leaves the Gaussian chain (the method every tier can run) and is
+        if ( const auto valid = m_BlurLayout.Validate( m_BlurPipeline->GetSpecification().Shader,
+                                                       BloomGaussianBlurShaderParameters::kAll );
+             !valid )
+            return valid;
+        // The convolution's programs: a failure leaves the Gaussian chain (the method every view can run) and is
         // named once here; PrepareConvolution then says "pipelines did not build" on its Gaussian line.
         const auto check = [&]( ConvolutionProgram& program, const auto& all ) -> bool
         {
@@ -87,171 +95,237 @@ namespace Desert::Graphic::System
             return built.GetValue();
         };
 
-        m_DownsamplePipeline = make( "BloomDownsample" );
-        m_UpsamplePipeline   = make( "BloomUpsample" );
+        m_SetupPipeline        = make( "BloomSetup" );
+        m_DownsamplePipeline   = make( "BloomDownsample" );
+        m_BlurPipeline         = make( "BloomGaussianBlur" );
         m_Pack.Pipeline        = make( "BloomConvolutionPack" );
         m_KernelPlace.Pipeline = make( "BloomConvolutionKernel" );
         m_FFT.Pipeline         = make( "BloomFFT" );
         m_Convolve.Pipeline    = make( "BloomConvolve" );
         m_Unpack.Pipeline      = make( "BloomConvolutionUnpack" );
 
-        return m_DownsamplePipeline && m_UpsamplePipeline;
+        return m_SetupPipeline && m_DownsamplePipeline && m_BlurPipeline;
     }
 
-    std::optional<RDG::TextureDesc> BloomRenderer::GetChainDesc() const
+    std::optional<RDG::TextureDesc> BloomRenderer::GetSetupDesc() const
     {
         const auto& scene = m_TargetFramebuffer.lock();
-        if ( !scene || !scene->GetColorAttachmentImage() || !m_DownsamplePipeline || !m_UpsamplePipeline )
+        if ( !scene || !scene->GetColorAttachmentImage() || !m_SetupPipeline || !m_DownsamplePipeline ||
+             !m_BlurPipeline )
             return std::nullopt;
-        // Half-resolution chain (mip 0 = scene / 2), capped so the smallest mip stays usable.
-        const uint32_t bw = std::max( 1u, scene->GetFramebufferWidth() / 2 );
-        const uint32_t bh = std::max( 1u, scene->GetFramebufferHeight() / 2 );
-        return RDG::TextureDesc{ .Size   = { .Width = bw, .Height = bh },
+        // UE's bloom setup runs at half resolution (PostProcessBloomSetup.cpp: the 1/2 scene downsample).
+        return RDG::TextureDesc{ .Size   = { .Width  = std::max( 1u, scene->GetFramebufferWidth() / 2 ),
+                                             .Height = std::max( 1u, scene->GetFramebufferHeight() / 2 ) },
                                  .Format = kBloomFormat,
-                                 .Mips   = std::min( m_MaxMips, Utils::CalculateMipCount( bw, bh ) ) };
+                                 .Mips   = 1 };
     }
 
-    void BloomRenderer::DeclareDownsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor,
-                                                   RDG::TextureRef chain, RDG::TextureRef adaptedLuminance,
-                                                   RDG::TextureRef localExposureGrid,
-                                                   RDG::TextureRef blurredLogLuminance, uint32_t mip ) const
+    RDG::TextureDesc BloomRenderer::GetStageDesc( const RDG::TextureDesc& setupDesc, const uint32_t stage )
+    {
+        RDG::TextureDesc desc = setupDesc;
+        desc.Size.Width       = MipSize( setupDesc.Size.Width, stage );
+        desc.Size.Height      = MipSize( setupDesc.Size.Height, stage );
+        desc.Mips             = 1;
+        return desc;
+    }
+
+    void BloomRenderer::DeclareSetupBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor,
+                                              RDG::TextureRef setup, RDG::TextureRef adaptedLuminance,
+                                              RDG::TextureRef localExposureGrid,
+                                              RDG::TextureRef blurredLogLuminance ) const
+    {
+        if ( !m_SetupPipeline )
+            return; // RecordSetup refuses by name
+        pass.Bindings( m_SetupLayout.Get( m_SetupPipeline->GetSpecification().Shader ),
+                       Renderer::GetPipelineRouteFill( *m_SetupPipeline ) )
+             .Texture( BloomSetupShaderParameters::SceneColorTexture, sceneColor, RDG::Access::SampledCompute,
+                       RDG::SubresourceRange::All() )
+             .Sampler( BloomSetupShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Sampler( BloomSetupShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+             .Texture( BloomSetupShaderParameters::AdaptedLuminanceTexture, adaptedLuminance,
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Texture( BloomSetupShaderParameters::LumBilateralGrid, localExposureGrid,
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Texture( BloomSetupShaderParameters::BlurredLogLuminance, blurredLogLuminance,
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Storage( BloomSetupShaderParameters::BloomSetupTexture, setup, RDG::Access::StorageWrite, 0 )
+             .PushConstants<ShaderPush::BloomSetup>();
+    }
+
+    Common::BoolResultStr BloomRenderer::RecordSetup( const RDG::PassContext& context,
+                                                      const RDG::TextureDesc& setupDesc )
+    {
+        if ( !m_SetupPipeline )
+            return Common::MakeError( "BloomRenderer: the setup pipeline is not initialised" );
+        const auto& scene = m_TargetFramebuffer.lock();
+        if ( !scene )
+            return Common::MakeError( "BloomRenderer: the scene framebuffer is gone" );
+
+        // Local exposure: the composite's own numbers (TonemapRenderer::FillMaterial).
+        const TonemapRenderer::LocalExposureFrame& le = m_LocalExposure;
+        const LocalExposureParams                  p  = le.Produced ? le.Params : LocalExposureParams{};
+        ShaderPush::BloomSetup                     push;
+        push.SourceTexelSize    = glm::vec2( 1.0f / static_cast<float>( scene->GetFramebufferWidth() ),
+                                             1.0f / static_cast<float>( scene->GetFramebufferHeight() ) );
+        push.Threshold          = m_Frame.Threshold;
+        push.MiddleGrey         = kExposureMiddleGrey;
+        push.AutoExposure       = m_Frame.AutoExposure ? 1 : 0;
+        push.Exposure           = m_ManualExposure;
+        push.InversePreExposure = 1.0f / std::max( m_PreExposure, 1e-30f );
+        push.LocalExposureContrast =
+             glm::vec4( p.HighlightContrast, p.ShadowContrast, p.DetailStrength, p.BlurredLumBlend );
+        push.LocalExposureThreshold = glm::vec4( p.HighlightThreshold, p.ShadowThreshold,
+                                                 p.HighlightThresholdStrength, p.ShadowThresholdStrength );
+        push.LocalExposureUV        = glm::vec4( le.GridUVScale, le.BlurUVScale );
+        push.LocalExposureSlice     = glm::vec4( le.LogMiddleGrey, le.SliceLogMin, 1.0f / kLocalExposureSliceEV,
+                                             le.Produced ? 1.0f : 0.0f );
+
+        RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+        bindings.PushConstants( push );
+        return Renderer::GetInstance().DispatchCompute( bindings, *m_SetupPipeline,
+                                                        GroupCount( setupDesc.Size.Width ),
+                                                        GroupCount( setupDesc.Size.Height ), 1 );
+    }
+
+    void BloomRenderer::DeclareDownsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef source,
+                                                   RDG::TextureRef destination ) const
     {
         if ( !m_DownsamplePipeline )
-            return;
-        auto block = pass.Bindings( m_DownsampleLayout.Get( m_DownsamplePipeline->GetSpecification().Shader ),
-                                    Renderer::GetPipelineRouteFill( *m_DownsamplePipeline ) );
-        if ( mip == 0 )
-            block.Texture( BloomDownsampleShaderParameters::SourceMipTexture, sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        else
-            block.Texture( BloomDownsampleShaderParameters::SourceMipTexture, chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
-        block.Sampler( BloomDownsampleShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
-             .Sampler( BloomDownsampleShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
-             .Texture( BloomDownsampleShaderParameters::AdaptedLuminanceTexture, adaptedLuminance,
-                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Texture( BloomDownsampleShaderParameters::LumBilateralGrid, localExposureGrid,
-                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Texture( BloomDownsampleShaderParameters::BlurredLogLuminance, blurredLogLuminance,
-                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
-        block.Storage( BloomDownsampleShaderParameters::DestinationMipTexture, chain, RDG::Access::StorageWrite, mip )
+            return; // RecordDownsample refuses by name
+        pass.Bindings( m_DownsampleLayout.Get( m_DownsamplePipeline->GetSpecification().Shader ),
+                       Renderer::GetPipelineRouteFill( *m_DownsamplePipeline ) )
+             .Texture( BloomDownsampleShaderParameters::SourceTexture, source, RDG::Access::SampledCompute,
+                       RDG::SubresourceRange::All() )
+             .Sampler( BloomDownsampleShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Storage( BloomDownsampleShaderParameters::DestinationTexture, destination, RDG::Access::StorageWrite,
+                       0 )
              .PushConstants<ShaderPush::BloomDownsample>();
     }
 
     Common::BoolResultStr BloomRenderer::RecordDownsample( const RDG::PassContext& context,
-                                                           const RDG::TextureDesc& chainDesc, uint32_t mip )
+                                                           const RDG::TextureDesc& sourceDesc,
+                                                           const RDG::TextureDesc& destinationDesc ) const
     {
         if ( !m_DownsamplePipeline )
             return Common::MakeError( "BloomRenderer: the downsample pipeline is not initialised" );
-        const bool     first = ( mip == 0 );
-        const uint32_t bw    = chainDesc.Size.Width;
-        const uint32_t bh    = chainDesc.Size.Height;
-        uint32_t       srcW  = 0;
-        uint32_t       srcH  = 0;
-        if ( first )
-        {
-            // Mip 0 samples the full-resolution scene colour.
-            const auto& scene = m_TargetFramebuffer.lock();
-            if ( !scene )
-                return Common::MakeError( "BloomRenderer: the scene framebuffer is gone" );
-            srcW = scene->GetFramebufferWidth();
-            srcH = scene->GetFramebufferHeight();
-        }
-        else
-        {
-            srcW = MipSize( bw, mip - 1 );
-            srcH = MipSize( bh, mip - 1 );
-        }
-
-        // Local exposure: the composite's own numbers (TonemapRenderer::FillMaterial), applied on mip 0 only.
-        const TonemapRenderer::LocalExposureFrame& le = m_LocalExposure;
-        const LocalExposureParams                  p  = le.Produced ? le.Params : LocalExposureParams{};
-        const ShaderPush::BloomDownsample                       push{
-             glm::vec2( 1.0f / static_cast<float>( srcW ), 1.0f / static_cast<float>( srcH ) ),
-             first ? 1 : 0,
-             m_Threshold * m_PreExposure,
-             kExposureMiddleGrey,
-             m_AutoExposure ? 1 : 0,
-             m_ManualExposure,
-             1.0f / std::max( m_PreExposure, 1e-30f ),
-             glm::vec4( p.HighlightContrast, p.ShadowContrast, p.DetailStrength, p.BlurredLumBlend ),
-             glm::vec4( p.HighlightThreshold, p.ShadowThreshold, p.HighlightThresholdStrength,
-                                              p.ShadowThresholdStrength ),
-             glm::vec4( le.GridUVScale, le.BlurUVScale ),
-             glm::vec4( le.LogMiddleGrey, le.SliceLogMin, 1.0f / kLocalExposureSliceEV,
-                        le.Produced ? 1.0f : 0.0f ) };
-
+        const ShaderPush::BloomDownsample push{
+             .SourceTexelSize = glm::vec2( 1.0f / static_cast<float>( sourceDesc.Size.Width ),
+                                           1.0f / static_cast<float>( sourceDesc.Size.Height ) ) };
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( push );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_DownsamplePipeline,
-                                                        GroupCount( MipSize( bw, mip ) ),
-                                                        GroupCount( MipSize( bh, mip ) ), 1 );
+                                                        GroupCount( destinationDesc.Size.Width ),
+                                                        GroupCount( destinationDesc.Size.Height ), 1 );
     }
 
-    void BloomRenderer::DeclareUpsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef chain,
-                                                 uint32_t mip ) const
+    void BloomRenderer::DeclareBlurBindings( RDG::PassBuilder& pass, RDG::TextureRef source,
+                                             RDG::TextureRef additive, RDG::TextureRef destination,
+                                             RDG::BufferRef kernel ) const
     {
-        if ( !m_UpsamplePipeline || mip == 0 )
-            return; // RecordUpsample refuses both by name
-        pass.Bindings( m_UpsampleLayout.Get( m_UpsamplePipeline->GetSpecification().Shader ),
-                       Renderer::GetPipelineRouteFill( *m_UpsamplePipeline ) )
-             .Texture( BloomUpsampleShaderParameters::SourceMipTexture, chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip ) )
-             .Sampler( BloomUpsampleShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
-             .Storage( BloomUpsampleShaderParameters::DestinationMipTexture, chain, RDG::Access::StorageWrite, mip - 1 )
-             .PushConstants<ShaderPush::BloomUpsample>();
+        if ( !m_BlurPipeline )
+            return; // RecordBlur refuses by name
+        pass.Bindings( m_BlurLayout.Get( m_BlurPipeline->GetSpecification().Shader ),
+                       Renderer::GetPipelineRouteFill( *m_BlurPipeline ) )
+             .Texture( BloomGaussianBlurShaderParameters::SourceTexture, source, RDG::Access::SampledCompute,
+                       RDG::SubresourceRange::All() )
+             .Texture( BloomGaussianBlurShaderParameters::AdditiveTexture, additive, RDG::Access::SampledCompute,
+                       RDG::SubresourceRange::All() )
+             .Sampler( BloomGaussianBlurShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Storage( BloomGaussianBlurShaderParameters::DestinationTexture, destination,
+                       RDG::Access::StorageWrite, 0 )
+             .Storage( BloomGaussianBlurShaderParameters::KernelBuffer, kernel, RDG::Access::StorageRead )
+             .PushConstants<ShaderPush::BloomGaussianBlur>();
     }
 
-    Common::BoolResultStr BloomRenderer::RecordUpsample( const RDG::PassContext& context,
-                                                         const RDG::TextureDesc& chainDesc, uint32_t mip )
+    Common::BoolResultStr BloomRenderer::RecordBlur( const RDG::PassContext&              context,
+                                                     const ShaderPush::BloomGaussianBlur& push,
+                                                     const RDG::TextureDesc&              destinationDesc ) const
     {
-        if ( !m_UpsamplePipeline )
-            return Common::MakeError( "BloomRenderer: the upsample pipeline is not initialised" );
-        if ( mip == 0 )
-            return Common::MakeError( "BloomRenderer: an upsample reads mip >= 1" );
-        const uint32_t bw = chainDesc.Size.Width;
-        const uint32_t bh = chainDesc.Size.Height;
-
-        const ShaderPush::BloomUpsample push{ glm::vec2( 1.0f / static_cast<float>( MipSize( bw, mip ) ),
-                                            1.0f / static_cast<float>( MipSize( bh, mip ) ) ),
-                                 kFilterRadius };
-
+        if ( !m_BlurPipeline )
+            return Common::MakeError( "BloomRenderer: the Gaussian blur pipeline is not initialised" );
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( push );
-        return Renderer::GetInstance().DispatchCompute( bindings, *m_UpsamplePipeline,
-                                                        GroupCount( MipSize( bw, mip - 1 ) ),
-                                                        GroupCount( MipSize( bh, mip - 1 ) ), 1 );
+        return Renderer::GetInstance().DispatchCompute( bindings, *m_BlurPipeline,
+                                                        GroupCount( destinationDesc.Size.Width ),
+                                                        GroupCount( destinationDesc.Size.Height ), 1 );
     }
 
-    std::optional<BloomRenderer::ConvolutionPlan> BloomRenderer::PrepareConvolution( const RDG::TextureDesc& chainDesc,
-                                                                                     const Texture2D*        kernel,
-                                                                                     const std::string&      kernelName )
+    ShaderPush::BloomGaussianBlur BloomRenderer::MakeBlurPush( const RDG::TextureDesc&      stageDesc,
+                                                               const BloomGaussian::Kernel& kernel,
+                                                               const bool vertical, const glm::vec3& tint,
+                                                               const bool additive )
+    {
+        // UE AddGaussianBloomPasses: the horizontal pass is plain, the vertical one carries the stage's tint and
+        // adds the coarser stage's result (FGaussianBlurInputs::TintColor / Additive). One kernel serves both
+        // axes, its radius taken from the stage's width (PostProcessWeightedSampleSum.cpp:476).
+        ShaderPush::BloomGaussianBlur push;
+        push.Tint        = vertical ? glm::vec4( tint, 1.0f ) : glm::vec4( 1.0f );
+        push.Direction   = vertical ? glm::vec2( 0.0f, 1.0f / static_cast<float>( stageDesc.Size.Height ) )
+                                    : glm::vec2( 1.0f / static_cast<float>( stageDesc.Size.Width ), 0.0f );
+        push.SampleCount = static_cast<std::int32_t>( kernel.SampleCount );
+        push.UseAdditive = vertical && additive ? 1 : 0;
+        return push;
+    }
+
+    const BloomGaussian::Kernel& BloomRenderer::AcquireKernel( RDG::Builder& graph, const uint32_t stage,
+                                                               const uint32_t  stageWidth,
+                                                               const float     kernelSizePercent,
+                                                               RDG::BufferRef& buffer )
+    {
+        StageKernel&      cached = m_StageKernels[stage];
+        const std::string name   = std::format( "Bloom.Kernel{}", stage );
+        if ( cached.Buffer.Physical && cached.StageWidth == stageWidth && cached.SizePercent == kernelSizePercent )
+        {
+            buffer = graph.RegisterExternal( cached.Buffer, name );
+            return cached.Kernel;
+        }
+        cached.StageWidth  = stageWidth;
+        cached.SizePercent = kernelSizePercent;
+        cached.Kernel =
+             BloomGaussian::Compute1DKernel( BloomGaussian::BlurRadius( stageWidth, kernelSizePercent ) );
+        cached.Buffer = {};
+        buffer        = graph.CreateBuffer( RDG::BufferDesc{ sizeof( cached.Kernel.OffsetWeight ) }, name );
+        graph.QueueBufferUpload( buffer, std::as_bytes( std::span( cached.Kernel.OffsetWeight ) ) );
+        graph.Extract( buffer, cached.Buffer, RDG::Access::StorageRead );
+        LOG_DEBUG( "[Bloom] kernel stage {} uploaded: width {} size {}% samples {}", stage, stageWidth,
+                   kernelSizePercent, cached.Kernel.SampleCount );
+        return cached.Kernel;
+    }
+
+    std::optional<BloomRenderer::ConvolutionPlan>
+    BloomRenderer::PrepareConvolution( const RDG::TextureDesc& setupDesc, const Texture2D* kernel,
+                                       const std::string& kernelName )
     {
         const auto report = [this]( std::string line ) { ReportOutcome( std::move( line ), false ); };
-        if ( m_Method != Common::Scalability::BloomMethod::Convolution )
+        if ( m_Frame.Method != Core::BloomMethod::Convolution )
         {
             report( "[Bloom] method=Gaussian" );
             return std::nullopt;
         }
         if ( !m_ConvolutionReady )
         {
-            report( "[Bloom] method=Gaussian (tier Convolution: the convolution pipelines did not build)" );
+            report( "[Bloom] method=Gaussian (view Convolution: the convolution pipelines did not build)" );
             return std::nullopt;
         }
         if ( static_cast<uint64_t>( m_Kernel ) == 0 )
         {
-            report( "[Bloom] method=Gaussian (tier Convolution: the view's post-process names no convolution kernel)" );
+            report( "[Bloom] method=Gaussian (view Convolution: "
+                    "the view's post-process names no convolution kernel)" );
             return std::nullopt;
         }
         if ( kernel == nullptr || !kernel->GetImageHandle().IsValid() )
         {
-            report( std::format( "[Bloom] method=Gaussian (tier Convolution: kernel {} is not loaded yet)", kernelName ) );
+            report( std::format( "[Bloom] method=Gaussian (view Convolution: kernel {} is not loaded yet)",
+                                 kernelName ) );
             return std::nullopt;
         }
 
         // The FFT size: the half-resolution input plus its zero border, rounded up to a power of two, capped; when
         // the cap bites, the content shrinks to fit (UE does the same through its buffer scale).
         // BloomConvolutionFFTSize is also what the view's memory census lists (ViewTargetCensus "Bloom.Spectrum").
-        const float        bw  = static_cast<float>( chainDesc.Size.Width );
-        const float        bh  = static_cast<float>( chainDesc.Size.Height );
-        const BloomFFTSize fft = BloomConvolutionFFTSize( chainDesc.Size.Width, chainDesc.Size.Height );
+        const float        bw  = static_cast<float>( setupDesc.Size.Width );
+        const float        bh  = static_cast<float>( setupDesc.Size.Height );
+        const BloomFFTSize fft = BloomConvolutionFFTSize( setupDesc.Size.Width, setupDesc.Size.Height );
         const float        pad = fft.Pad;
         ConvolutionPlan    plan;
         plan.KernelName = kernelName;
@@ -286,7 +360,7 @@ namespace Desert::Graphic::System
         }
         if ( !m_KernelSpectrum )
         {
-            ReportOutcome( "[Bloom] method=Gaussian (tier Convolution: the kernel spectrum image was not created)",
+            ReportOutcome( "[Bloom] method=Gaussian (view Convolution: the kernel spectrum image was not created)",
                            true );
             return std::nullopt;
         }
@@ -316,12 +390,12 @@ namespace Desert::Graphic::System
 
     void BloomRenderer::DropConvolution( const std::string_view reason )
     {
-        ReportOutcome( std::format( "[Bloom] method=Gaussian (tier Convolution: {})", reason ), true );
+        ReportOutcome( std::format( "[Bloom] method=Gaussian (view Convolution: {})", reason ), true );
     }
 
     void BloomRenderer::AddConvolutionPasses( RDG::Builder& graph, const ConvolutionPlan& plan,
-                                              RDG::TextureRef chain, RDG::TextureRef kernelImage,
-                                              RDG::TextureRef kernelSpectrum )
+                                              RDG::TextureRef setup, const RDG::TextureDesc& setupDesc,
+                                              RDG::TextureRef kernelImage, RDG::TextureRef kernelSpectrum )
     {
         // The spectrum counts as built from this plan once its passes are in the graph (not when planned: a frame
         // that drops the convolution after PrepareConvolution must not leave a never-written spectrum marked
@@ -406,12 +480,12 @@ namespace Desert::Graphic::System
                                                          static_cast<int>( plan.Height ) };
             graph.AddPass(
                  "PostFX: BloomConvolutionPack", RDG::PassFlags::Compute,
-                 [program, chain, spectrum]( RDG::PassBuilder& pass )
+                 [program, setup, spectrum]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( program->Layout.Get( program->Pipeline->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *program->Pipeline ) )
-                          .Texture( BloomConvolutionPackShaderParameters::BloomInput, chain,
-                                    RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( 0 ) )
+                          .Texture( BloomConvolutionPackShaderParameters::BloomInput, setup,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                           .Sampler( BloomConvolutionPackShaderParameters::LinearClampSampler,
                                     RDG::SamplerDesc::LinearClamp() )
                           .Storage( BloomConvolutionPackShaderParameters::Spectrum, spectrum,
@@ -452,31 +526,31 @@ namespace Desert::Graphic::System
         fftPass( spectrum, 0, 1.0f, "PostFX: BloomFFTRowsInverse" );
         {
             const ConvolutionProgram*                  program = &m_Unpack;
+            // UE FFTBloom: the convolution's own strength (BloomConvolutionIntensity, times BloomIntensity here).
             const ShaderPush::BloomConvolutionUnpack push{
-                 plan.Content, static_cast<int>( plan.Width ),
-                 1.0f / ( static_cast<float>( plan.Width ) * static_cast<float>( plan.Height ) ) };
+                 .ContentSize  = plan.Content,
+                 .Width        = static_cast<int>( plan.Width ),
+                 .InverseCount = 1.0f / ( static_cast<float>( plan.Width ) * static_cast<float>( plan.Height ) ),
+                 .Intensity    = m_Frame.ConvolutionIntensity };
+            const uint32_t outX = GroupCount( setupDesc.Size.Width );
+            const uint32_t outY = GroupCount( setupDesc.Size.Height );
             graph.AddPass(
                  "PostFX: BloomConvolutionUnpack", RDG::PassFlags::Compute,
-                 [program, chain, spectrum]( RDG::PassBuilder& pass )
+                 [program, setup, spectrum]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( program->Layout.Get( program->Pipeline->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *program->Pipeline ) )
                           .Storage( BloomConvolutionUnpackShaderParameters::Spectrum, spectrum,
                                     RDG::Access::StorageRead, 0 )
-                          .Storage( BloomConvolutionUnpackShaderParameters::BloomOutput, chain,
+                          .Storage( BloomConvolutionUnpackShaderParameters::BloomOutput, setup,
                                     RDG::Access::StorageWrite, 0 )
                           .PushConstants<ShaderPush::BloomConvolutionUnpack>();
                  },
-                 [this, program, push]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [program, push, outX, outY]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
-                     const auto desc = GetChainDesc();
-                     if ( !desc )
-                         return Common::MakeError( "BloomRenderer: the scene framebuffer is gone" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( push );
-                     return Renderer::GetInstance().DispatchCompute( bindings, *program->Pipeline,
-                                                                     GroupCount( desc->Size.Width ),
-                                                                     GroupCount( desc->Size.Height ), 1 );
+                     return Renderer::GetInstance().DispatchCompute( bindings, *program->Pipeline, outX, outY, 1 );
                  } );
         }
     }

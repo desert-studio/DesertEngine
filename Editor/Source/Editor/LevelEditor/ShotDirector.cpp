@@ -16,6 +16,7 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
+#include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
@@ -282,9 +283,9 @@ namespace Desert::Editor
                   view.Position.x, view.Position.y, view.Position.z, view.Near, view.Far );
     }
 
-    bool ShotDirector::CountRenderedFrame( const bool recordedFrame )
+    bool ShotDirector::CountRenderedFrame( const bool recordedFrame, RecordedFrame& frame )
     {
-        // Screenshot mode, SECOND HALF: the frame just rendered is the frame that gets written. The frame
+        // Screenshot mode, SECOND HALF: the frame just recorded is the frame that gets written. The frame
         // count is not decoration — a temporally accumulating pass needs several frames to converge, so an
         // early shot is a picture of the dither rather than of the scene.
         // `recordedFrame` CARRIES `!ContentSettling()`, AND THAT IS THE CORRECTNESS OF EVERY CAPTURE THIS
@@ -294,42 +295,32 @@ namespace Desert::Editor
         // the sky, so a low-frame capture would photograph a scene with no clouds in it and file it as
         // the picture of the scene -- the same shape as the blank-PNG trap the verification skill warns
         // about, and just as invisible in a diff of two such frames.
-        if ( auto& shot = ShotOptions::Get(); shot.Active() && recordedFrame )
-        {
-            ++m_ShotFrame;
+        // COUNTED WHEN THE TICK RECORDS THE FRAME, NOT WHEN IT IS ANNOUNCED (D1): with pipelining a frame is
+        // announced after the next tick, so a count taken there named frame K's log lines with frame K-1's image.
+        const auto& shot = ShotOptions::Get();
+        if ( !shot.Active() || !recordedFrame || m_ShotFrame >= shot.Frames )
+            return false;
+        ++m_ShotFrame;
 
-            // The sequence counts RENDERED frames, so `frame_00001` is the first frame rendered, from path
-            // parameter 0, and `frame_000NN` at --shot-frames NN is the last, from parameter 1. When
-            // `--shot-every` divides `--shot-frames` the last file of the sequence and the `--shot` PNG are
-            // the same image — a cheap invariant to check a capture against.
-            if ( !shot.Sequence.empty() && ( m_ShotFrame % shot.SequenceEvery ) == 0 )
-            {
-                char name[64];
-                std::snprintf( name, sizeof( name ), "/frame_%05d.png", m_ShotFrame );
-                const std::string path = shot.Sequence + name;
-                if ( !m_Capture.WriteViewportPng( path ) )
-                {
-                    LOG_ERROR( "[Shot] sequence frame {} not written to '{}'", m_ShotFrame, path );
-                    m_ShotFailed = true;
-                }
-            }
+        // The sequence counts RENDERED frames, so `frame_00001` is the first frame rendered, from path
+        // parameter 0, and `frame_000NN` at --shot-frames NN is the last, from parameter 1. When
+        // `--shot-every` divides `--shot-frames` the last file of the sequence and the `--shot` PNG are
+        // the same image — a cheap invariant to check a capture against.
+        if ( !shot.Sequence.empty() && ( m_ShotFrame % shot.SequenceEvery ) == 0 )
+            frame.SequenceIndex = m_ShotFrame;
+        frame.LastFrame = m_ShotFrame >= shot.Frames;
+        return true;
+    }
 
-            if ( m_ShotFrame >= shot.Frames )
-            {
-                if ( !shot.Output.empty() && !m_Capture.WriteViewportPng( shot.Output ) )
-                {
-                    LOG_ERROR( "[Shot] the final frame was not captured to '{}'", shot.Output );
-                    m_ShotFailed = true;
-                }
-                if ( !shot.HdrOutput.empty() && !m_Capture.WriteSceneColorPfm( shot.HdrOutput ) )
-                {
-                    LOG_ERROR( "[Shot] the final frame's HDR scene colour was not written to '{}'", shot.HdrOutput );
-                    m_ShotFailed = true;
-                }
-                return true;
-            }
-        }
-        return false;
+    bool ShotDirector::WantsPixels( const RecordedFrame& frame )
+    {
+        return frame.Recorded &&
+               ( frame.SequenceIndex >= 0 || ( frame.LastFrame && !ShotOptions::Get().Output.empty() ) );
+    }
+
+    bool ShotDirector::WantsSceneColor( const RecordedFrame& frame )
+    {
+        return frame.Recorded && frame.LastFrame && !ShotOptions::Get().HdrOutput.empty();
     }
 
     int32_t ShotDirector::Finish() const
@@ -355,9 +346,18 @@ namespace Desert::Editor
         return m_ShotFailed ? 1 : 0;
     }
     void ShotDirector::FrameRecorded( const bool recordedFrame, const bool startupLoading,
-                                      const bool contentSettling )
+                                      const bool contentSettling, const uint64_t gameFrame )
     {
-        m_PendingFrame = RecordedFrame{ recordedFrame, startupLoading, contentSettling };
+        RecordedFrame frame{ .Recorded        = recordedFrame,
+                             .StartupLoading  = startupLoading,
+                             .ContentSettling = contentSettling,
+                             .GameFrame       = gameFrame };
+        // A frame after the capture's last one is no frame of it (pipelining records one more before the last
+        // is announced and the capture closes).
+        frame.Recorded = CountRenderedFrame( recordedFrame, frame );
+        if ( frame.SequenceIndex >= 0 )
+            LOG_INFO( "[Shot] recorded frame_{:05d} (game frame {})", frame.SequenceIndex, frame.GameFrame );
+        m_PendingFrame = std::move( frame );
     }
 
     std::optional<ShotDirector::RecordedFrame> ShotDirector::TakePendingFrame()
@@ -370,13 +370,12 @@ namespace Desert::Editor
     std::optional<int32_t> ShotDirector::EndFrame( ProfilerWindow&                     profiler,
                                                    const std::optional<RecordedFrame>& pending )
     {
-        // AFTER THE SUBMIT, NOT AT THE END OF THE UPDATE. The update only RECORDS this frame's commands; they
-        // reach the queue in PresentFinalImage. A readback taken in the update - behind a device-idle wait
-        // that can only drain what was already submitted - copied the PREVIOUS frame's image, so the file
-        // written as frame N showed pose N-1 (measured 10-27: a pan8 sequence one step behind its path, the
-        // --shot PNG 7 px short of --camera-to). The control channel's shot is taken at this same instant.
-        // And the record is THE PRESENTED FRAME'S, taken by value when that frame ended (OVERLAP-ON-3): read here,
-        // live, it would be the next update's, and frame N would be counted and flown as frame N+1.
+        // AFTER THE SUBMIT, FROM THE FRAME'S OWN COPY. The update only RECORDS this frame's commands; they reach
+        // the queue in PresentFinalImage, and the copy of its final image is recorded among them (the layer's
+        // CaptureFramePresented). A live readback here read whatever the image held at the announcement: frame
+        // K-1's (a readback in the update, measured 10-27) or, pipelined, frame K+1's - never reliably K's (D1/D3,
+        // NET-PAWN-TELEPORT-FRAME). The record is THE PRESENTED FRAME'S, taken by value when that frame ended
+        // (OVERLAP-ON-3), counted when its tick recorded it.
         if ( !pending )
             return std::nullopt;
         const RecordedFrame frame = *pending;
@@ -386,8 +385,41 @@ namespace Desert::Editor
              !frame.StartupLoading &&
              m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Play )
             profiler.RecordFlightFrame( !frame.ContentSettling );
-        if ( !CountRenderedFrame( frame.Recorded ) )
+        if ( !frame.Recorded )
             return std::nullopt;
+
+        // THE FRAME'S OWN PIXELS (UE FScreenshotRequest): copied in this frame's submission, so what a later
+        // frame has rendered since cannot be filed under this frame's name. Only THAT frame's fence is waited
+        // (UE FRHIGPUTextureReadback), never the device: the frame in flight behind it keeps running, so a
+        // dense sequence stays pipelined. A failed wait is logged here; the writers below refuse the copy.
+        for ( const FrameCopy* copy : { &frame.Pixels, &frame.SceneColor } )
+            if ( copy->Readback )
+                if ( const Common::BoolResultStr waited = copy->Readback->Wait(); !waited )
+                    LOG_ERROR( "[Shot] game frame {}: its own copy cannot complete: {}", frame.GameFrame,
+                               waited.GetError() );
+        if ( frame.SequenceIndex >= 0 )
+        {
+            char name[64];
+            std::snprintf( name, sizeof( name ), "/frame_%05d.png", frame.SequenceIndex );
+            const std::string path = shot.Sequence + name;
+            if ( !m_Capture.WriteShotPng( path, frame ) )
+            {
+                LOG_ERROR( "[Shot] sequence frame {} not written to '{}'", frame.SequenceIndex, path );
+                m_ShotFailed = true;
+            }
+        }
+        if ( !frame.LastFrame )
+            return std::nullopt;
+        if ( !shot.Output.empty() && !m_Capture.WriteShotPng( shot.Output, frame ) )
+        {
+            LOG_ERROR( "[Shot] the final frame was not captured to '{}'", shot.Output );
+            m_ShotFailed = true;
+        }
+        if ( !shot.HdrOutput.empty() && !m_Capture.WriteSceneColorPfm( shot.HdrOutput, frame ) )
+        {
+            LOG_ERROR( "[Shot] the final frame's HDR scene colour was not written to '{}'", shot.HdrOutput );
+            m_ShotFailed = true;
+        }
         if ( shot.GpuProfile )
             ProfilerWindow::DumpProfilerToLog( m_Workspace.PrimaryRenderer() );
         if ( shot.FlightRoute && !profiler.FinishFlight() )

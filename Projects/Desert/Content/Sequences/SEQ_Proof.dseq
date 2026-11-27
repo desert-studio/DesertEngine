@@ -1,0 +1,99 @@
+{
+    "Header": {
+        "Kind": "LevelSequence",
+        "Guid": "92350bc3821f4dc8ab774ef1c089afce",
+        "Versions": {
+            "TMLN": 2
+        },
+        "Dependencies": ["31836ee2b3e487c705dadcdb1c32a959"]
+    },
+    "Host": 2,
+    "TickRate": [24000, 1],
+    "DisplayRate": [30, 1],
+    "Start": 0,
+    "End": 120000,
+    "Bindings": [
+        {
+            "Guid": "9ecd66ad66474e7bb3252f3b3b9ebd59",
+            "Kind": 2,
+            "Locator": "7710000000000000001",
+            "Label": "SeqMannequin",
+            "Parent": ""
+        },
+        {
+            "Guid": "5207b7bd85ae42609d68bcd8e42474dd",
+            "Kind": 2,
+            "Locator": "7710000000000000002",
+            "Label": "SeqCamA",
+            "Parent": ""
+        },
+        {
+            "Guid": "caca2121fdcb4ce9870278ce0996b416",
+            "Kind": 2,
+            "Locator": "7710000000000000003",
+            "Label": "SeqCamB",
+            "Parent": ""
+        },
+        {
+            "Guid": "51f369dc73ae446b9f66b7492e8d46a8",
+            "Kind": 0,
+            "Locator": "",
+            "Label": "Camera Cuts",
+            "Parent": ""
+        }
+    ],
+    "Tracks": [
+        {
+            "Binding": "9ecd66ad66474e7bb3252f3b3b9ebd59",
+            "Property": "Animation",
+            "Kind": 6,
+            "Muted": false,
+            "Sections": [
+                {
+                    "Start": 0,
+                    "End": 120000,
+                    "Blend": 0,
+                    "Weight": [],
+                    "Row": 0,
+                    "Name": "",
+                    "Animation": {
+                        "Clip": "31836ee2b3e487c705dadcdb1c32a959",
+                        "StartOffset": 0,
+                        "PlayRate": 1.0,
+                        "Loop": true
+                    }
+                }
+            ]
+        },
+        {
+            "Binding": "51f369dc73ae446b9f66b7492e8d46a8",
+            "Property": "CameraCut",
+            "Kind": 7,
+            "Muted": false,
+            "Sections": [
+                {
+                    "Start": 0,
+                    "End": 59999,
+                    "Blend": 0,
+                    "Weight": [],
+                    "Row": 0,
+                    "Name": "",
+                    "CameraCut": {
+                        "Camera": "5207b7bd85ae42609d68bcd8e42474dd"
+                    }
+                },
+                {
+                    "Start": 60000,
+                    "End": 120000,
+                    "Blend": 0,
+                    "Weight": [],
+                    "Row": 0,
+                    "Name": "",
+                    "CameraCut": {
+                        "Camera": "caca2121fdcb4ce9870278ce0996b416"
+                    }
+                }
+            ]
+        }
+    ]
+}

@@ -12,6 +12,7 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <format>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -141,7 +142,12 @@ namespace Desert::ECS
             if ( m_Scene == nullptr || m_AssetManager == nullptr ||
                  m_Scene->GetState() != Core::Scene::SceneState::Play )
             {
-                m_Actors.clear(); // Stop restores the pre-Play scene; the next Play starts every actor afresh
+                // Stop restores the pre-Play scene; the next Play starts every actor afresh. The bone layers
+                // the actors set come off first: an Animator outlives Play's end only with its own pose.
+                for ( auto& [entity, actor] : m_Actors )
+                    if ( actor.Playback )
+                        ClearLevelSequenceBoneLayers( registry, actor.Playback->Layered, actor.Playback->Writer );
+                m_Actors.clear();
                 return;
             }
 
@@ -182,6 +188,9 @@ namespace Desert::ECS
                 }
                 if ( it->second.State.CutInForce )
                     m_Scene->SetViewTarget( it->second.State.TargetBeforeCut );
+                if ( it->second.Playback )
+                    ClearLevelSequenceBoneLayers( registry, it->second.Playback->Layered,
+                                                  it->second.Playback->Writer );
                 it = m_Actors.erase( it );
             }
         }
@@ -209,7 +218,16 @@ namespace Desert::ECS
                 LOG_ERROR( "[LevelSequence] '{}' names no sequence; nothing plays", actor.Name );
                 return nullptr;
             }
-            actor.Asset = m_AssetManager->FindByHandle<Assets::LevelSequenceAsset>( component.Sequence );
+            // The handle is a content-registry number (Details picker, scenario `set ... assets:`, the file's
+            // GUID): the asset is created from its registry row when the manager does not hold it yet.
+            auto sequence = Assets::CreateFromRegistryRow<Assets::LevelSequenceAsset>(
+                 m_AssetManager->weak_from_this(), component.Sequence, ::Common::Content::ContentKind::LevelSequence );
+            if ( !sequence )
+            {
+                LOG_ERROR( "[LevelSequence] '{}': {}; nothing plays", actor.Name, sequence.GetError() );
+                return nullptr;
+            }
+            actor.Asset = sequence.GetValue();
             if ( const auto loaded = Assets::LoadThroughLoader( *m_AssetManager, actor.Asset ); !loaded )
             {
                 LOG_ERROR( "[LevelSequence] '{}': sequence handle {} could not be read: {}", actor.Name,
@@ -227,6 +245,10 @@ namespace Desert::ECS
             }
             actor.Playback        = std::make_unique<LevelSequencePlayback>( actor.Asset->GetSequence() );
             actor.Playback->Asset = actor.Asset->Guid();
+            // The bone layer's owner on an Animator: THIS Level Sequence actor, not its asset — two actors playing
+            // one sequence on one character are two writers, and the second is refused by name.
+            actor.Playback->Writer = std::format( "Level Sequence '{}' (entity {})", actor.Name,
+                                                  static_cast<uint32_t>( entt::to_integral( entity ) ) );
             ApplyLevelSequencePlaySettings( actor.Playback->Player, component );
             if ( component.AutoPlay )
                 actor.Playback->Player.Play();

@@ -24,8 +24,8 @@ namespace
 {
     constexpr uint32_t kBins = 256; // kBins in AutoExposureRenderer.cpp
 
-    // The shipping window — must match AutoExposureRenderer.cpp's kWindow.
-    constexpr AutoExposureWindow kWindow{ -10.0f, 10.0f, 0.0f, 0.95f };
+    // The shipping window at the volume's default percentiles (UE 10 / 90) - the one AutoExposureRenderer builds.
+    constexpr AutoExposureWindow kWindow = Desert::Graphic::MakeAutoExposureWindow( 10.0f, 90.0f );
 
     // What the window was before the physical sun existed, kept only so the tests can state what it
     // could not see.

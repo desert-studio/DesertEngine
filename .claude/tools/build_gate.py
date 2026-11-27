@@ -105,6 +105,21 @@ def state_of(row):
     return "unknown"
 
 
+def load_pipeline():
+    import pipeline
+    return pipeline.load()
+
+
+def agents_refusal(s, self_id=None):
+    """SPEND_RULES 11-27: a build runs alone on the machine - never beside working agents (the lander's own run aside)."""
+    import pipeline
+    live = [r.get("code", a) for a, r in pipeline.live_runs(s).items() if a != self_id and r.get("type") != "lander"]
+    if live:
+        return (f"[build_gate] идут агенты ({', '.join(sorted(live))}): сборка только одна на машине, без агентов "
+                "(SPEND_RULES, PC RAM). Дождись их сдачи.")
+    return None
+
+
 def main():
     data = json.load(sys.stdin)
     if data.get("tool_name") not in ("Bash", "PowerShell"):
@@ -118,6 +133,9 @@ def main():
     if data.get("agent_id") and (data.get("agent_type") or "").lower() != "lander":  # owner 11-27: the lander builds
         emit("deny", "[build_gate] агенты не собирают (LEAD_PROTOCOL «Сборка»): код + push, сборку делает лид "
                      "одной сборкой пачки.")
+    busy = agents_refusal(load_pipeline(), data.get("agent_id"))
+    if busy:
+        emit("deny", busy)
     if not entry:
         emit("deny", "[build_gate] сборка только одной командой: " + form + " (LEAD_PROTOCOL «Сборка»).")
     tree, log = norm(entry.group(1)), entry.group(2).strip("\"'")

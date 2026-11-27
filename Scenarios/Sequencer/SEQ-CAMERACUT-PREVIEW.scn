@@ -1,0 +1,75 @@
+# SEQ-CAMERACUT-PREVIEW: the editor viewport looks through the Camera Cut in force under the Sequencer's playhead (UE "Lock Viewport to Camera Cuts"), switches at the section boundary, goes back to the editor camera when unlocked or closed, and «Camera Cut X» trims the cut in force.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/PawnNoController_Demo.desce
+Дано run View "View mode: Lit"
+Дано spawn Characters/Mannequin/Mannequin.skmesh 0,0,-300 --id 7710000000000000001
+Дано set 7710000000000000001 Tag.Tag SeqMannequin
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 0,110,-50 --id 7710000000000000002
+Дано set 7710000000000000002 Tag.Tag SeqCamA
+Дано add-component 7710000000000000002 Camera
+Дано spawn Content/Meshes/Modeling/Sphere.stmesh 250,110,-300 --id 7710000000000000003
+Дано set 7710000000000000003 Tag.Tag SeqCamB
+Дано add-component 7710000000000000003 Camera
+Дано lua "local a = World.find('SeqCamA'); a:setPosition(vector.create(0, 110, -50)); a:setScale(vector.create(0.01, 0.01, 0.01)); local b = World.find('SeqCamB'); b:setPosition(vector.create(250, 110, -300)); b:setRotation(vector.create(0, 1.5708, 0)); b:setScale(vector.create(0.01, 0.01, 0.01))"
+Дано --subject viewport set Camera.Position 400,250,250
+Дано --subject viewport set Camera.Direction -0.6,-0.2,-0.8
+Дано run Open "Sequences/SEQ_Proof.dseq"
+# [base] the lock OFF, playhead 3.0 s: the editor camera, mannequin posed at 3.0 s - the reference for every "back to the editor camera" frame.
+Дано run Document "SEQ_Proof: Unlock Viewport from Camera Cuts"
+Дано set Transport.Time 3.0
+Дано 10 frames render
+Тогда-вид base editor camera from (400,250,250): mannequin far, both camera frusta drawn as gizmos, the orange box right
+# [ref_a] [ref_b] the reference: what each camera sees, through the user's Pilot.
+Дано select 7710000000000000002
+Дано run Camera "Pilot SeqCamA"
+Дано 10 frames render
+Тогда-вид ref_a SeqCamA's own view: the mannequin from the front, 250 cm away, centred
+Дано select 7710000000000000003
+Дано run Camera "Pilot SeqCamB"
+Дано 10 frames render
+Тогда-вид ref_b SeqCamB's own view: the mannequin from its side (+X), 250 cm away
+Дано run Camera "Eject (stop piloting)"
+Дано 10 frames render
+# [cut_on] lock ON at 3.0 s: the viewport is SeqCamB at once.
+Когда run Document "SEQ_Proof: Lock Viewport to Camera Cuts"
+Когда 1 frames render
+Тогда-вид cut_b_first the FIRST frame after the lock: SeqCamB's view as in ref_b, no ghost of the base view (no doubled box edges)
+Когда 10 frames render
+Тогда-вид cut_b the viewport looks through SeqCamB: same framing as ref_b
+# [cut_a] 0.3 s: the first section, SeqCamA; the whole editor shows the Camera Cuts row on top with its two bars and the caption.
+Когда set Transport.Time 0.3
+Когда 10 frames render
+Тогда cut_a_window the Sequencer's FIRST row under the ruler is "Camera Cuts" with the camera button lit and two bars "SeqCamA" (0-2.5 s) and "SeqCamB" (2.5-5 s), the playhead inside SeqCamA; the viewport caption reads "Camera Cut: SeqCamA" with an "Unlock" button, not "Perspective"
+Тогда-вид cut_a the viewport looks through SeqCamA: same framing as ref_a (mannequin from the front)
+# [edge] the switch at the boundary: frame 74 (2.467 s) is still SeqCamA, frame 75 (2.5 s) is SeqCamB.
+Когда set Transport.Time 2.4667
+Когда 10 frames render
+Тогда-вид edge_a frame 74: still SeqCamA's front view, as cut_a (mannequin pose differs)
+Когда set Transport.Time 2.5
+Когда 1 frames render
+Тогда-вид edge_b_first frame 75, first rendered frame: SeqCamB's side view, no ghost of SeqCamA's view
+# [unlock] back to the editor camera, exactly where it was.
+Когда set Transport.Time 3.0
+Когда run Document "SEQ_Proof: Unlock Viewport from Camera Cuts"
+Когда 10 frames render
+Тогда-вид unlocked the editor camera again: pixel-for-pixel the base frame
+Когда run Document "SEQ_Proof: Lock Viewport to Camera Cuts"
+Когда 10 frames render
+Тогда-вид relocked SeqCamB again: as cut_b
+# [closed] closing the document gives the viewport back (UE: Sequencer close restores the pre-animated viewport).
+Когда run Action "Close All Documents"
+Когда 10 frames render
+Тогда closed_window no Sequencer document; the viewport caption reads "Perspective"; the viewport shows the base framing (editor camera), the mannequin in its unscrubbed pose
+# [trim] «Camera Cut SeqCamA» at 4.0 s trims SeqCamB to 2.5-4.0 s; no refusal toast.
+Когда run Open "Sequences/SEQ_Proof.dseq"
+Когда set Transport.Time 4.0
+Когда run Document "SEQ_Proof: Camera Cut SeqCamA"
+Когда 10 frames render
+Тогда trim_window the Camera Cuts row shows THREE bars: SeqCamA 0-2.5 s, SeqCamB 2.5-4.0 s, SeqCamA 4.0-5.0 s; no "Camera Cut refused" toast; the viewport looks through SeqCamA (front view, as ref_a)
+Когда set Transport.Time 3.0
+Когда 10 frames render
+Тогда-вид trim_b 3.0 s is still SeqCamB: as cut_b
+# [undo] the cut is one undo step: SeqCamB is back to 2.5-5.0 s.
+Когда run Action Undo
+Когда set Transport.Time 4.5
+Когда 10 frames render
+Тогда undo_window the Camera Cuts row shows two bars again (SeqCamA 0-2.5 s, SeqCamB 2.5-5 s); the viewport looks through SeqCamB (as cut_b)
