@@ -44,7 +44,8 @@ Line format (one step per line in order, `#` comments; a step's REGEX is the res
   Запомнить|Read <var> <role> <REGEX>         the role's LAST line matching REGEX so far: its numeric groups become
                                               {var1}, {var2}, … ({var1-20000} adds, for a console line)
   Сверить|Compare <var> <var> <tol>           every component of the two equal within <tol> (cm, s: the values' unit)
-  Нет|Never <role> <REGEX>                    the role's whole log so far has no line matching REGEX
+  Нет|Never <role> [<N>x] <REGEX>             the role's whole log so far has no line matching REGEX (with <N>x:
+                                              fewer than N of them - after a «Ждать … <N-1>x», exactly N-1)
   Число|Number <role> <REGEX> <op> <value>    the role's LAST line matching REGEX so far: its first group, a number,
                                               compared by op (<= >= < > == !=) with value (a number or {var}); no
                                               line, no group or a group that is not a number fails with the text
@@ -463,11 +464,17 @@ class Run:
 
     def never(self, rest):
         name, _, pattern = rest.strip().partition(" ")
+        limit, m = 1, re.match(r"(\d+)x\s+(.*)", pattern)
+        if m:
+            limit, pattern = int(m.group(1)), m.group(2)
+        if limit < 1:
+            raise Fail("«Нет» <N>x takes N >= 1")
         r, rx = self.role(name), re.compile(self.subst(pattern, regex=True))
         self.poll()
-        hit = next((line for line in r.lines if rx.search(line)), None)
-        if hit:
-            raise Fail(f"{name}'s log has «{pattern}»: {hit.strip()[:200]}")
+        hits = [line for line in r.lines if rx.search(line)]
+        if len(hits) >= limit:
+            raise Fail(f"{name}'s log has {len(hits)} line(s) of «{pattern}» (fewer than {limit} allowed): "
+                       f"{hits[limit - 1].strip()[:200]}")
 
     def _measure(self, rest, verb):
         """«Число» / «Всегда» <role> <REGEX> <op> <value>: the role, the REGEX, the comparison and the value."""

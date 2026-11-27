@@ -117,3 +117,5 @@
 Тогда A verbs_fault B2 walks its circle, one mannequin, feet on the ground (no jump, no ghost after the dropped snapshots); the server logged exactly three "malformed Input dropped" and no "malformed Snapshot"; B2's log "unacked inputs 0-9" again and no "session closed"
 Нет A \(([1-9]\d*) snap\(s\)\)
 Нет server malformed ViewReport
+# Exactly three: none before the fault, three after it, and no fourth in the whole run.
+Нет server 4x connection \d+: malformed Input dropped
