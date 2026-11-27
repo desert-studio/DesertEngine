@@ -393,8 +393,11 @@ def live_runs(s):
 
 
 def run_of(s, code):
-    """(agent_id, run) of the latest run launched as @p code, or (None, None)."""
-    hits = sorted(((r.get("t0", 0), a) for a, r in s["runs"].items() if r.get("code") == code))
+    """(agent_id, run) of the latest not-yet-accepted run launched as @p code (else the latest run), or (None, None).
+    Two runs under one code (a fix, then its reviewer) are accepted one per call, oldest pending first never hidden."""
+    runs = [(r.get("t0", 0), a) for a, r in s["runs"].items() if r.get("code") == code]
+    pending = [h for h in runs if not s["runs"][h[1]].get("accepted")]
+    hits = sorted(pending or runs)
     return (hits[-1][1], s["runs"][hits[-1][1]]) if hits else (None, None)
 
 
