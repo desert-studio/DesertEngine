@@ -173,9 +173,13 @@ void main()
     }
     const vec3 screenRefracted = textureLod( SceneColorTexture, refractUV, 0.0 ).rgb * s.BaseColor;
     // THE TRACED TIER (HardwareTraced) where this fragment is the front layer: the trace's transmittance already holds
-    // the tint of every interface it crossed; where it did not answer (a = 0) the screen tier does.
-    const vec4 traced    = DesertTranslucencyRefraction( gl_FragCoord.xy, gl_FragCoord.z );
-    const vec3 refracted = mix( screenRefracted, traced.rgb, traced.a );
+    // the tint of every interface it crossed; where it did not answer (a = 0) the screen tier does. The scene copy is
+    // fogged already (the opaque fog ran before it); the trace's radiance is not, so it takes the fog in front of the
+    // glass here (the stretch behind the glass, inside the room, is left unfogged), and its inscattering joins once.
+    const float preExposure = cameraUB.PreExposure;
+    const vec4  fog         = DesertSceneFog( v_Surface.WorldPosition );
+    const vec4  traced      = DesertTranslucencyRefraction( gl_FragCoord.xy, gl_FragCoord.z );
+    const vec3  refracted   = mix( screenRefracted, traced.rgb * fog.a + fog.rgb, traced.a );
 
     // The reflection at grazing edges, of clear glass (a mirror: roughness 0, which a capture never normalises);
     // Fresnel mixes refraction (centre) into reflection (edge).
@@ -197,12 +201,9 @@ void main()
 
     // Fogged as UE fogs a translucent surface, at its own depth: the surface's own light (the sky's reflection
     // weighted by its Fresnel coverage, the hotspots, the emissive) is attenuated by the fog in front of it and the
-    // reflection's coverage gains the fog's inscattering; the refracted scene is the fogged scene copy already (the
-    // opaque fog ran before the copy), so it is not fogged a second time. `refracted` is read from this frame's
-    // scene colour, already pre-exposed, as is the fog's inscattering (FogGates.z); only the terms lit here are
-    // scaled.
-    const float preExposure = cameraUB.PreExposure;
-    const vec4  fog         = DesertSceneFog( v_Surface.WorldPosition );
+    // reflection's coverage gains the fog's inscattering; `refracted` is fogged already (above), so it is not fogged a
+    // second time. `refracted` (the scene copy, the trace's pre-exposed radiance) is pre-exposed, as is the fog's
+    // inscattering (FogGates.z); only the terms lit here are scaled.
     const vec3  ownLight    = ( envRefl * fresnel + spec + localSpec + s.Emissive ) * preExposure;
     oColor = vec4( refracted * ( 1.0 - fresnel ) + ownLight * fog.a + fog.rgb * fresnel, 1.0 );
 #ifdef DESERT_SURFACE_RESPONSIVE_AA

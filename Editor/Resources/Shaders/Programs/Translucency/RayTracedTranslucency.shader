@@ -124,7 +124,9 @@ Shader "RayTracedTranslucency"
 
                 vec3 transmittance = vec3(1.0);
                 vec3 absorption    = vec3(0.0); // 1/cm inside the solid the path is in
-                for (uint crossing = 0u; crossing < MaxInterfaces; ++crossing)
+                // One trace per segment: MaxInterfaces dielectric interfaces are followed, and the segment past the
+                // last of them is still traced to whatever it meets.
+                for (uint crossing = 0u; crossing <= MaxInterfaces; ++crossing)
                 {
                     RefractionTrace(origin, dir, coneWidth, spread);
                     if (payload.HitT < 0.0)
@@ -161,7 +163,9 @@ Shader "RayTracedTranslucency"
                                    vec4(lit * transmittance * CameraPosition.w, 1.0));
                         return;
                     }
-                    // A dielectric interface. The payload's normal faces the ray.
+                    // A dielectric interface. The payload's normal faces the ray. One beyond the budget: no answer.
+                    if (crossing == MaxInterfaces)
+                        break;
                     const bool  frontFace = (payload.Flags & kDesertRayPayloadFrontFace) != 0u;
                     const bool  thin      = payload.Ior <= 1.0;
                     const float eta       = frontFace ? 1.0 / payload.Ior : payload.Ior;
@@ -192,8 +196,8 @@ Shader "RayTracedTranslucency"
                     dir    = normalize(bent);
                     origin = P - payload.Normal * offset;
                 }
-                // The budget of interfaces is spent: the trace did not answer (a = 0); the glass cell reads the scene
-                // copy itself (this pass never reads it).
+                // A dielectric interface past the budget of MaxInterfaces: the trace did not answer (a = 0); the glass
+                // cell reads the scene copy itself (this pass never reads it).
                 imageStore(RefractionOutputTexture, pixel, vec4(0.0));
             }
         }
