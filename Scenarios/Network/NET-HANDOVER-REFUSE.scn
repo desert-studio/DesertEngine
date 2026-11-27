@@ -1,0 +1,100 @@
+# NET-HANDOVER-REFUSE: every way the store refuses a handover message has its own code, and a vote names its pawn
+# (Net/HandoverWire.hpp "A VOTE NAMES ITS SUBJECT"; HandoverLedger.cpp Ledger::Opened / Verdicted / OnSimMessage).
+# While the live offer (sim 1, #1) of A's pawn is open, a hostile sim 1 sends (a) a second Offer of that pawn
+# (AlreadyOffered), (b) an Offer of ANOTHER pawn under the same key (SerialReused) and (c) an Offer cut after its
+# header (Malformed, "cut at byte 24 of 24"): each refused under (sim 1, #0), so the real sim 1 holds nothing of it and
+# never resumes. A hostile sim 2 then votes Accept on (sim 1, #1) naming the other pawn (PawnMismatch: nothing moves)
+# and then naming A's pawn: the record moves on the vote whose key AND pawn are the open offer's. After the commit,
+# a Withdraw from the sender and an Accept from the receiver of that committed offer are answered with its OUTCOME
+# (Committed again / Commit again, nothing moves) - the participant-asks-the-coordinator rule both ways - never with
+# Refused(OfferUnknown), which would resume a pawn whose record moved away (two owners).
+# The hostile peers are DesertNetProbe --mesh-peer (role kind `probe`): P links to the store as sim 1 after the real
+# sim 1, P2 as sim 2 after the real sim 2; the store routes a message for sim N to the FIRST link that said Hello as
+# sim N (MeshEndpoint::PeerConnection), so every answer goes to the real sims, and a probe that receives one shows it.
+# Timing: the live offer stays open only while its receiver is silent (sim 2 STOPped at X < 250, as in
+# NET-HANDOVER-DUP-OFFER) and only for the sender's kOfferDeadline (500 ms wall) - past it sim 1 withdraws. So the
+# hostile Offers, ONE wait for the last of them at the store (one link is ordered: its last refusal logged means all
+# three were judged while the offer was open), and P2's two votes in one console line come first; every other check
+# reads the whole log afterwards (Запомнить). sim 2 stays stopped until the outcomes were asked for, so the committed
+# record has had no write of its receiver yet: the decision row is alive when the late votes come.
+# Layout as NET-HANDOVER-DUP-OFFER (five server roles, editor B above the cut, bot A walking +X at 90 cm/s from
+# X = -1000; margin 300 cm, so the handover is at X ~ 300).
+Мир Content/Scenes/WP_Protocol.desce
+Роль coord server --role coordinator --region west:1:-100000,-100000,0,100000 --region east:2:0,-100000,100000,100000 --border-band 1500 --handover-margin 300 --steps 864000
+Ждать coord 60 listening for mesh peers on port
+Роль store server --role store
+# The spawn points are the ground (feet, cm), as measured for NET-HANDOVER-DUP-OFFER.
+Роль sim1 server --role sim --index 1 --source -1000,0,-500 --spawn -1000,-690,-500 --spawn -1000,-666,-300
+Роль sim2 server --role sim --index 2 --source 3000,0,-500 --spawn 3000,-78,-500
+Роль gw server --role gateway --pawn assets:Prefabs/Pawn_Player.deprefab
+Ждать sim1 120 NetId lease held - reported ready
+Ждать sim2 120 NetId lease held - reported ready
+Ждать gw 120 \[Server\] listening on port
+# Дано: the hostile peers are linked to the store as sim 1 and sim 2, each after the real sim of that index.
+Роль P probe --as-sim 1
+Ждать P 60 probe: mesh link to store 1 up \(connection \d+\) as sim 1
+Роль P2 probe --as-sim 2
+Ждать P2 60 probe: mesh link to store 1 up \(connection \d+\) as sim 2
+# Дано: B stands on the east side and looks down at the cut from 8 m up; its frames are the judge of one capsule.
+Роль B editor account=3 --play --shot-frames 100000 --shot-every 1 --camera 300,800,1600 --look 0,-0.371,-0.928 --quality PostProcess.MotionBlurQuality=0
+Ждать B 1800 \[Net\] in session
+# Дано: A walks along +X through X = 0; >= 0.55 s short of X = 300 sim 2 stops answering, so the offer stays open.
+Роль A bot account=1 --seconds 900 --walk-cm 2000 --dir 0.15,0,0
+Ждать A 120 \] t=\S+ pawns.* \d+\*=\((2[0-4]\d),
+Сигнал sim2 STOP
+Ждать sim1 10 held and offered to sim 2 \(offer #1, epoch 1, frozen at step \d+, \d+ unacked input\(s\)\)
+# off1 pawn net id, off2 receiver sim, off3 serial, off4 epoch, off5 frozen step; pawn = the pawn net id alone.
+Запомнить off sim1 pawn net id (\d+) \(player \d+\) at .* held and offered to sim (\d+) \(offer #(\d+), epoch (\d+), frozen at step (\d+)
+Запомнить pawn sim1 pawn net id (\d+) \(player \d+\) at .* held and offered to sim 2 \(offer #1,
+# Когда: in one poll the hostile sim 1 sends the same pawn's Offer under the open key, another pawn's (net id + 1)
+# under it, and an Offer whose pawn record is cut off after the 24-byte header.
+Консоль P dup {off3} {off2} {off1} {off4} {off5}; dup {off3} {off2} {off1+1} {off4} {off5}; undecodable {off3} {off2}
+Ждать store 5 store: offer \(sim 1, #0\) of pawn net id \d+ to sim \d+ at step \d+ refused - Malformed: the offer record from sim 1 did not decode - cut at byte 24 of 24
+# Когда: the hostile sim 2 votes Accept on (sim 1, #1) naming the other pawn, then naming A's pawn (one link: in order).
+# A vote is `accept|withdraw <from> <serial> <net id> <step>`: <from> is the offer's sender, sim 1, for both probes.
+Консоль P2 accept 1 {off3} {off1+1} {off5}; accept 1 {off3} {off1} {off5}
+Ждать store 10 offer \(sim 1, #1\).*committed \(sim 1, epoch 1\) -> \(sim 2, epoch 2\)
+Ждать sim1 10 offer #1 .*committed by the store \(epoch 2\): released, \d+ queued input\(s\) forwarded
+Ждать gw 10 player \d+ pawn net id \d+ - authority \(sim 2, epoch 2\) from step \d+: its inputs re-routed to sim 2
+# Тогда: four refusals, four codes; the three Offers under (sim 1, #0), the wrong vote nothing moved; none under #1.
+Запомнить sao store store: offer \(sim 1, #0\) of pawn net id \d+ to sim 2 at step \d+ refused - AlreadyOffered: pawn net id (\d+) already has offer \(sim 1, #1\) open
+Сверить sao pawn 0
+Запомнить ssr store store: offer \(sim 1, #0\) of pawn net id \d+ to sim 2 at step \d+ refused - SerialReused: offer \(sim 1, #1\) is open for pawn net id (\d+), not \d+
+Сверить ssr pawn 0
+Запомнить spm store store: accept from sim 2 .*refused - PawnMismatch: offer \(sim 1, #1\) is of pawn net id (\d+), the vote names \d+
+Сверить spm pawn 0
+Нет store offer \(sim 1, #1\) of pawn net id \d+ .*refused -
+Нет store refused - OfferUnknown
+Запомнить s1ao sim1 sim 1: Refused of offer \(sim 1, #(0)\) - AlreadyOffered: .*; this sim holds nothing of it
+Запомнить s1sr sim1 sim 1: Refused of offer \(sim 1, #(0)\) - SerialReused: .*; this sim holds nothing of it
+Запомнить s1bad sim1 sim 1: Refused of offer \(sim 1, #(0)\) - Malformed: the offer record from sim 1 did not decode - cut at byte 24 of 24; this sim holds nothing of it
+Нет sim1 offer #1 .*Refused by the store
+Нет sim1 resumes on sim 1
+Нет sim1 Withdraw sent
+Ждать B 60 fresh \[Shot\] recorded frame_
+Тогда B reused_refused_offer_open B's view down on the cut: ONE A capsule standing at X ~ 300 (held by sim 1, then committed to the stopped sim 2), no jump back, no second A; store.log refuses the three hostile Offers under (sim 1, #0) with three different codes - AlreadyOffered, SerialReused, Malformed "cut at byte 24 of 24" - and sim 2's vote naming the other pawn with a fourth, PawnMismatch, and never refuses (sim 1, #1); the record moved once, on the vote naming A's pawn; sim1.log "this sim holds nothing of it" three times, no resume and no Withdraw
+# Когда: the committed offer's sender withdraws it late (its Committed lost, say); the store answers with the outcome.
+Консоль P withdraw 1 {off3} {off1} {off5}
+Ждать store 5 store: withdraw from sim 1 .*offer \(sim 1, #1\), which committed pawn net id \d+ away from it.*Committed sent again, nothing moves
+# Когда: the receiver votes Accept again (in doubt: its Commit lost, say); the store answers with the Commit again.
+Консоль P2 accept 1 {off3} {off1} {off5}
+Ждать store 5 store: accept from sim 2 .*Commit sent again, nothing moves
+Нет store refused - OfferUnknown
+Нет store withdrawn by sim 1
+Нет sim1 resumes on sim 1
+Ждать B 60 fresh \[Shot\] recorded frame_
+Тогда B withdraw_after_commit_answered B's view with sim 2 still stopped: still ONE A capsule, standing (sim 1 released it, sim 2 has not stepped), no second A at the old place; store.log answers the late Withdraw with "Committed sent again, nothing moves" and the late Accept with "Commit sent again, nothing moves" - two "sent again", no OfferUnknown - and the record stays (sim 2, epoch 2); sim1.log exactly one "committed by the store (epoch 2): released" line and no resume
+# Когда: sim 2 resumes: it reads the live Offer and the Commits, promotes its incoming pawn and steps it.
+Сигнал sim2 CONT
+Ждать sim2 30 committed: incoming pawn promoted
+Нет sim1 adopted .*from sim 1
+Нет sim1 resumes on sim 1
+Нет P probe: received
+Нет P2 probe: received
+Ждать B 60 fresh \[Shot\] recorded frame_
+Тогда B one_owner_after_resume B's view after sim 2 resumed: ONE A capsule just east of X = 300, moving continuously along +X under sim 2 (about 5 px per frame), no jump back, no second A at the old place; sim2.log "committed: incoming pawn promoted"; neither P.log nor P2.log received a handover message (every answer went to the real sims)
+# Когда: the operator asks sim 1 for its handover counts; the store's own line follows every 300 steps, its refusal
+# counts in ERefusal order (Ledger::Describe, a std::map keyed by the code).
+Консоль sim1 stat
+Ждать sim1 10 handovers: 1 offered, 1 committed, 0 adopted; refused 0 by store, 0 by receiver; 0 withdrawn; .*0 open as sender
+Ждать store 30 open offers 0, unadopted commits 0; committed 1, refused 4 \(Malformed 1, AlreadyOffered 1, SerialReused 1, PawnMismatch 1\); withdrawn 0
