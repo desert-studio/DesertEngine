@@ -16,7 +16,9 @@
 Роль store server --role store
 # The spawn points are the landscape's surface (feet, cm): sim 1's placer measured the floor 782 cm under (-1000, 92, -500)
 # and 758 cm under (-1000, 92, -300) (scn-1127-081536 sim1.log "point free, floor N cm below it"), so a pawn spawns standing.
-Роль sim1 server --role sim --index 1 --source -1000,0,-500 --spawn -1000,-690,-500 --spawn -1000,-666,-300
+# The third (A2, the third pawn; MeshOfOne takes SpawnPoints[index % count]) keeps A2 out of B's capsule: its height
+# is the same slope carried 200 cm on (12 cm per 100 cm of z), within MaxStepHeight 45 cm, so the placer snaps it.
+Роль sim1 server --role sim --index 1 --source -1000,0,-500 --spawn -1000,-690,-500 --spawn -1000,-666,-300 --spawn -1000,-642,-100
 Роль sim2 server --role sim --index 2 --source 3000,0,-500 --spawn 3000,92,-500
 Роль gw server --role gateway --pawn assets:Prefabs/Pawn_Player.deprefab
 Ждать sim1 120 NetId lease held - reported ready
