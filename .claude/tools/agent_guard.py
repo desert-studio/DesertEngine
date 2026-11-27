@@ -92,6 +92,39 @@ def cheat_sheet(lane):
 - лимиты (limits.py): вызовов {soft} (+{hard - soft} только на финальный шаг), отчёт ≤ {limits.REPORT_MAX_LINES} непустых строк — подробности в файл.""")
 
 
+def transcript_of(data):
+    """The worker's own transcript: the hook names it, or it sits under the session's subagents/ folder."""
+    p = data.get("agent_transcript_path")
+    if p:
+        return p
+    main, aid = data.get("transcript_path"), data.get("agent_id")
+    if not main or not aid:
+        return None
+    return os.path.join(os.path.splitext(main)[0], "subagents", f"agent-{aid}.jsonl")
+
+
+def context_of(data):
+    """Tokens of the worker's context at its last request (input + cache read + cache write); 0 if unknown."""
+    p = transcript_of(data)
+    if not p or not os.path.exists(p):
+        return 0
+    try:
+        with open(p, "rb") as fh:
+            fh.seek(max(0, os.path.getsize(p) - limits.CONTEXT_TAIL_BYTES))
+            tail = fh.read().decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return 0
+    for line in reversed(tail):
+        if '"usage"' not in line:
+            continue
+        try:
+            u = json.loads(line).get("message", {}).get("usage") or {}
+        except ValueError:
+            continue
+        return u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
+    return 0
+
+
 def lane_of(agent_type):
     return (limits.FEATURE_CALLS, limits.FEATURE_READ_LINES) if agent_type in FEATURE_LANE else \
            (limits.FIX_CALLS, limits.FIX_READ_LINES)
@@ -438,6 +471,10 @@ def worker_pre(data, agent, agent_type, state, s):
     if not UNCOUNTED_WAIT.match(cmd):
         state["calls"] = state.get("calls", 0) + 1
     calls = state.get("calls", 0)
+    if not state.get("ctx_capped_at") and context_of(data) >= limits.CONTEXT_MAX[1]:
+        state["ctx_capped_at"] = calls  # owner 11-27: a fat context closes the run like the call cap does
+    if state.get("ctx_capped_at"):
+        soft, hard = min(soft, state["ctx_capped_at"] - 1), min(hard, state["ctx_capped_at"] - 1 + hard - soft)
 
     if soft < calls <= hard:  # the finishing window: scenario, frames, commit, push, REMAINDER
         same = bool(cmd) and state.get("finish_last") == cmd
@@ -571,6 +608,12 @@ def worker_post(data, agent, agent_type, state, path):
         return ("[agent_guard] Задача в фоне. НЕ заканчивай ход в ожидании уведомления: простой > 5 мин сбрасывает кэш. Жди: "
                 "python .claude/tools/studio.py wait " + (m.group(1).rstrip("\\.\"") if m else "<output-файл>") + " [--marker ТЕКСТ].")
     calls = state.get("calls", 0)
+    ctx = context_of(data)
+    if ctx >= limits.CONTEXT_MAX[0] and not state.get("ctx_warned"):
+        state["ctx_warned"] = True
+        save_state(state, path)
+        return (f"[agent_guard] Контекст {ctx // 1000}k, предел {limits.CONTEXT_MAX[1] // 1000}k: на нём открывается только "
+                "финальный шаг. Доделай ТЕКУЩИЙ шаг, закоммить, запушь; остаток — REMAINDER.md для свежего агента.")
     if calls >= warn:
         return (f"[agent_guard] Вызов {calls}/{soft} (+{hard - soft} только на финальный шаг). Доделай ТЕКУЩИЙ шаг, новый крупный "
                 "не начинай; закоммить, запушь, отчитайся. Остаток — REMAINDER.md (файл:строка, что на что, что проверено): "

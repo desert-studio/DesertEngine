@@ -27,7 +27,7 @@ Write the design to the path in your prompt, with exactly these sections:
 Закрывает: D3, D4
 1. ...
 ```
-- One to `limits.MAX_PACKAGES` packages; each is ONE engineer run (`limits.FEATURE_CALLS`). A feature that does not fit one run gets more packages, never a second day: all packages start together from the contract commit and land in one batch the same day.
+- One to `limits.MAX_PACKAGES` packages; each is ONE engineer run (`limits.FEATURE_CALLS`, `limits.CONTEXT_MAX`) sized for 40-60 calls: cut a package that needs more reading or more files into two. A feature that does not fit one run gets more packages, never a second day: all packages start together from the contract commit and land in one batch the same day.
 - `Файлы:` is the package's ownership: an exact file, `Dir/` (subtree) or a glob, comma-separated. Two packages never share a file; a file both need is a contract header, or goes whole to one package with the other calling it through the contract.
 - Every contract header is written by you IN FULL into `<design path without .md>-contract/<same repo-relative path>` — it is committed before any engineer starts and no package may edit it. Packages depend on each other only through it; never one package waiting for another.
 - A feature too large even for `limits.MAX_PACKAGES` packages is two features with their own designs and a shared contract; say so in the first line.
