@@ -218,7 +218,7 @@ namespace Desert::Editor::Splash
 
     /// One running item: "DeferredLighting Direct · 12.4 s", or just the name while it is younger than
     /// kAgeShownSeconds.
-    [[nodiscard]] inline std::string ActiveText( const Core::ActiveWork& work )
+    [[nodiscard]] inline std::string ActiveText( const Desert::Core::ActiveWork& work )
     {
         if ( work.Seconds < kAgeShownSeconds )
             return work.Name;
@@ -234,7 +234,7 @@ namespace Desert::Editor::Splash
         if ( view.StopRequested )
             return {};
         std::string text;
-        for ( const Core::ActiveWork& work : view.Active )
+        for ( const Desert::Core::ActiveWork& work : view.Active )
         {
             if ( !text.empty() )
                 text += ",  ";
@@ -248,17 +248,17 @@ namespace Desert::Editor::Splash
     {
         if ( view.Phase.empty() && !view.Finished )
             return {};
-        const std::string elapsed = Core::FormatDuration( view.ElapsedSeconds );
+        const std::string elapsed = Desert::Core::FormatDuration( view.ElapsedSeconds );
         if ( view.Finished )
             return elapsed;
-        return elapsed + " " + kDot + " about " + Core::FormatDuration( view.RemainingSeconds ) + " left";
+        return elapsed + " " + kDot + " about " + Desert::Core::FormatDuration( view.RemainingSeconds ) + " left";
     }
 
     /// One line of the detail log: "0:31  Building shader maps  2254 items  95.4 s" — the time since the
     /// process started, then what the progress noted.
     [[nodiscard]] inline std::string LogText( const Desert::Core::StartupLogLine& line )
     {
-        return Core::FormatDuration( line.AtSeconds ) + "  " + line.Text;
+        return Desert::Core::FormatDuration( line.AtSeconds ) + "  " + line.Text;
     }
 
     /// The text of log line @p row of the layout ([0] the bottom one): the newest entry at the bottom, older
