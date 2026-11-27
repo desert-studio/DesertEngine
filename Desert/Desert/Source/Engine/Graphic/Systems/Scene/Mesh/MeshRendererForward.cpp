@@ -7,6 +7,7 @@
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/Materials/SurfaceBlendPipeline.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
+#include <Engine/Graphic/Systems/Scene/Translucency/RayTracedTranslucency.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <Common/Core/JobSystem.hpp>
@@ -34,6 +35,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, InstanceTransforms );
         DESERT_SHADER_PARAMETER( Texture, FrontLayerReflectionTexture );
         DESERT_SHADER_PARAMETER( Texture, FrontLayerDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, TranslucencyRefractionTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
     };
     // The glass declare tests these slots by SceneViewSlot bit: the bit's table name is the parameter's name.
@@ -41,6 +43,8 @@ namespace
                    ::Desert::Graphic::kPassSceneColorTextureName );
     static_assert( MeshForwardShaderParameters::FrontLayerReflectionTexture.Name ==
                    ::Desert::Graphic::kPassFrontLayerReflectionTextureName );
+    static_assert( MeshForwardShaderParameters::TranslucencyRefractionTexture.Name ==
+                   ::Desert::Graphic::System::kTranslucencyRefractionTexture );
 } // namespace
 
 namespace Desert::Graphic::System
@@ -1617,14 +1621,18 @@ namespace Desert::Graphic::System
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                           .Sampler( MeshForwardShaderParameters::LinearRepeatSampler,
                                     RDG::SamplerDesc::LinearRepeat() );
-                 // The front layer's reflection where this fragment is the front layer
-                 // (Pass_Forward_Translucent.glslh), fetched by texel through the state its declaration names.
+                 // The front layer's reflection, depth and traced refraction (Pass_Forward_Translucent.glslh,
+                 // TranslucencyRefraction.glslh) under ONE bit: the glass cell declares the three together; a cell
+                 // missing one fails the node by the slot's name ("is not a resource of shader"), never silently.
                  if ( slotted.Slots.Has( SceneViewSlot::FrontLayerReflectionTexture ) )
                      block.Texture( MeshForwardShaderParameters::FrontLayerReflectionTexture,
                                     frontLayer.Reflection, RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All() )
                           .Texture( MeshForwardShaderParameters::FrontLayerDepthTexture, frontLayer.Depth,
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                          .Texture( MeshForwardShaderParameters::TranslucencyRefractionTexture,
+                                    frontLayer.Refraction, RDG::Access::SampledGraphics,
+                                    RDG::SubresourceRange::All() )
                           .Sampler( MeshForwardShaderParameters::LinearClampSampler,
                                     RDG::SamplerDesc::LinearClamp() );
              } );
