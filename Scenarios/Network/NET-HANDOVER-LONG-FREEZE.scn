@@ -29,6 +29,8 @@
 Сигнал sim2 STOP
 # Sim 1 freezes A2 and offers it; it is stopped at once, well inside its 0.5 s deadline, so no Withdraw goes.
 Ждать sim1 10 held and offered to sim 2 \(offer #1, epoch 1, frozen at step \d+, \d+ unacked input\(s\)\)
+# The offer is out: the store has forwarded it (sim 1 stopped before its socket flushed lost it once).
+Ждать store 10 offer \(sim 1, #1\).*forwarded to sim 2
 Сигнал sim1 STOP
 # Both sims quiet for three of A2's half-second lines (1.0-1.5 s, 60-90 mesh steps of the coordinator's clock).
 Ждать A2 10 3x \] t=
