@@ -344,21 +344,26 @@ namespace Desert::Core
         }
         else
             count.Done = phase.Done;
-        // Rule 6, in this order: what the phase waits for (aged from the first call that named it), then its
-        // work oldest first (its items, its source's, the ambient pipelines), one row per name.
+        // Rule 6, in this order: what the phase waits for (aged from the first call that named it), then the
+        // phase's own work oldest first (its items, its source's), then the ambient work oldest first (in-flight
+        // pipelines, never counted); one row per name.
+        const auto oldestFirst = []( const ActiveWork& a, const ActiveWork& b ) { return a.Seconds > b.Seconds; };
         for ( const Waiting& waiting : m_Waits )
             count.Active.push_back( { .Name    = waiting.Wait.Name,
                                       .Detail  = waiting.Wait.Detail,
                                       .Seconds = SecondsBetween( waiting.Since, now ) } );
         for ( const auto& [token, item] : m_Running )
             work.push_back( { .Name = item.Name, .Seconds = SecondsBetween( item.Begin, now ) } );
-        if ( m_Ambient )
-            for ( ActiveWork& ambient : m_Ambient( now ).Active )
-                work.push_back( std::move( ambient ) );
-        std::stable_sort( work.begin(), work.end(),
-                          []( const ActiveWork& a, const ActiveWork& b ) { return a.Seconds > b.Seconds; } );
+        std::stable_sort( work.begin(), work.end(), oldestFirst );
         for ( ActiveWork& item : work )
             count.Active.push_back( std::move( item ) );
+        if ( m_Ambient )
+        {
+            std::vector<ActiveWork> ambient = m_Ambient( now ).Active;
+            std::stable_sort( ambient.begin(), ambient.end(), oldestFirst );
+            for ( ActiveWork& item : ambient )
+                count.Active.push_back( std::move( item ) );
+        }
 
         std::vector<ActiveWork> shown;
         shown.reserve( kActiveShown );
