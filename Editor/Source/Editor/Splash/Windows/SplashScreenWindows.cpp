@@ -350,9 +350,14 @@ namespace Desert::Editor::Splash
             return std::chrono::duration<float>( std::chrono::steady_clock::now() - then ).count();
         }
 
-        // Every kFrameMs: the fade, then one sample of the progress and a repaint with it.
+        // Every kFrameMs: one sample of the progress, the fade (decided on that fresh sample: WM_CLOSE can
+        // overtake every timer tick between Finish and Close), then a repaint with it.
         void Tick( HWND window )
         {
+            m_View = m_Progress->Sample( Desert::Core::StartupClock::now(), BarMinVisibleStep( m_Scale ) );
+            if ( m_Capturing )
+                AppendCsvRow();
+
             if ( m_CloseAsked && !m_Closing )
             {
                 // A finished start fades once its bar shows 100 %; a stopped one (close clicked) at once.
@@ -377,10 +382,6 @@ namespace Desert::Editor::Splash
                 DestroyWindow( window );
                 return;
             }
-
-            m_View = m_Progress->Sample( Desert::Core::StartupClock::now(), BarMinVisibleStep( m_Scale ) );
-            if ( m_Capturing )
-                AppendCsvRow();
             InvalidateRect( window, nullptr, FALSE );
         }
 
