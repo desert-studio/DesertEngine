@@ -28,6 +28,7 @@
 #include <limits>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <span>
@@ -37,6 +38,12 @@
 
 namespace Desert::Net
 {
+    namespace Handover
+    {
+        class Ledger; // HandoverLedger.hpp (which includes this header for EMeshRole)
+        struct Effects;
+    } // namespace Handover
+
     enum class EMeshRole : std::uint8_t
     {
         Coordinator,
@@ -86,6 +93,8 @@ namespace Desert::Net
         // it is more than HandoverMargin inside it; nullopt while it stays with @p owner.
         [[nodiscard]] std::optional<std::uint32_t> HandoverTarget( std::uint32_t owner, float x, float z ) const;
     };
+    // "region 'east' [x 0..100000, z -100000..100000 cm] -> sim 2 (epoch 1)" for a log line.
+    [[nodiscard]] std::string DescribeMeshRegion( const MeshRegion& region );
     // The coordinator's static region table (--region, --border-band, --handover-margin of `--role coordinator`).
     struct MeshRegionTable
     {
@@ -185,11 +194,15 @@ namespace Desert::Net
 
     // THE STORE ROLE (§2M.2): the state of record, written by the sims, streamed to every subscriber (sims and
     // gateways; partitioned by cell from NET-MESH-2 - one node holds every cell here). A subscriber gets the full
-    // state when it connects, then every change in write order.
+    // state when it connects, then every change in write order. Who may write a pawn, and where a pawn's authority
+    // moves, is its Handover::Ledger's (HandoverLedger.hpp); the store performs the effects the ledger returns.
     class MeshStore
     {
     public:
         MeshStore( MeshEndpoint& endpoint, NetLogSink log );
+        ~MeshStore();
+        MeshStore( const MeshStore& )            = delete;
+        MeshStore& operator=( const MeshStore& ) = delete;
         [[nodiscard]] const InProcessReplicationStore& State() const
         {
             return m_State;
@@ -201,20 +214,17 @@ namespace Desert::Net
         void Broadcast( const std::vector<std::byte>& message );
         // The pawn's state to the sims whose border band it stands in (proxies there), a remove to those it left.
         void StreamProxies( const PawnState& pawn, std::uint32_t owner );
-        void Handover( std::uint32_t from, std::span<const std::byte> body );
+        // Performs what the ledger decided: its log lines, its messages, and a moved record's state of record,
+        // AuthorityChanged to the gateways and the proxies around the new owner.
+        void Apply( Handover::Effects effects );
 
-        // THE AUTHORITY RECORD of an entity (§2M.4): only the holder of the current epoch may publish its state.
-        struct Authority
-        {
-            std::uint32_t Sim   = 0;
-            std::uint32_t Epoch = 0;
-        };
         MeshEndpoint&                             m_Endpoint;
         NetLogSink                                m_Log;
         InProcessReplicationStore                 m_State;
         NetId                                     m_NextLease = 1;
-        std::map<NetId, Authority>                m_PawnAuthority;
-        std::set<std::pair<NetId, std::uint32_t>> m_Refused; // (id, sim) whose stale write was logged
+        // Behind a pointer: HandoverLedger.hpp includes this header (EMeshRole), so the member cannot be by value.
+        std::unique_ptr<Handover::Ledger>         m_Ledger;
+        std::set<std::pair<NetId, std::uint32_t>> m_RefusedWrites; // (id, sim) whose refused write was logged
         std::map<std::uint32_t, std::set<NetId>>  m_Proxies; // sim -> the pawns it holds as proxies
         MeshAuthorityMap                          m_Map;
     };
@@ -338,8 +348,10 @@ namespace Desert::Net
         // After a step: every player's last processed input, to its gateway.
         void SendAcks( const PawnSimulation& sim );
         [[nodiscard]] std::optional<std::uint32_t> GatewayOf( PlayerId player ) const;
-        // A handed-over player: its inputs that still reach this sim go to @p sim through the store (§2M.4).
-        void ForwardInputs( PlayerId player, std::uint32_t sim );
+        // A handed-over player (the store committed its pawn to @p sim): the input steps that queued on the pawn
+        // while it was held go to @p sim through the store now, and every later input that still reaches this sim
+        // follows (§2M.4). Returns the queued steps forwarded.
+        std::size_t ForwardInputs( PlayerId player, std::uint32_t sim, std::span<const InputStep> queued );
         // An adopted player: this sim acks its inputs to @p gateway now.
         void Adopted( PlayerId player, std::uint32_t gateway );
 
@@ -350,39 +362,17 @@ namespace Desert::Net
         std::map<PlayerId, std::uint32_t> m_ForwardTo; // player -> the sim that holds its pawn now
     };
 
-    // THE HANDOVER in a sim (§2M.4, by epoch through the store): after every mesh step, a pawn standing past the
-    // margin inside a neighbour's region is frozen at that step and published to the store with its unacked
-    // inputs; the store compare-and-swaps its authority record and hands the state to the new owner, which
-    // promotes its proxy, catching up to the mesh step it is at. Inputs that still reach the old owner are
-    // forwarded through the store.
-    class SimHandover
-    {
-    public:
-        SimHandover( MeshEndpoint& endpoint, std::uint32_t sim, NetLogSink log );
-        // The coordinator's authority map; true when @p type was one.
-        bool OnCoordinatorMessage( std::uint8_t type, std::span<const std::byte> body );
-        // The store's Adopt and ForwardedInput; true when @p type was one of them. @p step: the last mesh step
-        // this sim ran.
-        bool OnStoreMessage( std::uint8_t type, std::span<const std::byte> body, PawnSimulation& sim,
-                             RemoteGatewayLink& gateways, RemoteReplicationStore& replica, std::uint32_t step );
-        // After mesh step @p step: hands over the pawns that crossed into a neighbour's region.
-        void AfterStep( std::uint32_t step, PawnSimulation& sim, RemoteGatewayLink& gateways,
-                        RemoteReplicationStore& replica );
-        [[nodiscard]] const MeshAuthorityMap& Map() const
-        {
-            return m_Map;
-        }
-
-    private:
-        MeshEndpoint&                     m_Endpoint;
-        std::uint32_t                     m_Sim;
-        NetLogSink                        m_Log;
-        MeshAuthorityMap                  m_Map;
-        std::map<PlayerId, std::uint32_t> m_Epoch; // the authority epoch of each pawn this sim holds
-    };
-
     // A sim's PawnSpawned / PawnDestroyed, applied to the gateway process's Gateway; true when @p type was one.
     bool DispatchMeshPawnEvent( std::uint8_t type, std::span<const std::byte> body, IGatewayLink& gateway );
+    // An input the store forwards to the pawn's new owner (sent to the old owner after its handover, §2M.4).
+    struct MeshForwardedInput
+    {
+        PlayerId                    Player = 0;
+        std::optional<InputMessage> Input; // nullopt: the record did not decode
+    };
+    // nullopt when @p type is not a ForwardedInput.
+    [[nodiscard]] std::optional<MeshForwardedInput> DecodeMeshForwardedInput( std::uint8_t               type,
+                                                                              std::span<const std::byte> body );
     // The mesh clock's step, as every role sees it (nullopt when @p type is not a Tick).
     [[nodiscard]] std::optional<std::uint32_t> DecodeMeshTick( std::uint8_t               type,
                                                                std::span<const std::byte> body );

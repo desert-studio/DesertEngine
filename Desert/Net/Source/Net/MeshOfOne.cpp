@@ -132,8 +132,9 @@ namespace Desert::Net
 
     std::optional<ISimLink::AckedMove> PawnSimulation::LastProcessedInput( PlayerId player ) const
     {
+        // An incoming pawn is not this simulation's yet: its ack is the sender's until the commit.
         const auto it = m_Pawns.find( player );
-        if ( it == m_Pawns.end() || !it->second.LastProcessed )
+        if ( it == m_Pawns.end() || !it->second.LastProcessed || it->second.Hold == EHold::Incoming )
             return std::nullopt;
         return AckedMove{ *it->second.LastProcessed, it->second.Move, it->second.QueuedAtStep };
     }
@@ -267,33 +268,97 @@ namespace Desert::Net
     {
         for ( auto& [player, pawn] : m_Pawns )
         {
+            // A held pawn (offered or incoming) waits for the store's decision: its inputs queue, nothing moves.
+            if ( pawn.Hold != EHold::Owned )
+                continue;
             StepOne( player, pawn );
             m_Store.Write( pawn.State );
         }
     }
 
-    std::optional<PawnSimulation::HandoverPawn> PawnSimulation::Release( PlayerId player )
+    namespace
+    {
+        PawnSimulation::HandoverPawn MakeHandoverPawn( PlayerId player, std::uint64_t account, std::uint32_t index,
+                                                       const PawnState& state, const PawnMoveState& move,
+                                                       const std::optional<std::uint32_t>&                     lastProcessed,
+                                                       const std::optional<PawnSimulation::PendingPlacement>& placement,
+                                                       const std::map<std::uint32_t, InputStep>&               pending )
+        {
+            PawnSimulation::HandoverPawn out;
+            out.Player        = player;
+            out.Account       = account;
+            out.Index         = index;
+            out.State         = state;
+            out.LastProcessed = lastProcessed;
+            out.Move          = move;
+            out.Placement     = placement;
+            out.Pending.reserve( pending.size() );
+            for ( const auto& [step, input] : pending )
+                out.Pending.push_back( input );
+            return out;
+        }
+    } // namespace
+
+    std::optional<PawnSimulation::HandoverPawn> PawnSimulation::HandoverOf( PlayerId player ) const
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() || it->second.Hold != EHold::Owned )
+            return std::nullopt;
+        const Pawn& pawn = it->second;
+        return MakeHandoverPawn( player, pawn.Account, pawn.Index, pawn.State, pawn.Move, pawn.LastProcessed,
+                                 pawn.Placement, pawn.Pending );
+    }
+
+    Common::BoolResultStr PawnSimulation::Hold( PlayerId player )
     {
         const auto it = m_Pawns.find( player );
         if ( it == m_Pawns.end() )
+            return Common::MakeError<bool>( std::format( "player {} has no pawn", player ) );
+        if ( it->second.Hold != EHold::Owned )
+            return Common::MakeError<bool>(
+                 std::format( "the pawn of player {} is already held ({})", player,
+                              it->second.Hold == EHold::Offered ? "offered" : "incoming" ) );
+        it->second.Hold = EHold::Offered;
+        return Common::MakeSuccess( true );
+    }
+
+    std::optional<PawnSimulation::HandoverPawn> PawnSimulation::Release( PlayerId player )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() || it->second.Hold != EHold::Offered )
             return std::nullopt;
-        HandoverPawn out;
-        out.Player        = player;
-        out.Account       = it->second.Account;
-        out.Index         = it->second.Index;
-        out.State         = it->second.State;
-        out.LastProcessed = it->second.LastProcessed;
-        out.Move          = it->second.Move;
-        out.Placement     = it->second.Placement;
-        for ( const auto& [step, input] : it->second.Pending )
-            out.Pending.push_back( input );
+        const Pawn&  pawn = it->second;
+        HandoverPawn out  = MakeHandoverPawn( player, pawn.Account, pawn.Index, pawn.State, pawn.Move,
+                                              pawn.LastProcessed, pawn.Placement, pawn.Pending );
         m_Pawns.erase( it );
         return out;
     }
 
-    void PawnSimulation::Adopt( HandoverPawn handed, std::uint32_t catchUpSteps )
+    std::optional<std::size_t> PawnSimulation::Resume( PlayerId player )
     {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() || it->second.Hold != EHold::Offered )
+            return std::nullopt;
+        it->second.Hold = EHold::Owned;
+        return it->second.Pending.size();
+    }
+
+    Common::BoolResultStr PawnSimulation::CanTake( const HandoverPawn& pawn ) const
+    {
+        const NetVec3 at = pawn.Placement ? pawn.Placement->Feet : pawn.State.Position;
+        if ( m_Residency.ResidencyAt( at ) == EPointResidency::NoCell )
+            return Common::MakeError<bool>(
+                 std::format( "no cell of this world's grid at ({:.0f}, {:.0f}) cm", at.X, at.Z ) );
+        return Common::MakeSuccess( true );
+    }
+
+    bool PawnSimulation::Expect( HandoverPawn handed, std::uint32_t gateway )
+    {
+        if ( m_Pawns.contains( handed.Player ) )
+            return false;
         Pawn pawn;
+        pawn.Hold          = EHold::Incoming;
+        pawn.Gateway       = gateway;
         pawn.Account       = handed.Account;
         pawn.Index         = handed.Index;
         pawn.State         = handed.State;
@@ -302,10 +367,30 @@ namespace Desert::Net
         pawn.Placement     = handed.Placement;
         for ( const InputStep& input : handed.Pending )
             pawn.Pending.emplace( input.Step, input );
+        m_Pawns.emplace( handed.Player, std::move( pawn ) );
+        return true;
+    }
+
+    std::optional<std::uint32_t> PawnSimulation::Commit( PlayerId player, std::uint32_t catchUpSteps )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() || it->second.Hold != EHold::Incoming )
+            return std::nullopt;
+        Pawn& pawn = it->second;
+        pawn.Hold  = EHold::Owned;
         for ( std::uint32_t i = 0; i < catchUpSteps; ++i )
-            StepOne( handed.Player, pawn );
+            StepOne( player, pawn );
         m_Store.Write( pawn.State );
-        m_Pawns.insert_or_assign( handed.Player, std::move( pawn ) );
+        return pawn.Gateway;
+    }
+
+    bool PawnSimulation::Abandon( PlayerId player )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() || it->second.Hold != EHold::Incoming )
+            return false;
+        m_Pawns.erase( it );
+        return true;
     }
 
     Common::BoolResultStr PawnSimulation::Teleport( PlayerId player, const NetVec3& feet )
@@ -315,6 +400,11 @@ namespace Desert::Net
             return Common::MakeError<bool>( std::format( "player {} has no pawn", player ) );
         Pawn&          pawn = it->second;
         const NetVec3& at   = pawn.Move.Position;
+        // A held pawn's state is the one offered to another simulation: a placement now would not travel with it.
+        if ( pawn.Hold != EHold::Owned )
+            return Common::MakeError<bool>( std::format( "the pawn of player {} is held for a handover: it stays at "
+                                                         "({:.0f}, {:.0f}, {:.0f}) cm",
+                                                         player, at.X, at.Y, at.Z ) );
         // UE TeleportTo returns false and the actor stays: over no cell there is nothing that could ever hold it.
         // The other half of the one rule (ResolvePlacement): a SPAWN at an authored point with no cell is placed.
         if ( m_Residency.ResidencyAt( feet ) == EPointResidency::NoCell )
