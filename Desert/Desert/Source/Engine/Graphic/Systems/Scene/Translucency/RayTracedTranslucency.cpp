@@ -116,6 +116,8 @@ namespace Desert::Graphic::System
                  "Ray traced refraction: the translucent front layer G-buffer (normal, depth) was not rendered" );
         if ( !in.Camera.IsValid() )
             return Common::MakeError<RefractionOutputs>( "Ray traced refraction: no CameraUB" );
+        if ( !in.OpaqueDepth.IsValid() )
+            return Common::MakeError<RefractionOutputs>( "Ray traced refraction: no opaque G-buffer depth" );
         if ( in.Width == 0 || in.Height == 0 )
             return Common::MakeError<RefractionOutputs>( "Ray traced refraction: the render resolution is empty" );
         // The permutation statement, not the record's fields (GITracing.hpp: a consumer hands the frame on).
@@ -141,6 +143,8 @@ namespace Desert::Graphic::System
                  block.Storage( RayTracedTranslucencyShaderParameters::RefractionOutputTexture, radiance,
                                 RDG::Access::StorageWrite )
                       .Uniform( RayTracedTranslucencyShaderParameters::CameraUB, in.Camera )
+                      .Texture( RayTracedTranslucencyShaderParameters::GBufferDepthTexture, in.OpaqueDepth,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                       .PushConstants<ShaderPush::RayTracedTranslucencyPush>();
                  RayTracing::BindRayTracingSceneReads<RayTracedTranslucencyShaderParameters>(
                       block, in.HitLighting.SceneReads );
