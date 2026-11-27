@@ -41,11 +41,6 @@ namespace Desert::Net
     class SimHandover
     {
     public:
-        // A receiver that accepted and heard no decision for this many mesh steps asks the store (re-sends its
-        // Accept): twice the sender's deadline, so the sender's own Withdraw has been decided by then and the
-        // answer is final; then again every as many steps while no answer comes.
-        static constexpr std::uint32_t kInDoubtSteps = 2 * Handover::kOfferDeadlineSteps;
-
         struct Stats
         {
             std::uint64_t Offered       = 0; // offers sent

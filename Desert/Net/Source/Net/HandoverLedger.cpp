@@ -308,6 +308,24 @@ namespace Desert::Net::Handover
             m_OfferOfPawn.erase( id );
             offer = m_Offers.erase( offer );
         }
+        // A lost sender's commits are forgotten: a restarted sim numbers its offers from 1 again, so its old keys
+        // must not answer the votes of its new offers.
+        std::size_t forgotten = 0;
+        for ( auto commit = m_CommitOf.begin(); commit != m_CommitOf.end(); )
+        {
+            if ( commit->first.From != sim )
+            {
+                ++commit;
+                continue;
+            }
+            m_CommitOfPawn.erase( commit->second.Id );
+            commit = m_CommitOf.erase( commit );
+            ++forgotten;
+        }
+        if ( forgotten != 0 )
+            effects.Log.push_back( std::format( "store: sim {} left the mesh - {} commit(s) of its offers "
+                                                "forgotten (a restarted sim reuses its offer serials)",
+                                                sim, forgotten ) );
         return effects;
     }
 

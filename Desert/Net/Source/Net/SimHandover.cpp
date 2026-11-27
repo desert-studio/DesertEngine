@@ -311,7 +311,7 @@ namespace Desert::Net
             return;
         for ( auto& [player, held] : m_Incoming )
         {
-            if ( StepsSince( step, held.AskedAt ) < kInDoubtSteps )
+            if ( StepsSince( step, held.AskedAt ) < Handover::kInDoubtSteps )
                 continue;
             m_Endpoint.SendToRole( EMeshRole::Store,
                                    Handover::EncodeAccept( Handover::Verdict{ held.Key, m_Sim, step } ) );
@@ -396,11 +396,32 @@ namespace Desert::Net
                      m_Sim, decision.Key.From, decision.Key.Serial, decision.Id, decision.Epoch ) );
                 return;
             }
-            const PlayerId      player   = incoming->first;
-            const Incoming      held     = incoming->second;
-            const std::uint32_t catchUp  = StepsSince( step, held.Step );
+            const PlayerId player = incoming->first;
+            const Incoming held   = incoming->second;
+            // A decision names its key AND its subject: a Commit under this key for another pawn (a restarted
+            // sender reusing its serials) is not this copy's - the copy stays in doubt and asks again.
+            if ( decision.Id != held.Id )
+            {
+                m_Log( std::format( "sim {}: Commit of offer (sim {}, #{}) names pawn net id {} at epoch {}, but "
+                                    "the incoming copy under that key is pawn net id {} (player {}) - decision "
+                                    "dropped, the copy stays in doubt",
+                                    m_Sim, decision.Key.From, decision.Key.Serial, decision.Id, decision.Epoch,
+                                    held.Id, player ) );
+                return;
+            }
+            // THE CATCH-UP IS CAPPED as the Offer's check is (kMaxCatchUpSteps): after a long doubt the steps past
+            // the cap are not simulated in one step - the pawn goes on from its frozen state, its queued inputs
+            // applied by the steps that follow.
+            const std::uint32_t behind   = StepsSince( step, held.Step );
+            const std::uint32_t catchUp  = std::min( behind, Handover::kMaxCatchUpSteps );
             const bool          wasProxy = replica.IsProxy( held.Id );
             m_Incoming.erase( incoming );
+            if ( catchUp != behind )
+                m_Log( std::format( "sim {}: offer (sim {}, #{}) of pawn net id {} (player {}) committed {} steps "
+                                    "after it froze (step {}, this sim at step {}): catch-up capped at {} steps, "
+                                    "{} step(s) not simulated",
+                                    m_Sim, held.Key.From, held.Key.Serial, held.Id, player, behind, held.Step,
+                                    step, catchUp, behind - catchUp ) );
             const auto gateway = sim.Commit( player, catchUp );
             if ( !gateway )
             {
