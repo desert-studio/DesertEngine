@@ -27,9 +27,10 @@ namespace buildpool::daemon
         uint64_t    preemptions   = 0;
         uint32_t    maxRunning    = 0; // machine-wide leases, highest while the build was active
         // Machine-wide over the build's span: the lowest min(physicalAvailable, commitFree) sampled, and the
-        // physicalTotal it is measured against.
-        uint64_t lowestFreeBytes    = std::numeric_limits<uint64_t>::max();
-        uint64_t physicalTotalBytes = 0;
+        // limit L it is measured against (Daemon.hpp runs.tsv): MemoryState::commitLimit when the samples carry
+        // one, else physicalTotal. The highest L sampled is kept, so a page file that grows raises it.
+        uint64_t lowestFreeBytes = std::numeric_limits<uint64_t>::max();
+        uint64_t limitBytes      = 0;
 
         // One sample tick (or one Grant) while the build is active.
         void ObserveMachine( uint32_t runningLeases, const MemoryState* memory ) noexcept;
