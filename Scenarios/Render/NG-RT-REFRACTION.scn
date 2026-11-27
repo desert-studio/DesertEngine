@@ -49,6 +49,43 @@
 Когда frames 32
 Когда profile-dump
 Тогда-вид night_ss night, ScreenSpace: differences D1-D9 against night_pt recorded (D11) - mean L error of the glass area vs night_pt, the second glass / water behind the window missing or not (D5)
+# --- D10 baseline: the same 16-frame turn under ScreenSpace (turn_b is compared with turn_ss_b)
+Когда frames 16
+Тогда-вид turn_ss_a night, ScreenSpace, before the camera turn
+Когда --subject viewport set Camera.Direction -0.6139,0.05,-0.7894
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.6276,0.05,-0.7786
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.6410,0.05,-0.7675
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.6543,0.05,-0.7562
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.6674,0.05,-0.7447
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.6803,0.05,-0.7329
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.6930,0.05,-0.7209
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.7055,0.05,-0.7087
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.7178,0.05,-0.6963
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.7298,0.05,-0.6837
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.7416,0.05,-0.6708
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.7532,0.05,-0.6578
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.7646,0.05,-0.6445
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.7757,0.05,-0.6311
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.7866,0.05,-0.6174
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.7973,0.05,-0.6036
+Когда frames 1
+Тогда-вид turn_ss_b night, ScreenSpace, right after the 16-frame turn: the trail / ripple behind the glass the TAA leaves today (D10 baseline)
+Когда --subject viewport set Camera.Direction -0.6,0.05,-0.8
 Когда run Quality "Quality: Translucency.Refraction HardwareTraced"
 Когда frames 32
 Когда profile-dump
@@ -88,7 +125,7 @@
 Когда frames 1
 Когда --subject viewport set Camera.Direction -0.7973,0.05,-0.6036
 Когда frames 1
-Тогда-вид turn_b night, HardwareTraced, right after the 16-frame turn: behind the glass no trail and no ripple stronger than in night_ss (D10)
+Тогда-вид turn_b night, HardwareTraced, right after the 16-frame turn: behind the glass no trail and no ripple stronger than in turn_ss_b (the same turn under ScreenSpace) or night_ss (D10)
 # --- tail: view mode and machine.json back to defaults
 Когда run View "View mode: Lit"
 Когда run Quality "Quality: Translucency.Refraction Level"

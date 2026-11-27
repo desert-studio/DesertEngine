@@ -2005,8 +2005,9 @@ namespace Desert::Graphic::System
         // as FrontLayerReflectionTexture / FrontLayerDepthTexture wherever the cell's shader has the slots - the
         // graph's black texture for both when the frame has no front layer. Refraction: what the front layer sees
         // through itself (RayTracedTranslucencyRenderer's RefractionOutputs::Radiance, Translucency.Refraction
-        // HardwareTraced), bound as kTranslucencyRefractionTexture beside them - the graph's black texture (a = 0:
-        // the cell keeps the scene copy) when the frame traced none.
+        // HardwareTraced), bound as kTranslucencyRefractionTexture beside them - when the frame traced none, a
+        // texture whose a is 0 at every texel the cell reads (the cell then keeps the scene copy); the opaque
+        // System.Black (a = 1) is not that texture.
         struct GlassFrontLayer
         {
             RDG::TextureRef Reflection;
