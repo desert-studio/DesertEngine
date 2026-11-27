@@ -295,6 +295,41 @@ namespace
         return buffer.str();
     }
 
+    // The TXAS generation a texture envelope states in its header (the stamp of its IMPT layout), read through
+    // the envelope's own header contract with RecordOnly (stated, not judged): the texture verdict names the
+    // generation it raises from without a second reader of the IMPT layout, which UpgradeTextureSourceAsset owns.
+    Common::ResultStr<uint32_t> StatedTextureGeneration( const std::string& bytes )
+    {
+        Common::Content::AssetHeaderReadContext context;
+        context.RecordOnly = true;
+        const auto header  = Common::Content::ReadEnvelopeHeader( std::as_bytes( std::span( bytes ) ), context );
+        if ( !header )
+            return Common::MakeError<uint32_t>( header.GetError() );
+        for ( const Common::Content::SubsystemVersion& stamp : header.GetValue().Asset.Subsystems )
+            if ( stamp.Tag == Desert::Assets::kTextureAssetSubsystemTag )
+                return Common::MakeSuccess( stamp.Version );
+        return Common::MakeError<uint32_t>( "the texture envelope states no TXAS generation" );
+    }
+
+    // The generations of a texture verdict line, as the envelopes' TXAS stamps state them (an IMPT section may
+    // state an older layout than its envelope; UpgradeTextureSourceAsset reads that one): " (TXAS v4)" when every
+    // texture states one, " (TXAS v3: 2, v4: 396)" when they differ, nothing when no texture was stale; `to`
+    // (a write's " -> v5") follows each generation.
+    std::string TextureGenerations( const std::map<uint32_t, int>& from, const std::string_view to )
+    {
+        if ( from.empty() )
+            return {};
+        std::string text;
+        for ( const auto& [generation, count] : from )
+        {
+            text += text.empty() ? " (TXAS " : ", ";
+            text += std::format( "v{}{}", generation, to );
+            if ( from.size() > 1 )
+                text += std::format( ": {}", count );
+        }
+        return text + ")";
+    }
+
     // Every text asset this tool writes goes through the one canonical writer (AF6), so a migrated file and a
     // file saved by the engine are laid out alike and a migration's diff is only the lines it changed.
     bool WriteText( const std::filesystem::path& path, const std::string& json, std::ostream& err )
@@ -780,6 +815,9 @@ namespace Desert::Migration
         int materialsRaised = 0;
         // Mesh files raised (MeshBinary 3/4 -> 5, mesh Source 2 -> 3): a --check with any is pending work.
         int meshesRaised = 0;
+        // The texture verdict (PT-PROOF): textures refused by name, and the TXAS generation each stale one states.
+        int                     texturesRefused = 0;
+        std::map<uint32_t, int> texturesStaleFrom;
         int failed  = 0;
         int relaid  = 0;
         // Materials with a retired parameter renamed: OcclusionStrength -> AOStrength (MaterialAOParam.hpp),
@@ -2086,22 +2124,35 @@ namespace Desert::Migration
             {
                 err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
                 ++failed;
+                ++texturesRefused;
                 continue;
             }
             if ( !raised.GetValue() )
                 continue;
-            ++texturesRaised;
-            out << ( check ? "would raise " : "raised " ) << path.string() << " TXAS -> "
-                << Desert::Assets::kTextureAssetSubsystemVersion << "\n";
-            if ( check )
-                continue;
-            if ( const auto written =
-                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, *raised.GetValue() );
-                 !written )
+            const auto stated = StatedTextureGeneration( bytes );
+            if ( !stated )
             {
-                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                err << "FAIL   " << path.string() << " — " << stated.GetError() << "\n";
                 ++failed;
+                ++texturesRefused;
+                continue;
             }
+            out << ( check ? "would raise " : "raised " ) << path.string() << " TXAS v" << stated.GetValue()
+                << " -> v" << Desert::Assets::kTextureAssetSubsystemVersion << "\n";
+            if ( !check )
+            {
+                if ( const auto written =
+                          Common::Utils::FileSystem::WriteBytesToFileAtomic( path, *raised.GetValue() );
+                     !written )
+                {
+                    err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                    ++failed;
+                    ++texturesRefused;
+                    continue;
+                }
+            }
+            ++texturesRaised;
+            ++texturesStaleFrom[stated.GetValue()];
         }
 
         // THE SOUNDS (AUD-CORE): SNDW 0 -> 1 states the Class every voice plays in and the Loading (Resident /
@@ -2146,12 +2197,21 @@ namespace Desert::Migration
             << vfxSystemsRaised << ( check ? " VFX system(s) would be raised, " : " VFX system(s) raised, " )
             << animGraphsRaised << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " )
             << meshesRaised << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
-            << " landscape tile(s), " << texturesRaised
-            << ( check ? " texture(s) would be raised, " : " texture(s) raised, " ) << soundsRaised
+            << " landscape tile(s), " << soundsRaised
             << ( check ? " sound(s) would be raised, " : " sound(s) raised, " ) << recordsStated
             << ( check ? " import record(s) would state their source hash, "
                        : " import record(s) stated their source hash, " )
             << failed << " failed\n";
+        // THE TEXTURE VERDICT (PT-PROOF D1), its own line: a project whose textures state an older TXAS than this
+        // build reads draws as clay, so the count and the generations are what a --check or a write must name.
+        if ( check )
+            out << "textures: stale " << texturesRaised << TextureGenerations( texturesStaleFrom, "" )
+                << ", refused " << texturesRefused << "\n";
+        else
+            out << "textures: raised " << texturesRaised << ", refused " << texturesRefused
+                << TextureGenerations( texturesStaleFrom,
+                                       std::format( " -> v{}", Desert::Assets::kTextureAssetSubsystemVersion ) )
+                << "\n";
 
         failedOut = failed;
         if ( failed > 0 )
