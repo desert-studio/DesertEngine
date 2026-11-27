@@ -6,6 +6,7 @@
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/PlayerStart.hpp>
+#include <Engine/Core/PlayerStreamingView.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
@@ -674,23 +675,25 @@ namespace Desert::Core
     void ClientNetDriver::ReportView( Scene& scene )
     {
         const auto* of = scene.GetRegistry().try_ctx<WorldStreamerOfScene>();
-        if ( of == nullptr || of->Streamer == nullptr || of->Streamer->LastSources().empty() )
+        if ( of == nullptr || of->Streamer == nullptr )
             return; // the played world is not streamed: the server's circle alone
-        const Rules::StreamingSource& source = of->Streamer->LastSources().front();
-        // The source's view as the streaming query itself sees it (Rules::SourceSectors: RangeScale, AngleScale,
-        // the grid's loading range, the targeted grids): the sector reaching farthest over the source's grids.
+        const std::optional<Core::PlayerStreamingView> eye = Core::PlayerStreamingViewOf( scene );
+        if ( !eye )
+            return; // no camera to look through: the server's circle around the pawn alone
+        // The view source the streamer streams with (Core::PlayerViewStreamingSource, the same function), seen as
+        // the streaming query sees it (Rules::SourceSectors: the grid's loading range, the targeted grids): the
+        // sector reaching farthest over the partition's grids.
+        const Rules::StreamingSource source = Core::PlayerViewStreamingSource( *eye );
         std::optional<Rules::SourceSector> farthest;
         for ( const Core::RuntimePartitionSerialized& grid : of->Streamer->Partition().RuntimePartitions )
             for ( const Rules::SourceSector& sector : Rules::SourceSectors( source, grid ) )
                 if ( !farthest || sector.Radius > farthest->Radius )
                     farthest = sector;
         if ( !farthest )
-            return; // the source reaches no grid: the server's circle alone
-        // Yaw about +Y, 0 facing -Z, counter-clockwise seen from above (Rules::Detail::TurnAboutUp): the axis
-        // (-sin, -cos).
+            return; // the view reaches no grid: the server's circle alone
         Net::ViewReport view;
-        view.FacingYawDeg   = static_cast<float>(
-             std::remainder( glm::degrees( std::atan2( -farthest->Axis.x, -farthest->Axis.y ) ), 360.0 ) );
+        view.Position       = Net::NetVec3{ eye->Position.x, eye->Position.y, eye->Position.z };
+        view.FacingYawDeg   = Core::PlayerViewYawDeg( *eye );
         view.SectorAngleDeg = farthest->IsCircle() ? 360.0f : static_cast<float>( farthest->Angle );
         view.RangeCm        = static_cast<float>( farthest->Radius );
         m_Client->ReportView( view );
