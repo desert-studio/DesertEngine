@@ -112,7 +112,9 @@ namespace Desert::Net::Handover
         const auto             openOfPawn = m_OfferOfPawn.find( id );
         if ( !decoded )
         {
-            offer.Header.Key.From = sim; // the refusal goes back to the sim that spoke
+            // The refusal goes back to the sim that spoke, under serial 0 (no sender ever issues it): a partly
+            // read serial could name an offer that sim still has open.
+            offer.Header.Key = OfferKey{ sim, 0 };
             refusal               = Refusal{
                  ERefusal::Malformed,
                  std::format( "the offer record from sim {} did not decode ({} bytes)", sim, body.size() ) };
@@ -123,11 +125,16 @@ namespace Desert::Net::Handover
                           std::format( "the offer names sender sim {} and receiver sim {} but came from sim {}",
                                        h.Key.From, h.To, sim ) };
         else if ( m_Offers.contains( h.Key ) || openOfPawn != m_OfferOfPawn.end() )
+        {
             // The sender holds the pawn while its offer is open, so a second offer is a sender defect, not data.
             refusal = Refusal{
                  ERefusal::Malformed,
-                 std::format( "pawn net id {} already has {} open", id,
+                 std::format( "{} names pawn net id {}, which already has {} open", NameOf( h.Key ), id,
                               NameOf( openOfPawn != m_OfferOfPawn.end() ? openOfPawn->second : h.Key ) ) };
+            // Refused under the offer's own key would match the sender's live offer and resume the pawn while
+            // the open one may still commit: two owners. Serial 0 matches no offer a sender holds.
+            offer.Header.Key.Serial = 0;
+        }
         else if ( record == m_Records.end() )
             refusal = Refusal{ ERefusal::NoRecord,
                                std::format( "pawn net id {} has no authority record yet (its first write has not "
