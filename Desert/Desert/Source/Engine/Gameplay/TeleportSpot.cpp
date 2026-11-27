@@ -52,10 +52,12 @@ namespace Desert::Gameplay
 
         // One probe's answer, the cases in order (UE FindTeleportSpot / ComponentEncroachesBlockingGeometry: the
         // traces go by the pawn's channel, an unresolved spot is refused - never pushed onto whatever is above).
-        //  Under: a DOWNWARD ray from LiftCm above finds a floor above the point and an UPWARD ray from the point
-        //    to it misses - the point is under a one-sided surface (a heightfield or a mesh floor seen from below,
-        //    whose faces a ray from under them passes): the feet are lifted onto it. A roof or a ceiling above is
-        //    found by the upward ray, so the pawn under it is not put on it.
+        //  Under: ONE upward ray from the point, back faces met (SurfaceAbove), meets the BACK of a surface first
+        //    - the point is under or inside that body (a heightfield, a mesh floor, a box): its top is a candidate.
+        //    The feet stand on a candidate only when the capsule fits there AND the ray from the stood feet meets
+        //    no back face (nothing, or a ceiling's underside): a landed pawn is never under a one-sided surface,
+        //    and never on a roof it was not inside. A candidate the capsule does not fit on, or a front face, is
+        //    passed and the walk goes on from the skin above it, up to LiftCm; no stand there: refused.
         //  Otherwise the floor straight below within DropCm: a free point keeps its height unless that floor is
         //    within the step height (snapped onto it); an encroached point (feet in the floor) is set onto a floor
         //    within the step height, else it is blocked. No floor below a free point: refused.
@@ -83,18 +85,33 @@ namespace Desert::Gameplay
                                          const PawnMoveSettings& settings, const IPawnMoveWorld& world,
                                          const TeleportSearch& search )
         {
-            if ( const std::optional<float> above =
-                      world.FloorBelow( Raised( point, search.LiftCm ), search.LiftCm );
-                 above && *above > point.Y )
+            // A front face first (a ceiling) or nothing above: the point is free of surfaces above it.
+            std::optional<SurfaceAbove> hit = world.SurfaceAbove( point, search.LiftCm );
+            if ( hit && !hit->Underside )
             {
-                if ( !world.CeilingAbove( point, *above - point.Y ) )
+                const float liftTop = point.Y + search.LiftCm;
+                const float depth   = hit->Y - point.Y;
+                while ( hit )
                 {
-                    if ( const std::optional<Stand> stand = StandOn( point, *above, capsule, world, search ) )
-                        return { Probed{ *stand, EProbed::Under, point.Y - *above }, {} };
-                    return { std::nullopt, std::format( "under the ground {:.0f} cm below its surface, and the "
-                                                        "capsule does not fit on it",
-                                                        *above - point.Y ) };
+                    const float from = hit->Y + search.SkinCm; // where the walk goes on when this surface is passed
+                    if ( !hit->Underside )
+                        if ( const std::optional<Stand> stand = StandOn( point, hit->Y, capsule, world, search ) )
+                        {
+                            const float upCm = liftTop - stand->Feet.Y;
+                            const std::optional<SurfaceAbove> over =
+                                 upCm > 0.0f ? world.SurfaceAbove( stand->Feet, upCm ) : std::nullopt;
+                            if ( !over || over->Underside )
+                                return { Probed{ *stand, EProbed::Under, point.Y - hit->Y }, {} };
+                            hit = over; // still under a one-sided surface: its top is the next candidate
+                            continue;
+                        }
+                    if ( from >= liftTop )
+                        break;
+                    hit = world.SurfaceAbove( Raised( point, from - point.Y ), liftTop - from );
                 }
+                return { std::nullopt, std::format( "under or inside a body {:.0f} cm below its top, and no top "
+                                                    "within {:.0f} cm above it has room for the capsule",
+                                                    depth, search.LiftCm ) };
             }
             const bool                 fits = world.Fits( point, capsule );
             const std::optional<float> floor =
@@ -138,15 +155,19 @@ namespace Desert::Gameplay
         if ( const std::optional<Probed>& probed = centre.Stood )
         {
             const float moved = DistanceCm( probed->Where.Feet, feet );
-            const char* way   = probed->Where.Feet.Y >= feet.Y ? "lifted" : "lowered";
+            const bool  up    = probed->Where.Feet.Y > feet.Y;
+            const char* way   = up ? "lifted" : "lowered";
+            // Lifted is a raise onto the floor above (TeleportSpot.hpp); feet set down onto a floor are Free.
+            const ETeleportSpot raised = up ? ETeleportSpot::Lifted : ETeleportSpot::Free;
             switch ( probed->Case )
             {
                 case EProbed::Under:
                     return landed(
-                         *probed, ETeleportSpot::Lifted,
-                         std::format( "capsule under the ground, lifted {:.0f} cm onto its surface", moved ) );
+                         *probed, raised,
+                         std::format( "capsule under or inside the ground, {} {:.0f} cm onto its surface", way,
+                                      moved ) );
                 case EProbed::Encroached:
-                    return landed( *probed, ETeleportSpot::Lifted,
+                    return landed( *probed, raised,
                                    std::format( "capsule in the floor, {} {:.0f} cm onto it", way, moved ) );
                 case EProbed::Snapped:
                     return landed( *probed, ETeleportSpot::Free,

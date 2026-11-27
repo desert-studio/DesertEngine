@@ -123,6 +123,15 @@ namespace Desert::Gameplay
     // The same from a move mode (PawnMoveState::Mode): its crouch bit picks the capsule.
     [[nodiscard]] DrawnPawn DrawnPawnOf( const PawnMoveSettings& settings, std::uint8_t mode );
 
+    // The first surface an upward ray met (IPawnMoveWorld::SurfaceAbove): its Y, and whether the ray met its front
+    // face - the Underside of a ceiling or a roof - rather than its back face, the top of a body the start is
+    // under or inside.
+    struct SurfaceAbove
+    {
+        float Y         = 0.0f;
+        bool  Underside = false;
+    };
+
     // The collision world one move asks (UE SafeMoveUpdatedComponent + slide + FindFloor): where @p capsule whose
     // feet stand at @p from.Position ends after moving with @p velocity for @p dtSeconds, its velocity after
     // the walls and floors it met, and whether it stands on a walkable floor (@p gravity presses the floor's
@@ -135,9 +144,10 @@ namespace Desert::Gameplay
     // the world (UE: the stand-up test of UnCrouch)? FloorBelow: the Y of the first surface the pawn stands on
     // straight below @p start within @p downCm, nullopt for none (UE FindFloor's line trace; the teleport spot's
     // floor, FindTeleportSpot), by the pawn's channel: a trigger or volume it overlaps is no floor. A downward
-    // ray: a heightfield is found from above only. CeilingAbove: the same ray straight up, the Y of the first
-    // blocking surface within @p upCm - it misses a heightfield seen from below, which is how a point under the
-    // terrain is told from one under a roof (FindTeleportSpot).
+    // ray: a heightfield is found from above only. SurfaceAbove: the same channel straight up, the first
+    // blocking surface within @p upCm and the side the ray met (UE FHitResult::bStartPenetrating): its BACK face
+    // - the top of a heightfield, a mesh floor or a convex the start is under or inside - or its front face, the
+    // underside of a ceiling or a roof (FindTeleportSpot tells "under the ground" from "under a roof" by it).
     class IPawnMoveWorld
     {
     public:
@@ -154,7 +164,8 @@ namespace Desert::Gameplay
                                             float dtSeconds )                                            = 0;
         [[nodiscard]] virtual bool    Fits( const NetVec3& feet, const PawnCapsule& capsule ) const      = 0;
         [[nodiscard]] virtual std::optional<float> FloorBelow( const NetVec3& start, float downCm ) const = 0;
-        [[nodiscard]] virtual std::optional<float> CeilingAbove( const NetVec3& start, float upCm ) const = 0;
+        [[nodiscard]] virtual std::optional<Gameplay::SurfaceAbove> SurfaceAbove( const NetVec3& start,
+                                                                                    float upCm ) const = 0;
         // The world's gravity (cm/s^2, down; UE AWorldSettings::GetGravityZ): the level's Scene Settings, the same
         // value on the server (its cooked world), the prediction and standalone Play (the scene's physics world).
         [[nodiscard]] virtual float Gravity() const = 0;

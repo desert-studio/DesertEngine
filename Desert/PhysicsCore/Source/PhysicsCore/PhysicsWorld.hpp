@@ -67,6 +67,14 @@ namespace Desert::Physics
                         // world of cells alone, so the client's prediction of it may not see the scene's pawns
     };
 
+    // Which sides of a surface a ray meets (UE FHitResult::bStartPenetrating: the query says which side it met).
+    enum class ERayFaces : std::uint8_t
+    {
+        Front, // only surfaces facing the ray; a ray starting inside a convex meets it at distance 0
+        Both   // back faces too, and a convex is hollow: a ray from inside meets its exit face, whose normal
+               // points along the ray - dot(RayHit::Normal, direction) > 0 tells a back face from a front one
+    };
+
     struct CharacterDesc
     {
         float     Radius      = 0.3f; // capsule radius
@@ -298,8 +306,11 @@ namespace Desert::Physics
         /// a character's inner body is never found. @p traceChannel may be an object channel: a query made as
         /// that kind of body (the teleport floor ray traces by the pawn's channel, so triggers and volumes the
         /// pawn overlaps are no floor). CHANNELS moves the channel-less CastRay's callers to this form.
+        /// @p faces Both also meets back faces (the teleport spot's upward ray tells "under or inside a body"
+        /// from "under a ceiling" by the side it met).
         [[nodiscard]] std::optional<RayHit> CastRay( const glm::vec3& origin, const glm::vec3& direction,
-                                                     float maxDistance, CollisionChannelId traceChannel ) const;
+                                                     float maxDistance, CollisionChannelId traceChannel,
+                                                     ERayFaces faces = ERayFaces::Front ) const;
 
         /// UE SweepSingleByChannel with a sphere: the first body a sphere of @p radius meets travelling from
         /// @p origin along @p direction (normalised here) within @p maxDistance, or nullopt. RayHit::Distance
@@ -311,10 +322,13 @@ namespace Desert::Physics
                                                         float radius, float maxDistance,
                                                         std::span<const BodyHandle> ignore = {} ) const;
 
-        /// UE OverlapAnyTestByChannel with a capsule standing on Y: does any body intersect the capsule of
-        /// @p radius and cylinder @p halfHeight (excluding the caps) centred at @p center? A character's inner
-        /// body is never found (GetCharacterBody), so a character never overlaps itself here.
-        [[nodiscard]] bool OverlapsCapsule( const glm::vec3& center, float radius, float halfHeight ) const;
+        /// UE OverlapAnyTestByChannel with a capsule standing on Y, by an object channel (UE
+        /// ComponentEncroachesBlockingGeometry: the pawn's own channel): does any body whose profile BLOCKS
+        /// @p channel intersect the capsule of @p radius and cylinder @p halfHeight (excluding the caps) centred
+        /// at @p center? A trigger or volume it overlaps does not count; a character's inner body is never found
+        /// (GetCharacterBody), so a character never overlaps itself here.
+        [[nodiscard]] bool OverlapsCapsule( const glm::vec3& center, float radius, float halfHeight,
+                                            CollisionChannelId channel ) const;
 
         // Read simulated transform (body origin, not center-of-mass).
         glm::vec3 GetPosition( BodyHandle handle ) const;
