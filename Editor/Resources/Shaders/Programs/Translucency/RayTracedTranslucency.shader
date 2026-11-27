@@ -2,19 +2,24 @@
 Shader "RayTracedTranslucency"
 {
     // RAY-TRACED REFRACTION (Translucency.Refraction HardwareTraced; UE RayTracedTranslucency, MaxPrimaryHitEvents;
-    // System::RayTracedTranslucencyRenderer, the pass "Translucency: Ray Traced Refraction"). One ray per pixel of the
-    // translucent front layer (Mesh/Surface/Pass_FrontLayer.glslh: rgb = world normal, a = roughness; zero = no
-    // translucent surface): it starts just before the front layer's depth on the camera ray, so its first hit is that
-    // glass, whose closest hit (Mesh/Surface/Pass_RayHit.glslh) gives Transmission, Ior and the shading normal. Every
-    // dielectric interface (Transmission > 0) bends the ray by Snell - entering or leaving by the payload's front face
-    // - or mirrors it past the critical angle (total internal reflection); a thin sheet (Ior 1) tints per crossing,
-    // solid glass absorbs by Beer's law between its faces (PathTracer.shader, the same statement), and the smooth
-    // Fresnel transmission of every interface after the first multiplies the path (the glass cell weighs its own
-    // first interface by its Fresnel). The first opaque hit is lit in place as the hit-lit reflections light theirs
-    // (Common/GIHitLighting.glslh GIHitRadianceLit, its emission included); a miss is the sky. A rough front layer
-    // bends by one GGX visible normal per frame (the temporal upscaler sums them). Output: rgb = pre-exposed radiance
-    // x transmittance, a = 1 where the trace answered; past MaxRoughness or MaxInterfaces a = 0 and the glass cell reads
-    // the scene copy itself (this pass never reads it).
+    // System::RayTracedTranslucencyRenderer, the pass "Translucency: Ray Traced Refraction"). HALF resolution: one ray
+    // per 2x2 quad of the translucent front layer (Mesh/Surface/Pass_FrontLayer.glslh: rgb = world normal, a =
+    // roughness; zero = no translucent surface). The quad traces its pixel FrameIndex & 3 (index = x + 2 * y inside
+    // the quad), or its first pixel that holds a traceable front layer when that one does not; a quad without one
+    // writes zero. The ray starts just before that pixel's front layer depth on the camera ray, so its first hit is
+    // that glass, whose closest hit (Mesh/Surface/Pass_RayHit.glslh) gives Transmission, Ior and the shading normal.
+    // Every dielectric interface (Transmission > 0) bends the ray by Snell - entering or leaving by the payload's front
+    // face - or mirrors it past the critical angle (total internal reflection); a thin sheet (Ior 1) tints per
+    // crossing, solid glass absorbs by Beer's law between its faces (PathTracer.shader, the same statement), and the
+    // smooth Fresnel transmission of every interface after the first multiplies the path (the glass cell weighs its
+    // own first interface by its Fresnel). The first opaque hit is lit SCREEN FIRST: a hit the view sees (projected by
+    // giFrame.viewProjection into the frame, the opaque depth there within GIRayBias().screenTolerance of it - the
+    // test of Common/GIHitLighting.glslh GIHitMaterial) takes this frame's lit scene colour from the scene copy;
+    // any other is lit in place as the hit-lit reflections light theirs (GIHitRadianceLit, its emission included);
+    // a miss is the sky. A rough front layer bends by one GGX visible normal per frame (the temporal upscaler sums
+    // them). Output (one texel per quad): rgb = pre-exposed radiance x transmittance; a = 1 + the traced pixel's index
+    // in the quad where the trace answered (0 under Composite 0: the same rays, no answer), 0 past MaxRoughness or
+    // MaxInterfaces - the glass cell (Mesh/Surface/TranslucencyRefraction.glslh) reads the scene copy itself there.
     Pass "Trace"
     {
         RayGen
@@ -30,6 +35,8 @@ Shader "RayTracedTranslucency"
             layout(binding = 4, rgba16f) writeonly uniform image2D RefractionOutputTexture; // System::RayTracedTranslucencyShaderParameters; the glass cell binds it as kTranslucencyRefractionTexture
             Uniform(5) texture2D FrontLayerDepthTexture;  // the front layer's device depth (cleared: far)
             #define FrontLayerDepthTexture sampler2D(FrontLayerDepthTexture, PointClampSampler)
+            Uniform texture2D SceneColorCopyTexture;      // this frame's opaque lit scene, pre-exposed: a seen hit's radiance
+            #define SceneColorCopyTexture sampler2D(SceneColorCopyTexture, LinearClampSampler)
 
             // The program exists only as the hardware tracer lit in place (RayTracedTranslucencyRenderer::Variant =
             // TracerVariant(kRayTracedTranslucencyTracer) defines both). The boot compile has no variant defines and is
@@ -48,7 +55,7 @@ Shader "RayTracedTranslucency"
             #include <Common/RayTracingPayload.glslh>
             #include <Common/ReconstructPosition.glslh>
             #include <Common/MonteCarlo.glslh>
-            #include <Common/RayTracedTranslucencyPush.glslh> // InvJitteredViewProjection ... FrameIndex
+            #include <Common/RayTracedTranslucencyPush.glslh> // InvJitteredViewProjection ... Composite
 
             layout(location = 0) rayPayloadEXT DesertRayPayload payload;
 
@@ -106,25 +113,97 @@ Shader "RayTracedTranslucency"
                 return normalize(T * h.x + B * h.y + N * h.z);
             }
 
+            // The pre-exposed radiance of the first opaque hit at @p P (the payload's hit), SCREEN FIRST: the scene copy
+            // where the view sees that very point (GIHitMaterial's test: giFrame.viewProjection, the opaque depth within
+            // the tracer's tolerance; the copy is already pre-exposed), lit in place otherwise.
+            vec3 RefractionOpaqueRadiance(vec3 P, vec3 dir)
+            {
+                const vec4 clip = giFrame.viewProjection * vec4(P, 1.0);
+                if (clip.w > 0.0)
+                {
+                    const vec2 ndc = clip.xy / clip.w;
+                    if (all(lessThanEqual(abs(ndc), vec2(1.0))))
+                    {
+                        const vec2  uv    = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+                        const float depth = textureLod(GBufferDepthTexture, uv, 0.0).r;
+                        const vec3  seen  = ReconstructWorldPosition(uv, depth, giFrame.invViewProjection);
+                        if (distance(seen, P) <= GIRayBias(P, payload.Normal).screenTolerance)
+                            return textureLod(SceneColorCopyTexture, uv, 0.0).rgb;
+                    }
+                }
+                GIHit hit;
+                hit.position     = P;
+                hit.distance     = payload.HitT;
+                hit.normal       = payload.Normal;
+                hit.meshCards    = GI_NO_MESH_CARDS;
+                hit.instance     = GI_NO_INSTANCE;
+                hit.primitive    = 0u;
+                hit.barycentrics = vec2(0.0);
+                hit.frontFace    = (payload.Flags & kDesertRayPayloadFrontFace) != 0u;
+                hit.velocity     = vec3(0.0);
+                hit.motionKnown  = false;
+                hit.globalField  = false;
+                const vec3 lit = GIHitRadianceLit(
+                    hit, dir,
+                    GIHitSurface(payload.BaseColor, payload.Metallic, payload.Roughness, payload.Emissive, true,
+                                 payload.ShadingWord,
+                                 DesertSubsurfaceColor(DesertShadingModelIndex(payload.ShadingWord),
+                                                       DesertUnpackPayload(payload.ShadingWord))));
+                return lit * CameraPosition.w;
+            }
+
+            // A pixel of the quad the trace may start at: inside the render resolution, a front layer, not too rough.
+            bool RefractionTraceable(ivec2 pixel, ivec2 full)
+            {
+                if (any(greaterThanEqual(pixel, full)))
+                    return false;
+                const vec4 front = texelFetch(FrontLayerNormalTexture, pixel, 0);
+                return dot(front.xyz, front.xyz) > 0.0 && front.a <= MaxRoughness;
+            }
+
+            // The pixel @p index (x + 2 * y) of the 2x2 quad @p quad.
+            ivec2 RefractionQuadPixel(ivec2 quad, uint index)
+            {
+                return 2 * quad + ivec2(int(index & 1u), int(index >> 1u));
+            }
+
             void main()
             {
-                const ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
-                const ivec2 size  = imageSize(RefractionOutputTexture);
-                if (pixel.x >= size.x || pixel.y >= size.y)
+                const ivec2 quad = ivec2(gl_LaunchIDEXT.xy);
+                if (any(greaterThanEqual(quad, imageSize(RefractionOutputTexture))))
                     return;
-                const vec4 front = texelFetch(FrontLayerNormalTexture, pixel, 0);
-                if (dot(front.xyz, front.xyz) <= 0.0 || front.a > MaxRoughness)
+                const ivec2 full = textureSize(FrontLayerNormalTexture, 0);
+                // The quad's pixel this frame, or its first traceable one; none: no answer for the quad.
+                uint index = FrameIndex & 3u;
+                if (!RefractionTraceable(RefractionQuadPixel(quad, index), full))
                 {
-                    imageStore(RefractionOutputTexture, pixel, vec4(0.0));
-                    return;
+                    index = 4u;
+                    for (uint k = 0u; k < 4u; ++k)
+                    {
+                        if (RefractionTraceable(RefractionQuadPixel(quad, k), full))
+                        {
+                            index = k;
+                            break;
+                        }
+                    }
+                    if (index == 4u)
+                    {
+                        imageStore(RefractionOutputTexture, quad, vec4(0.0));
+                        return;
+                    }
                 }
-                const vec2  uv          = (vec2(pixel) + 0.5) / vec2(size);
+                // a of an answer: the pixel of the quad the ray started at (the glass cell's code); 0 under Composite 0.
+                const float answered = Composite != 0u ? 1.0 + float(index) : 0.0;
+                const ivec2 pixel    = RefractionQuadPixel(quad, index);
+                const float rough    = texelFetch(FrontLayerNormalTexture, pixel, 0).a;
+
+                const vec2  uv          = (vec2(pixel) + 0.5) / vec2(full);
                 const float frontDevice = texelFetch(FrontLayerDepthTexture, pixel, 0).r;
                 const vec3  frontPos    = ReconstructWorldPosition(uv, frontDevice, InvJitteredViewProjection);
                 const vec3  eye         = CameraPosition.xyz;
                 vec3        dir         = normalize(frontPos - eye);
                 vec3        origin      = frontPos - dir * kRefractionStartBackoff;
-                const float spread      = 2.0 / (abs(cameraUB.Projection[1][1]) * float(size.y));
+                const float spread      = 2.0 / (abs(cameraUB.Projection[1][1]) * float(full.y));
                 float       coneWidth   = spread * distance(eye, frontPos);
 
                 vec3 transmittance = vec3(1.0);
@@ -136,8 +215,8 @@ Shader "RayTracedTranslucency"
                     RefractionTrace(origin, dir, coneWidth, spread);
                     if (payload.HitT < 0.0)
                     {
-                        imageStore(RefractionOutputTexture, pixel,
-                                   vec4(GIMissRadiance(dir) * transmittance * CameraPosition.w, 1.0));
+                        imageStore(RefractionOutputTexture, quad,
+                                   vec4(GIMissRadiance(dir) * transmittance * CameraPosition.w, answered));
                         return;
                     }
                     const vec3 P = origin + dir * payload.HitT;
@@ -145,27 +224,9 @@ Shader "RayTracedTranslucency"
                     coneWidth += spread * payload.HitT;
                     if (all(lessThanEqual(payload.Transmission, vec3(0.0))))
                     {
-                        // The first opaque surface: lit in place, as the hit-lit reflections light theirs.
-                        GIHit hit;
-                        hit.position     = P;
-                        hit.distance     = payload.HitT;
-                        hit.normal       = payload.Normal;
-                        hit.meshCards    = GI_NO_MESH_CARDS;
-                        hit.instance     = GI_NO_INSTANCE;
-                        hit.primitive    = 0u;
-                        hit.barycentrics = vec2(0.0);
-                        hit.frontFace    = (payload.Flags & kDesertRayPayloadFrontFace) != 0u;
-                        hit.velocity     = vec3(0.0);
-                        hit.motionKnown  = false;
-                        hit.globalField  = false;
-                        const vec3 lit = GIHitRadianceLit(
-                            hit, dir,
-                            GIHitSurface(payload.BaseColor, payload.Metallic, payload.Roughness, payload.Emissive, true,
-                                         payload.ShadingWord,
-                                         DesertSubsurfaceColor(DesertShadingModelIndex(payload.ShadingWord),
-                                                               DesertUnpackPayload(payload.ShadingWord))));
-                        imageStore(RefractionOutputTexture, pixel,
-                                   vec4(lit * transmittance * CameraPosition.w, 1.0));
+                        // The first opaque surface: the scene copy where the view sees it, lit in place otherwise.
+                        imageStore(RefractionOutputTexture, quad,
+                                   vec4(RefractionOpaqueRadiance(P, dir) * transmittance, answered));
                         return;
                     }
                     // A dielectric interface. The payload's normal faces the ray. One beyond the budget: no answer.
@@ -175,8 +236,8 @@ Shader "RayTracedTranslucency"
                     const bool  thin      = payload.Ior <= 1.0;
                     const float eta       = frontFace ? 1.0 / payload.Ior : payload.Ior;
                     vec3        N         = payload.Normal;
-                    if (crossing == 0u && front.a > 0.0)
-                        N = RefractionRoughNormal(N, -dir, front.a, pixel);
+                    if (crossing == 0u && rough > 0.0)
+                        N = RefractionRoughNormal(N, -dir, rough, pixel);
                     const float offset = 0.05 + 1.0e-5 * distance(P, eye);
                     if (thin)
                     {
@@ -202,8 +263,8 @@ Shader "RayTracedTranslucency"
                     origin = P - payload.Normal * offset;
                 }
                 // A dielectric interface past the budget of MaxInterfaces: the trace did not answer (a = 0); the glass
-                // cell reads the scene copy itself (this pass never reads it).
-                imageStore(RefractionOutputTexture, pixel, vec4(0.0));
+                // cell reads the scene copy itself.
+                imageStore(RefractionOutputTexture, quad, vec4(0.0));
             }
         }
 

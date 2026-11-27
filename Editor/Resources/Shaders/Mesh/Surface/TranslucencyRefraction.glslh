@@ -2,28 +2,60 @@
 #define DESERT_TRANSLUCENCY_REFRACTION_GLSLH
 
 // THE FRONT LAYER'S TRACED REFRACTION (UE RayTracedTranslucency; System::RayTracedTranslucencyRenderer, the pass
-// "Translucency: Ray Traced Refraction", Programs/Translucency/RayTracedTranslucency.shader): rgb = the pre-exposed
-// radiance seen THROUGH the nearest translucent surface of the pixel, already multiplied by the transmittance of
-// every interface the path crossed; a = 1 where the trace answered, 0 where it did not (the ScreenSpace tier's
-// scene copy answers then). The graph's black texture when the view does not trace: a = 0 everywhere.
-// Bound by name (System::kTranslucencyRefractionTexture); the program numbers it. Read by texel through the
-// includer's LinearClampSampler, after Mesh/Surface/FrontLayerReflection.glslh (its depth and threshold).
+// "Translucency: Ray Traced Refraction", Programs/Translucency/RayTracedTranslucency.shader), HALF size: texel q
+// answers for the full-resolution 2x2 quad [2q, 2q + 1]. rgb = the pre-exposed radiance seen THROUGH the nearest
+// translucent surface, already multiplied by the transmittance of every interface the path crossed; a is a CODE:
+// 0 = no answer for the quad (the ScreenSpace tier's scene copy answers then), 1 + i = the ray started at the quad's
+// pixel 2q + ( i & 1, i >> 1 ). The graph's black texture when the view does not trace: a = 0 everywhere.
+// Bound by name (System::kTranslucencyRefractionTexture); the program numbers it. Read by texel only (texelFetch: the
+// code is never filtered), after Mesh/Surface/FrontLayerReflection.glslh (its depth and threshold).
 Uniform texture2D TranslucencyRefractionTexture;
 #define TranslucencyRefractionTexture sampler2D(TranslucencyRefractionTexture, LinearClampSampler)
 
 // The traced refraction of the fragment at @p fragCoord (gl_FragCoord.xy) with device depth @p fragDepth
 // (gl_FragCoord.z) where it is the front layer - the same test as DesertFrontLayerTracedReflection, since the trace
 // started at the front layer's depth; vec4( 0.0 ) for a surface behind the nearest one or outside the target.
+// The answer gathers the four quads nearest to the fragment: a quad's ray counts where the pixel it started at holds
+// THIS surface - its front layer depth matches the fragment's depth plane carried to that pixel (reversed-Z device
+// depth is linear in screen space across a plane) within kFrontLayerDepthThresholdUlps - weighted by
+// 1 / (1 + its distance in pixels squared); a = 1 where any counted, else 0. Called in uniform control flow (the
+// plane's slope is the fragment's depth derivative).
 vec4 DesertTranslucencyRefraction( vec2 fragCoord, float fragDepth )
 {
+    const vec2  slope = vec2( dFdx( fragDepth ), dFdy( fragDepth ) );
     const ivec2 texel = ivec2( fragCoord );
-    if ( any( greaterThanEqual( texel, textureSize( TranslucencyRefractionTexture, 0 ) ) ) ||
-         any( greaterThanEqual( texel, textureSize( FrontLayerDepthTexture, 0 ) ) ) )
+    const ivec2 full  = textureSize( FrontLayerDepthTexture, 0 );
+    if ( any( greaterThanEqual( texel, full ) ) )
         return vec4( 0.0 );
     const float frontDepth = texelFetch( FrontLayerDepthTexture, texel, 0 ).r;
     if ( abs( floatBitsToInt( frontDepth ) - floatBitsToInt( fragDepth ) ) > kFrontLayerDepthThresholdUlps )
         return vec4( 0.0 );
-    return texelFetch( TranslucencyRefractionTexture, texel, 0 );
+    const ivec2 quads = textureSize( TranslucencyRefractionTexture, 0 );
+    const ivec2 q0    = ( texel - 1 ) >> 1; // floor: the quads whose centres 2q + 0.5 surround the fragment
+    vec3        sum   = vec3( 0.0 );
+    float       total = 0.0;
+    for ( int k = 0; k < 4; ++k )
+    {
+        const ivec2 q = q0 + ivec2( k & 1, k >> 1 );
+        if ( any( lessThan( q, ivec2( 0 ) ) ) || any( greaterThanEqual( q, quads ) ) )
+            continue;
+        const vec4 answer = texelFetch( TranslucencyRefractionTexture, q, 0 );
+        if ( answer.a < 0.5 )
+            continue;
+        const int   i      = clamp( int( answer.a + 0.5 ) - 1, 0, 3 );
+        const ivec2 traced = 2 * q + ivec2( i & 1, i >> 1 );
+        if ( any( greaterThanEqual( traced, full ) ) )
+            continue;
+        const vec2  offset   = vec2( traced - texel );
+        const float expected = fragDepth + dot( slope, offset );
+        const float depth    = texelFetch( FrontLayerDepthTexture, traced, 0 ).r;
+        if ( abs( floatBitsToInt( depth ) - floatBitsToInt( expected ) ) > kFrontLayerDepthThresholdUlps )
+            continue;
+        const float w = 1.0 / ( 1.0 + dot( offset, offset ) );
+        sum += answer.rgb * w;
+        total += w;
+    }
+    return total > 0.0 ? vec4( sum / total, 1.0 ) : vec4( 0.0 );
 }
 
 #endif // DESERT_TRANSLUCENCY_REFRACTION_GLSLH
