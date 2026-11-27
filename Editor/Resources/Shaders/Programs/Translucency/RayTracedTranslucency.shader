@@ -30,16 +30,16 @@ Shader "RayTracedTranslucency"
             Uniform(5) texture2D FrontLayerDepthTexture;  // the front layer's device depth (cleared: far)
             #define FrontLayerDepthTexture sampler2D(FrontLayerDepthTexture, PointClampSampler)
 
-            #define DESERT_GI_TRACER_HARDWARE
-            #define DESERT_GI_HIT_LIGHTING_IN_PLACE
+            // The permutation (RayTracedTranslucencyRenderer::Variant = TracerVariant(kRayTracedTranslucencyTracer))
+            // defines both; the program never defines them itself.
+            #if !defined( DESERT_GI_TRACER_HARDWARE ) || !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
+            #error "ray-traced refraction is the hardware tracer's, lit in place"
+            #endif
             #include <Common/CameraUB.glslh> // the view block the hit groups read
             #include <Common/RayTracingSceneReads.glslh> // the world's table and rain occlusion the hits' weather reads
             #include <Common/GIHitLitReads.glslh>
             #define GI_SURFACE_CACHE_BINDING 34 // GIHitLighting.glslh's includer statement; unread in place
             #include <Common/GIHitLighting.glslh>
-            #if !defined( DESERT_GI_TRACER_HARDWARE ) || !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
-            #error "ray-traced refraction is the hardware tracer's, lit in place"
-            #endif
             #include <Common/RayTracingPayload.glslh>
             #include <Common/ReconstructPosition.glslh>
             #include <Common/MonteCarlo.glslh>
@@ -151,9 +151,12 @@ Shader "RayTracedTranslucency"
                         hit.velocity     = vec3(0.0);
                         hit.motionKnown  = false;
                         hit.globalField  = false;
-                        const vec3 lit = GIHitRadianceLit(hit, dir, GIHitSurface(payload.BaseColor, payload.Metallic,
-                                                                                 payload.Roughness, payload.Emissive,
-                                                                                 true, payload.ShadingWord));
+                        const vec3 lit = GIHitRadianceLit(
+                            hit, dir,
+                            GIHitSurface(payload.BaseColor, payload.Metallic, payload.Roughness, payload.Emissive, true,
+                                         payload.ShadingWord,
+                                         DesertSubsurfaceColor(DesertShadingModelIndex(payload.ShadingWord),
+                                                               DesertUnpackPayload(payload.ShadingWord))));
                         imageStore(RefractionOutputTexture, pixel,
                                    vec4(lit * transmittance * CameraPosition.w, 1.0));
                         return;
