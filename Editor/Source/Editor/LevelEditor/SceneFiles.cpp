@@ -350,6 +350,15 @@ namespace Desert::Editor
             step.reset();
             step.emplace( sink, name );
         };
+        // THE OPEN'S OWN PHASES (WorkSink::BeginStep): the start's progress counts the scene's content read from
+        // here and its initialisation from the second; the steps inside each stay its items.
+        const auto phaseTo = [&step, sink]( const std::string_view key )
+        {
+            step.reset();
+            if ( sink != nullptr )
+                sink->BeginStep( key );
+        };
+        phaseTo( "scene.read" );
         stepTo( "Reading the scene file" );
 
         // A PARTITIONED WORLD OPENS WITH WHAT THE USER HAD LOADED (WP20/WP19-REST, owner's decision O3 - UE's
@@ -457,6 +466,7 @@ namespace Desert::Editor
         LOG_INFO( "[SceneLoad] closure: {} row(s), {} worker read(s) awaited, {} drawable mesh(es)", closure.Rows,
                   closure.Reads, closure.DrawableMeshes );
 
+        phaseTo( "scene.init" );
         stepTo( "Initialising the scene (its views and renderers)" );
         if ( const auto inited = m_Workspace.ActiveScene()->Init(); !inited.IsSuccess() )
         {

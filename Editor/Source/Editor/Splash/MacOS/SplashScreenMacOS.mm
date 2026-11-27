@@ -201,6 +201,8 @@ namespace Desert::Editor::Splash
                  ( screen != nullptr ) ? screen.visibleFrame : NSMakeRect( 0, 0, kWidth, kHeight );
             const CGFloat backing = ( screen != nullptr ) ? screen.backingScaleFactor : 2.0;
             const CGFloat fit     = FitScale( (float)visible.size.width, (float)visible.size.height );
+            // One device pixel of the bar, for the progress's bar regulator (the sampling thread reads it).
+            m_MinVisibleStep = BarMinVisibleStep( static_cast<float>( fit * backing ) );
             const CGFloat w       = kWidth * fit;
             const CGFloat h       = kHeight * fit;
             const NSRect  frame   = NSMakeRect( visible.origin.x + ( visible.size.width - w ) * 0.5,
@@ -611,7 +613,7 @@ namespace Desert::Editor::Splash
                 if ( sampled )
                 {
                     sampledAt = now;
-                    view      = m_Progress->Sample( Desert::Core::StartupClock::now() );
+                    view      = m_Progress->Sample( Desert::Core::StartupClock::now(), m_MinVisibleStep );
                     if ( m_Capturing )
                         m_Csv << CaptureCsvRow( view ) << '\n';
                 }
@@ -636,6 +638,7 @@ namespace Desert::Editor::Splash
         std::filesystem::path                  m_CookedImage;
         std::filesystem::path                  m_CaptureDir;
         std::shared_ptr<Desert::Core::StartupProgress> m_Progress; // sampled by the splash's thread only
+        double m_MinVisibleStep = 0.1; // set before the splash's thread starts (BarMinVisibleStep)
         // --splash-capture (opened on the main thread before the splash's thread starts, then its only).
         std::ofstream m_Csv;
         bool          m_Capturing     = false;

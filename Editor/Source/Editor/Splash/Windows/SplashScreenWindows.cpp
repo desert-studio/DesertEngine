@@ -245,7 +245,7 @@ namespace Desert::Editor::Splash
             const int y       = work.top + ( static_cast<int>( workH ) - h ) / 2;
 
             // The first sample before the first paint, so the window never shows an empty frame.
-            m_View = m_Progress->Sample( Desert::Core::StartupClock::now() );
+            m_View = m_Progress->Sample( Desert::Core::StartupClock::now(), BarMinVisibleStep( m_Scale ) );
 
             HWND window =
                  // An APP window with a minimize box, not a tool window: minimized, it has a taskbar button to
@@ -359,7 +359,7 @@ namespace Desert::Editor::Splash
                 return;
             }
 
-            m_View = m_Progress->Sample( Desert::Core::StartupClock::now() );
+            m_View = m_Progress->Sample( Desert::Core::StartupClock::now(), BarMinVisibleStep( m_Scale ) );
             if ( m_Capturing )
                 AppendCsvRow();
             InvalidateRect( window, nullptr, FALSE );

@@ -329,8 +329,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     std::vector<Desert::Core::StartupPhaseSpec> plan = ApplicationStartupPhases();
     for ( Desert::Core::StartupPhaseSpec& phase : Desert::Editor::EditorStartupPhases() )
         plan.push_back( std::move( phase ) );
-    const std::filesystem::path                     historyFile = Desert::Editor::StartupHistoryFile();
-    std::map<std::string, double, std::less<>>      history;
+    // The history is the file's (EditorStartup::FinishStartup reads it again at the write, appending this start).
+    const std::filesystem::path    historyFile = Desert::Editor::StartupHistoryFile();
+    Desert::Core::StartupHistory   history;
     if ( auto loaded = Desert::Core::LoadStartupHistory( historyFile ); loaded )
         history = loaded.ExtractValue();
     else
