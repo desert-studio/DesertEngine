@@ -1068,11 +1068,9 @@ namespace Desert::Server
                       serverSource.Position.z );
             while ( !coordinatorGone() )
             {
-                // The read's start is the handover's next read horizon: its deadlines are judged only on time
-                // the inbox has been read through (SimHandover::InboxRead).
-                const Net::NetClock::time_point readStart = Net::NetClock::now();
-                transport->Poll( endpoint );
-                handover.InboxRead( readStart );
+                // The handover owns the inbox read: its deadlines are judged only on time the inbox has been read
+                // through (SimHandover::Poll).
+                handover.Poll( *transport );
                 if ( !readySent && replica.HasLease() )
                 {
                     endpoint.SendToRole( Net::EMeshRole::Coordinator, Net::EncodeMeshSimReady() );

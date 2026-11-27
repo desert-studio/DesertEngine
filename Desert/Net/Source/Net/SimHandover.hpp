@@ -63,14 +63,18 @@ namespace Desert::Net
         // was one of them. @p step: the last mesh step this sim ran.
         bool OnStoreMessage( std::uint8_t type, std::span<const std::byte> body, PawnSimulation& sim,
                              RemoteGatewayLink& gateways, RemoteReplicationStore& replica, std::uint32_t step );
-        // The host read its inbox: @p readStart is NetClock::now() taken just BEFORE that Poll. Every wall-time
-        // wait of this class (kOfferDeadline, kInDoubtWait) is judged against the READ HORIZON - the start of the
-        // PREVIOUS read, not the clock: a message the transport's socket thread had in hand at that instant has
-        // been delivered by the read that just ended (it had the whole loop iteration in between to take it off
-        // the socket). So a deadline fires only on silence the inbox has been read through: a process that wakes
-        // after a stall reads the answers that queued meanwhile before any wait is judged (the first read after
-        // the stall moves the horizon only up to the stall's start).
-        void InboxRead( NetClock::time_point readStart );
+        // THE HOST'S INBOX READ: @p transport polls this sim's mesh endpoint, timed here - the read that feeds the
+        // deadlines belongs to the type that judges them, so no host can read without moving the horizon. Every
+        // wall-time wait of this class (kOfferDeadline, kInDoubtWait) is judged against the READ HORIZON, not the
+        // clock: the start of the PREVIOUS read - a message the transport's socket thread had in hand at that instant
+        // has been delivered by the read that just ended (it had the whole loop iteration in between to take it off
+        // the socket). So a deadline fires only on silence the inbox has been read through. A read that starts more
+        // than kOfferDeadline / 2 after the previous one ends a GAP (the process stalled, or a burst of steps ran):
+        // the socket thread was stalled with it and may not have taken off the socket what queued meanwhile, so that
+        // read's start is not a horizon - the horizon stays at the gap's start until the FOLLOWING read has
+        // delivered, and only the read after it moves the horizon past the gap. Two gap reads in a row: the second
+        // one's start is eligible (the socket thread ran through the long iteration between them).
+        void Poll( INetTransport& transport );
         // After mesh step @p step: withdraws offers past their deadline, offers the pawns that crossed into a
         // neighbour's region.
         void AfterStep( std::uint32_t step, PawnSimulation& sim, RemoteGatewayLink& gateways,
@@ -111,7 +115,7 @@ namespace Desert::Net
                     std::uint32_t gateway, PawnSimulation& sim, RemoteGatewayLink& gateways );
         void OnOffer( std::span<const std::byte> body, PawnSimulation& sim, std::uint32_t step );
         // As receiver, after a step: an incoming copy with no decision for kInDoubtWait of wall time asks the
-        // store again. @p horizon: the read horizon (InboxRead).
+        // store again. @p horizon: the read horizon (Poll).
         void AskInDoubt( std::uint32_t step, NetClock::time_point horizon, bool storeLinked );
         void OnDecision( Handover::EMessage type, std::span<const std::byte> body, PawnSimulation& sim,
                          RemoteGatewayLink& gateways, RemoteReplicationStore& replica, std::uint32_t step );
@@ -125,8 +129,10 @@ namespace Desert::Net
         std::map<PlayerId, OpenOffer>      m_Offers;     // as sender: held pawns awaiting the store
         std::map<PlayerId, Incoming>       m_Incoming;   // as receiver: accepted, awaiting Commit
         std::map<PlayerId, std::uint32_t>  m_BackoffEnd; // as sender: no new offer before this step
-        NetClock::time_point               m_LastRead;    // the start of the latest inbox read (InboxRead)
-        NetClock::time_point               m_ReadHorizon; // the start of the one before: waits are judged on it
+        NetClock::time_point               m_ReadStart;   // the start of the latest inbox read (Poll)
+        NetClock::time_point               m_Eligible;    // the latest read start that may become the horizon (Poll)
+        NetClock::time_point               m_ReadHorizon; // waits are judged on it (Poll)
+        bool                               m_AfterGap = false; // the latest read ended a gap; its start was skipped
         Handover::OfferSerial              m_NextSerial = 1;
         Stats                              m_Stats;
     };
