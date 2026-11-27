@@ -90,7 +90,7 @@ namespace buildpool::daemon
             bool                  greeted = false;
             Stage                 stage   = Stage::Control;
             ProcessIdentity       process;
-            uint64_t              session = 0; // 0: none (Control, or a Back whose session this daemon never saw)
+            uint64_t              session = 0; // 0: none (Control, or a Front whose session has ended)
             std::string           buildKey;    // empty for Control
             std::optional<Action> action;
             bool                  waitsForStop = false;
@@ -102,6 +102,8 @@ namespace buildpool::daemon
             std::string buildKey;
             std::string note;
             bool        retryAnswered = false; // a Back of this session was answered Retry since the last Verdict
+            bool        adopted       = false; // opened by a Back after a daemon restart: no Front on this daemon
+            uint32_t    backs         = 0;     // adopted only: Backs connected now; the session ends at 0
             std::vector<std::string> leads;    // inflight keys this session leads
         };
 
