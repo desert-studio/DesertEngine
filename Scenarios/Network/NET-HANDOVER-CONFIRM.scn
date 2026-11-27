@@ -40,7 +40,10 @@
 Ждать A2 120 \] t=\S+ pawns.* \d+\*=\((2[0-6]\d),
 Сигнал sim2 STOP
 Ждать sim1 10 held and offered to sim 2 \(offer #2, epoch 1, frozen at step \d+, \d+ unacked input\(s\)\)
-Ждать sim1 5 offer #2 .*ReceiverSilent: sim 2 answered nothing for 30 steps - withdrawn; the pawn resumes on sim 1 with \d+ queued input\(s\), next offer not before step \d+
+# ReceiverSilent only sends Withdraw (the pawn stays held); the store's Refused(Withdrawn) answer resumes it.
+Ждать sim1 5 offer #2 .*ReceiverSilent: sim 2 answered nothing for 30 steps; Withdraw sent, the pawn stays held until the store answers
+Ждать sim1 5 offer #2 .*Refused by the store - Withdrawn: sim 1 withdrew offer \(sim 1, #2\)
+Ждать sim1 5 offer #2 .*ended - Withdrawn: .* - withdrawn; the pawn resumes on sim 1 with \d+ queued input\(s\), next offer not before step \d+
 Ждать store 10 offer \(sim 1, #2\).*withdrawn by sim 1 at step \d+
 Ждать A2 10 2x \] t=
 Ждать B 60 fresh \[Shot\] recorded frame_
@@ -49,23 +52,24 @@
 # second): its stale offer #2 is refused or dropped.
 Ждать A2 10 2x \] t=
 Сигнал sim2 CONT
-Ждать sim2 30 (offer \(sim 1, #2\).*refused - CatchUpTooLarge|Refused by the store - OfferUnknown.*incoming copy dropped)
+Ждать sim2 30 offer \(sim 1, #2\).*(refused - .*nothing held|Refused by the store - .*incoming copy dropped)|Refused of offer \(sim 1, #2\)
 Нет store offer \(sim 1, #2\).*committed \(sim 1, epoch
 Ждать B 60 fresh \[Shot\] recorded frame_
 Тогда B stale_offer_refused B's view after sim 2 resumed: ONE A2 capsule (never two) still walking +X east of X = 300; store.log has no "committed" for offer #2, and "accept from sim 2 refused - OfferUnknown" when sim 2 accepted the stale offer
-# Когда: the 120-step backoff ends; sim 1 offers A2 again and sim 2 takes it at epoch 2 (not 3).
-Ждать sim1 30 held and offered to sim 2 \(offer #3, epoch 1, frozen at step \d+, \d+ unacked input\(s\)\)
-Ждать store 30 offer \(sim 1, #3\).*committed \(sim 1, epoch 1\) -> \(sim 2, epoch 2\)
-Ждать sim1 30 offer #3 .*committed by the store \(epoch 2\)
+# Когда: the 120-step backoff ends; sim 1 offers A2 again and sim 2 takes it at epoch 2 (not 3). While sim 2 is
+# stopped sim 1 re-offers every 120 steps (~2 s) and withdraws each, so the committing serial is any #N past #2.
+Ждать sim1 30 held and offered to sim 2 \(offer #\d+, epoch 1, frozen at step \d+, \d+ unacked input\(s\)\)
+Ждать store 30 offer \(sim 1, #\d+\).*committed \(sim 1, epoch 1\) -> \(sim 2, epoch 2\)
+Ждать sim1 30 offer #\d+ .*committed by the store \(epoch 2\)
 Ждать sim2 30 committed: incoming pawn promoted
 Ждать B 60 fresh \[Shot\] recorded frame_
 Тогда B retry_committed B's view after the retry: ONE A2 capsule walking +X now under sim 2, no jump at the transfer (clientA2.log: neighbouring acked positions <= 60 cm apart); store.log exactly one "-> (sim 2, epoch 2)" line for A2
 # Когда: the operator asks both sims for their handover counts.
 Консоль sim1 stat
-Ждать sim1 10 handovers: 3 offered, 2 committed, 0 adopted; refused 0 by store, 0 by receiver; 1 withdrawn; .*0 open as sender
+Ждать sim1 10 handovers: ([3-9]|\d\d+) offered, 2 committed, 0 adopted; refused \d+ by store, \d+ by receiver; [1-9]\d* withdrawn; .*0 open as sender
 Консоль sim2 stat
-Ждать sim2 10 handovers: .*2 adopted; .*incoming (1 refused|0 refused, 1 dropped)
-Ждать store 30 records 3, open offers 0; committed 2, refused 1
+Ждать sim2 10 handovers: .*2 adopted; .*incoming ([1-9]\d* refused, \d+|\d+ refused, [1-9]\d*) dropped
+Ждать store 30 records 3, open offers 0; committed 2, refused \d+; withdrawn [1-9]\d*
 Нет sim1 adopted .*from sim 1
 Ждать B 60 fresh \[Shot\] recorded frame_
-Тогда B stat_counts B's view at the end: A and A2 each ONE capsule east of X = 300 (A2 200 cm off A's line), no double anywhere; sim1.log "handovers: 3 offered, 2 committed, 0 adopted ... 1 withdrawn ... 0 open as sender"; sim2.log "2 adopted" with 1 incoming refused or dropped; store.log "records 3, open offers 0; committed 2, refused 1"
+Тогда B stat_counts B's view at the end: A and A2 each ONE capsule east of X = 300 (A2 200 cm off A's line), no double anywhere; sim1.log "handovers: >= 3 offered, 2 committed, 0 adopted ... >= 1 withdrawn ... 0 open as sender"; sim2.log "2 adopted" with >= 1 incoming refused or dropped; store.log "records 3, open offers 0; committed 2 ... withdrawn >= 1"
