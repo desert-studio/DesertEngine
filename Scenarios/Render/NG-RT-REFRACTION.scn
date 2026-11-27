@@ -1,9 +1,17 @@
 # NG-RT-REFRACTION: ray-traced refraction of glass and shop windows, day half (designs
-# F:/aftmp/NG-RT-REFRACTION3B-DESIGN.md and F:/aftmp/NG-RT-REFRACTION3-DESIGN.md, «## Приёмка»; physics
-# F:/aftmp/NG-RT-REFRACTION2-DESIGN.md). One editor session in F:/BistroFoliageProj, B16_Bistro_Street: frames of
-# the shop window - path tracer | Translucency.Refraction ScreenSpace | HardwareTraced | HardwareTraced with
+# F:/aftmp/NG-RT-REFRACTION3C-DESIGN.md, F:/aftmp/NG-RT-REFRACTION3B-DESIGN.md and F:/aftmp/NG-RT-REFRACTION3-DESIGN.md,
+# «## Приёмка»; physics F:/aftmp/NG-RT-REFRACTION2-DESIGN.md). One editor session in F:/BistroFoliageProj,
+# B16_Bistro_Street: frames of the shop window - path tracer | Translucency.Refraction ScreenSpace | HardwareTraced
+# | HardwareTraced with Translucency.RefractionComposite 0 | HardwareTraced again | HardwareTraced with
 # Reflections.HitLighting 1 | HardwareTraced and path tracer with the shop window deleted - one camera, one
 # exposure, one time, one tier.
+# The knockout of [day_rt] (3C D4). "day_rt differs from day_ss" is not a statement: the hit the camera sees reads
+# the same scene copy, a thin sheet does not bend the ray, the tint is the same BaseColor - day_rt / day_ss 2.71
+# against a run noise of 3.86. The trace is proven by switching its answer off in the same session instead:
+# day_rt_mute is HardwareTraced with Translucency.RefractionComposite 0 (the glass cell ignores the trace), day_rt_b
+# is day_rt again 512 frames later with the camera still (the run noise). Measure: mean |delta| of (R+G+B)/3
+# (0..255) over the pane mask = rectangle x540-1260 y170-630, pixels where day_pt > 8; |day_rt - day_rt_mute| >=
+# 2 x |day_rt - day_rt_b|.
 # The path tracer is the reference: GlobalIllumination + Reflections PathTraced (the tracer pairs them). The raster
 # frames keep Reflections / GI HardwareTraced; only Translucency.Refraction changes between day_ss and day_rt.
 # The tier (D7): every group of the preset is pinned at High before any row (a group level drops that group's rows,
@@ -19,16 +27,16 @@
 # a measurement and the run is repeated. Budget at 1080p = ms x 2073600 / (viewport width x height), the
 # viewport size from editor.log (1787x657 today = 1.17 Mpx). Every measured capture has its own profile-dump
 # (reply line_NNN_profile-dump.txt) right before it.
-# The measure of [refr_pt] (3B D1, D2). The absolute brightness of the glass measures the lighting of the scene
-# behind the window, not the refraction: with the shop-window entity _4711 deleted the same pixels read o_rt 37.7
-# against o_pt 96.7 (-61 %), with the glass g_rt 58.3 against g_pt 116.5 (-50 %) - the raster lacks light behind
-# the window with and without the glass alike. The glass of the path tracer is transmission, not reflection: a full
-# mirror on the pane (M_Metal_R0) reads m_pt 33.2 against the glass g_pt 116.5, and the Fresnel share of the
-# reflection (F0 0.04) is ~1/255 - no reflection ray is added to the refraction shader.
-# So the day compares transmission inside one renderer: T = L(glass) / L(open), L = mean (R+G+B)/3 (0..255) over
-# the pane mask = rectangle x540-1260 y170-630, pixels where day_pt > 8; T(day_rt / day_rt_open) within ±25 % of
-# T(day_pt / day_pt_open). The open frames delete the entity _4711 (Entity "Delete"); the scene is never saved.
-# The night half stays absolute (night_rt to night_pt): there the raster and the path tracer agree on the scene.
+# The measure of [refr_pt] (3C D5). The absolute brightness of the glass measures the lighting of the scene behind
+# the window, not the refraction: without the glass the raster floor behind the window is dark where the path
+# tracer's is sunlit (3C D6, open). A ratio L(glass) / L(open) mixes transmission with the additive reflection and
+# divides by that dark floor: linear (sRGB-decoded) means of the frames scn-1127-204226 read PT glass 0.2240 / open
+# 0.1921, raster 0.0782 / 0.0416 - ratio 1.17 against 1.88. What the glass ADDS is the same in both renderers: PT
+# +0.0319, raster +0.0367 (+15 %). So the day compares the additive measure A = L_lin(glass) - L_lin(open),
+# L_lin = mean of the sRGB-decoded (R+G+B)/3 (0..1) over the pane mask (x540-1260 y170-630, pixels where
+# day_pt > 8): A(day_rt, day_rt_open) within ±25 % of A(day_pt, day_pt_open). The open frames delete the entity
+# _4711 (Entity "Delete"); the scene is never saved. The night half stays absolute (night_rt to night_pt): there
+# the raster and the path tracer agree on the scene.
 # refl_hit: Reflections.HitLighting 1 (the Cinematic value) builds - the reflection method does not refuse.
 # Frame wait: `frames N` (N presented frames). Every capture stands >= 256 frames after the last
 # GlobalIllumination.Method switch (GI accumulation converged; else the opaque pixels drift).
@@ -69,11 +77,18 @@
 Когда run Quality "Quality: Translucency.Refraction ScreenSpace"
 Когда frames 256
 Когда profile-dump
-Тогда-вид day_ss day, Translucency.Refraction ScreenSpace, front layer reflections off (Reflections.TranslucentFrontLayer 0): the comparison frame for day_rt - mean L of the glass area vs day_pt recorded; profile-dump: the window rule (ClearMainFramebuffer <= 0.2 ms)
+Тогда-вид day_ss day, Translucency.Refraction ScreenSpace, front layer reflections off (Reflections.TranslucentFrontLayer 0): the screen-space frame beside day_rt (not a knockout side: the same scene copy, 3C D4) - mean L of the glass area vs day_pt recorded; profile-dump: the window rule (ClearMainFramebuffer <= 0.2 ms)
 Когда run Quality "Quality: Translucency.Refraction HardwareTraced"
 Когда frames 256
 Когда profile-dump
-Тогда-вид day_rt day, HardwareTraced under Reflections.TranslucentFrontLayer 0: the preset row does not stop it - the refracted interior behind the shop window, the frame differs from day_ss on the glass; editor.log has no line "the glass refracts the scene copy"; profile-dump: "Translucency: Ray Traced Refraction" executed with a non-zero GPU time, the window rule holds against the day_ss dump (GPU frame within 2x, ClearMainFramebuffer <= 0.2 ms)
+Тогда-вид day_rt day, HardwareTraced under Reflections.TranslucentFrontLayer 0: the preset row does not stop it - the refracted interior behind the shop window, day_rt vs day_rt_mute on the glass at least 2x day_rt vs day_rt_b (mean |delta| over the pane mask, see the head); editor.log has no line "the glass refracts the scene copy"; profile-dump: "Translucency: Ray Traced Refraction" executed with a non-zero GPU time, the window rule holds against the day_ss dump (GPU frame within 2x, ClearMainFramebuffer <= 0.2 ms)
+# --- the knockout of day_rt (3C D4): the trace's answer off, then day_rt again - the camera does not move
+Когда run Quality "Quality: Translucency.RefractionComposite 0"
+Когда frames 256
+Тогда-вид day_rt_mute day, HardwareTraced, Translucency.RefractionComposite 0: the glass cell ignores the trace and shows the screen copy - the knockout side of [day_rt]
+Когда run Quality "Quality: Translucency.RefractionComposite Level"
+Когда frames 256
+Тогда-вид day_rt_b day, HardwareTraced again, 512 frames after day_rt, the camera still: day_rt vs day_rt_b (mean |delta| over the pane mask) is the run noise [day_rt] is held to
 Когда --subject viewport set Camera.Direction 0.9940,0.07,0.1094
 Когда frames 32
 Тогда-вид day_rt_edge day, HardwareTraced, camera yawed 22 degrees: the window at the frame's edge - the interior beyond the frame's edge is seen through the glass (under ScreenSpace that is a stretched edge)
@@ -83,18 +98,19 @@
 Когда frames 256
 Тогда-вид refl_hit day, HardwareTraced, Reflections.HitLighting 1: editor.log has no "did not build" and no "refused" line about SSR / SSRTrace; mean L of the glass area not below day_rt
 Когда run Quality "Quality: Reflections.HitLighting Level"
-# --- day without the shop window: the denominators of T (the scene is not saved)
+# --- day without the shop window: the open sides of A (the scene is not saved)
 Когда run Entity "Delete Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4711"
 Когда frames 256
-Тогда-вид day_rt_open day, HardwareTraced, the shop-window entity _4711 deleted: the raster scene behind the window - the denominator of T(day_rt)
+Тогда-вид day_rt_open day, HardwareTraced, the shop-window entity _4711 deleted: the raster scene behind the window - the open side of A(day_rt, day_rt_open)
 Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
 Когда run Quality "Quality: Reflections.Method PathTraced"
 Когда frames 256
-Тогда-вид day_pt_open day, path tracer, the shop-window entity _4711 deleted: the reference scene behind the window - the denominator of T(day_pt)
-Тогда refr_pt T = L(glass) / L(open) over the pane mask (x540-1260 y170-630, pixels where day_pt > 8; L = mean (R+G+B)/3): T(day_rt / day_rt_open) within ±25 % of T(day_pt / day_pt_open); night_rt within ±25 % of night_pt (absolute, NG-RT-REFRACTION-NIGHT.scn of the same build); scripts/Dev/frames_compare.py
+Тогда-вид day_pt_open day, path tracer, the shop-window entity _4711 deleted: the reference scene behind the window - the open side of A(day_pt, day_pt_open)
+Тогда refr_pt A = L_lin(glass) - L_lin(open) over the pane mask (x540-1260 y170-630, pixels where day_pt > 8; L_lin = mean of the sRGB-decoded (R+G+B)/3, 0..1): A(day_rt, day_rt_open) within ±25 % of A(day_pt, day_pt_open) (+15 % in scn-1127-204226); night_rt within ±25 % of night_pt (absolute, NG-RT-REFRACTION-NIGHT.scn of the same build); scripts/Dev/frames_compare.py
 # --- tail: view mode and the rows back to the tier (the group pins live in this process only, see the head)
 Когда run View "View mode: Lit"
 Когда run Quality "Quality: Translucency.Refraction Level"
+Когда run Quality "Quality: Translucency.RefractionComposite Level"
 Когда run Quality "Quality: Reflections.TranslucentFrontLayer Level"
 Когда run Quality "Quality: Reflections.HitLighting Level"
 Когда run Quality "Quality: Reflections.Method Level"

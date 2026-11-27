@@ -1,7 +1,8 @@
-# NG-RT-REFRACTION-NIGHT: the night half of NG-RT-REFRACTION.scn (design F:/aftmp/NG-RT-REFRACTION3-DESIGN.md,
-# «## Приёмка»; physics F:/aftmp/NG-RT-REFRACTION2-DESIGN.md). One editor session in F:/BistroFoliageProj,
-# GI_Bistro_Night: the shop window as path tracer | Translucency.Refraction ScreenSpace | HardwareTraced - one
-# camera, one exposure, one time, one tier.
+# NG-RT-REFRACTION-NIGHT: the night half of NG-RT-REFRACTION.scn (designs F:/aftmp/NG-RT-REFRACTION3C-DESIGN.md and
+# F:/aftmp/NG-RT-REFRACTION3-DESIGN.md, «## Приёмка»; physics F:/aftmp/NG-RT-REFRACTION2-DESIGN.md). One editor
+# session in F:/BistroFoliageProj, GI_Bistro_Night: the shop window as path tracer | Translucency.Refraction
+# ScreenSpace | HardwareTraced | HardwareTraced with the composite off | with one interface bend - one camera, one
+# exposure, one time, one tier.
 # The path tracer is the reference: GlobalIllumination + Reflections PathTraced (the tracer pairs them). The raster
 # frames keep Reflections / GI HardwareTraced; only the Translucency rows change between night_ss, night_rt and
 # night_rt_mute.
@@ -10,11 +11,18 @@
 # not set here (High = 1): the night isolates the refraction; the day proves D1. An unattended run keeps every
 # Quality change in this process (QualityState::KeepInSession): machine.json is never written; the tail still
 # clears the rows. There is no group "Level" command: the next run starts from the machine's own selection.
-# A/B order (D8, D9): night_ss -> night_rt -> night_ss_b -> night_rt_mute with the camera still, 256 frames each,
+# A/B order (D8, D9; 3C): night_ss -> night_rt -> night_ss_b -> night_rt_mute -> night_rt_b -> night_rt_mi1 with
+# the camera still, 256 frames each,
 # and only then the two 16-frame turns (D10); night_ss vs night_ss_b (ScreenSpace twice, night_rt between them) is
 # the drift of the scenario itself, the bound for every opaque-pixel comparison.
 # night_rt_mute: HardwareTraced with Translucency.RefractionComposite 0 (the glass cell ignores the trace): its
 # opaque pixels vs night_ss show whether the pass's graph reads move them (D9).
+# The knockout of [night_rt] (3C D1): night_rt_b is HardwareTraced again after night_rt_mute, the camera still
+# (the run noise); |night_rt - night_rt_mute| >= 2 x |night_rt - night_rt_b|, mean |delta| of (R+G+B)/3 (0..255)
+# over the pane mask = rectangle x540-1260 y170-630, pixels where night_pt > 8 (KO3C-NIGHT: 5.42 against 7.43 -
+# the trace's answer never reached the frame once the interface budget ran out). night_rt_mi1 is HardwareTraced
+# with Translucency.RefractionMaxInterfaces 1: the budget bounds the bends, not the answer, so the glass differs
+# from night_rt_mute at least as much as night_rt does.
 # The window rule (D6): a GPU time is a budget number only when the window is free - in BOTH dumps of a pair (ss
 # and rt) "ClearMainFramebuffer" <= 0.2 ms, and their "GPU frame" differ by less than 2x; else the number is not
 # a measurement and the run is repeated. Budget at 1080p = ms x 2073600 / (viewport width x height), the
@@ -62,7 +70,7 @@
 Когда frames 256
 Когда profile-dump
 Тогда refr_pass "Translucency: Ray Traced Refraction" in the night_rt dump: GPU time non-zero and <= 1.0 ms scaled to 1080p (ms x 2073600 / viewport width x height); the window holds by the rule (ClearMainFramebuffer <= 0.2 ms in the night_ss and night_rt dumps, their GPU frame within 2x)
-Тогда-вид night_rt night, HardwareTraced: differs from night_ss only inside the glass pixels; the opaque-pixel difference to night_ss is not above the night_ss / night_ss_b pair; the interior lamps behind the glass in place, the second glass / bottles behind the window visible
+Тогда-вид night_rt night, HardwareTraced: differs from night_ss only inside the glass pixels; the opaque-pixel difference to night_ss is not above the night_ss / night_ss_b pair; the interior lamps behind the glass in place, the second glass / bottles behind the window visible; night_rt vs night_rt_mute on the glass at least 2x night_rt vs night_rt_b (mean |delta| over the pane mask, see the head)
 # The drift bound, interleaved as KO-NIGHT (ss -> rt -> ss, camera still, 256 frames each): night_ss_b is ScreenSpace
 # again 256 frames after night_rt; night_ss vs night_ss_b is the ss-ss drift of this run (HW GI temporal noise).
 Когда run Quality "Quality: Translucency.Refraction ScreenSpace"
@@ -74,6 +82,13 @@
 Когда profile-dump
 Тогда-вид night_rt_mute night, HardwareTraced, composite off (Translucency.RefractionComposite 0): the opaque pixels match night_ss within the night_ss / night_ss_b drift; if not, the cause of D9 is the pass's reads in the graph and the feature goes back to the architect with this frame; profile-dump vs night_rt: the composite's share (D11)
 Когда run Quality "Quality: Translucency.RefractionComposite Level"
+# --- the knockout of night_rt (3C D1): HardwareTraced again (the run noise), then the interface budget at 1
+Когда frames 256
+Тогда-вид night_rt_b night, HardwareTraced again after night_rt_mute, the camera still: night_rt vs night_rt_b (mean |delta| over the pane mask) is the run noise [night_rt] is held to
+Когда run Quality "Quality: Translucency.RefractionMaxInterfaces 1"
+Когда frames 256
+Тогда-вид night_rt_mi1 night, HardwareTraced, Translucency.RefractionMaxInterfaces 1: the glass differs from night_rt_mute not less than night_rt does (mean |delta| over the pane mask) - the trace answers whatever the interface budget
+Когда run Quality "Quality: Translucency.RefractionMaxInterfaces Level"
 # --- D10: a camera turn of 16 frames at the window under HardwareTraced, then the same turn under ScreenSpace
 Когда frames 32
 Тогда-вид turn_a night, HardwareTraced, before the camera turn (the still frame the turn is compared with)
@@ -151,6 +166,8 @@
 # --- tail: view mode and the rows back to the tier (the group pins live in this process only, see the head)
 Когда run View "View mode: Lit"
 Когда run Quality "Quality: Translucency.Refraction Level"
+Когда run Quality "Quality: Translucency.RefractionMaxInterfaces Level"
+Когда run Quality "Quality: Translucency.RefractionComposite Level"
 Когда run Quality "Quality: Reflections.Method Level"
 Когда run Quality "Quality: GlobalIllumination.Method Level"
 Когда run Quality "Quality: Resolution.Percent Level"
