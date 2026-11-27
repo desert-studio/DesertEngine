@@ -30,6 +30,10 @@ Shader "StaticMeshGlass"
             SurfaceOutput s = DefaultSurfaceOutput();
             s.BaseColor     = Material.GlassTint.rgb;
             s.Refraction    = Material.IOR;
+            // Clear glass: a mirror. The ONE roughness the glass cell shades with, the front layer writes and the
+            // traced refraction compares with its cutoff (RayTracedTranslucency.hpp kRayTracedTranslucencyMaxRoughness);
+            // the surface default (0.5) would put every pane past that cutoff and leave it to the raster refraction.
+            s.Roughness     = 0.0;
             const ivec2 normalSize = BindlessTextureExtent( Material.NormalTexture );
             if ( normalSize.x > 1 && normalSize.y > 1 )
                 s.Normal = SurfaceSampleTangentNormal( Material.NormalTexture, i.UV0 );

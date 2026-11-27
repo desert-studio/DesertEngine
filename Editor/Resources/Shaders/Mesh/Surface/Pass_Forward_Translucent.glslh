@@ -181,9 +181,12 @@ void main()
     const vec4  traced      = DesertTranslucencyRefraction( gl_FragCoord.xy, gl_FragCoord.z );
     const vec3  refracted   = mix( screenRefracted, traced.rgb * fog.a + fog.rgb, traced.a );
 
-    // The reflection at grazing edges, of clear glass (a mirror: roughness 0, which a capture never normalises);
-    // Fresnel mixes refraction (centre) into reflection (edge).
-    const DesertSurface surface = DesertMakeSurface( i.WorldPosition, N, V, s.BaseColor, 0.0, 0.0, s.Specular );
+    // The reflection at grazing edges, by the surface's own roughness: the one value the front layer writes
+    // (Pass_FrontLayer.glslh) and the traced refraction compares with its cutoff (kRayTracedTranslucencyMaxRoughness;
+    // a rougher pane keeps the screen tier above), so the raster and the traces read one statement. Clear glass sets
+    // 0 (StaticMeshGlass: a mirror, which a capture never normalises). Fresnel mixes refraction (centre) into
+    // reflection (edge).
+    const DesertSurface surface = DesertMakeSurface( i.WorldPosition, N, V, s.BaseColor, 0.0, s.Roughness, s.Specular );
     vec3 envRefl = DesertSampleViewAmbient( surface, vec3( 0.0 ), 1.0, gl_FragCoord.xy ).Prefiltered;
     // The traced reflection where this fragment is the front layer (a glass behind the nearest one keeps the
     // environment): it answers its share of the lobe, the environment the rest.
