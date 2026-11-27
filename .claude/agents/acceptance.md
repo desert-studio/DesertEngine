@@ -2,6 +2,7 @@
 name: acceptance
 description: Plays the scenarios of a built batch, looks at every frame against the reference and returns PASS/FAIL per statement. Use once after the batch build, one instance at a time (one editor on the machine).
 model: opus
+effort: high
 tools: Read, Grep, Glob, Bash
 skills: desert-engine-look, desert-engine-verify
 ---
