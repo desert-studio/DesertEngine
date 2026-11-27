@@ -16,13 +16,15 @@
 //     R = r + the expected time of every phase ahead. It reaches 0 when the last phase's work is done.
 //  4. ETA (shown). Its target R' is R with the running phase's r raised to the reserve
 //     max(kReserveSeconds, kReserveShare * elapsed), so the number never claims the end while work runs.
-//     E starts at R' and only falls: dE/dt = -max(1 + (E - R') / kEtaCatchUpSeconds, kEtaMinRate), solved over
-//     the sample gap in closed form on the assumption that R' falls in real time across it (one second per
-//     second), so an over-estimate decays in a few kEtaCatchUpSeconds whatever its size and a long gap does
-//     not overshoot below R'.
-//     At kEtaMinRate a whole-second ETA changes at least every 4 s. When E reaches kEtaFloorSeconds before
+//     E starts at R' and follows it: dE/dt = -(1 + (E - R') / kEtaCatchUpSeconds), solved over the sample gap
+//     in closed form on the assumption that R' falls in real time across it (one second per second), so an
+//     over-estimate decays in a few kEtaCatchUpSeconds whatever its size and a long gap does not jump. E
+//     falls at least at kEtaMinRate (a whole-second ETA changes at least every 4 s) and never below R': when
+//     the plan rises, E rises with it. E >= R' >= kReserveSeconds while a phase runs, so 0:01 and 0:00 are
+//     never shown while work remains.
+//     OVERRUN: when the run outlives its plan (R = 0 and the running phase past its expected time) before
 //     Finish, EtaKnown turns false for the rest of the start (the splash says "longer than expected" in place
-//     of the number); 0:01 and 0:00 are never shown while work remains.
+//     of the number); it is never decided from the smoothed E.
 //  5. BAR (shown). T = elapsed / (elapsed + R), 1 after Finish. Per sample B moves to T by at most kBarMaxStep
 //     and by at least minRate * dt (minRate = kBarStepMargin * minVisibleStep / kBarMaxStallSeconds), so it
 //     follows the estimate without lag, never jumps, never stalls; B <= 1 - minVisibleStep until Finish, after
@@ -138,7 +140,6 @@ namespace Desert::Core
         static constexpr double kReserveShare       = 0.15; // rule 4
         static constexpr double kEtaCatchUpSeconds  = 5.0;  // rule 4
         static constexpr double kEtaMinRate         = 0.25; // s of ETA per s: a whole second at least every 4 s
-        static constexpr double kEtaFloorSeconds    = 2.0;
         static constexpr double kBarMaxStep         = 0.004; // of the bar per sample (rule 5): under a 0.5 % step
         static constexpr double kBarMaxStallSeconds = 2.0;
         static constexpr double kBarFinishSeconds   = 0.3; // rule 5: after Finish the bar's gap closes in this
