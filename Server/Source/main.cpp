@@ -586,6 +586,43 @@ namespace Desert::Server
             return RelevancySettingsOf( net, Project::CurrentWorldPartitionSettings() );
         }
 
+        // THE PLAYERS' SOURCES of one simulation, in both topologies (§4.1, §2M.3): every pawn it holds + every
+        // reported view resolved against its pawn (PawnSimulation::Views, WP-STREAM-SOURCE-VIEW: the ground under
+        // the body AND what the player looks at; UE ServerUpdateCamera - the gateway passes each view to the sim
+        // that owns the pawn). Appended to @p sources; @p views is the caller's buffer, refilled.
+        void AppendPlayerSources( const Net::PawnSimulation&                    sim,
+                                  std::vector<Net::PawnSimulation::ViewSource>& views,
+                                  std::vector<Core::Rules::StreamingSource>&    sources )
+        {
+            for ( const Net::PawnSimulation::Source& player : sim.Sources() )
+            {
+                Core::Rules::StreamingSource source;
+                source.Position = { player.Position.X, player.Position.Y, player.Position.Z };
+                sources.push_back( source );
+            }
+            sim.Views( views );
+            for ( const Net::PawnSimulation::ViewSource& view : views )
+            {
+                Core::Rules::StreamingSource source;
+                source.Position = { view.Position.X, view.Position.Y, view.Position.Z };
+                sources.push_back( source );
+            }
+        }
+
+        // The names of AppendPlayerSources' sources, in its order, for the residency union's line.
+        void AppendPlayerSourceNames( const Net::PawnSimulation&                          sim,
+                                      const std::vector<Net::PawnSimulation::ViewSource>& views,
+                                      std::vector<std::string>&                           names )
+        {
+            for ( const Net::PawnSimulation::Source& player : sim.Sources() )
+                names.push_back( std::format( "player {} account {} ({:.0f}, {:.0f}, {:.0f})", player.Player,
+                                              player.Account, player.Position.X, player.Position.Y,
+                                              player.Position.Z ) );
+            for ( const Net::PawnSimulation::ViewSource& view : views )
+                names.push_back( std::format( "player {} view ({:.0f}, {:.0f}, {:.0f})", view.Player,
+                                              view.Position.X, view.Position.Y, view.Position.Z ) );
+        }
+
         // What each connection gets now (UE `stat net` per connection): remote pawn bytes per second, the relevant
         // remote pawns by send band, the dormant ones and the due entries the budget deferred last snapshot.
         void LogNetRates( const Net::Gateway& gateway, std::string_view who )
@@ -1014,9 +1051,13 @@ namespace Desert::Server
             }
             std::unique_ptr<ServerWorld>  server = begun.ExtractValue();
             Net::RemoteGatewayLink        gatewayLink( endpoint, netLog );
+            std::optional<Net::RelevancySettings> relevancy = ProjectRelevancy();
+            if ( !relevancy )
+                return 7;
             Net::PawnSimulation::Settings simSettings;
             for ( const glm::vec3& spawn : options.spawns )
                 simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
+            simSettings.Relevancy = std::move( *relevancy );
             Net::PawnSimulation sim( replica, gatewayLink, *pawnCollision.Mover, *pawnCollision.Placer, *server,
                                      std::move( simSettings ), netLog );
             Net::SimHandover    handover( endpoint, options.index, netLog );
@@ -1059,9 +1100,10 @@ namespace Desert::Server
             console.Start();
             Core::Rules::StreamingSource serverSource;
             serverSource.Position = options.source;
-            std::vector<Core::Rules::StreamingSource> sources;
-            bool                                      readySent = false;
-            std::size_t                               players   = 0;
+            std::vector<Core::Rules::StreamingSource>    sources;
+            std::vector<Net::PawnSimulation::ViewSource> views;
+            bool                                         readySent = false;
+            std::size_t                                  players = 0, viewCount = 0;
             LOG_INFO( "[Server] sim {}: {} spawn point(s), server source at ({:.0f}, {:.0f}, {:.0f}) cm; steps on the "
                       "coordinator's clock",
                       options.index, options.spawns.size(), serverSource.Position.x, serverSource.Position.y,
@@ -1085,15 +1127,11 @@ namespace Desert::Server
                     lastStep = step;
                     handover.AfterStep( step, sim, gatewayLink, replica );
                     gatewayLink.SendAcks( sim );
-                    // The residency union (§2M.3): the pawns this sim owns + the proxies in its border band, so a
-                    // pawn about to be handed over already stands on loaded ground here.
+                    // The residency union (§2M.3): the pawns this sim owns and their players' views
+                    // (AppendPlayerSources, as one process reads it) + the proxies in its border band, so a pawn
+                    // about to be handed over already stands on loaded ground here.
                     sources.assign( 1, serverSource );
-                    for ( const Net::PawnSimulation::Source& player : sim.Sources() )
-                    {
-                        Core::Rules::StreamingSource source;
-                        source.Position = { player.Position.X, player.Position.Y, player.Position.Z };
-                        sources.push_back( source );
-                    }
+                    AppendPlayerSources( sim, views, sources );
                     for ( const Net::PawnState& proxy : replica.All() )
                         if ( replica.IsProxy( proxy.Id ) )
                         {
@@ -1107,14 +1145,26 @@ namespace Desert::Server
                         LOG_ERROR( "[Server] sim step {}: {}", step, ticked.GetError() );
                         return 6;
                     }
+                    // Logged when a player comes or goes, a view starts or stops being a source, and every 5 s
+                    // while the union has any source of a player.
                     const std::size_t owned = sim.Sources().size();
-                    if ( owned != players || ( sources.size() > 1 && step % 300 == 0 ) )
+                    if ( owned != players || views.size() != viewCount ||
+                         ( sources.size() > 1 && step % 300 == 0 ) )
                     {
-                        players = owned;
+                        players   = owned;
+                        viewCount = views.size();
+                        std::vector<std::string> names;
+                        AppendPlayerSourceNames( sim, views, names );
+                        std::string listed;
+                        for ( const std::string& name : names )
+                            listed += std::format( "{}{}", listed.empty() ? "" : "; ", name );
                         LOG_INFO(
-                             "[Server] sim {} step {}: {} player(s) owned, {} proxy(ies), residency union of {} "
-                             "source(s): {} cell(s) activated, {} cell record(s) held, collision {} body(ies)",
-                             options.index, step, players, sources.size() - 1 - owned, sources.size(),
+                             "[Server] sim {} step {}: {} player(s) owned, {} view(s), {} proxy(ies), residency "
+                             "union "
+                             "of {} source(s) [{}]: {} cell(s) activated, {} cell record(s) held, collision {} "
+                             "body(ies)",
+                             options.index, step, players, viewCount, sources.size() - 1 - owned - viewCount,
+                             sources.size(), listed.empty() ? std::string( "none" ) : listed,
                              server->ResidentCells().size(), server->HeldCellRecords(),
                              server->Collision().Bodies() );
                     }
@@ -1268,6 +1318,7 @@ namespace Desert::Server
                 Net::PawnSimulation::Settings simSettings;
                 for ( const glm::vec3& spawn : options.spawns )
                     simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
+                simSettings.Relevancy = gateway->Relevancy();
                 sim       = std::make_unique<Net::PawnSimulation>( *store, *gateway, *collision.Mover,
                                                                    *collision.Placer, *server,
                                                                    std::move( simSettings ), netLog );
@@ -1287,39 +1338,23 @@ namespace Desert::Server
             if ( transport )
                 console.Start();
 
-            // THE SOURCES: the server's own + every player's pawn (§4.1 - the residency union of all of them) +
-            // every player's reported view, resolved against its pawn (Gateway::ViewSources,
-            // WP-STREAM-SOURCE-VIEW: the ground under the body AND what the player looks at; UE
-            // ServerUpdateCamera).
+            // THE SOURCES: the server's own + every player's pawn and reported view (AppendPlayerSources, the
+            // split mesh's sims read the same).
             Core::Rules::StreamingSource serverSource;
             serverSource.Position = options.source;
             std::vector<Core::Rules::StreamingSource> sources{ serverSource };
             std::vector<std::string>                  sourceNames{ std::format(
                  "server ({:.0f}, {:.0f}, {:.0f})", serverSource.Position.x, serverSource.Position.y,
                  serverSource.Position.z ) };
+            std::vector<Net::PawnSimulation::ViewSource> views;
             const auto gatherSources = [&]
             {
                 sources.resize( 1 );
                 sourceNames.resize( 1 );
                 if ( !sim )
                     return;
-                for ( const Net::PawnSimulation::Source& player : sim->Sources() )
-                {
-                    Core::Rules::StreamingSource source;
-                    source.Position = { player.Position.X, player.Position.Y, player.Position.Z };
-                    sources.push_back( source );
-                    sourceNames.push_back( std::format( "player {} account {} ({:.0f}, {:.0f}, {:.0f})", player.Player,
-                                                        player.Account, player.Position.X, player.Position.Y,
-                                                        player.Position.Z ) );
-                }
-                for ( const Net::Gateway::ViewSource& view : gateway->ViewSources() )
-                {
-                    Core::Rules::StreamingSource source;
-                    source.Position = { view.Position.X, view.Position.Y, view.Position.Z };
-                    sources.push_back( source );
-                    sourceNames.push_back( std::format( "player {} view ({:.0f}, {:.0f}, {:.0f})", view.Player,
-                                                        view.Position.X, view.Position.Y, view.Position.Z ) );
-                }
+                AppendPlayerSources( *sim, views, sources );
+                AppendPlayerSourceNames( *sim, views, sourceNames );
             };
             const auto logUnion = [&]( std::string_view why )
             {

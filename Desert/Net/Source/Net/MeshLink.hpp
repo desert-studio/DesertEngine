@@ -310,6 +310,7 @@ namespace Desert::Net
         void PlayerJoined( PlayerId player, std::uint64_t account ) override;
         void PlayerLeft( PlayerId player ) override;
         void PlayerInput( PlayerId player, const InputMessage& input ) override;
+        void                                   PlayerView( PlayerId player, const NetVec3& eye ) override;
         [[nodiscard]] std::optional<AckedMove> LastProcessedInput( PlayerId player ) const override;
 
         // The coordinator's authority map and the sims' acks; true when @p type was a mesh message for this link.

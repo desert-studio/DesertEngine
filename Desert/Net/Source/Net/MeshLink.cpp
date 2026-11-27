@@ -36,6 +36,7 @@ namespace Desert::Net
             AuthorityChanged, // u32 id, u32 sim, u32 epoch, u32 step, u32 gateway, u32 player (store -> gateways)
             ForwardInput,     // u32 to sim, u32 player, Input            (old owner -> store)
             ForwardedInput,   // u32 player, Input                        (store -> new owner)
+            PlayerView,       // u32 player, f32 x3 the reported eye      (gateway -> the pawn's sim)
             End,              // not a message: one past the last code
         };
         // One numbering on a mesh connection: the handover codes (HandoverWire.hpp) start past the last EMesh code.
@@ -1225,6 +1226,19 @@ namespace Desert::Net
         }
     }
 
+    void RemoteSimLink::PlayerView( PlayerId player, const NetVec3& eye )
+    {
+        if ( const auto connection = Route( player, "view" ) )
+        {
+            Writer w( EMesh::PlayerView );
+            w.U32( player );
+            w.F32( eye.X );
+            w.F32( eye.Y );
+            w.F32( eye.Z );
+            m_Endpoint.Send( *connection, w.Take() );
+        }
+    }
+
     std::optional<ISimLink::AckedMove> RemoteSimLink::LastProcessedInput( PlayerId player ) const
     {
         const auto it = m_Acks.find( player );
@@ -1341,6 +1355,15 @@ namespace Desert::Net
                     else
                         sim.PlayerInput( player, *input );
                 }
+            return true;
+        }
+        if ( type == Code( EMesh::PlayerView ) )
+        {
+            // The pawn's eye goes with the pawn: a view that reaches this sim after its handover is dropped, the
+            // client's next report (once a second) reaches the new owner through the gateway's re-route.
+            NetVec3 eye;
+            if ( r.U32( player ) && r.F32( eye.X ) && r.F32( eye.Y ) && r.F32( eye.Z ) )
+                sim.PlayerView( player, eye );
             return true;
         }
         return false;

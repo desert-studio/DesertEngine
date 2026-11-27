@@ -486,6 +486,26 @@ namespace Desert::Net
         return Common::MakeSuccess( true );
     }
 
+    void PawnSimulation::PlayerView( PlayerId player, const NetVec3& eye )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it != m_Pawns.end() )
+            it->second.View = eye;
+    }
+
+    void PawnSimulation::Views( std::vector<ViewSource>& out ) const
+    {
+        out.clear();
+        for ( const auto& [player, pawn] : m_Pawns )
+            if ( pawn.Hold != EHold::Incoming && pawn.View )
+            {
+                // The source of the pawn is where Sources puts it (a pending placement's destination).
+                const NetVec3 at = pawn.Placement ? pawn.Placement->Feet : pawn.State.Position;
+                out.push_back( { player, ResolveViewPosition( m_Settings.Relevancy, at,
+                                                              ViewReport{ .Position = *pawn.View } ) } );
+            }
+    }
+
     std::vector<PawnSimulation::Source> PawnSimulation::Sources() const
     {
         std::vector<Source> sources;
@@ -656,7 +676,8 @@ namespace Desert::Net
         {
             // The client's view point and shape (APlayerController::ServerUpdateCamera): the newest wins (State
             // lane, unordered and lossy - the client resends it once a second). The eye is resolved against the
-            // own pawn where the pawn's position is the step's (UpdateRelevancy, ViewSources), and logged there.
+            // own pawn where the pawn's position is the step's (UpdateRelevancy here, logged there; the
+            // simulation's Views for the residency union, so the eye goes on to the sim that owns the pawn).
             if ( const std::optional<ViewReport> view = DecodeViewReport( data ) )
             {
                 // The shape the gateway will use, logged whenever it changes (the clamps included).
@@ -670,6 +691,8 @@ namespace Desert::Net
                                         peer.Player, after.CircleRangeCm / 100.f, after.SectorAngleDeg,
                                         after.FacingYawDeg, after.SectorRangeCm / 100.f, view->RangeCm / 100.f ) );
                 peer.View = *view;
+                if ( m_Sim != nullptr )
+                    m_Sim->PlayerView( peer.Player, view->Position );
             }
             else
                 m_Log( std::format( "connection {}: malformed ViewReport dropped", connection ) );
@@ -685,26 +708,6 @@ namespace Desert::Net
         }
         if ( m_Sim != nullptr )
             m_Sim->PlayerInput( peer.Player, *input );
-    }
-
-    std::vector<Gateway::ViewSource> Gateway::ViewSources() const
-    {
-        std::vector<ViewSource> views;
-        for ( const PawnState& pawn : m_Store.All() )
-        {
-            const auto info = m_PawnInfo.find( pawn.Id );
-            if ( info == m_PawnInfo.end() )
-                continue;
-            const auto connection = m_Connections.find( info->second.Owner );
-            if ( connection == m_Connections.end() )
-                continue;
-            const auto peer = m_Peers.find( connection->second );
-            if ( peer == m_Peers.end() || !peer->second.Admitted || !peer->second.View )
-                continue; // never reported: its eye is its pawn, already the sim's source
-            views.push_back(
-                 { info->second.Owner, ResolveViewPosition( m_Relevancy, pawn.Position, peer->second.View ) } );
-        }
-        return views;
     }
 
     // The own pawn is relevant to its owner from the start (§3.5 rule 1); every other connection gets it when it
