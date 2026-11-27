@@ -42,7 +42,7 @@ Uniform sampler LinearRepeatSampler;
 // The trace's are the point-clamped reads too (the HZB walk, the velocity, SSRSurfaceDepth), all but the front
 // layer's surface test (SSRSurfaceNormal: its depth against GBufferDepthTexture): without the front layer that stage
 // declares neither PointClampSampler nor GBufferDepthTexture, HzbTexture and VelocityTexture never. The CPU statement
-// of all three conditions: SSRRenderer::TraceComputeReadsLinear (DeclareTraceBindings).
+// of these conditions: SSRRenderer::TraceComputeReadsLinear and TraceComputeReadsDepth (DeclareTraceBindings).
 #if !defined( DESERT_SSR_TRACE_NO_LINEAR_READS )
 Uniform sampler LinearClampSampler;
 #endif

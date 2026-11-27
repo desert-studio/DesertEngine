@@ -687,8 +687,7 @@ namespace Desert::Graphic::System
                                RDG::SubresourceRange::All() )
                      .Texture( SSRTraceShaderParameters::VelocityTexture, velocity, RDG::Access::SampledCompute,
                                RDG::SubresourceRange::All() );
-            // The depth point-clamped: the trace's, and the front layer's surface test the classify makes too.
-            if ( readsLinear || frontLayer != nullptr )
+            if ( TraceComputeReadsDepth( readsLinear, m_Surface ) )
                 block.Texture( SSRTraceShaderParameters::GBufferDepthTexture, gbuffer[2],
                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                      .Sampler( SSRTraceShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
@@ -1099,13 +1098,22 @@ namespace Desert::Graphic::System
 
         // Whether the compute program DeclareTraceBindings binds (@p tracedProgram: the traced permutation, built
         // hit-lit when @p hitLit) carries the texel trace and so its linear, point and traced reads - the scene
-        // colour history, LinearClampSampler, the HZB, the velocity, DeclareTracedReads, and, unless a front
-        // layer's surface test reads them in the classify too, the depth and PointClampSampler. The one statement
-        // of SSR.shader's compute #if (DESERT_REFLECTIONS_HIT_LIGHTING defines DESERT_SSR_TRACE_NO_LINEAR_READS,
-        // Common/SSRTrace.glslh): the hit-lit compute only classifies, its "HitLighting" ray generation traces.
+        // colour history, LinearClampSampler, the HZB, the velocity, DeclareTracedReads (the depth and
+        // PointClampSampler: TraceComputeReadsDepth). The one statement of SSR.shader's compute #if
+        // (DESERT_REFLECTIONS_HIT_LIGHTING defines DESERT_SSR_TRACE_NO_LINEAR_READS, Common/SSRTrace.glslh): the
+        // hit-lit compute only classifies, its "HitLighting" ray generation traces.
         [[nodiscard]] static bool TraceComputeReadsLinear( const bool tracedProgram, const bool hitLit )
         {
             return !( tracedProgram && hitLit );
+        }
+
+        // Whether that compute program reads the G-buffer depth through PointClampSampler: the texel trace does
+        // (@p readsLinear, TraceComputeReadsLinear), and a TranslucentFrontLayer @p surface's classify does too -
+        // its surface test (SSRSurfaceNormal). SSRTrace.glslh's
+        // `!DESERT_SSR_TRACE_NO_LINEAR_READS || DESERT_REFLECTIONS_FRONT_LAYER`.
+        [[nodiscard]] static bool TraceComputeReadsDepth( const bool readsLinear, const ReflectingSurface surface )
+        {
+            return readsLinear || surface == ReflectingSurface::TranslucentFrontLayer;
         }
 
     private:
