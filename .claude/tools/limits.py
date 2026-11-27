@@ -43,8 +43,8 @@ BUILD_WHY_PER_DAY = 3     # builds a day that may be forced with BUILD_WHY="reas
 BUILD_RUNNING_S = 300     # a build log without .rc written within this many seconds = a build is running
 
 # ---- board --------------------------------------------------------------------------------------------------------
-BOARD_BATCH = 10          # owner 11-17: card updates go in batches; Stop is refused at this many queued
-BOARD_MAX_AGE_H = 4       # ... or when the oldest queued update is older than this
+BOARD_BATCH = 15          # owner 11-17: card updates go in batches; Stop is refused at this many queued (11-27: 10 -> 15, one board run per batch)
+BOARD_MAX_AGE_H = 8       # ... or when the oldest queued update is older than this AND no run is in flight (11-27)
 RUNS_KEEP = 200           # finished runs kept in pipeline.json
 
 # ---- documents (wrapper_lint.py) ------------------------------------------------------------------------------------
@@ -100,7 +100,13 @@ def table():
 if __name__ == "__main__":
     print(table())
 
-# Owner 11-27 (a night = 6 % of the weekly limit, the lead ~61 % of it): the lead writes nothing until the owner asks
+# Owner 11-27 (a night = 6 % of the weekly limit; measured 11-27: the lead 22.5 %, workers 77.5 %): the lead writes nothing until the owner asks
 # for news; a turn the owner did not start ends without text (silence_guard.py). One line for a decision only the
 # owner can make fits under this cap.
 SILENT_TEXT_MAX = 20
+
+# Owner 11-27 «сократить в 5 раз» (LEAD-SPEND-5X PLAN.md): the worker owns its chain - code, its own reviewer in the
+# foreground, fixes in its warm context, `studio.py accept` - so the lead wakes once per task, not ~10 times.
+CHAIN_REVIEWS = 2         # reviewer runs one worker may launch (second only after a fix diff over 150 lines)
+# The lead /clears (not /compacts) at a batch boundary above this context: the state is on disk (studio.py digest).
+CLEAR_AT = 80_000

@@ -115,7 +115,7 @@ def main():
         sys.exit(0)  # the command reads, lists or mentions a build; it runs none
     entry = next((m for m in (ENTRY.search("bash " + b) for b in builds) if m), None)
     form = f"bash {LAND_TREE}/.claude/tools/build_land.sh {LAND_TREE} C:/aftmp/build_<name>.log [scn]"
-    if data.get("agent_id"):
+    if data.get("agent_id") and (data.get("agent_type") or "").lower() != "lander":  # owner 11-27: the lander builds
         emit("deny", "[build_gate] агенты не собирают (LEAD_PROTOCOL «Сборка»): код + push, сборку делает лид "
                      "одной сборкой пачки.")
     if not entry:

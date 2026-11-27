@@ -448,8 +448,20 @@ def worker_pre(data, agent, agent_type, state, s):
                 "и отчитайся; остаток уйдёт свежему агенту.")
 
     if tool == "Agent":
-        if (tin.get("subagent_type") or "general-purpose").lower() != "explore":
-            return "Рабочий помощник запрещён: разрешён только Explore на haiku для поиска. Не влезает — коммит, пуш, REMAINDER."
+        kind = (tin.get("subagent_type") or "general-purpose").lower()
+        child = code_of(str(tin.get("prompt") or ""))
+        chain = (kind == "reviewer" and agent_type in ("engineer", "general-purpose") and child.endswith("-REV")) or \
+                (kind == "acceptance" and agent_type == "lander")
+        if chain:  # owner 11-27: the worker drives its own chain, the lead wakes once (limits.CHAIN_REVIEWS)
+            if tin.get("run_in_background"):
+                return "Свой reviewer/acceptance — на переднем плане (без run_in_background): иначе уведомление будит лида."
+            state["reviews"] = state.get("reviews", 0) + 1
+            if state["reviews"] > limits.CHAIN_REVIEWS:
+                return f"Больше limits.CHAIN_REVIEWS ({limits.CHAIN_REVIEWS}) ревью за заход: сдай как есть, accept stuck."
+            return None
+        if kind != "explore":
+            return ("Рабочий помощник запрещён: разрешены Explore на haiku и свой reviewer («You are agent <КОД>-REV», на переднем плане). "
+                    "Не влезает — коммит, пуш, REMAINDER.")
         if (tin.get("model") or "").lower() != "haiku":
             return "Explore запускается на haiku: Agent(subagent_type: \"Explore\", model: \"haiku\", ...)."
         state["explored"] = True

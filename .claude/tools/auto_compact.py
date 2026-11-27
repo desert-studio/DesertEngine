@@ -36,7 +36,7 @@ LOG = os.path.join(HOME, "auto_compact.log")
 NOW = os.path.join(HOME, "auto_compact.now")
 CLEAR = os.path.join(HOME, "auto_compact.clear")
 RESUME = {"/compact": "continue (auto after /compact): pick up the work where it stopped",
-          "/clear": "continue (auto after /clear): read the newest HANDOVER in memory, then fill the agent slots"}
+          "/clear": "continue (auto after /clear): the studio digest above is the state; accept hand-ins, then fill the agent slots"}
 
 
 def log(msg):
@@ -152,6 +152,17 @@ def worker(tty, cmd, transcript):
     type_into(tty, RESUME[cmd], 2)
 
 
+def at_boundary():
+    """No run in flight, no hand-in waiting, no build running: nothing a /clear could lose."""
+    try:
+        import pipeline as P
+        p = P.load()
+        building = subprocess.run(["pgrep", "-f", "build_land.sh"], capture_output=True).returncode == 0
+        return not P.live_runs(p) and not P.unaccepted(p) and not building
+    except Exception:
+        return False
+
+
 def main():
     if "--type" in sys.argv:
         k = sys.argv.index("--type")
@@ -169,6 +180,8 @@ def main():
         return
     ctx = context_tokens(data.get("transcript_path", ""))
     clear = os.path.exists(CLEAR) and sys.platform == "darwin"
+    if not clear and sys.platform == "darwin" and ctx >= limits.CLEAR_AT and at_boundary():
+        clear = True  # owner 11-27: /clear at the batch boundary (state on disk), /compact only mid-batch at THRESHOLD
     forced = clear or os.path.exists(NOW)
     cmd = "/clear" if clear else "/compact"
     if not forced:

@@ -190,7 +190,7 @@ def stop_reason(p, s):
         return ("сдали и не приняты: " + " ".join(waiting[:8]) + ". Приём — одна команда на заход: "
                 "python .claude/tools/studio.py accept <КОД> [done|wip|stuck|refused] (она же ставит запись доски в очередь).")
     n, age = P.board_debt(p)
-    if n >= limits.BOARD_BATCH or (n and age > limits.BOARD_MAX_AGE_H):
+    if n >= limits.BOARD_BATCH or (n and age > limits.BOARD_MAX_AGE_H and not P.live_runs(p)):
         return (f"в очереди доски {n} записей, старейшая {age:.1f} ч (limits.BOARD_BATCH / BOARD_MAX_AGE_H): "
                 "python .claude/tools/studio.py board → один запуск агента board на всю пачку.")
     night = P.night(p)

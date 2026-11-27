@@ -69,12 +69,23 @@ def brief_text(code, letter, pk, design, contract, then, base):
         "## Сделать",
         f"1. Раздел «### Пакет {letter}» из «## Порядок» дизайна целиком: в своём дереве, только в своих файлах.",
         f"2. Коммит «wip: {code}-{letter} код готов», push ветки; в отчёте — каждое отличие строки «Закрывает»: закрыто (file:line) или нет и почему; "
-        "строки NEEDS/CONTRACT-BREAK, если были.", ""])
+        "строки NEEDS/CONTRACT-BREAK, если были.", "", *CHAIN(f"{code}-{letter}", pk["branch"], pk["tree"], pk["brief"])])
+
+
+def CHAIN(code, branch, tree, brief):
+    """Owner 11-27: the worker owns its task to acceptance; the lead wakes once, at its report."""
+    return ["## Цепочка (ты ведёшь задачу до приёма; лид просыпается один раз — на твой отчёт)",
+            "1. Код, коммит «wip: <КОД> код готов», push.",
+            f'2. Agent(subagent_type: "reviewer", prompt: "You are agent {code}-REV. Review branch {branch} in {tree} against {brief}; '
+            'ACCEPT or RETURN with at most 2 defects.") — на переднем плане, не run_in_background (limits.CHAIN_REVIEWS).',
+            "3. RETURN или MINOR — чини в этом же заходе, коммит, push; второе ревью только если дифф правки > 150 строк.",
+            f"4. python .claude/tools/studio.py accept {code} done|stuck",
+            "5. Отчёт: вердикт последнего ревью, коммит, что докажет только сборка пачки или кадр.", ""]
 
 
 def launch_line(code, letter, pk):
     return (f'Agent(subagent_type: "engineer", run_in_background: true, description: "{code}-{letter}", '
-            f'prompt: "You are agent {code}-{letter}. Your brief: {pk["brief"]}. Read it first; it is the whole task. '
+            f'prompt: "You are agent {code}-{letter}. Your brief: {pk["brief"]}. Read it first; it is the whole task. You own the chain: code, your reviewer, your fixes, accept. '
             f'Tree: {pk["tree"]}.")')
 
 
