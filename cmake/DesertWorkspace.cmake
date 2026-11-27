@@ -82,18 +82,15 @@ endforeach()
 #                    _shipping_link), on the runtime libraries marked desert_ltcg (Common,
 #                    every engine module library -- one shared PCH, so all or none -- and Jolt); executables link
 #                    /LTCG:INCREMENTAL (Release) and /LTCG (Shipping). Editor-only libraries stay without /GL, so
-#                    link time and memory grow only with the code the game runs; at most two links run at once
-#                    under Ninja (the desert_link pool): each LTCG link holds the whole runtime's IL.
+#                    link time and memory grow only with the code the game runs. How many links run at once is
+#                    the machine's build pool's decision (Tools/BuildPool: admission by each link's measured
+#                    memory), not a per-tree Ninja pool: each LTCG link holds the whole runtime's IL.
 #   DESERT_MIMALLOC  mimalloc.dll + mimalloc-redirect.dll as the process allocator of the executables marked
 #                    desert_link_mimalloc (Editor, Runtime, DesertCtl) in Release and Shipping. Debug keeps the
 #                    debug CRT heap: the redirect patches ucrtbase.dll, which a /MDd process does not allocate from.
 if(MSVC)
     option(DESERT_LTCG "MSVC: /GL on the runtime libraries, /LTCG on the executables (Release, Shipping)" ON)
     option(DESERT_MIMALLOC "MSVC: mimalloc + mimalloc-redirect as the process allocator (Release, Shipping)" ON)
-    if(DESERT_LTCG AND CMAKE_GENERATOR MATCHES "Ninja")
-        set_property(GLOBAL APPEND PROPERTY JOB_POOLS desert_link=2)
-        set(CMAKE_JOB_POOL_LINK desert_link)
-    endif()
 endif()
 
 # ── THE INSTRUCTION SET (CPU-SIMD) ─────────────────────────────────────────────
@@ -152,10 +149,11 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 # /MDd for Debug, /MD for Release and Shipping (dynamic CRT, one runtime across every target).
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
-# Debug information: Debug and Release never Shipping. /Zi and not /ZI (edit-and-continue defeats a cache, BUILD1 P3). With a compiler
-# launcher (sccache/ccache) the information is embedded (/Z7):
-# a cache cannot share the one vc143.pdb every compile of a project writes into.
-if(DESERT_COMPILER_LAUNCHER)
+# Debug information: Debug and Release never Shipping. /Zi and not /ZI (edit-and-continue defeats a cache, BUILD1 P3). With a compile
+# cache behind the build pool (BUILDPOOL_CACHE, set by buildpool_enable in CMakeLists.txt) the information is embedded
+# (/Z7): a cache cannot share the one vc143.pdb every compile of a project writes into, and the pool can restart a /Z7
+# compile under memory pressure but never one that writes a shared .pdb.
+if(BUILDPOOL_CACHE)
     set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<NOT:$<CONFIG:Shipping>>:Embedded>")
 else()
     set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<NOT:$<CONFIG:Shipping>>:ProgramDatabase>")
