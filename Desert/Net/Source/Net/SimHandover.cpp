@@ -255,9 +255,10 @@ namespace Desert::Net
         const auto awaited = m_AwaitingBacklog.find( player );
         if ( awaited == m_AwaitingBacklog.end() || awaited->second != end.Offer )
         {
-            m_Log( std::format( "sim {}: end of the backlog of offer (sim {}, #{}) of player {} names no offer this "
-                                "sim adopted and awaits; dropped",
-                                m_Sim, end.Offer.From, end.Offer.Serial, player ) );
+            m_Log(
+                 std::format( "sim {}: end of the backlog of offer (sim {}, #{}) of player {} names no offer this "
+                              "sim adopted and awaits; dropped",
+                              m_Sim, end.Offer.From, end.Offer.Serial, player ) );
             return;
         }
         m_AwaitingBacklog.erase( awaited );
@@ -265,7 +266,8 @@ namespace Desert::Net
         m_Log( std::format( "sim {}: end of the backlog of offer (sim {}, #{}) of player {} - {} forwarded input "
                             "step(s) landed; {}",
                             m_Sim, end.Offer.From, end.Offer.Serial, player, end.Forwarded,
-                            open ? "its catch-up may close" : "no adopted pawn of it awaits it (its player left)" ) );
+                            open ? "its catch-up may close"
+                                 : "no adopted pawn of it awaits it (its player left)" ) );
     }
 
     bool SimHandover::OnStoreMessage( std::uint8_t type, std::span<const std::byte> body, PawnSimulation& sim,

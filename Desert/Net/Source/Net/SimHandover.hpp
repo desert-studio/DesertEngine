@@ -110,7 +110,7 @@ namespace Desert::Net
             std::uint32_t      Step    = 0; // frozen at
             std::uint32_t      AskedAt = 0; // this sim's step of the Accept, or of the last in-doubt ask (the log)
             NetClock::time_point AskedWhen; // the wall time of the same (the in-doubt wait is measured on it)
-            bool BacklogLanded = false; // the previous owner's end-of-backlog mark overtook the Commit
+            bool BacklogLanded = false;     // the previous owner's end-of-backlog mark overtook the Commit
         };
 
         void Offer( std::uint32_t step, const PawnSimulation::Source& source, std::uint32_t target,

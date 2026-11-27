@@ -313,9 +313,9 @@ namespace Desert::Net
             // The spawn or teleport not landed yet; while set the pawn is HELD (its inputs acked, not applied).
             std::optional<PendingPlacement> Placement;
             // The catch-up after Resume (sender) or Commit (receiver): the inputs that queued while the pawn was
-            // held, applied over the steps that follow. Measured per authoritative step (planar cm) until the queue
-            // is back at the target (Commit: once the previous owner's end-of-backlog mark has landed, on a step
-            // that applied an input - a starved step, or a hole before the client's direct inputs, does not
+            // held, applied over the steps that follow. Measured per authoritative step (planar cm) until the
+            // queue is back at the target (Commit: once the previous owner's end-of-backlog mark has landed, on a
+            // step that applied an input - a starved step, or a hole before the client's direct inputs, does not
             // close it).
             struct CatchUpRun
             {

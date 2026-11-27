@@ -20,26 +20,26 @@ namespace Desert::Net
             Tick,                              // u32 step
             SimReady,
             LeaseRequest,
-            Lease,            // u32 first, u32 count
-            PawnWrite,        // pawn
-            PawnRemove,       // u32 id
-            StableWrite,      // u64 id, str component, str field, value             (sim -> store)
-            StableChanged,    // u64 id, str component, str field, u32 version, value (store -> subscriber)
-            StableDestroy,    // u64 id
-            Synced,           // the store sent a new subscriber its full state
-            PlayerJoined,     // u32 player, u64 account
-            PlayerLeft,       // u32 player
-            PlayerInput,      // u32 player, the client's Input message as received
-            InputAck,         // u32 player, acked move (step, own movement state, queued steps)
-            PawnSpawned,      // u32 owner, u32 player, pawn
-            PawnDestroyed,    // u32 id
-            AuthorityChanged, // u32 id, u32 sim, u32 epoch, u32 step, u32 gateway, u32 player (store -> gateways)
-            ForwardInput,     // u32 to sim, u32 player, Input            (old owner -> store)
-            ForwardedInput,   // u32 player, Input                        (store -> new owner)
-            PlayerView,       // u32 player, f32 x3 the reported eye      (gateway -> the pawn's sim)
-            ForwardBacklogEnd,   // u32 to sim, u32 player, u32 serial, u32 forwarded     (old owner -> store)
+            Lease,             // u32 first, u32 count
+            PawnWrite,         // pawn
+            PawnRemove,        // u32 id
+            StableWrite,       // u64 id, str component, str field, value             (sim -> store)
+            StableChanged,     // u64 id, str component, str field, u32 version, value (store -> subscriber)
+            StableDestroy,     // u64 id
+            Synced,            // the store sent a new subscriber its full state
+            PlayerJoined,      // u32 player, u64 account
+            PlayerLeft,        // u32 player
+            PlayerInput,       // u32 player, the client's Input message as received
+            InputAck,          // u32 player, acked move (step, own movement state, queued steps)
+            PawnSpawned,       // u32 owner, u32 player, pawn
+            PawnDestroyed,     // u32 id
+            AuthorityChanged,  // u32 id, u32 sim, u32 epoch, u32 step, u32 gateway, u32 player (store -> gateways)
+            ForwardInput,      // u32 to sim, u32 player, Input            (old owner -> store)
+            ForwardedInput,    // u32 player, Input                        (store -> new owner)
+            PlayerView,        // u32 player, f32 x3 the reported eye      (gateway -> the pawn's sim)
+            ForwardBacklogEnd, // u32 to sim, u32 player, u32 serial, u32 forwarded     (old owner -> store)
             ForwardedBacklogEnd, // u32 player, u32 from sim, u32 serial, u32 forwarded   (store -> new owner)
-            End,              // not a message: one past the last code
+            End,                 // not a message: one past the last code
         };
         // One numbering on a mesh connection: the handover codes (HandoverWire.hpp) start past the last EMesh code.
         static_assert( static_cast<std::uint8_t>( EMesh::End ) <= Handover::kFirstHandoverMessage,
@@ -1491,8 +1491,8 @@ namespace Desert::Net
             return std::nullopt;
         Reader         r( body );
         MeshBacklogEnd end;
-        end.Decoded = r.U32( end.Player ) && r.U32( end.Offer.From ) && r.U32( end.Offer.Serial ) &&
-                      r.U32( end.Forwarded );
+        end.Decoded =
+             r.U32( end.Player ) && r.U32( end.Offer.From ) && r.U32( end.Offer.Serial ) && r.U32( end.Forwarded );
         return end;
     }
 

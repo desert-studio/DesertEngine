@@ -390,7 +390,7 @@ namespace Desert::Net
     // queued inputs of @p Offer is whole (RemoteGatewayLink::EndBacklog).
     struct MeshBacklogEnd
     {
-        PlayerId           Player = 0;
+        PlayerId           Player  = 0;
         bool               Decoded = false; // false: the record did not decode (Player may be unset)
         Handover::OfferKey Offer;
         std::uint32_t      Forwarded = 0; // the input steps the forward carried
