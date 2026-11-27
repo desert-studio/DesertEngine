@@ -35,12 +35,16 @@
 Тогда A view_teleport the frame of the correction tick: the fence IN PLACE and A's mannequin in front of it, in the air above the slope (scn-1125-071236/clientA_teleport.png had no fence)
 # 6. The pawn's source velocity is reset on the teleport (zero play waits at the teleport is judged by the view_teleport frame).
 Ждать A 60 \[WorldStreamer\] 'WP_Protocol': streaming source entity \d+ jumped \d+ cm to \(2300, -?\d+, 520\) cm: velocity reset
-# 7. A far teleport (400 m): the cells the pawn left are held until the cell under it is resident.
-Консоль server teleport 1 40000 300 3000
+# 7. A far teleport (460 m) onto Main cell G0L0(19,2) (square X 47500..50000, Z 5000..7500; its box 200412 stands at
+# X 48759..49259, Z 6588..7088): the cell under the pawn is made resident before the hold lets the origin go. 2 m above
+# the landscape (tile 2_2 height there 141 cm). (40000,300,3000) of scn-1127-020957 was 276 cm UNDER the ground (576 cm)
+# and in no cell: the pawn fell through the heightfield for 120 s and nothing waited (A.log:3695, server.log:555).
+# The fixed camera keeps the origin in range, so the jump holds 0 cells of its own.
+Консоль server teleport 1 48000 350 5600
 Ждать A 60 \[Net\] correction 2 at .*drawn at once
-Ждать A 120 jumped \d+ cm to \(40000, -?\d+, 3000\) cm: velocity reset; [1-9]\d* cell\(s\) it left are held
+Ждать A 120 jumped \d+ cm to \(48000, -?\d+, 5600\) cm: velocity reset; \d+ cell\(s\) it left are held
 Ждать A 300 teleport hold released after \d+ frame\(s\)
-Тогда A view_far_teleport the frame after the release: the fence in place (the view did not move), no mannequin; held >= 1 cell, released within 120 frames
+Тогда A view_far_teleport the frame after the release: the fence in place (the view did not move), no mannequin; G0L0(19,2) under the pawn resident and the hold released within 120 frames
 # 8. The body 2 km from the view: the server pulls the view back to MaxViewRangeCm from the pawn.
 Консоль server teleport 1 200000 300 3000
 Ждать A 60 \[Net\] correction 3 at .*drawn at once
