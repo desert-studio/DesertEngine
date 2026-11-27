@@ -97,4 +97,4 @@
 # counts in ERefusal order (Ledger::Describe, a std::map keyed by the code).
 Консоль sim1 stat
 Ждать sim1 10 handovers: 1 offered, 1 committed, 0 adopted; refused 0 by store, 0 by receiver; 0 withdrawn; .*0 open as sender
-Ждать store 30 open offers 0, unadopted commits 0; committed 1, refused 4 \(Malformed 1, AlreadyOffered 1, SerialReused 1, PawnMismatch 1\); withdrawn 0
+Ждать store 30 open offers 0, unadopted commits 0; committed 1, refused 4 \(AlreadyOffered 1, Malformed 1, PawnMismatch 1, SerialReused 1\); withdrawn 0
