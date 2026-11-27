@@ -20,11 +20,20 @@ Line format (one step per line in order, `#` comments; a step's REGEX is the res
                                               editor = the Editor as a headless --play client through run_capped (the
                                               machine's GPU slot); bot = DesertNetProbe --bot; account defaults to the
                                               client's order (1, 2, …).
+                                              A server names its `--role all|coordinator|store|sim|gateway` (NET-ARCH
+                                              §2M): a split role gets the run's dev mesh CA (`--mesh-ca`, made once by
+                                              `DesertServer --mesh-dev-ca`); coordinator, store and sim get their own
+                                              `--mesh-port`; store, sim and gateway get `--coordinator` (the coordinator
+                                              role starts first); all, sim and gateway get the world. The client port
+                                              (`--port --audience --issuer-key`, the link flags) is the role clients
+                                              connect to: all or gateway, one per run.
   Ждать|Wait <role> <seconds> [<N>x] <REGEX>  the role writes a line matching REGEX (N of them) after the previous
                                               event; refused after <seconds> or when the role has exited. An event is
                                               a Ждать match or a Консоль line: lines written before it never satisfy a
                                               later Ждать (UE Gauntlet: wait for the NEXT log event).
   Консоль|Console <role> <line>               write the line to the role's console (stdin); {var} placeholders
+  Сигнал|Signal <role> STOP|CONT|TERM         send the signal to the server role's process group (a mesh peer that
+                                              stops answering, resumes, or dies); an event like a Консоль line
   Запомнить|Read <var> <role> <REGEX>         the role's LAST line matching REGEX so far: its numeric groups become
                                               {var1}, {var2}, … ({var1-20000} adds, for a console line)
   Сверить|Compare <var> <var> <cm>            every component of the two equal within <cm>
@@ -49,8 +58,10 @@ KEYWORDS = {
     "проект": "project", "project": "project", "мир": "world", "world": "world", "роль": "role", "role": "role",
     "ждать": "wait", "wait": "wait", "консоль": "console", "console": "console", "запомнить": "read",
     "read": "read", "сверить": "compare", "compare": "compare", "нет": "never", "never": "never",
-    "тогда": "then", "then": "then",
+    "тогда": "then", "then": "then", "сигнал": "signal", "signal": "signal",
 }
+SERVER_ROLES = ("all", "coordinator", "store", "sim", "gateway")
+SIGNALS = {"STOP": "SIGSTOP", "CONT": "SIGCONT", "TERM": "SIGTERM"}
 PLACEHOLDER = re.compile(r"\{([A-Za-z_]+)(\d+)([+-]\d+(?:\.\d+)?)?\}")
 SHOT = re.compile(r"\[Shot\] wrote -> (\S+\.png)")
 # The editor counts a capture frame when its tick records it (ShotDirector::FrameRecorded) and writes frame_N.png
@@ -108,7 +119,9 @@ class Run:
         self.bindir = dev_bindir(tree)
         self.proj = os.path.join(tree, "Projects", "Desert", "Desert.deproj")
         self.world = self.cooked = None
-        self.port = None
+        self.port = None  # the client port: the one `--role all` or gateway clients connect to
+        self.coordinator = None  # "127.0.0.1:<mesh port>" once the coordinator role has started
+        self.meshca = None
         self.roles, self.vars, self.accounts = {}, {}, 0
         scratch = os.environ.get("DESERT_SCRATCH") or os.path.join(os.path.dirname(tree), "DesertEngine-scratch")
         framesdir = os.path.join(scratch, self.code, "frames")
@@ -193,6 +206,57 @@ class Run:
             raise Fail(f"token for account {account}: {out.stderr.strip()[-200:]}")
         return lines[-1].strip()
 
+    def mesh_ca(self):
+        """The run's dev mesh CA (NET-MESH-7 dev path): one root and a certificate per role process, made once."""
+        if self.meshca:
+            return self.meshca
+        ca = os.path.join(self.out, "mesh-ca")
+        out = subprocess.run([self.tool("DesertServer"), "--mesh-dev-ca", ca], capture_output=True, text=True)
+        if out.returncode != 0:
+            raise Fail(f"mesh dev CA: {out.stdout.strip()[-200:]} {out.stderr.strip()[-200:]}")
+        self.meshca = ca
+        return ca
+
+    @staticmethod
+    def free_port():
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:  # a free UDP port for this run
+            s.bind(("127.0.0.1", 0))
+            return s.getsockname()[1]
+
+    def server_argv(self, name, words):
+        """The server's command line by its --role: what the controller owns for that role is added here."""
+        given = [words[i + 1] for i, w in enumerate(words[:-1]) if w == "--role"]
+        if len(given) != 1 or given[0] not in SERVER_ROLES:
+            raise Fail(f"server role {name} names exactly one --role of {', '.join(SERVER_ROLES)}")
+        mesh = given[0]
+        for owned in ("--port", "--audience", "--issuer-key", "--mesh-port", "--mesh-ca", "--coordinator",
+                      "--world", "--project"):
+            if owned in words:
+                raise Fail(f"server role {name}: {owned} is the controller's")
+        argv = [self.tool("DesertServer"), "--project", self.proj, *words]
+        if mesh in ("all", "sim", "gateway"):
+            argv += ["--world", os.path.join(os.path.dirname(self.proj), self.world)]
+        if mesh != "all":
+            argv += ["--mesh-ca", self.mesh_ca()]
+        if mesh in ("coordinator", "store", "sim"):
+            port = self.free_port()
+            argv += ["--mesh-port", str(port)]
+            if mesh == "coordinator":
+                if self.coordinator:
+                    raise Fail("one coordinator role per run")
+                self.coordinator = f"127.0.0.1:{port}"
+        if mesh in ("store", "sim", "gateway"):
+            if not self.coordinator:
+                raise Fail(f"server role {name} (--role {mesh}) before the coordinator role")
+            argv += ["--coordinator", self.coordinator]
+        if mesh in ("all", "gateway"):
+            if self.port:
+                raise Fail("one client port per run (one --role all or gateway)")
+            self.port = self.free_port()
+            argv += ["--port", str(self.port), "--audience", AUDIENCE,
+                     "--issuer-key", os.path.join(self.auth(), "issuer.public")]
+        return argv, mesh in ("all", "gateway")
+
     def start_role(self, rest):
         words = shlex.split(rest)
         if len(words) < 2 or words[1] not in ("server", "editor", "bot"):
@@ -211,19 +275,13 @@ class Run:
         env = dict(os.environ, DESERT_ROOT=self.tree)
         cwd = self.tree
         if kind == "server":
-            if self.port:
-                raise Fail("one server role per run")
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:  # a free UDP port for this run
-                s.bind(("127.0.0.1", 0))
-                self.port = s.getsockname()[1]
-            argv = [self.tool("DesertServer"), "--project", self.proj,
-                    "--world", os.path.join(os.path.dirname(self.proj), self.world), *words,
-                    "--port", str(self.port), "--audience", AUDIENCE,
-                    "--issuer-key", os.path.join(self.auth(), "issuer.public")]
+            argv, serves_clients = self.server_argv(name, words)
             link = [("--lag-ms", "lag"), ("--jitter-ms", "jitter"), ("--loss", "loss")]
+            if not serves_clients and any(key in opts for _, key in link):
+                raise Fail(f"lag/loss/jitter are the client port's link: role {name} has none")
         else:
             if not self.port:
-                raise Fail(f"client role {name} before the server role")
+                raise Fail(f"client role {name} before the server role that serves clients (all or gateway)")
             self.accounts += 1
             token = self.token(opts.get("account", str(self.accounts)))
             if kind == "editor":
@@ -301,6 +359,23 @@ class Run:
         r.proc.stdin.write(text + "\n")
         r.proc.stdin.flush()
         return text
+
+    def signal(self, rest):
+        """A mesh peer that stops answering (STOP), resumes with its backlog (CONT) or dies (TERM): the whole process
+        group, as the role was started in its own session. An event: what it causes comes after it."""
+        words = rest.split()
+        if len(words) != 2 or words[1].upper() not in SIGNALS:
+            raise Fail(f"«Сигнал» takes <role> {'|'.join(SIGNALS)}")
+        r = self.role(words[0])
+        if r.kind != "server":
+            raise Fail(f"«Сигнал» is for a server role, {r.name} is a {r.kind}")
+        if WIN:
+            raise Fail("«Сигнал» needs POSIX process groups (SIGSTOP/SIGCONT): not on Windows")
+        if r.proc.poll() is not None:
+            raise Fail(f"role {r.name} already exited (rc {r.proc.returncode})")
+        self.event()
+        os.killpg(r.proc.pid, getattr(signal, SIGNALS[words[1].upper()]))
+        return f"{words[1].upper()} -> {r.name}"
 
     def read(self, rest):
         parts = rest.split(None, 2)
@@ -386,6 +461,8 @@ class Run:
         for r in sorted(self.roles.values(), key=lambda r: r.kind == "server"):
             if r.proc.poll() is None:
                 try:
+                    if not WIN and r.kind == "server":  # a STOPped role answers no SIGINT until it runs again
+                        os.killpg(r.proc.pid, signal.SIGCONT)
                     if WIN:
                         r.proc.terminate()
                     else:
@@ -436,7 +513,8 @@ def main():
                 run.set_project(rest)
                 continue
             said = {"world": run.set_world, "role": run.start_role, "wait": run.wait, "console": run.console,
-                    "read": run.read, "compare": run.compare, "never": run.never, "then": run.then}[op](rest)
+                    "read": run.read, "compare": run.compare, "never": run.never, "then": run.then,
+                    "signal": run.signal}[op](rest)
             if op == "then":
                 index.append(said)
                 frames += 1

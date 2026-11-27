@@ -34,6 +34,7 @@
 #include <Net/MeshCertificates.hpp>
 #include <Net/MeshLink.hpp>
 #include <Net/MeshOfOne.hpp>
+#include <Net/SimHandover.hpp>
 #include "ServerPreLogin.hpp"
 
 #include <ToolMain.hpp>
@@ -609,7 +610,8 @@ namespace Desert::Server
 
         // One console line; the answer (or the refusal) is logged.
         void RunConsoleLine( const std::string& line, const std::unordered_set<std::uint64_t>& records,
-                             Net::IReplicationStore& store, const Net::Gateway* gateway, Net::PawnSimulation& sim )
+                             Net::IReplicationStore& store, const Net::Gateway* gateway, Net::PawnSimulation& sim,
+                             const Net::SimHandover* handover )
         {
             std::istringstream words( line );
             std::string        command;
@@ -622,6 +624,10 @@ namespace Desert::Server
                 LOG_INFO( "[Server] sim stat: {} stable object(s) and {} destroyed stable id(s) in the store "
                           "replica, {} pawn(s)",
                           store.StableObjects().size(), store.DestroyedStable().size(), sim.Sources().size() );
+                // The outcomes of the pawn handovers (NET-HANDOVER-CONFIRM, NET-ARCH §2M.4): only a mesh sim has
+                // them; a mesh-of-one (`--role all`) hands nothing over.
+                if ( handover != nullptr )
+                    LOG_INFO( "[Server] sim stat: {}", handover->Describe() );
                 return;
             }
             if ( command == "stat" )
@@ -1072,7 +1078,7 @@ namespace Desert::Server
                 for ( const std::uint32_t step : std::exchange( ticks, {} ) )
                 {
                     for ( const std::string& line : console.Take() )
-                        RunConsoleLine( line, records, replica, nullptr, sim );
+                        RunConsoleLine( line, records, replica, nullptr, sim, &handover );
                     sim.Step();
                     lastStep = step;
                     handover.AfterStep( step, sim, gatewayLink, replica );
@@ -1348,7 +1354,7 @@ namespace Desert::Server
                 if ( transport )
                 {
                     for ( const std::string& line : console.Take() )
-                        RunConsoleLine( line, records, *store, gateway.get(), *sim );
+                        RunConsoleLine( line, records, *store, gateway.get(), *sim, nullptr );
                     transport->Poll( *gateway );
                     sim->Step();
                     // Every step: the gateway decides which pawns are due (their periods, the cadence).
@@ -1377,7 +1383,7 @@ namespace Desert::Server
                 else if ( sources.size() > 1 && step % 300 == 0 )
                     logUnion( std::format( "step {}", step ) );
                 if ( transport && sources.size() > 1 && step % 300 == 0 )
-                    RunConsoleLine( "stat", records, *store, gateway.get(), *sim );
+                    RunConsoleLine( "stat", records, *store, gateway.get(), *sim, nullptr );
             }
             const double wall = std::chrono::duration<double>( Clock::now() - started ).count();
             LOG_INFO( "[Server] {} step(s) at {:.0f} Hz: {:.2f} s of server time in {:.2f} s wall; step {:.3f} ms "
@@ -1387,7 +1393,7 @@ namespace Desert::Server
 
             logUnion( "final" );
             if ( transport )
-                RunConsoleLine( "stat", records, *store, gateway.get(), *sim );
+                RunConsoleLine( "stat", records, *store, gateway.get(), *sim, nullptr );
             return 0;
         }
     } // namespace
