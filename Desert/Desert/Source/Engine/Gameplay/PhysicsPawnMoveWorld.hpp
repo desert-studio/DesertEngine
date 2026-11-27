@@ -156,7 +156,8 @@ namespace Desert::Gameplay
         // The same channel straight up from @p start, back faces met and a convex hollow: the first blocking
         // surface within @p upCm and its side - a hit normal pointing down is a front face, a ceiling's
         // underside; one pointing up is the back of a body's top (a heightfield, a mesh floor or a convex the
-        // start is under or inside: its exit face's outward normal).
+        // start is under or inside: its exit face's outward normal). A hit with no normal (its body could not be
+        // read, CastRay's zero normal) is no top to stand on: an underside. Body: the hit body's handle.
         std::optional<Gameplay::SurfaceAbove> SurfaceAbove( const NetVec3& start, float upCm ) const override
         {
             const std::optional<Physics::RayHit> hit =
@@ -164,7 +165,7 @@ namespace Desert::Gameplay
                                   Physics::ERayFaces::Both );
             if ( !hit )
                 return std::nullopt;
-            return Gameplay::SurfaceAbove{ hit->Point.y, hit->Normal.y < 0.0f };
+            return Gameplay::SurfaceAbove{ hit->Point.y, !( hit->Normal.y > 0.0f ), hit->Body };
         }
 
     private:

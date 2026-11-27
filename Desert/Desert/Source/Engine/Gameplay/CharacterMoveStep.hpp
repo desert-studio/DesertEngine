@@ -125,11 +125,13 @@ namespace Desert::Gameplay
 
     // The first surface an upward ray met (IPawnMoveWorld::SurfaceAbove): its Y, and whether the ray met its front
     // face - the Underside of a ceiling or a roof - rather than its back face, the top of a body the start is
-    // under or inside.
+    // under or inside. Body: an opaque id of the body hit, the same for every face of one body (the walk's ray
+    // parity per body: a back face means "inside" only for a body whose front face the walk has not met).
     struct SurfaceAbove
     {
-        float Y         = 0.0f;
-        bool  Underside = false;
+        float         Y         = 0.0f;
+        bool          Underside = false;
+        std::uint32_t Body      = 0;
     };
 
     // The collision world one move asks (UE SafeMoveUpdatedComponent + slide + FindFloor): where @p capsule whose
