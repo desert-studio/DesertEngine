@@ -188,6 +188,10 @@ namespace Desert::Net
             pawn.LastProcessed = next->first;
             pawn.Pending.erase( next );
         }
+        // A HELD pawn stands still: its velocity is zero in the movement state and in the replicated one, so a
+        // proxy's Hermite tangent does not carry it on along the speed it had when the placement was asked.
+        if ( pawn.Placement )
+            pawn.Move.Velocity = NetVec3{};
         pawn.State.Position = pawn.Move.Position;
         pawn.State.Yaw      = pawn.Move.Yaw;
         pawn.State.Velocity = pawn.Move.Velocity;
@@ -214,10 +218,17 @@ namespace Desert::Net
                                     player, pawn.State.Id, feet.X, feet.Y, feet.Z, reason, at.X, at.Y, at.Z ) );
             pawn.Placement.reset();
         };
-        // A point no cell holds has only the always-loaded collision, which is in the world: it is placed now, as
-        // a resident one is. Only a cell still streaming holds the pawn.
+        // ONE RULE for a point no cell of the grid holds (Teleport states it too): a TELEPORT there is refused
+        // when asked (Teleport returns the error, nothing could ever stream it in); a SPAWN at an authored point
+        // there is placed now against the always-loaded collision, as a resident one is. Only a cell still
+        // streaming holds the pawn.
         if ( m_Residency.ResidencyAt( feet ) == EPointResidency::Loading )
         {
+            if ( placement.Waited == 0 )
+                m_Log( std::format( "player {}: {} of pawn {} to ({:.0f}, {:.0f}, {:.0f}) cm held: the cell at "
+                                    "({:.0f}, {:.0f}) is loading",
+                                    player, spawn ? "spawn" : "teleport", pawn.State.Id, feet.X, feet.Y, feet.Z,
+                                    feet.X, feet.Z ) );
             if ( ++placement.Waited > kPlacementStreamingTimeoutSteps )
                 refuse( std::format( "the cell at ({:.0f}, {:.0f}) cm is not resident after {:.0f} s", feet.X,
                                      feet.Z, double( kPlacementStreamingTimeoutSteps ) / kNetStepHz ) );
@@ -305,6 +316,7 @@ namespace Desert::Net
         Pawn&          pawn = it->second;
         const NetVec3& at   = pawn.Move.Position;
         // UE TeleportTo returns false and the actor stays: over no cell there is nothing that could ever hold it.
+        // The other half of the one rule (ResolvePlacement): a SPAWN at an authored point with no cell is placed.
         if ( m_Residency.ResidencyAt( feet ) == EPointResidency::NoCell )
             return Common::MakeError<bool>(
                  std::format( "no cell of the world's grid at ({:.0f}, {:.0f}) cm: the pawn stays at ({:.0f}, "
