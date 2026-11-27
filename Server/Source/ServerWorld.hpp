@@ -10,6 +10,8 @@
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 
+#include <Net/PawnTeleport.hpp>
+
 #include <Common/Core/ResultStr.hpp>
 
 #include <algorithm>
@@ -30,7 +32,9 @@ namespace Desert::Server
         std::size_t Records = 0;
     };
 
-    class ServerWorld final : public Core::Rules::ResidencyWorld
+    // Also the simulation's view of the streamed world (Net::IWorldResidency): whether the collision at a point a
+    // pawn is to be placed at is resident yet, asked of the executor's state, never copied (NET-TELEPORT-ENCROACH).
+    class ServerWorld final : public Core::Rules::ResidencyWorld, public Net::IWorldResidency
     {
     public:
         // Starts streaming @p world: its always-loaded units are resident, no cell is yet (the first Step starts
@@ -69,6 +73,10 @@ namespace Desert::Server
         {
             return m_World;
         }
+
+        // IWorldResidency: the cell units whose loose bounds hold (X, Z) of @p position - none is NoCell (nothing
+        // will ever load there), all Activated is Resident (their bodies are in the physics world), else Loading.
+        [[nodiscard]] Net::EPointResidency ResidencyAt( const Net::NetVec3& position ) const override;
 
         // ResidencyWorld: a cell's records are held as the loader read them (the server's record set), not made
         // into entities - the scene-side server (NET-1: PlayerControllers, replicated entities) builds on this.

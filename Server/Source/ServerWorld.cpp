@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
+#include <Engine/Gameplay/TeleportSpot.hpp>
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Json/ReadWrite.hpp>
@@ -95,6 +96,35 @@ namespace Desert::Server
                 cells.push_back( { unit, m_World.Index->Units.at( unit ).Name,
                                    Core::Rules::ResidencyUnitRecords( plan, unit ) } );
         return cells;
+    }
+
+    Net::EPointResidency ServerWorld::ResidencyAt( const Net::NetVec3& position ) const
+    {
+        const auto& indexUnits = m_World.Index->Units;
+        const auto& units      = m_Executor->State().Units;
+        // A CELL'S BOUNDS ARE 3D (UE UWorldPartitionRuntimeCell::GetContentBounds): what the placer can touch from
+        // `position` is the column it searches - up to LiftCm above the point (an encroached capsule is lifted) and
+        // DropCm below it (a free one needs a floor) - so a cell counts only when its content's height span, grown
+        // by those distances, reaches the point's Y. The distances are the search the game's placer is built with
+        // (Gameplay::PawnTeleporter's default TeleportSearch, Server/Source/main.cpp MakeServerCollision).
+        const Gameplay::TeleportSearch search;
+        bool                           any = false;
+        bool                           all = true;
+        // Cell units only: an always-loaded unit is resident for the server's life and states no Bounds or Height.
+        for ( std::size_t unit = m_Executor->Plan().AlwaysLoaded.size(); unit < indexUnits.size(); ++unit )
+        {
+            const std::optional<Core::Rules::CellBounds>& bounds = indexUnits[unit].Bounds;
+            const std::optional<Core::Rules::HeightSpan>& height = indexUnits[unit].Height;
+            if ( !bounds || !height || position.X < bounds->MinX || position.X > bounds->MaxX ||
+                 position.Z < bounds->MinZ || position.Z > bounds->MaxZ ||
+                 position.Y < height->MinY - search.LiftCm || position.Y > height->MaxY + search.DropCm )
+                continue;
+            any = true;
+            all = all && unit < units.size() && units[unit].State == Core::Rules::Residency::Activated;
+        }
+        if ( !any )
+            return Net::EPointResidency::NoCell;
+        return all ? Net::EPointResidency::Resident : Net::EPointResidency::Loading;
     }
 
     Common::BoolResultStr ServerWorld::Activate( std::size_t unit, std::size_t firstMember,

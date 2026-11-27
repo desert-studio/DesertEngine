@@ -27,6 +27,7 @@
 
 #include <Engine/Gameplay/PawnPrefabMovement.hpp>
 #include <Engine/Gameplay/PhysicsPawnMoveWorld.hpp>
+#include <Engine/Gameplay/TeleportSpot.hpp>
 #include <PhysicsCore/CollisionProfiles.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <Common/Core/Constants.hpp>
@@ -93,6 +94,9 @@ namespace Desert::Server
             // THE GAME'S MOVEMENT the simulation calls (Net::IPawnMover): the pawn prefab's settings and declared
             // actions over PawnMove - the same step the clients predict with.
             std::unique_ptr<Gameplay::CharacterPawnMover> Mover;
+            // THE GAME'S PLACER the simulation calls (Net::IPawnPlacer, UE UWorld::FindTeleportSpot): the same pawn
+            // prefab's movement over the same PawnMove - a teleport and a spawn land where the pawn then steps.
+            std::unique_ptr<Gameplay::PawnTeleporter> Placer;
         };
         Common::ResultStr<ServerCollision> MakeServerCollision( const Gameplay::PawnMovement& pawn )
         {
@@ -113,6 +117,7 @@ namespace Desert::Server
                 return Common::MakeError<ServerCollision>( pawnMove.GetError() );
             collision.PawnMove = pawnMove.ExtractValue();
             collision.Mover    = std::make_unique<Gameplay::CharacterPawnMover>( pawn, *collision.PawnMove );
+            collision.Placer   = std::make_unique<Gameplay::PawnTeleporter>( pawn, *collision.PawnMove );
             LOG_INFO( "[Server] pawn movement: walk {:.0f} cm/s, sprint {:.0f} cm/s; declared actions {}",
                       movement.MaxWalkSpeed, movement.MaxSprintSpeed,
                       pawn.Actions.Names.empty() ? std::string( "none" )
@@ -637,10 +642,11 @@ namespace Desert::Server
                     LOG_ERROR( "[Server] console '{}': usage teleport <player> <x> <y> <z>", line );
                     return;
                 }
-                if ( !sim.Teleport( player, { v[0], v[1], v[2] } ) )
-                {
-                    LOG_ERROR( "[Server] console '{}': player {} has no pawn", line, player );
-                }
+                // The reason of a refusal is the sim's (no pawn, no cell of the grid there); an accepted teleport is
+                // logged by the sim when the pawn lands or the placement is refused (NET-TELEPORT-ENCROACH).
+                const Common::BoolResultStr moved = sim.Teleport( player, { v[0], v[1], v[2] } );
+                if ( !moved )
+                    LOG_ERROR( "[Server] console '{}': {}", line, moved.GetError() );
                 return;
             }
             std::uint64_t id = 0;
@@ -1000,7 +1006,8 @@ namespace Desert::Server
             Net::PawnSimulation::Settings simSettings;
             for ( const glm::vec3& spawn : options.spawns )
                 simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
-            Net::PawnSimulation sim( replica, gatewayLink, *pawnCollision.Mover, std::move( simSettings ), netLog );
+            Net::PawnSimulation sim( replica, gatewayLink, *pawnCollision.Mover, *pawnCollision.Placer, *server,
+                                     std::move( simSettings ), netLog );
             Net::SimHandover    handover( endpoint, options.index, netLog );
             replica.TrackProxies();
             std::uint32_t lastStep = 0;
@@ -1248,6 +1255,7 @@ namespace Desert::Server
                 for ( const glm::vec3& spawn : options.spawns )
                     simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
                 sim       = std::make_unique<Net::PawnSimulation>( *store, *gateway, *collision.Mover,
+                                                                   *collision.Placer, *server,
                                                                    std::move( simSettings ), netLog );
                 gateway->Bind( *sim );
                 LOG_INFO(
