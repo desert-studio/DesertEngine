@@ -674,9 +674,6 @@ namespace Desert::Graphic::System
                  .Sampler( SSRTraceShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
                  .Texture( SSRTraceShaderParameters::GBufferDepthTexture, gbuffer[2], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Texture( SSRTraceShaderParameters::SceneColorTexture, sceneHistory, RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All() )
-                 .Sampler( SSRTraceShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
                  .Texture( SSRTraceShaderParameters::HzbTexture, hzb, RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
                  .Texture( SSRTraceShaderParameters::VelocityTexture, velocity, RDG::Access::SampledCompute,
@@ -687,6 +684,11 @@ namespace Desert::Graphic::System
                  .Storage( SSRTraceShaderParameters::TileMaskTexture, tiles, RDG::Access::StorageWrite )
                  .Uniform( SSRTraceShaderParameters::SSRTraceUB, uniforms )
                  .PushConstants<ShaderPush::SSRTracePush>();
+            const bool readsLinear = TraceComputeReadsLinear( tracedProgram, m_TracedHitLit );
+            if ( readsLinear )
+                block.Texture( SSRTraceShaderParameters::SceneColorTexture, sceneHistory,
+                               RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                     .Sampler( SSRTraceShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
             // The world stage's program keeps no trace list (SSRTrace.glslh).
             if ( list != nullptr && !IsWorldStage( stage ) )
             {
@@ -728,7 +730,7 @@ namespace Desert::Graphic::System
                         pass.Read( world->Hits, RDG::Access::IndirectArgs );
                 }
             }
-            if ( tracedProgram )
+            if ( tracedProgram && readsLinear )
                 DeclareTracedReads( block, *traced );
             DeclareFrontLayerReads( block, frontLayer );
         }
@@ -1090,6 +1092,16 @@ namespace Desert::Graphic::System
         {
             return pipeline.Tracer == GlobalIllumination::Tracer::SoftwareDistanceField &&
                    pipeline.Hits == GlobalIllumination::HitLighting::SurfaceCache;
+        }
+
+        // Whether the compute program DeclareTraceBindings binds (@p tracedProgram: the traced permutation, built
+        // hit-lit when @p hitLit) carries the texel trace and so its linear and traced reads - the scene colour
+        // history, LinearClampSampler and DeclareTracedReads. The one statement of SSR.shader's compute #if
+        // (DESERT_REFLECTIONS_HIT_LIGHTING defines DESERT_SSR_TRACE_NO_LINEAR_READS, Common/SSRTrace.glslh): the
+        // hit-lit compute only classifies, its "HitLighting" ray generation traces.
+        [[nodiscard]] static bool TraceComputeReadsLinear( const bool tracedProgram, const bool hitLit )
+        {
+            return !( tracedProgram && hitLit );
         }
 
     private:
