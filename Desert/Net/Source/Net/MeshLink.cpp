@@ -480,10 +480,10 @@ namespace Desert::Net
 
     std::optional<ConnectionId> MeshEndpoint::PeerConnection( EMeshRole role, std::uint32_t index ) const
     {
-        for ( const auto& [connection, link] : m_Links )
-            if ( link.Up && link.Role == role && link.Index == index )
-                return connection;
-        return std::nullopt;
+        const auto route = m_Routes.find( { role, index } );
+        if ( route == m_Routes.end() )
+            return std::nullopt;
+        return route->second;
     }
 
     void MeshEndpoint::Send( ConnectionId connection, const std::vector<std::byte>& message )
@@ -495,17 +495,17 @@ namespace Desert::Net
 
     void MeshEndpoint::SendToRole( EMeshRole role, const std::vector<std::byte>& message )
     {
-        for ( const auto& [connection, link] : m_Links )
-            if ( link.Up && link.Role == role )
+        for ( const auto& [identity, connection] : m_Routes )
+            if ( identity.first == role )
                 Send( connection, message );
     }
 
     std::vector<std::uint32_t> MeshEndpoint::PeersOfRole( EMeshRole role ) const
     {
         std::vector<std::uint32_t> out;
-        for ( const auto& [connection, link] : m_Links )
-            if ( link.Up && link.Role == role )
-                out.push_back( link.Index );
+        for ( const auto& [identity, connection] : m_Routes )
+            if ( identity.first == role )
+                out.push_back( identity.second );
         return out;
     }
 
@@ -534,6 +534,21 @@ namespace Desert::Net
         return true;
     }
 
+    void MeshEndpoint::Claim( ConnectionId connection )
+    {
+        Link& link                  = m_Links.at( connection );
+        link.Up                     = true;
+        const auto [route, claimed] = m_Routes.try_emplace( { link.Role, link.Index }, connection );
+        if ( !claimed )
+        {
+            m_Log( std::format( "mesh: link {} is a second link as {} {} - link {} stays its route", connection,
+                                MeshRoleName( link.Role ), link.Index, route->second ) );
+            return;
+        }
+        if ( m_Handler.PeerUp )
+            m_Handler.PeerUp( link.Role, link.Index, connection, link.MeshPort );
+    }
+
     void MeshEndpoint::OnConnected( ConnectionId connection, std::string_view address )
     {
         const auto it = m_Links.find( connection );
@@ -547,9 +562,7 @@ namespace Desert::Net
             hello.U32( m_Index );
             hello.U32( m_MeshPort );
             Send( connection, hello.Take() );
-            m_Links[connection].Up = true;
-            if ( m_Handler.PeerUp )
-                m_Handler.PeerUp( link.Role, link.Index, connection, 0 );
+            Claim( connection );
             return;
         }
         if ( m_Role == EMeshRole::Gateway )
@@ -577,8 +590,20 @@ namespace Desert::Net
         m_Links.erase( it );
         m_Log( std::format( "mesh: link {} ({} {}) closed: {} {}", connection, MeshRoleName( link.Role ),
                             link.Index, info.Code, info.Reason ) );
-        if ( link.Up && m_Handler.PeerLost )
+        const auto route = m_Routes.find( { link.Role, link.Index } );
+        if ( !link.Up || route == m_Routes.end() || route->second != connection )
+            return;
+        m_Routes.erase( route );
+        if ( m_Handler.PeerLost )
             m_Handler.PeerLost( link.Role, link.Index, connection );
+        const auto heir = std::ranges::find_if(
+             m_Links, [&link]( const auto& entry )
+             { return entry.second.Up && entry.second.Role == link.Role && entry.second.Index == link.Index; } );
+        if ( heir == m_Links.end() )
+            return;
+        m_Log( std::format( "mesh: link {} takes over the route to {} {}", heir->first, MeshRoleName( link.Role ),
+                            link.Index ) );
+        Claim( heir->first );
     }
 
     void MeshEndpoint::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
@@ -612,12 +637,11 @@ namespace Desert::Net
             }
             if ( !Authenticate( connection, static_cast<EMeshRole>( role ), index ) )
                 return;
-            Link& link = m_Links[connection];
-            link.Up    = true;
-            link.Role  = static_cast<EMeshRole>( role );
-            link.Index = index;
-            if ( m_Handler.PeerUp )
-                m_Handler.PeerUp( link.Role, index, connection, static_cast<std::uint16_t>( port ) );
+            Link& link    = m_Links[connection];
+            link.Role     = static_cast<EMeshRole>( role );
+            link.Index    = index;
+            link.MeshPort = static_cast<std::uint16_t>( port );
+            Claim( connection );
             return;
         }
         if ( m_Handler.Message )

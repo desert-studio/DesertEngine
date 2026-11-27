@@ -5,9 +5,9 @@
 # does NOT resume its held pawn while the live offer goes on to commit once.
 # The hostile peer is DesertNetProbe --mesh-peer (role kind `probe`): it links to the store with sim 1's CA-signed
 # certificate beside the real sim 1 and speaks the handover wire (Net/HandoverWire.hpp) from its console; no engine
-# test hook. The store routes a message for sim 1 to the lowest ConnectionId of its links (GNS issues handles in
-# creation order, so the real sim 1, linked first); the probe logs every handover message it receives, so a refusal
-# sent to the wrong link shows.
+# test hook. The store routes a message for sim 1 to the identity's route - the first link to say Hello as sim 1, the
+# real sim 1 (MeshEndpoint::PeerConnection; GNS connection handles are random, so never the lowest handle); the probe's
+# link is heard but never routed to, and the probe logs every handover message it receives, so a misroute shows.
 # The live offer stays open only while its receiver is silent: sim 2 is STOPped at X < 250, at least 0.55 s before A
 # reaches the margin (the NET-HANDOVER-CONFIRM stop margin), and CONTinued right after the probe fires - well inside
 # the sender's kOfferDeadline (500 ms wall), so the live offer commits instead of being withdrawn. The checks of the

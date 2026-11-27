@@ -18,6 +18,12 @@
 // listen). A sim connects to the store, receives its NetId lease and then reports Ready; the coordinator puts
 // ready sims in the authority map. A gateway connects to the store (the full state, then the change stream) and to
 // every sim in the map, and listens for clients only once the map names a sim it is connected to.
+//
+// A peer is addressed by its identity - the (role, index) its certificate and Hello announce - never by a
+// connection handle: GNS hands out handles at random. The first link to say Hello as an identity is its route; a
+// later link with the same identity is taken in (its messages are heard) but no reply, broadcast or
+// PeerUp/PeerLost goes to it while the route lives. When the route closes, another up link of that identity takes
+// the route over.
 
 #include <Net/HandoverWire.hpp>
 #include <Net/MeshOfOne.hpp>
@@ -35,6 +41,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Desert::Net
@@ -155,8 +162,12 @@ namespace Desert::Net
             EMeshRole     Role     = EMeshRole::Sim;
             std::uint32_t Index    = 0;
             std::string   Address;
+            std::uint16_t MeshPort = 0; // from its Hello (0: an outgoing link, or a peer that listens for none)
         };
+        using Identity = std::pair<EMeshRole, std::uint32_t>;
         bool Authenticate( ConnectionId connection, EMeshRole role, std::uint32_t index );
+        // Marks the link up; it becomes its identity's route unless another up link holds that identity.
+        void Claim( ConnectionId connection );
 
         INetTransport&               m_Transport;
         EMeshRole                    m_Role;
@@ -165,8 +176,9 @@ namespace Desert::Net
         NetLogSink                   m_Log;
         Handler                      m_Handler;
         INetTransportEvents*         m_Clients = nullptr;
-        std::map<ConnectionId, Link> m_Links;
-        std::set<ConnectionId>       m_ClientConnections;
+        std::map<ConnectionId, Link>     m_Links;
+        std::map<Identity, ConnectionId> m_Routes; // identity -> the one up link replies and broadcasts go to
+        std::set<ConnectionId>           m_ClientConnections;
     };
 
     // THE COORDINATOR (§2M.2): the directory of the mesh, the authority map and the step clock. Control plane
