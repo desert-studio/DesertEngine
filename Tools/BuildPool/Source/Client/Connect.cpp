@@ -36,7 +36,13 @@ namespace buildpool::client
             std::filesystem::create_directories( home, error );
             if ( error )
                 return Fail( "cannot create the pool home " + PathText( home ) + ": " + error.message() );
-            return SpawnDetached( { PathText( self.value() ), "daemon", "--home", PathText( home ) },
+            // The daemon outlives the build that starts it: none of one build's variables reaches it.
+            const std::vector<std::pair<std::string, std::string>> environment = {
+                 { kEnvStage, "" },     { kEnvSession, "" }, { kEnvCompiler, "" },
+                 { kEnvRetried, "" },   { kEnvHome, "" },    { kEnvSourceRoot, "" },
+                 { kEnvBuildRoot, "" }, { kEnvClass, "" },   { kEnvRun, "" },
+            };
+            return SpawnDetached( { PathText( self.value() ), "daemon", "--home", PathText( home ) }, environment,
                                   home / kConsoleLog );
         }
 

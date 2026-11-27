@@ -5,11 +5,7 @@
 // the cache again and gets the other session's result as an ordinary hit.
 #include "Client.hpp"
 
-#include "BuildPool/Daemon.hpp"
-
-#include <algorithm>
 #include <charconv>
-#include <cstdio>
 #include <fstream>
 #include <variant>
 
@@ -70,13 +66,6 @@ namespace buildpool::client
             }
         }
 
-        Status WriteStdout( std::span<const std::byte> bytes ) noexcept
-        {
-            if ( std::fwrite( bytes.data(), 1, bytes.size(), stdout ) != bytes.size() )
-                return Fail( "cannot pass the preprocessed text on to stdout" );
-            return Ok();
-        }
-
         // Runs until the job exits or the daemon preempts it: a Heartbeat every `sampleMs` and a look for Preempt
         // right after it. A daemon that is gone does not stop the job; it runs on unaccounted.
         Result<RunEnd> Supervise( DaemonLink& link, ChildJob& job, uint64_t lease, uint32_t sampleMs,
@@ -122,7 +111,8 @@ namespace buildpool::client
                 nextBeat = MonotonicMs() + sampleMs;
                 if ( !link.Connected() )
                     continue;
-                link.Send( Message{ Heartbeat{ job.Usage().currentBytes } } );
+                const JobUsage usage = job.Usage();
+                link.Send( Message{ Heartbeat{ usage.currentBytes, usage.cpuMs } } );
                 for ( ;; )
                 {
                     auto received = link.Receive( 0 );
@@ -171,19 +161,11 @@ namespace buildpool::client
         {
             if ( invocation.preprocessToStdout )
             {
-#if defined( _WIN32 )
-                // Platform.hpp has no binary stdout: the C runtime's text-mode stdout would turn every "\n" of the
-                // passed-on text into "\r\n". The child writes to the inherited stdout itself; this session gets
-                // no Note, so its compile runs without dedup (ccache's MSVC mode preprocesses to a file, /P /Fi).
-                return RunLeased( link, acquire, spec, nullptr );
-#else
                 PreprocessedDigest digest( roots );
                 const int          exitCode = RunLeased( link, acquire, spec, &digest );
-                std::fflush( stdout );
                 if ( exitCode == 0 )
                     link.Send( Message{ Note{ digest.Finish() } } );
                 return exitCode;
-#endif
             }
             const int exitCode = RunLeased( link, acquire, spec, nullptr );
             if ( exitCode != 0 )
@@ -199,12 +181,7 @@ namespace buildpool::client
     int RunLeased( DaemonLink& link, const Acquire& acquire, const ChildSpec& spec,
                    PreprocessedDigest* tee ) noexcept
     {
-        // The client never reads <home>/pool.ini: the daemon is its only reader and writer. The Heartbeat period
-        // is the contract's PoolConfig::sampleMs default; a Heartbeat only refreshes the daemon's memory sample of
-        // the lease, the daemon's own Guard tick runs on the configured value. The configured value reaches the
-        // client once Grant carries it (NEEDS: Grant::sampleMs in Protocol.hpp).
-        const uint32_t kSampleMs   = std::max<uint32_t>( PoolConfig{}.sampleMs, 1 );
-        bool           sendAcquire = true;
+        bool sendAcquire = true;
         for ( ;; )
         {
             auto lease = AwaitLease( link, acquire, sendAcquire );
@@ -225,7 +202,7 @@ namespace buildpool::client
                 return Report( "cannot start " + spec.argv.front() + ": " + job.error().message );
             }
 
-            auto end = Supervise( link, job.value(), grant.lease, kSampleMs, tee );
+            auto end = Supervise( link, job.value(), grant.lease, grant.sampleMs, tee );
             if ( !end )
                 job.value().Terminate();
             const JobUsage usage = job.value().Usage();

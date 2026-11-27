@@ -189,11 +189,7 @@ namespace buildpool
     {
         using namespace client;
 
-        // The daemon a Back starts (it may be the first client to find the daemon gone) inherits the cache
-        // chain's BUILDPOOL_STAGE=back: "daemon --home" is recognised before the stage, it is never a compiler's
-        // first argument.
-        const bool daemonWords = argc >= 2 && std::string_view( argv[1] ) == "daemon";
-        if ( !daemonWords && GetEnv( kEnvStage ).value_or( std::string() ) == "back" )
+        if ( GetEnv( kEnvStage ).value_or( std::string() ) == "back" )
             return RunBack( argc, argv );
 
         if ( argc < 2 )
