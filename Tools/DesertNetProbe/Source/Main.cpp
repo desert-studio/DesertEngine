@@ -841,7 +841,8 @@ namespace
     }
 
     // A HEADLESS PLAYER (NET-1 scenario net1_two_clients; NET-ARCH §9 NET-10's bot client): the same
-    // ReplicationClient the engine's net driver runs, input sent at the 60 Hz client step.
+    // ReplicationClient the engine's net driver runs, input sent at the 60 Hz client step, its view reported like
+    // every client's (ViewReport, eye = its own pawn).
     //   --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir x,y,z
     //         --turn-deg-s R] [--waypoints x,y,z;x,y,z...] [--lag-ms L --loss P]
     //         [--hold-actions MASK --hold-from S --hold-until S]
@@ -1074,10 +1075,17 @@ namespace
                 Log( "[{}] actions {} at {:.2f} s (step {})", name, actions, now, step );
             lastActions = actions;
             client.SendInput( InputStep{ .Move = walking ? dir : NetVec3{}, .Yaw = yaw, .Actions = actions } );
-            // The cells around the SERVER's position of the own pawn, reported when they change.
+            // The cells around the SERVER's position of the own pawn, reported when they change; and the view, as
+            // every client reports it (UE ServerUpdateCamera; ClientNetDriver::ReportView): asked every step,
+            // ReplicationClient::ReportView sends it at the client's cadence. The bot has no camera: its eye is
+            // its own pawn, a circle with no range of its own (the connection's PawnCullRangeCm alone).
             if ( client.OwnPawn() != kInvalidNetId && client.Pawns().contains( client.OwnPawn() ) )
             {
                 const PawnState newest = client.Pawns().at( client.OwnPawn() ).History.Newest();
+                client.ReportView( ViewReport{ .Position       = newest.Position,
+                                               .FacingYawDeg   = yaw * 180.0f / 3.14159265f,
+                                               .SectorAngleDeg = 360.0f,
+                                               .RangeCm        = 0.0f } );
                 std::string     said;
                 if ( auto report = cells->Update( newest.Position, said ) )
                     client.ReportResidency( report->first, report->second );
