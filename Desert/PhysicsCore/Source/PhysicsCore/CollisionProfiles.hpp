@@ -142,9 +142,21 @@ namespace Desert::Physics
         [[nodiscard]] Common::ResultStr<CollisionChannelId> ResolveChannel( std::string_view name ) const;
 
         /// What a body of @p profile does with a query on @p traceChannel (UE GetResponseToChannel): Ignore when
-        /// the profile takes no part in queries. Declared by AI-STATETREE, implemented by CHANNELS.
+        /// the profile takes no part in queries. Any channel may be asked - a trace channel, or an object channel
+        /// for a query made as that kind of body (UE FindTeleportSpot traces by the pawn's own channel).
         [[nodiscard]] CollisionResponse QueryResponse( CollisionProfileId profile,
-                                                       CollisionChannelId traceChannel ) const;
+                                                       CollisionChannelId traceChannel ) const
+        {
+            if ( !IsQueryable( profile ) )
+                return CollisionResponse::Ignore;
+            return m_Profiles[profile].Responses[traceChannel];
+        }
+
+        /// The object channel @p id's bodies are (CollisionProfileConfig::ObjectChannel; UE GetObjectType).
+        [[nodiscard]] CollisionChannelId ObjectChannelOf( CollisionProfileId id ) const
+        {
+            return m_Profiles[id].Channel;
+        }
 
         /// A ray cast may find a body of this profile.
         [[nodiscard]] bool IsQueryable( CollisionProfileId id ) const;

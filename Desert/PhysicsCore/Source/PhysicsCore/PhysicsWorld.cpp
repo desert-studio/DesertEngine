@@ -226,6 +226,24 @@ namespace Desert::Physics
             const CollisionProfiles& m_Profiles;
         };
 
+        // What a channel ray may find: the profiles that BLOCK its channel (UE LineTraceSingleByChannel).
+        class ChannelBlockLayerFilter final : public JPH::ObjectLayerFilter
+        {
+        public:
+            ChannelBlockLayerFilter( const CollisionProfiles& profiles, CollisionChannelId channel )
+                 : m_Profiles( profiles ), m_Channel( channel )
+            {
+            }
+            [[nodiscard]] bool ShouldCollide( JPH::ObjectLayer inLayer ) const override
+            {
+                return m_Profiles.QueryResponse( ProfileOf( inLayer ), m_Channel ) == CollisionResponse::Block;
+            }
+
+        private:
+            const CollisionProfiles& m_Profiles;
+            CollisionChannelId       m_Channel;
+        };
+
         Common::BoolResultStr CheckProfile( const CollisionProfiles& profiles, CollisionProfileId profile,
                                             std::string_view what )
         {
@@ -254,6 +272,21 @@ namespace Desert::Physics
         inline JPH::Quat ToJolt( const glm::quat& q ) { return JPH::Quat( q.x, q.y, q.z, q.w ); }
         inline glm::vec3 ToGlm( JPH::RVec3Arg v ) { return glm::vec3( v.GetX(), v.GetY(), v.GetZ() ); }
         inline glm::quat ToGlm( JPH::QuatArg q ) { return glm::quat( q.GetW(), q.GetX(), q.GetY(), q.GetZ() ); }
+        // A narrow-phase ray result as a RayHit: the body, the distance along the ray, the point and its normal.
+        [[nodiscard]] RayHit RayHitOf( const JPH::PhysicsSystem& system, const JPH::RRayCast& ray,
+                                       const JPH::RayCastResult& result, float maxDistance )
+        {
+            RayHit hit;
+            hit.Body               = result.mBodyID.GetIndexAndSequenceNumber();
+            hit.Distance           = result.mFraction * maxDistance;
+            const JPH::RVec3 point = ray.GetPointOnRay( result.mFraction );
+            hit.Point              = ToGlm( point );
+            JPH::BodyLockRead lock( system.GetBodyLockInterface(), result.mBodyID );
+            if ( lock.Succeeded() )
+                hit.Normal = ToGlm(
+                     JPH::RVec3( lock.GetBody().GetWorldSpaceSurfaceNormal( result.mSubShapeID2, point ) ) );
+            return hit;
+        }
         // Encodable height range beyond the grid's own, each side, at creation and at every rebuild. Jolt
         // quantises the whole range to 16 bits, so the headroom costs precision — (range + 2·headroom) /
         // 65534 per step, 0.05 cm on a 1000 cm hill — and buys sculpting room: an edit that stays inside
@@ -1665,17 +1698,22 @@ namespace Desert::Physics
         const NotCharacterBodyFilter notCharacter;
         if ( !m_Impl->System.GetNarrowPhaseQuery().CastRay( ray, result, {}, queryable, notCharacter ) )
             return std::nullopt;
+        return RayHitOf( m_Impl->System, ray, result, maxDistance );
+    }
 
-        RayHit hit;
-        hit.Body               = result.mBodyID.GetIndexAndSequenceNumber();
-        hit.Distance           = result.mFraction * maxDistance;
-        const JPH::RVec3 point = ray.GetPointOnRay( result.mFraction );
-        hit.Point              = ToGlm( point );
-        JPH::BodyLockRead lock( m_Impl->System.GetBodyLockInterface(), result.mBodyID );
-        if ( lock.Succeeded() )
-            hit.Normal =
-                 ToGlm( JPH::RVec3( lock.GetBody().GetWorldSpaceSurfaceNormal( result.mSubShapeID2, point ) ) );
-        return hit;
+    std::optional<RayHit> PhysicsWorld::CastRay( const glm::vec3& origin, const glm::vec3& direction,
+                                                 float maxDistance, CollisionChannelId traceChannel ) const
+    {
+        if ( !m_Impl || !( maxDistance > 0.0f ) || glm::length( direction ) == 0.0f )
+            return std::nullopt;
+        const glm::vec3     dir = glm::normalize( direction );
+        const JPH::RRayCast ray( JPH::RVec3( origin.x, origin.y, origin.z ), ToJolt( dir * maxDistance ) );
+        JPH::RayCastResult  result;
+        const ChannelBlockLayerFilter blocking( m_Impl->Profiles, traceChannel );
+        const NotCharacterBodyFilter  notCharacter;
+        if ( !m_Impl->System.GetNarrowPhaseQuery().CastRay( ray, result, {}, blocking, notCharacter ) )
+            return std::nullopt;
+        return RayHitOf( m_Impl->System, ray, result, maxDistance );
     }
 
     float PhysicsWorld::GetGravity() const
@@ -2052,6 +2090,13 @@ namespace Desert::Physics
         // Every character shape is a CapsuleShape: CreateCharacter and SetCharacterCapsule make no other.
         const auto* capsule = static_cast<const JPH::CapsuleShape*>( m_Impl->Characters[handle]->GetShape() );
         return { capsule->GetRadius(), capsule->GetHalfHeightOfCylinder() };
+    }
+
+    CollisionProfileId PhysicsWorld::GetCharacterProfile( CharacterHandle handle ) const
+    {
+        if ( !m_Impl || handle >= m_Impl->Characters.size() || !m_Impl->Characters[handle] )
+            return kNoProfile;
+        return m_Impl->CharacterProfiles[handle];
     }
 
     void PhysicsWorld::TeleportCharacter( CharacterHandle handle, const glm::vec3& position )

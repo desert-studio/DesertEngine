@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <format>
 #include <numbers>
 #include <optional>
+#include <string>
 
 namespace Desert::Gameplay
 {
@@ -48,42 +50,66 @@ namespace Desert::Gameplay
             return std::nullopt;
         }
 
-        // One probe's answer. A free point with a floor below keeps its height unless that floor is within the
-        // step height (snapped onto it). Every other point is lifted onto the first floor a DOWNWARD ray from
-        // LiftCm above finds: a capsule encroaching the world, and a capsule wholly under a heightfield - which
-        // overlaps none of its triangles (Fits says free) and has no floor below it, since Jolt finds a
-        // heightfield from above only (an upward ray from under it would miss it too).
+        // One probe's answer, the cases in order (UE FindTeleportSpot / ComponentEncroachesBlockingGeometry: the
+        // traces go by the pawn's channel, an unresolved spot is refused - never pushed onto whatever is above).
+        //  Under: a DOWNWARD ray from LiftCm above finds a floor above the point and an UPWARD ray from the point
+        //    to it misses - the point is under a one-sided surface (a heightfield or a mesh floor seen from below,
+        //    whose faces a ray from under them passes): the feet are lifted onto it. A roof or a ceiling above is
+        //    found by the upward ray, so the pawn under it is not put on it.
+        //  Otherwise the floor straight below within DropCm: a free point keeps its height unless that floor is
+        //    within the step height (snapped onto it); an encroached point (feet in the floor) is set onto a floor
+        //    within the step height, else it is blocked. No floor below a free point: refused.
+        enum class EProbed : std::uint8_t
+        {
+            Under,     // lifted onto the one-sided surface above the point
+            Snapped,   // a free point's feet set onto the floor within the step height below it
+            Falling,   // a free point kept, its floor farther below
+            Encroached // a blocked point's feet set onto the floor within the step height of it
+        };
         struct Probed
         {
-            Stand Where;
-            bool  Lifted       = false; // the feet stand on the floor found from above the point
-            float FloorBelowCm = 0.0f;  // the point's height above the floor found (negative: the floor is above)
+            Stand   Where;
+            EProbed Case         = EProbed::Snapped;
+            float   FloorBelowCm = 0.0f; // the point's height above the floor used (negative: the floor is above)
+        };
+        // A probe either stands or says why not.
+        struct ProbeResult
+        {
+            std::optional<Probed> Stood;
+            std::string           Why;
         };
 
-        [[nodiscard]] std::optional<Probed> Probe( const NetVec3& point, const PawnCapsule& capsule,
-                                                   const PawnMoveSettings& settings, const IPawnMoveWorld& world,
-                                                   const TeleportSearch& search )
+        [[nodiscard]] ProbeResult Probe( const NetVec3& point, const PawnCapsule& capsule,
+                                         const PawnMoveSettings& settings, const IPawnMoveWorld& world,
+                                         const TeleportSearch& search )
         {
-            if ( world.Fits( point, capsule ) )
+            if ( const std::optional<float> above =
+                      world.FloorBelow( Raised( point, search.LiftCm ), search.LiftCm );
+                 above && *above > point.Y )
             {
-                if ( const std::optional<float> floor =
-                          world.FloorBelow( Raised( point, search.SkinCm ), search.SkinCm + search.DropCm ) )
+                if ( !world.CeilingAbove( point, *above - point.Y ) )
                 {
-                    const float below = point.Y - *floor;
-                    if ( below <= settings.MaxStepHeight )
-                        if ( const std::optional<Stand> stand = StandOn( point, *floor, capsule, world, search ) )
-                            return Probed{ *stand, false, below };
-                    return Probed{ Stand{ point, false }, false, below };
+                    if ( const std::optional<Stand> stand = StandOn( point, *above, capsule, world, search ) )
+                        return { Probed{ *stand, EProbed::Under, point.Y - *above }, {} };
+                    return { std::nullopt, std::format( "under the ground {:.0f} cm below its surface, and the "
+                                                        "capsule does not fit on it",
+                                                        *above - point.Y ) };
                 }
             }
+            const bool                 fits = world.Fits( point, capsule );
             const std::optional<float> floor =
-                 world.FloorBelow( Raised( point, search.LiftCm ), search.LiftCm + search.DropCm );
+                 world.FloorBelow( Raised( point, search.SkinCm ), search.SkinCm + search.DropCm );
             if ( !floor )
-                return std::nullopt;
-            const std::optional<Stand> stand = StandOn( point, *floor, capsule, world, search );
-            if ( !stand )
-                return std::nullopt;
-            return Probed{ *stand, true, point.Y - *floor };
+                return { std::nullopt,
+                         fits ? std::format( "free, with no floor within {:.0f} cm below it", search.DropCm )
+                              : std::format( "blocked, with no floor within {:.0f} cm below it", search.DropCm ) };
+            const float below = point.Y - *floor;
+            if ( below <= settings.MaxStepHeight )
+                if ( const std::optional<Stand> stand = StandOn( point, *floor, capsule, world, search ) )
+                    return { Probed{ *stand, fits ? EProbed::Snapped : EProbed::Encroached, below }, {} };
+            if ( fits )
+                return { Probed{ Stand{ point, false }, EProbed::Falling, below }, {} };
+            return { std::nullopt, std::format( "blocked, its floor {:.0f} cm below it", below ) };
         }
     } // namespace
 
@@ -108,18 +134,28 @@ namespace Desert::Gameplay
             return Common::MakeSuccess( std::move( spot ) );
         };
 
-        if ( const std::optional<Probed> probed = Probe( feet, capsule, settings, world, search ) )
+        const ProbeResult centre = Probe( feet, capsule, settings, world, search );
+        if ( const std::optional<Probed>& probed = centre.Stood )
         {
             const float moved = DistanceCm( probed->Where.Feet, feet );
-            if ( probed->Lifted )
-                return landed( *probed, ETeleportSpot::Lifted,
-                               std::format( "capsule in the ground, lifted {:.0f} cm onto the floor", moved ) );
-            if ( probed->Where.Grounded )
-                return landed( *probed, ETeleportSpot::Free,
-                               std::format( "point free, feet set {:.0f} cm onto the floor below it", moved ) );
-            return landed( *probed, ETeleportSpot::Falling,
-                           std::format( "point free, floor {:.0f} cm below it: the pawn falls to it",
-                                        probed->FloorBelowCm ) );
+            const char* way   = probed->Where.Feet.Y >= feet.Y ? "lifted" : "lowered";
+            switch ( probed->Case )
+            {
+                case EProbed::Under:
+                    return landed(
+                         *probed, ETeleportSpot::Lifted,
+                         std::format( "capsule under the ground, lifted {:.0f} cm onto its surface", moved ) );
+                case EProbed::Encroached:
+                    return landed( *probed, ETeleportSpot::Lifted,
+                                   std::format( "capsule in the floor, {} {:.0f} cm onto it", way, moved ) );
+                case EProbed::Snapped:
+                    return landed( *probed, ETeleportSpot::Free,
+                                   std::format( "point free, feet {} {:.0f} cm onto the floor", way, moved ) );
+                case EProbed::Falling:
+                    return landed( *probed, ETeleportSpot::Falling,
+                                   std::format( "point free, floor {:.0f} cm below it: the pawn falls to it",
+                                                probed->FloorBelowCm ) );
+            }
         }
 
         // UE FindTeleportSpot's lateral tries: the ring at two radii around the point, at its height.
@@ -130,18 +166,16 @@ namespace Desert::Gameplay
                  2.0f * std::numbers::pi_v<float> * static_cast<float>( i ) / static_cast<float>( ring );
             const NetVec3 point{ feet.X + ringCm * std::cos( angle ), feet.Y,
                                  feet.Z + ringCm * std::sin( angle ) };
-            if ( const std::optional<Probed> probed = Probe( point, capsule, settings, world, search ) )
+            if ( const std::optional<Probed> probed = Probe( point, capsule, settings, world, search ).Stood )
                 return landed( *probed, ETeleportSpot::Shifted,
-                               std::format( "point blocked with no floor to lift onto, shifted {:.0f} cm to ring "
-                                            "probe {} of {}{}",
+                               std::format( "point {}; shifted {:.0f} cm to ring probe {} of {}{}", centre.Why,
                                             DistanceCm( probed->Where.Feet, feet ), i + 1, ring,
                                             probed->Where.Grounded ? "" : ", falling to its floor" ) );
         }
 
         return Common::MakeError<TeleportSpot>(
-             std::format( "no spot for the pawn at {}: no free capsule with a floor within {:.0f} cm below or "
-                          "{:.0f} cm above it; {} probe(s)",
-                          PointText( feet ), search.DropCm, search.LiftCm, 1 + ring ) );
+             std::format( "no spot for the pawn at {}: the point {}; none of {} ring probe(s) stood either",
+                          PointText( feet ), centre.Why, ring ) );
     }
 
     Net::PlacedPawn PawnTeleporter::Place( const PawnMoveState& from, const NetVec3& feet )

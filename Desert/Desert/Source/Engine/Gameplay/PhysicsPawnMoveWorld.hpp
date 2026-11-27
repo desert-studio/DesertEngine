@@ -31,7 +31,8 @@ namespace Desert::Gameplay
     {
     public:
         // The probe capsule in @p world, sized and profiled as the pawn (UE ACharacter's CapsuleComponent, the
-        // "Pawn" profile), moved against the world alone; refused when the world's register has no such profile.
+        // "Pawn" profile), moved against the world alone; refused, naming the profile, when the world's register
+        // has no such profile - its object channel is the one the floor ray traces by.
         [[nodiscard]] static Common::ResultStr<std::unique_ptr<PhysicsPawnMoveWorld>>
         Create( Physics::PhysicsWorld& world, const PawnMoveSettings& settings )
         {
@@ -46,17 +47,22 @@ namespace Desert::Gameplay
             auto character  = world.CreateCharacter( desc );
             if ( !character )
                 return Common::MakeError<Result>( std::format( "pawn move world: {}", character.GetError() ) );
-            return Common::MakeSuccess(
-                 Result( new PhysicsPawnMoveWorld( world, character.GetValue(), CapsuleOf( settings, false ),
-                                                   Physics::ECharacterContacts::WorldOnly, true ) ) );
+            const Physics::CollisionChannelId floorChannel =
+                 world.GetCollisionProfiles().ObjectChannelOf( profile.GetValue() );
+            return Common::MakeSuccess( Result(
+                 new PhysicsPawnMoveWorld( world, character.GetValue(), CapsuleOf( settings, false ), floorChannel,
+                                           Physics::ECharacterContacts::WorldOnly, true ) ) );
         }
         // Standalone Play: the pawn's OWN capsule in the scene's world (UE: the CharacterMovementComponent's
         // UpdatedComponent), in the shape the world holds for it (standing or crouched - the world's record is
         // the one; a view made every step keeps no copy of it). It moves where it stands, against the world and
-        // the other characters, and is not removed with this view.
+        // the other characters, and is not removed with this view. @p character is a live character of @p world:
+        // its profile (CreateCharacter refused none) gives the floor ray's channel.
         PhysicsPawnMoveWorld( Physics::PhysicsWorld& world, Physics::CharacterHandle character )
-             : PhysicsPawnMoveWorld( world, character, CapsuleIn( world, character ),
-                                     Physics::ECharacterContacts::WithCharacters, false )
+             : PhysicsPawnMoveWorld(
+                    world, character, CapsuleIn( world, character ),
+                    world.GetCollisionProfiles().ObjectChannelOf( world.GetCharacterProfile( character ) ),
+                    Physics::ECharacterContacts::WithCharacters, false )
         {
         }
         ~PhysicsPawnMoveWorld() override
@@ -117,23 +123,37 @@ namespace Desert::Gameplay
                                              std::max( capsule.HalfHeight - kInset, 0.01f ) );
         }
 
-        // The first queryable body straight below @p start (characters never: the world's query skips their
-        // inner bodies, as Fits does) - the same bodies the probe stands on. The hit's Y is the floor's.
+        // The first body straight below @p start that BLOCKS the pawn's object channel (UE FindTeleportSpot
+        // traces by the pawn's channel): triggers and volumes the pawn overlaps are passed through, characters'
+        // inner bodies are never found - the bodies the capsule stands on. Fits sees more: any queryable body,
+        // an overlapped volume included, makes the capsule not fit. The hit's Y is the floor's.
         std::optional<float> FloorBelow( const NetVec3& start, float downCm ) const override
         {
-            const std::optional<Physics::RayHit> hit =
-                 m_World.CastRay( { start.X, start.Y, start.Z }, { 0.0f, -1.0f, 0.0f }, downCm );
-            if ( !hit )
-                return std::nullopt;
-            return hit->Point.y;
+            return CastFloorRay( start, { 0.0f, -1.0f, 0.0f }, downCm );
+        }
+
+        // The same channel ray straight up from @p start: the first blocking surface above within @p upCm.
+        std::optional<float> CeilingAbove( const NetVec3& start, float upCm ) const override
+        {
+            return CastFloorRay( start, { 0.0f, 1.0f, 0.0f }, upCm );
         }
 
     private:
         PhysicsPawnMoveWorld( Physics::PhysicsWorld& world, Physics::CharacterHandle character,
-                              const PawnCapsule& capsule, Physics::ECharacterContacts contacts, bool owned )
-             : m_World( world ), m_Character( character ), m_Capsule( capsule ), m_Contacts( contacts ),
-               m_Owned( owned )
+                              const PawnCapsule& capsule, Physics::CollisionChannelId floorChannel,
+                              Physics::ECharacterContacts contacts, bool owned )
+             : m_World( world ), m_Character( character ), m_Capsule( capsule ), m_FloorChannel( floorChannel ),
+               m_Contacts( contacts ), m_Owned( owned )
         {
+        }
+        [[nodiscard]] std::optional<float> CastFloorRay( const NetVec3& start, const glm::vec3& direction,
+                                                         float distanceCm ) const
+        {
+            const std::optional<Physics::RayHit> hit =
+                 m_World.CastRay( { start.X, start.Y, start.Z }, direction, distanceCm, m_FloorChannel );
+            if ( !hit )
+                return std::nullopt;
+            return hit->Point.y;
         }
         [[nodiscard]] static PawnCapsule CapsuleIn( const Physics::PhysicsWorld& world,
                                                     Physics::CharacterHandle     character )
@@ -158,6 +178,7 @@ namespace Desert::Gameplay
         Physics::PhysicsWorld&      m_World;
         Physics::CharacterHandle    m_Character;
         PawnCapsule                 m_Capsule;
+        Physics::CollisionChannelId m_FloorChannel;
         Physics::ECharacterContacts m_Contacts;
         bool                        m_Owned;
     };

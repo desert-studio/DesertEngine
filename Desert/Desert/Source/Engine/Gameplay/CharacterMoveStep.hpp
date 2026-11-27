@@ -134,7 +134,10 @@ namespace Desert::Gameplay
     // and Outcome::Capsule says which capsule moved. Fits: would @p capsule stand at @p feet without overlapping
     // the world (UE: the stand-up test of UnCrouch)? FloorBelow: the Y of the first surface the pawn stands on
     // straight below @p start within @p downCm, nullopt for none (UE FindFloor's line trace; the teleport spot's
-    // floor, FindTeleportSpot). A downward ray: a heightfield is found from above only.
+    // floor, FindTeleportSpot), by the pawn's channel: a trigger or volume it overlaps is no floor. A downward
+    // ray: a heightfield is found from above only. CeilingAbove: the same ray straight up, the Y of the first
+    // blocking surface within @p upCm - it misses a heightfield seen from below, which is how a point under the
+    // terrain is told from one under a roof (FindTeleportSpot).
     class IPawnMoveWorld
     {
     public:
@@ -151,6 +154,7 @@ namespace Desert::Gameplay
                                             float dtSeconds )                                            = 0;
         [[nodiscard]] virtual bool    Fits( const NetVec3& feet, const PawnCapsule& capsule ) const      = 0;
         [[nodiscard]] virtual std::optional<float> FloorBelow( const NetVec3& start, float downCm ) const = 0;
+        [[nodiscard]] virtual std::optional<float> CeilingAbove( const NetVec3& start, float upCm ) const = 0;
         // The world's gravity (cm/s^2, down; UE AWorldSettings::GetGravityZ): the level's Scene Settings, the same
         // value on the server (its cooked world), the prediction and standalone Play (the scene's physics world).
         [[nodiscard]] virtual float Gravity() const = 0;
