@@ -55,14 +55,14 @@ namespace Desert::Gameplay
     [[nodiscard]] Common::ResultStr<TeleportSpot> FindTeleportSpot( const PawnMoveState& from, const NetVec3& feet,
                                                                     const PawnMovement&    movement,
                                                                     IPawnMoveWorld& world,
-                                                                    const TeleportSearch& search = {} );
+                                                                    const TeleportSearch& search );
 
     // THE GAME'S PLACER, as the server's simulation calls it (Net::IPawnPlacer): FindTeleportSpot over the pawn
     // prefab's movement and the server's collision world - the same two CharacterPawnMover steps with.
     class PawnTeleporter final : public Net::IPawnPlacer
     {
     public:
-        PawnTeleporter( PawnMovement movement, IPawnMoveWorld& world, TeleportSearch search = {} )
+        PawnTeleporter( PawnMovement movement, IPawnMoveWorld& world, TeleportSearch search )
              : m_Movement( std::move( movement ) ), m_World( world ), m_Search( search )
         {
         }

@@ -127,11 +127,14 @@ namespace Desert::Gameplay
     // face - the Underside of a ceiling or a roof - rather than its back face, the top of a body the start is
     // under or inside. Body: an opaque id of the body hit, the same for every face of one body (the walk's ray
     // parity per body: a back face means "inside" only for a body whose front face the walk has not met).
+    // kNoSurfaceBody: the Body of a SurfaceAbove no hit has filled - the physics world's invalid body
+    // (Physics::kInvalidBody), so an unfilled answer never poses as a real body.
+    inline constexpr std::uint32_t kNoSurfaceBody = 0xFFFFFFFFu;
     struct SurfaceAbove
     {
         float         Y         = 0.0f;
         bool          Underside = false;
-        std::uint32_t Body      = 0;
+        std::uint32_t Body      = kNoSurfaceBody;
     };
 
     // The collision world one move asks (UE SafeMoveUpdatedComponent + slide + FindFloor): where @p capsule whose
