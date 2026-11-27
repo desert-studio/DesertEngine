@@ -425,9 +425,9 @@ namespace Desert::Net
                                     held.Id, player ) );
                 return;
             }
-            // THE CATCH-UP IS CAPPED as the Offer's check is (kMaxCatchUpSteps): after a long doubt the steps past
-            // the cap are not simulated in one step - the pawn goes on from its frozen state, its queued inputs
-            // applied by the steps that follow.
+            // THE CATCH-UP IS CAPPED as the Offer's check is (kMaxCatchUpSteps): nothing is simulated inside
+            // Commit - the pawn goes on from its frozen state and the steps that follow drain its queued inputs,
+            // at most PawnSimulation's per-step cap each.
             const std::uint32_t behind   = StepsSince( step, held.Step );
             const std::uint32_t catchUp  = std::min( behind, Handover::kMaxCatchUpSteps );
             const bool          wasProxy = replica.IsProxy( held.Id );
