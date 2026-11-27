@@ -18,10 +18,10 @@
 //     max(kReserveSeconds, kReserveShare * elapsed), so the number never claims the end while work runs.
 //     E starts at R' and follows it: dE/dt = -(1 + (E - R') / kEtaCatchUpSeconds), solved over the sample gap
 //     in closed form on the assumption that R' falls in real time across it (one second per second), so an
-//     over-estimate decays in a few kEtaCatchUpSeconds whatever its size and a long gap does not jump. From
-//     above E falls at least at kEtaMinRate (a whole-second ETA changes at least every 4 s) and never below
-//     R'; from below (the plan rose) the same form carries it up to R'. E >= R' >= kReserveSeconds, so 0:01
-//     and 0:00 are never shown while work remains.
+//     over-estimate decays in a few kEtaCatchUpSeconds whatever its size and a long gap does not jump. E
+//     falls at least at kEtaMinRate (a whole-second ETA changes at least every 4 s) and never below R': when
+//     the plan rises, E rises with it. E >= R' >= kReserveSeconds while a phase runs, so 0:01 and 0:00 are
+//     never shown while work remains.
 //     OVERRUN: when the run outlives its plan (R = 0 and the running phase past its expected time) before
 //     Finish, EtaKnown turns false for the rest of the start (the splash says "longer than expected" in place
 //     of the number); it is never decided from the smoothed E.
