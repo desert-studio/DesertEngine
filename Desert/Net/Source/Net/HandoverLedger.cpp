@@ -223,10 +223,10 @@ namespace Desert::Net::Handover
                 break;
             default: // Withdraw
                 effects.Log.push_back( std::format( "store: {} of pawn net id {} withdrawn by sim {} at step {} - "
-                                                    "the record stays (sim {}, epoch {}); sim {} drops its copy",
+                                                    "the record stays (sim {}, epoch {}); sim {} drops its copy, the sender resumes",
                                                     NameOf( h.Key ), id, sim, verdict.Step, h.Key.From, h.Epoch,
                                                     h.To ) );
-                Refuse( effects, ended, false, true,
+                Refuse( effects, ended, true, true,
                         Refusal{ ERefusal::Withdrawn, std::format( "sim {} withdrew {} at its step {}", sim,
                                                                    NameOf( h.Key ), verdict.Step ) } );
                 break;
