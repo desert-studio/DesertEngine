@@ -27,6 +27,9 @@ Line format (one step per line in order, `#` comments; a step's REGEX is the res
                                               role starts first); all, sim and gateway get the world. The client port
                                               (`--port --audience --issuer-key`, the link flags) is the role clients
                                               connect to: all or gateway, one per run.
+  Роль|Role <name> probe <args…>              a HOSTILE MESH PEER: DesertNetProbe --mesh-peer with the run's mesh CA
+                                              and `--store` (the store role's mesh address; the store role starts
+                                              first); its console (stdin) takes «Консоль» lines as a server's does.
   Ждать|Wait <role> <seconds> [<N>x] <REGEX>  the role writes a line matching REGEX (N of them) after the previous
                                               event; refused after <seconds> or when the role has exited. An event is
                                               a Ждать match or a Консоль line: lines written before it never satisfy a
@@ -122,6 +125,7 @@ class Run:
         self.port = None  # the client port: the one `--role all` or gateway clients connect to
         self.coordinator = None  # "127.0.0.1:<mesh port>" once the coordinator role has started
         self.meshca = None
+        self.store = None  # "127.0.0.1:<mesh port>" once the store role has started (a probe role's --store)
         self.roles, self.vars, self.accounts = {}, {}, 0
         scratch = os.environ.get("DESERT_SCRATCH") or os.path.join(os.path.dirname(tree), "DesertEngine-scratch")
         framesdir = os.path.join(scratch, self.code, "frames")
@@ -245,6 +249,8 @@ class Run:
                 if self.coordinator:
                     raise Fail("one coordinator role per run")
                 self.coordinator = f"127.0.0.1:{port}"
+            if mesh == "store":
+                self.store = f"127.0.0.1:{port}"
         if mesh in ("store", "sim", "gateway"):
             if not self.coordinator:
                 raise Fail(f"server role {name} (--role {mesh}) before the coordinator role")
@@ -259,8 +265,9 @@ class Run:
 
     def start_role(self, rest):
         words = shlex.split(rest)
-        if len(words) < 2 or words[1] not in ("server", "editor", "bot"):
-            raise Fail("«Роль» takes <name> server|editor|bot [account=N] [lag=MS] [loss=PCT] [jitter=MS] <args…>")
+        if len(words) < 2 or words[1] not in ("server", "editor", "bot", "probe"):
+            raise Fail("«Роль» takes <name> server|editor|bot|probe [account=N] [lag=MS] [loss=PCT] [jitter=MS] "
+                       "<args…>")
         name, kind, words = words[0], words[1], words[2:]
         if name in self.roles:
             raise Fail(f"role {name} is already started")
@@ -279,6 +286,14 @@ class Run:
             link = [("--lag-ms", "lag"), ("--jitter-ms", "jitter"), ("--loss", "loss")]
             if not serves_clients and any(key in opts for _, key in link):
                 raise Fail(f"lag/loss/jitter are the client port's link: role {name} has none")
+        elif kind == "probe":
+            if not self.store:
+                raise Fail(f"probe role {name} before the store role (--role store)")
+            if opts:
+                raise Fail(f"probe role {name}: a mesh peer has no account or client link")
+            argv = [self.tool("DesertNetProbe"), "--mesh-peer", "--mesh-ca", self.mesh_ca(), "--store", self.store,
+                    *words]
+            link = []
         else:
             if not self.port:
                 raise Fail(f"client role {name} before the server role that serves clients (all or gateway)")
@@ -304,7 +319,7 @@ class Run:
                 argv += [flag, opts[key]]
         log = open(logpath, "w", encoding="utf-8", errors="replace")
         proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT,
-                                stdin=subprocess.PIPE if kind == "server" else subprocess.DEVNULL,
+                                stdin=subprocess.PIPE if kind in ("server", "probe") else subprocess.DEVNULL,
                                 text=True, start_new_session=not WIN)
         log.close()
         self.roles[name] = Role(name, kind, proc, logpath, seqdir)
@@ -346,14 +361,14 @@ class Run:
     def console(self, rest):
         name, _, line = rest.strip().partition(" ")
         r = self.role(name)
-        if r.kind != "server":
-            raise Fail(f"«Консоль» writes to the server's console, {name} is a {r.kind}")
+        if r.kind not in ("server", "probe"):
+            raise Fail(f"«Консоль» writes to a server's or a probe's console, {name} is a {r.kind}")
 
         def value(m):
             if m.group(1) not in self.vars or int(m.group(2)) > len(self.vars[m.group(1)]):
                 raise Fail(f"{m.group(0)}: nothing read into {m.group(1)}")
             v = self.vars[m.group(1)][int(m.group(2)) - 1] + float(m.group(3) or 0)
-            return f"{v:g}"
+            return str(int(v)) if v == int(v) else f"{v:g}"  # a net id or a step >= 1e6 stays an integer
         text = PLACEHOLDER.sub(value, line.strip())
         self.event()
         r.proc.stdin.write(text + "\n")
