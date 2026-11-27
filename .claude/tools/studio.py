@@ -274,7 +274,7 @@ def cmd_accept(args):
             _, dirty = P.git(tree, "status", "--porcelain", "--untracked-files=no")
             out.append(f"tree {os.path.basename(tree)}: {br} @ {when}, unpushed {'not-on-origin' if rc else unp}, "
                        f"dirty {len([l for l in dirty.splitlines() if l.strip()])}")
-        rem = os.path.join(tree, "REMAINDER.md")
+        rem = tree + "/REMAINDER.md"
         if os.path.isfile(rem):  # SPEND-2X: the run hit limits.FEATURE_CALLS / CONTEXT_MAX; the rest goes to a fresh, small context
             outcome = "wip"
             out.append(f"REMAINDER.md в {tree}: свежий агент с тем же брифом, остаток — первым чтением. Запуск:")
