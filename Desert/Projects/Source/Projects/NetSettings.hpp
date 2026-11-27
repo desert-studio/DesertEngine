@@ -44,14 +44,22 @@ namespace Desert::Project
         // Bytes of pawn state per second per connection the gateway writes into snapshots; due pawns beyond it wait
         // for the next snapshot, most overdue and nearest first (NET-ARCH §3.6; Iris prioritisation).
         std::uint32_t BudgetBytesPerSecond = 65536;
+        // THE CLIENT'S UPLINK AT REST (NET-SEND-THROTTLE; UE
+        // CharacterMovementComponent::GetClientNetSendDeltaTime, ClientNetSendMoveDeltaTimeStationary): while its
+        // own pawn stands (grounded, not moving) and its input does not change, a client sends its Input message
+        // every this many of its steps (60 steps = 1 s) instead of every frame. Nothing is skipped - the next
+        // message carries every unacked step - and any input change, or a pawn that moves, sends at once. Read by
+        // every client (Engine/Net/ClientNetDriver.cpp).
+        std::uint32_t StationaryInputEverySteps = 30;
     };
 
-    // Nullopt when usable; otherwise the one reason. THE one rule of the "Net" section: the panel, the save and the
-    // server's start (which refuses with exit code 7) all call this, and nothing restates it. At least one and at
-    // most 255 bands; ToCm ascending; every EverySteps and DormantEverySteps in 1..255 (one byte on the wire), a
-    // multiple of Bands.front().EverySteps (snapshots leave only on that cadence) and non-decreasing across the
+    // Nullopt when usable; otherwise the one reason. THE one rule of the "Net" section: the panel, the save and
+    // the server's start (which refuses with exit code 7) all call this, and nothing restates it. At least one and
+    // at most 255 bands; ToCm ascending; every EverySteps and DormantEverySteps in 1..255 (one byte on the wire),
+    // a multiple of Bands.front().EverySteps (snapshots leave only on that cadence) and non-decreasing across the
     // bands, DormantEverySteps >= the last band's; 0 < PawnCullRangeCm <= MaxViewRangeCm; BudgetBytesPerSecond >=
-    // 1024. Implemented in NetSettings.cpp.
+    // 1024; StationaryInputEverySteps in 1..60 (a held second of steps stays under half of the client's unacked
+    // ring, Net/Replication.hpp kMaxUnackedInputSteps). Implemented in NetSettings.cpp.
     [[nodiscard]] std::optional<std::string> ValidateNetSettings( const NetSettings& settings );
 
     // What this host replicates with: the project's section with this platform's layer over it (EngineConfig.hpp).

@@ -26,6 +26,7 @@
 
 #include <Net/NetTransport.hpp>
 #include <Net/MovePrediction.hpp>
+#include <Projects/NetSettings.hpp>
 #include <Engine/Gameplay/PawnPrefabMovement.hpp>
 #include <Engine/Gameplay/PhysicsPawnMoveWorld.hpp>
 #include <Engine/Gameplay/ScriptedPawnInput.hpp>
@@ -120,6 +121,9 @@ namespace Desert::Core
         // speed change, the reading stays in 0.98-1.02).
         constexpr double kQueueTarget = 1.0, kQueueWindowSeconds = 1.0, kDilationPerStep = 0.01,
                          kMaxDilation = 0.02;
+        // The own pawn stands for the uplink's stationary rate below this speed (cm/s): a held message only delays
+        // steps, never drops one, so a creep under it cannot cause a correction.
+        constexpr float kAtRestSpeedCm = 1.0f;
 
         std::optional<NetPredictionStats>& StatsSlot()
         {
@@ -312,9 +316,18 @@ namespace Desert::Core
                 if ( Net::IPawnMover* mover = PredictionMover( scene ) )
                     predictor.Predict( *sent, *mover, Net::kNetStepSeconds );
         }
-        // This frame's steps go out together with every one the server has not acked yet: one message per frame.
+        // This frame's steps go out together with every one the server has not acked yet: one message per frame -
+        // except at rest, where the client sends at the project's stationary rate (NET-SEND-THROTTLE, UE
+        // ClientNetSendMoveDeltaTimeStationary) and any changed step or a moving pawn sends at once.
         if ( steps > 0 )
-            m_Client->FlushInputs();
+        {
+            const Net::PawnMoveState& now     = predictor.Current();
+            const float               speedSq = now.Velocity.X * now.Velocity.X + now.Velocity.Y * now.Velocity.Y +
+                                  now.Velocity.Z * now.Velocity.Z;
+            m_Client->FlushInputs( Net::ReplicationClient::InputSendPolicy{
+                 .PawnAtRest           = now.Grounded && speedSq <= kAtRestSpeedCm * kAtRestSpeedCm,
+                 .StationaryEverySteps = Project::CurrentNetSettings().StationaryInputEverySteps } );
+        }
         if ( !predictor.Started() || m_StepClock >= period ) // a hitch longer than kCatchUpSteps is not caught up
             m_StepClock = 0.0;
 
@@ -976,12 +989,18 @@ namespace Desert::Core
         const auto authority = m_Client->TakeOwnAuthority();
         if ( !authority )
             return;
-        m_QueueWindowMin = std::min( m_QueueWindowMin, static_cast<double>( authority->InputBuffered ) );
+        // At the stationary rate the server's queue empties between held messages by design: it is not read (a
+        // window without a reading keeps the dilation it had).
+        if ( !m_Client->InputAtStationaryRate() )
+            m_QueueWindowMin = std::min( m_QueueWindowMin, static_cast<double>( authority->InputBuffered ) );
         if ( m_Clock >= m_QueueWindowEnd )
         {
-            m_ServerQueue = m_QueueWindowMin;
-            m_Dilation    = 1.0 + std::clamp( ( m_ServerQueue - kQueueTarget ) * kDilationPerStep, -kMaxDilation,
-                                              kMaxDilation );
+            if ( m_QueueWindowMin < 1e9 )
+            {
+                m_ServerQueue = m_QueueWindowMin;
+                m_Dilation = 1.0 + std::clamp( ( m_ServerQueue - kQueueTarget ) * kDilationPerStep, -kMaxDilation,
+                                               kMaxDilation );
+            }
             m_QueueWindowMin = 1e9;
             m_QueueWindowEnd = m_Clock + kQueueWindowSeconds;
         }

@@ -16,6 +16,9 @@ namespace Desert::Project
         constexpr std::uint32_t kMaxPeriodSteps          = 255;
         constexpr std::size_t   kMaxBands                = 255;
         constexpr std::uint32_t kMinBudgetBytesPerSecond = 1024;
+        // A client at rest holds at most a second of steps unsent: with the round trip still unacked behind them
+        // that stays under half of its 128-step unacked ring (Net/Replication.hpp kMaxUnackedInputSteps).
+        constexpr std::uint32_t kMaxStationaryInputEverySteps = 60;
 
         // Nullopt when @p steps is a period the wire and the snapshot cadence can carry; otherwise the reason.
         std::optional<std::string> CheckPeriod( std::string_view what, std::uint32_t steps, std::uint32_t cadence )
@@ -79,6 +82,11 @@ namespace Desert::Project
         if ( s.BudgetBytesPerSecond < kMinBudgetBytesPerSecond )
             return std::format( "Net BudgetBytesPerSecond {} is below {}", s.BudgetBytesPerSecond,
                                 kMinBudgetBytesPerSecond );
+        if ( s.StationaryInputEverySteps < 1 || s.StationaryInputEverySteps > kMaxStationaryInputEverySteps )
+            return std::format(
+                 "Net StationaryInputEverySteps {} is outside 1..{} (a client at rest sends at least "
+                 "once a second)",
+                 s.StationaryInputEverySteps, kMaxStationaryInputEverySteps );
         return std::nullopt;
     }
 

@@ -513,6 +513,18 @@ namespace Desert::Editor
         hz( edit.DormantEverySteps );
         endRow( "DormantEverySteps" );
 
+        Utils::ImGuiUtilities::BeginPropertyRow( "Stationary Input Every (steps)",
+                                                 "UE ClientNetSendMoveDeltaTimeStationary: a client whose pawn "
+                                                 "stands with an unchanged input sends its input this often "
+                                                 "(every held step rides the next message); any change sends "
+                                                 "at once." );
+        ImGui::InputScalar( "##StationaryInputEverySteps", ImGuiDataType_U32, &edit.StationaryInputEverySteps,
+                            &step, &step );
+        commitOnEdit();
+        ImGui::SameLine();
+        hz( edit.StationaryInputEverySteps );
+        endRow( "StationaryInputEverySteps" );
+
         Utils::ImGuiUtilities::BeginPropertyRow(
              "Pawn Cull Range (cm)",
              "UE NetCullDistance of the pawn: every connection sees pawns within this circle. A pawn leaves only "
