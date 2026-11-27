@@ -666,6 +666,8 @@ set(DESERT_SOURCES
     "Editor/Panels/ViewportPanel/ViewportCommands.hpp"
     "Editor/Panels/ViewportPanel/ViewportPanel.cpp"
     "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
+    "Editor/Panels/ViewportPanel/ViewportUIAnchors.cpp"
+    "Editor/Panels/ViewportPanel/ViewportUIAnchors.hpp"
     "Editor/Panels/WorldParameters/WorldParametersPanel.cpp"
     "Editor/Panels/WorldParameters/WorldParametersPanel.hpp"
     "Editor/Panels/WorldPartition/DataLayerCommands.cpp"
