@@ -91,6 +91,8 @@ namespace Desert::Graphic::System
     {
         DESERT_SHADER_PARAMETER( StorageTexture, RefractionOutputTexture ); // rgba16f, written per front-layer pixel
         DESERT_SHADER_PARAMETER( UniformBuffer, CameraUB );
+        // The OPAQUE scene depth: Common/GIHitLighting.glslh (GIHitMaterial) checks a hit against the screen with it.
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
         DESERT_RAY_TRACING_SCENE_READ_PARAMETERS;
     };
 
@@ -101,6 +103,8 @@ namespace Desert::Graphic::System
         SSRRenderer::FrontLayerInputs FrontLayer;
         // CameraUB of this view and frame (ShaderProtocols::MakeCameraUB, uploaded by the caller).
         RDG::BufferRef Camera;
+        // The opaque G-buffer depth of this view (not the front layer's), bound as GBufferDepthTexture.
+        RDG::TextureRef OpaqueDepth;
         // The hit groups' and the in-place hit lighting's reads, the reflections' record made for
         // kRayTracedTranslucencyTracer: Tracer (the TLAS and metadata), HitGroups (NON-NULL: this frame's table,
         // owned by the SceneRenderer for the frame, its Templates are what EnsurePipeline was given), SceneReads
