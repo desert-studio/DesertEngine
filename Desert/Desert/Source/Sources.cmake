@@ -1583,6 +1583,8 @@ set(DESERT_SOURCES
     "Engine/Graphic/Systems/Scene/Terrain/TerrainLayout.hpp"
     "Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp"
     "Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp"
+    "Engine/Graphic/Systems/Scene/Translucency/RayTracedTranslucency.cpp"
+    "Engine/Graphic/Systems/Scene/Translucency/RayTracedTranslucency.hpp"
     "Engine/Graphic/Systems/Scene/Translucency/TranslucencyLightingVolume.cpp"
     "Engine/Graphic/Systems/Scene/Translucency/TranslucencyLightingVolume.hpp"
     "Engine/Graphic/Systems/Scene/Translucency/TranslucencyLightingVolumeLayout.hpp"
