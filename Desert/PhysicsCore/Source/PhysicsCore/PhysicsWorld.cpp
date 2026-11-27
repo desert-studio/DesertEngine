@@ -1702,18 +1702,26 @@ namespace Desert::Physics
     }
 
     std::optional<RayHit> PhysicsWorld::CastRay( const glm::vec3& origin, const glm::vec3& direction,
-                                                 float maxDistance, CollisionChannelId traceChannel ) const
+                                                 float maxDistance, CollisionChannelId traceChannel,
+                                                 ERayFaces faces ) const
     {
         if ( !m_Impl || !( maxDistance > 0.0f ) || glm::length( direction ) == 0.0f )
             return std::nullopt;
         const glm::vec3     dir = glm::normalize( direction );
         const JPH::RRayCast ray( JPH::RVec3( origin.x, origin.y, origin.z ), ToJolt( dir * maxDistance ) );
-        JPH::RayCastResult  result;
-        const ChannelBlockLayerFilter blocking( m_Impl->Profiles, traceChannel );
-        const NotCharacterBodyFilter  notCharacter;
-        if ( !m_Impl->System.GetNarrowPhaseQuery().CastRay( ray, result, {}, blocking, notCharacter ) )
+        JPH::RayCastSettings settings;
+        if ( faces == ERayFaces::Both )
+        {
+            settings.SetBackFaceMode( JPH::EBackFaceMode::CollideWithBackFaces );
+            settings.mTreatConvexAsSolid = false;
+        }
+        JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> collector;
+        const ChannelBlockLayerFilter                            blocking( m_Impl->Profiles, traceChannel );
+        const NotCharacterBodyFilter                             notCharacter;
+        m_Impl->System.GetNarrowPhaseQuery().CastRay( ray, settings, collector, {}, blocking, notCharacter );
+        if ( !collector.HadHit() )
             return std::nullopt;
-        return RayHitOf( m_Impl->System, ray, result, maxDistance );
+        return RayHitOf( m_Impl->System, ray, collector.mHit, maxDistance );
     }
 
     float PhysicsWorld::GetGravity() const
@@ -1751,20 +1759,6 @@ namespace Desert::Physics
         if ( axis.LengthSq() > 0.0f )
             hit.Normal = ToGlm( JPH::RVec3( -axis.Normalized() ) );
         return hit;
-    }
-
-    bool PhysicsWorld::OverlapsCapsule( const glm::vec3& center, float radius, float halfHeight ) const
-    {
-        if ( !m_Impl || !( radius > 0.0f ) )
-            return false;
-        const JPH::RefConst<JPH::Shape> capsule = new JPH::CapsuleShape( glm::max( halfHeight, 0.01f ), radius );
-        JPH::CollideShapeSettings       settings;
-        JPH::AnyHitCollisionCollector<JPH::CollideShapeCollector> collector;
-        m_Impl->System.GetNarrowPhaseQuery().CollideShape(
-             capsule, JPH::Vec3::sReplicate( 1.0f ),
-             JPH::RMat44::sTranslation( JPH::RVec3( center.x, center.y, center.z ) ), settings,
-             JPH::RVec3::sZero(), collector, {}, {}, NotCharacterBodyFilter{} );
-        return collector.HadHit();
     }
 
     bool PhysicsWorld::OverlapsCapsule( const glm::vec3& center, float radius, float halfHeight,
