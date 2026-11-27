@@ -19,6 +19,7 @@
 // ready sims in the authority map. A gateway connects to the store (the full state, then the change stream) and to
 // every sim in the map, and listens for clients only once the map names a sim it is connected to.
 
+#include <Net/HandoverWire.hpp>
 #include <Net/MeshOfOne.hpp>
 #include <Net/NetTransport.hpp>
 #include <Net/Replication.hpp>
@@ -352,10 +353,18 @@ namespace Desert::Net
         // After a step: every player's last processed input, to its gateway.
         void SendAcks( const PawnSimulation& sim );
         [[nodiscard]] std::optional<std::uint32_t> GatewayOf( PlayerId player ) const;
-        // A handed-over player (the store committed its pawn to @p sim): the input steps that queued on the pawn
-        // while it was held go to @p sim through the store now, and every later input that still reaches this sim
-        // follows (§2M.4). Returns the queued steps forwarded.
-        std::size_t ForwardInputs( PlayerId player, std::uint32_t sim, std::span<const InputStep> queued );
+        // A handed-over player (the store committed its pawn to @p sim under @p offer): the input steps that
+        // queued on the pawn while it was held go to @p sim through the store now, ENDED BY THE OFFER'S
+        // END-OF-BACKLOG MARK (EndBacklog, sent also when nothing is forwarded) - the new owner's catch-up stays
+        // open until it lands; every later input that still reaches this sim follows (§2M.4). Returns the queued
+        // steps forwarded.
+        std::size_t ForwardInputs( PlayerId player, std::uint32_t sim, Handover::OfferKey offer,
+                                   std::span<const InputStep> queued );
+        // The end-of-backlog mark alone: the forward of @p offer to @p sim carried @p forwarded input steps (0
+        // when the pawn was gone at the commit - its player left - so the new owner still learns the forward is
+        // whole). Sent after the forward's inputs on the same reliable lane through the store, so it lands after
+        // them.
+        void EndBacklog( PlayerId player, std::uint32_t sim, Handover::OfferKey offer, std::uint32_t forwarded );
         // An adopted player: this sim acks its inputs to @p gateway now.
         void Adopted( PlayerId player, std::uint32_t gateway );
 
@@ -377,6 +386,18 @@ namespace Desert::Net
     // nullopt when @p type is not a ForwardedInput.
     [[nodiscard]] std::optional<MeshForwardedInput> DecodeMeshForwardedInput( std::uint8_t               type,
                                                                               std::span<const std::byte> body );
+    // The previous owner's end-of-backlog mark the store relays to the pawn's new owner: the forward of the
+    // queued inputs of @p Offer is whole (RemoteGatewayLink::EndBacklog).
+    struct MeshBacklogEnd
+    {
+        PlayerId           Player = 0;
+        bool               Decoded = false; // false: the record did not decode (Player may be unset)
+        Handover::OfferKey Offer;
+        std::uint32_t      Forwarded = 0; // the input steps the forward carried
+    };
+    // nullopt when @p type is not a ForwardedBacklogEnd.
+    [[nodiscard]] std::optional<MeshBacklogEnd> DecodeMeshBacklogEnd( std::uint8_t               type,
+                                                                      std::span<const std::byte> body );
     // The mesh clock's step, as every role sees it (nullopt when @p type is not a Tick).
     [[nodiscard]] std::optional<std::uint32_t> DecodeMeshTick( std::uint8_t               type,
                                                                std::span<const std::byte> body );

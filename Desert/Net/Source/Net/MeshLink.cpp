@@ -37,6 +37,8 @@ namespace Desert::Net
             ForwardInput,     // u32 to sim, u32 player, Input            (old owner -> store)
             ForwardedInput,   // u32 player, Input                        (store -> new owner)
             PlayerView,       // u32 player, f32 x3 the reported eye      (gateway -> the pawn's sim)
+            ForwardBacklogEnd,   // u32 to sim, u32 player, u32 serial, u32 forwarded     (old owner -> store)
+            ForwardedBacklogEnd, // u32 player, u32 from sim, u32 serial, u32 forwarded   (store -> new owner)
             End,              // not a message: one past the last code
         };
         // One numbering on a mesh connection: the handover codes (HandoverWire.hpp) start past the last EMesh code.
@@ -903,6 +905,30 @@ namespace Desert::Net
                                     "link to sim {}",
                                     player, index, to ) );
         }
+        else if ( type == Code( EMesh::ForwardBacklogEnd ) )
+        {
+            // Relayed on the same lane as the forward's inputs, after them: the new owner reads the mark only once
+            // every input of the forward has been delivered.
+            std::uint32_t to = 0, player = 0, serial = 0, forwarded = 0;
+            if ( !r.U32( to ) || !r.U32( player ) || !r.U32( serial ) || !r.U32( forwarded ) )
+                return;
+            Writer w( EMesh::ForwardedBacklogEnd );
+            w.U32( player );
+            w.U32( index );
+            w.U32( serial );
+            w.U32( forwarded );
+            if ( const auto connection = m_Endpoint.PeerConnection( EMeshRole::Sim, to ) )
+            {
+                m_Endpoint.Send( *connection, w.Take() );
+                m_Log( std::format( "store: end of the backlog of offer (sim {}, #{}) of player {} ({} input "
+                                    "step(s)) -> sim {}",
+                                    index, serial, player, forwarded, to ) );
+            }
+            else
+                m_Log( std::format( "store: end of the backlog of offer (sim {}, #{}) of player {} dropped - no "
+                                    "link to sim {}",
+                                    index, serial, player, to ) );
+        }
         else if ( type == Code( EMesh::StableWrite ) )
         {
             StableNetId     id = 0;
@@ -1401,7 +1427,7 @@ namespace Desert::Net
         return it == m_GatewayOf.end() ? std::nullopt : std::optional<std::uint32_t>( it->second );
     }
 
-    std::size_t RemoteGatewayLink::ForwardInputs( PlayerId player, std::uint32_t sim,
+    std::size_t RemoteGatewayLink::ForwardInputs( PlayerId player, std::uint32_t sim, Handover::OfferKey offer,
                                                   std::span<const InputStep> queued )
     {
         m_ForwardTo[player] = sim;
@@ -1438,13 +1464,36 @@ namespace Desert::Net
             m_Endpoint.SendToRole( EMeshRole::Store, w.Take() );
             forwarded += part.Steps.size();
         }
+        EndBacklog( player, sim, offer, static_cast<std::uint32_t>( forwarded ) );
         return forwarded;
+    }
+
+    void RemoteGatewayLink::EndBacklog( PlayerId player, std::uint32_t sim, Handover::OfferKey offer,
+                                        std::uint32_t forwarded )
+    {
+        Writer w( EMesh::ForwardBacklogEnd );
+        w.U32( sim );
+        w.U32( player );
+        w.U32( offer.Serial );
+        w.U32( forwarded );
+        m_Endpoint.SendToRole( EMeshRole::Store, w.Take() );
     }
 
     void RemoteGatewayLink::Adopted( PlayerId player, std::uint32_t gateway )
     {
         m_GatewayOf[player] = gateway;
         m_ForwardTo.erase( player );
+    }
+
+    std::optional<MeshBacklogEnd> DecodeMeshBacklogEnd( std::uint8_t type, std::span<const std::byte> body )
+    {
+        if ( type != Code( EMesh::ForwardedBacklogEnd ) )
+            return std::nullopt;
+        Reader         r( body );
+        MeshBacklogEnd end;
+        end.Decoded = r.U32( end.Player ) && r.U32( end.Offer.From ) && r.U32( end.Offer.Serial ) &&
+                      r.U32( end.Forwarded );
+        return end;
     }
 
     std::optional<MeshForwardedInput> DecodeMeshForwardedInput( std::uint8_t type, std::span<const std::byte> body )

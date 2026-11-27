@@ -267,6 +267,13 @@ namespace Desert::Net
         // Incoming -> gone (the store refused the offer): the copy is dropped, nothing written. False when
         // @p player's pawn is not incoming.
         bool Abandon( PlayerId player );
+        // THE PREVIOUS OWNER'S FORWARD HAS LANDED (its end-of-backlog mark for the committed offer, SimHandover):
+        // every input it queued while the pawn was frozen is queued here now. Until then an adopted catch-up stays
+        // open and a hole is not given up - the forward is the coordinator's complete record of the frozen
+        // steps, and the receiver acts on it only once it is whole (two-phase commit). Marks an incoming pawn too
+        // (the mark may overtake the commit). False when @p player's pawn is neither incoming nor adopted with
+        // the forward awaited.
+        bool BacklogLanded( PlayerId player );
 
     private:
         // The queue above which a step consumes kMaxInputsPerStep input steps instead of one (the sync's target).
@@ -287,6 +294,8 @@ namespace Desert::Net
             // Incoming: its player left before the store decided. The copy waits for the decision like any other
             // (Commit makes this simulation the holder, so it removes the pawn; Refused drops it).
             bool                               Left    = false;
+            // Incoming: the previous owner's end-of-backlog mark landed before the commit (BacklogLanded).
+            bool                               BacklogLanded = false;
             std::uint64_t                      Account = 0;
             std::uint32_t                      Index   = 0;
             PawnState                          State;
@@ -305,11 +314,15 @@ namespace Desert::Net
             std::optional<PendingPlacement> Placement;
             // The catch-up after Resume (sender) or Commit (receiver): the inputs that queued while the pawn was
             // held, applied over the steps that follow. Measured per authoritative step (planar cm) until the queue
-            // is back at the target (Commit: on a step that applied an input - a starved step, the forwarded
-            // backlog still in flight or a hole before it, does not close it).
+            // is back at the target (Commit: once the previous owner's end-of-backlog mark has landed, on a step
+            // that applied an input - a starved step, or a hole before the client's direct inputs, does not
+            // close it).
             struct CatchUpRun
             {
                 bool          Adopted     = false; // Commit (the receiver's) rather than Resume
+                // Commit: the previous owner's forward of the frozen inputs has landed (its end-of-backlog mark);
+                // a resume awaits none.
+                bool          BacklogLanded = true;
                 std::uint32_t Behind      = 0;     // Commit: the mesh steps since the offer froze the pawn
                 std::size_t   Queued      = 0;     // at the resume or the commit, plus every input queued since
                 std::uint32_t Steps       = 0; // authoritative steps it has taken so far
