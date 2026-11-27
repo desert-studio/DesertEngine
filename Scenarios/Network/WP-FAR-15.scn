@@ -24,6 +24,7 @@
 Ждать A 1800 \[Net\] in session
 Роль B bot account=2 lag=75 loss=2 --seconds 15000 --walk-cm 100000000 --turn-deg-s 36
 Роль C bot account=3 lag=75 loss=2 --seconds 15000 --walk-cm 100000000 --turn-deg-s 36
+Ждать server 60 player \d+ account 2 \(
 Ждать server 60 player \d+ account 3 \(
 Запомнить a server player (\d+) account 1 \((-?\d+), (-?\d+), (-?\d+)\)
 Запомнить b server player (\d+) account 2 \(
@@ -41,12 +42,12 @@
 # Snapshot bytes/s to A: 35 B x (30 + 6) = 1260 B/s (dev: 34 B x 60 = 2040 B/s for the same two bots), 1200-1500.
 Ждать server 30 \[Server\] net rates.*player \d+: 1(?:[2-4]\d\d|500) B/s, pawns by band \[30 Hz 1, 15 Hz 0, 6 Hz 1, 3 Hz 0\]
 Ждать A 30 fresh \[Net\] pawn \d+ \(player \d+\): (?:29\d|30\d) m, period 10
-Тогда A far15_two_tiers A's frame shows B near (a whole mannequin ~20 m ahead-right on the grass bank, on the ground) and C at most a speck to the right of the red pillar (at 300-500 m a mannequin is under 3 px in this view: C is proven by its log line, the frame by B and by no artifact where C stands) (dev has no C at all - 200 m LoadingRange; the same frame from dev sits beside it); A's log "pawn <B>: 20 m, period 2 (30 Hz), delay 0.10-0.20 s" and "pawn <C>: 300 m, period 10 (6 Hz), delay 0.35-0.50 s"; server log "pawns by band [30 Hz 1, 15 Hz 0, 6 Hz 1, 3 Hz 0]"
+Тогда A far15_two_tiers A's frame shows B near (where in view - it walks a circle over the bank edge - a whole mannequin on the ground) and C at most a speck to the right of the red pillar (at 300-500 m a mannequin is under 3 px in this view: C is proven by its log line, the frame by B and by no artifact where C stands) (dev has no C at all - 200 m LoadingRange; the same frame from dev sits beside it); A's log "pawn <B>: 20 m, period 2 (30 Hz), delay 0.10-0.20 s" and "pawn <C>: 300 m, period 10 (6 Hz), delay 0.35-0.50 s"; server log "pawns by band [30 Hz 1, 15 Hz 0, 6 Hz 1, 3 Hz 0]"
 # Тогда [far15_far_smooth]: three frames of A one second apart (each with its _next frame) - C walks an arc with no
 # jump back and no freeze longer than one frame; B as in NET-5 net5_remote_walk; A's log "0 snap(s)". The client logs
 # no "hold" line at all (no such log exists), so "no hold for C" is judged on the frames.
 Ждать A 30 fresh \[Net\] interpolation buffer: .*\(0 snap\(s\)\)
-Тогда A far15_far_smooth1 B near walking its circle: one solid mannequin, feet on the ground, facing its walk; no ghost, no trail; C at most a speck right of the red pillar (at 300-500 m a mannequin is under 3 px in this view: C is proven by its log line, the frame by B and by no artifact where C stands)
+Тогда A far15_far_smooth1 B near walking its circle (where in view; its smoothness is NET-5's net5_remote_walk): one solid mannequin, feet on the ground, facing its walk; no ghost, no trail; C at most a speck right of the red pillar (at 300-500 m a mannequin is under 3 px in this view: C is proven by its log line, the frame by B and by no artifact where C stands)
 Ждать A 30 \[Net\] interpolation buffer: .*\(0 snap\(s\)\)
 Тогда A far15_far_smooth2 B further along its circle (never back, never in the same place); same: solid, grounded, facing its walk
 Ждать A 30 \[Net\] interpolation buffer: .*\(0 snap\(s\)\)
@@ -87,7 +88,7 @@
 Ждать server 30 \[Server\] net rates.*pawns by band \[30 Hz [12], 15 Hz [01], 6 Hz 0, 3 Hz 1\], dormant 1, deferred
 Ждать A 30 fresh \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 2 \(30 Hz\), delay
 Запомнить dd0 A \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 2 \(30 Hz\), delay (\d+\.\d+) s
-Тогда A far15_dormant D stands ~10 m ahead, one solid mannequin on the ground, no drift; B walks as before
+Тогда A far15_dormant D stands ~10 m ahead, one solid mannequin on the ground, no drift; B, where in view, walks as before
 Ждать A 30 5x \[Net\] interpolation buffer:
 Запомнить dd1 A \[Net\] pawn \d+ \(player \d+\): (?:[6-9]|1[0-4]) m, period 2 \(30 Hz\), delay (\d+\.\d+) s
 Сверить dd0 dd1 0.03
