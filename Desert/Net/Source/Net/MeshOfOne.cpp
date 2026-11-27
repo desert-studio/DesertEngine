@@ -133,7 +133,11 @@ namespace Desert::Net
             // Already processed (a redundant copy) or already queued: the first arrival wins.
             if ( pawn.LastProcessed && !StepAfter( step.Step, *pawn.LastProcessed ) )
                 continue;
-            pawn.Pending.emplace( step.Step, step );
+            // An open catch-up counts every input newly queued while it runs, whichever path delivered it - the
+            // client's own repeat of its unacked steps or the previous owner's forward (SimHandover): which one
+            // lands first is a race, the backlog the run drains is the same.
+            if ( pawn.Pending.emplace( step.Step, step ).second && pawn.CatchUp )
+                ++pawn.CatchUp->Queued;
         }
         // A client that floods steps far ahead is held to the replay window, not buffered without bound.
         while ( pawn.Pending.size() > InputRing::kCapacity )
@@ -168,7 +172,8 @@ namespace Desert::Net
         pawn.QueuedAtStep = static_cast<std::uint8_t>( std::min<std::size_t>( pawn.Pending.size(), 255 ) );
         const NetVec3 before  = pawn.Move.Position;
         const int     consume = pawn.Pending.size() > kDrainAbove ? kMaxInputsPerStep : 1;
-        for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i )
+        int           applied = 0;
+        for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i, ++applied )
         {
             const auto next = pawn.Pending.begin();
             if ( pawn.LastProcessed && next->first != *pawn.LastProcessed + 1 )
@@ -209,13 +214,17 @@ namespace Desert::Net
         if ( pawn.Placement )
             pawn.Move.Velocity = NetVec3{};
         // The resume's or the commit's catch-up, measured on every authoritative step it takes (planar, what a
-        // proxy and the client's correction see); reported once the queue is back at the sync's target.
+        // proxy and the client's correction see); reported once the queue is back at the sync's target on a step
+        // that applied an input (the commit's run only). A starved step keeps an adopted run open: the previous
+        // owner's forwarded backlog may still be in flight, or the client's direct inputs wait behind a hole -
+        // closing there reported the commit's own queue and left the backlog to drain unmeasured. A resume run
+        // has nothing in flight: it closes once the queue is back at the target.
         if ( pawn.CatchUp )
         {
             const float dx = pawn.Move.Position.X - before.X, dz = pawn.Move.Position.Z - before.Z;
             pawn.CatchUp->LargestStep = std::max( pawn.CatchUp->LargestStep, std::sqrt( dx * dx + dz * dz ) );
             ++pawn.CatchUp->Steps;
-            if ( pawn.Pending.size() <= kDrainAbove )
+            if ( ( applied > 0 || !pawn.CatchUp->Adopted ) && pawn.Pending.size() <= kDrainAbove )
             {
                 const Pawn::CatchUpRun& run = *pawn.CatchUp;
                 const std::string what =

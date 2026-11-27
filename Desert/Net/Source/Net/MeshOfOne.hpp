@@ -285,12 +285,13 @@ namespace Desert::Net
             std::optional<PendingPlacement> Placement;
             // The catch-up after Resume (sender) or Commit (receiver): the inputs that queued while the pawn was
             // held, applied over the steps that follow. Measured per authoritative step (planar cm) until the queue
-            // is back at the target.
+            // is back at the target (Commit: on a step that applied an input - a starved step, the forwarded
+            // backlog still in flight or a hole before it, does not close it).
             struct CatchUpRun
             {
                 bool          Adopted     = false; // Commit (the receiver's) rather than Resume
                 std::uint32_t Behind      = 0;     // Commit: the mesh steps since the offer froze the pawn
-                std::size_t   Queued      = 0;     // at the resume or the commit
+                std::size_t   Queued      = 0;     // at the resume or the commit, plus every input queued since
                 std::uint32_t Steps       = 0; // authoritative steps it has taken so far
                 float         LargestStep = 0.f;
             };

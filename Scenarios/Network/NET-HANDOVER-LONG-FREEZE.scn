@@ -43,12 +43,13 @@
 Нет sim1 offer #1 .*Withdraw sent
 Нет sim2 offer \(sim 1, #1\).*refused -
 # D4 on the receiver, strict: >= 30 mesh steps since the freeze, the queued inputs applied at most 2 per step, each
-# authoritative step measured by sim 2 itself - the largest <= 60 cm, read from the line.
-Ждать sim2 30 handover catch-up \((3\d|[4-9]\d|1[01]\d|120) mesh step\(s\) since the offer froze it\) of \d+ queued input\(s\) done in \d+ step\(s\), at most 2 input\(s\) per step; largest step ([1-5]?\d\.\d|60\.0) cm
+# authoritative step measured by sim 2 itself - the largest <= 60 cm, read from the line. The run counts the
+# backlog sim 1 forwards after the commit: Q >= 30 queued inputs.
+Ждать sim2 30 handover catch-up \((3\d|[4-9]\d|1[01]\d|120) mesh step\(s\) since the offer froze it\) of ([3-9]\d|[1-9]\d\d+) queued input\(s\) done in \d+ step\(s\), at most 2 input\(s\) per step; largest step ([1-5]?\d\.\d|60\.0) cm
 Нет sim1 adopted .*from sim 1
 Ждать A2 10 2x \] t=
 Ждать B 60 fresh \[Shot\] recorded frame_
-Тогда B receiver_long_catchup after a >= 30-step freeze A2 is adopted by sim 2 and catches up with no step over 60 cm (sim2.log "handover catch-up (N mesh step(s) ...) ... largest step <= 60.0 cm" with N >= 30); ONE A2 capsule east of X = 300 walking +X, no snap back (A2.log own-pawn x never decreases by > 5 cm after the commit), no second A2 at the old place
+Тогда B receiver_long_catchup after a >= 30-step freeze A2 is adopted by sim 2 and catches up with no step over 60 cm (sim2.log "handover catch-up (N mesh step(s) ...) of Q queued input(s) ... largest step <= 60.0 cm" with N >= 30, Q >= 30); ONE A2 capsule east of X = 300 walking +X, no snap back (A2.log own-pawn x never decreases by > 5 cm after the commit), no second A2 at the old place
 # Когда: the operator asks both sims for their handover counts.
 Консоль sim1 stat
 Ждать sim1 10 handovers: 1 offered, 1 committed, 0 adopted; .*0 withdrawn; .*0 open as sender
