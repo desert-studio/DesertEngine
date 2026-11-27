@@ -356,7 +356,7 @@ class Run:
                 raise Fail(f"role {r.name} exited (rc {r.proc.returncode}) after {found}/{count} of «{pattern}»")
             if time.time() > deadline:
                 raise Fail(f"{found}/{count} of «{pattern}» in {r.name}'s log within {parts[1]} s")
-            time.sleep(0.25)
+            time.sleep(0.05)
 
     def console(self, rest):
         name, _, line = rest.strip().partition(" ")

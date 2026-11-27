@@ -5,12 +5,14 @@
 # does NOT resume its held pawn while the live offer goes on to commit once.
 # The hostile peer is DesertNetProbe --mesh-peer (role kind `probe`): it links to the store with sim 1's CA-signed
 # certificate beside the real sim 1 and speaks the handover wire (Net/HandoverWire.hpp) from its console; no engine
-# test hook. The store routes a message for sim 1 by PeerConnection (the first link up, the real sim 1); the probe
-# logs every handover message it receives, so a refusal sent to the wrong link shows.
-# The live offer stays open only while its receiver is silent: sim 2 is STOPped about 0.5 s before A reaches the
-# margin and CONTinued right after the probe fires - well inside the sender's kOfferDeadline (500 ms wall), so the
-# live offer commits instead of being withdrawn. The checks of the refusals come after CONT (Запомнить reads the
-# whole log): the runner polls every 250 ms, and a check before CONT would outlast the deadline.
+# test hook. The store routes a message for sim 1 to the lowest ConnectionId of its links (GNS issues handles in
+# creation order, so the real sim 1, linked first); the probe logs every handover message it receives, so a refusal
+# sent to the wrong link shows.
+# The live offer stays open only while its receiver is silent: sim 2 is STOPped at X < 250, at least 0.55 s before A
+# reaches the margin (the NET-HANDOVER-CONFIRM stop margin), and CONTinued right after the probe fires - well inside
+# the sender's kOfferDeadline (500 ms wall), so the live offer commits instead of being withdrawn. The checks of the
+# refusals come after CONT (Запомнить reads the whole log): the runner polls every 50 ms, and a check before CONT
+# would eat into the deadline.
 # Layout as NET-HANDOVER-CONFIRM (five server roles, editor B above the cut, bot A walking +X at 90 cm/s from
 # X = -1000 to X = 1000; margin 300 cm, so the handover is at X ~ 300).
 Мир Content/Scenes/WP_Protocol.desce
@@ -29,10 +31,10 @@
 # Дано: B stands on the east side and looks down at the cut from 8 m up; its frames are the judge of one capsule.
 Роль B editor account=3 --play --shot-frames 100000 --shot-every 1 --camera 300,800,1600 --look 0,-0.371,-0.928 --quality PostProcess.MotionBlurQuality=0
 Ждать B 1800 \[Net\] in session
-# Когда: A walks 2000 cm along +X through X = 0; ~0.5 s short of X = 300 sim 2 stops answering, so the offer that
+# Когда: A walks 2000 cm along +X through X = 0; >= 0.55 s short of X = 300 sim 2 stops answering, so the offer that
 # follows stays open at the store.
 Роль A bot account=1 --seconds 900 --walk-cm 2000 --dir 0.15,0,0
-Ждать A 120 \] t=\S+ pawns.* \d+\*=\((2[5-9]\d),
+Ждать A 120 \] t=\S+ pawns.* \d+\*=\((2[0-4]\d),
 Сигнал sim2 STOP
 Ждать sim1 10 held and offered to sim 2 \(offer #1, epoch 1, frozen at step \d+, \d+ unacked input\(s\)\)
 Запомнить off sim1 pawn net id (\d+) \(player \d+\) at .* held and offered to sim (\d+) \(offer #(\d+), epoch (\d+), frozen at step (\d+)

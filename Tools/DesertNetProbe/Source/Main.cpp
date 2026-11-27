@@ -1308,7 +1308,10 @@ int main( int argc, char** argv )
 {
     for ( int i = 1; i < argc; ++i )
         if ( std::strcmp( argv[i], "--mesh-peer" ) == 0 )
-            return RunMeshPeer( argc, argv );
+            // Leave without static teardown: the detached console thread may still be inside std::getline on
+            // std::cin, and destroying the iostreams under it races. Log flushed every line; std::quick_exit is
+            // absent from Apple's libc, std::_Exit is the same exit on both platforms.
+            std::_Exit( RunMeshPeer( argc, argv ) );
     for ( int i = 1; i < argc; ++i )
         if ( std::strcmp( argv[i], "--bot" ) == 0 )
             return RunBot( argc, argv );
