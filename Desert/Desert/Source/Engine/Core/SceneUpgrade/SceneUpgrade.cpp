@@ -24,8 +24,8 @@ namespace Desert::Core
         std::string GenerationsText( const SceneGenerations& g )
         {
             return std::format( "scene v{} / world units v{} / world partition v{} / asset references v{} / "
-                                "lights v{}",
-                                g.Scene, g.Unit, g.WorldPartition, g.AssetRef, g.Light );
+                                "lights v{} / post process v{}",
+                                g.Scene, g.Unit, g.WorldPartition, g.AssetRef, g.Light, g.PostProcess );
         }
 
         // The number @p generations states for @p chain.
@@ -41,6 +41,8 @@ namespace Desert::Core
                 return generations.AssetRef;
             case UpgradeChain::Light:
                 return generations.Light;
+            case UpgradeChain::PostProcess:
+                return generations.PostProcess;
             }
             return 0;
         }
@@ -66,13 +68,14 @@ namespace Desert::Core
                                  Assets::StatedVersion( header, Assets::kUnitSchemaTag ),
                                  Assets::StatedVersion( header, Assets::kWorldPartitionSchemaTag ),
                                  Assets::StatedVersion( header, Assets::kAssetRefSchemaTag ),
-                                 Assets::StatedVersion( header, Assets::kLightSchemaTag ) };
+                                 Assets::StatedVersion( header, Assets::kLightSchemaTag ),
+                                 Assets::StatedVersion( header, Assets::kPostProcessSchemaTag ) };
     }
 
     SceneGenerations CurrentGenerations()
     {
-        return SceneGenerations{ kSceneVersion, kUnitVersion, kWorldPartitionVersion, kAssetRefVersion,
-                                 kLightVersion };
+        return SceneGenerations{ kSceneVersion,    kUnitVersion,  kWorldPartitionVersion,
+                                 kAssetRefVersion, kLightVersion, kPostProcessVersion };
     }
 
     SceneUpgradeReport UpgradeSceneRecords( std::vector<Assets::EntityData>& entities, const SceneGenerations& from,
@@ -85,7 +88,7 @@ namespace Desert::Core
 
         // NEWER than this engine: written by a later build. Nothing is read "as best we can".
         if ( from.Scene > head.Scene || from.Unit > head.Unit || from.WorldPartition > head.WorldPartition ||
-             from.AssetRef > head.AssetRef || from.Light > head.Light )
+             from.AssetRef > head.AssetRef || from.Light > head.Light || from.PostProcess > head.PostProcess )
         {
             report.Refused = std::format(
                  "'{}' is at {}, NEWER than this engine ({}): it was written by a later build. Open it with that "
@@ -94,10 +97,10 @@ namespace Desert::Core
             return report;
         }
         // OLDER than the oldest generation raised in memory: the steps below the floors move data between files.
-        const SceneGenerations floor{ kSceneUpgradeFloor, kUnitVersion, kWorldPartitionUpgradeFloor,
-                                      kAssetRefUpgradeFloor, kLightUpgradeFloor };
+        const SceneGenerations floor{ kSceneUpgradeFloor,    kUnitVersion,       kWorldPartitionUpgradeFloor,
+                                      kAssetRefUpgradeFloor, kLightUpgradeFloor, kPostProcessUpgradeFloor };
         if ( from.Scene < floor.Scene || from.Unit != head.Unit || from.WorldPartition < floor.WorldPartition ||
-             from.AssetRef < floor.AssetRef || from.Light < floor.Light )
+             from.AssetRef < floor.AssetRef || from.Light < floor.Light || from.PostProcess < floor.PostProcess )
         {
             report.Refused = std::format(
                  "'{}' is at {}, older than the oldest generation this engine upgrades as it loads ({}). Its steps "
@@ -171,6 +174,8 @@ namespace Desert::Core
             add( std::format( "asset references v{}->v{}", report.From.AssetRef, head.AssetRef ) );
         if ( report.From.Light != head.Light )
             add( std::format( "lights v{}->v{}", report.From.Light, head.Light ) );
+        if ( report.From.PostProcess != head.PostProcess )
+            add( std::format( "post process v{}->v{}", report.From.PostProcess, head.PostProcess ) );
         std::string steps;
         for ( const StepOutcome& step : report.Steps )
             steps += ( steps.empty() ? std::string() : std::string( ", " ) ) + std::string( step.Name );

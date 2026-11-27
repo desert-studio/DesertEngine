@@ -21,8 +21,9 @@
 // data between FILES (prefab files, landscape tiles, mesh headers, .defoliage / .desound / .vfx assets minted
 // beside the scene) or read shapes the engine's tree no longer has a member for; they stay in
 // Tools/SceneMigrator, and a file below the floor is refused by name with that one command. Every step at or
-// above a floor - the scene's v71.., World Partition's v13.., the asset-reference and light chains whole - is in
-// Steps/ and only there: the migrator runs its below-floor chain, then this one (UpgradeSceneRecords).
+// above a floor - the scene's v71.., World Partition's v13.., the asset-reference, light and post-process chains
+// whole - is in Steps/ and only there: the migrator runs its below-floor chain, then this one
+// (UpgradeSceneRecords).
 //
 // A STEP THAT NEEDS ANOTHER FILE'S CONTENT DOES NOT OPEN IT. The asset-reference step reads a material's header
 // GUID through the MaterialGuidLookup its caller passes: the loader's reads the mounted content
@@ -34,9 +35,14 @@
 // TimelineInterpShift.hpp). A file NEWER than this engine (any tag above the head) is refused as before: nothing
 // is ever loaded "as best we can".
 //
-// ADDING A STEP. Raise Core::kSceneVersion (or the subsystem's own number), add Steps/V<N><Name>.{hpp,cpp} - its
-// frozen kSceneVersion<Name>, its report, its Migrate function and its Run adapter - and one row at the end of its
-// chain in SceneUpgradeSteps.cpp. Nothing else: the loader, the prefab reader and the migrator all reach it
+// ADDING A STEP. A change that belongs to one subsystem raises THAT subsystem's own number, as UE counts a
+// subsystem's changes under its own FCustomVersion (MIGRATE-SUBSYS, owner decision 10-22): the lights'
+// Core::kLightVersion, the post-process settings' Core::kPostProcessVersion, the asset references', World
+// Partition's - and a subsystem that has none yet gets its own tag (Assets/TextAssetHeaderStamp.hpp), its number
+// in SceneFormat.hpp, a field in SceneGenerations and an UpgradeChain, never a bump of the shared scene number.
+// Only a change to the scene's own shape raises Core::kSceneVersion. Either way: add one file pair under Steps/
+// (V<N><Name>, or <Subsystem><N><Name>) - its frozen k<Subsystem>Version<Name>, its report, its Migrate function
+// and its Run adapter - and one row at the end of its chain in SceneUpgradeSteps.cpp. Nothing else: the loader, the prefab reader and the migrator all reach it
 // through UpgradeSceneRecords, which walks that table.
 namespace Desert::Core
 {
@@ -48,12 +54,13 @@ namespace Desert::Core
     // value, MigrateHLODMergeMaterialsV11ToV12, is Tools/SceneMigrator's).
     inline constexpr int kWorldPartitionVersionHLODBuilderSettings = 12;
 
-    // THE FLOORS: the oldest generation of each tag this engine raises in memory. The asset-reference and light
-    // chains are here whole (floor 0: a file that states no number).
+    // THE FLOORS: the oldest generation of each tag this engine raises in memory. The asset-reference, light and
+    // post-process chains are here whole (floor 0: a file that states no number).
     inline constexpr int kSceneUpgradeFloor          = kSceneVersionRootSiblingIndex;
     inline constexpr int kWorldPartitionUpgradeFloor = kWorldPartitionVersionHLODBuilderSettings;
     inline constexpr int kAssetRefUpgradeFloor       = 0;
     inline constexpr int kLightUpgradeFloor          = 0;
+    inline constexpr int kPostProcessUpgradeFloor    = 0;
 
     [[nodiscard]] constexpr int UpgradeFloorOf( const UpgradeChain chain )
     {
@@ -67,6 +74,8 @@ namespace Desert::Core
             return kAssetRefUpgradeFloor;
         case UpgradeChain::Light:
             return kLightUpgradeFloor;
+        case UpgradeChain::PostProcess:
+            return kPostProcessUpgradeFloor;
         }
         return 0;
     }
@@ -83,6 +92,7 @@ namespace Desert::Core
         int WorldPartition = 0;
         int AssetRef       = 0;
         int Light          = 0;
+        int PostProcess    = 0;
 
         [[nodiscard]] bool operator==( const SceneGenerations& ) const = default;
     };
