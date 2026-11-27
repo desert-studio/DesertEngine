@@ -333,8 +333,7 @@ namespace Common::Scalability
                                           // r.Lumen.TranslucencyReflections.FrontLayer.Enable)
         // What answers the glass's refraction, kTranslucencyRefractionMethodNames by value (index = the value of
         // System::TranslucencyRefractionMethod, RayTracedTranslucency.hpp): ScreenSpace = the scene copy bent on
-        // screen, HardwareTraced = "Translucency: Ray Traced Refraction" (UE r.RayTracedTranslucency). A
-        // placeholder until that pass reads it (NG-RT-REFRACTION).
+        // screen, HardwareTraced = "Translucency: Ray Traced Refraction" (UE r.RayTracedTranslucency).
         TranslucencyRefraction,
         // Parallax occlusion mapping (Mesh/Surface/SurfaceParallax.glslh), through ViewFrame::Parallax and the
         // view block: march steps head-on and at grazing view, and the self-shadow steps toward the sun (0 = no
