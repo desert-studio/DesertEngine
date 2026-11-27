@@ -61,6 +61,9 @@ layout( binding = 19 ) uniform texture2D SceneColorTexture;
 
 // The front layer's traced reflection (Reflections.TranslucentFrontLayer), shared with the water.
 #include <Mesh/Surface/FrontLayerReflection.glslh>
+// The front layer's traced refraction (Translucency.Refraction HardwareTraced), tested against the same depth.
+#include <Mesh/Surface/TranslucencyRefraction.glslh>
+#include <Common/ReconstructPosition.glslh>
 
 // The cloud layer's shadow on the world: it takes the sun's highlight away with it.
 layout( binding = 20 ) uniform texture2D CloudShadowMapTexture;
@@ -147,12 +150,32 @@ void main()
         }
     }
 
-    // Screen-space refraction: the composited scene behind the surface, bent by the normal (more for a higher
-    // IOR) and tinted by the surface colour.
-    const vec2  screenUV  = gl_FragCoord.xy / vec2( textureSize( SceneColorTexture, 0 ) );
-    const float bendScale = ( 1.0 - 1.0 / ior ) * 0.35;
-    const vec2  refractUV = clamp( screenUV + N.xy * bendScale, vec2( 0.001 ), vec2( 0.999 ) );
-    const vec3  refracted = texture( SceneColorTexture, refractUV ).rgb * s.BaseColor;
+    // THE SCREEN-SPACE TIER (Translucency.Refraction ScreenSpace): the view ray bent by Snell at this interface,
+    // followed as far as the opaque scene straight behind the fragment lies, projected back onto the scene copy. A
+    // bent texel whose opaque surface stands IN FRONT of the glass is not behind it: the straight-through texel
+    // answers there, as off the screen. Tinted by the surface colour.
+    const vec2  screenUV   = gl_FragCoord.xy / vec2( textureSize( SceneColorTexture, 0 ) );
+    const ivec2 depthSize  = textureSize( SceneDepthTexture, 0 );
+    const float behindDev  = texelFetch( SceneDepthTexture, min( ivec2( gl_FragCoord.xy ), depthSize - 1 ), 0 ).r;
+    const vec3  behindPos  = ReconstructWorldPosition( screenUV, behindDev, cameraUB.InvJitteredViewProjection );
+    const vec3  bentDir    = refract( -V, N, 1.0 / ior );
+    const vec3  bentPos    = i.WorldPosition + bentDir * distance( i.WorldPosition, behindPos );
+    const vec4  bentClip   = cameraUB.JitteredViewProjection * vec4( bentPos, 1.0 );
+    vec2        refractUV  = screenUV;
+    if ( bentClip.w > 0.0 && dot( bentDir, bentDir ) > 0.0 )
+    {
+        const vec2 bentNdc = bentClip.xy / bentClip.w;
+        const vec2 bentUV  = vec2( bentNdc.x * 0.5 + 0.5, 0.5 - bentNdc.y * 0.5 );
+        // Reversed-Z: a larger device depth is nearer the camera than this fragment.
+        if ( all( greaterThanEqual( bentUV, vec2( 0.0 ) ) ) && all( lessThan( bentUV, vec2( 1.0 ) ) ) &&
+             texelFetch( SceneDepthTexture, ivec2( bentUV * vec2( depthSize ) ), 0 ).r <= gl_FragCoord.z )
+            refractUV = bentUV;
+    }
+    const vec3 screenRefracted = textureLod( SceneColorTexture, refractUV, 0.0 ).rgb * s.BaseColor;
+    // THE TRACED TIER (HardwareTraced) where this fragment is the front layer: the trace's transmittance already holds
+    // the tint of every interface it crossed; where it did not answer (a = 0) the screen tier does.
+    const vec4 traced    = DesertTranslucencyRefraction( gl_FragCoord.xy, gl_FragCoord.z );
+    const vec3 refracted = mix( screenRefracted, traced.rgb, traced.a );
 
     // The reflection at grazing edges, of clear glass (a mirror: roughness 0, which a capture never normalises);
     // Fresnel mixes refraction (centre) into reflection (edge).

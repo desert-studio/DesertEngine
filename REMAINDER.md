@@ -1,8 +1,12 @@
-# REMAINDER WP17 pass 5 (task/WP-LIVE) - corpus at v68, live verdicts DONE
-- Fix: Tools/SceneMigrator/Source/SceneMigration.hpp:1042 Changed() lacked RootSiblingIndexRaised -> migrator said "already at v68" for v67 scenes and wrote nothing (dc7cf1c78). SceneMigrator only; Editor not rebuilt (Changed() not on the load path's behaviour).
-- Corpus (67fcc8bf2): migrate.sh --write Projects Editor + scratch bundle -> 84 scenes + 3 prefabs SCNE 67->68 (stamp only; no in-repo partitioned root carried siblingIndex); 40 layout-only .defoliage/.demat re-lays restored to dev's bytes (as dcc7701b6). Bundle WP22_Grids raised in scratch.
-- Live (bundle WP22_Grids, Editor @07af87b5e, DesertCtl; log scratch WP-LIVE/live5.txt): open -> modified=false; untouched Save Scene -> 0 files changed.
-- Move Sun (selection Translation -30,-75,-55 -> 100,200,300) -> modified=true; save -> 2 files: 33/926003.deent (Sun) + Descriptors.dedesc (its descriptor row: bounds/cell, as UE's actor descriptor), modified=false.
-- Undo -> modified=true; save -> the same 2 files rewritten; Sun .deent byte-identical to the original; whole bundle = original (0 differing files).
-- VERDICTS: WP17 (untouched save writes nothing) PASS; WP17-B (edit saves only the edited entity's file + its descriptor row) PASS; WP17-C (undo marks dirty, save restores exact bytes) PASS.
-- Suites for the lead: SceneVersionGate, PrefabVersionGate, WorldPartition, SceneStitch, WorldSceneGenerator. Mutation: drop `|| RootSiblingIndexRaised` in SceneMigration.hpp Changed() -> a v67 scene is reported ok and stays v67.
+# NG-RT-REFRACTION-B - remainder (context limit hit)
+
+Done (commit on task/NG-RT-REFRACTION-B):
+- Mesh/Surface/TranslucencyRefraction.glslh (new): TranslucencyRefractionTexture (auto-numbered, by name) + DesertTranslucencyRefraction(fragCoord, fragDepth), front-layer ULP test of FrontLayerReflection.glslh.
+- Mesh/Surface/Pass_Forward_Translucent.glslh: ScreenSpace tier = Snell-bent view ray to the opaque depth behind, reprojected, depth-checked (D1, D3, D4 screen part); constant 0.35 and N.xy deleted; refracted = mix(screen*tint, traced.rgb, traced.a).
+
+Left: Editor/Resources/Shaders/Programs/Translucency/RayTracedTranslucency.shader (new), closes D2, D5-D9 on the traced tier.
+- Pattern: Programs/Deferred/SSR.shader Pass "HitLighting" (:583-619) + Common/SSRTrace.glslh :199-300 (traceRayEXT into hit groups, payload, GIHitRadianceLit).
+- Raygen per front-layer pixel: params = PushConstant block with RayTracedTranslucencyParams members in order (mat4 InvJitteredViewProjection; vec4 CameraPosition (w PreExposure); float MaxRayDistance; float MaxRoughness; uint MaxInterfaces; uint FrameIndex).
+- Reads by name: front-layer depth/normal(a=roughness), SceneCopy, output image TranslucencyRefractionTexture (rgba16f), SceneTlas, CameraUB + Common/RayTracingSceneReads.glslh for the hit groups.
+- Loop: origin just before front depth on the camera ray; payload.Transmission=0 per ray; Transmission>0 = interface: eta = front ? 1/Ior : Ior, Fresnel dielectric (PathTracer.shader PathTracingFresnelDielectric), TIR -> reflect; thin (Ior<=1) tint per crossing, solid Beer absorption (kPathTracingAbsorptionDistance 100 cm); first interface's Fresnel NOT applied (the glass cell applies its own). Up to MaxInterfaces; exhausted or roughness > MaxRoughness -> a=0. Rough: one GGX VNDF normal sample keyed FrameIndex (Common/MonteCarlo.glslh). Opaque hit -> GIHitRadianceLit + Emissive, * PreExposure; miss -> sky.
+- CONTRACT-BREAK (report it): RayTracedTranslucency.hpp Inputs carry only front-layer depth/normal, TLAS, metadata, SceneCopy. The hit-group pipeline also needs the hit group table, CameraUB, RayTracingSceneReadsInputs, and the in-place hit-lighting reads (SSRRenderer::TracedReads: GIFrame, lights, light grid, radiance cache, EnvSpecular, GBufferA/Emissive/ShadingWord, tracer). The shader should declare them by the SSRShaderParameters names so package A can bind them like SSRRenderer::DeclareTracedReads, once the contract carries them.
