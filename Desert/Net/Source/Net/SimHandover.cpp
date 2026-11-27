@@ -69,10 +69,22 @@ namespace Desert::Net
 
     // ------------------------------------------------------------------------------------------------- sender
 
-    void SimHandover::InboxRead( NetClock::time_point readStart )
+    void SimHandover::Poll( INetTransport& transport )
     {
-        m_ReadHorizon = m_LastRead;
-        m_LastRead    = readStart;
+        const NetClock::time_point start = NetClock::now();
+        transport.Poll( m_Endpoint );
+        // A gap ends here when this read starts long after the previous one: its start is not eligible as a
+        // horizon (the socket thread woke with the process), so the horizon moves only to the last eligible start -
+        // the gap's start now, and again on the following read; the read after that one passes the gap. The read
+        // right after a gap read is eligible even when it ends a gap too (the socket thread ran through the long
+        // iteration between them), so a sim whose iterations stay long still moves its horizon every other read.
+        const bool gap     = start - m_ReadStart > Handover::kOfferDeadline / 2;
+        const bool skipped = gap && !m_AfterGap;
+        m_ReadStart        = start;
+        m_ReadHorizon      = m_Eligible;
+        m_AfterGap         = skipped;
+        if ( !skipped )
+            m_Eligible = start;
     }
 
     void SimHandover::AfterStep( std::uint32_t step, PawnSimulation& sim, RemoteGatewayLink& gateways,
@@ -85,7 +97,7 @@ namespace Desert::Net
         // otherwise. Without a link to the store no answer can come and nothing can have committed since it went:
         // the pawn resumes here at once. The deadline is wall time (kOfferDeadline), not steps: the ticks that
         // queued while this process stalled run in one burst, and the store's answer to the offer has had no
-        // time to be read in it. And it is judged on the READ HORIZON (InboxRead), not the clock: a sender that
+        // time to be read in it. And it is judged on the READ HORIZON (Poll), not the clock: a sender that
         // wakes from a stall longer than the deadline has the store's Committed still in its socket, and the
         // clock alone would withdraw an offer that already committed.
         const NetClock::time_point now         = m_ReadHorizon;
@@ -328,7 +340,7 @@ namespace Desert::Net
         // back (the store may have committed - dropping it here could leave the pawn with no owner). The wait is
         // wall time (kInDoubtWait), not steps: the ticks that queued while this process stalled run in one burst,
         // and the store's answer to the Accept sent inside that burst has had no time to arrive; it is judged on
-        // the read horizon (InboxRead), so the answers that queued during a stall are read first.
+        // the read horizon (Poll), so the answers that queued during a stall are read first.
         if ( !storeLinked )
             return;
         for ( auto& [player, held] : m_Incoming )
