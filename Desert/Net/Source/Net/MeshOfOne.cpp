@@ -181,6 +181,10 @@ namespace Desert::Net
                 const std::uint32_t missing = *pawn.LastProcessed + 1;
                 if ( !pawn.ResendFloor || !StepAfter( *pawn.ResendFloor, missing ) )
                     break; // still in flight: every Input message repeats it until the ack
+                // An adopted pawn whose previous owner's forward has not landed: the frozen steps the client no
+                // longer resends are in that forward - the hole is not given up before its end-of-backlog mark.
+                if ( pawn.CatchUp && !pawn.CatchUp->BacklogLanded )
+                    break;
                 m_Log( std::format(
                      "pawn net id {}: input steps {}..{} never arrived and the client no longer resends "
                      "them (its unacked ring of {} steps overflowed); moving on (the client is "
@@ -214,17 +218,20 @@ namespace Desert::Net
         if ( pawn.Placement )
             pawn.Move.Velocity = NetVec3{};
         // The resume's or the commit's catch-up, measured on every authoritative step it takes (planar, what a
-        // proxy and the client's correction see); reported once the queue is back at the sync's target on a step
-        // that applied an input (the commit's run only). A starved step keeps an adopted run open: the previous
-        // owner's forwarded backlog may still be in flight, or the client's direct inputs wait behind a hole -
-        // closing there reported the commit's own queue and left the backlog to drain unmeasured. A resume run
-        // has nothing in flight: it closes once the queue is back at the target.
+        // proxy and the client's correction see); reported once the queue is back at the sync's target. An
+        // ADOPTED run closes only after the previous owner's end-of-backlog mark for the committed offer has
+        // landed (BacklogLanded) and on a step that applied an input: before the mark the forwarded backlog is
+        // still in flight - closing on the first applied input reported the commit's own queue (1) and left the
+        // backlog that landed tens of ms later to drain unmeasured; a starved step after it waits behind a hole of
+        // the client's direct inputs. A resume run has nothing in flight: it closes once the queue is back at the
+        // target.
         if ( pawn.CatchUp )
         {
             const float dx = pawn.Move.Position.X - before.X, dz = pawn.Move.Position.Z - before.Z;
             pawn.CatchUp->LargestStep = std::max( pawn.CatchUp->LargestStep, std::sqrt( dx * dx + dz * dz ) );
             ++pawn.CatchUp->Steps;
-            if ( ( applied > 0 || !pawn.CatchUp->Adopted ) && pawn.Pending.size() <= kDrainAbove )
+            const bool settled = !pawn.CatchUp->Adopted || ( pawn.CatchUp->BacklogLanded && applied > 0 );
+            if ( settled && pawn.Pending.size() <= kDrainAbove )
             {
                 const Pawn::CatchUpRun& run = *pawn.CatchUp;
                 const std::string what =
@@ -446,9 +453,36 @@ namespace Desert::Net
         // kMaxInputsPerStep each (StepPawn), as after Resume: replaying the catch-up here moved the pawn a whole
         // backlog in one authoritative step.
         pawn.Hold    = EHold::Owned;
-        pawn.CatchUp = Pawn::CatchUpRun{ .Adopted = true, .Behind = catchUpSteps, .Queued = pawn.Pending.size() };
+        pawn.CatchUp = Pawn::CatchUpRun{ .Adopted       = true,
+                                         .BacklogLanded = pawn.BacklogLanded,
+                                         .Behind        = catchUpSteps,
+                                         .Queued        = pawn.Pending.size() };
         m_Store.Write( pawn.State );
         return pawn.Gateway;
+    }
+
+    bool PawnSimulation::AwaitsBacklog( PlayerId player ) const
+    {
+        const auto it = m_Pawns.find( player );
+        return it != m_Pawns.end() && it->second.CatchUp && it->second.CatchUp->Adopted &&
+               !it->second.CatchUp->BacklogLanded;
+    }
+
+    bool PawnSimulation::BacklogLanded( PlayerId player )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() )
+            return false;
+        Pawn& pawn = it->second;
+        if ( pawn.Hold == EHold::Incoming )
+        {
+            pawn.BacklogLanded = true;
+            return true;
+        }
+        if ( !pawn.CatchUp || !pawn.CatchUp->Adopted || pawn.CatchUp->BacklogLanded )
+            return false;
+        pawn.CatchUp->BacklogLanded = true;
+        return true;
     }
 
     bool PawnSimulation::Abandon( PlayerId player )
