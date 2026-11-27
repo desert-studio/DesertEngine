@@ -5,6 +5,7 @@
 // A pawn changes owner by a two-phase commit whose coordinator is the store (the state of record) and whose
 // participants are the two sims:
 //
+// clang-format off
 //   sender  --Offer------>  store  --Offer------>  receiver     the sender HOLDS the pawn (not stepped, inputs
 //                                                               queue) and keeps its authority
 //   receiver --Accept----> store                                or --Refuse(reason)--> store
@@ -12,7 +13,8 @@
 //   store   --Committed--> sender                               only now the sender releases the pawn
 //   store   --AuthorityChanged (MeshLink.cpp EMesh)--> gateways
 //   store   --Refused(reason)--> sender | receiver              every other end of an offer
-//   sender  --Withdraw---> store                                after kOfferDeadlineSteps without an answer
+//   sender  --Withdraw---> store                                after kOfferDeadline without an answer
+// clang-format on
 //
 // Nothing is dropped without a reason: every way an offer ends is an ERefusal carried on the wire to the side that
 // still holds something, and counted in that role's Describe(). SpatialOS's AuthorityLossImminent -> ack ->
@@ -60,17 +62,18 @@ namespace Desert::Net::Handover
     }
     [[nodiscard]] std::string_view MessageName( EMessage type );
 
-    // The sender waits this many mesh steps (60 Hz) for Committed or Refused before it withdraws: 0.5 s, more
-    // than ten store round trips inside one datacentre and well under the client's input ring
-    // (Replication.hpp kMaxUnackedInputSteps = 128 steps), so a held pawn loses no input.
-    inline constexpr std::uint32_t kOfferDeadlineSteps = 30;
+    // The sender waits this long for Committed or Refused before it withdraws: 0.5 s, more than ten store round
+    // trips inside one datacentre and well under the client's input ring (Replication.hpp kMaxUnackedInputSteps =
+    // 128 steps at 60 Hz), so a held pawn loses no input. WALL TIME on NetClock, not mesh steps, as a two-phase-
+    // commit participant's timeout is: after a stall the sim runs the ticks that queued in one burst, and a
+    // deadline counted in steps would expire in a few milliseconds and withdraw an offer whose answer is already
+    // queued.
+    inline constexpr std::chrono::milliseconds kOfferDeadline{ 500 };
     // A receiver that accepted and heard no decision (Commit / Refused) for this long is IN DOUBT and re-sends
-    // its Accept; the store answers with the offer's outcome (HandoverLedger.hpp). Twice the sender's deadline
-    // (kOfferDeadlineSteps at the 60 Hz mesh step = 0.5 s), so the sender's own Withdraw has been decided by then;
-    // then again as often while no answer comes. WALL TIME on NetClock, not mesh steps, as a two-phase-commit
-    // participant's timeout is: after a stall the sim runs the ticks that queued in one burst, and a wait counted
-    // in steps would expire in a few milliseconds, before the store's answer could arrive.
-    inline constexpr std::chrono::milliseconds kInDoubtWait{ 1000 };
+    // its Accept; the store answers with the offer's outcome (HandoverLedger.hpp). Twice the sender's deadline,
+    // so the sender's own Withdraw has been decided by then; then again as often while no answer comes. Wall
+    // time on NetClock, for the same reason as kOfferDeadline.
+    inline constexpr std::chrono::milliseconds kInDoubtWait = 2 * kOfferDeadline;
     // After a refusal or a withdrawal the sender keeps the pawn and does not offer it again for this many steps
     // (2 s); a new authority map from the coordinator ends the backoff early.
     inline constexpr std::uint32_t kRetryBackoffSteps = 120;
@@ -91,7 +94,7 @@ namespace Desert::Net::Handover
         Withdrawn,        // store -> receiver: the sender withdrew before the Accept arrived
         OfferUnknown,     // store: an Accept / Refuse / Withdraw for an offer it does not hold
         PawnRemoved,      // store: the pawn was removed (player left) while the offer was open
-        ReceiverSilent,   // sender: no Committed / Refused within kOfferDeadlineSteps - it withdrew
+        ReceiverSilent,   // sender: no Committed / Refused within kOfferDeadline - it withdrew
         RegionNotMine,    // receiver: its authority map does not give it the region at the pawn's position
         NoCell,           // receiver: no cell of the world grid at the pawn's position
         CatchUpTooLarge,  // receiver: the offer's step is more than kMaxCatchUpSteps behind its own

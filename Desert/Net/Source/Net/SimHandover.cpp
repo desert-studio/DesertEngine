@@ -26,6 +26,11 @@ namespace Desert::Net
         {
             return now > then ? now - then : 0;
         }
+
+        [[nodiscard]] long long WaitedMs( NetClock::time_point now, NetClock::time_point then )
+        {
+            return std::chrono::duration_cast<std::chrono::milliseconds>( now - then ).count();
+        }
     } // namespace
 
     SimHandover::SimHandover( MeshEndpoint& endpoint, std::uint32_t sim, NetLogSink log )
@@ -67,16 +72,19 @@ namespace Desert::Net
     void SimHandover::AfterStep( std::uint32_t step, PawnSimulation& sim, RemoteGatewayLink& gateways,
                                  RemoteReplicationStore& )
     {
-        // THE DEADLINE: an offer the store has not decided within kOfferDeadlineSteps is withdrawn - ONCE; the
+        // THE DEADLINE: an offer the store has not decided within kOfferDeadline is withdrawn - ONCE; the
         // pawn stays held until the store answers that Withdraw (the coordinator of the two-phase commit decides:
         // its Committed may already be on the way, and then the authority is the receiver's). The withdrawal is
         // marked by the held pawn's m_BackoffEnd entry (the step it was sent at): a held pawn has no backoff
         // otherwise. Without a link to the store no answer can come and nothing can have committed since it went:
-        // the pawn resumes here at once.
-        const bool storeLinked = !m_Endpoint.PeersOfRole( EMeshRole::Store ).empty();
+        // the pawn resumes here at once. The deadline is wall time (kOfferDeadline), not steps: the ticks that
+        // queued while this process stalled run in one burst, and the store's answer to the offer has had no
+        // time to be read in it.
+        const NetClock::time_point now         = NetClock::now();
+        const bool                 storeLinked = !m_Endpoint.PeersOfRole( EMeshRole::Store ).empty();
         std::vector<std::pair<PlayerId, OpenOffer>> late;
         for ( const auto& [player, offer] : m_Offers )
-            if ( StepsSince( step, offer.Step ) >= Handover::kOfferDeadlineSteps )
+            if ( now - offer.When >= Handover::kOfferDeadline )
                 late.emplace_back( player, offer );
         for ( const auto& [player, offer] : late )
         {
@@ -89,9 +97,10 @@ namespace Desert::Net
                                  withdrawn != m_BackoffEnd.end()
                                       ? std::format( "withdrawn at step {}, and the link to the store is gone",
                                                      withdrawn->second )
-                                      : std::format( "sim {} answered nothing for {} steps, and no link to the "
-                                                     "store carries a Withdraw",
-                                                     offer.To, StepsSince( step, offer.Step ) ) },
+                                      : std::format( "sim {} answered nothing for {} ms ({} steps), and no link "
+                                                     "to the store carries a Withdraw",
+                                                     offer.To, WaitedMs( now, offer.When ),
+                                                     StepsSince( step, offer.Step ) ) },
                         step, sim );
                 continue;
             }
@@ -105,11 +114,12 @@ namespace Desert::Net
                               "pawn stays held until the store answers",
                               m_Sim, offer.Serial, offer.Id, player, offer.To,
                               Handover::Describe( { ERefusal::ReceiverSilent,
-                                                    std::format( "sim {} answered nothing for {} steps", offer.To,
+                                                    std::format( "sim {} answered nothing for {} ms ({} steps)",
+                                                                 offer.To, WaitedMs( now, offer.When ),
                                                                  StepsSince( step, offer.Step ) ) } ) ) );
         }
 
-        AskInDoubt( step, NetClock::now(), storeLinked );
+        AskInDoubt( step, now, storeLinked );
 
         for ( const PawnSimulation::Source& source : sim.Sources() )
         {
@@ -162,7 +172,7 @@ namespace Desert::Net
             return;
         }
         m_Endpoint.SendToRole( EMeshRole::Store, message );
-        m_Offers[source.Player] = OpenOffer{ m_NextSerial, source.Id, target, step };
+        m_Offers[source.Player] = OpenOffer{ m_NextSerial, source.Id, target, step, NetClock::now() };
         ++m_Stats.Offered;
         m_Log( std::format(
              "sim {}: pawn net id {} (player {}) at ({:.0f}, {:.0f}) cm is {:.0f} cm inside region "

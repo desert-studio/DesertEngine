@@ -8,7 +8,7 @@
 // the store with its unacked inputs. The sim keeps the authority: it is still the only writer of that pawn until
 // the store's Committed. Committed -> the pawn is released, the inputs that queued while it was held and every
 // later one go to the new owner through the store (RemoteGatewayLink::ForwardInputs). Refused, or no answer for
-// kOfferDeadlineSteps (-> Withdraw) -> the pawn resumes with its queued inputs, and is not offered again for
+// kOfferDeadline (-> Withdraw) -> the pawn resumes with its queued inputs, and is not offered again for
 // kRetryBackoffSteps unless the authority map changes. Every outcome is one log line with its ERefusal and one
 // count in Stats.
 //
@@ -86,7 +86,8 @@ namespace Desert::Net
             Handover::OfferSerial Serial = 0;
             NetId                 Id     = kInvalidNetId;
             std::uint32_t         To     = 0;
-            std::uint32_t         Step   = 0; // frozen at
+            std::uint32_t         Step   = 0; // frozen at (the log)
+            NetClock::time_point  When;       // the wall time of the same (the offer deadline is measured on it)
         };
         struct Incoming
         {
