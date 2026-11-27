@@ -1113,6 +1113,9 @@ namespace Desert::Graphic
         {
             RDG::TextureRef Reflection;
             RDG::TextureRef Depth;
+            // "Translucency: Ray Traced Refraction"'s RefractionOutputs::Radiance (RayTracedTranslucency.hpp);
+            // invalid = Translucency.Refraction ScreenSpace, the glass reads the scene copy.
+            RDG::TextureRef Refraction;
         };
         // @p sceneCopy: this frame's scene snapshot (FrameTransients::SceneColorCopy); invalid -> no glass node.
         void AddFrameGlass( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy,
