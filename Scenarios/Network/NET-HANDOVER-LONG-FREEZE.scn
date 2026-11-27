@@ -14,8 +14,11 @@
 Роль coord server --role coordinator --region west:1:-100000,-100000,0,100000 --region east:2:0,-100000,100000,100000 --border-band 1500 --handover-margin 300 --steps 864000
 Ждать coord 60 listening for mesh peers on port
 Роль store server --role store
-Роль sim1 server --role sim --index 1 --source -1000,0,-500 --spawn -1000,92,-500 --spawn -1000,92,-300
-Роль sim2 server --role sim --index 2 --source 3000,0,-500 --spawn 3000,92,-500
+# The spawn points are the ground (feet, cm): sim 1's placer measured the floor 782 cm under (-1000, 92, -500) and 758 cm
+# under (-1000, 92, -300) (scn-1127-081536 sim1.log "point free, floor N cm below it"); sim 2's (3000, -500) is -78 from the
+# WP_Protocol landscape tile samples (h=(s-32768)/128*ZScale 4, 200 cm spacing; reproduces every placer reading).
+Роль sim1 server --role sim --index 1 --source -1000,0,-500 --spawn -1000,-690,-500 --spawn -1000,-666,-300
+Роль sim2 server --role sim --index 2 --source 3000,0,-500 --spawn 3000,-78,-500
 Роль gw server --role gateway --pawn assets:Prefabs/Pawn_Player.deprefab
 Ждать sim1 120 NetId lease held - reported ready
 Ждать sim2 120 NetId lease held - reported ready

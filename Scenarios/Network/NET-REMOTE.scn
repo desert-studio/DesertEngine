@@ -5,11 +5,13 @@
 # Played by scripts/Dev/net_scenario.py (NET-SCENARIO-PLAY): DesertServer --role all sending with 75 ms lag + 30 ms
 # jitter + 2 % loss, Editor B = observer (player 1, its own pawn camera, every frame shot), bot A (player 2) walking a
 # 400 cm shuttle 5 m in front of B (probe --waypoints, steered from the server position). B joins first, A once B
-# has landed (B falls 92 -> ~-420 on WP_Protocol's hill), so the spawn points are listed in admission order.
+# is in session (B spawns standing at -421 on WP_Protocol's hill), so the spawn points are listed in admission order.
 # |dir| 0.02 moves A ~6 cm per wall second: the remote pawn is interpolated on the network's wall clock.
 # Pass history (p5-p10, run_net5b.sh): git log of this file.
 Мир Content/Scenes/WP_Protocol.desce
-Роль server server lag=75 jitter=30 loss=2 --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,92,650 --spawn 0,92,150 --steps 1000000
+# The spawn points are the ground (feet, cm): (0, 650) is -421 (the placer: floor 121 cm under (0, -300, 650), NET-INPUT-PACK
+# scn-1127-073438 server.log; B rests at -421, NET-REMOTE scn-1126-155428 A.log); (0, 150) is -464 from the WP_Protocol landscape tile samples (h=(s-32768)/128*ZScale 4, 200 cm spacing; reproduces every placer reading).
+Роль server server lag=75 jitter=30 loss=2 --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-421,650 --spawn 0,-464,150 --steps 1000000
 Ждать server 60 \[Server\] listening on port
 Роль B editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --shot-player-view --quality PostProcess.MotionBlurQuality=0
 Ждать B 1800 \[Net\] in session

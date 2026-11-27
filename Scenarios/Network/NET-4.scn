@@ -15,7 +15,9 @@
 # Left Shift -> IA_Sprint). A's sprint is Left Shift held in its local player's Enhanced Input (the walk mode presses
 # the key, UE UPlayerInput::InputKey), so IA_Sprint fires and the one Input::LocalPawnInputStep builds the step.
 Мир Content/Scenes/WP_Protocol.desce
-Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-300,650 --spawn 500,-300,-200 --steps 864000
+# The spawn points are the ground (feet, cm): the placer measured the floor 121 cm under (0, -300, 650) and 127 cm
+# under (500, -300, -200) (NET-INPUT-PACK scn-1127-073438 server.log "point free, floor N cm below it"), so a pawn spawns standing.
+Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-421,650 --spawn 500,-427,-200 --steps 864000
 Ждать server 60 \[Server\] listening on port
 Роль A editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --camera 2100,120,50 --look 0.595,-0.198,0.779 --quality PostProcess.MotionBlurQuality=0 --net-walk-cm 30000 --net-walk-dir 1,0,0 --net-walk-mode sprint --net-jump-every 1.5
 Ждать A 1800 \[Net\] in session
