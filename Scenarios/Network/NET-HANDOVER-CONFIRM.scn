@@ -18,8 +18,8 @@
 # and 758 cm under (-1000, 92, -300) (scn-1127-081536 sim1.log "point free, floor N cm below it"), so a pawn spawns standing.
 # Sim 2's point (3000, -500) is -78 from the WP_Protocol landscape tile samples (h=(s-32768)/128*ZScale 4, 200 cm spacing; reproduces every placer reading).
 # The third (A2, the third pawn; MeshOfOne takes SpawnPoints[index % count]) keeps A2 out of B's capsule: its height
-# is the same slope carried 200 cm on (12 cm per 100 cm of z), within MaxStepHeight 45 cm, so the placer snaps it.
-Роль sim1 server --role sim --index 1 --source -1000,0,-500 --spawn -1000,-690,-500 --spawn -1000,-666,-300 --spawn -1000,-642,-100
+# is -645, from the same landscape tile samples (-644.6 at (-1000, -100)).
+Роль sim1 server --role sim --index 1 --source -1000,0,-500 --spawn -1000,-690,-500 --spawn -1000,-666,-300 --spawn -1000,-645,-100
 Роль sim2 server --role sim --index 2 --source 3000,0,-500 --spawn 3000,-78,-500
 Роль gw server --role gateway --pawn assets:Prefabs/Pawn_Player.deprefab
 Ждать sim1 120 NetId lease held - reported ready
