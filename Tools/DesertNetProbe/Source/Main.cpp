@@ -44,7 +44,10 @@
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
 
+#include <Net/FaultTransport.hpp>
 #include <Net/ReplicationClient.hpp>
+
+#include <Common/Core/StdinConsole.hpp>
 
 #include <cmath>
 
@@ -67,7 +70,6 @@
 #include <utility>
 #include <vector>
 #include <memory>
-#include <mutex>
 #include <sstream>
 
 using namespace Desert::Net;
@@ -864,6 +866,26 @@ namespace
     // move). Walks its own pawn D cm along dir (server-authoritative: it stops when the SERVER's position of its
     // pawn has moved D cm), then idles; logs its own pawn and every remote pawn (interpolated) twice a second and
     // a final line per pawn with its displacement from where this client first saw it.
+    // CONSOLE (NET-SCN-VERBS; net_scenario.py «Консоль <bot> <line>»), one command per stdin line, applied between
+    // two client steps:
+    //   stop                    stops the walk where the server has the pawn, facing where it walked
+    //   walk [cm]               walks on from there, the same direction and turn: cm, or what the stopped walk had
+    //                           left (a shuttle walks on until --seconds)
+    //   drop <Kind> [n]         the next n (default 1) messages of Kind, either way, are lost
+    //   corrupt <Kind> [n]      the next n messages of Kind are cut to two bytes (both: Net/FaultTransport.hpp)
+    // A line it cannot apply is logged as "console: refused '<line>': <reason>" and changes nothing.
+    // The walk's state: whether it walks, the direction it walks (turned by --turn-deg-s while walking), the cm
+    // the current leg has left, measured from where the SERVER had the pawn when the leg began, and the facing the
+    // inputs carry (held while the pawn stands: a stopped pawn keeps facing where it walked).
+    struct WalkPlan
+    {
+        bool    Walking     = false;
+        NetVec3 Dir         = { 1.f, 0.f, 0.f };
+        double  RemainingCm = 0.0;
+        // Unset until the server's position of the own pawn is first known (the first leg begins there).
+        std::optional<NetVec3> Origin;
+        float                  Yaw = 0.f; // the editor's convention: yaw 0 faces -Z
+    };
     // The action bits the bot holds and when (--hold-actions / --hold-from / --hold-until).
     struct HeldActions
     {
@@ -883,7 +905,7 @@ namespace
         // --protocol: a client of another protocol version (NET-AUTH-SPLIT N-A02: the server refuses it first).
         std::uint32_t        protocol = kProtocolVersion;
         double      seconds = 10.0, walkCm = 0.0, turnDegPerSecond = 0.0;
-        NetVec3     dir{ 1.f, 0.f, 0.f };
+        WalkPlan             plan;
         std::vector<NetVec3> waypoints;
         HeldActions          held;
         NetSimulator simulator;
@@ -950,7 +972,7 @@ namespace
             }
             else if ( arg == "--dir" )
             {
-                if ( std::sscanf( value.c_str(), "%f,%f,%f", &dir.X, &dir.Y, &dir.Z ) != 3 )
+                if ( std::sscanf( value.c_str(), "%f,%f,%f", &plan.Dir.X, &plan.Dir.Y, &plan.Dir.Z ) != 3 )
                 {
                     Log( "--dir '{}' is not x,y,z", value );
                     return 1;
@@ -973,7 +995,8 @@ namespace
         {
             Log( "usage: --bot --connect IP:PORT --cooked DIR --token HEX --name N --seconds S [--walk-cm D --dir "
                  "x,y,z --turn-deg-s R] [--waypoints x,y,z;x,y,z...] [--lag-ms L --loss P] [--join-options TEXT] "
-                 "[--protocol V] [--hold-actions MASK --hold-from S --hold-until S]" );
+                 "[--protocol V] [--hold-actions MASK --hold-from S --hold-until S]; console on stdin: "
+                 "stop | walk [cm] | drop <Kind> [n] | corrupt <Kind> [n]" );
             return 1;
         }
         const std::optional<std::uint64_t> cookHash = ReadCookHash( cooked );
@@ -991,7 +1014,9 @@ namespace
             Log( "[{}] transport: {}", name, error );
             return 1;
         }
-        ReplicationClient client( *transport, { protocol, *cookHash, *token, joinOptions }, log );
+        // The console's drop/corrupt faults sit between the client and the real transport (GoF Decorator).
+        FaultTransport    faults( *transport, log );
+        ReplicationClient client( faults, { protocol, *cookHash, *token, joinOptions }, log );
         if ( !client.Connect( connect, error ) )
         {
             Log( "[{}] connect {}: {}", name, connect, error );
@@ -1001,8 +1026,10 @@ namespace
         const auto distance = []( const NetVec3& a, const NetVec3& b )
         { return std::sqrt( ( a.X - b.X ) * ( a.X - b.X ) + ( a.Y - b.Y ) * ( a.Y - b.Y ) + ( a.Z - b.Z ) * ( a.Z - b.Z ) ); };
         std::map<NetId, NetVec3> firstSeen;
-        bool                     walking      = walkCm > 0.0 || !waypoints.empty();
-        const float              shuttleSpeed = std::sqrt( dir.X * dir.X + dir.Y * dir.Y + dir.Z * dir.Z );
+        plan.Walking     = walkCm > 0.0 || !waypoints.empty();
+        plan.RemainingCm = walkCm;
+        const float shuttleSpeed =
+             std::sqrt( plan.Dir.X * plan.Dir.X + plan.Dir.Y * plan.Dir.Y + plan.Dir.Z * plan.Dir.Z );
         std::size_t              target       = 0;
         int                      heading      = 1; // +1 walks up the list, -1 back down it
         // Within this horizontal distance of the point the bot turns: the server's position it steers from is
@@ -1014,6 +1041,68 @@ namespace
         double                   nextLog = 0.5;
         // The previous step's held actions: a step that overruns its slot still logs the boundary it crossed.
         std::uint32_t lastActions = 0u;
+        // The SERVER's newest position of the own pawn (the snapshot, not the interpolated one), when it has one.
+        const auto ownNewest = [&client]() -> std::optional<NetVec3>
+        {
+            if ( client.OwnPawn() == kInvalidNetId || !client.Pawns().contains( client.OwnPawn() ) )
+                return std::nullopt;
+            return client.Pawns().at( client.OwnPawn() ).History.Newest().Position;
+        };
+        constexpr std::string_view kConsoleCommands = "stop | walk [cm] | drop <Kind> [n] | corrupt <Kind> [n]";
+        // One console line, applied between two steps: the reason it was refused, empty when applied.
+        const auto applyConsole = [&]( const std::string& line ) -> std::string
+        {
+            std::istringstream words( line );
+            std::string        verb, argument, extra;
+            words >> verb >> argument >> extra;
+            if ( verb == "stop" )
+            {
+                if ( !argument.empty() )
+                    return std::format( "unexpected '{}' after stop", argument );
+                if ( !plan.Walking )
+                    return "not walking";
+                const std::optional<NetVec3> at = ownNewest();
+                if ( !at )
+                    return "the server has not sent the own pawn yet";
+                plan.Walking = false;
+                if ( waypoints.empty() && plan.Origin )
+                    plan.RemainingCm = std::max( 0.0, plan.RemainingCm - distance( *at, *plan.Origin ) );
+                Log( "[{}] console: stopped at step {} ({:.0f}, {:.0f}, {:.0f}), facing {:.0f} deg", name, step,
+                     at->X, at->Y, at->Z, plan.Yaw * 180.0f / 3.14159265f );
+                return {};
+            }
+            if ( verb == "walk" )
+            {
+                if ( !extra.empty() )
+                    return std::format( "unexpected '{}' after walk {}", extra, argument );
+                if ( plan.Walking )
+                    return "already walking";
+                double cm = plan.RemainingCm;
+                if ( !argument.empty() )
+                {
+                    char*        end    = nullptr;
+                    const double parsed = std::strtod( argument.c_str(), &end );
+                    if ( end != argument.c_str() + argument.size() || !( parsed > 0.0 ) )
+                        return std::format( "'{}' is not a distance above 0 cm", argument );
+                    cm = parsed;
+                }
+                if ( waypoints.empty() && !( cm > 0.0 ) )
+                    return "nothing to walk";
+                const std::optional<NetVec3> at = ownNewest();
+                if ( !at )
+                    return "the server has not sent the own pawn yet";
+                plan.Walking     = true;
+                plan.RemainingCm = cm;
+                plan.Origin      = *at;
+                Log( "[{}] console: walk resumed at step {}, {:.0f} cm to go", name, step, cm );
+                return {};
+            }
+            // Every other line is a fault command, or nothing this console knows.
+            std::string error;
+            return faults.ArmFromConsole( line, error ) ? std::string() : error;
+        };
+        Desert::Common::StdinConsole console;
+        console.Start();
         for ( ;; ++step )
         {
             std::this_thread::sleep_until( start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
@@ -1031,21 +1120,30 @@ namespace
                 if ( !firstSeen.contains( id ) )
                     if ( const auto sample = client.Sample( id ) )
                         firstSeen[id] = sample->Position;
-            // The SERVER's newest position of the own pawn (the snapshot, not the interpolated one) ends the walk.
-            if ( walking && waypoints.empty() && client.OwnPawn() != kInvalidNetId &&
-                 firstSeen.contains( client.OwnPawn() ) )
+            for ( const std::string& line : console.Take() )
             {
-                const auto& own = client.Pawns().at( client.OwnPawn() );
-                const PawnState newest = own.History.Newest();
-                if ( distance( newest.Position, firstSeen[client.OwnPawn()] ) >= walkCm )
+                if ( line.find_first_not_of( " \t\r" ) == std::string::npos )
+                    continue;
+                if ( const std::string refused = applyConsole( line ); !refused.empty() )
+                    Log( "[{}] console: refused '{}': {} (commands: {})", name, line, refused, kConsoleCommands );
+            }
+            // The SERVER's newest position of the own pawn ends the leg: the first leg begins where the server
+            // first had it, a resumed one where it stood when `walk` came.
+            if ( const std::optional<NetVec3> at = ownNewest() )
+            {
+                if ( !plan.Origin )
+                    plan.Origin = *at;
+                if ( plan.Walking && waypoints.empty() && distance( *at, *plan.Origin ) >= plan.RemainingCm )
                 {
-                    walking = false;
-                    Log( "[{}] walked {:.0f} cm (server position): stopping at step {}", name, walkCm, step );
+                    Log( "[{}] walked {:.0f} cm (server position): stopping at step {}", name, plan.RemainingCm,
+                         step );
+                    plan.Walking     = false;
+                    plan.RemainingCm = 0.0;
                 }
             }
             if ( !waypoints.empty() )
             {
-                dir = {};
+                plan.Dir = {};
                 if ( client.OwnPawn() != kInvalidNetId && client.Pawns().contains( client.OwnPawn() ) )
                 {
                     const PawnState newest = client.Pawns().at( client.OwnPawn() ).History.Newest();
@@ -1064,23 +1162,25 @@ namespace
                         dz = waypoints[target].Z - newest.Position.Z;
                     }
                     if ( const float length = std::sqrt( dx * dx + dz * dz ); length > 0.f )
-                        dir = { dx / length * shuttleSpeed, 0.f, dz / length * shuttleSpeed };
+                        plan.Dir = { dx / length * shuttleSpeed, 0.f, dz / length * shuttleSpeed };
                 }
             }
-            else if ( walking && turnDegPerSecond != 0.0 )
+            else if ( plan.Walking && turnDegPerSecond != 0.0 )
             {
                 const double turn = turnDegPerSecond * 3.14159265358979 / 180.0 / kNetStepHz;
                 const float  c = static_cast<float>( std::cos( turn ) ), s = static_cast<float>( std::sin( turn ) );
-                dir = { dir.X * c + dir.Z * s, dir.Y, -dir.X * s + dir.Z * c };
+                plan.Dir = { plan.Dir.X * c + plan.Dir.Z * s, plan.Dir.Y, -plan.Dir.X * s + plan.Dir.Z * c };
             }
-            // Facing the walk (the editor's convention: yaw 0 faces -Z).
-            const bool  moving = walking && ( dir.X != 0.f || dir.Z != 0.f );
-            const float yaw    = moving ? std::atan2( -dir.X, -dir.Z ) : 0.f;
+            // Facing the walk while it moves; a standing pawn keeps the facing it had (no turn to -Z on a stop).
+            if ( plan.Walking && ( plan.Dir.X != 0.f || plan.Dir.Z != 0.f ) )
+                plan.Yaw = std::atan2( -plan.Dir.X, -plan.Dir.Z );
+            const float         yaw     = plan.Yaw;
             const std::uint32_t actions = held.At( now );
             if ( actions != lastActions )
                 Log( "[{}] actions {} at {:.2f} s (step {})", name, actions, now, step );
             lastActions = actions;
-            client.SendInput( InputStep{ .Move = walking ? dir : NetVec3{}, .Yaw = yaw, .Actions = actions } );
+            client.SendInput(
+                 InputStep{ .Move = plan.Walking ? plan.Dir : NetVec3{}, .Yaw = yaw, .Actions = actions } );
             // The cells around the SERVER's position of the own pawn, reported when they change; and the view, as
             // every client reports it (UE ServerUpdateCamera; ClientNetDriver::ReportView): asked every step,
             // ReplicationClient::ReportView sends it at the client's cadence. The bot has no camera: its eye is
@@ -1129,39 +1229,11 @@ namespace
                  name, pawn.Owned ? "own" : "remote", id, pawn.Player, sample->Position.X, sample->Position.Y,
                  sample->Position.Z, distance( sample->Position, firstSeen[id] ), velocity.X, velocity.Y, velocity.Z );
         }
+        Log( "[{}] faults: {} dropped, {} corrupted, {} armed never hit", name, faults.Dropped(),
+             faults.Corrupted(), faults.Armed().size() );
         Log( "[{}] {} pawn(s) replicated; exit {}", name, client.Pawns().size(), result );
         return result;
     }
-    // THE HOSTILE MESH PEER (--mesh-peer): see the header. Its own console thread, as DesertServer's
-    // ServerConsole.
-    class PeerConsole
-    {
-    public:
-        void Start()
-        {
-            std::thread(
-                 [this]
-                 {
-                     std::string line;
-                     while ( std::getline( std::cin, line ) )
-                     {
-                         const std::scoped_lock lock( m_Mutex );
-                         m_Lines.push_back( line );
-                     }
-                 } )
-                 .detach();
-        }
-        std::vector<std::string> Take()
-        {
-            const std::scoped_lock lock( m_Mutex );
-            return std::exchange( m_Lines, {} );
-        }
-
-    private:
-        std::mutex               m_Mutex;
-        std::vector<std::string> m_Lines;
-    };
-
     // The Offer a defective sender would send: the header names the key, the pawn record carries only its net id
     // (the store reads no further than the key and the pawn's id before it refuses).
     std::vector<std::byte> HostileOffer( std::uint32_t sim, Handover::OfferSerial serial, std::uint32_t to,
@@ -1272,7 +1344,7 @@ namespace
             Log( "probe: --store '{}': {}", store, error );
             return 1;
         }
-        PeerConsole console;
+        Desert::Common::StdinConsole console;
         console.Start();
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>( seconds );
         while ( !lost && std::chrono::steady_clock::now() < deadline )
@@ -1376,15 +1448,17 @@ namespace
 
 int main( int argc, char** argv )
 {
+    // The two console-driven roles leave without static teardown (Common::StdinConsole's exit rule): the detached
+    // console thread may still be inside std::getline on std::cin, and destroying the iostreams under it races.
+    // Log flushed every line; std::quick_exit is absent from Apple's libc, std::_Exit is the same exit on both
+    // platforms.
     for ( int i = 1; i < argc; ++i )
+    {
         if ( std::strcmp( argv[i], "--mesh-peer" ) == 0 )
-            // Leave without static teardown: the detached console thread may still be inside std::getline on
-            // std::cin, and destroying the iostreams under it races. Log flushed every line; std::quick_exit is
-            // absent from Apple's libc, std::_Exit is the same exit on both platforms.
             std::_Exit( RunMeshPeer( argc, argv ) );
-    for ( int i = 1; i < argc; ++i )
         if ( std::strcmp( argv[i], "--bot" ) == 0 )
-            return RunBot( argc, argv );
+            std::_Exit( RunBot( argc, argv ) );
+    }
     std::optional<Options> options = ParseOptions( argc, argv );
     if ( !options )
         return 1;
