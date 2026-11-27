@@ -118,8 +118,9 @@ namespace Desert::Graphic::System
             return Common::MakeError<RefractionOutputs>( "Ray traced refraction: no CameraUB" );
         if ( in.Width == 0 || in.Height == 0 )
             return Common::MakeError<RefractionOutputs>( "Ray traced refraction: the render resolution is empty" );
-        if ( in.HitLighting.Tracer.Pipeline.Tracer != kRayTracedTranslucencyTracer.Tracer ||
-             in.HitLighting.Tracer.Pipeline.Hits != kRayTracedTranslucencyTracer.Hits )
+        // The permutation statement, not the record's fields (GITracing.hpp: a consumer hands the frame on).
+        if ( GlobalIllumination::TracerVariant( in.HitLighting.Tracer.Pipeline ).Hash() !=
+             GlobalIllumination::TracerVariant( kRayTracedTranslucencyTracer ).Hash() )
             return Common::MakeError<RefractionOutputs>(
                  "Ray traced refraction: the hit lighting reads were made for another tracer than "
                  "kRayTracedTranslucencyTracer (hardware, hits lit in place)" );
@@ -149,7 +150,7 @@ namespace Desert::Graphic::System
              [pipeline = self.Pipeline, hits = in.HitLighting.HitGroups, push, width = in.Width,
               height = in.Height]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
-                 DESERT_PROFILE_PASS( "Translucency: Ray Traced Refraction" );
+                 DESERT_PROFILE_PASS_DYNAMIC( kRayTracedTranslucencyPass.data() ); // a literal: NUL-terminated
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  bindings.PushConstants( push );
                  return Renderer::TraceRays( bindings, *pipeline, *hits, width, height );
