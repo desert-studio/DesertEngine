@@ -27,6 +27,11 @@
 
 namespace Desert::Gameplay
 {
+    // SurfaceAbove's Body is filled from Physics::RayHit::Body here, so the gameplay "no body" value must be the
+    // physics world's invalid body: an unfilled answer never poses as a real body.
+    static_assert( kNoSurfaceBody == Physics::kInvalidBody,
+                   "Gameplay::kNoSurfaceBody must equal Physics::kInvalidBody" );
+
     // A character @p Handle its world holds now, with what a view of it needs: the profile (its object channel
     // is the floor ray's) and the capsule the world holds for it (PhysicsPawnMoveWorld::ForCharacter proves it
     // once; the view built from it re-checks nothing).
