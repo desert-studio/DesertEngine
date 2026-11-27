@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <format>
 #include <memory>
+#include <optional>
 
 namespace Desert::Gameplay
 {
@@ -114,6 +115,17 @@ namespace Desert::Gameplay
             const glm::vec3 center = Center( feet, capsule );
             return !m_World.OverlapsCapsule( center, std::max( capsule.Radius - kInset, 1.0f ),
                                              std::max( capsule.HalfHeight - kInset, 0.01f ) );
+        }
+
+        // The first queryable body straight below @p start (characters never: the world's query skips their
+        // inner bodies, as Fits does) - the same bodies the probe stands on. The hit's Y is the floor's.
+        std::optional<float> FloorBelow( const NetVec3& start, float downCm ) const override
+        {
+            const std::optional<Physics::RayHit> hit =
+                 m_World.CastRay( { start.X, start.Y, start.Z }, { 0.0f, -1.0f, 0.0f }, downCm );
+            if ( !hit )
+                return std::nullopt;
+            return hit->Point.y;
         }
 
     private:

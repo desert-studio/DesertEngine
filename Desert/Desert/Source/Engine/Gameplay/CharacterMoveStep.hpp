@@ -67,6 +67,10 @@ namespace Desert::Gameplay
     inline constexpr std::uint8_t kModeCrouched = 1u << 0;
     inline constexpr std::uint8_t kModeSwimming = 1u << 1;
     inline constexpr std::uint8_t kModeJumpHeld = 1u << 2;
+    // The fastest a falling pawn goes down (cm/s; UE APhysicsVolume::TerminalVelocity's default 4000, the cap
+    // UCharacterMovementComponent::GetMaxSpeed applies while falling). A constant of the step on every side, so
+    // the prediction stays bit-exact; a pawn dropped from any height reaches the ground at this speed at most.
+    inline constexpr float kTerminalVelocityCmPerS = 4000.0f;
     // The input step's axis the swim's vertical intent rides (+1 up, -1 down; absent = 0).
     inline constexpr std::size_t kSwimVerticalAxis = 0;
 
@@ -128,7 +132,9 @@ namespace Desert::Gameplay
     // changes the shape with its feet at @p from.Position (UE Crouch / UnCrouch, bCrouchMaintainsBaseLocation:
     // the centre moves by the half-height difference) - or keeps the old one when the new would penetrate it,
     // and Outcome::Capsule says which capsule moved. Fits: would @p capsule stand at @p feet without overlapping
-    // the world (UE: the stand-up test of UnCrouch)?
+    // the world (UE: the stand-up test of UnCrouch)? FloorBelow: the Y of the first surface the pawn stands on
+    // straight below @p start within @p downCm, nullopt for none (UE FindFloor's line trace; the teleport spot's
+    // floor, FindTeleportSpot). A downward ray: a heightfield is found from above only.
     class IPawnMoveWorld
     {
     public:
@@ -144,6 +150,7 @@ namespace Desert::Gameplay
                                             const PawnCapsule& capsule, float gravity, float followFloorCm,
                                             float dtSeconds )                                            = 0;
         [[nodiscard]] virtual bool    Fits( const NetVec3& feet, const PawnCapsule& capsule ) const      = 0;
+        [[nodiscard]] virtual std::optional<float> FloorBelow( const NetVec3& start, float downCm ) const = 0;
         // The world's gravity (cm/s^2, down; UE AWorldSettings::GetGravityZ): the level's Scene Settings, the same
         // value on the server (its cooked world), the prediction and standalone Play (the scene's physics world).
         [[nodiscard]] virtual float Gravity() const = 0;
