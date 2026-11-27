@@ -41,7 +41,7 @@
 Сигнал sim2 STOP
 Ждать sim1 10 held and offered to sim 2 \(offer #2, epoch 1, frozen at step \d+, \d+ unacked input\(s\)\)
 # ReceiverSilent only sends Withdraw (the pawn stays held); the store's Refused(Withdrawn) answer resumes it.
-Ждать sim1 5 offer #2 .*ReceiverSilent: sim 2 answered nothing for 30 steps; Withdraw sent, the pawn stays held until the store answers
+Ждать sim1 5 offer #2 .*ReceiverSilent: sim 2 answered nothing for (5\d\d|[6-9]\d\d|\d{4,}) ms \(\d+ steps\); Withdraw sent, the pawn stays held until the store answers
 Ждать sim1 5 offer #2 .*Refused by the store - Withdrawn: sim 1 withdrew offer \(sim 1, #2\)
 Ждать sim1 5 offer #2 .*ended - Withdrawn: .* - withdrawn; the pawn resumes on sim 1 with \d+ queued input\(s\), next offer not before step \d+
 Ждать store 10 offer \(sim 1, #2\).*withdrawn by sim 1 at step \d+
