@@ -80,7 +80,7 @@ WORKTREE_ROOT = os.environ.get("DESERT_WORKTREE_ROOT", "S:/wt" if os.name == "nt
 STUDIO_HOME = os.environ.get("DESERT_STUDIO_HOME", os.path.expanduser("~/.claude/studio")).replace("\\", "/")
 FLOOR_FILE = os.path.expanduser("~/.claude/min_agents")
 BUILD_LEDGER = os.environ.get("BUILD_GATE_LEDGER", "C:/aftmp/build_ledger.jsonl")
-SCRATCH = os.environ.get("DESERT_SCRATCH", "F:/DesertEngine-scratch")
+SCRATCH = os.environ.get("DESERT_SCRATCH", "S:/DesertEngine-scratch")
 TRUNK = "origin/dev"
 
 PIPELINE = STUDIO_HOME + "/pipeline.json"
