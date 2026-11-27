@@ -31,7 +31,8 @@ namespace Desert::Net
     // 8: snapshot entries carry their send period; ViewReport (WP-FAR-15).
     // 9: packed Input run - quantized fields, one step number per run, per-step deltas (NET-INPUT-PACK,
     //    InputWire.hpp); the mesh handover's pending steps carry their actions and axes.
-    inline constexpr std::uint32_t kProtocolVersion = 9;
+    // 10: ViewReport carries the eye (WP-STREAM-SOURCE-VIEW).
+    inline constexpr std::uint32_t kProtocolVersion = 10;
     // "DSNT": a Hello from something that is not our client is refused before its fields are read.
     inline constexpr std::uint32_t kHelloMagic = 0x544E5344u;
 
