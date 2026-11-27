@@ -33,6 +33,7 @@ namespace Desert::Core
         WorldPartition, // Assets::kWorldPartitionSchemaTag
         AssetRef,       // Assets::kAssetRefSchemaTag
         Light,          // Assets::kLightSchemaTag
+        PostProcess,    // Assets::kPostProcessSchemaTag
     };
 
     [[nodiscard]] constexpr std::string_view UpgradeChainName( const UpgradeChain chain )
@@ -47,6 +48,8 @@ namespace Desert::Core
             return "asset references";
         case UpgradeChain::Light:
             return "lights";
+        case UpgradeChain::PostProcess:
+            return "post process";
         }
         return "unknown chain";
     }
@@ -82,7 +85,7 @@ namespace Desert::Core
     };
 
     // THE CHAIN, ordered: every scene step, then World Partition's, the asset-reference chain's, the light
-    // chain's - each chain's rows contiguous from its floor + 1 to its head (static_asserts in
+    // chain's, the post-process chain's - each chain's rows contiguous from its floor + 1 to its head (static_asserts in
     // SceneUpgradeSteps.cpp). No registration, no singleton: a constant array.
     [[nodiscard]] std::span<const UpgradeStep> UpgradeSteps();
 } // namespace Desert::Core

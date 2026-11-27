@@ -3,6 +3,7 @@
 #include <Engine/Core/SceneUpgrade/SceneUpgrade.hpp>
 #include <Engine/Core/SceneUpgrade/Steps/AssetRef1ReflectedRefs.hpp>
 #include <Engine/Core/SceneUpgrade/Steps/Light1Rotation.hpp>
+#include <Engine/Core/SceneUpgrade/Steps/PostProcess1Bloom.hpp>
 #include <Engine/Core/SceneUpgrade/Steps/V71VolumetricFog.hpp>
 #include <Engine/Core/SceneUpgrade/Steps/V72TracedRequest.hpp>
 #include <Engine/Core/SceneUpgrade/Steps/V73ComposedGI.hpp>
@@ -48,10 +49,13 @@ namespace Desert::Core
              UpgradeStep{ UpgradeChain::AssetRef, kAssetRefVersionReflected, "ReflectedAssetRefs",
                           &RunReflectedAssetRefs },
              UpgradeStep{ UpgradeChain::Light, kLightVersionRotation, "LightRotation", &RunLightRotation },
+             UpgradeStep{ UpgradeChain::PostProcess, kPostProcessVersionBloom, "PostProcessBloom",
+                          &RunPostProcessBloom },
         };
 
+        // The post-process chain runs after the light chain: its numbers are its tag's.
         constexpr std::array kChainOrder{ UpgradeChain::Scene, UpgradeChain::WorldPartition, UpgradeChain::AssetRef,
-                                          UpgradeChain::Light };
+                                          UpgradeChain::Light, UpgradeChain::PostProcess };
 
         // The last row's number of @p chain (its floor when it has none).
         constexpr int LastStepOf( const UpgradeChain chain )
@@ -80,7 +84,7 @@ namespace Desert::Core
     } // namespace
 
     static_assert( ChainsAreContiguous(), "the upgrade table's rows must be grouped by chain (scene, world "
-                                          "partition, asset references, lights), each from its floor + 1 without "
+                                          "partition, asset references, lights, post process), each from its floor + 1 without "
                                           "a gap or a repeat (SceneUpgradeSteps.cpp)" );
     static_assert( LastStepOf( UpgradeChain::Scene ) == kSceneVersion,
                    "Core::kSceneVersion moved without its step: add Steps/V<N><Name>.{hpp,cpp} and its row here" );
@@ -90,6 +94,8 @@ namespace Desert::Core
                    "the asset-reference version moved without its step: add its file under Steps/ and its row here" );
     static_assert( LastStepOf( UpgradeChain::Light ) == kLightVersion,
                    "the light version moved without its step: add its file under Steps/ and its row here" );
+    static_assert( LastStepOf( UpgradeChain::PostProcess ) == kPostProcessVersion,
+                   "the post-process version moved without its step: add its file under Steps/ and its row here" );
 
     std::span<const UpgradeStep> UpgradeSteps()
     {
