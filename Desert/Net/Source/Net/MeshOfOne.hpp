@@ -209,16 +209,47 @@ namespace Desert::Net
             PawnMoveState                Move; // the CharacterMovement state the next step starts from
             std::optional<PendingPlacement> Placement; // the adopter lands it against its own cells
         };
-        // Freezes @p player's pawn and hands it out: it is no longer stepped or written here (not destroyed - its
-        // net id lives on in the next owner). nullopt when this simulation has no pawn for @p player.
+        // THE HELD PAWN of a confirmed handover (SimHandover.hpp): a pawn is OWNED (stepped, written), OFFERED
+        // (this simulation still holds the authority, the store has not committed the offer: not stepped, not
+        // written, its inputs queue, its ack stands at the last applied step) or INCOMING (offered to this
+        // simulation and accepted, not committed: not stepped, not written, not acked, its inputs queue; its
+        // position is a streaming source so the ground under it loads before the commit).
+        //
+        // The pawn as it would be handed out now; nullopt when this simulation has no owned pawn for @p player.
+        [[nodiscard]] std::optional<HandoverPawn> HandoverOf( PlayerId player ) const;
+        // Owned -> Offered. Refused when there is no pawn or it is already held.
+        [[nodiscard]] Common::BoolResultStr Hold( PlayerId player );
+        // Offered -> gone (the store committed it to another simulation): the pawn with every input step that
+        // queued, its net id lives on in the next owner. nullopt when @p player's pawn is not offered.
         [[nodiscard]] std::optional<HandoverPawn> Release( PlayerId player );
-        // Takes a pawn handed over by another simulation and runs @p catchUpSteps steps of it, the mesh steps
-        // that passed here between the release and now; writes its state.
-        void Adopt( HandoverPawn pawn, std::uint32_t catchUpSteps );
+        // Offered -> Owned (the offer was refused or withdrawn): the next Step applies the queued input steps.
+        // Returns how many are queued; nullopt when @p player's pawn is not offered.
+        std::optional<std::size_t> Resume( PlayerId player );
+        // Whether the world of this simulation can hold @p pawn: a cell of its grid under the pawn (or under its
+        // pending placement). The error names the point.
+        [[nodiscard]] Common::BoolResultStr CanTake( const HandoverPawn& pawn ) const;
+        // Holds @p pawn as Incoming, the player connected through @p gateway; false when this simulation already
+        // has a pawn for that player.
+        bool Expect( HandoverPawn pawn, std::uint32_t gateway );
+        // Incoming -> Owned (the store committed it here): runs @p catchUpSteps steps of it, the mesh steps that
+        // passed here since the offer froze it, and writes its state. Returns the gateway given to Expect; nullopt
+        // when @p player's pawn is not incoming.
+        std::optional<std::uint32_t> Commit( PlayerId player, std::uint32_t catchUpSteps );
+        // Incoming -> gone (the store refused the offer): the copy is dropped, nothing written. False when
+        // @p player's pawn is not incoming.
+        bool Abandon( PlayerId player );
 
     private:
+        enum class EHold : std::uint8_t
+        {
+            Owned,
+            Offered,
+            Incoming,
+        };
         struct Pawn
         {
+            EHold                              Hold    = EHold::Owned;
+            std::uint32_t                      Gateway = 0; // Incoming: the gateway the player is connected through
             std::uint64_t                      Account = 0;
             std::uint32_t                      Index   = 0;
             PawnState                          State;
