@@ -199,8 +199,12 @@ namespace buildpool::client
     int RunLeased( DaemonLink& link, const Acquire& acquire, const ChildSpec& spec,
                    PreprocessedDigest* tee ) noexcept
     {
-        bool                    sendAcquire = true;
-        std::optional<uint32_t> sampleMs;
+        // The client never reads <home>/pool.ini: the daemon is its only reader and writer. The Heartbeat period
+        // is the contract's PoolConfig::sampleMs default; a Heartbeat only refreshes the daemon's memory sample of
+        // the lease, the daemon's own Guard tick runs on the configured value. The configured value reaches the
+        // client once Grant carries it (NEEDS: Grant::sampleMs in Protocol.hpp).
+        const uint32_t kSampleMs   = std::max<uint32_t>( PoolConfig{}.sampleMs, 1 );
+        bool           sendAcquire = true;
         for ( ;; )
         {
             auto lease = AwaitLease( link, acquire, sendAcquire );
@@ -209,17 +213,6 @@ namespace buildpool::client
             if ( !lease.value() )
                 return kRetryExitCode;
             const Grant grant = *lease.value();
-
-            if ( !sampleMs )
-            {
-                auto config = LoadConfig( link.Home() );
-                if ( !config )
-                {
-                    link.Send( Message{ Released{ 1, 0, 0, 0, false } } );
-                    return Report( "cannot read the pool config: " + config.error().message );
-                }
-                sampleMs = std::max<uint32_t>( config.value().sampleMs, 1 );
-            }
 
             ChildSpec run        = spec;
             run.priority         = grant.priority;
@@ -232,7 +225,7 @@ namespace buildpool::client
                 return Report( "cannot start " + spec.argv.front() + ": " + job.error().message );
             }
 
-            auto end = Supervise( link, job.value(), grant.lease, *sampleMs, tee );
+            auto end = Supervise( link, job.value(), grant.lease, kSampleMs, tee );
             if ( !end )
                 job.value().Terminate();
             const JobUsage usage = job.value().Usage();
@@ -279,10 +272,13 @@ namespace buildpool::client
         for ( int i = 1; i < argc; ++i )
             command.emplace_back( argv[i] );
 
-        auto parsed = ParseInvocation( command );
-        if ( !parsed )
-            return Report( parsed.error().message );
-        const Invocation& invocation = parsed.value();
+        // A command the parser cannot read (an unreadable response file) still compiles: it is admitted as Other,
+        // the classification only steers scheduling.
+        Invocation invocation;
+        if ( auto parsed = ParseInvocation( command ); parsed )
+            invocation = std::move( parsed ).take();
+        else
+            Report( "cannot classify the command, running it as Other: " + parsed.error().message );
 
         Hello hello   = FrontHello( roots.build );
         hello.stage   = Stage::Back;
@@ -309,10 +305,13 @@ namespace buildpool::client
         const std::string& note = link.GetWelcome().note;
         if ( compiles && !note.empty() )
         {
-            auto id = CompilerId( PathFrom( compiler.value() ) );
-            if ( !id )
-                return Report( "cannot identify the compiler " + compiler.value() + ": " + id.error().message );
-            acquire.inflightKey = InflightKey( command, roots, id.value(), note );
+            // The inflight key is a scheduling hint, never trusted for correctness: without the compiler's
+            // identity the action asks without one and compiles on its own.
+            if ( auto id = CompilerId( PathFrom( compiler.value() ) ); id )
+                acquire.inflightKey = InflightKey( command, roots, id.value(), note );
+            else
+                Report( "cannot identify the compiler " + compiler.value() +
+                        ", compiling without the inflight key: " + id.error().message );
         }
         return RunLeased( link, acquire, spec, nullptr );
     }
