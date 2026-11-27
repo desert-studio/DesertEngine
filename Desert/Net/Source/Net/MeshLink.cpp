@@ -36,7 +36,11 @@ namespace Desert::Net
             AuthorityChanged, // u32 id, u32 sim, u32 epoch, u32 step, u32 gateway, u32 player (store -> gateways)
             ForwardInput,     // u32 to sim, u32 player, Input            (old owner -> store)
             ForwardedInput,   // u32 player, Input                        (store -> new owner)
+            End,              // not a message: one past the last code
         };
+        // One numbering on a mesh connection: the handover codes (HandoverWire.hpp) start past the last EMesh code.
+        static_assert( static_cast<std::uint8_t>( EMesh::End ) <= Handover::kFirstHandoverMessage,
+                       "the EMesh range runs into the handover range (HandoverWire.hpp kFirstHandoverMessage)" );
         constexpr NetId kLeaseSize = 1u << 16;
         // The store logs its ledger's counts every this many mesh steps (5 s at 60 Hz).
         constexpr std::uint32_t kStoreDescribeSteps = 300;
