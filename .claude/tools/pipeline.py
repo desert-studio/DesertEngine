@@ -52,7 +52,8 @@ _ID_RANGE = re.compile(r"([A-ZА-ЯЁ]{1,3})(\d{1,3})(?:\s*[-–—]\s*(?:[A-ZА
 _DIFF = re.compile(r"^\s*(?:[-*]\s+|\|\s*|#{3,4}\s+)?\*{0,2}([A-ZА-ЯЁ]{1,3}\d{1,3})\b[^\n]*$", re.M)
 _SCN = re.compile(r"Scenarios/[\w./-]+\.scn")
 _FRAME = re.compile(r"\[([\w.-]+)\]")
-_SCN_STEP = re.compile(r"^\s*(?:Тогда(?:-вид)?|Then(?:-view)?)\s+(\S+)", re.M)
+# A network scenario names the role first («Тогда A net_bytes …»), so both leading words may be the frame.
+_SCN_STEP = re.compile(r"^\s*(?:Тогда(?:-вид)?|Then(?:-view)?)\s+(\S+)(?:\s+(\S+))?", re.M)
 UNPROVEN = "НЕ ДОКАЗАНО"
 TOOLING = (".claude/", "scripts/", "CLAUDE.md")  # a design over these only has no editor scenario
 _PATH = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_./*\[\]?+-]*")
@@ -201,7 +202,7 @@ def scenario_gaps(feat):
         tree = next((p["tree"] for p in feat["packages"].values() if any(matches(scn, f) for f in p["files"])), "")
         try:
             with open(os.path.join(tree, scn), encoding="utf-8", errors="replace") as f:
-                have.update(_SCN_STEP.findall(f.read()))
+                have.update(w for pair in _SCN_STEP.findall(f.read()) for w in pair if w)
         except OSError:
             gaps.append(f"{scn} не написан в дереве {tree or '?'}")
     lost = [w for w in want if w not in have]
