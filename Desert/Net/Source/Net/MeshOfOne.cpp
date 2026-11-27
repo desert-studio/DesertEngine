@@ -61,9 +61,10 @@ namespace Desert::Net
     // ---- simulation --------------------------------------------------------------------------------------------
 
     PawnSimulation::PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, IPawnMover& mover,
-                                    Settings settings, NetLogSink log )
-         : m_Store( store ), m_Gateway( gateway ), m_Mover( mover ), m_Settings( std::move( settings ) ),
-           m_Log( std::move( log ) )
+                                    IPawnPlacer& placer, const IWorldResidency& residency, Settings settings,
+                                    NetLogSink log )
+         : m_Store( store ), m_Gateway( gateway ), m_Mover( mover ), m_Placer( placer ), m_Residency( residency ),
+           m_Settings( std::move( settings ) ), m_Log( std::move( log ) )
     {
         if ( m_Settings.SpawnPoints.empty() )
             m_Settings.SpawnPoints.push_back( {} );
@@ -75,15 +76,17 @@ namespace Desert::Net
         pawn.Account        = account;
         pawn.Index          = m_Joined++;
         pawn.State.Id       = m_Store.AllocateNetId();
-        pawn.State.Position = m_Settings.SpawnPoints[pawn.Index % m_Settings.SpawnPoints.size()];
-        // A spawned character starts falling and finds the floor under it on its first move (UE: the first
-        // PerformMovement's FindFloor; a spawn point stands above the ground). The replicated mode says so too:
-        // the owning client starts its prediction from this snapshot, and a server that began grounded took a
-        // ground step where the client took an air step (NET-4 run 11: 8.5 cm correction at input step 15,
-        // server vx +22 = one ground-acceleration step, vy +16 = one gravity step).
-        pawn.Move.Position  = pawn.State.Position;
-        pawn.Move.Grounded  = false;
+        const NetVec3 spawnPoint = m_Settings.SpawnPoints[pawn.Index % m_Settings.SpawnPoints.size()];
+        // The pawn is announced at the spawn point, still and falling (the Spawn message goes out now), and is
+        // PLACED by the first Step through the same placer a teleport takes (UE RestartPlayer -> SpawnActor
+        // AdjustIfPossibleButAlwaysSpawn -> FindTeleportSpot): one placement path, not a second hand-written one.
+        // The state it waits in is the one the snapshot says, so an ack before the landing corrects the client to
+        // exactly what it was told.
+        pawn.State.Position = spawnPoint;
         pawn.State.Movement = 0;
+        pawn.Move.Position  = spawnPoint;
+        pawn.Move.Grounded  = false;
+        pawn.Placement      = PendingPlacement{ spawnPoint, PendingPlacement::EWhy::Spawn, 0 };
         m_Store.Write( pawn.State );
         m_Log( std::format( "player {} (account {}): pawn net id {} spawned at ({:.0f}, {:.0f}, {:.0f}) cm",
                             player, account, pawn.State.Id, pawn.State.Position.X, pawn.State.Position.Y,
@@ -166,14 +169,21 @@ namespace Desert::Net
             // A move is one CLIENT step long, whatever the server's frame took (UE FSavedMove's DeltaTime).
             // The step's action set is the game's to read (IPawnMover); the log names it in the game's words when
             // it changes, and once a second with the speed it gives (cm/s, planar).
+            // A HELD pawn (its placement pending) acks the step without moving: the client's prediction is
+            // corrected to the held state, as UE ClientAdjustPosition does every move while the server disagrees.
             const InputStep& input = next->second;
-            pawn.Move              = m_Mover.Step( pawn.Move, input, kNetStepSeconds );
-            const float speed      = std::sqrt( pawn.Move.Velocity.X * pawn.Move.Velocity.X +
-                                                pawn.Move.Velocity.Z * pawn.Move.Velocity.Z );
-            if ( !pawn.LastProcessed || input.Actions != pawn.LastActions || next->first % static_cast<std::uint32_t>( kNetStepHz ) == 0 )
-                m_Log( std::format( "pawn net id {}: input step {} actions {} (bits 0x{:x}, axes {}), speed {:.0f} cm/s",
-                                    pawn.State.Id, next->first, m_Mover.DescribeActions( input ), input.Actions,
-                                    input.Axes.size(), speed ) );
+            if ( !pawn.Placement )
+            {
+                pawn.Move         = m_Mover.Step( pawn.Move, input, kNetStepSeconds );
+                const float speed = std::sqrt( pawn.Move.Velocity.X * pawn.Move.Velocity.X +
+                                               pawn.Move.Velocity.Z * pawn.Move.Velocity.Z );
+                if ( !pawn.LastProcessed || input.Actions != pawn.LastActions ||
+                     next->first % static_cast<std::uint32_t>( kNetStepHz ) == 0 )
+                    m_Log( std::format(
+                         "pawn net id {}: input step {} actions {} (bits 0x{:x}, axes {}), speed {:.0f} cm/s",
+                         pawn.State.Id, next->first, m_Mover.DescribeActions( input ), input.Actions,
+                         input.Axes.size(), speed ) );
+            }
             pawn.LastActions   = input.Actions;
             pawn.LastProcessed = next->first;
             pawn.Pending.erase( next );
@@ -184,11 +194,69 @@ namespace Desert::Net
         pawn.State.Movement = MoveFlagsOf( pawn.Move ); // Grounded and the game's mode (a proxy's crouch)
     }
 
+    void PawnSimulation::ResolvePlacement( PlayerId player, Pawn& pawn )
+    {
+        if ( !pawn.Placement )
+            return;
+        PendingPlacement&   placement = *pawn.Placement;
+        const NetVec3       feet      = placement.Feet;
+        const bool          spawn     = placement.Why == PendingPlacement::EWhy::Spawn;
+        const NetVec3       at        = pawn.Move.Position;
+        const auto          refuse    = [&]( const std::string& reason )
+        {
+            if ( spawn )
+                m_Log( std::format( "player {}: spawn of pawn {} at ({:.0f}, {:.0f}, {:.0f}) cm refused: {}; it "
+                                    "falls from there",
+                                    player, pawn.State.Id, feet.X, feet.Y, feet.Z, reason ) );
+            else
+                m_Log( std::format( "player {}: teleport of pawn {} to ({:.0f}, {:.0f}, {:.0f}) cm refused: {}; the "
+                                    "pawn stays at ({:.0f}, {:.0f}, {:.0f}) cm",
+                                    player, pawn.State.Id, feet.X, feet.Y, feet.Z, reason, at.X, at.Y, at.Z ) );
+            pawn.Placement.reset();
+        };
+        // A point no cell holds has only the always-loaded collision, which is in the world: it is placed now, as
+        // a resident one is. Only a cell still streaming holds the pawn.
+        if ( m_Residency.ResidencyAt( feet ) == EPointResidency::Loading )
+        {
+            if ( ++placement.Waited > kPlacementStreamingTimeoutSteps )
+                refuse( std::format( "the cell at ({:.0f}, {:.0f}) cm is not resident after {:.0f} s", feet.X,
+                                     feet.Z, double( kPlacementStreamingTimeoutSteps ) / kNetStepHz ) );
+            return;
+        }
+        const std::uint32_t waited = placement.Waited;
+        PlacedPawn          placed = m_Placer.Place( pawn.Move, feet );
+        if ( !placed.Ok() )
+        {
+            refuse( placed.Note );
+            return;
+        }
+        // UE OnTeleported: the pawn stands where the game found room, still, in the mode the floor gives it - and
+        // the REPLICATED state says the same (velocity included: a proxy takes it as its Hermite tangent).
+        pawn.Move           = *placed.Landed;
+        pawn.State.Position = pawn.Move.Position;
+        pawn.State.Yaw      = pawn.Move.Yaw;
+        pawn.State.Velocity = pawn.Move.Velocity;
+        pawn.State.Movement = MoveFlagsOf( pawn.Move );
+        ++pawn.State.TeleportCount;
+        pawn.Placement.reset();
+        const NetVec3& landed = pawn.Move.Position;
+        m_Log( std::format( "player {}: pawn {} {} ({:.0f}, {:.0f}, {:.0f}) cm: {} (held {} step(s) for the "
+                            "destination's cells)",
+                            player, pawn.State.Id, spawn ? "spawned onto" : "teleported to", landed.X, landed.Y,
+                            landed.Z, placed.Note, waited ) );
+    }
+
+    void PawnSimulation::StepOne( PlayerId player, Pawn& pawn )
+    {
+        ResolvePlacement( player, pawn );
+        StepPawn( pawn );
+    }
+
     void PawnSimulation::Step()
     {
         for ( auto& [player, pawn] : m_Pawns )
         {
-            StepPawn( pawn );
+            StepOne( player, pawn );
             m_Store.Write( pawn.State );
         }
     }
@@ -205,6 +273,7 @@ namespace Desert::Net
         out.State         = it->second.State;
         out.LastProcessed = it->second.LastProcessed;
         out.Move          = it->second.Move;
+        out.Placement     = it->second.Placement;
         for ( const auto& [step, input] : it->second.Pending )
             out.Pending.push_back( input );
         m_Pawns.erase( it );
@@ -219,38 +288,41 @@ namespace Desert::Net
         pawn.State         = handed.State;
         pawn.LastProcessed = handed.LastProcessed;
         pawn.Move          = handed.Move;
+        pawn.Placement     = handed.Placement;
         for ( const InputStep& input : handed.Pending )
             pawn.Pending.emplace( input.Step, input );
         for ( std::uint32_t i = 0; i < catchUpSteps; ++i )
-            StepPawn( pawn );
+            StepOne( handed.Player, pawn );
         m_Store.Write( pawn.State );
         m_Pawns.insert_or_assign( handed.Player, std::move( pawn ) );
     }
 
-    bool PawnSimulation::Teleport( PlayerId player, const NetVec3& position )
+    Common::BoolResultStr PawnSimulation::Teleport( PlayerId player, const NetVec3& feet )
     {
         const auto it = m_Pawns.find( player );
         if ( it == m_Pawns.end() )
-            return false;
-        it->second.State.Position = position;
-        ++it->second.State.TeleportCount;
-        // UE TeleportTo on a character: it is at the new place, still, and falls to the floor there (the next
-        // move's FindFloor) - a teleport onto the landscape lands on the terrain, not on a plane at its height.
-        it->second.Move.Position = position;
-        it->second.Move.Velocity = {};
-        it->second.Move.Grounded = false;
-        it->second.State.Movement = 0; // the replicated mode is the move's: falling
-        m_Store.Write( it->second.State );
-        m_Log( std::format( "player {}: pawn {} teleported to ({:.0f}, {:.0f}, {:.0f}) cm", player,
-                            it->second.State.Id, position.X, position.Y, position.Z ) );
-        return true;
+            return Common::MakeError<bool>( std::format( "player {} has no pawn", player ) );
+        Pawn&          pawn = it->second;
+        const NetVec3& at   = pawn.Move.Position;
+        // UE TeleportTo returns false and the actor stays: over no cell there is nothing that could ever hold it.
+        if ( m_Residency.ResidencyAt( feet ) == EPointResidency::NoCell )
+            return Common::MakeError<bool>(
+                 std::format( "no cell of the world's grid at ({:.0f}, {:.0f}) cm: the pawn stays at ({:.0f}, "
+                              "{:.0f}, {:.0f}) cm",
+                              feet.X, feet.Z, at.X, at.Y, at.Z ) );
+        // A newer request replaces an unlanded one (a spawn's too): the last asked point is where it goes.
+        pawn.Placement = PendingPlacement{ feet, PendingPlacement::EWhy::Teleport, 0 };
+        m_Log( std::format( "player {}: teleport of pawn {} to ({:.0f}, {:.0f}, {:.0f}) cm requested", player,
+                            pawn.State.Id, feet.X, feet.Y, feet.Z ) );
+        return Common::MakeSuccess( true );
     }
 
     std::vector<PawnSimulation::Source> PawnSimulation::Sources() const
     {
         std::vector<Source> sources;
         for ( const auto& [player, pawn] : m_Pawns )
-            sources.push_back( { player, pawn.Account, pawn.State.Id, pawn.State.Position } );
+            sources.push_back(
+                 { player, pawn.Account, pawn.State.Id, pawn.Placement ? pawn.Placement->Feet : pawn.State.Position } );
         return sources;
     }
 
