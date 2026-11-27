@@ -311,8 +311,10 @@ namespace
         return Common::MakeError<uint32_t>( "the texture envelope states no TXAS generation" );
     }
 
-    // The generations of a texture verdict line: " (v4)" when every texture states one, " (v3: 2, v4: 396)" when
-    // they differ, nothing when no texture was stale; `to` (a write's " -> v5") follows each generation.
+    // The generations of a texture verdict line, as the envelopes' TXAS stamps state them (an IMPT section may
+    // state an older layout than its envelope; UpgradeTextureSourceAsset reads that one): " (TXAS v4)" when every
+    // texture states one, " (TXAS v3: 2, v4: 396)" when they differ, nothing when no texture was stale; `to`
+    // (a write's " -> v5") follows each generation.
     std::string TextureGenerations( const std::map<uint32_t, int>& from, const std::string_view to )
     {
         if ( from.empty() )
@@ -320,7 +322,7 @@ namespace
         std::string text;
         for ( const auto& [generation, count] : from )
         {
-            text += text.empty() ? " (" : ", ";
+            text += text.empty() ? " (TXAS " : ", ";
             text += std::format( "v{}{}", generation, to );
             if ( from.size() > 1 )
                 text += std::format( ": {}", count );
