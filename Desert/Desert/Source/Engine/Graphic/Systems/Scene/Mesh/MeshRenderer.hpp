@@ -2010,13 +2010,18 @@ namespace Desert::Graphic::System
         // @p sceneCopy (this frame's snapshot of the opaque scene, FrameTransients::SceneColorCopy, sampled for
         // refraction) and the scene/view inputs of @p view the cell's shader has a slot for. Declares nothing
         // (and the node draws nothing) when no translucent object is visible.
-        // @p frontLayer: this frame's front layer reflection and depth (Reflections.TranslucentFrontLayer), bound as
-        // FrontLayerReflectionTexture / FrontLayerDepthTexture wherever the cell's shader has the slots - the graph's black
-        // texture for both when the frame has no front layer.
+        // @p frontLayer: this frame's front layer reflection and depth (Reflections.TranslucentFrontLayer), bound
+        // as FrontLayerReflectionTexture / FrontLayerDepthTexture wherever the cell's shader has the slots - the
+        // graph's black texture for both when the frame has no front layer. Refraction: what the front layer sees
+        // through itself (RayTracedTranslucencyRenderer's RefractionOutputs::Radiance, Translucency.Refraction
+        // HardwareTraced), bound as kTranslucencyRefractionTexture beside them - when the frame traced none, a
+        // texture whose a is 0 at every texel the cell reads (the cell then keeps the scene copy); the opaque
+        // System.Black (a = 1) is not that texture.
         struct GlassFrontLayer
         {
             RDG::TextureRef Reflection;
             RDG::TextureRef Depth;
+            RDG::TextureRef Refraction;
         };
         void DeclareGlassBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const SceneViewInputs& view,
                                    const GlassFrontLayer& frontLayer );

@@ -29,6 +29,11 @@ namespace Desert::Graphic
         // volume of light reads where its producer did not run this frame (RDG System.Black3D). The 3D fallbacks
         // above are white ("no attenuation"), which in a volume of light would be light from nowhere.
         virtual const std::shared_ptr<Image3D>& GetBlackTexture3D() const = 0;
+        // The ZERO 2D texture (UE GTransparentBlackTexture): 1x1 RGBA8, all four channels 0 - what a sampler2D
+        // whose alpha means "the producer answered" reads where that producer did not run (RDG
+        // System.TransparentBlack). The 2D fallbacks above are opaque white, and the engine's
+        // DefaultTextureKind::Black is opaque (a = 1).
+        virtual const std::shared_ptr<Image2D>& GetTransparentBlackTexture2D() const = 0;
 
     public:
         FallbackTextures( const FallbackTextures& )            = delete;

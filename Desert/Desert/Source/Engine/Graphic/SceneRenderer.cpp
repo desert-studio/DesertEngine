@@ -3160,7 +3160,7 @@ namespace Desert::Graphic
                 // translucency reflections): its G-buffer, then its rays through the opaque reflections' method -
                 // the same screen trace (HZB, last frame's scene), tracer, hit lighting and denoiser - for the
                 // glass below to read.
-                const FrameFrontLayer frontLayer =
+                FrameFrontLayer frontLayer =
                      ssr != nullptr && TranslucentFrontLayerReflections()
                           ? AddFrameTranslucentFrontLayer( graph, textures, meshRenderer, gbuffer, screenTrace,
                                                            frame, frontLayerSurface ? &*frontLayerSurface : nullptr )
@@ -3245,6 +3245,7 @@ namespace Desert::Graphic
                 // The water after the copy (the scene without water, which its refraction reads) and before the
                 // glass.
                 AddFrameWater( graph, textures, sceneCopy, frontLayer );
+                frontLayer.Refraction = AddFrameRayTracedRefraction( graph, textures, gbuffer, frontLayer, frame );
                 AddFrameGlass( graph, textures, sceneCopy, meshRenderer, frontLayer );
             }
         }
