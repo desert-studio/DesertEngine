@@ -30,7 +30,7 @@ Still too big for `limits.MAX_PACKAGES` packages: two features, two designs, one
 - An unproven cause goes to an experiment BEFORE code (view mode, knock-out, number), not to a package.
 - `-2` means the design was wrong: reopen the design, find the missing difference, run again with all of it. A third run goes to the owner with the reason.
 - Owner 11-27: a package whose scenario passes and whose review names only cases outside the scenario is merged after the FIRST review; the rest becomes a card, not another fix pass (a third pass on NET-TELEPORT-ENCROACH-A cost ~2M units and changed nothing landed).
-- One-defect fixes (`limits.FIX_BRIEF`) skip design and review: `general-purpose` with a fix brief.
+- One-defect fixes (`limits.FIX_BRIEF`) skip design and review: `fixer` with a fix brief (it runs its own reviewer and accept).
 - At most `limits.RUNS_BEFORE_BUILD` hand-ins of one code before a build has seen it; `ACCEPT` with MINORs is closed by the author in one run and not reviewed again.
 - At most `limits.FEATURES_IN_FLIGHT` features between `plan` and `landed`; one older than `limits.FEATURE_MAX_AGE_H` stops new plans until it lands or is dropped with a reason (`studio.py drop`).
 - A feature has ONE board card; packages are lines in it. Card updates queue up and go to the `board` agent as one batch (`studio.py board`).

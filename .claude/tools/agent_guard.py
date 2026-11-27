@@ -309,6 +309,9 @@ def lead_launch_refusal(tin, s, disk_gb=None):
     if kind in P.NOT_COUNTED:
         return None
     code = code_of(prompt)
+    if code and kind == "general-purpose":
+        return ("одна правка идёт агентом fixer (SPEND-TOTAL-5X: у general-purpose полный набор инструментов, +22k на каждый запрос) — "
+                'Agent(subagent_type: "fixer", …).')
     if not code:
         return "в промпте нет кода: первая строка «You are agent <КОД>» (для пакета фичи — <КОД>-<A..D>)."
     gb = free_gb() if disk_gb is None else disk_gb
@@ -450,7 +453,7 @@ def worker_pre(data, agent, agent_type, state, s):
     if tool == "Agent":
         kind = (tin.get("subagent_type") or "general-purpose").lower()
         child = code_of(str(tin.get("prompt") or ""))
-        chain = (kind == "reviewer" and agent_type in ("engineer", "fixer", "general-purpose") and child.endswith("-REV")) or \
+        chain = (kind == "reviewer" and agent_type in P.WRITERS and child.endswith("-REV")) or \
                 (kind == "acceptance" and agent_type == "lander")
         if chain:  # owner 11-27: the worker drives its own chain, the lead wakes once (limits.CHAIN_REVIEWS)
             if tin.get("run_in_background"):
@@ -732,11 +735,11 @@ def self_check():
         "edit of a contract header": sub("Write", file_path=f"{tmp}/wt/F-B/Desert/F/Api.hpp"),
         "second run with a live code": launch("F-A", brief("F-A", good)),
         "launch without a code": {"tool_name": "Agent", "tool_input": {"subagent_type": "reviewer", "prompt": "review it"}},
-        "launch without a brief": {"tool_name": "Agent", "tool_input": {"subagent_type": "general-purpose", "prompt": "You are agent X-1. Do it."}},
-        "fat fix brief": launch("X-2", fix("X-2", "1. a\n2. b\n3. c\n"), "general-purpose"),
-        "fix brief without a scenario": launch("X-3", write("X-3-BRIEF.md", "## Сделать\n1. a\n"), "general-purpose"),
-        "stalled code without a rethink": launch("STUCK", fix("STUCK", "1. a\n"), "general-purpose"),
-        "sonnet": launch("X-4", fix("X-4", "1. a\n"), "general-purpose", model="sonnet"),
+        "launch without a brief": {"tool_name": "Agent", "tool_input": {"subagent_type": "fixer", "prompt": "You are agent X-1. Do it."}},
+        "fat fix brief": launch("X-2", fix("X-2", "1. a\n2. b\n3. c\n"), "fixer"),
+        "fix brief without a scenario": launch("X-3", write("X-3-BRIEF.md", "## Сделать\n1. a\n"), "fixer"),
+        "stalled code without a rethink": launch("STUCK", fix("STUCK", "1. a\n"), "fixer"),
+        "sonnet": launch("X-4", fix("X-4", "1. a\n"), "fixer", model="sonnet"),
         "lead cuts a merge with timeout": {"tool_name": "Bash", "tool_input": {"command": "timeout 100 git merge --no-ff x"}},
         "lead reads a whole diff": {"tool_name": "Bash", "tool_input": {"command": "cd x && git diff -U2 a..b -- '*.cpp'"}},
         "lead prints 48k chars": {"tool_name": "Bash", "tool_input": {"command": "cat f | head -c 48000"}},
@@ -760,7 +763,7 @@ def self_check():
     }
     legal = {
         "engineer on a planned package": launch("F-B", brief("F-B", good)),
-        "small fix brief": launch("X-5", fix("X-5", "1. a\n"), "general-purpose"),
+        "small fix brief": launch("X-5", fix("X-5", "1. a\n"), "fixer"),
         "reviewer with a code": {"tool_name": "Agent", "tool_input": {"subagent_type": "reviewer", "prompt": "You are agent F-A-REV. Review."}},
         "lead launches the board agent": {"tool_name": "Agent", "tool_input": {"subagent_type": "board", "prompt": "tails"}},
         "board agent queries Notion": {"tool_name": "mcp__notion__notion-query-data-sources", "tool_input": {"query": "SELECT 1"},
