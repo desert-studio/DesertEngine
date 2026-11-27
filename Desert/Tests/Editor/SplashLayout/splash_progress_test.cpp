@@ -132,7 +132,7 @@ TEST( SplashText, SampledAsTheSplashSamplesItTheLinesFollowThePhasesAndTheBarNev
         return view;
     };
 
-    EXPECT_EQ( Splash::StageText( sample( 0.0 ) ), "" );
+    EXPECT_EQ( Splash::StageText( sample( 0.0 ) ), "First  \xC2\xB7  phase 1 / 2" );
 
     ASSERT_TRUE( progress.BeginPhase( "first" ).IsSuccess() );
     progress.Expect( 2 );
