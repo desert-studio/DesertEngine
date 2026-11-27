@@ -666,8 +666,8 @@ namespace Desert::Core
             if ( drawn.Seen && drawn.TeleportCount != sample->TeleportCount )
             {
                 ECS::MarkPoseTeleported( reg, entity );
-                const auto          remote = m_Client->Pawns().find( id );
-                const auto          player = remote != m_Client->Pawns().end() ? remote->second.Player : 0u;
+                // Every proxy is made Simulated with its player's number (ApplySpawnsAndDestroys).
+                const std::uint32_t player = reg.get<ECS::NetRoleComponent>( entity ).Player;
                 const Net::NetVec3& v      = sample->Velocity;
                 LOG_INFO( "[Net] pawn {} (player {}) teleport cut: drawn ({:.0f}, {:.0f}, {:.0f}) -> ({:.0f}, "
                           "{:.0f}, {:.0f}) cm, {:.0f} cm; sampled velocity ({:.0f}, {:.0f}, {:.0f}) cm/s; pose "
