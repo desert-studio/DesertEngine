@@ -66,7 +66,7 @@ LEAD_ONLY_RUNS = re.compile(r"scripts/CI/CheckTidy\.sh|scripts/CI/CheckGluedText
 CI_WAIT = re.compile(r"\bgh\s+(run\s+watch|pr\s+checks\b[^;&|]*--watch)|"
                      r"\b(while|until|for)\b[^\n]*\bgh\s+(run|pr)\b|\bgh\s+(run|pr)\b[^\n]*\bsleep\b")
 UNCOUNTED_WAIT = re.compile(r"^\s*python3?\s+\S*studio\.py\s+wait\b")
-ALWAYS_ALLOWED_AFTER_LIMIT = re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
+ALWAYS_ALLOWED_AFTER_LIMIT = re.compile(r"^\s*(cd [^;&]+&&\s*)?(git\s|python3? \.claude/tools/studio\.py accept\s)")
 ASSET_RM = re.compile(r"(\b(rm|unlink|shred)\b[^;&|]*|\bfind\b[^;&|]*-delete\b[^;&|]*|\bxargs\b[^;&|]*\brm\b[^;&|]*)"
                       r"(Content/|\.(demat|stmesh|skmesh|detex|desce|deimport|deanim|deprefab|decloudtype|dclayout)\b)")
 BUILD_RM = re.compile(r"\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+[^;&|]*\bbuild(/|\s|$)")
@@ -485,7 +485,7 @@ def worker_pre(data, agent, agent_type, state, s):
                     "правки, поиск и одна команда трижды подряд запрещены.")
     if calls > hard and not (tool in ("SendMessage", "Write") or (tool == "Bash" and ALWAYS_ALLOWED_AFTER_LIMIT.match(cmd))):
         return (f"Лимит {hard} вызовов исчерпан ({calls}). Закоммить и запушь сделанное, запиши REMAINDER.md (файл:строка) "
-                "и отчитайся; остаток уйдёт свежему агенту.")
+                "в корне дерева, `studio.py accept <КОД> wip` и отчитайся; остаток уйдёт свежему агенту.")
 
     if tool == "Agent":
         kind = (tin.get("subagent_type") or "general-purpose").lower()

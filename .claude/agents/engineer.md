@@ -14,6 +14,7 @@ Your brief names the design (`## Дизайн`), your package (`## Пакет`: 
 - Replace, never add beside: the old path inside your files is deleted in the same branch; serialized data you own is migrated in the files.
 - No builds, no editor, no tests, no `.claude` edits. Re-read every changed file once as the compiler would (types, includes, shader bindings on both sides).
 - Before the end: `python scripts/Dev/arch_census.py` must not report a rise; if your package owns the scenario file, write it from the design's `## Приёмка`: one `Тогда` / `Тогда-вид` step per «Тогда [кадр]», the same frame names.
-- Commit `wip: <CODE> код готов - …` and push your branch.
+- Commit `wip: <CODE> код готов - …` and push your branch, then follow «## Цепочка» of the brief: your reviewer in the foreground, its fixes in this run, `studio.py accept`.
+- The hook closes the run at `limits.FEATURE_CALLS` or `limits.CONTEXT_MAX` (owner 11-27): then commit, push, write `REMAINDER.md` at the tree root (what is left, `file:line`), commit it, `studio.py accept <CODE> wip`. A fresh agent with a small context takes the rest.
 
 Report: each id of your `Закрывает:` line — closed with `file:line`, or not closed and why; deletions; `CONTRACT-BREAK:` / `NEEDS:` lines; what only the batch build or a frame can prove; the commit. The lead reads no diff from you. Limits (calls, read range, report length) are the hook's: `python .claude/tools/limits.py`.
