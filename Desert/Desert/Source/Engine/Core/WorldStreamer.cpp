@@ -926,30 +926,42 @@ namespace Desert::Core
         return jumps;
     }
 
-    std::size_t WorldStreamer::CellsHeldByTeleport()
+    Common::ResultStr<std::size_t>
+    WorldStreamer::CellsHeldByTeleport( std::span<const Rules::StreamingSource> origins ) const
     {
-        // The resident cells the held origins want and the sources themselves do not (their unload margin's
-        // ring counts as left: what the next step outside the hold may release).
-        if ( m_TeleportOrigins.empty() )
-            return 0;
-        const Rules::WorldPartitionPlan& plan = Executor().Plan();
-        auto origin                           = Rules::QueryStreamingCells( plan, m_Partition, m_TeleportOrigins );
-        auto here                             = Rules::QueryStreamingCells( plan, m_Partition, m_LastSources );
-        if ( !origin.IsSuccess() || !here.IsSuccess() )
-            return 0; // the same query refused inside the Tick that just succeeded: unreachable, and a count only
-        std::vector<bool> wantedHere( plan.Cells.size(), false );
+        // The resident cells @p origins want and no source keeps: outside every source's range grown by
+        // UnloadMargin (the band StepResidency keeps whether or not an origin wants it), so only what the hold
+        // alone keeps is counted - the cells the next step after the hold releases.
+        if ( origins.empty() )
+            return Common::MakeSuccess( std::size_t{ 0 } );
+        const Rules::WorldPartitionPlan& plan = Plan();
+        std::vector<Rules::StreamingSource> kept( m_LastSources.begin(), m_LastSources.end() );
+        for ( Rules::StreamingSource& source : kept ) // the widening StepResidency's keptWish applies
+        {
+            source.RangeScale *= 1.0f + m_Settings.UnloadMargin;
+            source.AngleScale *= 1.0f + m_Settings.UnloadMargin;
+            source.LookAheadTime *= 1.0f + m_Settings.UnloadMargin;
+            source.MaxLookAhead *= 1.0f + m_Settings.UnloadMargin;
+        }
+        auto origin = Rules::QueryStreamingCells( plan, m_Partition, origins );
+        if ( !origin.IsSuccess() )
+            return Common::MakeError<std::size_t>( "the teleport origins' cells: " + origin.GetError() );
+        auto here = Rules::QueryStreamingCells( plan, m_Partition, kept );
+        if ( !here.IsSuccess() )
+            return Common::MakeError<std::size_t>( "the cells the sources keep: " + here.GetError() );
+        std::vector<bool> keptHere( plan.Cells.size(), false );
         for ( const Rules::WantedCell& cell : here.GetValue().Cells )
-            wantedHere[cell.Cell] = true;
+            keptHere[cell.Cell] = true;
         std::size_t held = 0;
         for ( const Rules::WantedCell& cell : origin.GetValue().Cells )
         {
-            const Rules::Residency state = Executor().State().Units[plan.AlwaysLoaded.size() + cell.Cell].State;
-            if ( !wantedHere[cell.Cell] &&
+            const Rules::Residency state = Residency().Units[plan.AlwaysLoaded.size() + cell.Cell].State;
+            if ( !keptHere[cell.Cell] &&
                  ( state == Rules::Residency::Activated || state == Rules::Residency::Activating ||
                    state == Rules::Residency::Loaded ) )
                 ++held;
         }
-        return held;
+        return Common::MakeSuccess( std::move( held ) );
     }
 
     void WorldStreamer::UseSources( std::vector<Rules::StreamingSource> sources )
@@ -1048,19 +1060,33 @@ namespace Desert::Core
         // THE TELEPORT HOLD (PlayerStreamingView.hpp, kStreamingTeleportDistanceCm): a jumped source keeps
         // streaming from where it left, unmoving and last in the order, until the cell under every source is
         // resident - the destination is made before the origin is let go (UE's bBlockOnSlowStreaming waits the
-        // same way; there the origin is torn down first). The residency steps over the sources and these origins;
+        // same way; there the origin is torn down first). One origin per source key: the place before the hold
+        // (UE holds the pre-teleport state once per teleport); a held source's later jumps add none, so no
+        // destination nobody stands on is streamed. The residency steps over the sources and these origins;
         // the wait (AssessStreaming) and everything said about the sources reads the sources alone.
         for ( const SourceJump& jump : jumps )
         {
+            if ( std::find( m_TeleportOriginKeys.begin(), m_TeleportOriginKeys.end(), jump.Key ) !=
+                 m_TeleportOriginKeys.end() )
+                continue;
             Rules::StreamingSource origin = m_LastSources[jump.Index];
             origin.Position               = jump.From;
             origin.Velocity               = glm::vec3( 0.0f );
             origin.LookAheadTime          = 0.0f;
             origin.Priority               = std::numeric_limits<int>::min();
             m_TeleportOrigins.push_back( std::move( origin ) );
+            m_TeleportOriginKeys.push_back( jump.Key );
         }
-        std::vector<Rules::StreamingSource> stepped( m_LastSources.begin(), m_LastSources.end() );
-        stepped.insert( stepped.end(), m_TeleportOrigins.begin(), m_TeleportOrigins.end() );
+        std::vector<Rules::StreamingSource> withOrigins;
+        if ( !m_TeleportOrigins.empty() )
+        {
+            withOrigins.reserve( m_LastSources.size() + m_TeleportOrigins.size() );
+            withOrigins.assign( m_LastSources.begin(), m_LastSources.end() );
+            withOrigins.insert( withOrigins.end(), m_TeleportOrigins.begin(), m_TeleportOrigins.end() );
+        }
+        const std::span<const Rules::StreamingSource> stepped =
+             m_TeleportOrigins.empty() ? std::span<const Rules::StreamingSource>( m_LastSources )
+                                       : std::span<const Rules::StreamingSource>( withOrigins );
         const std::span<const Rules::StreamingSource> sources = m_LastSources;
 
         // UE's priority level streaming: while play waits behind the overlay, activation has more of the frame.
@@ -1139,10 +1165,21 @@ namespace Desert::Core
         m_SaidCriticalUnblocked = criticalUnblocked;
         // The teleport hold, said and let go: held while play waits for the cell under a source, so with blocking
         // off (Engine.json) or nothing to wait for the origins go after the one step of the jump itself.
-        const bool        waiting = m_LastTick.Streaming.Blocks();
-        const std::size_t held    = waiting ? CellsHeldByTeleport() : 0;
+        const bool waiting = m_LastTick.Streaming.Blocks();
         for ( const SourceJump& jump : jumps )
         {
+            // This source's own origin: the cells its jump alone holds.
+            std::size_t held = 0;
+            if ( waiting )
+            {
+                const auto keyAt =
+                     std::find( m_TeleportOriginKeys.begin(), m_TeleportOriginKeys.end(), jump.Key );
+                const auto own = CellsHeldByTeleport( std::span<const Rules::StreamingSource>(
+                     &m_TeleportOrigins[static_cast<std::size_t>( keyAt - m_TeleportOriginKeys.begin() )], 1 ) );
+                if ( !own )
+                    return Common::MakeError( "world streaming of '" + m_SceneName + "': " + own.GetError() );
+                held = own.GetValue();
+            }
             const glm::vec3& to = m_LastSources[jump.Index].Position;
             LOG_INFO( "[WorldStreamer] '{}': streaming source {} jumped {:.0f} cm to ({:.0f}, {:.0f}, {:.0f}) cm: "
                       "velocity reset; {} cell(s) it left are held until the cell under it is resident",
@@ -1159,9 +1196,15 @@ namespace Desert::Core
             else
             {
                 if ( m_TeleportHoldFrames > 0 || m_TeleportHeldSaid > 0 )
+                {
+                    const auto leave = CellsHeldByTeleport( m_TeleportOrigins );
+                    if ( !leave )
+                        return Common::MakeError( "world streaming of '" + m_SceneName + "': " + leave.GetError() );
                     LOG_INFO( "[WorldStreamer] '{}': teleport hold released after {} frame(s): {} cell(s) leave",
-                              m_SceneName, m_TeleportHoldFrames, CellsHeldByTeleport() );
+                              m_SceneName, m_TeleportHoldFrames, leave.GetValue() );
+                }
                 m_TeleportOrigins.clear();
+                m_TeleportOriginKeys.clear();
                 m_TeleportHoldFrames = 0;
                 m_TeleportHeldSaid   = 0;
             }

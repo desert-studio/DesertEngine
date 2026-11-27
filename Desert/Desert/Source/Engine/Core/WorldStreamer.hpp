@@ -296,8 +296,10 @@ namespace Desert::Core
         [[nodiscard]] std::vector<SourceJump> StampVelocities( std::vector<Rules::StreamingSource>& sources,
                                                                std::span<const std::uint32_t>       keys,
                                                                double                               nowSeconds );
-        // The resident cells the held teleport origins want and the sources do not: what the hold keeps.
-        [[nodiscard]] std::size_t CellsHeldByTeleport();
+        // The resident cells @p origins want that no source keeps - outside every source's range grown by
+        // UnloadMargin, the band StepResidency keeps anyway: what the hold alone keeps. A refused query is an error.
+        [[nodiscard]] Common::ResultStr<std::size_t>
+        CellsHeldByTeleport( std::span<const Rules::StreamingSource> origins ) const;
 
         // One HLOD as the streamer takes it: the cell unit it stands in for and the read of its records.
         // A READ, NOT THE RECORDS (WP22-LIT): a landscape HLOD record carries its built mesh inline (four
@@ -420,10 +422,12 @@ namespace Desert::Core
         bool                                  m_SaidNoSource = false;
         // "the player's view is a streaming source", said when the view source appears; cleared while it is gone.
         bool m_SaidPlayerView = false;
-        // THE TELEPORT HOLD (see THE SOURCES): where each source that jumped during the hold stood before, as a
-        // source of its own (unmoving, last in the order) that the residency steps over beside the sources, until
-        // a Tick that does not wait for the cell under a source; the frames it waited and the cells it said.
+        // THE TELEPORT HOLD (see THE SOURCES): where each source that jumped stood before the hold, as a source
+        // of its own (unmoving, last in the order) that the residency steps over beside the sources, until a Tick
+        // that does not wait for the cell under a source; one origin per source key (m_TeleportOriginKeys, same
+        // index) - a held source's later jumps add none; the frames it waited and the cells it said.
         std::vector<Rules::StreamingSource> m_TeleportOrigins;
+        std::vector<std::uint32_t>          m_TeleportOriginKeys;
         std::uint32_t                       m_TeleportHoldFrames = 0;
         std::size_t                         m_TeleportHeldSaid   = 0;
         // Per unit of runtime data layers: the effective state and residency last said in the log (SayDataLayerUnits).
