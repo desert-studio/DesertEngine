@@ -33,7 +33,8 @@
 Ждать gw 30 player \d+ pawn net id \d+ - authority \(sim 2, epoch 2\) from step \d+: its inputs re-routed to sim 2
 Нет sim1 adopted .*from sim 1
 Ждать B 60 fresh \[Shot\] recorded frame_
-Тогда B confirm_cross B's view down on the cut: ONE A capsule just east of X = 300, moving continuously along +X (about 5 px per frame against confirm_cross_next), no jump back, no second A at the old place; A.log own-pawn x grows monotonically through the handover (no step back > 5 cm)
+Тогда B confirm_cross B's view down on the cut: ONE A capsule just east of X = 300, moving continuously along +X (about 5 px per frame against confirm_cross_next), no jump back, no second A at the old place; A.log own-pawn x grows monotonically through the handover (no step back > 5 cm); sim2.log's residency union names "player N view" for A right after the handover
+Ждать sim2 10 residency union of \d+ source\(s\) \[[^]]*player \d+ view
 # Когда: A2 walks the parallel line 200 cm off A's; only when it is ~1 s short of X = 300 does sim 2 stop answering
 # (SIGSTOP). The stop must stay under the 10 s link timeout - a longer one closes sim 2's links (ReceiverLost, no retry).
 Роль A2 bot account=2 --seconds 900 --walk-cm 2000 --dir 0.15,0,0

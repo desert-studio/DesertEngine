@@ -1314,11 +1314,12 @@ namespace Desert::Server
                 store   = std::make_unique<Net::InProcessReplicationStore>();
                 gateway = std::make_unique<Net::Gateway>(
                      *transport, *store, std::move( *admission ), static_cast<std::uint64_t>( pawnPrefab ),
-                     RelevancyGridOf( server->World() ), std::move( *relevancy ), netLog );
+                     RelevancyGridOf( server->World() ), *relevancy, netLog );
+                // One ProjectRelevancy() value feeds both halves of the process, as each split process reads it.
                 Net::PawnSimulation::Settings simSettings;
                 for ( const glm::vec3& spawn : options.spawns )
                     simSettings.SpawnPoints.push_back( { spawn.x, spawn.y, spawn.z } );
-                simSettings.Relevancy = gateway->Relevancy();
+                simSettings.Relevancy = std::move( *relevancy );
                 sim       = std::make_unique<Net::PawnSimulation>( *store, *gateway, *collision.Mover,
                                                                    *collision.Placer, *server,
                                                                    std::move( simSettings ), netLog );

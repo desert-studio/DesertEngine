@@ -1213,6 +1213,7 @@ namespace Desert::Net
         m_Routed.erase( player );
         m_Acks.erase( player );
         m_Authority.erase( player );
+        m_Views.erase( player );
     }
 
     void RemoteSimLink::PlayerInput( PlayerId player, const InputMessage& input )
@@ -1228,7 +1229,13 @@ namespace Desert::Net
 
     void RemoteSimLink::PlayerView( PlayerId player, const NetVec3& eye )
     {
-        if ( const auto connection = Route( player, "view" ) )
+        m_Views[player] = eye;
+        SendView( player, eye, "view" );
+    }
+
+    void RemoteSimLink::SendView( PlayerId player, const NetVec3& eye, std::string_view what )
+    {
+        if ( const auto connection = Route( player, what ) )
         {
             Writer w( EMesh::PlayerView );
             w.U32( player );
@@ -1280,6 +1287,10 @@ namespace Desert::Net
              "gateway: player {} pawn net id {} - authority (sim {}, epoch {}) from step {}: its inputs "
              "re-routed to sim {}",
              player, id, sim, epoch, step, sim ) );
+        // The new owner streams around the player from its first step: it gets the last reported eye now, not at
+        // the client's next report.
+        if ( const auto view = m_Views.find( player ); view != m_Views.end() )
+            SendView( player, view->second, "view (re-sent on authority change)" );
         return true;
     }
 
@@ -1359,8 +1370,8 @@ namespace Desert::Net
         }
         if ( type == Code( EMesh::PlayerView ) )
         {
-            // The pawn's eye goes with the pawn: a view that reaches this sim after its handover is dropped, the
-            // client's next report (once a second) reaches the new owner through the gateway's re-route.
+            // The pawn's eye goes with the pawn: a view that reaches this sim after its handover is dropped; the
+            // gateway re-sends the player's last eye to the new owner when it re-routes on AuthorityChanged.
             NetVec3 eye;
             if ( r.U32( player ) && r.F32( eye.X ) && r.F32( eye.Y ) && r.F32( eye.Z ) )
                 sim.PlayerView( player, eye );
