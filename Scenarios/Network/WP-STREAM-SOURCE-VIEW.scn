@@ -6,12 +6,13 @@
 # pulled back to MaxViewRangeCm (1500 m) from the pawn. A teleport resets the source's velocity and holds the cells it
 # left until the cell under it is resident.
 # Played by scripts/Dev/net_scenario.py, roles as in NET-4. Fence 300001 in WP_Protocol: static box 20 x 180 x 600 cm at
-# x=2500 (z 350-950), ~120 cm above the slope, in cell G0L0(1,0). A's frames come from a FIXED side camera at
+# x=2500 (z 350-950), standing on the slope, in cell G0L0(1,0). A spawns at z=1150 so its +X walk passes 200 cm
+# beside the fence (its collision stopped the walk at x=2454 in scn-1127-015306). A's frames come from a FIXED side camera at
 # (2100,120,50) that looks at the fence; A's pawn sprints 300 m along +X away from it. Before this feature the fence's
 # cell unloaded once the pawn left (scn-1125-071236/A.log:5636; clientA_fence_after.png fence, clientA_teleport.png none).
 # Net coordinates are Y-up (X, Y, Z), cm.
 Мир Content/Scenes/WP_Protocol.desce
-Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-300,650 --spawn 500,-300,-200 --steps 864000
+Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-300,1150 --spawn 500,-300,-200 --steps 864000
 Ждать server 60 \[Server\] listening on port
 Роль A editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --camera 2100,120,50 --look 0.595,-0.198,0.779 --quality PostProcess.MotionBlurQuality=0 --net-walk-cm 30000 --net-walk-dir 1,0,0 --net-walk-mode sprint
 # 1. The source is the camera, not the pawn. Printed on the first streamer tick at Play start, before the session.
