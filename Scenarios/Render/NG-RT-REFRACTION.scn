@@ -98,14 +98,14 @@
 Когда frames 256
 Тогда-вид refl_hit day, HardwareTraced, Reflections.HitLighting 1: editor.log has no "did not build" and no "refused" line about SSR / SSRTrace; mean L of the glass area not below day_rt
 Когда run Quality "Quality: Reflections.HitLighting Level"
-# --- day without the shop window: the denominators of T (the scene is not saved)
+# --- day without the shop window: the open sides of A (the scene is not saved)
 Когда run Entity "Delete Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4711"
 Когда frames 256
-Тогда-вид day_rt_open day, HardwareTraced, the shop-window entity _4711 deleted: the raster scene behind the window - the denominator of T(day_rt)
+Тогда-вид day_rt_open day, HardwareTraced, the shop-window entity _4711 deleted: the raster scene behind the window - the open side of A(day_rt, day_rt_open)
 Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
 Когда run Quality "Quality: Reflections.Method PathTraced"
 Когда frames 256
-Тогда-вид day_pt_open day, path tracer, the shop-window entity _4711 deleted: the reference scene behind the window - the denominator of T(day_pt)
+Тогда-вид day_pt_open day, path tracer, the shop-window entity _4711 deleted: the reference scene behind the window - the open side of A(day_pt, day_pt_open)
 Тогда refr_pt A = L_lin(glass) - L_lin(open) over the pane mask (x540-1260 y170-630, pixels where day_pt > 8; L_lin = mean of the sRGB-decoded (R+G+B)/3, 0..1): A(day_rt, day_rt_open) within ±25 % of A(day_pt, day_pt_open) (+15 % in scn-1127-204226); night_rt within ±25 % of night_pt (absolute, NG-RT-REFRACTION-NIGHT.scn of the same build); scripts/Dev/frames_compare.py
 # --- tail: view mode and the rows back to the tier (the group pins live in this process only, see the head)
 Когда run View "View mode: Lit"
