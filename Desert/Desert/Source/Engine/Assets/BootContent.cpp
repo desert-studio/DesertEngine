@@ -94,8 +94,9 @@ namespace Desert::Assets
         // the registration order and the SPIR-V are what the one-at-a-time start produced. A medium is left
         // out: it is source compiled into other programs, never a program of its own. A map the workers
         // could not store is simply built again by Register() — slower, not different.
-        // Each request is an item of the phase, reported from the worker that builds it; the passes' call
-        // raises the phase's total once the programs' maps say how many passes there are (the re-plan).
+        // Each request is an item of its phase, reported from the worker that builds it. The programs and the
+        // passes are two steps with two counts: the passes are known only once the programs' maps are built, so
+        // they are a phase of their own (shaders.passes) whose N is given once, never a raise of the programs' N.
         BeginShaderPhase( progress, "shaders.maps" );
         const Core::ShaderPhaseTimes        beforeWorkers = Core::ReadShaderPhaseTimes();
         const auto                          workersStart  = std::chrono::steady_clock::now();
@@ -120,6 +121,7 @@ namespace Desert::Assets
             for ( const auto& pass : programMaps[i].Map.Meta.PassNames )
                 if ( !Core::Preprocess::IsDefaultProgramPass( programMaps[i].Map.Meta, pass ) )
                     passes.push_back( { programs[i].Source, programs[i].Path, pass, {}, programs[i].Name } );
+        BeginShaderPhase( progress, "shaders.passes" );
         Core::BuildShaderMaps( passes, progress );
         const double workersMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - workersStart ).count();

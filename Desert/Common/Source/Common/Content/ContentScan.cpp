@@ -665,8 +665,28 @@ namespace Common::Content
 
     GatheredRegistry GatherContentRegistry( const RegistryCache& cache )
     {
+        return GatherContentRegistry( cache, ScanProgress{} );
+    }
+
+    GatheredRegistry GatherContentRegistry( const RegistryCache& cache, const ScanProgress& progress )
+    {
+        // The walk first (directories only), then the files: so the count is known before the slow half (the
+        // cache checks' stats and the header reads) runs. Every visit is kept, a key the walk reaches twice
+        // included: its second row is refused by the registry exactly as when the walk and the reads were one.
+        struct Listed
+        {
+            std::filesystem::path File;
+            ContentKind           Kind;
+            std::string           Key;
+        };
+        std::vector<Listed> listed;
+        ForEachContentFile( [&listed]( const std::filesystem::path& file, ContentKind kind, const std::string& key )
+                            { listed.push_back( { file, kind, key } ); } );
+        if ( progress.Listed )
+            progress.Listed( listed.size() );
+
         GatheredRegistry gathered;
-        ForEachContentFile(
+        const auto       gatherOne =
              [&]( const std::filesystem::path& file, ContentKind kind, const std::string& key )
              {
                  const Utils::AssetRegistryEntry* cached   = cache.Registry.FindByKey( key );
@@ -704,7 +724,15 @@ namespace Common::Content
                  if ( ( kind == ContentKind::StaticMesh || kind == ContentKind::SkinnedMesh ) &&
                       !( described.HeaderBounds && described.HeaderBounds->Stated ) )
                      gathered.MeshesWithoutHeaderBounds.push_back( key );
-             } );
+             };
+        for ( const Listed& file : listed )
+        {
+            if ( progress.Begin )
+                progress.Begin( file.File );
+            gatherOne( file.File, file.Kind, file.Key );
+            if ( progress.End )
+                progress.End();
+        }
         return gathered;
     }
 

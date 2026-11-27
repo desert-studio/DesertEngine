@@ -19,46 +19,47 @@ namespace Desert::Core
             return std::chrono::duration<double>( to - from ).count();
         }
 
-        // The history file. A new field is a new version and a migration of the files (there is one per
-        // project per machine, regenerated at every reveal).
-        struct StartupHistoryFile
+        // The history file. A new field is a new version and a migration of the files (one per project per
+        // machine, rewritten at every reveal). Version 1 kept one run per key; it is read once as that run.
+        struct StartupHistoryVersion
+        {
+            int Version = 0;
+        };
+        DESERT_JSON_PARTIAL( StartupHistoryVersion,
+                             "the startup history file: only its Version is read, to pick the reader" )
+        struct StartupHistoryFileV1
         {
             int                           Version = 1;
             std::map<std::string, double> Phases;
         };
-        constexpr int kHistoryVersion = 1;
-
-        // The floor of the current phase's estimate: an ETA of 0 while work runs would be a lie, and it would
-        // let the bar reach 1 before Finish.
-        constexpr double kRemainingFloorSeconds = 0.5;
-        // A phase's weight in the bar is its expected seconds, at least this: a phase that took no time on the
-        // last start is still a step of the plan.
-        constexpr double kMinPhaseWeight = 0.01;
-
-        // An uncounted phase's seconds left after @p elapsed of its @p expected: linear down to its knee (half of
-        // it), then the hyperbola knee^2 / elapsed -- equal value and slope at the knee, a quarter of the
-        // expectation at the expectation, and still falling through any overrun, so it never stops while work
-        // runs and never reaches 0 (the floor).
-        [[nodiscard]] double ExpectedLeft( const double expected, const double elapsed )
+        struct StartupHistoryFile
         {
-            const double knee     = 0.5 * expected;
-            const double estimate = elapsed <= knee ? expected - elapsed : knee * knee / elapsed;
-            return std::max( estimate, kRemainingFloorSeconds );
+            int                                        Version = 2;
+            std::map<std::string, std::vector<double>> Phases;
+        };
+        constexpr int kHistoryVersion = 2;
+
+        // Rule 1: the longest of the last starts. A cold disk is 12x a warm one; an over-estimate is caught up
+        // downwards, an under-estimate would run the start "longer than expected".
+        [[nodiscard]] double ExpectedOf( const StartupPhaseSpec& spec, const StartupHistory& history )
+        {
+            const auto found = history.find( spec.Key );
+            if ( found == history.end() || found->second.empty() )
+                return spec.DefaultSeconds;
+            return *std::max_element( found->second.begin(), found->second.end() );
         }
     } // namespace
 
-    StartupProgress::StartupProgress( std::vector<StartupPhaseSpec>              plan,
-                                      std::map<std::string, double, std::less<>> lastSeconds,
-                                      const StartupClock::time_point             processStart )
+    StartupProgress::StartupProgress( std::vector<StartupPhaseSpec> plan, StartupHistory history,
+                                      const StartupClock::time_point processStart )
          : m_ProcessStart( processStart )
     {
         m_Phases.reserve( plan.size() );
         for ( StartupPhaseSpec& spec : plan )
         {
-            Phase      phase;
-            const auto last = lastSeconds.find( spec.Key );
-            phase.Expected  = last != lastSeconds.end() ? last->second : spec.DefaultSeconds;
-            phase.Spec      = std::move( spec );
+            Phase phase;
+            phase.Expected = ExpectedOf( spec, history );
+            phase.Spec     = std::move( spec );
             m_Phases.push_back( std::move( phase ) );
         }
     }
@@ -76,11 +77,10 @@ namespace Desert::Core
 
         const StartupClock::time_point now = StartupClock::now();
         EndCurrent( now );
-        // A phase of the plan this start did not run (the host skipped it) took no time: ended, at zero, so it
+        // A phase of the plan this start did not run (the host skipped it) took no time: ended at zero, so it
         // stops counting into the time left.
-        for ( size_t skipped = m_Current ? *m_Current + 1 : 0; skipped < index; ++skipped )
-            if ( !m_Phases[skipped].Ended )
-                m_Phases[skipped].Ended = true;
+        for ( size_t skipped = 0; skipped < index; ++skipped )
+            m_Phases[skipped].Ended = true;
         Phase& phase = *found;
         phase.Begin  = now;
         phase.Source = std::move( source );
@@ -94,16 +94,31 @@ namespace Desert::Core
         m_Ambient = std::move( source );
     }
 
-    void StartupProgress::SetWaitReasons( std::vector<std::string> reasons )
+    void StartupProgress::SetWaits( std::vector<StartupWait> waits )
     {
-        const std::lock_guard lock( m_Mutex );
-        if ( reasons == m_WaitReasons )
-            return;
-        std::string joined;
-        for ( const std::string& reason : reasons )
-            joined += joined.empty() ? reason : ", " + reason;
-        LOG_INFO( "[Startup] reveal waits for: {}", joined.empty() ? std::string( "nothing" ) : joined );
-        m_WaitReasons = std::move( reasons );
+        const std::lock_guard          lock( m_Mutex );
+        const StartupClock::time_point now = StartupClock::now();
+        std::vector<Waiting>           next;
+        next.reserve( waits.size() );
+        bool namesChanged = waits.size() != m_Waits.size();
+        for ( size_t i = 0; i < waits.size(); ++i )
+        {
+            // A name already waited for keeps its age; only its Detail moves.
+            const auto seen = std::find_if( m_Waits.begin(), m_Waits.end(), [&]( const Waiting& waiting )
+                                            { return waiting.Wait.Name == waits[i].Name; } );
+            if ( !namesChanged && m_Waits[i].Wait.Name != waits[i].Name )
+                namesChanged = true;
+            next.push_back(
+                 { .Wait = std::move( waits[i] ), .Since = seen != m_Waits.end() ? seen->Since : now } );
+        }
+        if ( namesChanged )
+        {
+            std::string joined;
+            for ( const Waiting& waiting : next )
+                joined += joined.empty() ? waiting.Wait.Name : ", " + waiting.Wait.Name;
+            LOG_INFO( "[Startup] waits for: {}", joined.empty() ? std::string( "nothing" ) : joined );
+        }
+        m_Waits = std::move( next );
     }
 
     void StartupProgress::Note( std::string text )
@@ -121,14 +136,12 @@ namespace Desert::Core
         EndCurrent( now );
         for ( Phase& phase : m_Phases )
             phase.Ended = true;
-        m_Current.reset();
-        m_WaitReasons.clear();
-        m_Finished = true;
-        m_Shown    = 1.0;
+        m_Finished      = true;
+        m_ShownFraction = 1.0;
+        m_ShownEta      = 0.0;
 
         // THE START'S TABLE: every phase that ran, then the total. The phases are back to back from the first
-        // one's begin, so they sum to the wall time after it; what ran before the first phase is the process's
-        // own start (images, the splash), said apart.
+        // one's begin; what ran before the first phase is the process's own start (images, the splash).
         double                                  phases = 0.0;
         std::optional<StartupClock::time_point> first;
         for ( const Phase& phase : m_Phases )
@@ -146,11 +159,35 @@ namespace Desert::Core
                   first ? SecondsBetween( m_ProcessStart, *first ) : total );
     }
 
+    void StartupProgress::BeginStep( const std::string_view key ) noexcept
+    {
+        if ( const auto begun = BeginPhase( key ); !begun )
+            LOG_ERROR( "[Startup] step '{}' could not begin: {}", key, begun.GetError() );
+    }
+
     void StartupProgress::Expect( const uint64_t items ) noexcept
     {
         const std::lock_guard lock( m_Mutex );
-        if ( m_Current )
-            m_Phases[*m_Current].Total += items;
+        if ( !m_Current )
+        {
+            LOG_ERROR( "[Startup] Expect( {} ) refused: no phase is running", items );
+            return;
+        }
+        Phase& phase = m_Phases[*m_Current];
+        // The count on screen never moves (the contract's rule 2): one Expect, before the first item, of a
+        // Planned phase. Anything else is a defect of the caller, said once per phase.
+        if ( phase.Spec.Count != PhaseCountKind::Planned || phase.TotalGiven || phase.ItemBegun )
+        {
+            if ( !phase.RefusalSaid )
+                LOG_ERROR( "[Startup] Expect( {} ) refused in phase '{}': {}", items, phase.Spec.Key,
+                           phase.Spec.Count != PhaseCountKind::Planned ? "the phase is not Planned"
+                           : phase.TotalGiven                          ? "its count was already given"
+                                                                       : "an item has already begun" );
+            phase.RefusalSaid = true;
+            return;
+        }
+        phase.Total      = items;
+        phase.TotalGiven = true;
     }
 
     uint64_t StartupProgress::BeginItem( const std::string_view name ) noexcept
@@ -158,6 +195,8 @@ namespace Desert::Core
         const std::lock_guard lock( m_Mutex );
         const uint64_t        token = m_NextToken++;
         m_Running.emplace( token, Running{ .Name = std::string( name ), .Begin = StartupClock::now() } );
+        if ( m_Current )
+            m_Phases[*m_Current].ItemBegun = true;
         return token;
     }
 
@@ -187,7 +226,7 @@ namespace Desert::Core
         m_Stop.store( true, std::memory_order_release );
     }
 
-    StartupView StartupProgress::Sample( const StartupClock::time_point now )
+    StartupView StartupProgress::Sample( const StartupClock::time_point now, const double minVisibleStep )
     {
         const std::lock_guard lock( m_Mutex );
         StartupView           view;
@@ -195,6 +234,7 @@ namespace Desert::Core
         view.ElapsedSeconds  = SecondsBetween( m_ProcessStart, now );
         view.StopRequested   = StopRequested();
         view.Finished        = m_Finished;
+        view.EtaKnown        = m_EtaKnown;
         const size_t logFrom = m_Log.size() > kLogShown ? m_Log.size() - kLogShown : 0;
         view.Log.assign( m_Log.begin() + static_cast<std::ptrdiff_t>( logFrom ), m_Log.end() );
         if ( m_Finished )
@@ -204,96 +244,76 @@ namespace Desert::Core
             return view;
         }
 
-        // The running phase: the current one, or before the first BeginPhase the plan's first phase still to run.
-        std::optional<size_t> running;
-        double                phaseElapsed = 0.0;
-        double                phaseLeft    = 0.0;
-        if ( !m_Current )
+        // The running phase: the current one, or before the first BeginPhase the plan's first phase still to
+        // run, which the process is already doing (the window): named from the splash's first frame, running
+        // since the process started.
+        std::optional<size_t> running = m_Current;
+        if ( !running )
         {
-            // Before the first BeginPhase the process is already doing the plan's first phase's work (the
-            // window, the instance; the engine always runs it): the splash names it from its first frame and
-            // estimates it as running since the process's start, nothing counted yet.
             const auto next = std::find_if( m_Phases.begin(), m_Phases.end(),
                                             []( const Phase& phase ) { return !phase.Ended; } );
             if ( next != m_Phases.end() )
-            {
-                view.Phase       = next->Spec.Label;
-                view.PhaseNumber = static_cast<size_t>( next - m_Phases.begin() ) + 1;
-                running          = view.PhaseNumber - 1;
-                phaseElapsed     = view.ElapsedSeconds;
-                phaseLeft        = ExpectedLeft( next->Expected, phaseElapsed );
-            }
+                running = static_cast<size_t>( next - m_Phases.begin() );
+        }
+        double remaining = 0.0; // R (rule 3)
+        if ( running )
+        {
+            const Phase& phase   = m_Phases[*running];
+            const double elapsed = SecondsBetween( m_Current ? phase.Begin : m_ProcessStart, now );
+            LiveCount    count;
+            if ( m_Current )
+                count = CountOf( phase, now );
+            else
+                count.Active.push_back( { .Name = phase.Spec.Label, .Seconds = elapsed } );
+            view.Phase       = phase.Spec.Label;
+            view.PhaseNumber = *running + 1;
+            view.Count       = phase.Spec.Count;
+            view.Done        = phase.Spec.Count == PhaseCountKind::Timed ? 0 : count.Done;
+            view.Total       = phase.Spec.Count == PhaseCountKind::Planned && phase.TotalGiven ? phase.Total : 0;
+            view.Active      = std::move( count.Active );
+            remaining        = RemainingOf( phase, count, elapsed );
+            for ( size_t ahead = *running + 1; ahead < m_Phases.size(); ++ahead )
+                if ( !m_Phases[ahead].Ended )
+                    remaining += m_Phases[ahead].Expected;
+        }
+
+        // Rules 4 and 5: the shown ETA and bar are regulators integrated over the time since the last sample,
+        // so neither stands still while work runs and neither jumps. The first sample starts them at the target.
+        const double step    = std::clamp( minVisibleStep, 1e-6, 0.1 );
+        const double barCap  = 1.0 - step;
+        const double target  = view.ElapsedSeconds + remaining > 0.0
+                                    ? view.ElapsedSeconds / ( view.ElapsedSeconds + remaining )
+                                    : 0.0;
+        const bool   sampled = m_LastSample != StartupClock::time_point{};
+        const double dt      = sampled ? std::max( SecondsBetween( m_LastSample, now ), 0.0 ) : 0.0;
+        if ( !sampled )
+        {
+            m_ShownEta      = remaining;
+            m_ShownFraction = std::min( target, barCap );
         }
         else
         {
-            const Phase&    phase = m_Phases[*m_Current];
-            const LiveCount count = CountOf( phase, now );
-            view.Phase            = phase.Spec.Label;
-            view.PhaseNumber      = *m_Current + 1;
-            view.Done             = count.Done;
-            view.Total            = count.Total;
-            view.Active           = count.Active;
-            running               = m_Current;
-            phaseElapsed          = SecondsBetween( phase.Begin, now );
-            phaseLeft             = RemainingOf( phase, count, now );
+            const double etaRate =
+                 std::clamp( 1.0 + ( m_ShownEta - remaining ) / kEtaCatchUpSeconds, kEtaMinRate, kEtaMaxRate );
+            m_ShownEta -= etaRate * dt;
+            const double minBarRate = kBarStepMargin * step / kBarMaxStallSeconds;
+            const double barRate =
+                 std::clamp( ( target - m_ShownFraction ) / kBarCatchUpSeconds, minBarRate, kBarMaxRate );
+            m_ShownFraction = std::min( m_ShownFraction + barRate * dt, std::max( barCap, m_ShownFraction ) );
         }
-        // R = the running phase's estimate + every phase still ahead at its expected seconds; W = every phase's
-        // weight, D = the ended phases' (a skipped phase ended at zero: its step is behind the start).
-        double remaining = phaseLeft;
-        double planned   = 0.0;
-        double done      = 0.0;
-        for ( size_t index = 0; index < m_Phases.size(); ++index )
+        // Rule 4's floor: below it the number would be a lie while work remains; the rest of the start says
+        // "longer than expected" instead.
+        if ( m_EtaKnown && m_ShownEta <= kEtaFloorSeconds )
         {
-            const Phase& phase  = m_Phases[index];
-            const double weight = std::max( phase.Expected, kMinPhaseWeight );
-            planned += weight;
-            if ( phase.Ended )
-                done += weight;
-            else if ( running && index > *running )
-                remaining += phase.Expected;
+            m_EtaKnown = false;
+            LOG_INFO( "[Startup] the start runs longer than expected ({:.1f} s left by the plan, at {:.1f} s)",
+                      remaining, view.ElapsedSeconds );
         }
-
-        // THE BAR (UE FScopedSlowTask): done weight / planned weight. The running phase adds its weight times its
-        // share done, elapsed / (elapsed + its seconds left) -- its count's done / total when the left is the
-        // measured rate's, rising with time when it is the expectation's. The share never goes back (a re-plan
-        // that raised the total holds it) and, while the estimate gives nothing newer, it keeps rising by
-        // step / (step + max(left, elapsed)) of what is still open: a phase running over its plan slows its
-        // part of the bar to the rate it has shown, it never fills it. The bar reaches 1 only at Finish.
-        const bool   sampled  = m_LastSample != StartupClock::time_point{};
-        const double step     = sampled ? std::max( SecondsBetween( m_LastSample, now ), 0.0 ) : 0.0;
-        const double maxShown = std::nextafter( 1.0, 0.0 );
-        double       bar      = done;
-        if ( running )
-        {
-            if ( m_SharePhase != running )
-            {
-                m_SharePhase = running;
-                m_PhaseShare = 0.0;
-            }
-            const double target = phaseElapsed + phaseLeft > 0.0 ? phaseElapsed / ( phaseElapsed + phaseLeft ) : 0.0;
-            if ( target > m_PhaseShare )
-                m_PhaseShare = target;
-            else if ( sampled )
-                m_PhaseShare += ( 1.0 - m_PhaseShare ) * step /
-                                ( step + std::max( { phaseLeft, phaseElapsed, kRemainingFloorSeconds } ) );
-            m_PhaseShare = std::min( m_PhaseShare, maxShown );
-            bar += std::max( m_Phases[*running].Expected, kMinPhaseWeight ) * m_PhaseShare;
-        }
-        if ( planned > 0.0 )
-            m_Shown = std::max( m_Shown, bar / planned );
-        m_Shown = std::min( m_Shown, maxShown );
-
-        // THE TIME LEFT is the estimate's, never rising: a remainder below the one shown is taken at once (it
-        // follows the real remainder down), one above it holds the shown value (a re-plan or an overrun does not
-        // push it back up). It is not derived from the bar: coupling the two pushed the bar to 99.99 % while an
-        // overrun phase still ran.
-        double left = std::max( remaining, kRemainingFloorSeconds );
-        if ( sampled )
-            left = std::min( left, m_ShownRemaining );
-        m_ShownRemaining      = left;
-        m_LastSample          = now;
-        view.Fraction         = m_Shown;
-        view.RemainingSeconds = left;
+        m_ShownEta      = std::max( m_ShownEta, 0.0 );
+        m_LastSample    = now;
+        view.Fraction   = m_ShownFraction;
+        view.EtaSeconds = m_ShownEta;
+        view.EtaKnown   = m_EtaKnown;
         return view;
     }
 
@@ -303,7 +323,7 @@ namespace Desert::Core
         std::vector<PhaseTiming> timings;
         timings.reserve( m_Phases.size() );
         for ( const Phase& phase : m_Phases )
-            if ( phase.Ended )
+            if ( phase.Ended && phase.Begin != StartupClock::time_point{} )
                 timings.push_back( { .Key             = phase.Spec.Key,
                                      .Label           = phase.Spec.Label,
                                      .Items           = phase.Done,
@@ -315,77 +335,92 @@ namespace Desert::Core
     LiveCount StartupProgress::CountOf( const Phase& phase, const StartupClock::time_point now ) const
     {
         LiveCount count;
+        std::vector<ActiveWork> work;
         if ( phase.Source )
+        {
             count = phase.Source( now );
-        else
-        {
-            count.Done  = phase.Done;
-            count.Total = phase.Total;
-        }
-        // What the reveal waits for IS what is being done in its phase: the reasons, nothing else.
-        if ( !m_WaitReasons.empty() )
-        {
+            work  = std::move( count.Active );
             count.Active.clear();
-            for ( const std::string& reason : m_WaitReasons )
-            {
-                if ( count.Active.size() == kActiveShown )
-                    break;
-                count.Active.push_back( { .Name = reason, .Seconds = 0.0 } );
-            }
-            return count;
         }
-        for ( const auto& [token, running] : m_Running )
-            count.Active.push_back( { .Name = running.Name, .Seconds = SecondsBetween( running.Begin, now ) } );
+        else
+            count.Done = phase.Done;
+        // Rule 6, in this order: what the phase waits for (aged from the first call that named it), then the
+        // phase's own work oldest first (its items, its source's), then the ambient work oldest first (in-flight
+        // pipelines, never counted); one row per name.
+        const auto oldestFirst = []( const ActiveWork& a, const ActiveWork& b ) { return a.Seconds > b.Seconds; };
+        for ( const Waiting& waiting : m_Waits )
+            count.Active.push_back( { .Name    = waiting.Wait.Name,
+                                      .Detail  = waiting.Wait.Detail,
+                                      .Seconds = SecondsBetween( waiting.Since, now ) } );
+        for ( const auto& [token, item] : m_Running )
+            work.push_back( { .Name = item.Name, .Seconds = SecondsBetween( item.Begin, now ) } );
+        std::stable_sort( work.begin(), work.end(), oldestFirst );
+        for ( ActiveWork& item : work )
+            count.Active.push_back( std::move( item ) );
         if ( m_Ambient )
         {
-            LiveCount ambient = m_Ambient( now );
-            for ( ActiveWork& work : ambient.Active )
-                count.Active.push_back( std::move( work ) );
+            std::vector<ActiveWork> ambient = m_Ambient( now ).Active;
+            std::stable_sort( ambient.begin(), ambient.end(), oldestFirst );
+            for ( ActiveWork& item : ambient )
+                count.Active.push_back( std::move( item ) );
         }
-        // Oldest first (the longest running), one row per name: the stalled item is the one worth naming.
-        std::stable_sort( count.Active.begin(), count.Active.end(),
-                          []( const ActiveWork& a, const ActiveWork& b ) { return a.Seconds > b.Seconds; } );
+
         std::vector<ActiveWork> shown;
         shown.reserve( kActiveShown );
-        for ( ActiveWork& work : count.Active )
+        for ( ActiveWork& item : count.Active )
         {
             if ( shown.size() == kActiveShown )
                 break;
             if ( std::none_of( shown.begin(), shown.end(),
-                               [&work]( const ActiveWork& seen ) { return seen.Name == work.Name; } ) )
-                shown.push_back( std::move( work ) );
+                               [&item]( const ActiveWork& seen ) { return seen.Name == item.Name; } ) )
+                shown.push_back( std::move( item ) );
         }
+        if ( shown.empty() )
+            shown.push_back( { .Name = phase.Spec.Label, .Seconds = SecondsBetween( phase.Begin, now ) } );
         count.Active = std::move( shown );
         return count;
     }
 
-    double StartupProgress::RemainingOf( const Phase& phase, const LiveCount& count,
-                                         const StartupClock::time_point now ) const
+    double StartupProgress::RemainingOf( const Phase& phase, const LiveCount& count, const double elapsed ) const
     {
-        const double elapsed = SecondsBetween( phase.Begin, now );
-        // Counted and started: the measured rate (Unity's rule). A cache miss that raised the total raised this.
-        if ( count.Total > count.Done && count.Done >= 1 )
-            return std::max( elapsed * static_cast<double>( count.Total - count.Done ) /
-                                  static_cast<double>( count.Done ),
-                             kRemainingFloorSeconds );
-        // Otherwise the expectation, decaying through an overrun -- also when every counted item is done and the
-        // phase still runs (its main-thread tail, items not asked yet): a count at its total is not a phase at
-        // its end, and the floor there sat the time left at 0:01 for 40 s (STARTUP-PROGRESS acceptance #39).
-        return ExpectedLeft( phase.Expected, elapsed );
+        // Rule 3.
+        const double reserve  = std::max( kReserveSeconds, kReserveShare * elapsed );
+        const double expected = std::max( phase.Expected - elapsed, reserve );
+        const double done     = static_cast<double>( count.Done );
+        switch ( phase.Spec.Count )
+        {
+            case PhaseCountKind::Planned:
+                if ( phase.TotalGiven && phase.Total > 0 )
+                {
+                    const double total = static_cast<double>( phase.Total );
+                    if ( count.Done >= phase.Total )
+                        return 0.0;
+                    if ( done >= std::max( 3.0, total / 50.0 ) )
+                        return ( total - done ) * elapsed / done;
+                    return phase.Expected * ( 1.0 - done / total );
+                }
+                return expected;
+            case PhaseCountKind::Discovered:
+                if ( count.Queued > 0 && count.Done >= 20 )
+                    return std::max( static_cast<double>( count.Queued ) * elapsed / done, expected );
+                return expected;
+            case PhaseCountKind::Timed:
+                break;
+        }
+        return expected;
     }
 
     void StartupProgress::EndCurrent( const StartupClock::time_point now )
     {
+        m_Waits.clear();
         if ( !m_Current )
             return;
         Phase& phase = m_Phases[*m_Current];
         if ( phase.Source )
         {
             // A pulled phase's count is its source's: the last answer is what the phase did.
-            const LiveCount count = phase.Source( now );
-            phase.Done            = count.Done;
-            phase.Total           = count.Total;
-            phase.Source          = {};
+            phase.Done   = phase.Source( now ).Done;
+            phase.Source = {};
         }
         phase.Seconds = SecondsBetween( phase.Begin, now );
         phase.Ended   = true;
@@ -393,7 +428,7 @@ namespace Desert::Core
         LOG_INFO( "[Startup] phase {}: {} item(s) in {:.2f} s (expected {:.2f} s)", phase.Spec.Label, phase.Done,
                   phase.Seconds, phase.Expected );
         NoteLocked( SecondsBetween( m_ProcessStart, now ),
-                    phase.Total > 0 || phase.Done > 0
+                    phase.Spec.Count != PhaseCountKind::Timed
                          ? std::format( "{}  {} items  {:.1f} s", phase.Spec.Label, phase.Done, phase.Seconds )
                          : std::format( "{}  {:.1f} s", phase.Spec.Label, phase.Seconds ) );
     }
@@ -412,35 +447,63 @@ namespace Desert::Core
         return std::format( "{}:{:02}", whole / 60, whole % 60 );
     }
 
-    Common::ResultStr<std::map<std::string, double, std::less<>>>
-    LoadStartupHistory( const std::filesystem::path& file )
+    Common::ResultStr<StartupHistory> LoadStartupHistory( const std::filesystem::path& file )
     {
-        using History = std::map<std::string, double, std::less<>>;
         std::error_code missing;
         if ( !std::filesystem::exists( file, missing ) )
         {
             if ( missing )
-                return Common::MakeError<History>(
+                return Common::MakeError<StartupHistory>(
                      std::format( "{}: cannot tell whether it exists: {}", file.string(), missing.message() ) );
-            return Common::MakeSuccess( History{} );
+            return Common::MakeSuccess( StartupHistory{} );
         }
-        auto read = Common::Json::ReadFile<StartupHistoryFile>( file );
-        if ( !read )
-            return Common::MakeError<History>( read.GetError() );
-        const StartupHistoryFile& history = read.GetValue();
-        if ( history.Version != kHistoryVersion )
-            return Common::MakeError<History>( std::format( "{}: version {}, this build reads version {}",
-                                                            file.string(), history.Version, kHistoryVersion ) );
-        return Common::MakeSuccess( History( history.Phases.begin(), history.Phases.end() ) );
+        const auto version = Common::Json::ReadFile<StartupHistoryVersion>( file );
+        if ( !version )
+            return Common::MakeError<StartupHistory>( version.GetError() );
+        StartupHistory history;
+        switch ( version.GetValue().Version )
+        {
+            case 1:
+            {
+                // Version 1: one run per key, read as that one run; the next save writes version 2.
+                const auto read = Common::Json::ReadFile<StartupHistoryFileV1>( file );
+                if ( !read )
+                    return Common::MakeError<StartupHistory>( read.GetError() );
+                for ( const auto& [key, seconds] : read.GetValue().Phases )
+                    history[key] = { seconds };
+                return Common::MakeSuccess( std::move( history ) );
+            }
+            case kHistoryVersion:
+            {
+                const auto read = Common::Json::ReadFile<StartupHistoryFile>( file );
+                if ( !read )
+                    return Common::MakeError<StartupHistory>( read.GetError() );
+                for ( const auto& [key, runs] : read.GetValue().Phases )
+                    history[key] = runs;
+                return Common::MakeSuccess( std::move( history ) );
+            }
+            default:
+                return Common::MakeError<StartupHistory>(
+                     std::format( "{}: version {}, this build reads versions 1 and {}", file.string(),
+                                  version.GetValue().Version, kHistoryVersion ) );
+        }
     }
 
-    Common::BoolResultStr SaveStartupHistory( const std::filesystem::path&    file,
+    Common::BoolResultStr SaveStartupHistory( const std::filesystem::path& file, const StartupHistory& previous,
                                               const std::vector<PhaseTiming>& timings )
     {
         StartupHistoryFile history;
         history.Version = kHistoryVersion;
+        for ( const auto& [key, runs] : previous )
+            history.Phases[key] = runs;
         for ( const PhaseTiming& timing : timings )
-            history.Phases[timing.Key] = timing.Seconds;
+        {
+            std::vector<double>& runs = history.Phases[timing.Key];
+            runs.push_back( timing.Seconds );
+            if ( runs.size() > StartupProgress::kHistoryRuns )
+                runs.erase( runs.begin(),
+                            runs.end() - static_cast<std::ptrdiff_t>( StartupProgress::kHistoryRuns ) );
+        }
         return Common::Json::WriteFileAtomic( file, history );
     }
 } // namespace Desert::Core

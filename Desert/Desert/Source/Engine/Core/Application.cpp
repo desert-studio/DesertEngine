@@ -39,14 +39,16 @@
 namespace Desert::Engine
 {
     // THE ENGINE'S HALF OF THE START'S PLAN: the phases this constructor begins, in order. The seconds are the
-    // expectation with no history (the 11-26 warm Bistro start on Windows); a start with history uses its own.
+    // expectation with no history (the 11-27 Bistro start on Windows, SP-MODEL); a start with history uses the
+    // longest of its last runs. None is counted: each says its running step as an item.
     std::vector<Core::StartupPhaseSpec> ApplicationStartupPhases()
     {
+        using Core::PhaseCountKind;
         return {
-             { "app.window", "Opening the window", 0.7 },
-             { "app.instance", "Starting Vulkan", 3.0 },
-             { "app.device", "Creating the device", 1.3 },
-             { "app.renderer", "Starting the renderer", 1.8 },
+             { "app.window", "Opening the window", 2.1, PhaseCountKind::Timed },
+             { "app.instance", "Starting Vulkan", 7.4, PhaseCountKind::Timed },
+             { "app.device", "Creating the device", 4.6, PhaseCountKind::Timed },
+             { "app.renderer", "Starting the renderer", 2.2, PhaseCountKind::Timed },
         };
     }
 
@@ -92,46 +94,56 @@ namespace Desert::Engine
         }
         m_FramePacer.SetLimit( appInfo.Display.FrameRateLimit );
 
+        // THE STEPS SAY THEMSELVES: each numbered step below is one item of its phase, named on the splash with its
+        // seconds while it runs (a null Startup is a start nobody watches).
+        Core::WorkSink* const startupSink = appInfo.Startup;
+
         // 0. The machine's store, then the backend: the RhiSelection reads machine.json (Rhi, Adapter) and the
         // device is created from what it withholds (HideRayTracing); the backend comes before the window,
         // whose Init builds the swapchain through it.
-        if ( !appInfo.MachineSettingsFile.empty() )
-            ::Common::Settings::MachineSettings::Load( appInfo.MachineSettingsFile );
         {
-            Graphic::RhiSelectionInputs rhiInputs = appInfo.Rhi;
-            rhiInputs.MachineRhi     = ::Common::Settings::MachineSettings::Get().Rhi;
-            rhiInputs.MachineAdapter = ::Common::Settings::MachineSettings::Get().Adapter;
-            auto selection           = Graphic::ResolveRhiSelection( rhiInputs );
-            if ( !selection )
+            const Core::ScopedWorkItem windowItem( startupSink, "window" );
+            if ( !appInfo.MachineSettingsFile.empty() )
+                ::Common::Settings::MachineSettings::Load( appInfo.MachineSettingsFile );
             {
-                m_StartupRefusal = selection.GetError();
-                LOG_ERROR( "[Rhi] cannot start: {}", m_StartupRefusal );
-                Close( EXIT_FAILURE );
-                return;
+                Graphic::RhiSelectionInputs rhiInputs = appInfo.Rhi;
+                rhiInputs.MachineRhi     = ::Common::Settings::MachineSettings::Get().Rhi;
+                rhiInputs.MachineAdapter = ::Common::Settings::MachineSettings::Get().Adapter;
+                auto selection           = Graphic::ResolveRhiSelection( rhiInputs );
+                if ( !selection )
+                {
+                    m_StartupRefusal = selection.GetError();
+                    LOG_ERROR( "[Rhi] cannot start: {}", m_StartupRefusal );
+                    Close( EXIT_FAILURE );
+                    return;
+                }
+                auto rhi = Graphic::CreateRhi( selection.GetValue() );
+                if ( !rhi )
+                {
+                    m_StartupRefusal = rhi.GetError();
+                    LOG_ERROR( "[Rhi] cannot start: {}", m_StartupRefusal );
+                    Close( EXIT_FAILURE );
+                    return;
+                }
+                LOG_INFO( "[Rhi] {}", Graphic::Describe( selection.GetValue() ) );
+                Graphic::Renderer::CreateInstance().AttachRhi( rhi.ExtractValue() );
             }
-            auto rhi = Graphic::CreateRhi( selection.GetValue() );
-            if ( !rhi )
-            {
-                m_StartupRefusal = rhi.GetError();
-                LOG_ERROR( "[Rhi] cannot start: {}", m_StartupRefusal );
-                Close( EXIT_FAILURE );
-                return;
-            }
-            LOG_INFO( "[Rhi] {}", Graphic::Describe( selection.GetValue() ) );
-            Graphic::Renderer::CreateInstance().AttachRhi( rhi.ExtractValue() );
-        }
 
-        m_Window = Window::Create( windowSpec );
-        m_WindowEventNode = m_Events.Attach<Window>( m_ApplicationEventNode, *m_Window );
-        m_Window->SetEventTree( m_Events );
-        m_Window->Init();
+            m_Window = Window::Create( windowSpec );
+            m_WindowEventNode = m_Events.Attach<Window>( m_ApplicationEventNode, *m_Window );
+            m_Window->SetEventTree( m_Events );
+            m_Window->Init();
+        }
 
         // 1. Create RendererContext (Vulkan Instance)
         beginPhase( "app.instance" );
-        m_RendererContext = Graphic::RendererContext::Create( m_Window );
-        
-        // 2. Partially initialize EngineContext
-        EngineContext::CreateInstance().Initialize( m_Window, nullptr, m_RendererContext );
+        {
+            const Core::ScopedWorkItem instanceItem( startupSink, "Vulkan instance" );
+            m_RendererContext = Graphic::RendererContext::Create( m_Window );
+
+            // 2. Partially initialize EngineContext
+            EngineContext::CreateInstance().Initialize( m_Window, nullptr, m_RendererContext );
+        }
 
         beginPhase( "app.device" );
         // 3. Create Device (the machine's store was loaded at step 0)
@@ -139,7 +151,11 @@ namespace Desert::Engine
         // the GPU lacks; construction stops here, EntryPoint sees StartupRefusal() and skips OnCreate/Run,
         // and the process ends with that message and a failing exit code. Not std::exit: worker threads
         // already exist (TeardownOrder.StdExitAppearsOnlyBeforeTheApplicationExists).
-        auto device = Device::Create();
+        auto device = [startupSink]
+        {
+            const Core::ScopedWorkItem deviceItem( startupSink, "device" );
+            return Device::Create();
+        }();
         if ( !device )
         {
             m_StartupRefusal = device.GetError();
@@ -153,12 +169,19 @@ namespace Desert::Engine
         EngineContext::GetInstance().SetDevice( m_Device );
 
         // 5. Init Context (Allocators)
-        m_RendererContext->Init();
+        {
+            const Core::ScopedWorkItem allocatorsItem( startupSink, "allocators" );
+            m_RendererContext->Init();
+        }
 
         // 6. Setup SwapChain
         beginPhase( "app.renderer" );
-        auto swapChainResult = m_Window->SetupSwapChain( m_Device );
-        DESERT_VERIFY( swapChainResult.IsSuccess(), "Failed to setup SwapChain" );
+        {
+            const Core::ScopedWorkItem swapChainItem( startupSink, "swap chain" );
+            auto                       swapChainResult = m_Window->SetupSwapChain( m_Device );
+            DESERT_VERIFY( swapChainResult.IsSuccess(), "Failed to setup SwapChain" );
+        }
+        const Core::ScopedWorkItem rendererItem( startupSink, "renderer" );
 
         // 7. Initialize Global Renderer
         //
