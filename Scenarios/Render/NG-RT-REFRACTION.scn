@@ -14,6 +14,8 @@
 Дано run View "View mode: Lit"
 Дано run Anti-Aliasing "Anti-Aliasing: TAA"
 Дано run Quality "Quality: Resolution.Percent 100"
+# The profile-dumps carry GPU times only with GPU profiling on (Profiler "GPU"; off, every scope reads gpu 0.000).
+Дано run Debug "GPU profiling: On"
 Дано --subject viewport set Camera.Position -20,250,330
 Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
 # --- day: path tracer | ScreenSpace | HardwareTraced
@@ -132,4 +134,5 @@
 Когда run Quality "Quality: Reflections.Method Level"
 Когда run Quality "Quality: GlobalIllumination.Method Level"
 Когда run Quality "Quality: Resolution.Percent Level"
+Когда run Debug "GPU profiling: Off"
 Тогда rt_reset Quality and View mode reset; editor.log 0 VUID over the whole run; the pass "Translucency: Ray Traced Refraction" executed (no "did not execute" line naming it)
