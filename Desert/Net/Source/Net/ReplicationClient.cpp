@@ -329,11 +329,12 @@ namespace Desert::Net
                         m_NewestServerStep = snapshot->ServerStep;
                     }
                     // UE ClientAdjustPosition: the server's answer is ordered by its own step, so a newer answer
-                    // re-acking the same move (a teleport of a pawn at rest) still corrects; an older one never does.
+                    // re-acking the same move (a teleport of a pawn at rest) still corrects; an older one never
+                    // does.
                     const bool newerAck =
                          snapshot->HasAck && ( !m_LastAck || StepAfter( snapshot->AckInputStep, *m_LastAck ) );
-                    const bool newerReAck = snapshot->HasAck && m_LastAck && snapshot->AckInputStep == *m_LastAck &&
-                                            m_LastAckServerStep &&
+                    const bool newerReAck = snapshot->HasAck && m_LastAck &&
+                                            snapshot->AckInputStep == *m_LastAck && m_LastAckServerStep &&
                                             StepAfter( snapshot->ServerStep, *m_LastAckServerStep );
                     if ( newerAck || newerReAck )
                     {
