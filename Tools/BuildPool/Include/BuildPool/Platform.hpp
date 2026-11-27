@@ -34,6 +34,11 @@ namespace buildpool
         //   Windows  MEMORYSTATUSEX::ullAvailPageFile (commit limit - commit total)
         //   Linux    CommitLimit - Committed_AS when vm.overcommit_memory == 2, else empty
         std::optional<uint64_t> commitFree;
+        // The limit commitFree is measured against (commit in use = commitLimit - commitFree). Present exactly
+        // when commitFree is.
+        //   Windows  MEMORYSTATUSEX::ullTotalPageFile (physical memory + page files; it is NOT ullTotalPhys)
+        //   Linux    CommitLimit of /proc/meminfo when vm.overcommit_memory == 2, else empty
+        std::optional<uint64_t> commitLimit;
         // The kernel's own alarm: Windows low-memory resource notification signalled, macOS
         // kern.memorystatus_vm_pressure_level >= warning, Linux PSI "some" memory avg10 > 10.
         bool osPressure = false;
@@ -53,6 +58,13 @@ namespace buildpool
 
     Result<std::filesystem::path> SelfExecutable() noexcept;
     std::optional<std::string> GetEnv(std::string_view name) noexcept;
+
+    // Writes all of `bytes` to this process's stdout exactly as given: no newline translation, no code-page
+    // conversion, no buffer of its own. Returns once every byte is handed to the OS; a closed or broken stdout
+    // is an Error with the OS reason. A caller that also wrote through C stdio flushes that first.
+    //   Windows  WriteFile on GetStdHandle(STD_OUTPUT_HANDLE) in a loop; never the C runtime's text-mode stream
+    //   Posix    write(2) on fd 1, repeated after EINTR and after a short write
+    Status WriteStdout(std::span<const std::byte> bytes) noexcept;
 
     // ---- processes -------------------------------------------------------------------------------------------------
     enum class OsPriority : uint8_t
@@ -122,8 +134,12 @@ namespace buildpool
     };
 
     // Starts `argv` detached from this process and its job/process group, with stdout and stderr appended to
-    // `logFile`. Used only to start the daemon.
-    Status SpawnDetached(const std::vector<std::string>& argv, const std::filesystem::path& logFile) noexcept;
+    // `logFile`. `environment` has the meaning of ChildSpec::environment: added to (or replacing in) the
+    // inherited environment, an empty value removes the variable. Used only to start the daemon, which outlives
+    // its starter: the caller removes what belongs to one build (Protocol.hpp, the kEnv* names).
+    Status SpawnDetached(const std::vector<std::string>& argv,
+                         const std::vector<std::pair<std::string, std::string>>& environment,
+                         const std::filesystem::path& logFile) noexcept;
 
     // ---- the daemon's endpoint -------------------------------------------------------------------------------------
     // One endpoint per pool home, derived from the home's canonical path:

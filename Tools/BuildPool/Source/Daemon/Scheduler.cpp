@@ -241,19 +241,32 @@ namespace buildpool::daemon
 
         // Back
         const auto session = m_sessions.find( hello.session );
-        if ( session != m_sessions.end() )
+        if ( hello.session != 0 && session != m_sessions.end() )
         {
             client.session = hello.session;
+            if ( session->second.adopted )
+                session->second.backs += 1;
             out.sends.emplace_back( id, Message{ Welcome{ hello.session, session->second.note } } );
+        }
+        else if ( hello.session != 0 )
+        {
+            // A Back whose Front this daemon never saw (the daemon restarted under a running build): the session is
+            // opened fresh under the Front's id. Its Front talks to the daemon that is gone, so the session lives
+            // while its Backs are connected and ends with the last of them (OnClosed).
+            Session& adopted = m_sessions[hello.session];
+            adopted.buildKey = key;
+            adopted.adopted  = true;
+            adopted.backs    = 1;
+            client.session   = hello.session;
+            if ( m_nextSession <= hello.session )
+                m_nextSession = hello.session + 1;
+            out.log.push_back( "back of unknown session " + std::to_string( hello.session ) + " (" +
+                               hello.buildRoot + "): session opened fresh" );
+            out.sends.emplace_back( id, Message{ Welcome{ hello.session, {} } } );
         }
         else
         {
-            // A Back whose Front this daemon never saw (the daemon restarted under a running build): it is served,
-            // without dedup, because no session of this daemon can vouch for its key.
-            client.session = 0;
-            out.log.push_back( "back of unknown session " + std::to_string( hello.session ) + " (" +
-                               hello.buildRoot + "): served without dedup" );
-            out.sends.emplace_back( id, Message{ Welcome{ hello.session, {} } } );
+            Refuse( id, "a back client named no session", out );
         }
     }
 
@@ -363,21 +376,20 @@ namespace buildpool::daemon
             Refuse( id, "CacheExited from a client that is not a Front", out );
             return;
         }
-        const auto session = m_sessions.find( client.session );
+        // Every CacheExited of a Front gets exactly one Verdict, whatever is left of its session or lease: a
+        // session already ended (a second CacheExited, a lease lost with its Back) answers "do not run again".
+        const auto session  = m_sessions.find( client.session );
+        const bool runAgain = session != m_sessions.end() && session->second.retryAnswered;
+        out.sends.emplace_back( id, Message{ Verdict{ runAgain } } );
         if ( session == m_sessions.end() )
-        {
-            out.sends.emplace_back( id, Message{ Verdict{ false } } );
             return;
-        }
-        if ( session->second.retryAnswered )
+        if ( runAgain )
         {
             session->second.retryAnswered = false;
             if ( Build* build = FindBuild( client.buildKey ) )
                 build->run.cacheReruns += 1;
-            out.sends.emplace_back( id, Message{ Verdict{ true } } );
             return;
         }
-        out.sends.emplace_back( id, Message{ Verdict{ false } } );
         const uint64_t ended = client.session;
         client.session       = 0;
         EndSession( ended, now, out );
@@ -436,6 +448,17 @@ namespace buildpool::daemon
         }
         if ( client.stage == Stage::Front && client.session != 0 )
             EndSession( client.session, now, out );
+        if ( client.stage == Stage::Back && client.session != 0 )
+        {
+            // An adopted session (its Front talks to a daemon that is gone) ends with its last Back.
+            const auto session = m_sessions.find( client.session );
+            if ( session != m_sessions.end() && session->second.adopted )
+            {
+                session->second.backs -= session->second.backs > 0 ? 1 : 0;
+                if ( session->second.backs == 0 )
+                    EndSession( client.session, now, out );
+            }
+        }
         if ( !client.buildKey.empty() )
             if ( Build* build = FindBuild( client.buildKey ) )
             {

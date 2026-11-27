@@ -3,7 +3,7 @@
 #
 # Usage:
 #   scripts/MacOS/BuildMacOS.sh [Debug|Release|Shipping] [--unity] [--gen-only] [--no-analyze]
-#                               [--no-ccache] [--project=<Name>]...
+#                               [--project=<Name>]...
 #
 # Examples:
 #   scripts/MacOS/BuildMacOS.sh              # Debug build, static analysis on
@@ -11,12 +11,17 @@
 #   scripts/MacOS/BuildMacOS.sh Shipping     # what a player gets: no capture, no profiler, no counters
 #   scripts/MacOS/BuildMacOS.sh Release --unity      # the CI speed build (preset macos-clang-ninja-unity)
 #   scripts/MacOS/BuildMacOS.sh Debug --no-analyze   # skip clang-tidy, and SAY so
-#   scripts/MacOS/BuildMacOS.sh Debug --no-ccache    # compile every unit, and SAY so
 #   scripts/MacOS/BuildMacOS.sh Shipping --project=Runtime --project=GamePackager
 #                                    # those targets and what CMake says they depend on
 #
 # The test suites are always configured (CMakePresets.json `base`: DESERT_WITH_TESTS=ON), so a test runner
 # is a --project like any other target.
+#
+# Every compile and link runs through the machine's build pool with ccache behind it (buildpool_enable in
+# CMakeLists.txt, Tools/BuildPool/cmake/BuildPool.cmake). The environment's BUILDPOOL_CACHE_PROGRAM, else the ccache
+# on PATH, is passed as -DBUILDPOOL_CACHE_PROGRAM on every configure; BUILDPOOL_HOME (the pool home: slots, ledger,
+# compile cache) is read by the module from the environment. Neither set nor found: the build runs uncached and
+# this script and the configure log both say so.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -25,7 +30,6 @@ CONFIG="Debug"
 PRESET="macos-clang-ninja"
 GEN_ONLY=0
 ANALYZE=1
-CCACHE=1
 # CMake targets to build. Empty = the whole workspace. Ninja builds each named target's dependencies
 # first — CMake derives them from the targets' own links and dependencies — so a list names what is
 # WANTED, never the order to build it in.
@@ -47,7 +51,6 @@ for arg in "$@"; do
         --unity)       PRESET="macos-clang-ninja-unity" ;;
         --gen-only)    GEN_ONLY=1 ;;
         --no-analyze)  ANALYZE=0 ;;
-        --no-ccache)   CCACHE=0 ;;
         --project=?*)  PROJECTS+=("${arg#--project=}") ;;
         *) echo "Unknown argument: $arg" >&2; exit 1 ;;
     esac
@@ -67,17 +70,14 @@ done
 # here as well would put the refresh in two places, and the one that runs first would hide a hook that
 # had stopped working: a missing header is a compile error, a stale one is a lie.
 
-# THE LAUNCHER IS PASSED ON EVERY CONFIGURE, NEVER LEFT TO THE CACHE. CMakeLists.txt looks for
-# sccache/ccache only while DESERT_COMPILER_LAUNCHER is undefined, so a cache configured once with
-# --no-ccache would stay uncached for every later build; stating it each time makes the flag mean what
-# it says on this run.
-LAUNCHER=""
-if [ "$CCACHE" -eq 1 ] && command -v ccache >/dev/null 2>&1; then
-    LAUNCHER="$(command -v ccache)"
-fi
+# THE CACHE PROGRAM IS PASSED ON EVERY CONFIGURE, NEVER LEFT TO THE CMAKE CACHE: a ccache moved or installed since
+# the tree's first configure is the one this run uses.
+CACHE_PROGRAM="${BUILDPOOL_CACHE_PROGRAM:-$(command -v ccache || true)}"
+CACHE_ARGS=()
+[ -n "$CACHE_PROGRAM" ] && CACHE_ARGS=(-DBUILDPOOL_CACHE_PROGRAM="$CACHE_PROGRAM")
 
-echo "--- Configuring (cmake --preset $PRESET)"
-cmake --preset "$PRESET" -DDESERT_COMPILER_LAUNCHER="$LAUNCHER"
+echo "--- Configuring (cmake --preset $PRESET ${CACHE_ARGS[*]+"${CACHE_ARGS[*]}"})"
+cmake --preset "$PRESET" ${CACHE_ARGS[@]+"${CACHE_ARGS[@]}"}
 
 if [ "$GEN_ONLY" -eq 1 ]; then
     exit 0
@@ -118,7 +118,8 @@ fi
 #
 # A cache that silently MISSES looks like a slow build. A cache that wrongly HITS looks like a passing
 # build of code nobody compiled, which is strictly worse, so the settings below are argued one by one
-# rather than copied from a blog post.
+# rather than copied from a blog post. They are set where the cache runs: scripts/Dev/ccache_launcher.sh (base_dir,
+# sloppiness) and the CACHE_ENV of buildpool_enable in CMakeLists.txt.
 #
 # ccache's direct mode keys an object on a hash of: the compiler binary, the full command line, the
 # source file's contents, and the contents of EVERY header the previous compilation of that source
@@ -152,19 +153,21 @@ fi
 # statistics are printed after the build so that a cache which has stopped hitting is visible in the
 # log of the run where it stopped, not three weeks later in a duration graph.
 # ---------------------------------------------------------------------------
-if [ "$CCACHE" -eq 0 ]; then
-    echo "!!! ccache DISABLED by --no-ccache: every translation unit will be compiled."
-elif ! command -v ccache >/dev/null 2>&1; then
+# The cache the build uses is the pool home's (BuildPool.cmake: <home>/ccache, its own ccache.conf); the home is the
+# one this tree was configured with (CMakeCache.txt BUILDPOOL_HOME), so the statistics read the same cache.
+pool_ccache() {
+    CCACHE_DIR="$POOL_HOME/ccache" CCACHE_CONFIGPATH="$POOL_HOME/ccache/ccache.conf" "$CACHE_PROGRAM" "$@"
+}
+if [ -z "$CACHE_PROGRAM" ]; then
     echo "!!! ccache NOT FOUND: every translation unit will be compiled. Install it with"
     echo "!!!   brew install ccache        (or run scripts/MacOS/Setup.sh again)"
-    CCACHE=0
 else
-    export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime"
-    export CCACHE_COMPRESS=1
+    POOL_HOME="$(sed -n 's/^BUILDPOOL_HOME:PATH=//p' "build/cmake/$PRESET/CMakeCache.txt")"
+    [ -n "$POOL_HOME" ] || { echo "build/cmake/$PRESET/CMakeCache.txt has no BUILDPOOL_HOME: the configure did not run buildpool_enable" >&2; exit 1; }
     # AS CMake's COMPILER LAUNCHER (configured above), NOT AS CC/CXX: the compiler stays clang/clang++,
     # so the compile_commands.json that scripts/CI/CheckTidy.sh analyses names the compiler itself.
-    ccache --zero-stats >/dev/null
-    echo "--- ccache ON: $(ccache --version | head -1), cache at $(ccache --get-config cache_dir)"
+    pool_ccache --zero-stats >/dev/null
+    echo "--- ccache ON: $(pool_ccache --version | head -1), cache at $POOL_HOME/ccache"
 fi
 
 # Build presets are <configure preset>-<lowercase config> (CMakePresets.json).
@@ -181,9 +184,9 @@ cmake --build --preset "$BUILD_PRESET" -j "$CORES" "${TARGET_ARGS[@]+"${TARGET_A
 echo ""
 echo "=== Build complete: build/Bin/$CONFIG ==="
 
-if [ "$CCACHE" -eq 1 ]; then
+if [ -n "$CACHE_PROGRAM" ]; then
     echo "--- ccache statistics for this build"
-    ccache --show-stats
+    pool_ccache --show-stats
 fi
 
 # ---------------------------------------------------------------------------

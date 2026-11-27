@@ -32,7 +32,7 @@ namespace buildpool
     //   cpu_reserve     = 1          logical CPUs left to everything that is not a build
     //   window_factor   = 2          `buildpool window` = (logical CPUs - cpu_reserve) * window_factor
     //   estimate_margin = 1.15       an action is planned at (largest of its last 3 peaks) * this
-    //   sample_ms       = 500
+    //   sample_ms       = 500        the Guard tick and, through Grant::sampleMs, every lease's Heartbeat period
     //   default_class   = normal
     //   [class.normal]
     //   priority = 5
@@ -63,10 +63,18 @@ namespace buildpool
     //           peak is recorded (slow start; no constant stands in for a measurement).
     // Headroom  H = min(physicalAvailable, commitFree if present) - reserveBytes
     //               - sum over running leases of max(0, est - last Heartbeat::currentBytes).
-    //           An action is admitted only when a slot is free and est <= H.
+    //           An action is admitted only when a slot is free and est <= H. ONE exception: when no lease is
+    //           running machine-wide and the Guard does not hold admission, the first action in Order is admitted
+    //           whatever its estimate, and daemon.log names it with est and H. Without it an estimate above
+    //           what the machine can ever free (a key raised x 1.5 by a Preempt) would wait forever. Nothing is
+    //           admitted beside it until est <= H holds again (H counts it from its Grant).
     // Order     waiting actions are served by (class priority, then the build with the fewest running leases,
     //           then arrival). A build holding fewer leases than its class's guaranteedSlots is served first
     //           whatever its priority (at most S/2 slots are given this way).
+    //           Dedup never inverts the order: a Queued action that leads an inflightKey is served at
+    //           min(its own class priority, the best class priority among that key's Awaiting waiters). Only the
+    //           priority term is lent; its build's lease count, its arrival and guaranteedSlots stay its own, and
+    //           its Grant carries its own class's osPriority.
     // Backfill  when the first action in that order does not fit H, its start time is planned from the ledger's
     //           wall times of the running leases (EASY backfilling); a later action is admitted before it only
     //           if it fits now and either ends before that time or leaves the first action's estimate free at it.
@@ -76,20 +84,24 @@ namespace buildpool
     //           is granted a lease as the new leader.
     // Guard     every sampleMs: if min(physicalAvailable, commitFree) < reserveBytes or osPressure, nothing is
     //           admitted; if it is below reserveBytes / 2, ONE restartable lease is sent Preempt: lowest class
-    //           first, then the least cpuMs spent. Its key's estimate becomes max(estimate, observed * 1.5) and
+    //           first, then the least cpuMs spent (the lease's last Heartbeat::cpuMs; 0 before its first
+    //           Heartbeat). Its key's estimate becomes max(estimate, observed * 1.5) and
     //           the action returns to the head of its build's queue. An action preempted twice is never preempted
     //           again.
     // Loss      a client whose connection closes has released everything it held, at once.
 
     // ---- files under <home> (written atomically by the daemon; read by scripts and the acceptance scenario) -------
     //   pool.ini      PoolConfig
-    //   daemon.log    start, stop, refusals, every Preempt, every config value in effect
+    //   daemon.log    start, stop, refusals, every Preempt, every admission over Headroom, every config value
+    //                 in effect
     //   ledger.tsv    one line per costKey, rewritten every 30 s and on stop:
     //                 cost_key  peak_mb_1  peak_mb_2  peak_mb_3  wall_ms  cpu_ms  samples
     //   runs.tsv      one line appended when a build (buildRoot + runLabel) has had no client for 10 s:
     //                 start_unix  end_unix  build_root  run_label  class  actions  cache_reruns
     //                 waited_ms_total  preemptions  max_running  peak_commit_used_mb  min_headroom_mb
     //                 (max_running, peak_commit_used_mb, min_headroom_mb are machine-wide over the run's time span;
-    //                  peak_commit_used_mb = physicalTotal-or-commit-limit minus the lowest
-    //                  min(physicalAvailable, commitFree) sampled)
+    //                  peak_commit_used_mb = L minus the lowest min(physicalAvailable, commitFree) sampled, where
+    //                  L = MemoryState::commitLimit when the samples carry one (Windows: always) and
+    //                  physicalTotal only where the kernel has no commit limit; min_headroom_mb is that lowest
+    //                  sample itself)
 } // namespace buildpool

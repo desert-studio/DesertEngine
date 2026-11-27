@@ -22,6 +22,10 @@
 #               CCACHE_COMPILERTYPE   the real compiler's type (ccache sees `buildpool` as the compiler)
 #               CCACHE_COMPILERCHECK  string:{compiler_id} (the client expands it: Invocation.hpp CompilerId)
 #             The project's own cache choices come as CACHE_ENV; naming one of the module's settings is an error.
+#             Under an MSVC-style compiler on a Windows host no base_dir reaches ccache: with one, ccache 4.14.1
+#             rewrites the /showIncludes lines, and the CP866 lines of a Russian cl abort it ("Illegal byte
+#             sequence", exit code 3) on every miss (build #35, 11-27). The module sets CCACHE_BASEDIR empty there
+#             (an inherited one is overridden) and a CACHE_ENV CCACHE_BASEDIR is left out, said in the configure log.
 #             No CACHE, or the program not found: compiles run through the pool uncached and without dedup between
 #             trees, and the configure log says so.
 # Sets in the caller's scope: BUILDPOOL_EXECUTABLE, BUILDPOOL_HOME, BUILDPOOL_CACHE (the cache command; empty = none).
@@ -140,6 +144,11 @@ function(buildpool_enable)
             message(FATAL_ERROR "buildpool_enable: ccache has no compiler type for '${_id}' (msvc, clang-cl, clang, gcc)")
         endif()
         set(_owned CCACHE_DIR CCACHE_TEMPDIR CCACHE_CONFIGPATH CCACHE_COMPILERTYPE CCACHE_COMPILERCHECK)
+        set(_no_base_dir OFF)
+        if(CMAKE_HOST_WIN32 AND _type MATCHES "^(msvc|clang-cl)$")
+            set(_no_base_dir ON)
+        endif()
+        set(_project_env "")
         foreach(_entry IN LISTS BP_CACHE_ENV)
             if(NOT _entry MATCHES "^([A-Za-z_][A-Za-z0-9_]*)=")
                 message(FATAL_ERROR "buildpool_enable: CACHE_ENV '${_entry}' is not NAME=VALUE")
@@ -147,7 +156,15 @@ function(buildpool_enable)
             if(CMAKE_MATCH_1 IN_LIST _owned)
                 message(FATAL_ERROR "buildpool_enable: CACHE_ENV '${CMAKE_MATCH_1}' is the module's own setting (${_owned})")
             endif()
+            if(_no_base_dir AND CMAKE_MATCH_1 STREQUAL "CCACHE_BASEDIR")
+                message(STATUS "BuildPool: CACHE_ENV '${_entry}' is not passed: ccache 4.14.1 with a base_dir aborts (code 3) on the CP866 /showIncludes lines of a localized ${_type} on Windows")
+                continue()
+            endif()
+            list(APPEND _project_env "${_entry}")
         endforeach()
+        if(_no_base_dir)
+            list(APPEND _project_env "CCACHE_BASEDIR=")
+        endif()
         file(MAKE_DIRECTORY "${_home}/ccache/tmp")
         set(_cache_env
             "CCACHE_DIR=${_home}/ccache"
@@ -155,7 +172,7 @@ function(buildpool_enable)
             "CCACHE_CONFIGPATH=${_home}/ccache/ccache.conf"
             "CCACHE_COMPILERTYPE=${_type}"
             "CCACHE_COMPILERCHECK=string:{compiler_id}"
-            ${BP_CACHE_ENV})
+            ${_project_env})
     endif()
 
     # ---- the launchers ----
