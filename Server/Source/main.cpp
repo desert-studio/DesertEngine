@@ -97,6 +97,9 @@ namespace Desert::Server
             // THE GAME'S PLACER the simulation calls (Net::IPawnPlacer, UE UWorld::FindTeleportSpot): the same pawn
             // prefab's movement over the same PawnMove - a teleport and a spawn land where the pawn then steps.
             std::unique_ptr<Gameplay::PawnTeleporter> Placer;
+            // THE PLACER'S SEARCH, built once here: the placer searches with it and ServerWorld counts a cell
+            // resident by the column it reaches (ServerWorld::ResidencyAt) - one value, two readers.
+            Gameplay::TeleportSearch Search;
         };
         Common::ResultStr<ServerCollision> MakeServerCollision( const Gameplay::PawnMovement& pawn )
         {
@@ -117,7 +120,8 @@ namespace Desert::Server
                 return Common::MakeError<ServerCollision>( pawnMove.GetError() );
             collision.PawnMove = pawnMove.ExtractValue();
             collision.Mover    = std::make_unique<Gameplay::CharacterPawnMover>( pawn, *collision.PawnMove );
-            collision.Placer   = std::make_unique<Gameplay::PawnTeleporter>( pawn, *collision.PawnMove );
+            collision.Placer =
+                 std::make_unique<Gameplay::PawnTeleporter>( pawn, *collision.PawnMove, collision.Search );
             LOG_INFO( "[Server] pawn movement: walk {:.0f} cm/s, sprint {:.0f} cm/s; declared actions {}",
                       movement.MaxWalkSpeed, movement.MaxSprintSpeed,
                       pawn.Actions.Names.empty() ? std::string( "none" )
@@ -995,7 +999,8 @@ namespace Desert::Server
                 return 5;
             }
             ServerCollision pawnCollision = collision.ExtractValue();
-            auto            begun         = ServerWorld::Begin( std::move( world ), settings, *pawnCollision.Physics );
+            auto            begun         = ServerWorld::Begin( std::move( world ), settings, *pawnCollision.Physics,
+                                                                pawnCollision.Search );
             if ( !begun )
             {
                 LOG_ERROR( "[Server] {}", begun.GetError() );
@@ -1193,7 +1198,8 @@ namespace Desert::Server
                 return 5;
             }
             ServerCollision collision = made.ExtractValue();
-            auto            begun     = ServerWorld::Begin( std::move( world ), settings, *collision.Physics );
+            auto            begun     = ServerWorld::Begin( std::move( world ), settings, *collision.Physics,
+                                                            collision.Search );
             if ( !begun )
             {
                 LOG_ERROR( "[Server] {}", begun.GetError() );
