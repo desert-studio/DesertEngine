@@ -126,10 +126,10 @@ namespace Desert::Core
         // (it replicates only what stands in them); and the server's destroyed stable records (§3.3), handed to
         // the streamer, which destroys them and never makes them again.
         void      ReportResidency( Scene& scene );
-        // WP-FAR-15: the shape this client looks through - the first streaming source the scene's streamer streamed
-        // around last (its facing, its first shape's sector, its own range) - reported to the server, which sends
-        // pawns inside it (UE APlayerController::ServerUpdateCamera). A world not streamed reports nothing: the
-        // server's circle alone.
+        // WP-STREAM-SOURCE-VIEW: the player's view point, not the pawn (Core::PlayerStreamingViewOf) - the eye and
+        // the shape of its view streaming source (Core::PlayerViewStreamingSource over the partition's grids) -
+        // reported to the server, which streams and prioritises from it (UE APlayerController::ServerUpdateCamera).
+        // A world not streamed, or no camera to look through, reports nothing: the server's circle around the pawn.
         void      ReportView( Scene& scene );
         // WP-FAR-15: one log line per remote pawn - its ground distance from the own pawn, the period the server
         // sends it at and the delay it is drawn behind at.
