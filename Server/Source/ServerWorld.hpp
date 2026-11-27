@@ -77,9 +77,11 @@ namespace Desert::Server
             return m_World;
         }
 
-        // IWorldResidency: the cell units whose loose bounds hold (X, Z) of @p position - none is NoCell (nothing
-        // will ever load there), all Activated is Resident (their bodies are in the physics world), else Loading.
-        [[nodiscard]] Net::EPointResidency ResidencyAt( const Net::NetVec3& position ) const override;
+        // IWorldResidency: the cell units whose loose bounds hold (X, Z) of @p position and whose height span,
+        // grown by the search's column, reaches its Y - none is NoCell (nothing will ever load there; the note
+        // says whether no cell holds (X, Z) or the cells there do not reach Y), all Activated is Resident (their
+        // bodies are in the physics world), else Loading. Every outcome carries its reason in the note.
+        [[nodiscard]] Net::PointResidency ResidencyAt( const Net::NetVec3& position ) const override;
 
         // ResidencyWorld: a cell's records are held as the loader read them (the server's record set), not made
         // into entities - the scene-side server (NET-1: PlayerControllers, replicated entities) builds on this.

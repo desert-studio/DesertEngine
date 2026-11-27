@@ -223,18 +223,25 @@ namespace Desert::Net
         // when asked (Teleport returns the error, nothing could ever stream it in); a SPAWN at an authored point
         // there is placed now against the always-loaded collision, as a resident one is. Only a cell still
         // streaming holds the pawn.
-        if ( m_Residency.ResidencyAt( feet ) == EPointResidency::Loading )
+        // The world states its outcome with the reason; this logs it once - the first held step, or the step it is
+        // placed over no cell (a resident point is told by the placer's own line).
+        const PointResidency residency = m_Residency.ResidencyAt( feet );
+        if ( residency.Residency == EPointResidency::Loading )
         {
             if ( placement.Waited == 0 )
-                m_Log( std::format( "player {}: {} of pawn {} to ({:.0f}, {:.0f}, {:.0f}) cm held: the cell at "
-                                    "({:.0f}, {:.0f}) is loading",
-                                    player, spawn ? "spawn" : "teleport", pawn.State.Id, feet.X, feet.Y, feet.Z,
-                                    feet.X, feet.Z ) );
+                m_Log( std::format( "player {}: {} of pawn {} to ({:.0f}, {:.0f}, {:.0f}) cm held: {}", player,
+                                    spawn ? "spawn" : "teleport", pawn.State.Id, feet.X, feet.Y, feet.Z,
+                                    residency.Note ) );
             if ( ++placement.Waited > kPlacementStreamingTimeoutSteps )
                 refuse( std::format( "the cell at ({:.0f}, {:.0f}) cm is not resident after {:.0f} s", feet.X,
                                      feet.Z, double( kPlacementStreamingTimeoutSteps ) / kNetStepHz ) );
             return;
         }
+        if ( residency.Residency == EPointResidency::NoCell )
+            m_Log( std::format( "player {}: {} of pawn {} to ({:.0f}, {:.0f}, {:.0f}) cm placed against the "
+                                "always-loaded collision: {}",
+                                player, spawn ? "spawn" : "teleport", pawn.State.Id, feet.X, feet.Y, feet.Z,
+                                residency.Note ) );
         const std::uint32_t waited = placement.Waited;
         PlacedPawn          placed = m_Placer.Place( pawn.Move, feet );
         if ( !placed.Ok() )
@@ -346,9 +353,9 @@ namespace Desert::Net
     Common::BoolResultStr PawnSimulation::CanTake( const HandoverPawn& pawn ) const
     {
         const NetVec3 at = pawn.Placement ? pawn.Placement->Feet : pawn.State.Position;
-        if ( m_Residency.ResidencyAt( at ) == EPointResidency::NoCell )
-            return Common::MakeError<bool>(
-                 std::format( "no cell of this world's grid at ({:.0f}, {:.0f}) cm", at.X, at.Z ) );
+        const PointResidency residency = m_Residency.ResidencyAt( at );
+        if ( residency.Residency == EPointResidency::NoCell )
+            return Common::MakeError<bool>( std::format( "this world: {}", residency.Note ) );
         return Common::MakeSuccess( true );
     }
 
@@ -407,11 +414,11 @@ namespace Desert::Net
                                                          player, at.X, at.Y, at.Z ) );
         // UE TeleportTo returns false and the actor stays: over no cell there is nothing that could ever hold it.
         // The other half of the one rule (ResolvePlacement): a SPAWN at an authored point with no cell is placed.
-        if ( m_Residency.ResidencyAt( feet ) == EPointResidency::NoCell )
-            return Common::MakeError<bool>(
-                 std::format( "no cell of the world's grid at ({:.0f}, {:.0f}) cm: the pawn stays at ({:.0f}, "
-                              "{:.0f}, {:.0f}) cm",
-                              feet.X, feet.Z, at.X, at.Y, at.Z ) );
+        // The refusal's reason is the world's (no cell at (X, Z), or the cells there do not reach Y).
+        const PointResidency residency = m_Residency.ResidencyAt( feet );
+        if ( residency.Residency == EPointResidency::NoCell )
+            return Common::MakeError<bool>( std::format( "{}: the pawn stays at ({:.0f}, {:.0f}, {:.0f}) cm",
+                                                         residency.Note, at.X, at.Y, at.Z ) );
         // A newer request replaces an unlanded one (a spawn's too): the last asked point is where it goes.
         pawn.Placement = PendingPlacement{ feet, PendingPlacement::EWhy::Teleport, 0 };
         m_Log( std::format( "player {}: teleport of pawn {} to ({:.0f}, {:.0f}, {:.0f}) cm requested", player,

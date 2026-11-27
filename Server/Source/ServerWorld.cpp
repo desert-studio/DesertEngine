@@ -107,7 +107,7 @@ namespace Desert::Server
         return cells;
     }
 
-    Net::EPointResidency ServerWorld::ResidencyAt( const Net::NetVec3& position ) const
+    Net::PointResidency ServerWorld::ResidencyAt( const Net::NetVec3& position ) const
     {
         const auto& indexUnits = m_World.Index->Units;
         const auto& units      = m_Executor->State().Units;
@@ -116,8 +116,12 @@ namespace Desert::Server
         // DropCm below it (a free one needs a floor) - so a cell counts only when its content's height span, grown
         // by those distances, reaches the point's Y. The distances are the one search main.cpp builds and gives both
         // the game's placer (Gameplay::PawnTeleporter) and this world (MakeServerCollision's Search).
-        bool any = false;
-        bool all = true;
+        std::size_t        column    = 0; // cells whose bounds hold (X, Z)
+        std::size_t        reaching  = 0; // of those, the cells whose grown height span holds Y
+        std::size_t        activated = 0; // of those, the Activated ones
+        float              reachMinY = 0.0f;
+        float              reachMaxY = 0.0f;
+        const std::string* loading   = nullptr; // the first reaching cell not Activated
         // Cell units only: an always-loaded unit is resident for the server's life and states no Bounds or Height.
         // A cell with Bounds has a Height (refused at Begin otherwise).
         for ( std::size_t unit = m_Executor->Plan().AlwaysLoaded.size(); unit < indexUnits.size(); ++unit )
@@ -125,17 +129,43 @@ namespace Desert::Server
             const std::optional<Core::Rules::CellBounds>& bounds = indexUnits[unit].Bounds;
             if ( !bounds )
                 continue;
-            const Core::Rules::HeightSpan& height = *indexUnits[unit].Height;
-            if ( position.X < bounds->MinX || position.X > bounds->MaxX ||
-                 position.Z < bounds->MinZ || position.Z > bounds->MaxZ ||
-                 position.Y < height.MinY - m_Search.LiftCm || position.Y > height.MaxY + m_Search.DropCm )
+            if ( position.X < bounds->MinX || position.X > bounds->MaxX || position.Z < bounds->MinZ ||
+                 position.Z > bounds->MaxZ )
                 continue;
-            any = true;
-            all = all && unit < units.size() && units[unit].State == Core::Rules::Residency::Activated;
+            const Core::Rules::HeightSpan& height = *indexUnits[unit].Height;
+            const float                    lowY   = height.MinY - m_Search.LiftCm;
+            const float                    highY  = height.MaxY + m_Search.DropCm;
+            reachMinY                             = column == 0 || lowY < reachMinY ? lowY : reachMinY;
+            reachMaxY                             = column == 0 || highY > reachMaxY ? highY : reachMaxY;
+            ++column;
+            if ( position.Y < lowY || position.Y > highY )
+                continue;
+            ++reaching;
+            if ( unit < units.size() && units[unit].State == Core::Rules::Residency::Activated )
+                ++activated;
+            else if ( !loading )
+                loading = &indexUnits[unit].Name;
         }
-        if ( !any )
-            return Net::EPointResidency::NoCell;
-        return all ? Net::EPointResidency::Resident : Net::EPointResidency::Loading;
+        if ( column == 0 )
+            return { Net::EPointResidency::NoCell,
+                     std::format( "no cell of the world's grid at ({:.0f}, {:.0f}) cm", position.X, position.Z ) };
+        if ( reaching == 0 )
+            return {
+                 Net::EPointResidency::NoCell,
+                 std::format( "no cell of the world's grid reaches ({:.0f}, {:.0f}, {:.0f}) cm: the {} cell(s) "
+                              "at ({:.0f}, {:.0f}) cm reach y {:.0f} to {:.0f} cm (content height, lifted "
+                              "{:.0f} / dropped {:.0f} cm by the search)",
+                              position.X, position.Y, position.Z, column, position.X, position.Z, reachMinY,
+                              reachMaxY, m_Search.LiftCm, m_Search.DropCm ) };
+        if ( loading )
+            return {
+                 Net::EPointResidency::Loading,
+                 std::format( "cell '{}' at ({:.0f}, {:.0f}) cm is loading ({} of {} cell(s) reaching y {:.0f} cm "
+                              "activated)",
+                              *loading, position.X, position.Z, activated, reaching, position.Y ) };
+        return { Net::EPointResidency::Resident,
+                 std::format( "{} cell(s) reaching ({:.0f}, {:.0f}, {:.0f}) cm resident", reaching, position.X,
+                              position.Y, position.Z ) };
     }
 
     Common::BoolResultStr ServerWorld::Activate( std::size_t unit, std::size_t firstMember,
