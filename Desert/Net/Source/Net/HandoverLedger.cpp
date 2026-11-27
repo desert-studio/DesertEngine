@@ -120,10 +120,15 @@ namespace Desert::Net::Handover
                  std::format( "the offer record from sim {} did not decode ({} bytes)", sim, body.size() ) };
         }
         else if ( h.Key.From != sim || h.To == sim || h.To == 0 )
+        {
             refusal =
                  Refusal{ ERefusal::Malformed,
                           std::format( "the offer names sender sim {} and receiver sim {} but came from sim {}",
                                        h.Key.From, h.To, sim ) };
+            // The refusal goes to the sim that spoke, under serial 0: the header's own key would send it to the
+            // sim the header names, where it could match and resume a live offer - two owners.
+            offer.Header.Key = OfferKey{ sim, 0 };
+        }
         else if ( m_Offers.contains( h.Key ) || openOfPawn != m_OfferOfPawn.end() )
         {
             // The sender holds the pawn while its offer is open, so a second offer is a sender defect, not data.
