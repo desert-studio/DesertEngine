@@ -325,7 +325,7 @@ namespace Desert::Core::Rules
         // UE OnInvalidReferenceRuntimeGrid: a member of a composite states a runtime grid other than the one its
         // composite streams on (its anchor's), so its own is not used.
         ReferenceAcrossRuntimeGrids,
-        // The saved HLOD of a cell is missing or was built from other records (WorldCells::StaleHLODCells).
+        // The saved HLOD of a cell is missing or was built from other records (WorldCells::SavedHLODStatus).
         StaleHLOD,
     };
 

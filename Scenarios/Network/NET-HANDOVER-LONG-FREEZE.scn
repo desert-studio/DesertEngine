@@ -1,0 +1,63 @@
+# NET-HANDOVER-LONG-FREEZE: the receiver adopts a pawn that stood frozen for >= 30 mesh steps before the Commit, so
+# sim 2's catch-up drains a real backlog (NET-ARCH §2M.4, D4 on the receiver). The protocol's own timings make the
+# gap, no engine hook: the store commits within the call that carries the Accept (HandoverLedger.cpp), so stopping
+# the STORE after the Accept delays nothing, and the sender withdraws an offer undecided for kOfferDeadline (0.5 s =
+# 30 steps), so a freeze of >= 30 steps needs the SENDER quiet too. Hence: sim 2 is stopped before the offer (the
+# offer waits in its socket), sim 1 is stopped right after it froze the pawn (its deadline cannot run, no Withdraw),
+# sim 2 resumes ~1-1.5 s later - it reads the offer on its stale step (catch-up 0 at the Accept), runs the mesh ticks
+# that queued in one burst, and reads the store's Commit on the current step, 60+ steps past the freeze and under
+# kMaxCatchUpSteps (120). Then sim 1 resumes, reads Committed before its next step and releases the pawn.
+# Both stops stay far under the 10 s link timeout. Layout and roles as NET-HANDOVER-CONFIRM: five server roles,
+# editor B (account 3) watching the cut from above, bot A2 (account 2) walking +X at 90 cm/s across X = 0 to X = 1000;
+# the margin is 300 cm, so the handover happens at X ~ 300.
+Мир Content/Scenes/WP_Protocol.desce
+Роль coord server --role coordinator --region west:1:-100000,-100000,0,100000 --region east:2:0,-100000,100000,100000 --border-band 1500 --handover-margin 300 --steps 864000
+Ждать coord 60 listening for mesh peers on port
+Роль store server --role store
+# The spawn points are the ground (feet, cm): sim 1's placer measured the floor 782 cm under (-1000, 92, -500) and 758 cm
+# under (-1000, 92, -300) (scn-1127-081536 sim1.log "point free, floor N cm below it"); sim 2's (3000, -500) is -78 from the
+# WP_Protocol landscape tile samples (h=(s-32768)/128*ZScale 4, 200 cm spacing; reproduces every placer reading).
+Роль sim1 server --role sim --index 1 --source -1000,0,-500 --spawn -1000,-690,-500 --spawn -1000,-666,-300
+Роль sim2 server --role sim --index 2 --source 3000,0,-500 --spawn 3000,-78,-500
+Роль gw server --role gateway --pawn assets:Prefabs/Pawn_Player.deprefab
+Ждать sim1 120 NetId lease held - reported ready
+Ждать sim2 120 NetId lease held - reported ready
+Ждать gw 120 \[Server\] listening on port
+# Дано: B stands on the east side and looks down at the cut from 8 m up; its frames are the judge of one capsule.
+Роль B editor account=3 --play --shot-frames 100000 --shot-every 1 --camera 300,800,1600 --look 0,-0.371,-0.928 --quality PostProcess.MotionBlurQuality=0
+Ждать B 1800 \[Net\] in session
+# Когда: A2 walks 2000 cm along +X; ~1 s short of X = 300 sim 2 stops answering (the offer will wait in its socket).
+Роль A2 bot account=2 --seconds 900 --walk-cm 2000 --dir 0.15,0,0
+Ждать A2 120 \] t=\S+ pawns.* \d+\*=\((2[0-6]\d),
+Сигнал sim2 STOP
+# Sim 1 freezes A2 and offers it; it is stopped at once, well inside its 0.5 s deadline, so no Withdraw goes.
+Ждать sim1 10 held and offered to sim 2 \(offer #1, epoch 1, frozen at step \d+, \d+ unacked input\(s\)\)
+# The offer is out: the store has forwarded it (sim 1 stopped before its socket flushed lost it once).
+Ждать store 10 offer \(sim 1, #1\).*forwarded to sim 2
+Сигнал sim1 STOP
+# Both sims quiet for three of A2's half-second lines (1.0-1.5 s, 60-90 mesh steps of the coordinator's clock).
+Ждать A2 10 3x \] t=
+Сигнал sim2 CONT
+# Sim 2 reads the offer on the step it stopped at (catch-up 0-2 there), the store commits on its Accept at once.
+Ждать sim2 30 offer \(sim 1, #1\).*accepted \(catch-up \d+ step
+Ждать store 30 offer \(sim 1, #1\).*committed \(sim 1, epoch 1\) -> \(sim 2, epoch 2\)
+Ждать sim2 30 offer \(sim 1, #1\).*committed: incoming pawn promoted at epoch 2 .*frozen at step \d+, this sim is at step \d+: (3\d|[4-9]\d|1[01]\d|120) catch-up step\(s\)
+Ждать gw 30 player \d+ pawn net id \d+ - authority \(sim 2, epoch 2\) from step \d+: its inputs re-routed to sim 2
+Сигнал sim1 CONT
+Ждать sim1 30 offer #1 .*committed by the store \(epoch 2\): released, \d+ queued input\(s\) forwarded
+Нет sim1 offer #1 .*Withdraw sent
+Нет sim2 offer \(sim 1, #1\).*refused -
+# D4 on the receiver, strict: >= 30 mesh steps since the freeze, the queued inputs applied at most 2 per step, each
+# authoritative step measured by sim 2 itself - the largest <= 60 cm, read from the line. The run counts the
+# backlog sim 1 forwards after the commit: Q >= 30 queued inputs.
+Ждать sim2 30 handover catch-up \((3\d|[4-9]\d|1[01]\d|120) mesh step\(s\) since the offer froze it\) of ([3-9]\d|[1-9]\d\d+) queued input\(s\) done in \d+ step\(s\), at most 2 input\(s\) per step; largest step ([1-5]?\d\.\d|60\.0) cm
+Нет sim1 adopted .*from sim 1
+Ждать A2 10 2x \] t=
+Ждать B 60 fresh \[Shot\] recorded frame_
+Тогда B receiver_long_catchup after a >= 30-step freeze A2 is adopted by sim 2 and catches up with no step over 60 cm (sim2.log "handover catch-up (N mesh step(s) ...) of Q queued input(s) ... largest step <= 60.0 cm" with N >= 30, Q >= 30); ONE A2 capsule east of X = 300 walking +X, no snap back (A2.log own-pawn x never decreases by > 5 cm after the commit), no second A2 at the old place
+# Когда: the operator asks both sims for their handover counts.
+Консоль sim1 stat
+Ждать sim1 10 handovers: 1 offered, 1 committed, 0 adopted; .*0 withdrawn; .*0 open as sender
+Консоль sim2 stat
+Ждать sim2 10 handovers: .*1 adopted; .*0 open as sender, 0 incoming
+Ждать store 30 records \d+, open offers 0, unadopted commits 0; committed 1

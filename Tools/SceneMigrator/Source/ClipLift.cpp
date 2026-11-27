@@ -175,7 +175,7 @@ namespace Desert::Animation::Timeline
         // ONE master binding for what belongs to the clip itself: its named curves and its notifies.
         const bool hasMaster = !clip.Curves.empty() || !clip.Notifies.empty();
         Binding    master;
-        master.Guid  = BindingGuid::ForObject( BindingKind::Sequence, {} );
+        master.Guid  = BindingGuid::ForMaster();
         master.Kind  = BindingKind::Sequence;
         master.Label = clip.AnimationName;
         if ( hasMaster )
@@ -207,7 +207,7 @@ namespace Desert::Animation::Timeline
             }
 
             Binding binding;
-            binding.Guid    = BindingGuid::ForObject( BindingKind::Bone, bone.BoneName );
+            binding.Guid    = BindingGuid::ForBone( {}, bone.BoneName );
             binding.Kind    = BindingKind::Bone;
             binding.Locator = bone.BoneName;
             binding.Label   = bone.BoneName;

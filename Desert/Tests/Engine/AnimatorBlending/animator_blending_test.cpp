@@ -911,7 +911,7 @@ TEST( AnimatorBlending, ALayerPlayersNotifyStateEndsWhenItsWeightFallsToZero )
     EXPECT_EQ( CountFrom( events, "Trail", Kind::Begin, node ), 1 );
     EXPECT_EQ( CountFrom( events, "Trail", Kind::End, node ), 0 );
 
-    animator.SetPoseGraphParameter( "LayerWeight", 0.0F );
+    animator.SetGraphParameter( "LayerWeight", 0.0F );
     animator.Update( Timestep( 0.1F ) );
     EXPECT_EQ( CountFrom( animator.ConsumeNotifyEvents(), "Trail", Kind::End, node ), 1 )
          << "a player blended out while inside a notify state left it open (UE ends it: the state is no longer "

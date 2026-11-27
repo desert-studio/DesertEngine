@@ -1,9 +1,11 @@
 #include <Engine/Core/Serialize/PrefabExpansion.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Engine/Core/Serialize/WorldCellsHLODStatus.hpp>
 
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODHierarchy.hpp>
+#include <Engine/Core/Serialize/WorldPartitionHLODMember.hpp>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Scripting/ScriptSchema.hpp>
@@ -25,6 +27,7 @@
 #include <format>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -45,6 +48,13 @@
 
 namespace Desert::Core::WorldCells
 {
+    using Detail::CellFileName;
+    using Detail::HLODNodeSpec;
+    using Detail::HLODWorldSpec;
+    using Detail::ParentHLODFileStem;
+    using Detail::SpecHLODs;
+    using Detail::StatusOf;
+
     namespace
     {
         namespace CC = Common::Content;
@@ -142,7 +152,10 @@ namespace Desert::Core::WorldCells
             }
             return "Unknown";
         }
+    } // namespace
 
+    namespace Detail
+    {
         // A cell's file is named by its grid, level, coordinate and runtime data layers alone (Rules::CellStem), so
         // it does not move when the world gains or loses another cell, two grids' cells never share a file (WP22)
         // and neither do two sets of runtime layers in one square (WP-DATA-LAYERS-RUNTIME).
@@ -161,6 +174,10 @@ namespace Desert::Core::WorldCells
             return std::format( "HLOD_H{}_{}_{}{}", hierarchy.GridOfLayer.at( child.Layer ), child.Coord.X,
                                 child.Coord.Z, Rules::DataLayersCellSuffix( partition, child.DataLayers ) );
         }
+    } // namespace Detail
+
+    namespace
+    {
 
         // THE COOKED NAME OF ONE HLOD NODE (WP-FAR-8): the name its records' ids were made from at Build HLODs
         // (HLODRecordId), and the file of a node resident the whole session - `HLOD_<cell file>` for one standing
@@ -481,11 +498,11 @@ namespace Desert::Core::WorldCells
     static Common::ResultStr<CookedWorld> CookPlanned( const SceneSerialized&                        scene,
                                                        std::span<const Rules::EntityDescriptor>      descriptors,
                                                        std::span<const Common::Utils::AssetRegistry> registries,
-                                                       const StoredHLODs*                            hlods );
+                                                       const HLODsToPack*                            hlods );
 
     Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
                                               std::span<const Common::Utils::AssetRegistry> registries,
-                                              const PrefabReader& prefabs, const StoredHLODs* hlods )
+                                              const PrefabReader& prefabs, const HLODsToPack* hlods )
     {
         auto expanded = ExpandPrefabInstances( scene, prefabs );
         if ( !expanded )
@@ -538,21 +555,17 @@ namespace Desert::Core::WorldCells
         return Common::MakeSuccess( std::move( out ) );
     }
 
-    Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
-                                              std::span<const Rules::EntityDescriptor>      descriptors,
+    Common::ResultStr<CookedWorld> CookWorld( const ExpandedWorld&                          world,
                                               std::span<const Common::Utils::AssetRegistry> registries,
-                                              const PrefabReader& prefabs, const StoredHLODs* hlods )
+                                              const HLODsToPack*                            hlods )
     {
-        auto expanded = ExpandWorldForCook( scene, descriptors, prefabs );
-        if ( !expanded )
-            return Common::MakeError<CookedWorld>( expanded.GetError() );
-        return CookPlanned( expanded.GetValue().World.Scene, expanded.GetValue().Descriptors, registries, hlods );
+        return CookPlanned( world.World.Scene, world.Descriptors, registries, hlods );
     }
 
     static Common::ResultStr<CookedWorld> CookPlanned( const SceneSerialized&                        scene,
                                                        std::span<const Rules::EntityDescriptor>      descriptors,
                                                        std::span<const Common::Utils::AssetRegistry> registries,
-                                                       const StoredHLODs*                            hlods )
+                                                       const HLODsToPack*                            hlods )
     {
         using Result = CookedWorld;
         // A LOCATION VOLUME IS EDITOR-ONLY (WP-LOADER-ADAPTERS; UE never cooks an ALocationVolume): its records
@@ -750,48 +763,46 @@ namespace Desert::Core::WorldCells
                  { name, file.Bytes.size(), Common::Utils::Crc32c( file.Bytes.data(), file.Bytes.size() ) } );
             cooked.Files.push_back( std::move( file ) );
         }
-        // THE HLOD OF EVERY CELL, BY ITS GRID'S LAYER (WP10, WP-FAR-7, WP22c), after the cells so a cell's file
-        // is written before the one that stands in for it and the index lists them in that order. No grid states a
-        // layer: no cell has an HLOD; a cell of a grid that states none has a row without a file
-        // (BuildWorldHLODs). The saved HLODs, checked against this world: a missing or stale cell refuses the cook
-        // by name.
+        // THE HLOD OF EVERY WANTED NODE (WP10, WP-FAR-7, WP22c, WP-HLOD-HASH), after the cells so a cell's file is
+        // written before the one that stands in for it and the index lists them in that order. No grid states a
+        // layer: no cell has an HLOD; a cell with no HLOD-relevant member has none either (SavedHLODStatus). The
+        // saved HLODs, judged by the one status: a missing, stale or orphaned node refuses the cook by name.
         if ( anyHLODLayer && hlods == nullptr )
             return Common::MakeError<Result>(
                  "'" + scene.SceneName +
                  "' has a grid with an HLOD layer and no built HLODs; run Build > Build HLODs" );
-        std::unordered_map<std::string, const BuiltHLODCell*> builtRows;
-        if ( anyHLODLayer )
-        {
-            for ( const BuiltHLODCell& row : hlods->Index.Cells )
-                builtRows.emplace( row.Unit, &row );
-            auto stale = StaleHLODCells( hlods->Index, scene, descriptors, registries );
-            if ( !stale )
-                return Common::MakeError<Result>( stale.GetError() );
-            if ( !stale.GetValue().empty() )
-            {
-                std::string names;
-                for ( const std::string& unit : stale.GetValue() )
-                    names += ( names.empty() ? "" : ", " ) + unit;
-                return Common::MakeError<Result>( std::format(
-                     "'{}': the saved HLOD of {} cell(s) is missing or stale ({}); run Build > Build HLODs",
-                     scene.SceneName, stale.GetValue().size(), names ) );
-            }
-        }
         std::set<std::uint64_t> hlodIds;
         // THE HIERARCHY (WP-FAR-8): when a layer is spatially loaded its HLODs are packed into HLOD cells (below)
         // and no HLOD is resident per world cell.
-        Rules::HLODHierarchy hierarchy;
+        Rules::HLODHierarchy        hierarchy;
+        std::vector<HLODNodeStatus> nodeStates;
         if ( anyHLODLayer )
         {
-            auto planned = Rules::PlanHLODHierarchy( *scene.WorldPartition, plan );
-            if ( !planned )
-                return Common::MakeError<Result>( "'" + scene.SceneName + "': " + planned.GetError() );
-            hierarchy = planned.ExtractValue();
+            auto judged = SavedHLODStatus( scene, descriptors, &hlods->Saved.Index, registries, hlods->Builders );
+            if ( !judged )
+                return Common::MakeError<Result>( judged.GetError() );
+            HLODWorldStatus status = judged.ExtractValue();
+            if ( status.Outdated() > 0 )
+            {
+                std::string names;
+                for ( const std::string& line : status.OutdatedNames() )
+                    names += ( names.empty() ? "" : ", " ) + line;
+                return Common::MakeError<Result>(
+                     std::format( "'{}': {} saved HLOD node(s) are outdated ({}); run Build > Build HLODs",
+                                  scene.SceneName, status.Outdated(), names ) );
+            }
+            hierarchy  = std::move( status.Hierarchy );
+            nodeStates = std::move( status.Nodes );
         }
-        for ( std::size_t unit = plan.AlwaysLoaded.size();
-              anyHLODLayer && !hierarchy.Streams() && unit < unitCount; ++unit )
+        for ( const HLODNodeStatus& state : nodeStates )
         {
-            const BuiltHLODCell& built = *builtRows.at( Rules::HLODRowName( *scene.WorldPartition, plan, unit ) );
+            if ( hierarchy.Streams() )
+                break;
+            // Not streamed: every node is a world cell's (a parent exists only for a spatially loaded layer).
+            const std::size_t unit = hierarchy.Nodes.at( state.Node ).StandsFor;
+            if ( state.Row == nullptr )
+                continue; // no HLOD-relevant member: the cell has no HLOD
+            const BuiltHLODCell& built = *state.Row;
             if ( !built.File.has_value() && built.NotInstanced.empty() )
                 continue;
             IndexHLOD row;
@@ -804,7 +815,7 @@ namespace Desert::Core::WorldCells
                 CellPayload       payload;
                 payload.World = scene.SceneName;
                 payload.Units.push_back( "HLOD " + index.Units[unit].Name );
-                auto stored = StoredCellRecords( *hlods, built );
+                auto stored = StoredCellRecords( hlods->Saved, built );
                 if ( !stored )
                     return Common::MakeError<Result>( "'" + scene.SceneName + "', " + index.Units[unit].Name +
                                                       ": " + stored.GetError() );
@@ -846,15 +857,12 @@ namespace Desert::Core::WorldCells
         {
             std::vector<const BuiltHLODCell*> nodeRows;
             std::vector<std::size_t>          counts;
-            for ( const Rules::HLODNode& node : hierarchy.Nodes )
+            // A node with no HLOD-relevant member has no row and counts no record (SavedHLODStatus).
+            for ( const HLODNodeStatus& state : nodeStates )
             {
-                const auto row = builtRows.find( node.Name );
-                if ( row == builtRows.end() )
-                    return Common::MakeError<Result>(
-                         std::format( "'{}': the HLOD {} has no saved row; run Build > Build HLODs",
-                                      scene.SceneName, node.Name ) );
-                nodeRows.push_back( row->second );
-                counts.push_back( row->second->File.has_value() ? row->second->Ids.size() : 0 );
+                nodeRows.push_back( state.Row );
+                counts.push_back( state.Row != nullptr && state.Row->File.has_value() ? state.Row->Ids.size()
+                                                                                      : 0 );
             }
             auto residency = Rules::MakeHLODResidency( *scene.WorldPartition, hierarchy, counts );
             if ( !residency )
@@ -895,15 +903,17 @@ namespace Desert::Core::WorldCells
                 std::set<std::string> keys;
                 for ( const std::size_t n : unitNodes )
                 {
+                    IndexHLODNode& node = index.HLODNodes.at( n );
+                    node.Name           = hierarchy.Nodes[n].Name;
+                    node.Unit           = static_cast<std::uint32_t>( unit );
+                    if ( nodeRows.at( n ) == nullptr )
+                        continue;
                     const BuiltHLODCell& built = *nodeRows.at( n );
-                    IndexHLODNode&       node  = index.HLODNodes.at( n );
-                    node.Name                  = hierarchy.Nodes[n].Name;
-                    node.Unit                  = static_cast<std::uint32_t>( unit );
                     node.Instances             = built.Instances;
                     node.NotInstanced          = built.NotInstanced;
                     if ( !built.File.has_value() )
                         continue;
-                    auto stored = StoredCellRecords( *hlods, built );
+                    auto stored = StoredCellRecords( hlods->Saved, built );
                     if ( !stored )
                         return Common::MakeError<Result>( "'" + scene.SceneName + "', " + node.Name + ": " +
                                                           stored.GetError() );
@@ -1512,222 +1522,7 @@ namespace Desert::Core::WorldCells
         return out;
     }
     // ── Built HLODs ──────────────────────────────────────────────────────────────────────────────
-
-    namespace
-    {
-        // What a build and a staleness check plan alike: the plan from the descriptors, the members and name of
-        // every unit, the records by id. Refusals are CookWorld's, worded the same.
-        struct HLODPlan
-        {
-            Rules::WorldPartitionPlan                     Plan;
-            std::unordered_map<Common::UUID, std::size_t> ById;
-            std::vector<std::vector<std::size_t>>         Members;
-            std::vector<std::string>                      Names;
-        };
-
-        Common::ResultStr<HLODPlan> PlanHLODs( const SceneSerialized&                        scene,
-                                               std::span<const Rules::EntityDescriptor>      descriptors,
-                                               std::span<const Common::Utils::AssetRegistry> registries )
-        {
-            if ( !scene.WorldPartition.has_value() )
-                return Common::MakeError<HLODPlan>( "'" + scene.SceneName +
-                                                    "' states no WorldPartition block, so it has no cells" );
-            const auto& records = scene.Entities;
-            HLODPlan    out;
-            for ( std::size_t record = 0; record < records.size(); ++record )
-            {
-                if ( !records[record].id.has_value() || records[record].id->IsNull() )
-                    return Common::MakeError<HLODPlan>( std::format( "record {} ('{}') of '{}' has no id", record,
-                                                                     records[record].Tag.value_or( "" ),
-                                                                     scene.SceneName ) );
-                if ( !out.ById.emplace( *records[record].id, record ).second )
-                    return Common::MakeError<HLODPlan>(
-                         std::format( "record {} of '{}' has id {}, which another record already has", record,
-                                      scene.SceneName, static_cast<std::uint64_t>( *records[record].id ) ) );
-            }
-            if ( descriptors.size() != records.size() )
-                return Common::MakeError<HLODPlan>( std::format(
-                     "'{}' has {} records and {} descriptors; the descriptor index is not this world's",
-                     scene.SceneName, records.size(), descriptors.size() ) );
-            for ( std::size_t record = 0; record < records.size(); ++record )
-                if ( descriptors[record].Id != static_cast<std::uint64_t>( *records[record].id ) )
-                    return Common::MakeError<HLODPlan>( std::format(
-                         "record {} of '{}' is entity {} but its descriptor is another; the descriptor index is "
-                         "stale",
-                         record, scene.SceneName, static_cast<std::uint64_t>( *records[record].id ) ) );
-            out.Plan = Rules::PlanWorldPartition( descriptors, *scene.WorldPartition, BoundsFrom( registries ),
-                                                  ScriptReferenceKinds() );
-            const std::size_t unitCount = Rules::ResidencyUnitCount( out.Plan );
-            for ( std::size_t unit = 0; unit < unitCount; ++unit )
-            {
-                out.Members.push_back( Rules::ResidencyUnitMembers( out.Plan, unit ) );
-                out.Names.push_back( Rules::HLODRowName( *scene.WorldPartition, out.Plan, unit ) );
-            }
-            return Common::MakeSuccess( std::move( out ) );
-        }
-
-        // "HLOD_<cell file stem>.dhlod".
-        std::string BuiltHLODFileName( const WorldPartitionSerialized& partition, const Rules::PlannedCell& cell )
-        {
-            const std::string cellFile = CellFileName( partition, cell );
-            return "HLOD_" + cellFile.substr( 0, cellFile.size() - kCellExtension.size() ) +
-                   std::string( kBuiltHLODExtension );
-        }
-    } // namespace
-
-    namespace
-    {
-        // A JSON value with the keys of every object in it sorted: the content without its write order.
-        Common::Json::Value SortedKeys( const Common::Json::Value& value )
-        {
-            if ( const auto* object = std::get_if<Common::Json::Object>( &value.variant() ) )
-            {
-                std::vector<std::pair<std::string, Common::Json::Value>> members( object->begin(), object->end() );
-                std::ranges::stable_sort( members, {}, &std::pair<std::string, Common::Json::Value>::first );
-                Common::Json::Object sorted;
-                for ( const auto& [key, member] : members )
-                    sorted.insert( key, SortedKeys( member ) );
-                return Common::Json::Value( sorted );
-            }
-            if ( const auto* array = std::get_if<Common::Json::Value::Array>( &value.variant() ) )
-            {
-                Common::Json::Value::Array sorted;
-                sorted.reserve( array->size() );
-                for ( const Common::Json::Value& element : *array )
-                    sorted.push_back( SortedKeys( element ) );
-                return Common::Json::Value( sorted );
-            }
-            return value;
-        }
-
-        Common::Json::KeyedValues SortedKeys( const Common::Json::KeyedValues& blocks )
-        {
-            std::vector<std::pair<std::string, Common::Json::Value>> members( blocks.begin(), blocks.end() );
-            std::ranges::stable_sort( members, {}, &std::pair<std::string, Common::Json::Value>::first );
-            Common::Json::KeyedValues sorted;
-            for ( const auto& [key, member] : members )
-                sorted.insert( key, SortedKeys( member ) );
-            return sorted;
-        }
-    } // namespace
-
-    namespace
-    {
-        // The content hash of the file registry key @p key names (HLODAssetHasher): an asset envelope's from its
-        // table of contents - the tag and hash of every section, read with the header - any other file's from its
-        // bytes, 0 for a file that does not read.
-        std::uint64_t SavedContentHash( const std::string& key )
-        {
-            const std::filesystem::path file = Common::AssetHandle::PathForStableKey( key );
-            {
-                std::ifstream                                       in( file, std::ios::binary );
-                std::array<std::byte, CC::ASSET_HEADER_SNIFF_BYTES> leading{};
-                if ( in && in.read( reinterpret_cast<char*>( leading.data() ),
-                                    static_cast<std::streamsize>( leading.size() ) ) &&
-                     CC::BinaryEnvelopeHeaderFormat().Recognises( leading ) )
-                {
-                    in.clear();
-                    in.seekg( 0 );
-                    CC::AssetHeaderReadContext context;
-                    context.RecordOnly = true;
-                    if ( auto header = CC::ReadEnvelopeHeader( in, context ) )
-                    {
-                        std::string toc;
-                        for ( const CC::EnvelopeTocEntry& entry : header.GetValue().Toc )
-                            toc += std::format( "{:08x}:{:016x};", static_cast<std::uint32_t>( entry.Tag ),
-                                                entry.Hash );
-                        return Common::Utils::Crc32c( toc.data(), toc.size() );
-                    }
-                }
-            }
-            // Not an envelope, or one whose header does not read: its bytes are its content.
-            auto bytes = Common::Utils::FileSystem::ReadByteFileContent( file );
-            if ( !bytes )
-                return 0;
-            return Common::Utils::Crc32c( bytes.GetValue().data(), bytes.GetValue().size() );
-        }
-    } // namespace
-
-    struct HLODAssetHasher::State
-    {
-        explicit State( std::span<const Common::Utils::AssetRegistry> registries ) : Closure( registries ) {}
-
-        AssetClosure                                   Closure;
-        std::unordered_map<std::string, std::uint64_t> Hashes; // by registry key
-    };
-
-    HLODAssetHasher::HLODAssetHasher( std::span<const Common::Utils::AssetRegistry> registries )
-         : m_State( std::make_unique<State>( registries ) )
-    {
-    }
-
-    HLODAssetHasher::~HLODAssetHasher() = default;
-
-    std::string HLODAssetHasher::ContentOf( std::span<const Assets::EntityData> records,
-                                            std::span<const std::size_t>        members )
-    {
-        std::set<std::string> keys;
-        for ( const std::size_t member : members )
-            m_State->Closure.Record( records[member], keys );
-        m_State->Closure.Expand( keys );
-        std::string text;
-        for ( const std::string& key : keys )
-        {
-            auto known = m_State->Hashes.find( key );
-            if ( known == m_State->Hashes.end() )
-                known = m_State->Hashes.emplace( key, SavedContentHash( key ) ).first;
-            text += std::format( "{} {:016x}\n", key, known->second );
-        }
-        return text;
-    }
-
-    std::uint32_t HLODBuildChecksum( std::span<const Assets::EntityData> records,
-                                     std::span<const std::size_t>        members,
-                                     const WorldPartitionSerialized& partition, HLODAssetHasher& assets )
-    {
-        // THE ONE FORM A MEMBER IS HASHED IN (Build HLODs, CookWorld and Play all come here). The record minus
-        // `siblingIndex`: that is the outliner's sort key, not content - the scene saver writes its own sparse
-        // keys while Play's snapshot (SerializeToJson) numbers the same order densely, so hashing it made every
-        // saved HLOD "stale" in Play. Nothing an HLOD is built from reads it.
-        std::string text;
-        for ( const std::size_t member : members )
-        {
-            Assets::EntityData canonical = records[member];
-            canonical.siblingIndex.reset();
-            // ...and with every object's keys in one order: the saved file keeps the order it was written in
-            // (StaticMesh before RuntimeGrid, MaterialSlots before MeshHandle) while Play's snapshot writes the
-            // component registry's order, so the same content hashed differently and every Main/Foliage cell
-            // with two components read as stale in Play (WP22-REST: 194 errors right after Build HLODs).
-            canonical.Components = SortedKeys( canonical.Components );
-            text += Common::Json::Write( canonical );
-            text += '\n';
-        }
-        // ...and the partition minus what no HLOD is built from (WP-HLOD-DATA-LAYERS): a data layer's
-        // InitiallyLoadedInEditor (what the editor opens loaded), its InitialRuntimeState and the world's
-        // DataLayersLogicOperator (which state Play shows it in) decide when an HLOD is drawn, never what it
-        // holds; hashing them made every saved HLOD of the world stale the moment one was toggled. A layer's Name
-        // and Type stay: the Type splits the cells (and so the members), the Name keys the rows and files.
-        WorldPartitionSerialized built = partition;
-        if ( built.DataLayers.has_value() )
-            for ( DataLayerSerialized& layer : *built.DataLayers )
-            {
-                layer.InitiallyLoadedInEditor = true;
-                layer.InitialRuntimeState.reset();
-            }
-        built.DataLayersLogicOperator = WorldPartitionDataLayersLogicOperator::Or;
-        // The minimap (WP v11) is a picture OF the world, never a source of its HLODs: hashing it made every HLOD
-        // stale the moment Build Minimap ran. A world without one writes no key, so its checksums are unchanged.
-        built.MiniMap.reset();
-        // ...and a runtime partition's DebugColor (WP v10): the colour the gameplay debugger paints its cells in,
-        // never what they hold - recolouring a partition must not make its HLODs stale.
-        for ( RuntimePartitionSerialized& runtime : built.RuntimePartitions )
-            runtime.DebugColor = glm::vec3( 0.5f );
-        text += Common::Json::Write( built );
-        text += '\n';
-        text += assets.ContentOf( records, members );
-        text += std::format( "builder {}\n", kHLODBuilderVersion );
-        return Common::Utils::Crc32c( text.data(), text.size() );
-    }
+    // What a node is built from and whether its saved HLOD is current: WorldCellsHLODStatus.cpp.
 
     // The build over an expanded world, as CookPlanned is the cook over one.
     static Common::ResultStr<HLODBuild>
@@ -1743,7 +1538,7 @@ namespace Desert::Core::WorldCells
                      const BuiltHLODSink& sink, const HLODFileOutput output )
     {
         // The HLODs are built from the world the cook cuts: every prefab instance expanded the same way, by the
-        // same function, so a cook finds them fresh (StaleHLODCells over the expanded records).
+        // same function, so a cook finds them current (SavedHLODStatus over the expanded records).
         auto expanded = ExpandWorldForCook( scene, descriptors, prefabs );
         if ( !expanded )
             return Common::MakeError<HLODBuild>( expanded.GetError() );
@@ -1757,13 +1552,11 @@ namespace Desert::Core::WorldCells
                        const Rules::HLODBuilderRegistry& builders, const StoredHLODs* previous,
                        const BuiltHLODSink& sink, const HLODFileOutput output )
     {
-        using Result = HLODBuild;
-        auto planned = PlanHLODs( scene, descriptors, registries );
-        if ( !planned )
-            return Common::MakeError<Result>( planned.GetError() );
-        const HLODPlan& hp = planned.GetValue();
-        if ( auto layers = Rules::ValidateHLODLayers( *scene.WorldPartition ); !layers )
-            return Common::MakeError<Result>( "'" + scene.SceneName + "': " + layers.GetError() );
+        using Result   = HLODBuild;
+        auto specified = SpecHLODs( scene, descriptors, registries );
+        if ( !specified )
+            return Common::MakeError<Result>( specified.GetError() );
+        const HLODWorldSpec spec = specified.ExtractValue();
         if ( !Rules::AnyGridHLODLayer( *scene.WorldPartition ) )
             return Common::MakeError<Result>(
                  "'" + scene.SceneName + "' has no grid with an HLOD layer, so its cells have no HLODs to build" );
@@ -1773,34 +1566,35 @@ namespace Desert::Core::WorldCells
                   Rules::HLODLayerBuilderIssues( *scene.WorldPartition, builders );
              !refused.empty() )
             return Common::MakeError<Result>( std::format( "'{}': {}", scene.SceneName, refused.front() ) );
+        // THE ONE ANSWER (SavedHLODStatus over the same spec): which nodes are wanted, what each is built from,
+        // which previous row still stands for it.
+        HLODWorldStatus status;
+        if ( auto judged = StatusOf( status, spec, scene, previous != nullptr ? &previous->Index : nullptr,
+                                     registries, builders );
+             !judged )
+            return Common::MakeError<Result>( judged.GetError() );
 
         const auto&                     records       = scene.Entities;
-        Common::Json::Issues            issues        = hp.Plan.Issues;
-        const std::vector<glm::mat4>    world         = Rules::Detail::ComposeWorld( records, hp.ById );
+        Common::Json::Issues            issues        = spec.Planned.Plan.Issues;
+        const std::vector<glm::mat4>&   world         = spec.World;
         const Rules::CustomShaderSource customShader  = CustomShaderFrom( registries );
         const Rules::FoliageHLODSource  foliageInHLOD = FoliageInHLODFrom( registries );
         std::set<std::uint64_t>         hlodIds;
-        HLODAssetHasher                 assets( registries );
         HLODBuild                       out;
         out.Index.SceneName = scene.SceneName;
-        // The rows of the previous build, by unit: one whose checksum is the one now is kept (UE's incremental
-        // Build HLODs), unless its file no longer reads back as that row's - then it is built again.
-        std::unordered_map<std::string, const BuiltHLODCell*> previousRows;
-        if ( previous != nullptr )
-            for ( const BuiltHLODCell& row : previous->Index.Cells )
-                previousRows.emplace( row.Unit, &row );
-        const auto keep = [&]( const BuiltHLODCell& row ) -> Common::ResultStr<bool>
+        // A Current node's previous row is kept (UE's incremental Build HLODs), unless its file no longer reads
+        // back as that row's - then it is built again. An orphan row is not carried over (WriteBuiltHLODIndex
+        // removes its file: UE deletes the obsolete HLOD actor).
+        const auto keep = [&]( const HLODNodeStatus& state ) -> Common::ResultStr<bool>
         {
-            const auto found = previousRows.find( row.Unit );
-            if ( found == previousRows.end() || found->second->BuiltFrom != row.BuiltFrom ||
-                 !StoredCellRecords( *previous, *found->second ) )
+            if ( state.State != HLODNodeState::Current || !StoredCellRecords( *previous, *state.Row ) )
                 return Common::MakeSuccess( false );
-            for ( const std::uint64_t id : found->second->Ids )
+            for ( const std::uint64_t id : state.Row->Ids )
                 if ( !hlodIds.insert( id ).second )
                     return Common::MakeError<bool>(
                          std::format( "the kept HLOD of {} in '{}' has id {}, which another HLOD already has",
-                                      row.Unit, scene.SceneName, id ) );
-            out.Index.Cells.push_back( *found->second );
+                                      state.Name, scene.SceneName, id ) );
+            out.Index.Cells.push_back( *state.Row );
             return Common::MakeSuccess( true );
         };
         // One HLOD built and handed to the sink: @p members are the records it stands in for, @p parts the same
@@ -1851,7 +1645,7 @@ namespace Desert::Core::WorldCells
             for ( std::size_t batch = 0; batch < built.Batches.size(); ++batch )
             {
                 const Common::UUID id = Rules::HLODRecordId( scene.SceneName, cookedName, batch );
-                if ( id.IsNull() || hp.ById.contains( id ) ||
+                if ( id.IsNull() || spec.Planned.ById.contains( id ) ||
                      !hlodIds.insert( static_cast<std::uint64_t>( id ) ).second )
                     return Common::MakeError( std::format(
                          "the HLOD id {} of batch {} in '{}' is null or already taken; rename the world",
@@ -1884,62 +1678,23 @@ namespace Desert::Core::WorldCells
             row.File = name;
             return BOOLSUCCESS;
         };
-        for ( std::size_t unit = hp.Plan.AlwaysLoaded.size(); unit < hp.Members.size(); ++unit )
+        // Every wanted node, cells first and then their parents (hierarchy order); a node with no HLOD-relevant
+        // member gets no row (UE CreateHLODActors skips the cell).
+        for ( const HLODNodeStatus& state : status.Nodes )
         {
-            const Rules::PlannedCell& cell = hp.Plan.Cells.at( unit - hp.Plan.AlwaysLoaded.size() );
-            BuiltHLODCell             row;
-            row.Unit      = hp.Names[unit];
-            row.BuiltFrom = HLODBuildChecksum( records, hp.Members[unit], *scene.WorldPartition, assets );
-            auto kept     = keep( row );
+            if ( state.State == HLODNodeState::NoSource )
+                continue;
+            BuiltHLODCell row;
+            row.Unit      = state.Name;
+            row.BuiltFrom = state.Checksum;
+            auto kept     = keep( state );
             if ( !kept )
                 return Common::MakeError<Result>( kept.GetError() );
             if ( kept.GetValue() )
                 continue;
-            // The layer is the cell's PARTITION's first HLOD setup (WP22c, WP-HASH-SET), and a composite's own where it
-            // names one (WP-SETTINGS-UI, Rules::CellHLODParts): a partition that states none gives its cells a row with no file.
-            auto parts = Rules::CellHLODParts( *scene.WorldPartition, hp.Plan, cell, hp.Members[unit] );
-            if ( !parts )
-                return Common::MakeError<Result>( "'" + scene.SceneName + "', " + row.Unit + ": " + parts.GetError() );
-            if ( !parts.GetValue().empty() )
-                if ( auto built = build( row, parts.GetValue(), hp.Members[unit],
-                                         Rules::HLODMinVisibleDistance( *scene.WorldPartition, hp.Plan, unit ),
-                                         HLODFileName( CellFileName( *scene.WorldPartition, cell ) ),
-                                         BuiltHLODFileName( *scene.WorldPartition, cell ) );
-                     !built )
-                    return Common::MakeError<Result>( built.GetError() );
-            out.Built.push_back( row.Unit );
-            out.Index.Cells.push_back( std::move( row ) );
-        }
-        // THE PARENTS (WP-FAR-8, WorldPartitionHLODHierarchy.hpp): per HLOD cell of a spatially loaded layer, the
-        // HLOD of its next setup's layer, built from the records of every world cell beneath it and seen from the
-        // child layer's LoadingRange on. Their rows follow the cells', keyed by the node's name.
-        auto hierarchy = Rules::PlanHLODHierarchy( *scene.WorldPartition, hp.Plan );
-        if ( !hierarchy )
-            return Common::MakeError<Result>( "'" + scene.SceneName + "': " + hierarchy.GetError() );
-        const std::vector<HLODLayerSerialized>& layers = *scene.WorldPartition->HLODLayers;
-        for ( const Rules::HLODNode& node : hierarchy.GetValue().Nodes )
-        {
-            if ( !node.ForHLODCell )
-                continue;
-            std::vector<std::size_t> members;
-            for ( const std::size_t unit : node.SourceUnits )
-                members.insert( members.end(), hp.Members.at( unit ).begin(), hp.Members.at( unit ).end() );
-            std::sort( members.begin(), members.end() );
-            const Rules::HLODCell& child = hierarchy.GetValue().Cells.at( node.StandsFor );
-            const std::string      stem  = ParentHLODFileStem( *scene.WorldPartition, hierarchy.GetValue(), node );
-            BuiltHLODCell          row;
-            row.Unit      = node.Name;
-            row.BuiltFrom = HLODBuildChecksum( records, members, *scene.WorldPartition, assets );
-            auto kept     = keep( row );
-            if ( !kept )
-                return Common::MakeError<Result>( kept.GetError() );
-            if ( kept.GetValue() )
-                continue;
-            const Rules::CellHLODPart whole{ &layers.at( node.Layer ), members };
-            if ( auto built =
-                      build( row, std::span<const Rules::CellHLODPart>( &whole, 1 ), members,
-                             *layers.at( child.Layer ).LoadingRange,
-                             stem + std::string( kCellExtension ), stem + std::string( kBuiltHLODExtension ) );
+            const HLODNodeSpec& node = spec.Nodes.at( state.Node );
+            if ( auto built = build( row, node.Parts, node.Members, node.MinVisibleDistance, node.CookedName,
+                                     node.FileName );
                  !built )
                 return Common::MakeError<Result>( built.GetError() );
             out.Built.push_back( row.Unit );
@@ -2018,7 +1773,18 @@ namespace Desert::Core::WorldCells
             return Common::MakeError<StoredHLODs>( "'" + ( dir / kBuiltHLODIndexName ).string() +
                                                    "' is not a readable HLOD index: " + parsed.GetError() );
         StoredHLODs stored;
-        stored.Index  = parsed.ExtractValue();
+        stored.Index = parsed.ExtractValue();
+        // An index row whose payload file is gone is not a saved HLOD: the read refuses it by name, so a status
+        // never calls Current a node whose records Play could not load.
+        for ( const BuiltHLODCell& cell : stored.Index.Cells )
+        {
+            std::error_code ec;
+            if ( cell.File.has_value() && !std::filesystem::is_regular_file( dir / *cell.File, ec ) )
+                return Common::MakeError<StoredHLODs>(
+                     std::format( "the HLOD index '{}' lists '{}' for {}, and the file is not there; run "
+                                  "Build > Build HLODs again",
+                                  ( dir / kBuiltHLODIndexName ).string(), *cell.File, cell.Unit ) );
+        }
         stored.Reader = [dir]( std::string_view name ) -> Common::ResultStr<std::vector<unsigned char>>
         {
             auto read = Common::Utils::FileSystem::ReadByteFileContent( dir / std::string( name ) );
@@ -2059,56 +1825,14 @@ namespace Desert::Core::WorldCells
         return Common::MakeSuccess( std::move( file.Records ) );
     }
 
-    Common::ResultStr<std::vector<std::string>>
-    StaleHLODCells( const BuiltHLODIndex& index, const SceneSerialized& scene,
-                    std::span<const Rules::EntityDescriptor>      descriptors,
-                    std::span<const Common::Utils::AssetRegistry> registries )
-    {
-        auto planned = PlanHLODs( scene, descriptors, registries );
-        if ( !planned )
-            return Common::MakeError<std::vector<std::string>>( planned.GetError() );
-        const HLODPlan&                                       hp = planned.GetValue();
-        std::unordered_map<std::string, const BuiltHLODCell*> rows;
-        for ( const BuiltHLODCell& row : index.Cells )
-            rows.emplace( row.Unit, &row );
-        HLODAssetHasher          assets( registries );
-        std::vector<std::string> stale;
-        for ( std::size_t unit = hp.Plan.AlwaysLoaded.size(); unit < hp.Members.size(); ++unit )
-        {
-            const auto row = rows.find( hp.Names[unit] );
-            if ( row == rows.end() ||
-                 row->second->BuiltFrom !=
-                      HLODBuildChecksum( scene.Entities, hp.Members[unit], *scene.WorldPartition, assets ) )
-                stale.push_back( hp.Names[unit] );
-        }
-        // The parents (WP-FAR-8): each over the records of every cell beneath it.
-        auto hierarchy = Rules::PlanHLODHierarchy( *scene.WorldPartition, hp.Plan );
-        if ( !hierarchy )
-            return Common::MakeError<std::vector<std::string>>( hierarchy.GetError() );
-        for ( const Rules::HLODNode& node : hierarchy.GetValue().Nodes )
-        {
-            if ( !node.ForHLODCell )
-                continue;
-            std::vector<std::size_t> members;
-            for ( const std::size_t unit : node.SourceUnits )
-                members.insert( members.end(), hp.Members.at( unit ).begin(), hp.Members.at( unit ).end() );
-            std::sort( members.begin(), members.end() );
-            const auto row = rows.find( node.Name );
-            if ( row == rows.end() ||
-                 row->second->BuiltFrom !=
-                      HLODBuildChecksum( scene.Entities, members, *scene.WorldPartition, assets ) )
-                stale.push_back( node.Name );
-        }
-        return Common::MakeSuccess( std::move( stale ) );
-    }
-
-    std::vector<Rules::GenerationIssue> StaleHLODIssues( std::span<const std::string> units )
+    std::vector<Rules::GenerationIssue> OutdatedHLODIssues( const HLODWorldStatus& status )
     {
         std::vector<Rules::GenerationIssue> issues;
-        for ( const std::string& unit : units )
+        for ( const std::string& line : status.OutdatedNames() )
             issues.push_back( Rules::GenerationIssue{
                  Rules::GenerationIssueKind::StaleHLOD, Rules::kNoRecord, Rules::kNoRecord,
-                 std::format( "the saved HLOD of {} is missing or older than its cell; run Build > Build HLODs", unit ) } );
+                 std::format( "the saved HLOD {} (missing, stale or orphaned); run Build > Build HLODs",
+                              line ) } );
         return issues;
     }
 
@@ -2119,21 +1843,23 @@ namespace Desert::Core::WorldCells
     }
 
     Common::ResultStr<WorldPartitionCheck>
-    CheckWorldPartition( const SceneSerialized& scene, std::vector<Rules::EntityDescriptor> descriptors,
-                         std::span<const Common::Utils::AssetRegistry> registries,
-                         const std::filesystem::path&                  scenePath )
+    CheckWorldPartition( const ExpandedWorld& world, std::span<const Common::Utils::AssetRegistry> registries,
+                         const Rules::HLODBuilderRegistry& builders, const std::filesystem::path& scenePath )
     {
-        using Result = WorldPartitionCheck;
+        using Result                 = WorldPartitionCheck;
+        const SceneSerialized& scene = world.World.Scene;
         if ( !scene.WorldPartition.has_value() )
             return Common::MakeError<Result>( "'" + scene.SceneName +
                                               "' states no WorldPartition block: it is not a partitioned world" );
         WorldPartitionCheck check;
         check.World       = scene.SceneName;
         check.Partition   = *scene.WorldPartition;
-        check.Descriptors = std::move( descriptors );
-        check.Plan        = Rules::PlanWorldPartition( std::span<const Rules::EntityDescriptor>( check.Descriptors ),
-                                                       check.Partition, BoundsFrom( registries ) );
-        check.Issues      = Rules::PlanIssues( check.Plan, check.Descriptors );
+        check.Descriptors = world.Descriptors;
+        // Planned as the cook plans (CookPlanned): the same bounds and script references.
+        check.Plan =
+             Rules::PlanWorldPartition( std::span<const Rules::EntityDescriptor>( check.Descriptors ),
+                                        check.Partition, BoundsFrom( registries ), ScriptReferenceKinds() );
+        check.Issues = Rules::PlanIssues( check.Plan, check.Descriptors );
         if ( Rules::AnyGridHLODLayer( check.Partition ) )
         {
             auto stored = scenePath.empty() ? Common::MakeError<StoredHLODs>(
@@ -2143,10 +1869,11 @@ namespace Desert::Core::WorldCells
                 check.Issues.push_back( MissingHLODsIssue( stored.GetError() ) );
             else
             {
-                auto stale = StaleHLODCells( stored.GetValue().Index, scene, check.Descriptors, registries );
-                if ( !stale )
-                    return Common::MakeError<Result>( stale.GetError() );
-                const std::vector<Rules::GenerationIssue> named = StaleHLODIssues( stale.GetValue() );
+                auto status =
+                     SavedHLODStatus( scene, world.Descriptors, &stored.GetValue().Index, registries, builders );
+                if ( !status )
+                    return Common::MakeError<Result>( status.GetError() );
+                const std::vector<Rules::GenerationIssue> named = OutdatedHLODIssues( status.GetValue() );
                 check.Issues.insert( check.Issues.end(), named.begin(), named.end() );
             }
         }
@@ -2155,7 +1882,8 @@ namespace Desert::Core::WorldCells
 
     Common::ResultStr<std::optional<WorldPartitionCheck>>
     CheckSavedWorldPartition( const std::filesystem::path&                  scenePath,
-                              std::span<const Common::Utils::AssetRegistry> registries )
+                              std::span<const Common::Utils::AssetRegistry> registries,
+                              const Rules::HLODBuilderRegistry&             builders )
     {
         using Result = std::optional<WorldPartitionCheck>;
         auto text    = ExternalEntities::ReadSceneFileText( scenePath );
@@ -2170,8 +1898,12 @@ namespace Desert::Core::WorldCells
         auto index = DescriptorIndex::Refresh( scenePath );
         if ( !index )
             return Common::MakeError<Result>( index.GetError() );
-        auto check = CheckWorldPartition( scene, DescriptorIndex::Descriptors( index.GetValue().Index ), registries,
-                                          scenePath );
+        // The world the cook cuts (WP21): every prefab instance expanded first.
+        auto expanded = ExpandWorldForCook( scene, DescriptorIndex::Descriptors( index.GetValue().Index ),
+                                            PrefabFileReader() );
+        if ( !expanded )
+            return Common::MakeError<Result>( expanded.GetError() );
+        auto check = CheckWorldPartition( expanded.GetValue(), registries, builders, scenePath );
         if ( !check )
             return Common::MakeError<Result>( check.GetError() );
         return Common::MakeSuccess( Result( check.ExtractValue() ) );

@@ -16,9 +16,7 @@ RUNNING_MAX_AGE_H = 4     # a run with no stop older than this died with its ses
 
 # ---- one run ------------------------------------------------------------------------------------------------------
 FIX_CALLS = (72, 80, 100)        # warn, soft limit, hard cap of a one-defect fix (owner 10-22, 10-23)
-FEATURE_CALLS = (100, 120, 140)  # the same for engineer / architect / reviewer (owner 11-27; was 270/300/320)
-CONTEXT_MAX = (85_000, 100_000)  # owner 11-27: a worker's context (tokens) - warn, then the finishing window opens
-CONTEXT_TAIL_BYTES = 262_144     # how much of a worker's transcript tail is read to find its last context size
+FEATURE_CALLS = (270, 300, 320)  # the same for engineer / architect / reviewer (owner 11-25)
 FIX_READ_LINES = 150             # code is read by ranges of at most this many lines
 FEATURE_READ_LINES = 400
 FIX_BRIEF = (2, 900)             # «## Сделать»: numbered items, characters (owner 10-05)

@@ -93,23 +93,46 @@ namespace Desert::Editor::Graph
                 return "Look At";
             case G::PoseNodeKind::BlendSpace1D:
                 return "Blend Space 1D";
+            case G::PoseNodeKind::BlendSpace2D:
+                return "Blend Space 2D";
         }
         return "?";
     }
 
     std::vector<G::PoseNodeKind> AddableKinds( G::GraphScope scope )
     {
-        std::vector<G::PoseNodeKind> kinds{ G::PoseNodeKind::SequencePlayer, G::PoseNodeKind::BlendSpace1D,
-                                            G::PoseNodeKind::StateMachine,   G::PoseNodeKind::LayeredBlendPerBone,
-                                            G::PoseNodeKind::ApplyAdditive,  G::PoseNodeKind::LinkedAnimLayer,
-                                            G::PoseNodeKind::TwoBoneIK,      G::PoseNodeKind::LookAt };
+        std::vector<G::PoseNodeKind> kinds{ G::PoseNodeKind::SequencePlayer,
+                                            G::PoseNodeKind::BlendSpace1D,
+                                            G::PoseNodeKind::BlendSpace2D,
+                                            G::PoseNodeKind::StateMachine,
+                                            G::PoseNodeKind::LayeredBlendPerBone,
+                                            G::PoseNodeKind::ApplyAdditive,
+                                            G::PoseNodeKind::LinkedAnimLayer,
+                                            G::PoseNodeKind::TwoBoneIK,
+                                            G::PoseNodeKind::LookAt };
         if ( scope == G::GraphScope::Layer )
         {
             // PlanPoseGraph refuses a blend space in a layer graph (its link plays one clip per source node).
             std::erase( kinds, G::PoseNodeKind::BlendSpace1D );
+            std::erase( kinds, G::PoseNodeKind::BlendSpace2D );
             kinds.push_back( G::PoseNodeKind::LinkedInputPose );
         }
         return kinds;
+    }
+
+    G::BlendSpaceSetup NewBlendSpaceSetup( size_t axisCount, const std::string& clip )
+    {
+        G::BlendSpaceSetup setup;
+        setup.Axes.assign( axisCount, G::BlendSpaceAxis{} );
+        const float lo = G::BlendSpaceAxis{}.Min;
+        const float hi = G::BlendSpaceAxis{}.Max;
+        if ( axisCount >= 2 )
+            setup.Samples = { G::BlendSample{ .Clip = clip, .X = lo, .Y = lo },
+                              G::BlendSample{ .Clip = clip, .X = hi, .Y = lo },
+                              G::BlendSample{ .Clip = clip, .X = lo, .Y = hi } };
+        else
+            setup.Samples = { G::BlendSample{ .Clip = clip, .X = lo }, G::BlendSample{ .Clip = clip, .X = hi } };
+        return setup;
     }
 
     Common::ResultStr<std::string> AddPoseNode( const G::AnimGraph& graph, std::vector<G::PoseNode>& nodes,
@@ -164,8 +187,9 @@ namespace Desert::Editor::Graph
                 node.LookAt = G::LookAtNode{};
                 break;
             case G::PoseNodeKind::BlendSpace1D:
-                // One sample of the picked clip at 0: a playable node the details panel then extends.
-                node.BlendSpace = G::BlendSpace1DNode{ .Samples = { G::BlendSample{ clip, 0.0F } } };
+            case G::PoseNodeKind::BlendSpace2D:
+                // Samples of the picked clip at the axis corners: a playable node the details panel then edits.
+                node.BlendSpace = NewBlendSpaceSetup( kind == G::PoseNodeKind::BlendSpace2D ? 2 : 1, clip );
                 break;
             case G::PoseNodeKind::ApplyAdditive:
             case G::PoseNodeKind::LinkedInputPose:
@@ -316,6 +340,17 @@ namespace Desert::Editor::Graph
             if ( bound.Pin == pin )
                 return bound.Parameter;
         return {};
+    }
+
+    std::vector<std::string> ParameterPinsOf( const G::PoseNode& node )
+    {
+        std::vector<std::string> pins;
+        for ( const char* pin : G::PinsOf( static_cast<G::PoseNodeKind>( node.Kind ) ).ParameterPins )
+            pins.emplace_back( pin );
+        if ( static_cast<G::PoseNodeKind>( node.Kind ) == G::PoseNodeKind::LayeredBlendPerBone && node.LayeredBlend )
+            for ( size_t layer = 0; layer < node.LayeredBlend->Layers.size(); ++layer )
+                pins.push_back( G::LayerWeightPin( layer ) );
+        return pins;
     }
 
     std::string PosePinLabel( const G::PoseNode& node, int pin )

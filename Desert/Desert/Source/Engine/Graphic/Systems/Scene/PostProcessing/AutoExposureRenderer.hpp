@@ -7,6 +7,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
+#include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 
 #include <array>
@@ -14,6 +15,19 @@
 
 namespace Desert::Graphic::System
 {
+    // The view's metering (UE AutoExposureSpeedUp / SpeedDown in stops per second, Min/Max brightness as
+    // luminance, Low/High percent of the histogram in %, clamped to [1, 99] with Low <= High by
+    // MakeAutoExposureWindow).
+    struct AutoExposureParams
+    {
+        float SpeedUp     = 3.0f;
+        float SpeedDown   = 1.0f;
+        float MinLuma     = 0.02f;
+        float MaxLuma     = 8.0f;
+        float LowPercent  = 10.0f;
+        float HighPercent = 90.0f;
+    };
+
     // Eye-adaptation via a COMPUTE log-luminance histogram (UE/Frostbite-style): each frame clears a
     // 256-bin histogram, builds it from the full HDR scene (atomic adds), then resolves it to an average
     // luminance with percentile clipping (rejects bright/dark outliers) and temporally adapts a 1x1
@@ -92,6 +106,12 @@ namespace Desert::Graphic::System
         // The adapted luminance the Average pass wrote FramesInFlight frames ago into this frame's copy (UE
         // FViewInfo::UpdatePreExposure). Call before this frame's graph binds the copy. 0 = nothing written yet.
         [[nodiscard]] float                 ReadBackAdaptedLuminance();
+        // The measured luminance (percentile-trimmed average before clamp and adaptation) of the same read-back;
+        // 0 when none was written or the histogram was empty.
+        [[nodiscard]] float GetLastMeasuredLuminance() const
+        {
+            return m_LastMeasuredLuminance;
+        }
         [[nodiscard]] Common::BoolResultStr RecordAverage( const RDG::PassContext& context );
 
         [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const
@@ -111,8 +131,8 @@ namespace Desert::Graphic::System
         // the one it now holds belongs to a world that is gone. Adapting out of it would be a ~1 s ramp
         // from the old scene's brightness, which is right when a player walks out of a cave and wrong when
         // a level is loaded. Handled as a one-frame snap rather than by writing the 1x1 image from the CPU:
-        // the adaptation is `mix(prev, target, 1 - exp(-dt * speed))` on the GPU, so an effectively
-        // infinite speed for one dispatch lands exactly on the new scene's own measured luminance.
+        // the adaptation is UE's log2 law on the GPU (AEAverage AdaptLog2), so an effectively infinite speed with
+        // an exponential slope of 1 for one dispatch lands exactly on the new scene's own measured luminance.
         void OnSceneReplaced() override
         {
             m_SnapNextAdaptation = true;
@@ -149,11 +169,15 @@ namespace Desert::Graphic::System
         {
             return m_LastAverageLocalExposure;
         }
-        void SetParams( float adaptSpeed, float minLuma, float maxLuma )
+        void SetParams( const AutoExposureParams& params )
         {
-            m_AdaptSpeed = adaptSpeed;
-            m_MinLuma    = minLuma;
-            m_MaxLuma    = maxLuma;
+            m_Params = params;
+            m_Window = MakeAutoExposureWindow( params.LowPercent, params.HighPercent );
+        }
+        // The window this frame meters with (its tails clamped as UE clamps them).
+        [[nodiscard]] const AutoExposureWindow& GetWindow() const
+        {
+            return m_Window;
         }
 
         // UE's exposure compensation (PostProcessSettings::AutoExposureBias + the compensation curve): AEAverage
@@ -192,8 +216,11 @@ namespace Desert::Graphic::System
 
         int m_ReadIndex = 0; // holds the latest adapted luminance; Prepare points it at this frame's write
         // Set by OnSceneReplaced, consumed and cleared by the next RecordAverage — see that override.
-        bool  m_SnapNextAdaptation = false;
-        float m_AdaptSpeed         = 1.5f;
+        bool               m_SnapNextAdaptation = false;
+        AutoExposureParams m_Params;
+        AutoExposureWindow m_Window =
+             MakeAutoExposureWindow( AutoExposureParams{}.LowPercent, AutoExposureParams{}.HighPercent );
+        float               m_LastMeasuredLuminance = 0.0f;
         float m_DeltaSeconds       = 0.0f;
         float m_PreExposure        = 1.0f;
         LocalExposureParams m_LocalExposure;
@@ -203,7 +230,5 @@ namespace Desert::Graphic::System
         glm::vec4           m_CurveEV100{ 0.0f };
         glm::vec4           m_CurveBias{ 0.0f };
         float               m_LastAverageLocalExposure = 1.0f;
-        float m_MinLuma    = 0.02f;
-        float m_MaxLuma    = 8.0f;
     };
 } // namespace Desert::Graphic::System

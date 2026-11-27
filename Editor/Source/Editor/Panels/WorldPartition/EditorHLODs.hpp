@@ -42,6 +42,7 @@
 #include <future>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Core
@@ -56,6 +57,8 @@ namespace Desert::Assets
 
 namespace Desert::Editor
 {
+    struct HLODStatus; // Editor/Core/WorldPartitionHLODBuilder.hpp
+
     // The user's answer (EditorPreferences): Show HLODs, and the draw range in cm (Max 0 = no far limit).
     struct EditorHLODView
     {
@@ -67,17 +70,21 @@ namespace Desert::Editor
     class EditorHLODs final : public ::Desert::Core::Rules::HLODVisibilityWorld
     {
     public:
-        // Plans the saved HLOD of every cell of @p scene's world from the saved index alone - each is made tagged
-        // entities only once Apply wants it drawn (its proxy file read on a worker); what was made before is
-        // destroyed first. A scene that is not a partitioned world
-        // opened from its files, a world no runtime grid of which names an HLOD layer, and a world whose HLODs
-        // were never built make none - Status() says which. Refused, by name and leaving nothing made, when the
-        // world's index cannot be read or it lists an HLOD record with the id of a record of the world or of an
-        // entity the scene holds (as Play refuses it). A proxy file that does not read, or whose records cannot be
-        // made, is refused when it lands: logged by name, that HLOD is never drawn. @p layerLoaded: SyncHeld's.
+        // Plans the saved HLOD of every cell of @p scene's world from @p status - the panel's one answer
+        // (HLODStatusOf, made once per change, never here): only a node whose State is Current is drawn, from the
+        // row and the files that status read. Each is made tagged entities only once Apply wants it drawn (its
+        // proxy file read on a worker); what was made before is destroyed first. A scene that is not a partitioned
+        // world opened from its files, a world no runtime grid of which names an HLOD layer, a status that could
+        // not be made (@p statusError) and a world whose HLODs were never built make none - Status() says which.
+        // Refused, by name and leaving nothing made, when the world's descriptor index cannot be read or an HLOD
+        // lists a record with the id of a record of the world or of an entity the scene holds (as Play refuses
+        // it). A Current node whose cell the editor's plan does not have is logged by name and not drawn. A proxy
+        // file that does not read, or whose records cannot be made, is refused when it lands: logged by name, that
+        // HLOD is never drawn. @p layerLoaded: SyncHeld's.
         [[nodiscard]] Common::BoolResultStr Make( ::Desert::Core::Scene&          scene,
                                                   ::Desert::Assets::AssetManager* assets,
-                                                  const std::vector<bool>&        layerLoaded );
+                                                  const std::vector<bool>& layerLoaded, const HLODStatus* status,
+                                                  std::string_view statusError );
 
         // Destroys every entity Make made, and forgets them.
         void Release( ::Desert::Core::Scene& scene );

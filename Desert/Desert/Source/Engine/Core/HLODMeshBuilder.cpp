@@ -1,8 +1,10 @@
 #include <Engine/Core/HLODMeshBuilder.hpp>
 
 #include <Engine/Core/HLODApproximate.hpp>
+#include <Engine/Core/LandscapeHLODInputs.hpp>
 #include <Engine/Core/ModuleHooks.hpp>
 
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
@@ -15,11 +17,13 @@
 #include <Engine/Geometry/ShapeGenerators.hpp>
 #include <LandscapeCore/Public/LandscapeData.hpp>
 #include <LandscapeCore/Public/LandscapeLayout.hpp>
+#include <LandscapeCore/Public/LandscapeSplinesJson.hpp>
 #include <LandscapeCore/Public/LandscapeTileFiles.hpp>
 #include <LandscapeCore/Public/LandscapeWorldPartition.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/AssetHandle.hpp>
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <array>
@@ -626,6 +630,84 @@ namespace Desert::Core
 
     namespace
     {
+        // WHAT A LANDSCAPE TILE'S HLOD IS BUILT FROM (UE ULandscapeHLODBuilder::ComputeHLODHash: the proxy's
+        // transform and size, the landscape material, the heights): its root's frame (the root's composed world
+        // position and tiling), its coordinate, its height file, and the root's look - the LandscapeMaterial's
+        // material and the root's layer infos the bake draws it with. Read by ReadLandscapeHLODTile and by
+        // LandscapeTileHLODInputs alike, so the checksum folds exactly what the builder reads.
+        struct LandscapeTileRead
+        {
+            std::size_t                     RootIndex = 0; // into the records
+            World::Landscape::LandscapeRoot Root;
+            std::int32_t                    TileX = 0;
+            std::int32_t                    TileZ = 0;
+            std::string                     HeightFile;
+            std::string              MaterialKey; // the LandscapeMaterial's GUID text, else its path; "" = none
+            std::vector<std::string> LayerKeys;   // the root's Layers, each GUID text else path
+        };
+
+        // The key the saved-HLOD checksum hashes for one {Guid, Path} reference: the GUID text, else the path.
+        [[nodiscard]] std::string ContentKeyOf( const Assets::AssetGuidRef& reference )
+        {
+            return !reference.Guid.empty() ? reference.Guid : reference.Path;
+        }
+
+        // @p records[index] read as a landscape tile; @p world is every record's composed world matrix, indexed
+        // like @p records. Refused by name: no readable LandscapeTile block, no root, a root not in @p records or
+        // whose frame ValidateLandscapeRoot refuses, a field that does not read.
+        Common::ResultStr<LandscapeTileRead> ReadLandscapeTileFrame( std::span<const Assets::EntityData> records,
+                                                                     std::span<const glm::mat4>          world,
+                                                                     std::size_t                         index )
+        {
+            using Result = LandscapeTileRead;
+            if ( index >= records.size() || world.size() != records.size() )
+                return Common::MakeError<Result>( "the landscape tile names no record of its records" );
+            const Assets::EntityData& tile = records[index];
+            Common::Json::Issues      issues;
+            const auto tileBlock = Rules::Detail::BlockOf( tile, LandscapeCore::kLandscapeTileComponent, issues );
+            if ( !tileBlock.has_value() )
+                return Common::MakeError<Result>( "the record has no readable LandscapeTile block" );
+            Common::UUID rootId;
+            if ( !Rules::Detail::ReadReference( *tileBlock, "Landscape", rootId, issues ) || rootId.IsNull() )
+                return Common::MakeError<Result>( "the tile names no landscape root" );
+            const auto root = std::find_if( records.begin(), records.end(), [&]( const Assets::EntityData& record )
+                                            { return record.id == rootId; } );
+            if ( root == records.end() )
+                return Common::MakeFormattedError<Result>( "the tile's landscape root {} is not in the world",
+                                                           static_cast<std::uint64_t>( rootId ) );
+            Result read;
+            read.RootIndex       = static_cast<std::size_t>( root - records.begin() );
+            const auto rootBlock = Rules::Detail::BlockOf( *root, LandscapeCore::kLandscapeRootComponent, issues );
+            if ( !rootBlock.has_value() )
+                return Common::MakeError<Result>( "the tile's root has no readable Landscape block" );
+            read.Root.Origin = glm::vec3( world[read.RootIndex][3] );
+            rootBlock->ReadInto( "QuadsPerTile", read.Root.QuadsPerTile, issues );
+            rootBlock->ReadInto( "SpacingCm", read.Root.SpacingCm, issues );
+            rootBlock->ReadInto( "ZScale", read.Root.ZScale, issues );
+            if ( auto valid = World::Landscape::ValidateLandscapeRoot( read.Root ); !valid )
+                return Common::MakeError<Result>( "the tile's root: " + valid.GetError() );
+            std::vector<Assets::AssetGuidRef> layers;
+            rootBlock->ReadInto( "Layers", layers, issues );
+            for ( const Assets::AssetGuidRef& layer : layers )
+                read.LayerKeys.push_back( ContentKeyOf( layer ) );
+            if ( const auto look =
+                      Rules::Detail::BlockOf( *root, LandscapeCore::kLandscapeMaterialComponent, issues );
+                 look.has_value() )
+            {
+                Assets::AssetGuidRef material;
+                look->ReadInto( "Material", material, issues );
+                read.MaterialKey = ContentKeyOf( material );
+            }
+            tileBlock->ReadInto( "TileX", read.TileX, issues );
+            tileBlock->ReadInto( "TileZ", read.TileZ, issues );
+            tileBlock->ReadInto( "HeightFile", read.HeightFile, issues );
+            if ( !issues.empty() )
+                return Common::MakeFormattedError<Result>(
+                     "the tile or its root does not read: {} wants {}, holds {}", issues.front().Path,
+                     issues.front().Expected, issues.front().Found );
+            return Common::MakeSuccess( std::move( read ) );
+        }
+
         // The tile a landscape HLOD request names, read once for both its mesh and its baked material's area:
         // the decoded heights and the frame they are laid out by (the root record's composed world position).
         struct LandscapeHLODTileInput
@@ -639,44 +721,14 @@ namespace Desert::Core
         {
             using Result        = LandscapeHLODTileInput;
             namespace Landscape = World::Landscape;
-            if ( request.Tile >= request.Records.size() || request.World.size() != request.Records.size() )
-                return Common::MakeError<Result>( "the landscape tile request names no record of its records" );
-            const Assets::EntityData& tile = request.Records[request.Tile];
-            Common::Json::Issues      issues;
-            const auto tileBlock = Rules::Detail::BlockOf( tile, LandscapeCore::kLandscapeTileComponent, issues );
-            if ( !tileBlock.has_value() )
-                return Common::MakeError<Result>( "the record has no readable LandscapeTile block" );
-            Common::UUID rootId;
-            if ( !Rules::Detail::ReadReference( *tileBlock, "Landscape", rootId, issues ) || rootId.IsNull() )
-                return Common::MakeError<Result>( "the tile names no landscape root" );
-            const auto root =
-                 std::find_if( request.Records.begin(), request.Records.end(),
-                               [&]( const Assets::EntityData& record ) { return record.id == rootId; } );
-            if ( root == request.Records.end() )
-                return Common::MakeFormattedError<Result>( "the tile's landscape root {} is not in the world",
-                                                           static_cast<std::uint64_t>( rootId ) );
-            const std::size_t rootIndex = static_cast<std::size_t>( root - request.Records.begin() );
-            const auto rootBlock = Rules::Detail::BlockOf( *root, LandscapeCore::kLandscapeRootComponent, issues );
-            if ( !rootBlock.has_value() )
-                return Common::MakeError<Result>( "the tile's root has no readable Landscape block" );
-
-            Landscape::LandscapeRoot frameRoot;
-            frameRoot.Origin = glm::vec3( request.World[rootIndex][3] );
-            rootBlock->ReadInto( "QuadsPerTile", frameRoot.QuadsPerTile, issues );
-            rootBlock->ReadInto( "SpacingCm", frameRoot.SpacingCm, issues );
-            rootBlock->ReadInto( "ZScale", frameRoot.ZScale, issues );
-            if ( auto valid = Landscape::ValidateLandscapeRoot( frameRoot ); !valid )
-                return Common::MakeError<Result>( "the tile's root: " + valid.GetError() );
-            std::int32_t tileX = 0;
-            std::int32_t tileZ = 0;
-            std::string  heightFile;
-            tileBlock->ReadInto( "TileX", tileX, issues );
-            tileBlock->ReadInto( "TileZ", tileZ, issues );
-            tileBlock->ReadInto( "HeightFile", heightFile, issues );
-            if ( !issues.empty() )
-                return Common::MakeFormattedError<Result>(
-                     "the tile or its root does not read: {} wants {}, holds {}", issues.front().Path,
-                     issues.front().Expected, issues.front().Found );
+            // The one read of a tile (ReadLandscapeTileFrame), which LandscapeTileHLODInputs reads too.
+            auto read = ReadLandscapeTileFrame( request.Records, request.World, request.Tile );
+            if ( !read )
+                return Common::MakeError<Result>( read.GetError() );
+            const Landscape::LandscapeRoot frameRoot  = read.GetValue().Root;
+            const std::int32_t             tileX      = read.GetValue().TileX;
+            const std::int32_t             tileZ      = read.GetValue().TileZ;
+            const std::string&             heightFile = read.GetValue().HeightFile;
 
             // The loader's own read (ComponentRegistry's LandscapeTile load): the record's content key, resolved
             // the same way, so the stand-in and the near tile read the same file.
@@ -691,6 +743,73 @@ namespace Desert::Core
             return Common::MakeSuccess( Result{ std::move( heights ), frame } );
         }
     } // namespace
+
+    Common::ResultStr<Rules::HLODModuleInputs>
+    LandscapeTileHLODInputs( std::span<const Assets::EntityData> records, std::span<const glm::mat4> world,
+                             std::size_t index )
+    {
+        using Result = Rules::HLODModuleInputs;
+        auto read    = ReadLandscapeTileFrame( records, world, index );
+        if ( !read )
+            return Common::MakeError<Result>( read.GetError() );
+        const LandscapeTileRead& tile = read.GetValue();
+        Result                   inputs;
+        inputs.Text = std::format( "tile quads {} spacing {:a} z {:a} at {} {} height {} material {} layers",
+                                   tile.Root.QuadsPerTile, tile.Root.SpacingCm, tile.Root.ZScale, tile.TileX,
+                                   tile.TileZ, tile.HeightFile, tile.MaterialKey );
+        for ( const std::string& layer : tile.LayerKeys )
+            inputs.Text += " " + layer;
+        inputs.Placed = { tile.RootIndex };
+        inputs.Content.push_back( tile.HeightFile );
+        if ( !tile.MaterialKey.empty() )
+            inputs.Content.push_back( tile.MaterialKey );
+        for ( const std::string& layer : tile.LayerKeys )
+            if ( !layer.empty() )
+                inputs.Content.push_back( layer );
+        return Common::MakeSuccess( std::move( inputs ) );
+    }
+
+    Common::ResultStr<Rules::HLODModuleInputs>
+    LandscapeSplineHLODInputs( std::span<const Assets::EntityData> records, std::span<const glm::mat4>,
+                               std::size_t                         index )
+    {
+        using Result        = Rules::HLODModuleInputs;
+        namespace Landscape = World::Landscape;
+        if ( index >= records.size() )
+            return Common::MakeError<Result>( "the landscape spline names no record of its records" );
+        Common::Json::Issues issues;
+        const auto           block =
+             Rules::Detail::BlockOf( records[index], LandscapeCore::kLandscapeSplineComponent, issues );
+        if ( !block.has_value() )
+            return Common::MakeError<Result>( "the record has no readable LandscapeSpline block" );
+        Landscape::LandscapeSplines splines;
+        Landscape::ReadLandscapeSplinesJson( *block, splines, issues );
+        if ( !issues.empty() )
+            return Common::MakeFormattedError<Result>(
+                 "its LandscapeSpline block does not read: {} wants {}, holds {}", issues.front().Path,
+                 issues.front().Expected, issues.front().Found );
+        Result inputs;
+        inputs.Text = "spline " + Common::Json::Write(
+                                       Common::Json::Value( Landscape::WriteLandscapeSplinesJson( splines ) ) );
+        for ( const Landscape::LandscapeSplineSegment& segment : splines.Segments )
+            for ( const Landscape::LandscapeSplineMeshEntry& entry : segment.SplineMeshes )
+                if ( !entry.Mesh.IsNull() )
+                    inputs.Content.push_back(
+                         std::format( "handle:{}", static_cast<std::uint64_t>( entry.Mesh ) ) );
+        return Common::MakeSuccess( std::move( inputs ) );
+    }
+
+    void RegisterLandscapeHLODInputs()
+    {
+        static const bool registered = []
+        {
+            Rules::RegisterHLODBuilderInputs( LandscapeCore::kLandscapeTileComponent, &LandscapeTileHLODInputs );
+            Rules::RegisterHLODBuilderInputs( LandscapeCore::kLandscapeSplineComponent,
+                                              &LandscapeSplineHLODInputs );
+            return true;
+        }();
+        (void)registered;
+    }
 
     Common::ResultStr<LandscapeHLODTileArea> LandscapeHLODTileAreaOf( const Rules::LandscapeHLODRequest& request )
     {
@@ -914,6 +1033,14 @@ namespace Desert::Core
                 return Common::MakeSuccess( true );
             }
 
+            [[nodiscard]] Common::ResultStr<std::string>
+            SettingsKey( const Common::Json::Value* settings ) const override
+            {
+                if ( settings == nullptr )
+                    return Common::MakeSuccess( std::string{} );
+                return Rules::HLODBuilderSettingsKey<HLODMeshMergeSettings>( settings );
+            }
+
             [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD>
             Build( const Rules::HLODBuildContext& context, Rules::InstancingHLOD gathered ) const override
             {
@@ -953,6 +1080,12 @@ namespace Desert::Core
                 return Common::MakeSuccess( true );
             }
 
+            [[nodiscard]] Common::ResultStr<std::string>
+            SettingsKey( const Common::Json::Value* settings ) const override
+            {
+                return Rules::HLODBuilderSettingsKey<HLODMeshSimplifySettings>( settings );
+            }
+
             [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD>
             Build( const Rules::HLODBuildContext& context, Rules::InstancingHLOD gathered ) const override
             {
@@ -984,6 +1117,12 @@ namespace Desert::Core
                 return Rules::ValidateHLODApproximation( read.GetValue() );
             }
 
+            [[nodiscard]] Common::ResultStr<std::string>
+            SettingsKey( const Common::Json::Value* settings ) const override
+            {
+                return Rules::HLODBuilderSettingsKey<HLODApproximationSettings>( settings );
+            }
+
             [[nodiscard]] Common::ResultStr<Rules::InstancingHLOD>
             Build( const Rules::HLODBuildContext& context, Rules::InstancingHLOD gathered ) const override
             {
@@ -1013,6 +1152,11 @@ namespace Desert::Core
         if ( !read )
             return Common::MakeError<bool>( read.GetError() );
         return ValidateHLODImpostor( read.GetValue() );
+    }
+
+    Common::ResultStr<std::string> HLODBuilderImpostor::SettingsKey( const Common::Json::Value* settings ) const
+    {
+        return Rules::HLODBuilderSettingsKey<HLODImpostorSettings>( settings );
     }
 
     Common::ResultStr<Rules::InstancingHLOD> HLODBuilderImpostor::Build( const Rules::HLODBuildContext& context,

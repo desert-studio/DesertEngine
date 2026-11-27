@@ -67,6 +67,10 @@ namespace Desert::Gameplay
     inline constexpr std::uint8_t kModeCrouched = 1u << 0;
     inline constexpr std::uint8_t kModeSwimming = 1u << 1;
     inline constexpr std::uint8_t kModeJumpHeld = 1u << 2;
+    // The fastest a falling pawn goes down (cm/s; UE APhysicsVolume::TerminalVelocity's default 4000, the cap
+    // UCharacterMovementComponent::GetMaxSpeed applies while falling). A constant of the step on every side, so
+    // the prediction stays bit-exact; a pawn dropped from any height reaches the ground at this speed at most.
+    inline constexpr float kTerminalVelocityCmPerS = 4000.0f;
     // The input step's axis the swim's vertical intent rides (+1 up, -1 down; absent = 0).
     inline constexpr std::size_t kSwimVerticalAxis = 0;
 
@@ -119,6 +123,20 @@ namespace Desert::Gameplay
     // The same from a move mode (PawnMoveState::Mode): its crouch bit picks the capsule.
     [[nodiscard]] DrawnPawn DrawnPawnOf( const PawnMoveSettings& settings, std::uint8_t mode );
 
+    // The first surface an upward ray met (IPawnMoveWorld::SurfaceAbove): its Y, and whether the ray met its front
+    // face - the Underside of a ceiling or a roof - rather than its back face, the top of a body the start is
+    // under or inside. Body: an opaque id of the body hit, the same for every face of one body (the walk's ray
+    // parity per body: a back face means "inside" only for a body whose front face the walk has not met).
+    // kNoSurfaceBody: the Body of a SurfaceAbove no hit has filled - the physics world's invalid body
+    // (Physics::kInvalidBody), so an unfilled answer never poses as a real body.
+    inline constexpr std::uint32_t kNoSurfaceBody = 0xFFFFFFFFu;
+    struct SurfaceAbove
+    {
+        float         Y         = 0.0f;
+        bool          Underside = false;
+        std::uint32_t Body      = kNoSurfaceBody;
+    };
+
     // The collision world one move asks (UE SafeMoveUpdatedComponent + slide + FindFloor): where @p capsule whose
     // feet stand at @p from.Position ends after moving with @p velocity for @p dtSeconds, its velocity after
     // the walls and floors it met, and whether it stands on a walkable floor (@p gravity presses the floor's
@@ -128,7 +146,13 @@ namespace Desert::Gameplay
     // changes the shape with its feet at @p from.Position (UE Crouch / UnCrouch, bCrouchMaintainsBaseLocation:
     // the centre moves by the half-height difference) - or keeps the old one when the new would penetrate it,
     // and Outcome::Capsule says which capsule moved. Fits: would @p capsule stand at @p feet without overlapping
-    // the world (UE: the stand-up test of UnCrouch)?
+    // the world (UE: the stand-up test of UnCrouch)? FloorBelow: the Y of the first surface the pawn stands on
+    // straight below @p start within @p downCm, nullopt for none (UE FindFloor's line trace; the teleport spot's
+    // floor, FindTeleportSpot), by the pawn's channel: a trigger or volume it overlaps is no floor. A downward
+    // ray: a heightfield is found from above only. SurfaceAbove: the same channel straight up, the first
+    // blocking surface within @p upCm and the side the ray met (UE FHitResult::bStartPenetrating): its BACK face
+    // - the top of a heightfield, a mesh floor or a convex the start is under or inside - or its front face, the
+    // underside of a ceiling or a roof (FindTeleportSpot tells "under the ground" from "under a roof" by it).
     class IPawnMoveWorld
     {
     public:
@@ -144,6 +168,9 @@ namespace Desert::Gameplay
                                             const PawnCapsule& capsule, float gravity, float followFloorCm,
                                             float dtSeconds )                                            = 0;
         [[nodiscard]] virtual bool    Fits( const NetVec3& feet, const PawnCapsule& capsule ) const      = 0;
+        [[nodiscard]] virtual std::optional<float> FloorBelow( const NetVec3& start, float downCm ) const = 0;
+        [[nodiscard]] virtual std::optional<Gameplay::SurfaceAbove> SurfaceAbove( const NetVec3& start,
+                                                                                    float upCm ) const = 0;
         // The world's gravity (cm/s^2, down; UE AWorldSettings::GetGravityZ): the level's Scene Settings, the same
         // value on the server (its cooked world), the prediction and standalone Play (the scene's physics world).
         [[nodiscard]] virtual float Gravity() const = 0;

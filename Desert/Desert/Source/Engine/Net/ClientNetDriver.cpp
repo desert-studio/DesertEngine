@@ -6,10 +6,13 @@
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/PlayerStart.hpp>
+#include <Engine/Core/PlayerStreamingView.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/Core/WorldStreamer.hpp>
 #include <Engine/Core/Serialize/CookHash.hpp>
+#include <Engine/Core/Serialize/WorldPartitionStreamingRules.hpp>
+#include <Engine/ECS/AnimationComponent.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/ReflectedComponents.hpp>
 #include <Engine/ECS/TransformComponent.hpp>
@@ -23,6 +26,7 @@
 
 #include <Net/NetTransport.hpp>
 #include <Net/MovePrediction.hpp>
+#include <Projects/NetSettings.hpp>
 #include <Engine/Gameplay/PawnPrefabMovement.hpp>
 #include <Engine/Gameplay/PhysicsPawnMoveWorld.hpp>
 #include <Engine/Gameplay/ScriptedPawnInput.hpp>
@@ -119,6 +123,9 @@ namespace Desert::Core
         // speed change, the reading stays in 0.98-1.02).
         constexpr double kQueueTarget = 1.0, kQueueWindowSeconds = 1.0, kDilationPerStep = 0.01,
                          kMaxDilation = 0.02;
+        // The own pawn stands for the uplink's stationary rate below this speed (cm/s): a held message only delays
+        // steps, never drops one, so a creep under it cannot cause a correction.
+        constexpr float kAtRestSpeedCm = 1.0f;
 
         std::optional<NetPredictionStats>& StatsSlot()
         {
@@ -295,6 +302,7 @@ namespace Desert::Core
         ApplyStableDestroyed( scene );
         ApplyStableState( scene );
         ReportResidency( scene );
+        ReportView( scene );
 
         // The input on the server's fixed step: one numbered step per 1/60 s of this client's clock, dilated by the
         // clock sync; each step is simulated here as it is sent (the prediction) - none before the own pawn is.
@@ -310,9 +318,18 @@ namespace Desert::Core
                 if ( Net::IPawnMover* mover = PredictionMover( scene ) )
                     predictor.Predict( *sent, *mover, Net::kNetStepSeconds );
         }
-        // This frame's steps go out together with every one the server has not acked yet: one message per frame.
+        // This frame's steps go out together with every one the server has not acked yet: one message per frame -
+        // except at rest, where the client sends at the project's stationary rate (NET-SEND-THROTTLE, UE
+        // ClientNetSendMoveDeltaTimeStationary) and any changed step or a moving pawn sends at once.
         if ( steps > 0 )
-            m_Client->FlushInputs();
+        {
+            const Net::PawnMoveState& now     = predictor.Current();
+            const float               speedSq = now.Velocity.X * now.Velocity.X + now.Velocity.Y * now.Velocity.Y +
+                                  now.Velocity.Z * now.Velocity.Z;
+            m_Client->FlushInputs( Net::ReplicationClient::InputSendPolicy{
+                 .PawnAtRest           = now.Grounded && speedSq <= kAtRestSpeedCm * kAtRestSpeedCm,
+                 .StationaryEverySteps = Project::CurrentNetSettings().StationaryInputEverySteps } );
+        }
         if ( !predictor.Started() || m_StepClock >= period ) // a hitch longer than kCatchUpSteps is not caught up
             m_StepClock = 0.0;
 
@@ -356,10 +373,44 @@ namespace Desert::Core
             }
             if ( const auto view = scene.PlayerViewPoint() )
                 shown += std::format( "; view ({:.0f},{:.0f},{:.0f})", ( *view )[3].x, ( *view )[3].y, ( *view )[3].z );
+            // The input uplink (NET-INPUT-PACK): the Input messages' bytes and count over the last second, and the
+            // largest one this session with its step count (a starved client's burst must fit one UDP MTU).
+            const Net::ReplicationClient::InputMessageSize largest = m_Client->LargestInputMessage();
+            const Net::ReplicationClient::InputMessageSize longest = m_Client->LongestInputRun();
             LOG_INFO( "[Net] t={:.1f}s pawns{}; scene players {}; unacked inputs {}; corrections {}; server input "
-                      "queue {:.1f}, clock x{:.2f}{}",
+                      "queue {:.1f}, clock x{:.2f}; input {} B/s, {} msgs; largest message {} B ({} steps); "
+                      "longest run {} steps ({} B){}",
                       m_Clock, line.empty() ? std::string( " none" ) : line, scene.GetPlayers().size(),
-                      m_Client->PendingInputs(), predictor.Corrections(), m_ServerQueue, 1.0 / m_Dilation, shown );
+                      m_Client->PendingInputs(), predictor.Corrections(), m_ServerQueue, 1.0 / m_Dilation,
+                      m_Client->InputBytesPerSecond(), m_Client->InputMessagesPerSecond(), largest.Bytes,
+                      largest.Steps, longest.Steps, longest.Bytes, shown );
+            LogPawnRates();
+        }
+    }
+
+    void ClientNetDriver::LogPawnRates() const
+    {
+        const auto& pawns = m_Client->Pawns();
+        const auto  own   = pawns.find( m_Client->OwnPawn() );
+        if ( own == pawns.end() || own->second.History.Empty() )
+            return; // no own pawn yet: no distance to state
+        const Net::NetVec3 from = own->second.History.Newest().Position;
+        // The nearest kLoggedPawns only: a crowd would flood the log every second.
+        constexpr std::size_t kLoggedPawns = 4;
+        std::vector<std::pair<float, Net::NetId>> nearest;
+        for ( const auto& [id, pawn] : pawns )
+            if ( !pawn.Owned && !pawn.History.Empty() )
+                nearest.emplace_back( Net::GroundDistanceCm( from, pawn.History.Newest().Position ), id );
+        const auto end = nearest.begin() + static_cast<std::ptrdiff_t>( std::min( kLoggedPawns, nearest.size() ) );
+        std::partial_sort( nearest.begin(), end, nearest.end() );
+        for ( auto it = nearest.begin(); it != end; ++it )
+        {
+            const auto& [distance, id] = *it;
+            const auto&         pawn   = pawns.at( id );
+            const std::uint32_t period = pawn.PeriodSteps;
+            LOG_INFO( "[Net] pawn {} (player {}): {:.0f} m, period {} ({:.3g} Hz), delay {:.2f} s", id, pawn.Player,
+                      distance / 100.0f, period, Net::kNetStepHz / static_cast<double>( period ),
+                      m_Client->PawnDelay( id ).value_or( 0.0 ) );
         }
     }
 
@@ -634,6 +685,33 @@ namespace Desert::Core
     namespace
     {
         bool ApplyStableChange( Scene& scene, const Net::ReplicationClient::StableChange& change );
+    }
+
+    void ClientNetDriver::ReportView( Scene& scene )
+    {
+        const auto* of = scene.GetRegistry().try_ctx<WorldStreamerOfScene>();
+        if ( of == nullptr || of->Streamer == nullptr )
+            return; // the played world is not streamed: the server's circle alone
+        const std::optional<Core::PlayerStreamingView> eye = Core::PlayerStreamingViewOf( scene );
+        if ( !eye )
+            return; // no camera to look through: the server's circle around the pawn alone
+        // The view source the streamer streams with (Core::PlayerViewStreamingSource, the same function), seen as
+        // the streaming query sees it (Rules::SourceSectors: the grid's loading range, the targeted grids): the
+        // sector reaching farthest over the partition's grids.
+        const Rules::StreamingSource source = Core::PlayerViewStreamingSource( *eye );
+        std::optional<Rules::SourceSector> farthest;
+        for ( const Core::RuntimePartitionSerialized& grid : of->Streamer->Partition().RuntimePartitions )
+            for ( const Rules::SourceSector& sector : Rules::SourceSectors( source, grid ) )
+                if ( !farthest || sector.Radius > farthest->Radius )
+                    farthest = sector;
+        if ( !farthest )
+            return; // the view reaches no grid: the server's circle alone
+        Net::ViewReport view;
+        view.Position       = Net::NetVec3{ eye->Position.x, eye->Position.y, eye->Position.z };
+        view.FacingYawDeg   = Core::PlayerViewYawDeg( *eye );
+        view.SectorAngleDeg = farthest->IsCircle() ? 360.0f : static_cast<float>( farthest->Angle );
+        view.RangeCm        = static_cast<float>( farthest->Radius );
+        m_Client->ReportView( view );
     }
 
     void ClientNetDriver::ReportResidency( Scene& scene )
@@ -913,12 +991,18 @@ namespace Desert::Core
         const auto authority = m_Client->TakeOwnAuthority();
         if ( !authority )
             return;
-        m_QueueWindowMin = std::min( m_QueueWindowMin, static_cast<double>( authority->InputBuffered ) );
+        // At the stationary rate the server's queue empties between held messages by design: it is not read (a
+        // window without a reading keeps the dilation it had).
+        if ( !m_Client->InputAtStationaryRate() )
+            m_QueueWindowMin = std::min( m_QueueWindowMin, static_cast<double>( authority->InputBuffered ) );
         if ( m_Clock >= m_QueueWindowEnd )
         {
-            m_ServerQueue = m_QueueWindowMin;
-            m_Dilation    = 1.0 + std::clamp( ( m_ServerQueue - kQueueTarget ) * kDilationPerStep, -kMaxDilation,
-                                              kMaxDilation );
+            if ( m_QueueWindowMin < 1e9 )
+            {
+                m_ServerQueue = m_QueueWindowMin;
+                m_Dilation = 1.0 + std::clamp( ( m_ServerQueue - kQueueTarget ) * kDilationPerStep, -kMaxDilation,
+                                               kMaxDilation );
+            }
             m_QueueWindowMin = 1e9;
             m_QueueWindowEnd = m_Clock + kQueueWindowSeconds;
         }
@@ -934,6 +1018,12 @@ namespace Desert::Core
         const glm::vec3 offset = drawnBefore - ( OwnDrawnFeet() - m_SmoothOffset );
         const bool      smooth = glm::length( offset ) <= kNoSmoothDistanceCm;
         m_SmoothOffset         = smooth ? offset : glm::vec3( 0.0f );
+        // Beyond the smoothing distance the pawn is relocated (UE ETeleportType::TeleportPhysics): its meshes
+        // refresh their pose on this tick, before the frame at the new place is drawn (Tick places it below,
+        // before the scene's systems run).
+        if ( !smooth )
+            if ( const auto own = m_Entities.find( m_Client->OwnPawn() ); own != m_Entities.end() )
+                ECS::MarkPoseTeleported( scene.GetRegistry(), own->second );
         LOG_INFO(
              "[Net] correction {} at input step {}: the server has the own pawn at ({:.1f}, {:.1f}, {:.1f}) cm; "
              "{} unacked step(s) replayed; drawn offset {:.1f} cm {}; predicted ({:.1f}, {:.1f}, {:.1f}) v "

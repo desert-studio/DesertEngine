@@ -201,9 +201,9 @@ TEST( PrefabVersionGate, AnAbsentVersionIntegerIsZeroRatherThanCurrent )
 
 TEST( PrefabVersionGate, TheRefusalNamesTheFileTheVersionTheTargetAndTheCommand )
 {
-    const std::string message =
-         RefusePrefabVersion( "Assets/Prefabs/Old.deprefab", 0, 0, Desert::Core::kWorldPartitionVersion,
-                                Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion );
+    const std::string message = RefusePrefabVersion(
+         "Assets/Prefabs/Old.deprefab", 0, 0, Desert::Core::kWorldPartitionVersion, Desert::Core::kAssetRefVersion,
+         Desert::Core::kLightVersion, Desert::Core::kPostProcessVersion );
 
     // The file.
     EXPECT_TRUE( Mentions( message, "Assets/Prefabs/Old.deprefab" ) ) << message;
@@ -221,7 +221,8 @@ TEST( PrefabVersionGate, TheRefusalNamesTheFileTheVersionTheTargetAndTheCommand 
 TEST( PrefabVersionGate, TheRefusalSaysNothingWasLoaded )
 {
     const std::string message = RefusePrefabVersion( "Old.deprefab", 1, 0, Desert::Core::kWorldPartitionVersion,
-                                Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion );
+                                                     Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion,
+                                                     Desert::Core::kPostProcessVersion );
     EXPECT_TRUE( Mentions( message, "NOTHING WAS LOADED" ) ) << message;
 }
 
@@ -231,12 +232,14 @@ TEST( PrefabVersionGate, TheTreeOverloadReportsTheSameVersionsTheTreeCarries )
 {
     EXPECT_EQ( RefusePrefabVersion( "P.deprefab", At( 3, 0 ) ),
                RefusePrefabVersion( "P.deprefab", 3, 0, Desert::Core::kWorldPartitionVersion,
-                                Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion ) );
+                                    Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion,
+                                    Desert::Core::kPostProcessVersion ) );
 
     PrefabData neither; // both absent
     EXPECT_EQ( RefusePrefabVersion( "P.deprefab", neither ),
                RefusePrefabVersion( "P.deprefab", 0, 0, Desert::Core::kWorldPartitionVersion,
-                                Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion ) );
+                                    Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion,
+                                    Desert::Core::kPostProcessVersion ) );
 }
 
 // ---------------------------------------------------------------------------------------------------

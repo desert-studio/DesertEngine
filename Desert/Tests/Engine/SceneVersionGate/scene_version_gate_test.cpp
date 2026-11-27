@@ -212,9 +212,9 @@ TEST( SceneVersionGate, AnAbsentVersionIntegerIsZeroRatherThanCurrent )
 // turns the message into "it did not work", which is where a user's afternoon goes.
 TEST( SceneVersionGate, TheRefusalNamesTheFileTheVersionTheTargetAndTheCommand )
 {
-    const std::string message =
-         RefuseSceneVersion( "Resources/Assets/Scenes/Old.desce", 1, 0, Desert::Core::kWorldPartitionVersion,
-                                Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion );
+    const std::string message = RefuseSceneVersion(
+         "Resources/Assets/Scenes/Old.desce", 1, 0, Desert::Core::kWorldPartitionVersion,
+         Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion, Desert::Core::kPostProcessVersion );
 
     // The file.
     EXPECT_TRUE( Mentions( message, "Resources/Assets/Scenes/Old.desce" ) ) << message;
@@ -236,7 +236,8 @@ TEST( SceneVersionGate, TheRefusalNamesTheFileTheVersionTheTargetAndTheCommand )
 TEST( SceneVersionGate, TheRefusalSaysNothingWasLoaded )
 {
     const std::string message = RefuseSceneVersion( "Old.desce", 1, 0, Desert::Core::kWorldPartitionVersion,
-                                Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion );
+                                                    Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion,
+                                                    Desert::Core::kPostProcessVersion );
     EXPECT_TRUE( Mentions( message, "NOTHING WAS LOADED" ) ) << message;
 }
 
@@ -246,12 +247,14 @@ TEST( SceneVersionGate, TheTreeOverloadReportsTheSameVersionsTheTreeCarries )
 {
     EXPECT_EQ( RefuseSceneVersion( "S.desce", At( 3, 0 ) ),
                RefuseSceneVersion( "S.desce", 3, 0, Desert::Core::kWorldPartitionVersion,
-                                Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion ) );
+                                   Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion,
+                                   Desert::Core::kPostProcessVersion ) );
 
     SceneSerialized neither; // both absent
     EXPECT_EQ( RefuseSceneVersion( "S.desce", neither ),
                RefuseSceneVersion( "S.desce", 0, 0, Desert::Core::kWorldPartitionVersion,
-                                Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion ) );
+                                   Desert::Core::kAssetRefVersion, Desert::Core::kLightVersion,
+                                   Desert::Core::kPostProcessVersion ) );
 }
 
 // ---------------------------------------------------------------------------------------------------

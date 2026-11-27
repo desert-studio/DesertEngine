@@ -30,7 +30,7 @@ namespace Desert::ECS
         if ( entity.IsNull() )
             return Common::MakeFormattedError<T::BindingGuid>( "add actor '{}': the entity has no UUID", label );
         const std::string    locator = std::to_string( static_cast<uint64_t>( entity ) );
-        const T::BindingGuid guid    = T::BindingGuid::ForObject( T::BindingKind::Entity, locator );
+        const T::BindingGuid guid    = T::BindingGuid::ForEntity( locator );
         if ( T::FindBinding( sequence, guid ) == nullptr )
         {
             sequence.Bindings.push_back( T::Binding{ guid, T::BindingKind::Entity, locator, label, {} } );
@@ -46,6 +46,12 @@ namespace Desert::ECS
         pose.Rotation    = glm::quat( transform.GetRotation() );
         pose.Scale       = transform.GetScale();
         return pose;
+    }
+
+    bool IsLevelPoseTrack( const T::Track& track, const T::BindingGuid& binding )
+    {
+        return track.Binding == binding && track.Kind == T::TrackKind::Transform &&
+               ( track.Property == kLevelSequenceTransformProperty || track.Property.empty() );
     }
 
     Common::BoolResultStr SetEntityTransformKey( T::Sequence& sequence, const T::BindingGuid& binding,
@@ -85,7 +91,7 @@ namespace Desert::ECS
         T::Track* EntityTransformTrack( T::Sequence& sequence, const T::BindingGuid& binding )
         {
             for ( T::Track& candidate : sequence.Tracks )
-                if ( candidate.Binding == binding && candidate.Property == kLevelSequenceTransformProperty )
+                if ( IsLevelPoseTrack( candidate, binding ) )
                     return &candidate;
             return nullptr;
         }
@@ -131,7 +137,7 @@ namespace Desert::ECS
         std::vector<Animation::FrameNumber> ticks;
         for ( const T::Track& track : sequence.Tracks )
         {
-            if ( track.Binding != binding || track.Property != kLevelSequenceTransformProperty )
+            if ( !IsLevelPoseTrack( track, binding ) )
                 continue;
             for ( const T::Section& section : track.Sections )
             {
@@ -298,7 +304,7 @@ namespace Desert::ECS
         for ( const TransformKeyRef& ref : keys )
             for ( const T::Track& track : sequence.Tracks )
             {
-                if ( track.Binding != ref.Binding || track.Property != kLevelSequenceTransformProperty )
+                if ( !IsLevelPoseTrack( track, ref.Binding ) )
                     continue;
                 for ( const T::Section& section : track.Sections )
                 {
@@ -434,22 +440,28 @@ namespace Desert::ECS
     }
 
     Common::BoolResultStr AddCameraCut( T::Sequence& sequence, const T::BindingGuid& camera,
-                                        const Animation::FrameNumber start, const Animation::FrameNumber end )
+                                        const Animation::FrameNumber start )
     {
+        // The playback range is where a new cut may begin: its end is derived from it (or from the next cut).
+        if ( start < sequence.Start || sequence.End < start )
+            return Common::MakeError<bool>( "Camera Cut: the playhead is outside the sequence's playback range" );
+
         // Edited on a copy and kept only when the whole sequence still validates: "leaves it as it was" is
         // then true of every refusal, including the ones Validate states and this function does not repeat.
         T::Sequence edited = sequence;
 
-        const T::BindingGuid master = T::BindingGuid::ForObject( T::BindingKind::Sequence, {} );
-        if ( T::FindBinding( edited, master ) == nullptr )
-            edited.Bindings.push_back( T::Binding{ master, T::BindingKind::Sequence, {}, "Camera Cuts", {} } );
-
-        T::Track* track = nullptr;
-        for ( T::Track& candidate : edited.Tracks )
-            if ( candidate.Binding == master && candidate.Kind == T::TrackKind::CameraCut )
-                track = &candidate;
+        // UE UMovieScene::GetCameraCutTrack: the sequence's one camera-cut track, found by its role - the
+        // lookup playback and the timeline share. A minted master binding id is as good as the derived one.
+        T::Track* track = T::FindCameraCutTrack( edited );
         if ( track == nullptr )
         {
+            const auto sequenceBinding = std::find_if( edited.Bindings.begin(), edited.Bindings.end(),
+                                                       []( const T::Binding& binding )
+                                                       { return binding.Kind == T::BindingKind::Sequence; } );
+            const T::BindingGuid master =
+                 sequenceBinding != edited.Bindings.end() ? sequenceBinding->Guid : T::BindingGuid::ForMaster();
+            if ( sequenceBinding == edited.Bindings.end() )
+                edited.Bindings.push_back( T::Binding{ master, T::BindingKind::Sequence, {}, "Camera Cuts", {} } );
             T::Track created;
             created.Binding  = master;
             created.Property = kLevelSequenceCameraCutProperty;
@@ -457,11 +469,36 @@ namespace Desert::ECS
             edited.Tracks.push_back( std::move( created ) );
             track = &edited.Tracks.back();
         }
-        T::Section section;
-        section.Start   = start;
-        section.End     = end;
-        section.Content = T::CameraCutSectionContent{ camera };
-        track->Sections.push_back( std::move( section ) );
+        // UE AddNewCameraCut: cuts never overlap and a new one is never refused for overlapping. A cut that
+        // already begins at @p start is re-pointed; otherwise the new one runs to the next cut (or the End)
+        // and the cut in force at @p start ends one tick before it.
+        const auto isRowZeroCut = []( const T::Section& existing )
+        { return existing.Row == 0 && std::holds_alternative<T::CameraCutSectionContent>( existing.Content ); };
+        const auto startsHere =
+             std::find_if( track->Sections.begin(), track->Sections.end(), [&]( const T::Section& existing )
+                           { return isRowZeroCut( existing ) && existing.Start == start; } );
+        if ( startsHere != track->Sections.end() )
+        {
+            std::get<T::CameraCutSectionContent>( startsHere->Content ).Camera = camera;
+        }
+        else
+        {
+            Animation::FrameNumber end = edited.End;
+            for ( T::Section& existing : track->Sections )
+            {
+                if ( !isRowZeroCut( existing ) )
+                    continue;
+                if ( start < existing.Start && existing.Start - Animation::FrameNumber{ 1 } < end )
+                    end = existing.Start - Animation::FrameNumber{ 1 };
+                else if ( existing.Start < start && start <= existing.End )
+                    existing.End = start - Animation::FrameNumber{ 1 };
+            }
+            T::Section section;
+            section.Start   = start;
+            section.End     = end;
+            section.Content = T::CameraCutSectionContent{ camera };
+            track->Sections.push_back( std::move( section ) );
+        }
 
         if ( const auto valid = T::Validate( edited ); !valid )
             return Common::MakeFormattedError<bool>( "Camera Cut: {}", valid.GetError() );
@@ -907,7 +944,7 @@ namespace Desert::ECS
 
     T::BindingGuid LevelSequenceMasterBinding()
     {
-        return T::BindingGuid::ForObject( T::BindingKind::Sequence, {} );
+        return T::BindingGuid::ForMaster();
     }
 
     namespace
@@ -1362,14 +1399,33 @@ namespace Desert::ECS
                     *drive = saved.Drive;
 
         LevelSequencePlayback playback( sequence );
-        playback.Asset = asset;
+        playback.Asset   = asset;
+        playback.Writer  = std::string( kLevelSequencePreviewWriter );
+        playback.Layered = std::move( m_Layered ); // the step clears what this scrub no longer layers
         const Animation::FrameTime at{ tick, 0.0F };
-        return StepLevelSequence( registry, m_NoOverrides, playback, T::TimeStep{ at, at }, clips, materials,
-                                  subsequences );
+        LevelSequenceStep step = StepLevelSequence( registry, m_NoOverrides, playback, T::TimeStep{ at, at },
+                                                    clips, materials, subsequences );
+        m_Layered = std::move( playback.Layered );
+        return step;
+    }
+
+    void ReleaseLevelSequencePreviewLayers( entt::registry& registry )
+    {
+        // ClearSequencerLayer is a no-op for an Animator another writer holds (a Play actor keeps its own).
+        for ( const entt::entity entity : registry.view<AnimationComponent>() )
+            if ( auto& animation = registry.get<AnimationComponent>( entity ); animation.Animator )
+                animation.Animator->ClearSequencerLayer( kLevelSequencePreviewWriter );
+    }
+
+    void LevelSequencePreview::ReleaseBoneLayers( entt::registry& registry )
+    {
+        ClearLevelSequenceBoneLayers( registry, m_Layered, kLevelSequencePreviewWriter );
     }
 
     void LevelSequencePreview::Restore( entt::registry& registry )
     {
+        // The bone layers first: the Animator's restored clip and tick then publish the scene's own pose.
+        ClearLevelSequenceBoneLayers( registry, m_Layered, kLevelSequencePreviewWriter );
         for ( const Saved& saved : m_Saved )
         {
             if ( !registry.valid( saved.Entity ) )

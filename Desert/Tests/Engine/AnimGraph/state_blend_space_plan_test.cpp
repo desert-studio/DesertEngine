@@ -21,12 +21,13 @@ namespace
         graph.Parameters.push_back( { "Armed", static_cast<int>( G::ParamType::Bool ), 0.0F } );
         G::State state;
         state.Name = "Locomotion";
-        state.BlendSpace =
-             G::StateBlendSpace{ .Axis  = "Speed",
-                                 .Space = G::BlendSpace1DNode{ .Samples     = { G::BlendSample{ "Idle", 0.0F },
-                                                                                G::BlendSample{ "Walk", 300.0F },
-                                                                                G::BlendSample{ "Run", 600.0F } },
-                                                               .WeightSpeed = 4.0F } };
+        state.BlendSpace = G::StateBlendSpace{
+             .AxisParameters = { "Speed" },
+             .Space          = G::BlendSpaceSetup{ .Axes        = { G::BlendSpaceAxis{ .Min = 0.0F, .Max = 600.0F } },
+                                                   .Samples     = { G::BlendSample{ .Clip = "Idle", .X = 0.0F },
+                                                                    G::BlendSample{ .Clip = "Walk", .X = 300.0F },
+                                                                    G::BlendSample{ .Clip = "Run", .X = 600.0F } },
+                                                   .WeightSpeed = 4.0F } };
         G::StateMachine* machine = G::OutputMachine( graph );
         machine->Entry           = "Locomotion";
         machine->States.push_back( std::move( state ) );
@@ -64,12 +65,12 @@ TEST( StateBlendSpacePlan, AStateNamingAClipAndABlendSpaceIsRefused )
     ExpectRefused( graph, "names clip 'Walk' and a blend space" );
 }
 
-// Red without the BlendSpace1DError call: a row out of order, with an empty sample or with no sample plans.
+// Red without the BlendSpaceError call: two samples at one position, an empty sample or no sample plans.
 TEST( StateBlendSpacePlan, ABadRowIsRefusedWithTheRowsReason )
 {
-    G::AnimGraph graph                                     = BlendStateGraph();
-    Locomotion( graph ).BlendSpace->Space.Samples[2].Value = 100.0F;
-    ExpectRefused( graph, "strictly ascending" );
+    G::AnimGraph graph                                 = BlendStateGraph();
+    Locomotion( graph ).BlendSpace->Space.Samples[2].X = 300.0F;
+    ExpectRefused( graph, "at one position" );
 
     graph                                                 = BlendStateGraph();
     Locomotion( graph ).BlendSpace->Space.Samples[1].Clip = "";
@@ -89,12 +90,16 @@ TEST( StateBlendSpacePlan, ABlendSpaceStateInALayerGraphIsRefused )
 // Red without the axis check: a Bool or undeclared axis would read 0 forever (the idle sample, silently).
 TEST( StateBlendSpacePlan, AnAxisThatIsNoDeclaredFloatIsRefused )
 {
-    G::AnimGraph graph                   = BlendStateGraph();
-    Locomotion( graph ).BlendSpace->Axis = "Armed";
+    G::AnimGraph graph                                = BlendStateGraph();
+    Locomotion( graph ).BlendSpace->AxisParameters[0] = "Armed";
     ExpectRefused( graph, "axis 'Armed' is no declared Float parameter" );
 
-    Locomotion( graph ).BlendSpace->Axis = "Velocity";
+    Locomotion( graph ).BlendSpace->AxisParameters[0] = "Velocity";
     ExpectRefused( graph, "axis 'Velocity' is no declared Float parameter" );
+
+    // One axis parameter per axis: a 1D setup named by two parameters plays neither.
+    Locomotion( graph ).BlendSpace->AxisParameters = { "Speed", "Speed" };
+    ExpectRefused( graph, "a Blend Space 2D has 2" );
 }
 
 // Red without GraphClipNames' state blend-space branch: the runtime requests its clips from this list every

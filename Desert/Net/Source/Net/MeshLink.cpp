@@ -1,4 +1,5 @@
 #include "Net/MeshLink.hpp"
+#include "Net/HandoverLedger.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -19,26 +20,33 @@ namespace Desert::Net
             Tick,                              // u32 step
             SimReady,
             LeaseRequest,
-            Lease,            // u32 first, u32 count
-            PawnWrite,        // pawn
-            PawnRemove,       // u32 id
-            StableWrite,      // u64 id, str component, str field, value             (sim -> store)
-            StableChanged,    // u64 id, str component, str field, u32 version, value (store -> subscriber)
-            StableDestroy,    // u64 id
-            Synced,           // the store sent a new subscriber its full state
-            PlayerJoined,     // u32 player, u64 account
-            PlayerLeft,       // u32 player
-            PlayerInput,      // u32 player, the client's Input message as received
-            InputAck,         // u32 player, acked move (step, own movement state, queued steps)
-            PawnSpawned,      // u32 owner, u32 player, pawn
-            PawnDestroyed,    // u32 id
-            Handover,         // handover header (epoch = the sender's), handover pawn  (sim -> store)
-            Adopt,            // handover header (epoch = the new one), handover pawn   (store -> new owner)
-            AuthorityChanged, // u32 id, u32 sim, u32 epoch, u32 step, u32 gateway, u32 player (store -> gateways)
-            ForwardInput,     // u32 to sim, u32 player, Input            (old owner -> store)
-            ForwardedInput,   // u32 player, Input                        (store -> new owner)
+            Lease,             // u32 first, u32 count
+            PawnWrite,         // pawn
+            PawnRemove,        // u32 id
+            StableWrite,       // u64 id, str component, str field, value             (sim -> store)
+            StableChanged,     // u64 id, str component, str field, u32 version, value (store -> subscriber)
+            StableDestroy,     // u64 id
+            Synced,            // the store sent a new subscriber its full state
+            PlayerJoined,      // u32 player, u64 account
+            PlayerLeft,        // u32 player
+            PlayerInput,       // u32 player, the client's Input message as received
+            InputAck,          // u32 player, acked move (step, own movement state, queued steps)
+            PawnSpawned,       // u32 owner, u32 player, pawn
+            PawnDestroyed,     // u32 id
+            AuthorityChanged,  // u32 id, u32 sim, u32 epoch, u32 step, u32 gateway, u32 player (store -> gateways)
+            ForwardInput,      // u32 to sim, u32 player, Input            (old owner -> store)
+            ForwardedInput,    // u32 player, Input                        (store -> new owner)
+            PlayerView,        // u32 player, f32 x3 the reported eye      (gateway -> the pawn's sim)
+            ForwardBacklogEnd, // u32 to sim, u32 player, u32 serial, u32 forwarded     (old owner -> store)
+            ForwardedBacklogEnd, // u32 player, u32 from sim, u32 serial, u32 forwarded   (store -> new owner)
+            End,                 // not a message: one past the last code
         };
+        // One numbering on a mesh connection: the handover codes (HandoverWire.hpp) start past the last EMesh code.
+        static_assert( static_cast<std::uint8_t>( EMesh::End ) <= Handover::kFirstHandoverMessage,
+                       "the EMesh range runs into the handover range (HandoverWire.hpp kFirstHandoverMessage)" );
         constexpr NetId kLeaseSize = 1u << 16;
+        // The store logs its ledger's counts every this many mesh steps (5 s at 60 Hz).
+        constexpr std::uint32_t kStoreDescribeSteps = 300;
 
         class Writer
         {
@@ -304,104 +312,6 @@ namespace Desert::Net
             return r.F32( map.BorderBand ) && r.F32( map.HandoverMargin );
         }
 
-        std::string DescribeRegion( const MeshRegion& region )
-        {
-            if ( region.MinX == -std::numeric_limits<float>::max() &&
-                 region.MaxX == std::numeric_limits<float>::max() &&
-                 region.MinZ == -std::numeric_limits<float>::max() &&
-                 region.MaxZ == std::numeric_limits<float>::max() )
-                return std::format( "region '{}' -> sim {} (epoch {})", region.Name, region.Sim, region.Epoch );
-            return std::format( "region '{}' [x {:.0f}..{:.0f}, z {:.0f}..{:.0f} cm] -> sim {} (epoch {})",
-                                region.Name, region.MinX, region.MaxX, region.MinZ, region.MaxZ, region.Sim,
-                                region.Epoch );
-        }
-
-        // A handover in flight: who hands which pawn to whom, at which mesh step; the gateway the player is on.
-        struct HandoverHeader
-        {
-            std::uint32_t From = 0, Epoch = 0, To = 0, Step = 0, Gateway = 0;
-        };
-
-        void WriteInputStep( Writer& w, const InputStep& input )
-        {
-            w.U32( input.Step );
-            w.F32( input.Move.X );
-            w.F32( input.Move.Y );
-            w.F32( input.Move.Z );
-            w.F32( input.Yaw );
-        }
-
-        void WriteMoveState( Writer& w, const PawnMoveState& move )
-        {
-            w.F32( move.Position.X );
-            w.F32( move.Position.Y );
-            w.F32( move.Position.Z );
-            w.F32( move.Velocity.X );
-            w.F32( move.Velocity.Y );
-            w.F32( move.Velocity.Z );
-            w.F32( move.Yaw );
-            w.U8( MoveFlagsOf( move ) );
-        }
-
-        bool ReadMoveState( Reader& r, PawnMoveState& move )
-        {
-            std::uint8_t grounded = 0;
-            if ( !( r.F32( move.Position.X ) && r.F32( move.Position.Y ) && r.F32( move.Position.Z ) &&
-                    r.F32( move.Velocity.X ) && r.F32( move.Velocity.Y ) && r.F32( move.Velocity.Z ) &&
-                    r.F32( move.Yaw ) && r.U8( grounded ) ) )
-                return false;
-            SetMoveFlags( move, grounded );
-            return true;
-        }
-
-        bool ReadInputStep( Reader& r, InputStep& input )
-        {
-            return r.U32( input.Step ) && r.F32( input.Move.X ) && r.F32( input.Move.Y ) &&
-                   r.F32( input.Move.Z ) && r.F32( input.Yaw );
-        }
-
-        std::vector<std::byte> EncodeHandover( EMesh type, const HandoverHeader& h,
-                                               const PawnSimulation::HandoverPawn& pawn )
-        {
-            Writer w( type );
-            w.U32( h.From );
-            w.U32( h.Epoch );
-            w.U32( h.To );
-            w.U32( h.Step );
-            w.U32( h.Gateway );
-            w.U32( pawn.Player );
-            w.U64( pawn.Account );
-            w.U32( pawn.Index );
-            w.Pawn( pawn.State );
-            w.U8( pawn.LastProcessed ? 1 : 0 );
-            w.U32( pawn.LastProcessed.value_or( 0 ) );
-            WriteMoveState( w, pawn.Move );
-            w.U32( static_cast<std::uint32_t>( pawn.Pending.size() ) );
-            for ( const InputStep& input : pawn.Pending )
-                WriteInputStep( w, input );
-            return w.Take();
-        }
-
-        bool DecodeHandover( std::span<const std::byte> body, HandoverHeader& h,
-                             PawnSimulation::HandoverPawn& pawn )
-        {
-            Reader        r( body );
-            std::uint8_t  hasProcessed = 0;
-            std::uint32_t processed = 0, pending = 0;
-            if ( !r.U32( h.From ) || !r.U32( h.Epoch ) || !r.U32( h.To ) || !r.U32( h.Step ) ||
-                 !r.U32( h.Gateway ) || !r.U32( pawn.Player ) || !r.U64( pawn.Account ) || !r.U32( pawn.Index ) ||
-                 !r.Pawn( pawn.State ) || !r.U8( hasProcessed ) || !r.U32( processed ) ||
-                 !ReadMoveState( r, pawn.Move ) || !r.U32( pending ) || pending > InputRing::kCapacity )
-                return false;
-            if ( hasProcessed )
-                pawn.LastProcessed = processed;
-            pawn.Pending.resize( pending );
-            for ( InputStep& input : pawn.Pending )
-                if ( !ReadInputStep( r, input ) )
-                    return false;
-            return true;
-        }
-
         std::vector<std::byte> EncodeStableChanged( StableNetId id, const FieldUpdate& field )
         {
             Writer w( EMesh::StableChanged );
@@ -476,6 +386,17 @@ namespace Desert::Net
     std::vector<std::byte> EncodeMeshSimReady()
     {
         return Empty( EMesh::SimReady );
+    }
+
+    std::string DescribeMeshRegion( const MeshRegion& region )
+    {
+        if ( region.MinX == -std::numeric_limits<float>::max() &&
+             region.MaxX == std::numeric_limits<float>::max() &&
+             region.MinZ == -std::numeric_limits<float>::max() &&
+             region.MaxZ == std::numeric_limits<float>::max() )
+            return std::format( "region '{}' -> sim {} (epoch {})", region.Name, region.Sim, region.Epoch );
+        return std::format( "region '{}' [x {:.0f}..{:.0f}, z {:.0f}..{:.0f} cm] -> sim {} (epoch {})", region.Name,
+                            region.MinX, region.MaxX, region.MinZ, region.MaxZ, region.Sim, region.Epoch );
     }
 
     const MeshRegion* MeshAuthorityMap::RegionAt( float x, float z ) const
@@ -559,10 +480,10 @@ namespace Desert::Net
 
     std::optional<ConnectionId> MeshEndpoint::PeerConnection( EMeshRole role, std::uint32_t index ) const
     {
-        for ( const auto& [connection, link] : m_Links )
-            if ( link.Up && link.Role == role && link.Index == index )
-                return connection;
-        return std::nullopt;
+        const auto route = m_Routes.find( { role, index } );
+        if ( route == m_Routes.end() )
+            return std::nullopt;
+        return route->second;
     }
 
     void MeshEndpoint::Send( ConnectionId connection, const std::vector<std::byte>& message )
@@ -574,17 +495,17 @@ namespace Desert::Net
 
     void MeshEndpoint::SendToRole( EMeshRole role, const std::vector<std::byte>& message )
     {
-        for ( const auto& [connection, link] : m_Links )
-            if ( link.Up && link.Role == role )
+        for ( const auto& [identity, connection] : m_Routes )
+            if ( identity.first == role )
                 Send( connection, message );
     }
 
     std::vector<std::uint32_t> MeshEndpoint::PeersOfRole( EMeshRole role ) const
     {
         std::vector<std::uint32_t> out;
-        for ( const auto& [connection, link] : m_Links )
-            if ( link.Up && link.Role == role )
-                out.push_back( link.Index );
+        for ( const auto& [identity, connection] : m_Routes )
+            if ( identity.first == role )
+                out.push_back( identity.second );
         return out;
     }
 
@@ -613,6 +534,21 @@ namespace Desert::Net
         return true;
     }
 
+    void MeshEndpoint::Claim( ConnectionId connection )
+    {
+        Link& link                  = m_Links.at( connection );
+        link.Up                     = true;
+        const auto [route, claimed] = m_Routes.try_emplace( { link.Role, link.Index }, connection );
+        if ( !claimed )
+        {
+            m_Log( std::format( "mesh: link {} is a second link as {} {} - link {} stays its route", connection,
+                                MeshRoleName( link.Role ), link.Index, route->second ) );
+            return;
+        }
+        if ( m_Handler.PeerUp )
+            m_Handler.PeerUp( link.Role, link.Index, connection, link.MeshPort );
+    }
+
     void MeshEndpoint::OnConnected( ConnectionId connection, std::string_view address )
     {
         const auto it = m_Links.find( connection );
@@ -626,9 +562,7 @@ namespace Desert::Net
             hello.U32( m_Index );
             hello.U32( m_MeshPort );
             Send( connection, hello.Take() );
-            m_Links[connection].Up = true;
-            if ( m_Handler.PeerUp )
-                m_Handler.PeerUp( link.Role, link.Index, connection, 0 );
+            Claim( connection );
             return;
         }
         if ( m_Role == EMeshRole::Gateway )
@@ -656,8 +590,20 @@ namespace Desert::Net
         m_Links.erase( it );
         m_Log( std::format( "mesh: link {} ({} {}) closed: {} {}", connection, MeshRoleName( link.Role ),
                             link.Index, info.Code, info.Reason ) );
-        if ( link.Up && m_Handler.PeerLost )
+        const auto route = m_Routes.find( { link.Role, link.Index } );
+        if ( !link.Up || route == m_Routes.end() || route->second != connection )
+            return;
+        m_Routes.erase( route );
+        if ( m_Handler.PeerLost )
             m_Handler.PeerLost( link.Role, link.Index, connection );
+        const auto heir = std::ranges::find_if(
+             m_Links, [&link]( const auto& entry )
+             { return entry.second.Up && entry.second.Role == link.Role && entry.second.Index == link.Index; } );
+        if ( heir == m_Links.end() )
+            return;
+        m_Log( std::format( "mesh: link {} takes over the route to {} {}", heir->first, MeshRoleName( link.Role ),
+                            link.Index ) );
+        Claim( heir->first );
     }
 
     void MeshEndpoint::OnMessage( ConnectionId connection, ENetLane lane, std::span<const std::byte> data,
@@ -691,12 +637,11 @@ namespace Desert::Net
             }
             if ( !Authenticate( connection, static_cast<EMeshRole>( role ), index ) )
                 return;
-            Link& link = m_Links[connection];
-            link.Up    = true;
-            link.Role  = static_cast<EMeshRole>( role );
-            link.Index = index;
-            if ( m_Handler.PeerUp )
-                m_Handler.PeerUp( link.Role, index, connection, static_cast<std::uint16_t>( port ) );
+            Link& link    = m_Links[connection];
+            link.Role     = static_cast<EMeshRole>( role );
+            link.Index    = index;
+            link.MeshPort = static_cast<std::uint16_t>( port );
+            Claim( connection );
             return;
         }
         if ( m_Handler.Message )
@@ -785,7 +730,7 @@ namespace Desert::Net
             if ( m_Map.Regions.empty() )
                 m_Log( "coordinator: authority map empty (no ready sim)" );
             for ( const MeshRegion& region : m_Map.Regions )
-                m_Log( std::format( "coordinator: authority map: {}{}", DescribeRegion( region ),
+                m_Log( std::format( "coordinator: authority map: {}{}", DescribeMeshRegion( region ),
                                     m_Table.Regions.empty()
                                          ? std::string()
                                          : std::format( "; border band {:.0f} cm, handover margin {:.0f} cm",
@@ -834,15 +779,26 @@ namespace Desert::Net
     // ------------------------------------------------------------------------------------------------- MeshStore
 
     MeshStore::MeshStore( MeshEndpoint& endpoint, NetLogSink log )
-         : m_Endpoint( endpoint ), m_Log( std::move( log ) )
+         : m_Endpoint( endpoint ), m_Log( std::move( log ) ),
+           m_Ledger( std::make_unique<Handover::Ledger>( [this]( std::uint32_t sim )
+                                                          { return m_Endpoint.PeerConnection( EMeshRole::Sim, sim ).has_value(); } ) )
     {
         m_Endpoint.SetHandler(
              { [this]( EMeshRole role, std::uint32_t index, ConnectionId connection, std::uint16_t )
-               { PeerUp( role, index, connection ); }, [this]( EMeshRole role, std::uint32_t index, ConnectionId )
-               { m_Log( std::format( "store: {} {} unsubscribed", MeshRoleName( role ), index ) ); },
+               { PeerUp( role, index, connection ); },
+               [this]( EMeshRole role, std::uint32_t index, ConnectionId )
+               {
+                   m_Log( std::format( "store: {} {} unsubscribed", MeshRoleName( role ), index ) );
+                   // Its open offers end now, each with its reason to the side that still holds something
+                   // (HandoverLedger.hpp): nothing waits for a sim that is gone.
+                   if ( role == EMeshRole::Sim )
+                       Apply( m_Ledger->OnSimLost( index ) );
+               },
                [this]( EMeshRole role, std::uint32_t index, ConnectionId, std::uint8_t type,
                        std::span<const std::byte> body ) { Message( role, index, type, body ); } } );
     }
+
+    MeshStore::~MeshStore() = default;
 
     void MeshStore::PeerUp( EMeshRole role, std::uint32_t index, ConnectionId connection )
     {
@@ -886,7 +842,15 @@ namespace Desert::Net
         {
             m_Map = *map;
             for ( const MeshRegion& region : m_Map.Regions )
-                m_Log( std::format( "store: authority map from the coordinator: {}", DescribeRegion( region ) ) );
+                m_Log( std::format( "store: authority map from the coordinator: {}", DescribeMeshRegion( region ) ) );
+            return;
+        }
+        if ( const auto step = DecodeMeshTick( type, body ) )
+        {
+            // The ledger's counts once every 300 mesh steps (5 s): the operator reads the handovers' outcomes
+            // without a console of the store.
+            if ( *step % kStoreDescribeSteps == 0 )
+                m_Log( std::format( "store: step {}: {}", *step, m_Ledger->Describe() ) );
             return;
         }
         if ( role != EMeshRole::Sim )
@@ -907,18 +871,21 @@ namespace Desert::Net
             PawnState pawn;
             if ( !r.Pawn( pawn ) )
                 return;
-            const auto [record, created] = m_PawnAuthority.emplace( pawn.Id, Authority{ index, 1 } );
-            if ( created )
-                m_Log( std::format( "store: pawn net id {} - authority (sim {}, epoch 1)", pawn.Id, index ) );
-            else if ( record->second.Sim != index )
+            const bool first = !m_Ledger->Of( pawn.Id );
+            if ( !m_Ledger->AdmitWrite( pawn.Id, index ) )
             {
                 // A write of an epoch that is over (the sim has not seen its handover land yet): refused.
-                if ( m_Refused.insert( { pawn.Id, index } ).second )
+                if ( m_RefusedWrites.insert( { pawn.Id, index } ).second )
+                {
+                    const auto record = m_Ledger->Of( pawn.Id );
                     m_Log( std::format( "store: pawn net id {} - write from sim {} refused, authority is (sim {}, "
                                         "epoch {})",
-                                        pawn.Id, index, record->second.Sim, record->second.Epoch ) );
+                                        pawn.Id, index, record ? record->Sim : 0, record ? record->Epoch : 0 ) );
+                }
                 return;
             }
+            if ( first )
+                m_Log( std::format( "store: pawn net id {} - authority (sim {}, epoch 1)", pawn.Id, index ) );
             m_State.Write( pawn );
             m_Endpoint.SendToRole( EMeshRole::Gateway, EncodePawn( EMesh::PawnWrite, pawn ) );
             StreamProxies( pawn, index );
@@ -928,19 +895,20 @@ namespace Desert::Net
             std::uint32_t id = 0;
             if ( !r.U32( id ) )
                 return;
-            if ( const auto record = m_PawnAuthority.find( id );
-                 record != m_PawnAuthority.end() && record->second.Sim != index )
-                return;
+            Handover::Effects effects;
+            const bool        holder = m_Ledger->Remove( id, index, effects );
+            Apply( std::move( effects ) );
+            if ( !holder && m_Ledger->Of( id ) )
+                return; // another sim holds the record: not this sim's pawn to remove
             m_State.Remove( id );
-            m_PawnAuthority.erase( id );
             m_Endpoint.SendToRole( EMeshRole::Gateway, EncodeU32( EMesh::PawnRemove, id ) );
             for ( auto& [sim, proxies] : m_Proxies )
                 if ( proxies.erase( id ) )
                     if ( const auto connection = m_Endpoint.PeerConnection( EMeshRole::Sim, sim ) )
                         m_Endpoint.Send( *connection, EncodeU32( EMesh::PawnRemove, id ) );
         }
-        else if ( type == Code( EMesh::Handover ) )
-            Handover( index, body );
+        else if ( Handover::IsHandoverMessage( type ) )
+            Apply( m_Ledger->OnSimMessage( index, type, body ) );
         else if ( type == Code( EMesh::ForwardInput ) )
         {
             std::uint32_t to = 0, player = 0;
@@ -950,10 +918,40 @@ namespace Desert::Net
             w.U32( player );
             w.Bytes( r.Rest() );
             if ( const auto connection = m_Endpoint.PeerConnection( EMeshRole::Sim, to ) )
+            {
                 m_Endpoint.Send( *connection, w.Take() );
-            m_Log( std::format( "store: input of player {} that reached sim {} after its handover -> forwarded to "
-                                "sim {}",
-                                player, index, to ) );
+                m_Log( std::format( "store: input of player {} that reached sim {} after its handover -> forwarded "
+                                    "to sim {}",
+                                    player, index, to ) );
+            }
+            else
+                m_Log( std::format( "store: input of player {} that reached sim {} after its handover dropped - no "
+                                    "link to sim {}",
+                                    player, index, to ) );
+        }
+        else if ( type == Code( EMesh::ForwardBacklogEnd ) )
+        {
+            // Relayed on the same lane as the forward's inputs, after them: the new owner reads the mark only once
+            // every input of the forward has been delivered.
+            std::uint32_t to = 0, player = 0, serial = 0, forwarded = 0;
+            if ( !r.U32( to ) || !r.U32( player ) || !r.U32( serial ) || !r.U32( forwarded ) )
+                return;
+            Writer w( EMesh::ForwardedBacklogEnd );
+            w.U32( player );
+            w.U32( index );
+            w.U32( serial );
+            w.U32( forwarded );
+            if ( const auto connection = m_Endpoint.PeerConnection( EMeshRole::Sim, to ) )
+            {
+                m_Endpoint.Send( *connection, w.Take() );
+                m_Log( std::format( "store: end of the backlog of offer (sim {}, #{}) of player {} ({} input "
+                                    "step(s)) -> sim {}",
+                                    index, serial, player, forwarded, to ) );
+            }
+            else
+                m_Log( std::format( "store: end of the backlog of offer (sim {}, #{}) of player {} dropped - no "
+                                    "link to sim {}",
+                                    index, serial, player, to ) );
         }
         else if ( type == Code( EMesh::StableWrite ) )
         {
@@ -1013,60 +1011,42 @@ namespace Desert::Net
         }
     }
 
-    void MeshStore::Handover( std::uint32_t from, std::span<const std::byte> body )
+    void MeshStore::Apply( Handover::Effects effects )
     {
-        HandoverHeader               h;
-        PawnSimulation::HandoverPawn pawn;
-        if ( !DecodeHandover( body, h, pawn ) )
-            return;
-        const NetId id     = pawn.State.Id;
-        const auto  record = m_PawnAuthority.find( id );
-        const auto  target = m_Endpoint.PeerConnection( EMeshRole::Sim, h.To );
-        // THE COMPARE-AND-SWAP of the authority record: only the holder of the current epoch hands over, to a
-        // sim the store can reach; anything else is refused, and a refused holder gets its pawn back.
-        if ( record == m_PawnAuthority.end() || record->second.Sim != from || record->second.Epoch != h.Epoch ||
-             !target )
+        for ( const std::string& line : effects.Log )
+            m_Log( line );
+        for ( const Handover::Send& send : effects.Sends )
         {
-            m_Log(
-                 std::format( "store: handover of pawn net id {} from (sim {}, epoch {}) to sim {} at step {} "
-                              "refused - the record is {}",
-                              id, from, h.Epoch, h.To, h.Step,
-                              record == m_PawnAuthority.end()
-                                   ? std::string( "missing" )
-                                   : std::format( "(sim {}, epoch {}){}", record->second.Sim, record->second.Epoch,
-                                                  target ? "" : ", no link to the target sim" ) ) );
-            if ( record != m_PawnAuthority.end() && record->second.Sim == from )
+            if ( send.Index == 0 )
             {
-                h.To    = from;
-                h.Epoch = record->second.Epoch;
-                if ( const auto back = m_Endpoint.PeerConnection( EMeshRole::Sim, from ) )
-                    m_Endpoint.Send( *back, EncodeHandover( EMesh::Adopt, h, pawn ) );
+                m_Endpoint.SendToRole( send.Role, send.Message );
+                continue;
             }
-            return;
+            if ( const auto connection = m_Endpoint.PeerConnection( send.Role, send.Index ) )
+                m_Endpoint.Send( *connection, send.Message );
+            else
+                m_Log( std::format( "store: handover message ({} bytes) to {} {} dropped - no link to it",
+                                    send.Message.size(), MeshRoleName( send.Role ), send.Index ) );
         }
-        record->second = { h.To, h.Epoch + 1 };
-        m_Refused.erase( { id, h.To } );
-        m_Proxies[h.To].erase( id );
-        m_State.Write( pawn.State );
-        m_Log( std::format(
-             "store: pawn net id {} (player {} of gateway {}) authority (sim {}, epoch {}) -> (sim {}, "
-             "epoch {}) at step {} - full state at ({:.0f}, {:.0f}, {:.0f}) cm + {} unacked input(s) "
-             "handed to sim {}",
-             id, pawn.Player, h.Gateway, from, h.Epoch, h.To, h.Epoch + 1, h.Step, pawn.State.Position.X,
-             pawn.State.Position.Y, pawn.State.Position.Z, pawn.Pending.size(), h.To ) );
-        HandoverHeader adopt = h;
-        adopt.Epoch          = h.Epoch + 1;
-        m_Endpoint.Send( *target, EncodeHandover( EMesh::Adopt, adopt, pawn ) );
+        if ( !effects.Commit )
+            return;
+        // THE RECORD MOVED (the receiver accepted an open offer): the frozen state becomes the state of record,
+        // the gateways re-route the player's inputs (AuthorityChanged) and see the state, the proxies follow the
+        // new owner.
+        const Handover::Committed& commit = *effects.Commit;
+        m_RefusedWrites.erase( { commit.Id, commit.To } );
+        m_Proxies[commit.To].erase( commit.Id );
+        m_State.Write( commit.Pawn.State );
         Writer changed( EMesh::AuthorityChanged );
-        changed.U32( id );
-        changed.U32( h.To );
-        changed.U32( adopt.Epoch );
-        changed.U32( h.Step );
-        changed.U32( h.Gateway );
-        changed.U32( pawn.Player );
+        changed.U32( commit.Id );
+        changed.U32( commit.To );
+        changed.U32( commit.Epoch );
+        changed.U32( commit.Step );
+        changed.U32( commit.Gateway );
+        changed.U32( commit.Player );
         m_Endpoint.SendToRole( EMeshRole::Gateway, changed.Take() );
-        m_Endpoint.SendToRole( EMeshRole::Gateway, EncodePawn( EMesh::PawnWrite, pawn.State ) );
-        StreamProxies( pawn.State, h.To );
+        m_Endpoint.SendToRole( EMeshRole::Gateway, EncodePawn( EMesh::PawnWrite, commit.Pawn.State ) );
+        StreamProxies( commit.Pawn.State, commit.To );
     }
 
     // ------------------------------------------------------------------------------------- RemoteReplicationStore
@@ -1283,6 +1263,7 @@ namespace Desert::Net
         m_Routed.erase( player );
         m_Acks.erase( player );
         m_Authority.erase( player );
+        m_Views.erase( player );
     }
 
     void RemoteSimLink::PlayerInput( PlayerId player, const InputMessage& input )
@@ -1292,6 +1273,25 @@ namespace Desert::Net
             Writer w( EMesh::PlayerInput );
             w.U32( player );
             w.Bytes( EncodeInput( input ) );
+            m_Endpoint.Send( *connection, w.Take() );
+        }
+    }
+
+    void RemoteSimLink::PlayerView( PlayerId player, const NetVec3& eye )
+    {
+        m_Views[player] = eye;
+        SendView( player, eye, "view" );
+    }
+
+    void RemoteSimLink::SendView( PlayerId player, const NetVec3& eye, std::string_view what )
+    {
+        if ( const auto connection = Route( player, what ) )
+        {
+            Writer w( EMesh::PlayerView );
+            w.U32( player );
+            w.F32( eye.X );
+            w.F32( eye.Y );
+            w.F32( eye.Z );
             m_Endpoint.Send( *connection, w.Take() );
         }
     }
@@ -1309,7 +1309,7 @@ namespace Desert::Net
         {
             m_Map = std::move( *map );
             for ( const MeshRegion& region : m_Map.Regions )
-                m_Log( std::format( "gateway: authority map: {}", DescribeRegion( region ) ) );
+                m_Log( std::format( "gateway: authority map: {}", DescribeMeshRegion( region ) ) );
             return true;
         }
         if ( type == Code( EMesh::InputAck ) )
@@ -1337,6 +1337,10 @@ namespace Desert::Net
              "gateway: player {} pawn net id {} - authority (sim {}, epoch {}) from step {}: its inputs "
              "re-routed to sim {}",
              player, id, sim, epoch, step, sim ) );
+        // The new owner streams around the player from its first step: it gets the last reported eye now, not at
+        // the client's next report.
+        if ( const auto view = m_Views.find( player ); view != m_Views.end() )
+            SendView( player, view->second, "view (re-sent on authority change)" );
         return true;
     }
 
@@ -1393,7 +1397,10 @@ namespace Desert::Net
         }
         if ( type == Code( EMesh::PlayerInput ) )
         {
-            if ( r.U32( player ) && m_GatewayOf.contains( player ) )
+            // A player this sim joined, or one whose pawn it holds: an INCOMING pawn (accepted, not committed
+            // yet) takes the inputs the gateway re-routed as soon as the store's AuthorityChanged reached it -
+            // they queue on it and are applied once the commit lands (no input lost to the race of the two links).
+            if ( r.U32( player ) && ( m_GatewayOf.contains( player ) || sim.HasPawn( player ) ) )
                 if ( const auto input = DecodeInput( r.Rest() ) )
                 {
                     // Sent before the gateway saw the handover: on to the pawn's owner, by its steps (§2M.4).
@@ -1409,6 +1416,15 @@ namespace Desert::Net
                     else
                         sim.PlayerInput( player, *input );
                 }
+            return true;
+        }
+        if ( type == Code( EMesh::PlayerView ) )
+        {
+            // The pawn's eye goes with the pawn: a view that reaches this sim after its handover is dropped; the
+            // gateway re-sends the player's last eye to the new owner when it re-routes on AuthorityChanged.
+            NetVec3 eye;
+            if ( r.U32( player ) && r.F32( eye.X ) && r.F32( eye.Y ) && r.F32( eye.Z ) )
+                sim.PlayerView( player, eye );
             return true;
         }
         return false;
@@ -1435,9 +1451,56 @@ namespace Desert::Net
         return it == m_GatewayOf.end() ? std::nullopt : std::optional<std::uint32_t>( it->second );
     }
 
-    void RemoteGatewayLink::ForwardInputs( PlayerId player, std::uint32_t sim )
+    std::size_t RemoteGatewayLink::ForwardInputs( PlayerId player, std::uint32_t sim, Handover::OfferKey offer,
+                                                  std::span<const InputStep> queued )
     {
         m_ForwardTo[player] = sim;
+        // The queued steps go as runs of consecutive steps, oldest first, up to the first hole: the client
+        // resends every unacked step in each Input message, so a step past a hole reaches the new owner with the
+        // client's next message, and a run that started past the hole would move the new owner's resend floor
+        // over it (PawnSimulation::PlayerInput).
+        std::size_t forwarded = 0;
+        InputMessage run;
+        for ( const InputStep& step : queued )
+        {
+            if ( !run.Steps.empty() && step.Step != run.Steps.back().Step + 1 )
+                break;
+            run.Steps.push_back( step );
+        }
+        for ( std::size_t at = 0; at < run.Steps.size(); at += kMaxUnackedInputSteps )
+        {
+            InputMessage part;
+            part.Steps.assign( run.Steps.begin() + static_cast<std::ptrdiff_t>( at ),
+                               run.Steps.begin() +
+                                    static_cast<std::ptrdiff_t>( std::min( run.Steps.size(), at + kMaxUnackedInputSteps ) ) );
+            std::vector<std::byte> encoded = EncodeInput( part );
+            if ( encoded.empty() )
+            {
+                m_Log( std::format( "sim: {} queued input step(s) of player {} from step {} not forwarded to sim {} - "
+                                    "a step the wire does not carry (InputWire.hpp); the client resends them",
+                                    part.Steps.size(), player, part.Steps.front().Step, sim ) );
+                break;
+            }
+            Writer w( EMesh::ForwardInput );
+            w.U32( sim );
+            w.U32( player );
+            w.Bytes( encoded );
+            m_Endpoint.SendToRole( EMeshRole::Store, w.Take() );
+            forwarded += part.Steps.size();
+        }
+        EndBacklog( player, sim, offer, static_cast<std::uint32_t>( forwarded ) );
+        return forwarded;
+    }
+
+    void RemoteGatewayLink::EndBacklog( PlayerId player, std::uint32_t sim, Handover::OfferKey offer,
+                                        std::uint32_t forwarded )
+    {
+        Writer w( EMesh::ForwardBacklogEnd );
+        w.U32( sim );
+        w.U32( player );
+        w.U32( offer.Serial );
+        w.U32( forwarded );
+        m_Endpoint.SendToRole( EMeshRole::Store, w.Take() );
     }
 
     void RemoteGatewayLink::Adopted( PlayerId player, std::uint32_t gateway )
@@ -1446,91 +1509,26 @@ namespace Desert::Net
         m_ForwardTo.erase( player );
     }
 
-    // ------------------------------------------------------------------------------------------------ SimHandover
-
-    SimHandover::SimHandover( MeshEndpoint& endpoint, std::uint32_t sim, NetLogSink log )
-         : m_Endpoint( endpoint ), m_Sim( sim ), m_Log( std::move( log ) )
+    std::optional<MeshBacklogEnd> DecodeMeshBacklogEnd( std::uint8_t type, std::span<const std::byte> body )
     {
+        if ( type != Code( EMesh::ForwardedBacklogEnd ) )
+            return std::nullopt;
+        Reader         r( body );
+        MeshBacklogEnd end;
+        end.Decoded =
+             r.U32( end.Player ) && r.U32( end.Offer.From ) && r.U32( end.Offer.Serial ) && r.U32( end.Forwarded );
+        return end;
     }
 
-    bool SimHandover::OnCoordinatorMessage( std::uint8_t type, std::span<const std::byte> body )
+    std::optional<MeshForwardedInput> DecodeMeshForwardedInput( std::uint8_t type, std::span<const std::byte> body )
     {
-        auto map = DecodeMeshAuthorityMap( type, body );
-        if ( !map )
-            return false;
-        m_Map = std::move( *map );
-        for ( const MeshRegion& region : m_Map.Regions )
-            m_Log( std::format( "sim {}: authority map: {}{}", m_Sim, DescribeRegion( region ),
-                                region.Sim == m_Sim ? " (this sim)" : "" ) );
-        return true;
-    }
-
-    void SimHandover::AfterStep( std::uint32_t step, PawnSimulation& sim, RemoteGatewayLink& gateways,
-                                 RemoteReplicationStore& replica )
-    {
-        for ( const PawnSimulation::Source& source : sim.Sources() )
-        {
-            const auto target  = m_Map.HandoverTarget( m_Sim, source.Position.X, source.Position.Z );
-            const auto gateway = gateways.GatewayOf( source.Player );
-            if ( !target || !gateway )
-                continue;
-            const MeshRegion* region = m_Map.RegionAt( source.Position.X, source.Position.Z );
-            auto              pawn   = sim.Release( source.Player );
-            if ( !pawn || !region )
-                continue;
-            const auto          epochIt = m_Epoch.find( source.Player );
-            const std::uint32_t epoch   = epochIt == m_Epoch.end() ? 1 : epochIt->second;
-            m_Log( std::format(
-                 "sim {}: pawn net id {} (player {}) at ({:.0f}, {:.0f}) cm is {:.0f} cm inside region "
-                 "'{}' of sim {} (margin {:.0f}) - frozen at step {} and handed over through the store "
-                 "(epoch {}, {} unacked input(s))",
-                 m_Sim, source.Id, source.Player, source.Position.X, source.Position.Z,
-                 region->Depth( source.Position.X, source.Position.Z ), region->Name, *target,
-                 m_Map.HandoverMargin, step, epoch, pawn->Pending.size() ) );
-            m_Endpoint.SendToRole(
-                 EMeshRole::Store,
-                 EncodeHandover( EMesh::Handover, { m_Sim, epoch, *target, step, *gateway }, *pawn ) );
-            gateways.ForwardInputs( source.Player, *target );
-            replica.Forget( source.Id );
-            m_Epoch.erase( source.Player );
-        }
-    }
-
-    bool SimHandover::OnStoreMessage( std::uint8_t type, std::span<const std::byte> body, PawnSimulation& sim,
-                                      RemoteGatewayLink& gateways, RemoteReplicationStore& replica,
-                                      std::uint32_t step )
-    {
-        if ( type == Code( EMesh::Adopt ) )
-        {
-            HandoverHeader               h;
-            PawnSimulation::HandoverPawn pawn;
-            if ( !DecodeHandover( body, h, pawn ) )
-                return true;
-            const bool          wasProxy = replica.IsProxy( pawn.State.Id );
-            const std::uint32_t catchUp  = step > h.Step ? step - h.Step : 0;
-            replica.Promote( pawn.State.Id );
-            m_Epoch[pawn.Player] = h.Epoch;
-            gateways.Adopted( pawn.Player, h.Gateway );
-            m_Log( std::format(
-                 "sim {}: adopted pawn net id {} (player {}) from sim {} at epoch {} - {}; frozen at step "
-                 "{}, this sim is at step {}: {} catch-up step(s), {} unacked input(s)",
-                 m_Sim, pawn.State.Id, pawn.Player, h.From, h.Epoch,
-                 wasProxy ? "its proxy promoted to authoritative"
-                          : "held no proxy of it (outside the border band), placed from the handed state",
-                 h.Step, step, catchUp, pawn.Pending.size() ) );
-            sim.Adopt( std::move( pawn ), catchUp );
-            return true;
-        }
-        if ( type == Code( EMesh::ForwardedInput ) )
-        {
-            Reader        r( body );
-            std::uint32_t player = 0;
-            if ( r.U32( player ) )
-                if ( const auto input = DecodeInput( r.Rest() ) )
-                    sim.PlayerInput( player, *input );
-            return true;
-        }
-        return false;
+        if ( type != Code( EMesh::ForwardedInput ) )
+            return std::nullopt;
+        Reader             r( body );
+        MeshForwardedInput forwarded;
+        if ( r.U32( forwarded.Player ) )
+            forwarded.Input = DecodeInput( r.Rest() );
+        return forwarded;
     }
 
     bool DispatchMeshPawnEvent( std::uint8_t type, std::span<const std::byte> body, IGatewayLink& gateway )

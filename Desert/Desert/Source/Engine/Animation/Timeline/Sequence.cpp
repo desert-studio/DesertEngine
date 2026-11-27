@@ -61,6 +61,36 @@ namespace Desert::Animation::Timeline
 
     namespace
     {
+        /// One body for both constnesses of FindCameraCutTrack.
+        template <typename SequenceT>
+        auto* CameraCutTrackOf( SequenceT& sequence )
+        {
+            const auto found = std::find_if( sequence.Tracks.begin(), sequence.Tracks.end(),
+                                             [&]( const Track& track )
+                                             {
+                                                 if ( track.Kind != TrackKind::CameraCut )
+                                                 {
+                                                     return false;
+                                                 }
+                                                 const Binding* binding = FindBinding( sequence, track.Binding );
+                                                 return binding != nullptr && binding->Kind == BindingKind::Sequence;
+                                             } );
+            return found == sequence.Tracks.end() ? nullptr : &*found;
+        }
+    } // namespace
+
+    const Track* FindCameraCutTrack( const Sequence& sequence )
+    {
+        return CameraCutTrackOf( sequence );
+    }
+
+    Track* FindCameraCutTrack( Sequence& sequence )
+    {
+        return CameraCutTrackOf( sequence );
+    }
+
+    namespace
+    {
         using Check = Common::BoolResultStr;
 
         Check Pass()
@@ -359,6 +389,17 @@ namespace Desert::Animation::Timeline
                     {
                         return fail( i, "a bone in a level sequence sits under the Entity binding it belongs to" );
                     }
+                    // One binding per (actor, bone): two would fold in file order with no rule between them.
+                    for ( size_t j = 0; j < i; ++j )
+                    {
+                        const Binding& other = sequence.Bindings[j];
+                        if ( other.Kind == BindingKind::Bone && other.Parent == binding.Parent &&
+                             other.Locator == binding.Locator )
+                        {
+                            return fail( i, std::format( "bone '{}' of actor '{}' is bound twice (binding {} too)",
+                                                         binding.Locator, parent->Label, j ) );
+                        }
+                    }
                 }
                 const Binding* link = &binding;
                 for ( size_t depth = 0; !link->Parent.IsNull(); ++depth )
@@ -516,6 +557,7 @@ namespace Desert::Animation::Timeline
         Check CheckTracks( const Sequence& sequence )
         {
             size_t clipEventTracks = 0;
+            size_t cameraCutTracks = 0;
             for ( size_t t = 0; t < sequence.Tracks.size(); ++t )
             {
                 const Track&   track   = sequence.Tracks[t];
@@ -540,6 +582,11 @@ namespace Desert::Animation::Timeline
                      ++clipEventTracks > 1 )
                 {
                     return fail( "a clip has one notify (Event) track" );
+                }
+                if ( track.Kind == TrackKind::CameraCut && ++cameraCutTracks > 1 )
+                {
+                    return fail( "a sequence has one Camera Cut track (UE GetCameraCutTrack): a second one is a "
+                                 "second answer to which camera is in force" );
                 }
                 for ( size_t other = 0; other < t; ++other )
                 {

@@ -11,6 +11,7 @@
 #include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Common/Core/Logger.hpp>
 
 #include <algorithm>
 #include <bit>
@@ -81,6 +82,21 @@ namespace Desert::Graphic::System
         m_LayoutValid    = false;
     }
 
+    void LandscapeVirtualTexture::ReleaseWorld() noexcept
+    {
+        m_LayoutValid = false;
+        ++m_Generation; // a feedback slot still in flight read the old world's pages: dropped
+        m_Origin = glm::vec2( 0.0f );
+        m_Extent = 0.0f;
+        m_Entries.clear();
+        m_ChangedEntries.clear();
+        m_UploadAll = true;
+        m_Slots.clear();
+        m_Requests.clear();
+        m_TileKeys.clear();
+        m_DistanceKey = INT32_MIN;
+    }
+
     void LandscapeVirtualTexture::DeclareDisabled( RDG::Builder& graph, FrameTextures& textures )
     {
         // A zero header (word 7 = 0: disabled), the system black texture for the atlases and one feedback word:
@@ -124,6 +140,10 @@ namespace Desert::Graphic::System
         m_Requests.push_back( m_TopEntry ); // the top mip (one page) is pinned
         m_TileKeys.clear();
         m_DistanceKey = INT32_MIN;
+        LOG_INFO( "[LandscapeVirtualTexture] layout {}: origin ({:.0f}, {:.0f}) cm, extent {:.0f} cm, {:.3f} cm per "
+                  "texel ({} mips, {}x{} pool pages)",
+                  m_Generation, origin.x, origin.y, extent,
+                  extent / static_cast<float>( 1u << m_Quality.SizeLog2 ), m_Mips, m_PoolPages, m_PoolPages );
     }
 
     uint32_t LandscapeVirtualTexture::MipOf( const uint32_t entry ) const noexcept

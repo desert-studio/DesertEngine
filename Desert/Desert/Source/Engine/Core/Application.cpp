@@ -359,10 +359,10 @@ namespace Desert::Engine
             Close( 1 );
             return true;
         };
-        // The presented notifications of a frame handed to the render task (step 7), delivered once it is out.
-        // Each stamped with its frame (GetGameFrameCount at step 6): with GameRenderPipelining on, step 4b may
-        // find frame N-1 still presenting, and only the frames before RenderTask::SyncPreviousFrame's answer are
-        // out.
+        // The presented notifications each layer captured before step 6 (CaptureFramePresented), queued at step 7
+        // and delivered once their frame is out. Each stamped with its frame (GetGameFrameCount before step 6
+        // moves it): with GameRenderPipelining on, step 4b may find frame N-1 still presenting, and only the
+        // frames before RenderTask::SyncPreviousFrame's answer are out.
         struct PresentedNotification
         {
             uint64_t              Frame = 0;
@@ -639,19 +639,17 @@ namespace Desert::Engine
             // The frame this iteration built (step 6 moves the count on): its presented notifications' stamp.
             const uint64_t builtFrame = FrameManager::GetInstance().GetGameFrameCount();
             // Each layer captures what its presented notification needs of THIS frame (the serial that built it,
-            // its shot record). Handed over, BEFORE step 6 enqueues the submit and present (OVERLAP-ON-5): a job a
+            // its shot record), BEFORE step 6 enqueues the submit and present, IN BOTH MODES (OVERLAP-ON-5): a job a
             // layer enqueues in its capture runs in this frame's order, after its views and before its submit and
-            // present (EditorLayer's "Editor: frame census"). Inline, at step 7 as before (the serial order).
+            // present (EditorLayer's "Editor: frame census", "Editor: shot copy" - the shot's image is copied in
+            // the frame's own submission, UE FScreenshotRequest).
             std::vector<std::function<void()>> captured;
-            const auto                         captureFramePresented = [this, handedOver, &captured]()
             {
                 DESERT_PROFILE_SCOPE( "CaptureFramePresented" );
                 for ( const auto& layer : m_LayerStack )
                     if ( std::function<void()> notify = layer->CaptureFramePresented( handedOver ) )
                         captured.push_back( std::move( notify ) );
-            };
-            if ( handedOver )
-                captureFramePresented();
+            }
             // 6. Submit all recorded commands and Present. No fence wait here (GPU-COST-11): the only block left in
             // this row is vkQueuePresentKHR's own ("Vulkan: Present", a full presentation queue under FIFO vsync);
             // the GPU throttle is step 3's "Wait for GPU".
@@ -662,7 +660,7 @@ namespace Desert::Engine
                 // and tick
                 // (UE: the render thread presents, the game thread waits only for N-1). Inline in serial mode and
                 // with the overlap off, where Renderer::PresentFinalImage moves the frame count itself. A lost
-                // device is noticed here inline, else at step 4b; either way before any screenshot (step 7).
+                // device is noticed here inline, else at step 4b; either way before the frame is announced.
                 {
                     const RenderTask::ScopedOwner frameWork( RenderTask::FrameOwner() );
                     RenderTask::Get().Enqueue( "Frame: Submit/Present",
@@ -682,17 +680,14 @@ namespace Desert::Engine
                     break;
             }
 
-            // 7. The frame is OUT. The only point in this loop at which the composited picture — scene and
-            // interface together — exists as bytes on the device; everything above is still building it.
-            // A layer that must read the frame back, or must not answer a question before a frame has
-            // answered it, gets its instant here. Default is a no-op (Common::Layer::OnFramePresented).
+            // 7. The frame's announcement. Nothing is read back here: a picture of the frame was copied in its own
+            // submission by a job its layer captured before step 6. A layer that must not answer a question before
+            // a frame has answered it gets its instant once the frame is out - now inline, else at step 4b.
             {
                 DESERT_PROFILE_SCOPE( "OnFramePresented" );
-                // The notifications captured above (handed over) or now (inline) run once the frame is out: now
-                // when it was presented inline, else at the next iteration's frame boundary (step 4b), behind its
-                // submit and present. A run that ended at step 6 announces nothing of this frame, as before.
-                if ( !handedOver )
-                    captureFramePresented();
+                // The notifications captured before step 6 run once the frame is out: now when it was presented
+                // inline, else at the next iteration's frame boundary (step 4b), behind its submit and present. A
+                // run that ended at step 6 announces nothing of this frame, as before.
                 for ( std::function<void()>& notify : captured )
                     presentedPending.push_back( PresentedNotification{ builtFrame, std::move( notify ) } );
                 if ( !handedOver )

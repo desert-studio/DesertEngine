@@ -55,7 +55,15 @@ namespace Desert::ECS::CharacterMovement
 
         // The feet under the capsule the world holds (its record of the shape is the one; the step's crouch
         // changes it through the move), not under one re-derived from IsCrouched.
-        Gameplay::PhysicsPawnMoveWorld moveWorld( world, cc.RuntimeCharacter );
+        // A handle the world no longer holds means the record and the world disagree: said once, then not moved.
+        auto live = Gameplay::PhysicsPawnMoveWorld::ForCharacter( world, cc.RuntimeCharacter );
+        if ( !live )
+        {
+            LOG_ERROR( "[Physics] character cannot move: {}", live.GetError() );
+            cc.RuntimeCharacter = Physics::kInvalidCharacter;
+            return;
+        }
+        Gameplay::PhysicsPawnMoveWorld moveWorld( world, live.GetValue() );
         const Gameplay::PawnCapsule&   capsule = moveWorld.Capsule();
         const glm::vec3                center  = world.GetCharacterPosition( cc.RuntimeCharacter );
         Net::PawnMoveState             from;

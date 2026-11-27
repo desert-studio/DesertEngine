@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // The driver pipeline-cache blob on disk: WHERE it lives, WHAT header guards it, and WHEN it is rewritten.
 // Pure (std only, no device, no file I/O), so `Desert/Tests/Engine/PipelineCacheFile` pins all three without
@@ -16,6 +17,14 @@
 // sit on FArchive/IFileManager): the driver blob is a per-user, per-device artefact that lives in the user's
 // directory, never in the install. A protected install (Program Files, a read-only .app) cannot be written,
 // and before PSO1 the blob went into the project's DerivedDataCache, i.e. the install folder of a package.
+//
+// WHICH files in the directory live (PlanDirectory): a driver that hands back GPU binaries keeps exactly the
+// file of this device + driver, and every other file of the same vendor:device (an older driver, another
+// cache UUID) is deleted with its reason. MoltenVK hands back shader SOURCE (compressed MSL): seeding it
+// Metal-compiles every entry on the thread that creates the cache, before the window opens (512-562 s
+// measured on an 89 MB blob), while Metal's own shader cache already keeps the binaries — so on MoltenVK no
+// file is kept, written or seeded, and every file of this vendor:device is deleted. Like UE, where the
+// driver's binary cache is the driver's job and the PSO precompile never blocks the first frame.
 namespace Desert::Graphic::PipelineCacheFile
 {
     // Everything that makes a blob usable by exactly one GPU + driver. vendor/device/UUID are what the
@@ -69,6 +78,34 @@ namespace Desert::Graphic::PipelineCacheFile
     Decoded Decode( const DeviceIdentity& identity, std::string_view file );
 
     uint64_t HashBytes( std::string_view bytes );
+
+    // WHAT the driver hands back from vkGetPipelineCacheData decides whether a file is worth keeping at all.
+    enum class DriverBlob : uint8_t
+    {
+        Binary,      // GPU binaries the driver maps back cheaply (every desktop Vulkan driver)
+        ShaderSource // MoltenVK: compressed MSL; seeding Metal-compiles every entry on the calling thread
+                     // (MVKPipelineCache::readData), Metal's own cache already keeps the binaries
+    };
+
+    // A file in Directory() that this run deletes, and why (one log line each).
+    struct StaleFile
+    {
+        std::filesystem::path Path;
+        std::string           Reason;
+    };
+
+    // What this run does with the directory: the one file it seeds from and writes (empty = none on this driver,
+    // Refusal says why), and every other file of THIS vendor:device that is dead. Files of another vendor:device
+    // (a second GPU) and non-".bin" entries are left alone. Pure: the caller lists the directory and deletes.
+    struct DirectoryPlan
+    {
+        std::optional<std::filesystem::path> Keep;
+        std::string                          Refusal; // non-empty exactly when Keep is empty
+        std::vector<StaleFile>               Delete;
+    };
+    [[nodiscard]] DirectoryPlan PlanDirectory( DriverBlob blob, const DeviceIdentity& identity,
+                                               const std::filesystem::path&              dir,
+                                               const std::vector<std::filesystem::path>& filesInDir );
 
     // WHEN to rewrite the file during a run (not only at a clean exit, which a crash or a kill never reaches):
     // when pipelines were built since the last write AND at least `interval` has passed since it. The first

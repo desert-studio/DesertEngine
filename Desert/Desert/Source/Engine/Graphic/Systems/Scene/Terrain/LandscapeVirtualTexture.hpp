@@ -87,6 +87,12 @@ namespace Desert::Graphic::System
         // A change drops every page and the atlases (they are remade at the new size next frame).
         void SetQuality( const LandscapeVirtualTextureQuality& quality ) noexcept;
 
+        // THE WORLD WAS TORN DOWN (TerrainRenderer::ReleaseWorldCaches; UE: the RVT volume belongs to UWorld): the
+        // grow-only square, the tile keys, the requests and the resident pages describe the old world's ground.
+        // The layout goes invalid, so the new world's first frame lays out its own square over its own tiles;
+        // the atlases and the page table are kept (their size is the quality's, not the world's).
+        void ReleaseWorld() noexcept;
+
         // Before the G-buffer pass is declared: reads back the feedback of the frame whose slot comes round,
         // places the virtual square over @p tiles, invalidates, requests, evicts, uploads the changed page table
         // words and renders up to UpdatesPerFrame pages ("Landscape: Virtual Texture Pages"). @p enabled false

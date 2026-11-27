@@ -62,6 +62,7 @@
 // the directory) is refused too. Every refusal names the file.
 
 #include <Engine/Core/Serialize/CookHash.hpp>
+#include <Engine/Core/Serialize/PrefabExpansion.hpp>
 #include <Engine/Core/Serialize/PrefabReader.hpp>
 #include <Engine/Core/Serialize/WorldPartitionFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
@@ -273,26 +274,31 @@ namespace Desert::Core::WorldCells
     // crosses units.
     //
     // THE HLODs ARE PACKED, NOT BUILT (WP-FAR-6B D1; UE: the cook packages what Build HLODs saved): @p hlods are
-    // the world's saved HLODs (ReadBuiltHLODs). A world with a default HLOD layer and no @p hlods is refused, and
-    // so is one with a cell whose saved HLOD is missing or stale (StaleHLODCells), naming the cells. A spatially
-    // loaded layer's HLODs are packed into the HLOD cells of its grid (WorldIndex::HLODUnits, WP-FAR-8).
+    // the world's saved HLODs (ReadBuiltHLODs) and the builders they were built by (SavedHLODStatus folds each
+    // layer's builder SettingsKey). A world with a default HLOD layer and no @p hlods is refused, and so is one
+    // with an outdated node (SavedHLODStatus: missing, stale or orphaned), naming each. A spatially loaded
+    // layer's HLODs are packed into the HLOD cells of its grid (WorldIndex::HLODUnits, WP-FAR-8).
     //
     // @p prefabs reads the prefab every instance record states: instances are expanded first
     // (ExpandPrefabInstances, WP21), so the cells hold the prefab's records, each placed by its own bounds. An
     // empty reader is a stated condition - a world with an instance is then refused by the prefab's name.
     struct StoredHLODs;
+    struct HLODsToPack
+    {
+        const StoredHLODs&                Saved;
+        const Rules::HLODBuilderRegistry& Builders; // the one Core::HLODBuilders (WorldCook, the packager)
+    };
     [[nodiscard]] Common::ResultStr<CookedWorld>
     CookWorld( const SceneSerialized& scene, std::span<const Common::Utils::AssetRegistry> registries,
-               const PrefabReader& prefabs, const StoredHLODs* hlods = nullptr );
+               const PrefabReader& prefabs, const HLODsToPack* hlods = nullptr );
 
-    // The same cook, PLANNED FROM DESCRIPTORS (WP18): `descriptors` (the world's descriptor index,
-    // EntityDescriptorIndex.hpp) are what the cells are decided with; the records only fill the cell files.
-    // Refused when the descriptors are not the records', id for id and in order. An instance record's descriptor
-    // is replaced by its expanded records' (DescribeEntities); every other record keeps the index's.
+    // The same cook over THE WORLD ALREADY EXPANDED (ExpandWorldForCook, WP18/WP21): its descriptors - the
+    // world's descriptor index, an instance's replaced by its expanded records' - are what the cells are decided
+    // with; the records only fill the cell files. The caller that checked this world cooks it: it is expanded
+    // once, never again here.
     [[nodiscard]] Common::ResultStr<CookedWorld>
-    CookWorld( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
-               std::span<const Common::Utils::AssetRegistry> registries, const PrefabReader& prefabs,
-               const StoredHLODs* hlods = nullptr );
+    CookWorld( const ExpandedWorld& world, std::span<const Common::Utils::AssetRegistry> registries,
+               const HLODsToPack* hlods = nullptr );
 
     // The bounds source a cook plans with: the first registry that knows the mesh answers.
     [[nodiscard]] Rules::AssetBoundsSource BoundsFrom( std::span<const Common::Utils::AssetRegistry> registries );
@@ -455,11 +461,12 @@ namespace Desert::Core::WorldCells
     // UE's HLODBaseKey (FWorldPartitionHLODUtilities::ComputeHLODHash): the version of what the HLOD builders make
     // from one input. Raised with any change to their output for the same records and assets, it makes every saved
     // HLOD stale, so the next Build HLODs rebuilds them all.
-    inline constexpr std::uint32_t kHLODBuilderVersion = 1;
+    inline constexpr std::uint32_t kHLODBuilderVersion = 2;
 
-    // One cell unit's built HLOD. There is a row for EVERY cell unit, also one that draws nothing, so a plan
-    // cell without a row is stale and never ambiguous. `BuiltFrom` is HLODBuildChecksum of the cell's records
-    // when it was built: a different checksum now is a stale HLOD.
+    // One HLOD node's built HLOD (WP-HLOD-HASH). There is a row for every WANTED node (a node with an HLOD-relevant
+    // member, SavedHLODStatus) and for no other: a wanted node without a row is missing, a row no wanted node names
+    // is an orphan. `BuiltFrom` is the node's checksum when it was built (SavedHLODStatus, UE ComputeHLODHash): a
+    // different checksum now is a stale HLOD.
     struct BuiltHLODCell
     {
         std::string                    Unit; // Rules::HLODRowName (a parent: its Rules::HLODNode::Name)
@@ -498,41 +505,6 @@ namespace Desert::Core::WorldCells
         Probe,
     };
 
-    // THE SAVED CONTENT AN HLOD IS BUILT FROM BEYOND ITS RECORDS (UE: UHLODBuilder::ComputeHLODHash reaches the
-    // static mesh, its materials and their textures, each by the hash of what was saved - the asset registry's
-    // FAssetPackageData::PackageSavedHash): every asset the members name, transitively through the registry's
-    // dependency edges (mesh -> material -> texture), as "<registry key> <content hash>" lines in key order. An
-    // asset envelope's content hash is folded from its table of contents (each section's tag and hash, read with
-    // the header and never the body); any other file's from its bytes. A file that does not read hashes as
-    // absent, so an HLOD built without it is stale once it is back. A hasher remembers each asset's hash for its
-    // own lifetime - one build or one staleness check - never across an edit.
-    class HLODAssetHasher
-    {
-    public:
-        explicit HLODAssetHasher( std::span<const Common::Utils::AssetRegistry> registries );
-        ~HLODAssetHasher();
-        HLODAssetHasher( const HLODAssetHasher& )            = delete;
-        HLODAssetHasher& operator=( const HLODAssetHasher& ) = delete;
-
-        [[nodiscard]] std::string ContentOf( std::span<const Assets::EntityData> records,
-                                             std::span<const std::size_t>        members );
-
-    private:
-        struct State;
-        std::unique_ptr<State> m_State;
-    };
-
-    // What an HLOD is built from (UE: the HLOD actor's hash - its input actors, the assets they use, its layer's
-    // settings and the builder's base key): the cell's records (Json::Write of each member without its outliner
-    // sort key `siblingIndex`, in member order; the one form Build, Cook and Play hash), the saved content of
-    // every asset they name (@p assets), the world's partition block (grids, HLOD layers, data layers by Name and
-    // Type - not their editor default or runtime state, which change when an HLOD is drawn and not what it holds)
-    // and kHLODBuilderVersion. Crc32c. A mesh or material edited and saved makes the HLODs that use it stale.
-    [[nodiscard]] std::uint32_t HLODBuildChecksum( std::span<const Assets::EntityData> records,
-                                                   std::span<const std::size_t>        members,
-                                                   const WorldPartitionSerialized&     partition,
-                                                   HLODAssetHasher&                    assets );
-
     // BUILD HLODs: the HLOD of every cell unit of @p scene by the world's default HLOD layer, planned from
     // @p descriptors as CookWorld plans. Refused, by name, as CookWorld refuses: no WorldPartition block, no
     // default HLOD layer, a record without an id or with a taken one, descriptors that are not the records'.
@@ -542,9 +514,13 @@ namespace Desert::Core::WorldCells
     // (Core::HLODBuilders, or the editor's copy of it); a layer whose builder is not registered or refuses its
     // Settings refuses the build with the first such line (Rules::HLODLayerBuilderIssues).
     //
+    // Only WANTED nodes get a row (SavedHLODStatus): a cell with no HLOD-relevant member has none, and a row of
+    // @p previous no wanted node names is dropped (WriteBuiltHLODIndex then removes its file - UE deletes the
+    // obsolete HLOD actor).
+    //
     // INCREMENTAL (UE UWorldPartitionHLODsBuilder: an HLOD actor whose hash did not change is not rebuilt): a row
-    // of @p previous whose BuiltFrom is the checksum now and whose file reads back as that row's is kept as it is,
-    // and its file stays; only the other rows are built and only they reach the builders and @p sink. nullptr
+    // of @p previous whose node is Current (SavedHLODStatus) and whose file reads back as that row's is kept as it
+    // is, and its file stays; only the other rows are built and only they reach the builders and @p sink. nullptr
     // builds every row (Build HLODs, force all).
     struct HLODBuild
     {
@@ -584,12 +560,57 @@ namespace Desert::Core::WorldCells
     [[nodiscard]] Common::ResultStr<std::vector<Assets::EntityData>>
     StoredCellRecords( const StoredHLODs& stored, const BuiltHLODCell& cell );
 
-    // The cell units of @p scene (planned from @p descriptors as BuildWorldHLODs plans) whose stored HLOD is
-    // missing or stale against @p index; empty = every cell's HLOD is current.
-    [[nodiscard]] Common::ResultStr<std::vector<std::string>>
-    StaleHLODCells( const BuiltHLODIndex& index, const SceneSerialized& scene,
-                    std::span<const Rules::EntityDescriptor>      descriptors,
-                    std::span<const Common::Utils::AssetRegistry> registries );
+    // ── THE ONE ANSWER: IS THIS NODE'S SAVED HLOD CURRENT (WP-HLOD-HASH) ─────────────────────────────────────
+    // UE FWorldPartitionHLODUtilities::ComputeHLODHash + CreateHLODActors (no HLOD for a cell without an
+    // HLOD-relevant actor) + the HLODs builder's deletion of obsolete HLOD actors. Computed on the EXPANDED world
+    // only (ExpandWorldForCook / ExpandPrefabInstances); Build HLODs, WorldCook, the map check, Play and the editor
+    // read it and nothing else.
+    enum class HLODNodeState : std::uint8_t
+    {
+        NoSource, // no HLOD-relevant member under it: no HLOD is wanted, a row for it is an orphan
+        Current,  // the saved row's BuiltFrom equals Checksum
+        Missing,  // wanted, no saved row
+        Stale,    // wanted, the saved row was built from other inputs
+    };
+    [[nodiscard]] std::string_view HLODNodeStateName( HLODNodeState state );
+
+    struct HLODNodeStatus
+    {
+        std::string          Name;     // HLODNode::Name - the one name a node's HLOD goes by everywhere
+        std::size_t          Node     = 0; // index into HLODWorldStatus::Hierarchy.Nodes
+        HLODNodeState        State    = HLODNodeState::NoSource;
+        std::uint32_t        Checksum = 0;       // 0 when NoSource
+        const BuiltHLODCell* Row      = nullptr; // into the index SavedHLODStatus was given; null when none
+    };
+
+    struct HLODWorldStatus
+    {
+        Rules::WorldPartitionPlan   Plan;
+        Rules::HLODHierarchy        Hierarchy;
+        std::vector<HLODNodeStatus> Nodes;   // every node, in hierarchy order
+        std::vector<std::string>    Orphans; // saved rows no wanted node names (a cell its last member left)
+
+        [[nodiscard]] std::size_t Wanted() const;   // nodes not NoSource
+        [[nodiscard]] std::size_t Outdated() const; // Missing + Stale + Orphans
+        // One "<name> <missing|stale|orphan>" per outdated node, Missing/Stale in node order, then the orphans.
+        [[nodiscard]] std::vector<std::string> OutdatedNames() const;
+        [[nodiscard]] const HLODNodeStatus*    Find( std::string_view name ) const; // null: no such node
+    };
+
+    // The status of every HLOD node of the EXPANDED @p scene (no record states a prefab; @p descriptors are its
+    // records', one for one) against @p index (null = nothing saved: every wanted node is Missing). A depth-1 node
+    // is wanted when a member of its cell is HLOD-relevant (Rules::ReadHLODMember), a parent when any source cell
+    // is. A node's checksum (UE ComputeHLODHash) folds, per part: the layer's Name, Type, builder and its
+    // builder's SettingsKey; each relevant member's id, the hex bits of its TRS chain, its holes, its batch keys
+    // and instances, its module's Inputs text and the TRS chains of the records they place by; the node's
+    // MinVisibleDistance bits, row and cooked names; the content hash of every asset key the members name (the
+    // registry's dependency closure, else the file's own SavedContentHash); and kHLODBuilderVersion. Errors, by
+    // name: a member that does not read, a layer whose builder is not registered or refuses its settings, a plan
+    // or hierarchy refusal. The status holds pointers into @p index.
+    [[nodiscard]] Common::ResultStr<HLODWorldStatus>
+    SavedHLODStatus( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
+                     const BuiltHLODIndex* index, std::span<const Common::Utils::AssetRegistry> registries,
+                     const Rules::HLODBuilderRegistry& builders );
 
     // ── MAP CHECK AND THE STREAMING GENERATION LOG (WP-MAP-CHECK) ────────────────────────────────────────────
     // UE UWorldPartition::CheckForErrors (Map Check, the check commandlet) and StreamingGeneration-*.log: ONE list of
@@ -606,23 +627,25 @@ namespace Desert::Core::WorldCells
         std::vector<Rules::GenerationIssue>  Issues;      // Rules::PlanIssues, then the saved HLODs'
     };
 
-    // A finding per cell whose saved HLOD is missing or stale (StaleHLODCells), and the one for HLODs not built.
-    [[nodiscard]] std::vector<Rules::GenerationIssue> StaleHLODIssues( std::span<const std::string> units );
+    // A finding per outdated node of @p status (HLODWorldStatus::OutdatedNames), and the one for HLODs not built.
+    [[nodiscard]] std::vector<Rules::GenerationIssue> OutdatedHLODIssues( const HLODWorldStatus& status );
     [[nodiscard]] Rules::GenerationIssue              MissingHLODsIssue( std::string_view why );
 
-    // THE CHECK of @p scene planned from @p descriptors (its records', one for one), its saved HLODs read beside
-    // @p scenePath (empty: not saved - when a grid states an HLOD layer, that is a finding). Refused, by name, when the
-    // scene states no WorldPartition block or the HLOD plan cannot be made.
+    // THE CHECK of the EXPANDED @p world (ExpandWorldForCook: UE UWorldPartition::CheckForErrors runs on the
+    // generation PIE runs, level instances expanded), its saved HLODs read beside @p scenePath (empty: not saved -
+    // when a grid states an HLOD layer, that is a finding) and judged by SavedHLODStatus with @p builders. Refused,
+    // by name, when the scene states no WorldPartition block or the HLOD status cannot be made.
     [[nodiscard]] Common::ResultStr<WorldPartitionCheck>
-    CheckWorldPartition( const SceneSerialized& scene, std::vector<Rules::EntityDescriptor> descriptors,
-                         std::span<const Common::Utils::AssetRegistry> registries,
-                         const std::filesystem::path&                  scenePath );
+    CheckWorldPartition( const ExpandedWorld& world, std::span<const Common::Utils::AssetRegistry> registries,
+                         const Rules::HLODBuilderRegistry& builders, const std::filesystem::path& scenePath );
 
     // The check of the world saved at @p scenePath, read as the cook reads it (ReadSceneFileText, the descriptor
-    // index brought up to date). nullopt: the file is not a partitioned world.
+    // index brought up to date, every prefab instance expanded with PrefabFileReader). nullopt: the file is not a
+    // partitioned world.
     [[nodiscard]] Common::ResultStr<std::optional<WorldPartitionCheck>>
     CheckSavedWorldPartition( const std::filesystem::path&                  scenePath,
-                              std::span<const Common::Utils::AssetRegistry> registries );
+                              std::span<const Common::Utils::AssetRegistry> registries,
+                              const Rules::HLODBuilderRegistry&             builders );
 
     // Logs @p check: Rules::ReportPlanIssues of its plan, then its HLOD findings. Returns the logged text.
     std::string ReportWorldPartitionCheck( const WorldPartitionCheck& check );

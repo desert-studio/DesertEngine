@@ -1,0 +1,59 @@
+# WP-STREAM-SOURCE-VIEW: the player streams World Partition from WHERE IT LOOKS, not from where its body stands
+# (UE APlayerController::GetStreamingSources = GetPlayerViewPoint; ServerUpdateCamera). The client's view source is
+# Core::PlayerViewStreamingSource(Core::PlayerStreamingViewOf(scene)) (PlayerStreamingView.hpp); the pawn streams only
+# from the StreamingSource its prefab authors (Pawn_Player.deprefab, LoadingRange 6400, Priority -1). The client
+# reports the eye in Net::ViewReport (protocol 10, Relevancy.hpp); the server streams residency and relevancy from it,
+# pulled back to MaxViewRangeCm (1500 m) from the pawn. A teleport resets the source's velocity and holds the cells it
+# left until the cell under it is resident.
+# Played by scripts/Dev/net_scenario.py, roles as in NET-4. Fence 300001 in WP_Protocol: static box 20 x 180 x 600 cm at
+# x=2500 (z 350-950), standing on the slope, in cell G0L0(1,0). A spawns at z=1150 so its +X walk passes 200 cm
+# beside the fence (its collision stopped the walk at x=2454 in scn-1127-015306). A's frames come from a FIXED side camera at
+# (2100,120,50) that looks at the fence; A's pawn sprints 300 m along +X away from it. Before this feature the fence's
+# cell unloaded once the pawn left (scn-1125-071236/A.log:5636; clientA_fence_after.png fence, clientA_teleport.png none).
+# Net coordinates are Y-up (X, Y, Z), cm.
+Мир Content/Scenes/WP_Protocol.desce
+# The spawn points are the ground (feet, cm): the placer measured the floor 98 cm under (0, -300, 1150) and 127 cm
+# under (500, -300, -200) (NET-TELEPORT-ENCROACH scn-1127-050216 server.log "point free, floor N cm below it"), so a pawn spawns standing.
+Роль server server --role all --source 0,0,0 --pawn assets:Prefabs/Pawn_Player.deprefab --spawn 0,-398,1150 --spawn 500,-427,-200 --steps 864000
+Ждать server 60 \[Server\] listening on port
+Роль A editor account=1 lag=75 loss=2 --play --shot-frames 100000 --shot-every 1 --camera 2100,120,50 --look 0.595,-0.198,0.779 --quality PostProcess.MotionBlurQuality=0 --net-walk-cm 30000 --net-walk-dir 1,0,0 --net-walk-mode sprint
+# 1. The source is the camera, not the pawn. Printed on the first streamer tick at Play start, before the session.
+Ждать A 1800 \[WorldStreamer\] 'WP_Protocol': the player's view is a streaming source at \(2100, 120, 50\) cm
+Ждать A 1800 \[Net\] in session
+Роль B bot account=2 lag=75 loss=2 --seconds 1500
+# 2. The server received the view (X within 50 cm of the camera).
+Ждать server 60 player 1: view at \(2(0[5-9]\d|1[0-4]\d), -?\d+, -?\d+\) cm
+# 3. A's pawn reaches the fence.
+Ждать A 900 drawn own \((2[4-9]\d\d|[3-9]\d\d\d|\d{5,}),
+Тогда A view_fence_near the fence (thin green box) beside the slope from the side camera, A's mannequin next to it or crossing it; sharp, no motion blur
+# 4. The pawn has gone 300 m along +X: the fence's cell stays, the view holds it.
+Ждать A 900 \[Net\] walked \d+ cm \(server position\): stopping
+Тогда A view_fence_far the same camera frame: the fence in place, no mannequin in the frame (it is 300 m away)
+Нет A unloaded here.*G0L0\(1,0\)
+# 5. The server relocates A in front of the fence, 2 m above the slope.
+Консоль server teleport 1 2300 100 520
+Ждать A 60 \[Net\] correction 1 at .*drawn at once
+# The frame its tick RECORDED (the first `[Shot] recorded frame_N` after the correction line).
+Тогда A view_teleport the frame of the correction tick: the fence IN PLACE and A's mannequin in front of it, in the air above the slope (scn-1125-071236/clientA_teleport.png had no fence)
+# 6. The pawn's source velocity is reset on the teleport (zero play waits at the teleport is judged by the view_teleport frame).
+Ждать A 60 \[WorldStreamer\] 'WP_Protocol': streaming source entity \d+ jumped \d+ cm to \(2300, -?\d+, 520\) cm: velocity reset
+# 7. A far teleport (460 m) onto Main cell G0L0(19,2) (square X 47500..50000, Z 5000..7500; its box 200412 stands at
+# X 48759..49259, Z 6588..7088): the cell under the pawn is made resident before the hold lets the origin go. 2 m above
+# the landscape (tile 2_2 height there 141 cm). (40000,300,3000) of scn-1127-020957 was 276 cm UNDER the ground (576 cm)
+# and in no cell: the pawn fell through the heightfield for 120 s and nothing waited (A.log:3695, server.log:555).
+# The fixed camera keeps the origin in range, so the jump holds 0 cells of its own.
+Консоль server teleport 1 48000 350 5600
+Ждать A 60 \[Net\] correction 2 at .*drawn at once
+Ждать A 120 jumped \d+ cm to \(48000, -?\d+, 5600\) cm: velocity reset; \d+ cell\(s\) it left are held
+Ждать A 300 teleport hold released after \d+ frame\(s\)
+Тогда A view_far_teleport the frame after the release: the fence in place (the view did not move), no mannequin; G0L0(19,2) under the pawn resident and the hold released within 120 frames
+# 8. The body 2 km from the view: the server pulls the view back to MaxViewRangeCm from the pawn.
+Консоль server teleport 1 200000 300 3000
+Ждать A 60 \[Net\] correction 3 at .*drawn at once
+Ждать server 60 player 1: view at \(\d+, -?\d+, -?\d+\) cm, pulled back to 1500 m from the pawn
+Ждать A 60 fresh \[Shot\] recorded frame_
+Тогда A view_clamped the camera frame after the server's line: the fence in place - the client's view source did not move, the fence's cell never unloaded and is not revealed again; the server streams for this player a point 1500 m from the body
+# 9. Exactly three corrections (three teleports); every ViewReport decoded; the fence's cell never unloaded.
+Нет A \[Net\] correction [4-9] at
+Нет server malformed ViewReport
+Нет A unloaded here.*G0L0\(1,0\)

@@ -169,7 +169,26 @@ namespace Desert::ECS
                     anim.BuiltRigRevision  = 0;
                     anim.BuiltRigSignature = 0;
                 }
+                // A RELOCATION (MarkPoseTeleported, before this tick's systems): what the renderer saw at the old
+                // place - its level, screen size, the baked crowd - says nothing of the new one, so it is dropped
+                // (as before the renderer first saw the instance: every bone, every frame) and this tick
+                // evaluates (UE: a teleport refreshes the skeletal pose before the render). The renderer then
+                // draws this tick's pose at the new place in the same frame.
+                const bool teleported = anim.PendingTeleport;
+                anim.PendingTeleport  = false;
+                if ( teleported && anim.LodFeedback )
+                {
+                    anim.LodFeedback->Seen.store( false, std::memory_order_relaxed );
+                    anim.LodFeedback->Vat.store( false, std::memory_order_relaxed );
+                }
                 ConfigureLodAndRate( entity, anim, *skinnedMeshPtr );
+                if ( teleported )
+                {
+                    anim.UpdateRate.SetRate( anim.UpdateRate.Rate, true );
+                    LOG_INFO( "[SkinnedLOD] entity {} anim: teleported - the old place's level and baked crowd "
+                              "dropped, the pose evaluates at every bone this tick",
+                              static_cast<uint32_t>( entity ) );
+                }
                 // A FAR-CROWD FIGURE ALREADY ON ITS BAKED ANIMATION has no anim tick (UE AnimToTexture: the VAT
                 // instance is a static mesh): only its clip clock runs (StepAnimator's Vat branch), none of the
                 // retarget / clip resolution / pose stages below. Back to skeletal, the full tick resumes.
@@ -226,7 +245,17 @@ namespace Desert::ECS
                 const Animation::Graph::SequencePlayerNode* baseSequence =
                      baseSource != nullptr && baseSource->Sequence ? &*baseSource->Sequence : nullptr;
                 const bool baseIsSequence = baseSequence != nullptr;
-                if ( baseIsSequence || ( outputMachine != nullptr && !outputMachine->States.empty() ) )
+                // A graph whose Output Pose is a pose node (a blend space, a layered blend, an additive) plays
+                // through the pose graph even with no base source under it: a Blend Space Player at Output Pose
+                // is a leaf with clips of its own (UE AnimGraphNode_BlendSpacePlayer), not "no graph".
+                const Animation::Graph::PoseNode* outputNode =
+                     anim.Graph ? Animation::Graph::FindNode( *anim.Graph, anim.Graph->OutputPose ) : nullptr;
+                const bool outputIsPoseNode =
+                     outputNode != nullptr &&
+                     !Animation::Graph::IsSourceKind(
+                          static_cast<Animation::Graph::PoseNodeKind>( outputNode->Kind ) );
+                if ( baseIsSequence || outputIsPoseNode ||
+                     ( outputMachine != nullptr && !outputMachine->States.empty() ) )
                 {
                     bool graphRebuilt = true;
                     if ( !anim.GraphEvaluator )
@@ -277,8 +306,8 @@ namespace Desert::ECS
                         const auto res = anim.GraphEvaluator->Update( norm );
                         if ( res.Current && res.Current->BlendSpace )
                         {
-                            // A state that plays a Blend Space 1D: every sample resolved (null while loading),
-                            // entered by the machine's transition as a clip state is; the row already on top
+                            // A state that plays a blend space (1D or 2D): every sample resolved (null while
+                            // loading), entered by the machine's transition as a clip state is; the space on top
                             // only takes the clips (Animator::PlayBlendSpace).
                             const auto& samples = res.Current->BlendSpace->Space.Samples;
                             std::vector<const Animation::AnimationClip*>& clips = m_BlendSpaceClips;
@@ -322,7 +351,18 @@ namespace Desert::ECS
                         {
                             PlaySequence( anim, clipRig, baseSource->Name, *baseSequence );
                         }
+                        else
+                        {
+                            // No base source (a blend space at Output Pose): the component's speed still scales
+                            // every clock the pose graph advances.
+                            anim.Animator->SetPlaybackSpeed( anim.PlaybackSpeed );
+                        }
 
+                        // THE GRAPH'S PARAMETERS, EVERY GRAPH: a blend-space state's axis reads them as a pose
+                        // graph pin does, and a graph whose Output Pose is its state machine has no pose graph.
+                        for ( const Animation::Graph::Parameter& parameter : anim.GraphEvaluator->Graph().Parameters )
+                            anim.Animator->SetGraphParameter( parameter.Name,
+                                                              anim.GraphEvaluator->GetFloat( parameter.Name ) );
                         DrivePoseGraph( anim, clipRig, graphRebuilt );
                         const Common::Timestep animTs( Animation::AnimationAdvanceSeconds(
                              gameplaySeconds, m_EditorSeconds, anim.UpdateAnimationInEditor ) );
@@ -478,13 +518,26 @@ namespace Desert::ECS
                                                   : std::clamp( feedback.VatClock, 0.0F, length );
                     feedback.VatClip.store( clip, std::memory_order_relaxed );
                     feedback.VatTime.store( feedback.VatClock, std::memory_order_relaxed );
+                    feedback.SkeletalPoseReady.store( false, std::memory_order_relaxed );
                     ++m_CostInstances;
                     return 0.0F;
                 }
                 if ( feedback.VatClockRunning )
                 {
+                    // Back to skeletal: this tick evaluates (whatever the rate's countdown says) and the shown
+                    // pose snaps to it - the renderer draws the baked frame until this pose is published.
+                    // The baked clock is the playhead of the clip it ran on (VatClip); when the machine entered
+                    // another state on this tick (a relocation lands the pawn in another state), that state plays
+                    // from its entry - the old clip's time is not a moment of it.
                     feedback.VatClockRunning = false;
-                    anim.Animator->SetTime( feedback.VatClock );
+                    const void* bakedClip    = feedback.VatClip.load( std::memory_order_relaxed );
+                    if ( bakedClip != nullptr && bakedClip == anim.Animator->GetCurrentClip() )
+                        anim.Animator->SetTime( feedback.VatClock );
+                    else
+                        LOG_INFO( "[SkinnedLOD] back to skeletal in another state than the baked clock ran: the "
+                                  "state plays from its entry, not from the baked time {:.2f} s",
+                                  feedback.VatClock );
+                    anim.UpdateRate.SetRate( anim.UpdateRate.Rate, true );
                 }
             }
             const float step = anim.UpdateRate.Advance( animTs.GetSeconds() );
@@ -500,6 +553,8 @@ namespace Desert::ECS
             {
                 anim.LodFeedback->VatClip.store( anim.Animator->GetCurrentClip(), std::memory_order_relaxed );
                 anim.LodFeedback->VatTime.store( anim.Animator->GetCurrentTime(), std::memory_order_relaxed );
+                if ( step >= 0.0F )
+                    anim.LodFeedback->SkeletalPoseReady.store( true, std::memory_order_relaxed );
             }
             return std::max( step, 0.0F );
         }
@@ -711,11 +766,11 @@ namespace Desert::ECS
         /**
          * @brief The graph's pose graph -> the Animator's Graph stage: the graph (its per-bone tables built only
          *        when the graph was rebuilt or the Animator lost it), then this tick's clip of every source
-         *        node other than the base — a machine's running state's, a sequence player's — and the
-         *        parameters its pins read.
+         *        node other than the base — a machine's running state's, a sequence player's.
          *
          * The base source is not here: `Update` reported it (or PlaySequence played it) into the Source stage
-         * above. A graph whose Output Pose IS a source has nothing to blend and clears the stage.
+         * above. A graph whose Output Pose IS a source has nothing to blend and clears the stage. The parameters
+         * its pins read were fed to the Animator above, for every graph.
          */
         void DrivePoseGraph( ECS::AnimationComponent& anim, const Animation::MeshSkeletonIdentity& clipRig,
                              bool graphRebuilt )
@@ -740,8 +795,6 @@ namespace Desert::ECS
                 }
                 poseGraphSet = true;
             }
-            for ( const AG::Parameter& parameter : graph.Parameters )
-                anim.Animator->SetPoseGraphParameter( parameter.Name, evaluator.GetFloat( parameter.Name ) );
             for ( size_t n = 0; n < graph.Nodes.size(); ++n )
             {
                 const AG::PoseNode* node = &graph.Nodes[n];

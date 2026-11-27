@@ -96,10 +96,9 @@ namespace Common::Scalability
         ReflectionMaxSteps,      // SSR HZB traversal iterations per ray (SSRRenderer push constant). 8..128
         DistanceFieldPoolMiB,    // per-scene ceiling of the grown brick atlas (DistanceFieldSceneData). 32..512 MiB
         AmbientOcclusionSamples, // GTAO horizon taps per direction (SSAORenderer). 4..32, SSAO.shader kMaxTaps
-        BloomMips,         // bloom down/up-sample chain length (BloomRenderer). 2..6 (BloomRenderer::SetMaxMips)
-        // The bloom method (UE r.Bloom.Method): Values: BloomMethod (CapabilityCatalog.hpp) - Gaussian below Epic,
-        // Convolution (FFT, the volume's kernel image) at Epic and Cinematic. BloomRenderer::SetMethod.
-        BloomMethod,
+        // Gaussian bloom stages (UE r.BloomQuality): 2..6 of Bloom1..6, the coarsest kept - a lower quality drops
+        // the finest. The bloom METHOD is the post-process volume's (Core::PostProcessSettings::BloomMethod).
+        BloomQuality,
         MotionBlurQuality, // motion blur gather taps (Graphic::MotionBlurSamplesForQuality). 0 off, 1 Low, 2 High
         DepthOfFieldQuality,    // DOF gather rings (Graphic::DofRingsForQuality). 0 off (no passes), 1 Low, 2 High
         ReflectionCaptureSize,  // reflection capture cube face, texels (r.ReflectionCaptureResolution). 32..1024,
@@ -481,9 +480,9 @@ namespace Common::Scalability
         // same cascades cover only the near range and the far shadow is traced. Read by SceneRenderer::OnUpdate
         // -> RebudgetShadowsFor. Centimetres, 10 m .. 1 km.
         ShadowDistanceFieldCascadeDistance,
-        // THE FAR SHADOW (WP-FAR-13; UE DirectionalLight FarShadowDistance, the far shadow cascade): how far from the
-        // camera one more map past the cascades holds the static casters' shadow. ViewMemory ShadowQualityOf ->
-        // ShadowQuality::FarDistance; 0 (or not past the cascades' distance) = none. Centimetres, 0 .. 4 km.
+        // THE FAR SHADOW (WP-FAR-13; UE DirectionalLight FarShadowDistance, the far shadow cascade): how far from
+        // the camera one more map past the cascades holds the static casters' shadow. ViewMemory ShadowQualityOf
+        // -> ShadowQuality::FarDistance; 0 (or not past the cascades' distance) = none. Centimetres, 0 .. 4 km.
         ShadowFarDistance,
         // 0/1 (GPU-TILE-CLASSIFY; UE Substrate ClassificationTiles / r.TiledDeferredShading): the deferred
         // lighting's 8x8 tiles are classified from the G-buffer (sky, DefaultLit-only, mixed) and the direct and
@@ -571,19 +570,21 @@ namespace Common::Scalability
         // sun is refracted through the drawn wave field onto the floor (Programs/Water/WaterCausticsSplat +
         // WaterCausticsResolve, a 512^2 map around the camera) and the deferred direct pass multiplies the sun on
         // the texels under a water body's surface by it (Common/WaterCaustics.glslh). 0 = no pass, and the
-        // receiver's factor is exactly 1 (the frame without caustics, bit for bit). Read by SceneRenderer::OnUpdate
-        // -> WaterCaustics::SetEnabled. Key "Effects.WaterCaustics": off at Low and Medium.
+        // receiver's factor is exactly 1 (the frame without caustics, bit for bit). Read by
+        // SceneRenderer::OnUpdate -> WaterCaustics::SetEnabled. Key "Effects.WaterCaustics": off at Low and
+        // Medium.
         EffectsWaterCaustics,
         // WATER-RIVERS-FFT (UE has no FFT ocean; the tier follows sg.EffectsQuality as UE's r.Water.* do): the
         // ceiling of the water's wave source - an FFT wave set draws its Tessendorf cascades at FFT (Epic,
-        // Cinematic) and its Gerstner generator below. Read by WaterRenderer::PrepareFrame. Values: WaterWaveMethod
+        // Cinematic) and its Gerstner generator below. Read by WaterRenderer::PrepareFrame. Values:
+        // WaterWaveMethod
         EffectsWaterWaveMethod,
         // The side of one level of the water's foam map, texels (System::WaterRenderer::PrepareFoam, three levels
         // of 128 m / 512 m / 2 km). Key "Effects.WaterFoamSize": 512 below Epic's 1024.
         EffectsWaterFoamSize,
         // The impact decal pool's capacity (NG-DECALS-MESH; UE: the spawned decals SpawnDecalAtLocation keeps,
-        // r.Decal.FadeDurationScale's quality twin): the ring of records World.spawnDecal writes; a spawn into a full
-        // ring replaces the oldest record. Read by ECS::DecalECSSystem::Update -> World::DecalImpactPool::
+        // r.Decal.FadeDurationScale's quality twin): the ring of records World.spawnDecal writes; a spawn into a
+        // full ring replaces the oldest record. Read by ECS::DecalECSSystem::Update -> World::DecalImpactPool::
         // SetCapacity. 0 = no impact decals. 0..4096
         EffectsDecalImpactPoolSize,
         // Every authored draw / cull distance times this percent (UE r.ViewDistanceScale); the LOD is not touched

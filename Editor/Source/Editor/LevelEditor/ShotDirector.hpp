@@ -14,11 +14,17 @@
 #include <Engine/Core/Camera.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
+#include <string>
 
 namespace Desert::Core
 {
     class EditorCamera;
+}
+namespace Desert::Graphic
+{
+    class ImageReadback;
 }
 
 namespace Desert::Editor
@@ -59,33 +65,49 @@ namespace Desert::Editor
         void BeginPlayIfDue( bool recordedFrame );
         // FIRST HALF: place the camera for the frame that is about to be rendered.
         void PlaceCamera( bool startupLoading );
-        // SECOND HALF: count the frame just rendered and write what is due. True on the capture's LAST frame,
-        // after its PNG — the layer then finishes its own records and closes with Finish().
-        // @p recordedFrame is this frame's AdmitFrame verdict.
-        [[nodiscard]] bool CountRenderedFrame( bool recordedFrame );
-        // What FrameRecorded holds for EndFrame: the frame's AdmitFrame verdict and the start-up state it was
-        // rendered under.
+        // What FrameRecorded holds for EndFrame: the frame's AdmitFrame verdict, the start-up state it was
+        // rendered under, its identity in the capture, and its own pixels.
+        // One image copied in the frame's own submission (Image2D::RecordReadbackInFrame or its raw twin):
+        // complete once that frame's fence signals. Its size is the image's when it was recorded.
+        struct FrameCopy
+        {
+            std::shared_ptr<Graphic::ImageReadback> Readback; // null: not wanted, or refused (Refusal says why)
+            uint32_t                                Width  = 0;
+            uint32_t                                Height = 0;
+            std::string                             Refusal;
+        };
         struct RecordedFrame
         {
-            bool Recorded        = false;
-            bool StartupLoading  = false;
-            bool ContentSettling = false;
+            bool     Recorded        = false;
+            bool     StartupLoading  = false;
+            bool     ContentSettling = false;
+            uint64_t GameFrame       = 0;  // FrameManager::GetGameFrameCount() of the tick that recorded it
+            int32_t  SequenceIndex   = -1; // N of frame_N.png when this frame is written, else -1 (counted here, once)
+            bool     LastFrame       = false; // the capture's last frame: `--shot` / `--shot-hdr` are written from it
+            FrameCopy Pixels;     // the final image, RGBA8: the sequence PNG and `--shot` (WantsPixels)
+            FrameCopy SceneColor; // view 0's HDR scene colour, raw RGBA16F: `--shot-hdr` (WantsSceneColor)
         };
 
-        // THIS FRAME'S RENDER IS RECORDED (end of the layer's update): its AdmitFrame verdict and the start-up
-        // state it was rendered under are held for EndFrame. Nothing is read back here - the frame's commands
-        // are recorded but not yet submitted, so the scene image still holds the PREVIOUS frame.
-        void FrameRecorded( bool recordedFrame, bool startupLoading, bool contentSettling );
+        // THIS FRAME'S RENDER IS RECORDED (end of the layer's update, game thread): the frame is counted HERE, once,
+        // in the order the ticks run - a frame of the capture gets its sequence index, logged as
+        // `[Shot] recorded frame_%05d (game frame G)` (the scenario runner's key) - and its record is held for the
+        // layer's CaptureFramePresented, which enqueues the copy of its final image into this frame's own
+        // submission (WantsPixels). Nothing is read back here.
+        void FrameRecorded( bool recordedFrame, bool startupLoading, bool contentSettling, uint64_t gameFrame );
+        // Whether @p frame writes a picture, so its final image must be copied in its own submission.
+        [[nodiscard]] static bool WantsPixels( const RecordedFrame& frame );
+        // Whether @p frame writes `--shot-hdr`, so view 0's scene colour must be copied in its own submission.
+        [[nodiscard]] static bool WantsSceneColor( const RecordedFrame& frame );
         // THE FRAME'S RECORD, TAKEN WHEN THE FRAME ENDS (EditorLayer::CaptureFramePresented, OVERLAP-ON-3) and
         // carried by value to its presented notification: a frame presented on the render task is announced
         // after the NEXT update has recorded its own, so EndFrame never reads the record live. Empty when this
         // frame's update never reached FrameRecorded.
         [[nodiscard]] std::optional<RecordedFrame> TakePendingFrame();
         // THE END OF A FRAME OF THE CAPTURE, called once the frame is submitted and presented (the layer's
-        // OnFramePresented): the --flight sample, then CountRenderedFrame; on the last frame the profiler dump
-        // and the --flight CSV are written and the capture's status comes back to close with. A frame whose
-        // update never reached FrameRecorded counts nothing.
-        // @p pending is the presented frame's record (TakePendingFrame at its end).
+        // OnFramePresented): the --flight sample, then the frame's PNGs from ITS OWN copy (@p pending's Pixels,
+        // never the live image); on the last frame the profiler dump and the --flight CSV are written and the
+        // capture's status comes back to close with. A frame whose update never reached FrameRecorded counts
+        // nothing. @p pending is the presented frame's record (TakePendingFrame at its end).
         [[nodiscard]] std::optional<int32_t> EndFrame( ProfilerWindow&                     profiler,
                                                        const std::optional<RecordedFrame>& pending );
         // A record the layer keeps for the capture (the --flight CSV) failed: the capture fails with it.
@@ -110,6 +132,9 @@ namespace Desert::Editor
         }
 
     private:
+        // Counts a recorded frame of the capture (once, at FrameRecorded) into @p frame: its sequence index and
+        // whether it is the last. False outside a capture, for a frame not recorded, and after the last frame.
+        bool CountRenderedFrame( bool recordedFrame, RecordedFrame& frame );
         // No --camera / --look: point the editor camera so every placed mesh is in the picture (FrameBox).
         void FrameScene();
 

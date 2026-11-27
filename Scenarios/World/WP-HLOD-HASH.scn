@@ -1,0 +1,70 @@
+# WP-HLOD-HASH: a saved HLOD is current while what it is built from is unchanged (UE UHLODBuilder::ComputeHLODHash
+# over AActor::IsHLODRelevant actors). WorldCells::SavedHLODStatus is the one answer, read by WorldCook, Play and the
+# editor: per node of the saved hierarchy NoSource / Current / Missing / Stale, plus Orphans. A node's checksum
+# (NodeChecksum) folds each part's layer, its builder and the builder's SettingsKey; each RELEVANT member - one that
+# brings a batch or a module builder (Rules::HLODMember: Batches or OwnBuilder) - by id, placement (its TRS chain)
+# and batches; a module member's Inputs (a landscape tile's root frame, tiling, material, layers and height file; a
+# spline's splines and meshes); the content hash of every asset key read, through the registries' dependency closure;
+# and kHLODBuilderVersion. A member with none (a controller, a trigger, a player start, a light) adds nothing.
+# The new form stales every saved HLOD once: the HLODs of every World Partition world of Projects/Desert are rebuilt
+# with the path a user runs, headless (Build > Build HLODs; BuilderRunOptions.hpp), from Editor/ via run_capped:
+#   <bin>/Editor --project ../Projects/Desert/Desert.deproj --scene Content/Scenes/<World>.desce --run WorldPartitionBuilder --builder HLODs
+# for WP_Protocol, WP21_PrefabSpan_Far, WP21_PrefabSpan_Near, WP23_Regions (FOLIAGE_Edit states no HLOD layer), committed;
+# then the editor's frame of WP_Protocol with every cell loaded, and Play's frame of the same pose beside it.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Panel "Open World Partition"
+Дано set world WorldPartitionEditor.ShowHLODs true
+Дано set world WorldPartitionEditor.HLODMinDrawDistance 0
+Дано set world WorldPartitionEditor.HLODMaxDrawDistance 0
+Когда run Scene "Open Scene WP_Protocol.desce"
+Когда wait-idle 60
+Когда run Mode "Select mode"
+# HH-07 (editor): every cell unloaded, so the editor draws the saved HLOD of each.
+Когда run Scene "World Partition: Unload All"
+Когда wait-idle 60
+Тогда hlod_hash_editor_status HH-07: editor.log "[WorldPartition] Editor HLODs of 'WP_Protocol': N saved HLOD(s), R record(s), each read when drawn; N wanted HLOD(s), 0 outdated." with no "not on the editor's plan"; the World Partition map shows no Stale cell
+# The reference (HH-06): the editor with every cell loaded, at the two poses Play is shot from.
+Когда run Scene "World Partition: Load All"
+Когда wait-idle 120
+Когда --subject viewport set Camera.Position -6000,3000,5124
+Когда --subject viewport set Camera.Direction 1,-0.02,0
+Когда frames 120
+Тогда hlod_hash_editor_near reference: the real houses and bushes 2.5 km along X from house 200414, every cell loaded
+Когда --subject viewport set Camera.Position 0,40000,-60000
+Когда --subject viewport set Camera.Direction 0,-0.6,1
+Когда frames 120
+Тогда hlod_hash_editor_far reference: WP_Protocol from 400 m up, every cell loaded - houses, bushes, foliage, landscape to the horizon
+Когда run Scene "World Partition: Unload All"
+Когда wait-idle 60
+Когда run Action "Play"
+Когда advance 2
+Когда advance 1
+Когда --subject viewport set Camera.Position -6000,3000,5124
+Когда --subject viewport set Camera.Direction 1,-0.02,0
+Когда advance 2
+Тогда hlod_hash_view_near HH-06: the silhouettes of the houses and bushes drawn by their HLODs match hlod_hash_editor_near in place and colour; no empty patch where a cell is; HH-07: editor.log of this Play "[WorldPartition] Play of 'WP_Protocol': N saved HLOD(s) in 16 HLOD cell(s) from ...WP_Protocol_HLOD, 0 stale", no "is missing or stale", no "runs WITHOUT HLODs"
+Когда --subject viewport set Camera.Position 0,40000,-60000
+Когда --subject viewport set Camera.Direction 0,-0.6,1
+Когда advance 2
+Тогда hlod_hash_view_far HH-06: the world to the horizon covered as in hlod_hash_editor_far - houses, bushes, foliage and the G0L5 landscape; no square of ground without its HLOD; no cell border seen as a colour step
+Когда run Action "Stop"
+# [hlod_hash_source] (WorldCook, not DesertCtl steps): scratch/WP-HLOD-HASH/hh.py makes each edit on an APFS clone of
+# Projects/Desert in scratch (`hh.py fresh`, then `hh.py <step>` or `hh.py all`), never on Projects/; each step
+# restores the files it touched from the tree before and after, and cooks the clone with
+#   WorldCook Content/Scenes/WP_Protocol.desce --out <scratch>/wc/<HH> --project Desert.deproj --project-registry
+#   HH-01 Bush 0_0 (200978, cell G1L0(0,0)) gains a CharacterController (MaxWalkSpeed 600, then 650 + MaxSlopeDeg 40):
+#         "0 World Partition issue(s)" both times; "built HLODs ...: N cell row(s)" with N = Wanted() <= 599.
+#   HH-02a Bush 0_0 +20 on Z (stays in its cell): exactly 'G1L0(0,0)' stale, 1 issue(s).
+#   HH-02b Bush 0_0 +300 on X (1250 -> 1550): 'G1L0(1,0)' missing and 'G1L0(0,0)' orphan, 2 issue(s).
+#   HH-02c house 200348 +100 on X: 'G0L0(-39,-9)' and its parent 'HLOD_Main(-2,-1)', 2 issue(s).
+#   HH-03 Bush 0_0's material slot CB_Orange -> CB_Green: exactly 'G1L0(0,0)' stale.
+#   HH-04 a PlayerStart and a trigger volume (Collider only) at (1500, -404, 1500), cell G1L0(1,1): 0 issue(s), and the
+#         index has no G1L0(1,1) row.
+#   HH-05 WP_Protocol, WP21_PrefabSpan_Far, WP21_PrefabSpan_Near, WP23_Regions, FOLIAGE_Edit: 0 issue(s) each; the
+#         PrefabSpan logs do not name G0L0(0,0); WP_Protocol's "Time: read" <= 1938 ms + 10 %.
+#   HH-08 house 200348 gains HLODLayer {Layer: HLOD_Main_Far} (its grid's first layer was HLOD_Main):
+#         'G0L0(-39,-9)' stale.
+#   HH-09a the landscape root 1004's ZScale 4 -> 5: every 'G0L5(...)' stale (4 of them), nothing else.
+#   HH-09b one byte of WP_Protocol_Landscape/1007.dlht flipped: exactly the G0L5 that holds tile 1007 stale; a height
+#         file that does not read is an error naming it, never a stable hash.

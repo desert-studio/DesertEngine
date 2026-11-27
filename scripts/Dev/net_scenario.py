@@ -20,15 +20,35 @@ Line format (one step per line in order, `#` comments; a step's REGEX is the res
                                               editor = the Editor as a headless --play client through run_capped (the
                                               machine's GPU slot); bot = DesertNetProbe --bot; account defaults to the
                                               client's order (1, 2, …).
+                                              A server names its `--role all|coordinator|store|sim|gateway` (NET-ARCH
+                                              §2M): a split role gets the run's dev mesh CA (`--mesh-ca`, made once by
+                                              `DesertServer --mesh-dev-ca`); coordinator, store and sim get their own
+                                              `--mesh-port`; store, sim and gateway get `--coordinator` (the coordinator
+                                              role starts first); all, sim and gateway get the world. The client port
+                                              (`--port --audience --issuer-key`, the link flags) is the role clients
+                                              connect to: all or gateway, one per run.
+  Роль|Role <name> probe <args…>              a HOSTILE MESH PEER: DesertNetProbe --mesh-peer with the run's mesh CA
+                                              and `--store` (the store role's mesh address; the store role starts
+                                              first); its console (stdin) takes «Консоль» lines as a server's does.
   Ждать|Wait <role> <seconds> [<N>x] <REGEX>  the role writes a line matching REGEX (N of them) after the previous
                                               event; refused after <seconds> or when the role has exited. An event is
                                               a Ждать match or a Консоль line: lines written before it never satisfy a
                                               later Ждать (UE Gauntlet: wait for the NEXT log event).
   Консоль|Console <role> <line>               write the line to the role's console (stdin); {var} placeholders
+  Сигнал|Signal <role> STOP|CONT|TERM         send the signal to the server role's process group (a mesh peer that
+                                              stops answering, resumes, or dies); an event like a Консоль line
   Запомнить|Read <var> <role> <REGEX>         the role's LAST line matching REGEX so far: its numeric groups become
                                               {var1}, {var2}, … ({var1-20000} adds, for a console line)
   Сверить|Compare <var> <var> <cm>            every component of the two equal within <cm>
   Нет|Never <role> <REGEX>                    the role's whole log so far has no line matching REGEX
+  Порядок|Order <role> <REGEX> < <role> <REGEX>
+                                              the first role's LAST line matching its REGEX so far was written
+                                              before the second role's LAST matching line, by the lines' own
+                                              [HH:MM:SS.mmm] stamps (roles are different files: line numbers do not
+                                              compare); a missing line, an unstamped one or the wrong order fails
+                                              naming both lines. One stamp is a millisecond: the same millisecond
+                                              passes (a cross-process order finer than that is not in the logs); a
+                                              second line more than 12 h "earlier" is read as past midnight.
   Тогда|Then <role> <frame> <what it shows…>  the next frame the editor role draws, as <frame>.png (index.txt)
 Output: <scratch>/<CODE>/frames/scn-<time>/ (scn-latest points at it): <role>.log per role, the frames, index.txt,
 result.txt, trace.txt (each step's time and what it read), the scenario, cook.log. Every role is ended when the steps end or one fails.
@@ -49,10 +69,18 @@ KEYWORDS = {
     "проект": "project", "project": "project", "мир": "world", "world": "world", "роль": "role", "role": "role",
     "ждать": "wait", "wait": "wait", "консоль": "console", "console": "console", "запомнить": "read",
     "read": "read", "сверить": "compare", "compare": "compare", "нет": "never", "never": "never",
-    "тогда": "then", "then": "then",
+    "тогда": "then", "then": "then", "сигнал": "signal", "signal": "signal", "порядок": "order", "order": "order",
 }
+STAMP = re.compile(r"^\[(\d\d):(\d\d):(\d\d)\.(\d{3})\]")  # a role log line's wall-clock stamp
+DAY_MS = 24 * 3600 * 1000
+SERVER_ROLES = ("all", "coordinator", "store", "sim", "gateway")
+SIGNALS = {"STOP": "SIGSTOP", "CONT": "SIGCONT", "TERM": "SIGTERM"}
 PLACEHOLDER = re.compile(r"\{([A-Za-z_]+)(\d+)([+-]\d+(?:\.\d+)?)?\}")
 SHOT = re.compile(r"\[Shot\] wrote -> (\S+\.png)")
+# The editor counts a capture frame when its tick records it (ShotDirector::FrameRecorded) and writes frame_N.png
+# from that frame's own copy later, at its announcement: the frame a Тогда judges is named by this line.
+RECORDED = re.compile(r"\[Shot\] recorded frame_(\d+) \(game frame (\d+)\)")
+SEQNUM = re.compile(r"frame_(\d+)\.png$")
 
 
 class Fail(Exception):
@@ -74,15 +102,20 @@ class Role:
     def __init__(self, name, kind, proc, logpath, seqdir=None):
         self.name, self.kind, self.proc, self.logpath, self.seqdir = name, kind, proc, logpath, seqdir
         self.lines, self.cursor, self.partial, self.drawn = [], 0, "", []
+        self.hold = False  # a Тогда is choosing its frame: nothing announced is deleted meanwhile
+        self.claimed = {}  # sequence frame number -> the «Тогда» statement that took it
+        self.frames = 0  # the line after the last frame a «Тогда» took; Ждать never reads it
         self.reader = open(logpath, encoding="utf-8", errors="replace")
 
     def pump(self):
-        """Read what the role wrote since the last pump (whole lines only). A Тогда takes a frame drawn AFTER it, so
-        every sequence frame already announced by an earlier pump is deleted first (a dense sequence stays a few MB)."""
-        for path in self.drawn:
-            if os.path.exists(path):
-                os.remove(path)
-        self.drawn = []
+        """Read what the role wrote since the last pump (whole lines only). A Тогда takes a frame recorded AFTER the
+        line it follows, so every sequence frame already announced by an earlier pump is deleted first (a dense
+        sequence stays a few MB) - except while a Тогда holds them (its frame may have been announced already)."""
+        if not self.hold:
+            for path in self.drawn:
+                if os.path.exists(path):
+                    os.remove(path)
+            self.drawn = []
         chunk = self.reader.read()
         if chunk:
             text = self.partial + chunk
@@ -90,8 +123,8 @@ class Role:
             self.partial = parts.pop()
             self.lines.extend(parts)
             if self.seqdir:
-                self.drawn = [m.group(1) for m in map(SHOT.search, parts)
-                              if m and os.path.dirname(m.group(1)) == self.seqdir]
+                self.drawn += [m.group(1) for m in map(SHOT.search, parts)
+                               if m and os.path.dirname(m.group(1)) == self.seqdir]
 
 
 class Run:
@@ -101,7 +134,10 @@ class Run:
         self.bindir = dev_bindir(tree)
         self.proj = os.path.join(tree, "Projects", "Desert", "Desert.deproj")
         self.world = self.cooked = None
-        self.port = None
+        self.port = None  # the client port: the one `--role all` or gateway clients connect to
+        self.coordinator = None  # "127.0.0.1:<mesh port>" once the coordinator role has started
+        self.meshca = None
+        self.store = None  # "127.0.0.1:<mesh port>" once the store role has started (a probe role's --store)
         self.roles, self.vars, self.accounts = {}, {}, 0
         scratch = os.environ.get("DESERT_SCRATCH") or os.path.join(os.path.dirname(tree), "DesertEngine-scratch")
         framesdir = os.path.join(scratch, self.code, "frames")
@@ -186,10 +222,64 @@ class Run:
             raise Fail(f"token for account {account}: {out.stderr.strip()[-200:]}")
         return lines[-1].strip()
 
+    def mesh_ca(self):
+        """The run's dev mesh CA (NET-MESH-7 dev path): one root and a certificate per role process, made once."""
+        if self.meshca:
+            return self.meshca
+        ca = os.path.join(self.out, "mesh-ca")
+        out = subprocess.run([self.tool("DesertServer"), "--mesh-dev-ca", ca], capture_output=True, text=True)
+        if out.returncode != 0:
+            raise Fail(f"mesh dev CA: {out.stdout.strip()[-200:]} {out.stderr.strip()[-200:]}")
+        self.meshca = ca
+        return ca
+
+    @staticmethod
+    def free_port():
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:  # a free UDP port for this run
+            s.bind(("127.0.0.1", 0))
+            return s.getsockname()[1]
+
+    def server_argv(self, name, words):
+        """The server's command line by its --role: what the controller owns for that role is added here."""
+        given = [words[i + 1] for i, w in enumerate(words[:-1]) if w == "--role"]
+        if len(given) != 1 or given[0] not in SERVER_ROLES:
+            raise Fail(f"server role {name} names exactly one --role of {', '.join(SERVER_ROLES)}")
+        mesh = given[0]
+        for owned in ("--port", "--audience", "--issuer-key", "--mesh-port", "--mesh-ca", "--coordinator",
+                      "--world", "--project"):
+            if owned in words:
+                raise Fail(f"server role {name}: {owned} is the controller's")
+        argv = [self.tool("DesertServer"), "--project", self.proj, *words]
+        if mesh in ("all", "sim", "gateway"):
+            argv += ["--world", os.path.join(os.path.dirname(self.proj), self.world)]
+        if mesh != "all":
+            argv += ["--mesh-ca", self.mesh_ca()]
+        if mesh in ("coordinator", "store", "sim"):
+            port = self.free_port()
+            argv += ["--mesh-port", str(port)]
+            if mesh == "coordinator":
+                if self.coordinator:
+                    raise Fail("one coordinator role per run")
+                self.coordinator = f"127.0.0.1:{port}"
+            if mesh == "store":
+                self.store = f"127.0.0.1:{port}"
+        if mesh in ("store", "sim", "gateway"):
+            if not self.coordinator:
+                raise Fail(f"server role {name} (--role {mesh}) before the coordinator role")
+            argv += ["--coordinator", self.coordinator]
+        if mesh in ("all", "gateway"):
+            if self.port:
+                raise Fail("one client port per run (one --role all or gateway)")
+            self.port = self.free_port()
+            argv += ["--port", str(self.port), "--audience", AUDIENCE,
+                     "--issuer-key", os.path.join(self.auth(), "issuer.public")]
+        return argv, mesh in ("all", "gateway")
+
     def start_role(self, rest):
         words = shlex.split(rest)
-        if len(words) < 2 or words[1] not in ("server", "editor", "bot"):
-            raise Fail("«Роль» takes <name> server|editor|bot [account=N] [lag=MS] [loss=PCT] [jitter=MS] <args…>")
+        if len(words) < 2 or words[1] not in ("server", "editor", "bot", "probe"):
+            raise Fail("«Роль» takes <name> server|editor|bot|probe [account=N] [lag=MS] [loss=PCT] [jitter=MS] "
+                       "<args…>")
         name, kind, words = words[0], words[1], words[2:]
         if name in self.roles:
             raise Fail(f"role {name} is already started")
@@ -204,19 +294,21 @@ class Run:
         env = dict(os.environ, DESERT_ROOT=self.tree)
         cwd = self.tree
         if kind == "server":
-            if self.port:
-                raise Fail("one server role per run")
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:  # a free UDP port for this run
-                s.bind(("127.0.0.1", 0))
-                self.port = s.getsockname()[1]
-            argv = [self.tool("DesertServer"), "--project", self.proj,
-                    "--world", os.path.join(os.path.dirname(self.proj), self.world), *words,
-                    "--port", str(self.port), "--audience", AUDIENCE,
-                    "--issuer-key", os.path.join(self.auth(), "issuer.public")]
+            argv, serves_clients = self.server_argv(name, words)
             link = [("--lag-ms", "lag"), ("--jitter-ms", "jitter"), ("--loss", "loss")]
+            if not serves_clients and any(key in opts for _, key in link):
+                raise Fail(f"lag/loss/jitter are the client port's link: role {name} has none")
+        elif kind == "probe":
+            if not self.store:
+                raise Fail(f"probe role {name} before the store role (--role store)")
+            if opts:
+                raise Fail(f"probe role {name}: a mesh peer has no account or client link")
+            argv = [self.tool("DesertNetProbe"), "--mesh-peer", "--mesh-ca", self.mesh_ca(), "--store", self.store,
+                    *words]
+            link = []
         else:
             if not self.port:
-                raise Fail(f"client role {name} before the server role")
+                raise Fail(f"client role {name} before the server role that serves clients (all or gateway)")
             self.accounts += 1
             token = self.token(opts.get("account", str(self.accounts)))
             if kind == "editor":
@@ -239,7 +331,7 @@ class Run:
                 argv += [flag, opts[key]]
         log = open(logpath, "w", encoding="utf-8", errors="replace")
         proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT,
-                                stdin=subprocess.PIPE if kind == "server" else subprocess.DEVNULL,
+                                stdin=subprocess.PIPE if kind in ("server", "probe") else subprocess.DEVNULL,
                                 text=True, start_new_session=not WIN)
         log.close()
         self.roles[name] = Role(name, kind, proc, logpath, seqdir)
@@ -247,9 +339,16 @@ class Run:
     def wait(self, rest):
         parts = rest.split(None, 2)
         if len(parts) < 3 or not parts[1].isdigit():
-            raise Fail("«Ждать» takes <role> <seconds> [<N>x] <regex>")
+            raise Fail("«Ждать» takes <role> <seconds> [fresh] [<N>x] <regex>")
         r, deadline = self.role(parts[0]), time.time() + int(parts[1])
         count, pattern = 1, parts[2]
+        # `fresh`: match only lines read from now on. A Ждать on another role pumped this one and deleted the frames
+        # after its old lines, so a Тогда following a stale match has no frame; a fresh match still has its frame.
+        m = re.match(r"fresh\s+(.*)", pattern)
+        if m:
+            pattern = m.group(1)
+            self.poll()
+            r.cursor = len(r.lines)
         m = re.match(r"(\d+)x\s+(.*)", pattern)
         if m:
             count, pattern = int(m.group(1)), m.group(2)
@@ -269,24 +368,41 @@ class Run:
                 raise Fail(f"role {r.name} exited (rc {r.proc.returncode}) after {found}/{count} of «{pattern}»")
             if time.time() > deadline:
                 raise Fail(f"{found}/{count} of «{pattern}» in {r.name}'s log within {parts[1]} s")
-            time.sleep(0.25)
+            time.sleep(0.05)
 
     def console(self, rest):
         name, _, line = rest.strip().partition(" ")
         r = self.role(name)
-        if r.kind != "server":
-            raise Fail(f"«Консоль» writes to the server's console, {name} is a {r.kind}")
+        if r.kind not in ("server", "probe"):
+            raise Fail(f"«Консоль» writes to a server's or a probe's console, {name} is a {r.kind}")
 
         def value(m):
             if m.group(1) not in self.vars or int(m.group(2)) > len(self.vars[m.group(1)]):
                 raise Fail(f"{m.group(0)}: nothing read into {m.group(1)}")
             v = self.vars[m.group(1)][int(m.group(2)) - 1] + float(m.group(3) or 0)
-            return f"{v:g}"
+            return str(int(v)) if v == int(v) else f"{v:g}"  # a net id or a step >= 1e6 stays an integer
         text = PLACEHOLDER.sub(value, line.strip())
         self.event()
         r.proc.stdin.write(text + "\n")
         r.proc.stdin.flush()
         return text
+
+    def signal(self, rest):
+        """A mesh peer that stops answering (STOP), resumes with its backlog (CONT) or dies (TERM): the whole process
+        group, as the role was started in its own session. An event: what it causes comes after it."""
+        words = rest.split()
+        if len(words) != 2 or words[1].upper() not in SIGNALS:
+            raise Fail(f"«Сигнал» takes <role> {'|'.join(SIGNALS)}")
+        r = self.role(words[0])
+        if r.kind != "server":
+            raise Fail(f"«Сигнал» is for a server role, {r.name} is a {r.kind}")
+        if WIN:
+            raise Fail("«Сигнал» needs POSIX process groups (SIGSTOP/SIGCONT): not on Windows")
+        if r.proc.poll() is not None:
+            raise Fail(f"role {r.name} already exited (rc {r.proc.returncode})")
+        self.event()
+        os.killpg(r.proc.pid, getattr(signal, SIGNALS[words[1].upper()]))
+        return f"{words[1].upper()} -> {r.name}"
 
     def read(self, rest):
         parts = rest.split(None, 2)
@@ -319,6 +435,29 @@ class Run:
         if hit:
             raise Fail(f"{name}'s log has «{pattern}»: {hit.strip()[:200]}")
 
+    def order(self, rest):
+        sides = rest.split(" < ")
+        if len(sides) != 2:
+            raise Fail("«Порядок» takes <role> <regex> < <role> <regex> (one \" < \" between the two)")
+        self.poll()
+        found = []
+        for side in sides:
+            name, _, pattern = side.strip().partition(" ")
+            r, rx = self.role(name), re.compile(pattern)
+            line = next((l for l in reversed(r.lines) if rx.search(l)), None)
+            stamp = STAMP.match(line) if line else None
+            found.append((name, pattern, line, stamp))
+        said = " < ".join(f"{n}: {l.strip()[:160] if l else f'no line matches «{p}»'}" for n, p, l, _ in found)
+        if any(not st for *_, st in found):
+            raise Fail(f"order unproven, a line is missing or has no stamp - {said}")
+        a, b = (((int(h) * 60 + int(m)) * 60 + int(sec)) * 1000 + int(ms) for h, m, sec, ms in
+                (st.groups() for *_, st in found))
+        if b - a < -DAY_MS // 2:
+            b += DAY_MS
+        if b < a:
+            raise Fail(f"wrong order, the second line is {a - b} ms earlier - {said}")
+        return f"{b - a} ms apart - {said}"
+
     def then(self, rest):
         parts = rest.split(None, 2)
         if len(parts) < 2:
@@ -326,26 +465,72 @@ class Run:
         r = self.role(parts[0])
         if not r.seqdir:
             raise Fail(f"«Тогда» {r.name}: a {r.kind} draws no frames")
-        self.poll()
-        start, deadline = len(r.lines), time.time() + 120
-        while time.time() < deadline:
-            self.poll()
-            for line in r.lines[start:]:
-                m = SHOT.search(line)
-                if m and os.path.dirname(m.group(1)) == r.seqdir:
-                    os.replace(m.group(1), os.path.join(self.out, parts[1] + ".png"))
-                    return f"{parts[1]}.png\t{parts[2] if len(parts) > 2 else ''}"
-            start = len(r.lines)
-            if r.proc.poll() is not None:
-                raise Fail(f"role {r.name} exited (rc {r.proc.returncode}) before frame {parts[1]}")
-            time.sleep(0.05)
-        raise Fail(f"{r.name} drew no frame within 120 s for {parts[1]}")
+        # THE FRAME THE TICK RECORDED (NET-PAWN-TELEPORT-FRAME D1): the first `[Shot] recorded frame_N` after the line
+        # the last Ждать matched (r.cursor) - frame N is the frame whose tick ran after that line - then the
+        # `wrote ... frame_N.png` written from that frame's own copy. Frame N+1 is kept beside it as <name>_next.png
+        # (D2: the next frame is judged, not assumed). Never "the first file written after the Тогда": with the
+        # render pipelined a frame is written after the next tick, so that file was the frame BEFORE.
+        # CONSUMED OFFSET (NET-SCN-FRAME-CLAIMED): once frames N/N+1 are taken, r.frames moves past the line that
+        # announced frame N+1, so the next «Тогда» on this role waits for a newer frame - never re-reads these.
+        # r.cursor stays Ждать's: a one-shot line logged while «Тогда» waited for its frames is still matched.
+        name, what = parts[1], parts[2] if len(parts) > 2 else ""
+        stmt = f"«Тогда {r.name} {name}»"
+        r.hold = True
+        try:
+            start, deadline, n, game, got, after = max(r.cursor, r.frames), time.time() + 120, None, None, {}, None
+            while time.time() < deadline:
+                for index in range(start, len(r.lines)):
+                    line = r.lines[index]
+                    if n is None:
+                        m = RECORDED.search(line)
+                        if m:
+                            n, game = int(m.group(1)), m.group(2)
+                            if n in r.claimed:
+                                raise Fail(f"{stmt} found {r.name}'s frame_{n:05d} already taken by {r.claimed[n]}")
+                        continue
+                    m = RECORDED.search(line)
+                    if m and int(m.group(1)) == n + 1:
+                        after = index + 1
+                        continue
+                    m = SHOT.search(line)
+                    k = SEQNUM.search(m.group(1)) if m and os.path.dirname(m.group(1)) == r.seqdir else None
+                    if k and int(k.group(1)) in (n, n + 1) and int(k.group(1)) not in got:
+                        frame = int(k.group(1))
+                        dst = os.path.join(self.out, name + ("" if frame == n else "_next") + ".png")
+                        if frame in r.claimed:
+                            raise Fail(f"{stmt} found {r.name}'s frame_{frame:05d} already taken by "
+                                       f"{r.claimed[frame]}")
+                        # A Ждать on another role may have pumped this one first (hold was off then) and deleted
+                        # the announced file: the frame is gone, said by name - never another frame in its place.
+                        if not os.path.exists(m.group(1)):
+                            raise Fail(f"{r.name} wrote {os.path.basename(m.group(1))} for {name} but the file is gone "
+                                       f"(deleted as an unclaimed sequence frame before this «Тогда» took it)")
+                        os.replace(m.group(1), dst)
+                        got[frame] = dst
+                start = len(r.lines)
+                if n is not None and len(got) == 2 and after is not None:
+                    r.claimed[n] = r.claimed[n + 1] = stmt
+                    r.frames = max(r.frames, after)
+                    return (f"{name}.png\t(frame_{n:05d}, game frame {game}) {what}\n"
+                            f"{name}_next.png\t(frame_{n + 1:05d}) the frame after {name}")
+                if r.proc.poll() is not None:
+                    raise Fail(f"role {r.name} exited (rc {r.proc.returncode}) before frame {name}")
+                time.sleep(0.05)
+                self.poll()
+        finally:
+            r.hold = False
+        if n is None:
+            raise Fail(f"{r.name} recorded no frame (no `[Shot] recorded frame_N`) within 120 s for {name}")
+        raise Fail(f"{r.name} recorded frame_{n:05d} for {name} but wrote {sorted(got)} of it and the "
+                   f"`recorded frame_{n + 1:05d}` line within 120 s")
 
     def end(self):
         """Gauntlet ends every role when the test ends: the server is asked first (SIGINT), then the rest."""
         for r in sorted(self.roles.values(), key=lambda r: r.kind == "server"):
             if r.proc.poll() is None:
                 try:
+                    if not WIN and r.kind == "server":  # a STOPped role answers no SIGINT until it runs again
+                        os.killpg(r.proc.pid, signal.SIGCONT)
                     if WIN:
                         r.proc.terminate()
                     else:
@@ -396,7 +581,8 @@ def main():
                 run.set_project(rest)
                 continue
             said = {"world": run.set_world, "role": run.start_role, "wait": run.wait, "console": run.console,
-                    "read": run.read, "compare": run.compare, "never": run.never, "then": run.then}[op](rest)
+                    "read": run.read, "compare": run.compare, "never": run.never, "then": run.then,
+                    "signal": run.signal, "order": run.order}[op](rest)
             if op == "then":
                 index.append(said)
                 frames += 1

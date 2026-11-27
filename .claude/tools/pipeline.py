@@ -37,7 +37,7 @@ DESIGN_KEYS = ("Эталон", "Отличия", "Архитектура", "По
 STAGES = ("design", "code", "review", "build", "accept", "land", "done", "dropped")
 NEXT = {"design": "studio.py plan {c} <design.md>",
         "code": "запусти пакеты (studio.py launch {c}); на сдачу — studio.py accept {c}-<ПАКЕТ>",
-        "review": "ревью уже было в цепочке каждого пакета (SPEND-2X: второго ревью нет); один Agent(lander) на пачку: merge {c}, сборка, приёмка, посадка",
+        "review": "reviewer на каждый пакет параллельно; затем studio.py merge {c}",
         "build": "bash .claude/tools/build_land.sh <дерево> <лог>; затем studio.py built ok|fail",
         "accept": "агент acceptance по Scenarios; затем studio.py passed {c}",
         "land": "scripts/Dev/land_dev.sh; затем studio.py landed {c}"}

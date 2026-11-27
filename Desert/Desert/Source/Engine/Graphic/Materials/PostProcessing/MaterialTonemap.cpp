@@ -9,8 +9,7 @@ namespace Desert::Graphic
     void MaterialTonemap::BindValues( const Params& params )
     {
         SetExposure( params.Exposure );
-        SetBloomIntensity( params.BloomIntensity );
-        SetMiddleGrey( kExposureMiddleGrey );
+        SetExposureKey( params.ExposureKey );
         SetAutoExposureEnabled( params.AutoExposure ? 1.0f : 0.0f );
         SetChromaticBloom( params.ChromaticBloom );
         // 3 = the buffer visualization (SceneComposite.shader): not a Core::TonemapOperator a scene can author.
@@ -18,6 +17,7 @@ namespace Desert::Graphic
                                                    : static_cast<float>( static_cast<int>( params.Operator ) ) );
         SetLightShaftTintIntensity( glm::vec4( params.LightShaftTint, params.LightShaftIntensity ) );
         SetLensFlareTintIntensity( glm::vec4( params.LensFlareTint, params.LensFlareIntensity ) );
+        SetBloomDirtMaskTintIntensity( glm::vec4( params.BloomDirtMaskTint, params.BloomDirtMaskIntensity ) );
         SetInvPreExposure( 1.0f / params.PreExposure );
         SetLocalExposureContrast( params.LocalExposureContrast );
         SetLocalExposureThreshold( params.LocalExposureThreshold );

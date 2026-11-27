@@ -14,6 +14,7 @@
 #include <Engine/Scripting/ScriptEngine.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/EditorRegions.hpp>
+#include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Editor/Panels/WorldPartition/EditorLoadedRegions.hpp>
@@ -249,7 +250,8 @@ namespace Desert::Editor
             auto       check =
                  partitioned
                             ? Desert::Core::WorldCells::CheckSavedWorldPartition(
-                             std::filesystem::path( destination.string() ), registries )
+                             std::filesystem::path( destination.string() ), registries,
+                             Desert::Core::HLODBuilders() )
                             : Common::MakeSuccess( std::optional<Desert::Core::WorldCells::WorldPartitionCheck>() );
             if ( !check )
                 Editor::ToastManager::Push( std::format( "World Partition check after the save failed: {}", check.GetError() ),

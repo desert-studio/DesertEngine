@@ -129,11 +129,14 @@ namespace Desert::LandscapeCore
                  Rules::DescriptorHook{ kLandscapeRootComponent, {}, &DescribeRoot, nullptr } );
 
             // HLOD: a tile draws terrain from its height file and a spline meshes bent along it - neither a mesh
-            // block; BuildCellHLOD hands them to the landscape and spline builders (WP-FAR-6).
-            Rules::RegisterHLODBuilderComponent(
-                 { kLandscapeTileComponent, Rules::HLODExclusion::LandscapeTile } );
-            Rules::RegisterHLODBuilderComponent(
-                 { kLandscapeSplineComponent, Rules::HLODExclusion::LandscapeSpline } );
+            // block; BuildCellHLOD hands them to the landscape and spline builders (WP-FAR-6). The builders are
+            // the engine's, so the engine states what each reads (Core::RegisterLandscapeHLODInputs, beside them)
+            // into these rows; this module names no engine symbol (DesertServer links it without the engine).
+            Rules::RegisterHLODBuilderComponent( { kLandscapeTileComponent, Rules::HLODExclusion::LandscapeTile,
+                                                   /*Inputs: the engine's*/ nullptr } );
+            Rules::RegisterHLODBuilderComponent( { kLandscapeSplineComponent,
+                                                   Rules::HLODExclusion::LandscapeSpline,
+                                                   /*Inputs: the engine's*/ nullptr } );
 
             // Activation: a tile builds a heightfield (and its collision) - more than a primitive.
             Rules::RegisterActivationKind(

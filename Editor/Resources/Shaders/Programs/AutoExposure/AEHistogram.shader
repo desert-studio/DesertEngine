@@ -50,18 +50,16 @@ Shader "AEHistogram"
             {
                 float l = Luminance( texelFetch( SceneColorTexture, coord, 0 ).rgb ) * InversePreExposure;
 
-                uint bin;
-                if ( l < 1e-5 )
+                // Bin 0 carries no weight (UE): near-black and everything at or below the window's floor are not
+                // metered, so a dark frame's black does not pull the exposure up. The near-black test also keeps
+                // log2 away from ~0 and NaN.
+                if ( l >= 1e-5 )
                 {
-                    bin = 0u; // treat near-black as the bottom bin (avoids log2 of ~0)
+                    float t   = clamp( ( log2( l ) - MinLogLuminance ) * InverseLogLuminanceRange, 0.0, 1.0 );
+                    uint  bin = uint( t * 255.0 + 0.5 );
+                    if ( bin > 0u )
+                        atomicAdd( s_Bins[bin], 1u );
                 }
-                else
-                {
-                    float t = clamp( ( log2( l ) - MinLogLuminance ) * InverseLogLuminanceRange, 0.0, 1.0 );
-                    bin     = uint( t * 255.0 + 0.5 );
-                }
-
-                atomicAdd( s_Bins[bin], 1u );
             }
             barrier();
 

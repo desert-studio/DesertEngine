@@ -116,6 +116,16 @@ namespace Desert::Graphic::API::Vulkan
         // (vkDestroy*, vmaFreeMemory). Inline when no loop runs or its thread has exited (everything handed to
         // it already ran, so inline is still after it).
         static void DeferRelease( std::function<void()> release );
+        // THE FENCE OF ONE FRAME, BY ITS ABSOLUTE NUMBER (UE FRHIGPUTextureReadback::IsReady: completion is the
+        // frame's own GPU fence, never a separate event). For work recorded into frame @p frame's command buffer
+        // in slot @p slot (FrameManager's recording slot and GetAbsoluteFrameCount when it was recorded). Done
+        // once a later frame of the slot was handed over (its BeginSlot waited this frame's fence) or this frame's
+        // own submission has signalled the slot fence. Never blocks; false with no loop running.
+        [[nodiscard]] static bool IsFrameDone( uint32_t slot, uint64_t frame );
+        // Blocks until IsFrameDone( @p slot, @p frame ), on that slot's fence and nothing wider (not a device
+        // wait). Refused, by name, when the frame was never handed over (it may never be: nothing to wait for),
+        // the submit thread failed it, or no loop runs.
+        [[nodiscard]] static Common::BoolResultStr WaitFrameDone( uint32_t slot, uint64_t frame );
         // A ONE-OFF vkQueueSubmit IN QUEUE ORDER (UE: the RHI submission thread takes the uploads as well):
         // @p submit runs on the submit thread after everything handed to it so far, and the caller blocks until
         // it ran and gets its result. When no loop runs, on the submit thread itself, and when the loop's
@@ -242,6 +252,8 @@ namespace Desert::Graphic::API::Vulkan
         // The submit thread's half of one frame: the submission, then the present (or, when the submission
         // failed, the present given up). Empty on success, else the failure Submit / WaitSlot return next.
         std::string RunFrame( uint32_t slot, bool earlierFailed );
+        // IsFrameDone / WaitFrameDone on this loop. @p wait: block on the fence; else poll it.
+        Common::BoolResultStr FrameDone( uint32_t slot, uint64_t frame, bool wait );
         // vkResetFences + vkQueueSubmit of one frame, on the submit thread.
         Common::BoolResultStr ExecuteFrame( uint32_t slot, const SlotWork& work );
         // Under m_Mutex (@p lock): returns once the submit thread has handled @p ticket.
@@ -292,6 +304,10 @@ namespace Desert::Graphic::API::Vulkan
         UnwaitedBound           m_UnwaitedBound;
         std::deque<QueuedWork>  m_Queue;
         std::vector<uint64_t>   m_SlotTicket;
+        // The absolute frame number (FrameManager::GetAbsoluteFrameCount) of each slot's last hand-off, set with
+        // m_SlotTicket; kNoFrame while the slot has handed nothing over. What IsFrameDone tells frames apart by.
+        static constexpr uint64_t kNoFrame = UINT64_MAX;
+        std::vector<uint64_t>     m_SlotFrame;
         uint64_t                m_NextTicket    = 0;
         uint64_t                m_HandledTicket = 0;
         // The newest ticket RunInlineUntil ran inside the entry ThreadMain runs; published into m_HandledTicket

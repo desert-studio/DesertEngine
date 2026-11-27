@@ -6,6 +6,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Assets/Common.hpp>
 
 #include <Engine/Graphic/Materials/PostProcessing/MaterialTonemap.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
@@ -26,13 +27,14 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, BlurredLogLuminance );
         DESERT_SHADER_PARAMETER( Texture, ExposureFusionTexture );
         DESERT_SHADER_PARAMETER( Texture, ColorGradingLUT );
+        DESERT_SHADER_PARAMETER( Texture, BloomDirtMaskTexture );
         static constexpr std::array kAll{
              RDG::Erase( GeometryTexture ),         RDG::Erase( LinearRepeatSampler ),
              RDG::Erase( AverageLuminanceTexture ), RDG::Erase( BloomTexture ),
              RDG::Erase( LinearClampSampler ),      RDG::Erase( LightShaftTexture ),
              RDG::Erase( LensFlareTexture ),        RDG::Erase( LumBilateralGrid ),
              RDG::Erase( BlurredLogLuminance ),     RDG::Erase( ExposureFusionTexture ),
-             RDG::Erase( ColorGradingLUT ) };
+             RDG::Erase( ColorGradingLUT ),         RDG::Erase( BloomDirtMaskTexture ) };
     };
 
     class TonemapRenderer final : public RenderSystem
@@ -79,8 +81,9 @@ namespace Desert::Graphic::System
         [[nodiscard]] float TargetHeadroom( bool hdrRendition ) const;
 
         // The graph resources one tonemap exec binds by shader name. Bloom is FrameTextures::Transients.Bloom,
-        // or the graph's FrameTextures::System.Black when the bloom chain did not run this frame; then
-        // BloomProduced is false and the bloom intensity is 0 for this draw, whatever SetBloomIntensity said.
+        // or the graph's FrameTextures::System.Black when no bloom pass ran this frame (black adds nothing: the
+        // bloom carries its own strength). BloomDirtMask is the view's dirt texture imported, or System.Black with
+        // BloomDirtMaskProduced false and the mask's intensity 0 for this draw.
         // LightShafts and LensFlare follow the same rule: FrameTextures::Transients.LightShafts / .LensFlare when
         // their nodes ran this frame, otherwise System.Black with that effect's intensity 0 for this draw.
         struct GraphInputs
@@ -89,6 +92,8 @@ namespace Desert::Graphic::System
             RDG::TextureRef AvgLuminance; // the adapted luminance (AverageLuminanceTexture); System.White without one
             RDG::TextureRef Bloom;
             bool            BloomProduced = false;
+            RDG::TextureRef BloomDirtMask;
+            bool            BloomDirtMaskProduced = false;
             RDG::TextureRef LightShafts;
             bool            LightShaftsProduced = false;
             RDG::TextureRef LensFlare;
@@ -164,11 +169,17 @@ namespace Desert::Graphic::System
             m_TonemapOperator = op;
         }
 
-
-        // The bloom strength (0 disables bloom). The bloom image itself is a graph transient (GraphInputs).
-        void SetBloomIntensity( float intensity )
+        // The bloom dirt mask (UE BloomDirtMask / Intensity / Tint), the view's resolved post-process values: the
+        // texture is resolved and imported by the graph (GraphInputs::BloomDirtMask), the numbers drawn here.
+        void SetBloomDirtMask( Assets::AssetHandle texture, float intensity, const glm::vec3& tint )
         {
-            m_BloomIntensity = intensity;
+            m_BloomDirtMask          = texture;
+            m_BloomDirtMaskIntensity = intensity;
+            m_BloomDirtMaskTint      = tint;
+        }
+        [[nodiscard]] Assets::AssetHandle GetBloomDirtMask() const
+        {
+            return m_BloomDirtMaskIntensity > 0.0f ? m_BloomDirtMask : Assets::AssetHandle{};
         }
         // Lens dispersion (chromatic fringe) strength on the bloom halo (0 = off).
         void SetChromaticBloom( float strength )
@@ -257,8 +268,10 @@ namespace Desert::Graphic::System
         float                 m_Exposure        = 1.0f;
         float                 m_PreExposure     = 1.0f;
 
-        float                  m_BloomIntensity = 0.0f;
-        float                  m_ChromaticBloom = 0.0f;
+        Assets::AssetHandle m_BloomDirtMask;
+        float               m_BloomDirtMaskIntensity = 0.0f;
+        glm::vec3           m_BloomDirtMaskTint      = glm::vec3( 0.5f );
+        float               m_ChromaticBloom         = 0.0f;
 
         std::weak_ptr<Image2D> m_AutoExposureImage;
         bool                   m_AutoExposureEnabled = false;

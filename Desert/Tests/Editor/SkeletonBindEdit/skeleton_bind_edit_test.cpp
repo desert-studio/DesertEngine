@@ -181,7 +181,7 @@ TEST( SkeletonBindEdit, ARenamedBoneIsSavedIntoTheSkeletonAndItsClip )
     clip.Skeleton      = kRigGuid;
     clip.Sequence.End  = Animation::FrameNumber{ 30 };
     Animation::Timeline::Binding child;
-    child.Guid    = Animation::Timeline::BindingGuid::ForObject( Animation::Timeline::BindingKind::Bone, "Child" );
+    child.Guid    = Animation::Timeline::BindingGuid::ForBone( {}, "Child" );
     child.Kind    = Animation::Timeline::BindingKind::Bone;
     child.Locator = "Child";
     child.Label   = "Child";

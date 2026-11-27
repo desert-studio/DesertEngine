@@ -564,6 +564,10 @@ namespace
          { "Priority", kViewSettings }, { "BlendWeight", kViewSettings }, { "Settings", kViewSettings },
     };
 
+    // RENDER-BLOOM-UE: the six Gaussian stages are read where the stage list is built (BloomGaussian::Stages).
+    constexpr const char* kBloomRules =
+         "Desert/Desert/Source/Engine/Graphic/PostProcessing/BloomGaussianRules.hpp";
+
     constexpr Row kPostProcessSettingsRows[] = {
          { "EnableSSAO", kSceneRenderer },
          { "GlobalIlluminationMethod", kRenderMethods },
@@ -577,10 +581,32 @@ namespace
          { "Exposure", kSceneRenderer },
          { "WhitePoint", kSceneRenderer },
          { "AutoExposure", kSceneRenderer },
-         { "AutoExposureSpeed", kSceneRenderer },
+         { "AutoExposureKey", kSceneRenderer },
+         { "AutoExposureSpeedUp", kSceneRenderer },
+         { "AutoExposureSpeedDown", kSceneRenderer },
+         { "AutoExposureLowPercent", kSceneRenderer },
+         { "AutoExposureHighPercent", kSceneRenderer },
          { "AutoExposureMinEV100", kSceneRenderer },
          { "AutoExposureMaxEV100", kSceneRenderer },
-         { "EnableBloom", kSceneRenderer },
+         { "BloomMethod", kSceneRenderer },
+         { "BloomGaussianIntensity", kBloomRules },
+         { "BloomSizeScale", kBloomRules },
+         { "Bloom1Tint", kBloomRules },
+         { "Bloom1Size", kBloomRules },
+         { "Bloom2Tint", kBloomRules },
+         { "Bloom2Size", kBloomRules },
+         { "Bloom3Tint", kBloomRules },
+         { "Bloom3Size", kBloomRules },
+         { "Bloom4Tint", kBloomRules },
+         { "Bloom4Size", kBloomRules },
+         { "Bloom5Tint", kBloomRules },
+         { "Bloom5Size", kBloomRules },
+         { "Bloom6Tint", kBloomRules },
+         { "Bloom6Size", kBloomRules },
+         { "BloomDirtMask", kSceneRenderer },
+         { "BloomDirtMaskIntensity", kSceneRenderer },
+         { "BloomDirtMaskTint", kSceneRenderer },
+         { "BloomConvolutionIntensity", kSceneRenderer },
          { "BloomThreshold", kSceneRenderer },
          { "BloomIntensity", kSceneRenderer },
          { "LensDispersion", kSceneRenderer },
@@ -952,17 +978,17 @@ namespace
          { "NotifyRemovals", kDestructibleSync },
          { "CollisionEventMinImpulse", kDestructibleSync },
     };
-    // A water body (WATER-W2): the wave set is read by the world's wave record (ECS::WaterWaveSources), the
-    // footprint by ECS::WaterBodyGather into the Water::WaterBodyState the physics step's WaterSubsystem queries.
-    constexpr const char* kWaterBodyGather  = "Desert/Water/Source/Water/Private/WaterBodyGather.cpp";
-    constexpr const char* kWaterWaveSources = "Desert/Water/Source/Water/Private/WaterWaveSources.cpp";
+    // A water body (WATER-W2): every field is read by ECS::WaterBodyGather into the Water::WaterBodyState the
+    // physics step's WaterSubsystem queries.
+    constexpr const char* kWaterBodyGather = "Desert/Desert/Source/Engine/ECS/System/WaterBodyGather.cpp";
     constexpr Row         kWaterBodyRows[] = {
-         { "WaterWaves", kWaterWaveSources },
+         { "WaterWaves", kWaterBodyGather },
          { "OceanExtents", kWaterBodyGather },
+         { "TargetWaveMaskDepth", kWaterBodyGather },
     };
     // A water zone (WATER-W6): every field is read by ECS::WaterZoneECSSystem into the quadtree description the
     // water renderer walks.
-    constexpr const char* kWaterZoneSystem = "Desert/Water/Source/Water/Public/WaterZoneECSSystem.hpp";
+    constexpr const char* kWaterZoneSystem = "Desert/Desert/Source/Engine/ECS/System/WaterZoneECSSystem.hpp";
     constexpr Row         kWaterZoneRows[] = {
          { "ZoneExtent", kWaterZoneSystem },
          { "TileSize", kWaterZoneSystem },

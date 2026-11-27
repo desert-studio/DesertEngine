@@ -254,8 +254,6 @@ def cmd_accept(args):
         pk = s["features"][feat_code]["packages"][letter] if letter else None
         tree = pk["tree"] if pk else f"{limits.WORKTREE_ROOT}/{code}"
         kind = (run or {}).get("type") or "fix"
-        if os.path.isfile(os.path.join(tree, "REMAINDER.md")):
-            outcome = "wip"  # SPEND-2X: the run was closed by the call/context cap; its package is not done
         if aid:
             row, why = spend_row(code, kind, outcome, aid)
             out.append(f"{code} {outcome}: {row['cost_units'] / 1e6:.2f}M units, {row['requests']} req, read {row['read_pct']}% "
@@ -274,13 +272,6 @@ def cmd_accept(args):
             _, dirty = P.git(tree, "status", "--porcelain", "--untracked-files=no")
             out.append(f"tree {os.path.basename(tree)}: {br} @ {when}, unpushed {'not-on-origin' if rc else unp}, "
                        f"dirty {len([l for l in dirty.splitlines() if l.strip()])}")
-        rem = tree + "/REMAINDER.md"
-        if os.path.isfile(rem):  # SPEND-2X: the run hit limits.FEATURE_CALLS / CONTEXT_MAX; the rest goes to a fresh, small context
-            outcome = "wip"
-            out.append(f"REMAINDER.md в {tree}: свежий агент с тем же брифом, остаток — первым чтением. Запуск:")
-            out.append(launch_line(feat_code, letter, pk).replace("Read it first;", f"Read it, then {rem} (the rest of the work; delete it in your first commit);")
-                       if pk else f'Agent(subagent_type: "fixer", run_in_background: true, prompt: "You are agent {code}. Your brief: '
-                                   f'{limits.BRIEFS}/{code}-BRIEF.md. Then {rem}: the rest of the work; delete it in your first commit.")')
         stalls = s.setdefault("stalls", {})
         st = stalls.setdefault(code, {"head": "", "n": 0})
         st["n"] = st["n"] + 1 if outcome == "stuck" or (head and head == st["head"]) else 0
@@ -301,7 +292,7 @@ def cmd_accept(args):
             feat = s["features"][feat_code]
             if all(p["state"] == "accepted" for p in feat["packages"].values()) and feat["stage"] == "code":
                 feat["stage"] = "review"
-                out.append(f"{feat_code}: все пакеты приняты (ревью прошло в цепочке пакета) → один Agent(lander) на пачку: merge, сборка, приёмка, посадка")
+                out.append(f"{feat_code}: все пакеты приняты → review: reviewer на каждый пакет ПАРАЛЛЕЛЬНО, затем studio.py merge {feat_code}")
             left = [l for l, p in feat["packages"].items() if p["state"] != "accepted"]
             P.queue_board(s, feat_code, CARD_OF_STAGE[feat["stage"]],
                           f"пакет {letter} {outcome}" + (f"; осталось пакетов: {' '.join(left)}" if left else "; код весь, ждёт ревью/сборки"))

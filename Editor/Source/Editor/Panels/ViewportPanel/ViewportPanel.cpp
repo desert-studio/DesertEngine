@@ -933,12 +933,15 @@ namespace Desert::Editor
     void ViewportPanel::DrawPilotOverlay()
     {
         m_PilotOverlayHovered = false;
-        if ( !m_Pilot.IsActive() )
+        // Over the editor camera only: PIE looks through the game's camera, and neither label nor button apply.
+        auto* const editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( ViewCamera().get() );
+        if ( !m_Pilot.IsActive() || editorCam == nullptr )
             return;
 
         // Where the preset caption normally sits, because it answers the same question — what is this
         // viewport looking through — and because the two must never be on screen together.
-        const std::string caption = "Piloting: " + m_Pilot.EntityName();
+        const std::string caption =
+             ( m_Pilot.IsCinematic() ? "Camera Cut: " : "Piloting: " ) + m_Pilot.EntityName();
         ImDrawList*       dl      = ::ImGui::GetWindowDrawList();
         const ImVec2      at( m_ViewportData.ViewportPos.x + 10.0f, m_ViewportData.ViewportPos.y + 8.0f );
         dl->AddText( ImVec2( at.x + 1.0f, at.y + 1.0f ), IM_COL32( 0, 0, 0, 200 ), caption.c_str() );
@@ -947,14 +950,17 @@ namespace Desert::Editor
         const ImVec2 textSize     = ::ImGui::CalcTextSize( caption.c_str() );
         const ImVec2 cursorBefore = ::ImGui::GetCursorScreenPos();
         ::ImGui::SetCursorScreenPos( ImVec2( at.x + textSize.x + 10.0f, at.y - 3.0f ) );
-        if ( ::ImGui::SmallButton( ICON_MDI_EJECT " Eject" ) )
+        if ( m_Pilot.IsCinematic() && ::ImGui::SmallButton( ICON_MDI_LOCK_OPEN_VARIANT " Unlock" ) )
         {
-            const auto camera = ViewCamera();
-            m_Pilot.Eject( dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() ) );
+            EditorPreferences::Get().SequencerLockViewportToCameraCuts = false; // UE's camera icon off
+            EditorPreferences::Save();
+            m_Pilot.SetCinematic( std::nullopt ); // at once, even with the Sequencer tab hidden (UE: Unlock)
         }
+        else if ( !m_Pilot.IsCinematic() && ::ImGui::SmallButton( ICON_MDI_EJECT " Eject" ) )
+            m_Pilot.Eject( editorCam );
         m_PilotOverlayHovered = ::ImGui::IsItemHovered();
         if ( m_PilotOverlayHovered )
-            ::ImGui::SetTooltip( "Stop piloting: the viewport returns to where it was." );
+            ::ImGui::SetTooltip( "Stop looking through the camera: the viewport returns to where it was." );
         ::ImGui::SetCursorScreenPos( cursorBefore );
     }
 
@@ -963,15 +969,12 @@ namespace Desert::Editor
         ViewportPanel* target = ActiveViewport();
         if ( target == nullptr )
             return Common::MakeError<bool>( "there is no viewport to pilot with." );
-        const auto camera    = target->ViewCamera();
-        auto*      editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() );
-        if ( ( editorCam == nullptr ) || !target->m_Scene )
-        {
+        const auto camera = target->ViewCamera();
+        if ( dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() ) == nullptr || !target->m_Scene )
             return Common::MakeFormattedError<bool>(
                  "'{}' has no editor camera to pilot with (the view was closed, or the scene is playing).",
                  target->GetName() );
-        }
-        return target->m_Pilot.Begin( *target->m_Scene, entity, *editorCam );
+        return target->m_Pilot.Begin( *target->m_Scene, entity );
     }
 
     Common::BoolResultStr ViewportPanel::RequestEject()
@@ -979,8 +982,8 @@ namespace Desert::Editor
         bool any = false;
         for ( ViewportPanel* panel : s_Live )
         {
-            if ( !panel->m_Pilot.IsActive() )
-                continue;
+            if ( !panel->m_Pilot.Entity() )
+                continue; // a Camera Cut alone is not a pilot: Eject leaves it to the Sequencer's lock
             const auto camera = panel->ViewCamera();
             panel->m_Pilot.Eject( dynamic_cast<::Desert::Core::EditorCamera*>( camera.get() ) );
             any = true;
@@ -995,6 +998,27 @@ namespace Desert::Editor
             if ( panel->m_Pilot.Entity() && *panel->m_Pilot.Entity() == entity )
                 return true;
         return false;
+    }
+
+    void ViewportPanel::SetCinematicIn( const ::Desert::Core::Scene& scene, const Common::UUID& camera )
+    {
+        for ( ViewportPanel* panel : s_Live )
+            if ( panel->m_Scene.get() == &scene && panel->m_AllowCinematicControl )
+                panel->m_Pilot.SetCinematic( camera );
+    }
+    void ViewportPanel::ReleaseCinematicIn( const ::Desert::Core::Scene& scene, const Common::UUID& camera )
+    {
+        for ( ViewportPanel* panel : s_Live )
+            if ( panel->m_Scene.get() == &scene && panel->m_Pilot.Cinematic() == camera )
+                panel->m_Pilot.SetCinematic( std::nullopt );
+    }
+    void SetCinematicCamera( const ::Desert::Core::Scene& scene, const Common::UUID& camera )
+    {
+        ViewportPanel::SetCinematicIn( scene, camera );
+    }
+    void ReleaseCinematicCamera( const ::Desert::Core::Scene& scene, const Common::UUID& camera )
+    {
+        ViewportPanel::ReleaseCinematicIn( scene, camera );
     }
 
     Common::BoolResultStr PilotCameraEntity( const Common::UUID& entity )
@@ -1596,6 +1620,9 @@ namespace Desert::Editor
                 }
                 if ( ImGui::IsItemHovered() )
                     ImGui::SetTooltip( "Advance world time while editing (wind, particles, material Time)" );
+                if ( ImGui::Checkbox( "Allow Cinematic Control", &m_AllowCinematicControl ) &&
+                     !m_AllowCinematicControl )
+                    m_Pilot.SetCinematic( std::nullopt ); // UE: per view, per session; Camera Cuts leave it
                 // A PLAIN SAVE, and that is the deliverable of К10. This call used to be wrapped in three
                 // lines that put the user's real grid answer back before writing and took it away again
                 // afterwards, because 2D mode kept its suppression in the field being written. Eleven

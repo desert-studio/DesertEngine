@@ -3,7 +3,8 @@
 # A suite's executable comes from build/TestManifest.txt (`<Executable> <Suite>`): its layer's runner
 # (CommonTests, ToolsTests, ...), run as `<runner> --desert-suite=<Suite>`, or a not-yet-converted suite's own binary.
 # Configures the host preset if needed (_common.sh dev_configure), then builds the runners with cmake --build (Debug,
-# compiler cache, -j4 or DEV_JOBS, after any other ninja finishes). Logs: build/DevLogs/suite-*/.
+# compiler cache) as one build of the machine's build pool, which decides how many compiles and links run at once
+# (scripts/Dev/pool.sh run, _common.sh dev_build). Logs: build/DevLogs/suite-*/.
 # Prints one line per suite: `Suite: N passed / M failed` plus up to 5 failed test names; exit 1 on any red.
 # Each run is capped at 300 s (SUITE_TIMEOUT overrides).
 # --dev-suites: build ONE runner, DevTests, of only the named suites (DESERT_DEV_SUITES) instead of their layers'

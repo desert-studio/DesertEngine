@@ -16,6 +16,19 @@
 #include <string>
 #include <type_traits>
 
+// A bloom-like push block of the test's own (the engine's bloom passes moved to RENDER-BLOOM-UE's Gaussian
+// stages): a vec2 and a float, the shape these binding checks were written against.
+namespace Desert::Graphic::ShaderPush
+{
+    struct TestBloomLikePush
+    {
+        glm::vec2 SourceTexelSize{};
+        float     FilterRadius{};
+    };
+    template <>
+    inline constexpr bool IsBlock<TestBloomLikePush> = true;
+} // namespace Desert::Graphic::ShaderPush
+
 namespace
 {
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -215,7 +228,7 @@ namespace
     // of push constants.
     ShaderBindingLayout BloomLayout()
     {
-        return ShaderBindingLayout{ .ShaderName        = "BloomUpsample",
+        return ShaderBindingLayout{ .ShaderName        = "BloomDownsample",
                                     .Slots             = { { "SourceMipTexture", ShaderResourceKind::Texture },
                                                            { "DestinationMipTexture", ShaderResourceKind::StorageTexture } },
                                     .PushConstantBytes = 12 };
@@ -231,7 +244,7 @@ namespace
                        SamplerDesc::LinearClamp() )
              .Storage( PassBindingsContractTestBloomShaderParameters::DestinationMipTexture, chain,
                        Access::StorageWrite, 0 )
-             .PushConstants<Desert::Graphic::ShaderPush::BloomUpsample>();
+             .PushConstants<Desert::Graphic::ShaderPush::TestBloomLikePush>();
         return block;
     }
 
@@ -242,7 +255,7 @@ namespace
         bool                  ExecRan = false;
     };
 
-    // One compute pass "PostFX: BloomUpsample1" over a two-mip chain: its setup runs @p declare (which declares
+    // One compute pass "PostFX: BloomDownsample1" over a two-mip chain: its setup runs @p declare (which declares
     // the pass's binding block), its exec runs @p exec. Returns the graph's verdict, its report and whether the
     // exec ran at all (a block refused by ValidatePassBindings faults the pass before its exec).
     template <class Declare, class Exec>
@@ -253,7 +266,7 @@ namespace
         const TextureRef chain = graph.RegisterExternal( chainImage, "Bloom" );
         bool             ran   = false;
         graph.AddPass(
-             "PostFX: BloomUpsample1", PassFlags::Compute, [&]( PassBuilder& pass ) { declare( pass, chain ); },
+             "PostFX: BloomDownsample1", PassFlags::Compute, [&]( PassBuilder& pass ) { declare( pass, chain ); },
              [&]( PassContext& context ) -> Common::BoolResultStr
              {
                  ran = true;
@@ -291,7 +304,7 @@ TEST( RenderGraphPassBindings, DeclaredEntriesResolveWithTheirRangeAndAccess )
          []( PassBuilder& pass, TextureRef chain ) { DeclareBloomBlock( pass, chain ); },
          []( PassContext& context, TextureRef chain ) -> Common::BoolResultStr
          {
-             const Desert::Graphic::ShaderPush::BloomUpsample push{
+             const Desert::Graphic::ShaderPush::TestBloomLikePush push{
                   .SourceTexelSize = glm::vec2( 1.0f / 32.0f, 1.0f / 32.0f ), .FilterRadius = 1.0f };
              PassBindings bindings( context, context.GetBindingBlock( 0 ) );
              bindings.PushConstants( push );
@@ -333,7 +346,7 @@ TEST( RenderGraphPassBindings, ABlockTheSetupDidNotDeclareIsRefusedNamingThePass
                           EXPECT_TRUE( bindings.GetTextures().empty() );
                           return Common::MakeSuccess( true );
                       } );
-    EXPECT_NE( error.find( "PostFX: BloomUpsample1" ), std::string::npos ) << error;
+    EXPECT_NE( error.find( "PostFX: BloomDownsample1" ), std::string::npos ) << error;
     EXPECT_NE( error.find( "is not a block this pass declared" ), std::string::npos ) << error;
 }
 
@@ -355,14 +368,14 @@ TEST( RenderGraphPassBindings, ASlotOrKindTheShaderDoesNotDeclareFaultsThePassBe
                             SamplerDesc::LinearClamp() )
                   .Storage( PassBindingsContractTestBloomShaderParameters::DestinationMipTexture, chain,
                             Access::StorageWrite, 0 )
-                  .PushConstants<Desert::Graphic::ShaderPush::BloomUpsample>();
+                  .PushConstants<Desert::Graphic::ShaderPush::TestBloomLikePush>();
          },
          failIfRun );
     EXPECT_FALSE( unknown.ExecRan );
     const PassFault unknownFault = OnlyFault( unknown );
     EXPECT_EQ( unknownFault.Stage, PassFaultStage::Validation );
-    EXPECT_EQ( unknownFault.PassName, "PostFX: BloomUpsample1" );
-    EXPECT_NE( unknownFault.Reason.find( "'u_Sorce' is not a resource of shader 'BloomUpsample'" ),
+    EXPECT_EQ( unknownFault.PassName, "PostFX: BloomDownsample1" );
+    EXPECT_NE( unknownFault.Reason.find( "'u_Sorce' is not a resource of shader 'BloomDownsample'" ),
                std::string::npos )
          << unknownFault.Reason;
 
@@ -376,14 +389,14 @@ TEST( RenderGraphPassBindings, ASlotOrKindTheShaderDoesNotDeclareFaultsThePassBe
                             SamplerDesc::LinearClamp() )
                   .Storage( PassBindingsContractTestBloomWriteShaderParameters::SourceMipTexture, chain,
                             Access::StorageWrite, 0 )
-                  .PushConstants<Desert::Graphic::ShaderPush::BloomUpsample>();
+                  .PushConstants<Desert::Graphic::ShaderPush::TestBloomLikePush>();
          },
          failIfRun );
     EXPECT_FALSE( wrongKind.ExecRan );
     const PassFault kindFault = OnlyFault( wrongKind );
     EXPECT_EQ( kindFault.Stage, PassFaultStage::Validation );
     EXPECT_NE( kindFault.Reason.find( "'DestinationMipTexture' is a" ), std::string::npos ) << kindFault.Reason;
-    EXPECT_NE( kindFault.Reason.find( "in shader 'BloomUpsample', bound as" ), std::string::npos )
+    EXPECT_NE( kindFault.Reason.find( "in shader 'BloomDownsample', bound as" ), std::string::npos )
          << kindFault.Reason;
 }
 
@@ -405,7 +418,7 @@ TEST( RenderGraphPassBindings, ASlotDeclaredTwiceFaultsThePassBeforeItsExec )
     EXPECT_FALSE( run.ExecRan );
     const PassFault fault = OnlyFault( run );
     EXPECT_EQ( fault.Stage, PassFaultStage::Validation );
-    EXPECT_NE( fault.Reason.find( "'SourceMipTexture' of shader 'BloomUpsample' is bound twice by the pass" ),
+    EXPECT_NE( fault.Reason.find( "'SourceMipTexture' of shader 'BloomDownsample' is bound twice by the pass" ),
                std::string::npos )
          << fault.Reason;
 }
@@ -428,7 +441,7 @@ TEST( RenderGraphPassBindings, ASampledEntryCarriesItsSampler )
                             SamplerDesc::PointClamp() )
                   .Storage( PassBindingsContractTestBloomShaderParameters::DestinationMipTexture, chain,
                             Access::StorageWrite, 0 )
-                  .PushConstants<Desert::Graphic::ShaderPush::BloomUpsample>();
+                  .PushConstants<Desert::Graphic::ShaderPush::TestBloomLikePush>();
          },
          []( PassContext& context, TextureRef ) -> Common::BoolResultStr
          {

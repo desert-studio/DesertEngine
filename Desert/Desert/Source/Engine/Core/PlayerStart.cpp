@@ -20,7 +20,6 @@
 #include <Engine/ECS/TransformComponent.hpp>
 #include <Engine/Physics/CharacterControllerComponent.hpp>
 #include <Engine/UI/Ecs/UIAnimComponent.hpp>
-#include <Engine/World/Partition/StreamingSourceComponent.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 
 namespace Desert::Core
@@ -119,11 +118,9 @@ namespace Desert::Core
         // The start's facing is the pawn's facing (UE spawns at the PlayerStart's rotation); only yaw and
         // pitch of a camera matter for Play from Here, and the prefab's own scale is kept.
         pawn.SetLocalRotation( glm::eulerAngles( rotation ) );
-        // The player is where the world must exist: UE's player controller is a streaming source by default. A
-        // prefab that authored its own (a range, a priority, or Enabled off for a pawn that should not stream)
-        // keeps it.
-        if ( !pawn.HasComponent<ECS::StreamingSourceComponent>() )
-            pawn.AddComponent<ECS::StreamingSourceComponent>();
+        // The pawn is a streaming source only by its own prefab (a Streaming Source the content authored, as UE's
+        // character carries a UWorldPartitionStreamingSourceComponent): the player streams from where it looks
+        // (Core::PlayerStreamingViewOf, PlayerStreamingView.hpp), and nothing is added here.
         return Common::MakeSuccess( pawn );
     }
 

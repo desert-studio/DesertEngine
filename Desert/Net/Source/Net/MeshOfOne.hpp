@@ -7,13 +7,17 @@
 //   ISimLink           gateway -> sim: a player joined / left, its input (routed by the authority map later)
 //   IGatewayLink       sim -> gateway: a pawn spawned / was destroyed (the gateway tells the relevant clients)
 // The gateway owns the client connections and their handshake, sends Spawn/Destroy on the Rpc lane and a
-// Snapshot per connection on the State lane every kSnapshotEverySteps steps, read from the store - it never asks
-// the sim for state, so moving the store out of process changes only the link.
-// UE: one APlayerController per connection, the pawn spawned by the server for it (GameMode::RestartPlayer) and
-// replicated to every relevant connection, autonomous proxy for its owner, simulated proxy for the others.
+// Snapshot per connection on the State lane at the project's snapshot cadence, each pawn in it at its own send
+// period by distance (Relevancy.hpp, WP-FAR-15), read from the store - it never asks the sim for state, so moving
+// the store out of process changes only the link. UE: one APlayerController per connection, the pawn spawned by
+// the server for it (GameMode::RestartPlayer) and replicated to every relevant connection, autonomous proxy for
+// its owner, simulated proxy for the others.
 
+#include <Common/Core/ResultStr.hpp>
 #include <Net/NetTransport.hpp>
 #include <Net/MovePrediction.hpp>
+#include <Net/PawnTeleport.hpp>
+#include <Net/Relevancy.hpp>
 #include <Net/Replication.hpp>
 
 #include <cstdint>
@@ -69,12 +73,11 @@ namespace Desert::Net
         };
         std::map<std::uint32_t, Cell>         Cells;        // every spatially loaded cell unit, by unit index
         std::map<StableNetId, std::uint32_t> UnitOfRecord; // cell records only: an always-loaded one has none
-        // THE PAWN CELL (Iris NetObjectGridFilter on the main WP grid): a dynamic object is relevant to a viewer
-        // while the FINEST cell of the main grid it stands in (level 0) is within that grid's loading range of the
-        // viewer - the cell a source there would stream, whether or not content made it a unit (a coarse cell
-        // stays resident far away, so a pawn in one would stay relevant). Returns the cell's name, nullopt when
-        // out of range. Filled from the world's partition rules (Server: RelevancyGridOf).
-        std::function<std::optional<std::string>( const NetVec3& viewer, const NetVec3& at )> PawnCellInRange;
+        // The main grid's loading range (cm; the first partition's, what a record naming none streams on): the
+        // circle a connection sees pawns within never falls below what its client streams anyway
+        // (Relevancy.hpp ResolveViewShape). 0 when the world has no grid. Pawns are relevant by POINT in the
+        // connection's view shape, not by cell (WP-FAR-15; UE NetCullDistance) - the cells are for stable objects.
+        float MainGridLoadingRangeCm = 0.f;
     };
 
     class IGatewayLink
@@ -92,6 +95,10 @@ namespace Desert::Net
         virtual void PlayerJoined( PlayerId player, std::uint64_t account )    = 0;
         virtual void PlayerLeft( PlayerId player )                             = 0;
         virtual void PlayerInput( PlayerId player, const InputMessage& input ) = 0;
+        // THE PLAYER'S VIEW (UE APlayerController::ServerUpdateCamera): the eye @p player's client reported, cm,
+        // passed on as each ViewReport arrives (the client's own rate) to the simulation that owns the pawn - the
+        // one that streams for it. The newest wins.
+        virtual void PlayerView( PlayerId player, const NetVec3& eye ) = 0;
         // The ack of §5.1: the last of @p player's input steps the sim has processed, the own pawn's movement
         // state after it, and the input steps still queued (the client's clock sync); nullopt before the first.
         struct AckedMove
@@ -140,23 +147,39 @@ namespace Desert::Net
         struct Settings
         {
             std::vector<NetVec3> SpawnPoints; // world cm; the n-th player takes point n % size
+            // The project's Net settings (the gateway's own): a reported eye is resolved against the pawn with
+            // them (ResolveViewPosition: at most MaxViewRangeCm from it).
+            RelevancySettings Relevancy;
         };
         // @p mover: THE GAME'S movement (Engine/Gameplay/CharacterMoveStep.hpp, the same step the client predicts
         // with, over the server's collision world of the streamed cells). Net queues and orders the input steps
         // and hands each to it; what an input means is the game's.
-        PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, IPawnMover& mover, Settings settings,
-                        NetLogSink log );
+        // @p placer: THE GAME'S placement (UE FindTeleportSpot) over the same collision world; every spawn and
+        // teleport lands through it. @p residency: the server's streamed world, asked whether the collision at a
+        // pending placement is in yet. Both outlive the simulation.
+        PawnSimulation( IReplicationStore& store, IGatewayLink& gateway, IPawnMover& mover, IPawnPlacer& placer,
+                        const IWorldResidency& residency, Settings settings, NetLogSink log );
 
         void PlayerJoined( PlayerId player, std::uint64_t account ) override;
         void PlayerLeft( PlayerId player ) override;
         void PlayerInput( PlayerId player, const InputMessage& input ) override;
+        // Kept on the player's pawn (dropped with it); a player without a pawn here has no view here.
+        void                                   PlayerView( PlayerId player, const NetVec3& eye ) override;
         [[nodiscard]] std::optional<AckedMove> LastProcessedInput( PlayerId player ) const override;
 
-        // Server authority moves @p player's pawn to @p position (UE TeleportTo); false when it has no pawn.
-        bool Teleport( PlayerId player, const NetVec3& position );
+        // Server authority asks to move @p player's pawn to @p feet (UE TeleportTo). The request is refused, and
+        // nothing moves, when the player has no pawn or no cell of the world's grid holds the point; otherwise
+        // the pawn's placement is pending: the destination becomes its streaming source at once, and a later Step
+        // lands it through the placer when the cells there are resident (logging where and how) or refuses it
+        // with the reason (the pawn stays where it was).
+        [[nodiscard]] Common::BoolResultStr Teleport( PlayerId player, const NetVec3& feet );
         // One fixed step of every pawn (its queued input steps); writes the moved states to the store.
         void Step();
-        // The pawns' positions: the server's streaming sources (NET-ARCH §4.1), with the player they belong to.
+        // The pawns' positions: the server's streaming sources (NET-ARCH §4.1), with the player they belong to; a
+        // pawn whose placement is pending reports its destination (the cells there stream first). Only the pawns
+        // whose record this simulation holds (owned and offered): an INCOMING copy is the sender's until the
+        // commit and is counted there, so every capsule is in exactly one simulation's Sources (its ground here
+        // is its proxy's - the store streams it to this simulation as a proxy of the border band).
         struct Source
         {
             PlayerId      Player  = 0;
@@ -165,10 +188,36 @@ namespace Desert::Net
             NetVec3       Position;
         };
         [[nodiscard]] std::vector<Source> Sources() const;
+        // THE PLAYERS' VIEWS for the server's residency union (§2M.3, UE ServerUpdateCamera,
+        // WP-STREAM-SOURCE-VIEW: the ground under the body AND what the player looks at): per pawn in Sources
+        // whose player reported a view, the eye resolved against the pawn now. A player that never reported has
+        // none - its eye is its pawn, already a source. @p out is the caller's, cleared and refilled (no
+        // allocation once it has grown).
+        struct ViewSource
+        {
+            PlayerId Player = 0;
+            NetVec3  Position;
+        };
+        void                              Views( std::vector<ViewSource>& out ) const;
         [[nodiscard]] bool                HasPawn( PlayerId player ) const
         {
             return m_Pawns.contains( player );
         }
+
+        // A placement asked of the simulation and not landed yet (UE: the TeleportTo / RestartPlayer waiting for
+        // the destination's streaming): the requested feet, why it was asked, and the steps the pawn has been held
+        // for the destination's cells.
+        struct PendingPlacement
+        {
+            enum class EWhy : std::uint8_t
+            {
+                Spawn,
+                Teleport
+            };
+            NetVec3       Feet;
+            EWhy          Why    = EWhy::Teleport;
+            std::uint32_t Waited = 0;
+        };
 
         // THE HANDOVER of a pawn to another simulation (NET-ARCH §2M.4): everything the next owner needs to go on
         // at the next step - the state, the inputs not applied yet and the input that repeats when none arrives.
@@ -181,17 +230,75 @@ namespace Desert::Net
             std::vector<InputStep>       Pending; // by client step
             std::optional<std::uint32_t> LastProcessed;
             PawnMoveState                Move; // the CharacterMovement state the next step starts from
+            std::optional<PendingPlacement> Placement; // the adopter lands it against its own cells
         };
-        // Freezes @p player's pawn and hands it out: it is no longer stepped or written here (not destroyed - its
-        // net id lives on in the next owner). nullopt when this simulation has no pawn for @p player.
+        // THE HELD PAWN of a confirmed handover (SimHandover.hpp): a pawn is OWNED (stepped, written), OFFERED
+        // (this simulation still holds the authority, the store has not committed the offer: not stepped, not
+        // written, its inputs queue, its ack stands at the last applied step) or INCOMING (offered to this
+        // simulation and accepted, not committed: not stepped, not written, not acked, its inputs queue; the
+        // ground under it loads as its proxy's before the commit).
+        //
+        // The pawn as it would be handed out now; nullopt when this simulation has no owned pawn for @p player.
+        [[nodiscard]] std::optional<HandoverPawn> HandoverOf( PlayerId player ) const;
+        // Owned -> Offered. Refused when there is no pawn or it is already held.
+        [[nodiscard]] Common::BoolResultStr Hold( PlayerId player );
+        // Offered -> gone (the store committed it to another simulation): the pawn with every input step that
+        // queued, its net id lives on in the next owner. nullopt when @p player's pawn is not offered.
         [[nodiscard]] std::optional<HandoverPawn> Release( PlayerId player );
-        // Takes a pawn handed over by another simulation and runs @p catchUpSteps steps of it, the mesh steps
-        // that passed here between the release and now; writes its state.
-        void Adopt( HandoverPawn pawn, std::uint32_t catchUpSteps );
+        // Offered -> Owned (the offer was refused or withdrawn): the steps that follow apply the queued input
+        // steps, at most kMaxInputsPerStep each (the catch-up is spread, never replayed in one step), and the
+        // largest authoritative step of that catch-up is logged when the queue is back at the
+        // sync's target. Returns how many are queued; nullopt when @p player's pawn is not offered.
+        std::optional<std::size_t> Resume( PlayerId player );
+        // Whether the world of this simulation can hold @p pawn: a cell of its grid under the pawn (or under its
+        // pending placement). The error names the point.
+        [[nodiscard]] Common::BoolResultStr CanTake( const HandoverPawn& pawn ) const;
+        // Holds @p pawn as Incoming, the player connected through @p gateway; false when this simulation already
+        // has a pawn for that player.
+        bool Expect( HandoverPawn pawn, std::uint32_t gateway );
+        // Incoming -> Owned (the store committed it here): writes its state; the steps that follow apply the
+        // inputs that queued while it was frozen (handed over and arrived here since), at most kMaxInputsPerStep
+        // each, as Resume does - never @p catchUpSteps steps replayed in this one (UE CharacterMovement: a tick's
+        // worth of move per tick). @p catchUpSteps, the mesh steps that passed here since the offer froze it, is
+        // named in the catch-up's line. Returns the gateway given to Expect; nullopt
+        // when @p player's pawn is not incoming, or when its player left while it was incoming - then this
+        // simulation, the holder now, removes it (PawnRemove to the store, PawnDestroyed to the gateways).
+        std::optional<std::uint32_t> Commit( PlayerId player, std::uint32_t catchUpSteps );
+        // Incoming -> gone (the store refused the offer): the copy is dropped, nothing written. False when
+        // @p player's pawn is not incoming.
+        bool Abandon( PlayerId player );
+        // THE PREVIOUS OWNER'S FORWARD HAS LANDED (its end-of-backlog mark for the committed offer, SimHandover):
+        // every input it queued while the pawn was frozen is queued here now. Until then an adopted catch-up stays
+        // open and a hole is not given up - the forward is the coordinator's complete record of the frozen
+        // steps, and the receiver acts on it only once it is whole (two-phase commit). Marks an incoming pawn too
+        // (the mark may overtake the commit). False when @p player's pawn is neither incoming nor adopted with
+        // the forward awaited.
+        bool BacklogLanded( PlayerId player );
+        // True when @p player's pawn is adopted with its catch-up still awaiting the previous owner's forward (no
+        // end-of-backlog mark landed, before the commit or after it).
+        [[nodiscard]] bool AwaitsBacklog( PlayerId player ) const;
 
     private:
+        // The queue above which a step consumes kMaxInputsPerStep input steps instead of one (the sync's target).
+        static constexpr std::size_t kDrainAbove       = 4;
+        // The most input steps one authoritative step applies: a catch-up moves a pawn at most this many client
+        // steps' worth of walk or sprint per step.
+        static constexpr int         kMaxInputsPerStep = 2;
+        enum class EHold : std::uint8_t
+        {
+            Owned,
+            Offered,
+            Incoming,
+        };
         struct Pawn
         {
+            EHold                              Hold    = EHold::Owned;
+            std::uint32_t                      Gateway = 0; // Incoming: the gateway the player is connected through
+            // Incoming: its player left before the store decided. The copy waits for the decision like any other
+            // (Commit makes this simulation the holder, so it removes the pawn; Refused drops it).
+            bool                               Left    = false;
+            // Incoming: the previous owner's end-of-backlog mark landed before the commit (BacklogLanded).
+            bool                               BacklogLanded = false;
             std::uint64_t                      Account = 0;
             std::uint32_t                      Index   = 0;
             PawnState                          State;
@@ -206,12 +313,41 @@ namespace Desert::Net
             // The queue as the last Step found it, BEFORE it consumed: the clock sync's measure (one waiting step
             // each server step = the client exactly on time; after consumption a punctual client reads 0).
             std::uint8_t QueuedAtStep = 0;
+            // The spawn or teleport not landed yet; while set the pawn is HELD (its inputs acked, not applied).
+            std::optional<PendingPlacement> Placement;
+            // The catch-up after Resume (sender) or Commit (receiver): the inputs that queued while the pawn was
+            // held, applied over the steps that follow. Measured per authoritative step (planar cm) until the
+            // queue is back at the target (Commit: once the previous owner's end-of-backlog mark has landed, on a
+            // step that applied an input - a starved step, or a hole before the client's direct inputs, does not
+            // close it).
+            struct CatchUpRun
+            {
+                bool          Adopted     = false; // Commit (the receiver's) rather than Resume
+                // Commit: the previous owner's forward of the frozen inputs has landed (its end-of-backlog mark);
+                // a resume awaits none.
+                bool          BacklogLanded = true;
+                std::uint32_t Behind      = 0;     // Commit: the mesh steps since the offer froze the pawn
+                std::size_t   Queued      = 0;     // at the resume or the commit, plus every input queued since
+                std::uint32_t Steps       = 0; // authoritative steps it has taken so far
+                float         LargestStep = 0.f;
+            };
+            std::optional<CatchUpRun>    CatchUp;
+            // The eye its player reported last (PlayerView); nullopt = never reported to this simulation.
+            std::optional<NetVec3> View;
         };
+        // One fixed step of one pawn: its pending placement resolved first, then its queued input steps.
+        void StepOne( PlayerId player, Pawn& pawn );
+        // Resolves @p pawn's pending placement: lands it (Resident or no cell), holds it (Loading) or refuses it
+        // (the placer found no spot, or the destination stayed loading past kPlacementStreamingTimeoutSteps).
+        void ResolvePlacement( PlayerId player, Pawn& pawn );
+        // Consumes the queued input steps; a held pawn's are acked without being applied.
         void StepPawn( Pawn& pawn ) const;
 
         IReplicationStore&       m_Store;
         IGatewayLink&            m_Gateway;
         IPawnMover&              m_Mover;
+        IPawnPlacer&             m_Placer;
+        const IWorldResidency&   m_Residency;
         Settings                 m_Settings;
         NetLogSink               m_Log;
         std::map<PlayerId, Pawn> m_Pawns;
@@ -229,14 +365,19 @@ namespace Desert::Net
 
     // THE GATEWAY ROLE: client connections, the connect handshake (token + cook hash), routing input to the sim,
     // Spawn/Destroy and Snapshots out of the store, for each connection's relevant set (§3.5): its own pawn, the
-    // pawns standing in a cell the client reports resident, and the stable objects of those cells (+ always-loaded).
+    // pawns standing in its view shape (Relevancy.hpp: the cull circle + the client's reported sector, left only
+    // past the exit margin), and the stable objects of the cells the client reports resident (+ always-loaded).
+    // Each relevant pawn goes at its send period by distance, a dormant one at the keep-alive period, the due ones
+    // by priority within the connection's byte budget (§3.6; UE Replication Graph, Iris prioritisation).
     class Gateway final : public INetTransportEvents, public IGatewayLink
     {
     public:
         // @p pawnPrefab: the server GameMode's pawn (UE DefaultPawnClass), named to every admitted client in the
         // Welcome; never 0.
+        // @p relevancy: validated by the caller (Project::ValidateNetSettings; the server refuses to start
+        // otherwise).
         Gateway( INetTransport& transport, IReplicationStore& store, GatewayAdmission admission,
-                 std::uint64_t pawnPrefab, NetRelevancyGrid grid, NetLogSink log );
+                 std::uint64_t pawnPrefab, NetRelevancyGrid grid, RelevancySettings relevancy, NetLogSink log );
         void Bind( ISimLink& sim )
         {
             m_Sim = &sim;
@@ -250,7 +391,8 @@ namespace Desert::Net
         void PawnSpawned( PlayerId owner, std::uint32_t player, const PawnState& pawn ) override;
         void PawnDestroyed( NetId id ) override;
 
-        // Sends this step's snapshot to every admitted connection (call every kSnapshotEverySteps steps).
+        // Call EVERY server step: on the snapshot cadence's steps (Bands.front().EverySteps) it updates every
+        // connection's relevant set and sends each its snapshot of the pawns due; on the others it does nothing.
         void                      SendSnapshots( std::uint32_t serverStep );
         [[nodiscard]] std::size_t Players() const;
 
@@ -265,10 +407,24 @@ namespace Desert::Net
             std::uint64_t Acked         = 0; // field updates the clients acked
             std::uint64_t Irrelevant    = 0; // pawns removed from a connection's relevant set (Destroy NotRelevant)
             std::uint64_t DeltaReplays  = 0; // destroyed stable ids replayed to a client loading their cell
+            std::uint64_t SnapshotBytes = 0; // remote pawn entry bytes written into snapshots, all connections
+            std::uint64_t Deferred = 0; // due entries the byte budget pushed to a later snapshot, all connections
+            // Per admitted connection, as of its last snapshot (UE `stat net` per connection).
+            struct Connection
+            {
+                PlayerId      Player             = 0;
+                std::uint64_t PawnBytesPerSecond = 0;    // remote pawn entry bytes over the last whole second
+                std::vector<std::uint32_t> ByBand;       // non-dormant remote pawns per band, Bands' order
+                std::uint32_t              Dormant  = 0; // remote pawns at the dormant period
+                std::uint32_t              Deferred = 0; // due entries the budget deferred in the last snapshot
+            };
+            std::vector<Connection> Connections; // by player
         };
-        [[nodiscard]] const Stats& ReplicationStats() const
+        // The totals and every connection's numbers now (built on call: the stat line asks every few seconds).
+        [[nodiscard]] Stats                    ReplicationStats() const;
+        [[nodiscard]] const RelevancySettings& Relevancy() const
         {
-            return m_Stats;
+            return m_Relevancy;
         }
 
     private:
@@ -289,6 +445,14 @@ namespace Desert::Net
             std::uint32_t          Step = 0; // the server step it went out on
             std::vector<SentField> Fields;
         };
+        struct SentPawn
+        {
+            // The last send, or for a pawn not yet sent its entry into relevancy minus one band period: its wait
+            // counts from the moment it became relevant, so a deferred pawn's priority grows (Iris).
+            std::uint32_t            LastSentStep = 0;
+            std::optional<PawnState> LastSent; // nullopt = not yet sent since it became relevant
+            bool Dormant = false; // LastSent equalled the store at the last decision (logged on change)
+        };
         struct Peer
         {
             bool                                  Admitted = false;
@@ -301,6 +465,22 @@ namespace Desert::Net
             std::set<NetId>                       Relevant;     // pawns this client has (Spawn sent, no Destroy)
             std::set<StableNetId>                 DeltaSent;    // destroyed stable ids replayed to it
             std::set<std::uint32_t>               AwaitingAck;  // units reported resident, not yet acknowledged
+            // WP-FAR-15, WP-STREAM-SOURCE-VIEW: the newest view (eye + shape) the client reported (nullopt =
+            // never: the eye is the own pawn, the cull circle alone).
+            std::optional<ViewReport> View;
+            // The resolved eye last logged and whether it was pulled back then ("view at" line, kViewLogStepCm).
+            std::optional<NetVec3> LoggedView;
+            bool                   LoggedPulledBack = false;
+            // Per relevant remote pawn: what this connection last received of it (UE
+            // FConnectionReplicationActorInfo); made when the pawn becomes relevant (UpdateRelevancy).
+            std::map<NetId, SentPawn> Sent;
+            // Remote pawn entry bytes sent, and the count at the start of the current one-second window.
+            std::uint64_t BytesSent = 0, BytesAtWindow = 0;
+            std::uint32_t WindowStep = 0;
+            // As of the last snapshot (the stat line).
+            std::uint64_t              BytesPerSecond = 0;
+            std::vector<std::uint32_t> ByBand;
+            std::uint32_t              Dormant = 0, Deferred = 0;
         };
         struct PawnInfo
         {
@@ -310,7 +490,14 @@ namespace Desert::Net
         [[nodiscard]] bool StableRelevant( const Peer& peer, StableNetId id ) const;
         // The resident cell of @p peer the position stands in, or nullptr.
         void OnCellResidency( ConnectionId connection, Peer& peer, const CellResidencyMessage& message );
-        void UpdateRelevancy( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns );
+        // The relevant set by point in the view shape, with the exit margin; returns the viewer position (the
+        // reported eye resolved against the own pawn, ResolveViewPosition; nullopt without an own pawn). A remote
+        // pawn that enters gets its Sent entry, one band period old at @p serverStep.
+        std::optional<NetVec3> UpdateRelevancy( ConnectionId connection, Peer& peer,
+                                                const std::vector<PawnState>& pawns, std::uint32_t serverStep );
+        // The snapshot of one connection: the pawns due on this step by period, the budget cut, the stats.
+        void SendSnapshot( ConnectionId connection, Peer& peer, const std::vector<PawnState>& pawns,
+                           std::uint32_t serverStep );
         void ReplayWorldDelta( ConnectionId connection, Peer& peer );
         void SendStableState( ConnectionId connection, Peer& peer, std::uint32_t serverStep );
         void OnStateAck( Peer& peer, const StateAckMessage& ack, std::uint32_t serverStep );
@@ -322,6 +509,8 @@ namespace Desert::Net
         GatewayAdmission                 m_Admission;
         std::uint64_t                    m_PawnPrefab = 0;
         NetRelevancyGrid                 m_Grid;
+        RelevancySettings                m_Relevancy;
+        std::size_t                      m_EntryBytes = 0; // one snapshot entry on the wire (measured at start)
         NetLogSink                       m_Log;
         std::map<NetId, PawnInfo>        m_PawnInfo;
         ISimLink*                        m_Sim = nullptr;

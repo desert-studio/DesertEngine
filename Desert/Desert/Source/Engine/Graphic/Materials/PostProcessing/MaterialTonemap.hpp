@@ -3,7 +3,6 @@
 #include <Common/Settings/CapabilityCatalog.hpp>
 #include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
-#include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 
 namespace Desert::Graphic
 {
@@ -19,7 +18,7 @@ namespace Desert::Graphic
             // caller can be wrong about which number meant which operator.
             Core::TonemapOperator Operator;
             float                 Exposure;
-            float                 BloomIntensity;
+            float                 ExposureKey;
             bool                  AutoExposure;
             float                 ChromaticBloom; // lens dispersion strength on the bloom halo (0 = off)
             float     LightShaftIntensity; // Bloom Scale x screen fade of the sun light's shafts (0 = off)
@@ -27,6 +26,9 @@ namespace Desert::Graphic
             float     LensFlareIntensity;  // Lens Flare Intensity x screen fade (0 = off)
             glm::vec3 LensFlareTint;       // the lens's Tint
             float     PreExposure;         // ViewFrame::PreExposure the scene colour is stored at (> 0)
+            // The bloom dirt mask's tint and intensity (UE BloomDirtMaskTint / Intensity); 0 = no mask.
+            glm::vec3 BloomDirtMaskTint{ 0.5f };
+            float     BloomDirtMaskIntensity = 0.0f;
             // Local exposure (TonemapRenderer::FillMaterial): vec4 packing so std140 cannot drift.
             glm::vec4 LocalExposureContrast{ 1.0f, 1.0f, 1.0f, 0.6f };  // highlight, shadow, detail, blurred blend
             glm::vec4 LocalExposureThreshold{ 0.0f, 0.0f, 1.0f, 1.0f }; // hi thr, sh thr, hi strength, sh strength
@@ -43,14 +45,12 @@ namespace Desert::Graphic
         };
 
         // Uniform values only: every texture the shader samples (GeometryTexture, AverageLuminanceTexture,
-        // BloomTexture, LightShaftTexture, LensFlareTexture) is a graph resource the tonemap exec binds
-        // through RDG::PassBindings, never here.
+        // BloomTexture, LightShaftTexture, LensFlareTexture, BloomDirtMaskTexture) is a graph resource the tonemap
+        // exec binds through RDG::PassBindings, never here.
         void BindValues( const Params& params );
 
         MPROPERTY( float, Exposure, "Exposure", 1.0f )
-        MPROPERTY( float, BloomIntensity,      "BloomIntensity",      0.0f )
-        // Graphic::kExposureMiddleGrey, the exposure law's constant (auto: middle grey / adapted luminance).
-        MPROPERTY( float, MiddleGrey,          "MiddleGrey",          kExposureMiddleGrey )
+        MPROPERTY( float, ExposureKey,         "ExposureKey",         0.18f )
         MPROPERTY( float, AutoExposureEnabled, "AutoExposureEnabled", 0.0f )
         MPROPERTY( float, ChromaticBloom,      "ChromaticBloom",      0.0f )
         // Core::TonemapOperator's numbering (0 ACES, 1 Reinhard, 2 Filmic), 3 = the buffer visualization.
@@ -63,6 +63,9 @@ namespace Desert::Graphic
         // they cannot disagree about whether the effect is on.
         MPROPERTY( glm::vec4, LensFlareTintIntensity, "LensFlareTintIntensity",
                    ( glm::vec4( 1.0f, 1.0f, 1.0f, 0.0f ) ) )
+        // rgb = the dirt mask's tint, a = its intensity: on together or not at all.
+        MPROPERTY( glm::vec4, BloomDirtMaskTintIntensity, "BloomDirtMaskTintIntensity",
+                   ( glm::vec4( 0.5f, 0.5f, 0.5f, 0.0f ) ) )
         MPROPERTY( glm::vec4, LocalExposureContrast, "LocalExposureContrast", ( glm::vec4( 1.0f, 1.0f, 1.0f, 0.6f ) ) )
         MPROPERTY( glm::vec4, LocalExposureThreshold, "LocalExposureThreshold", ( glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f ) ) )
         MPROPERTY( glm::vec4, LocalExposureUV, "LocalExposureUV", ( glm::vec4( 1.0f ) ) )

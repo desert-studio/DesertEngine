@@ -348,6 +348,9 @@ namespace Desert::Graphic::System
             m_LightDrawCache.clear(); // its draws name the old world's groups
             m_Materials.clear();
             m_LayerInputs.clear();
+            // The runtime virtual texture's grow-only square covers the old world's tiles: kept, a new world whose
+            // tiles fall inside it was never laid out for them (WATER-AFTER-LOADALL: untextured Shore ground).
+            m_VirtualTexture.ReleaseWorld();
         }
 
         void ClearQueue()

@@ -22,6 +22,7 @@
 // PURE: no geometry is linked here. The mesh builders' geometry (Core::BuildHLODMesh,
 // Core::BuildLandscapeHLODMesh) is given to the builders the engine registers, as CustomShaderSource is given to
 // the rules.
+#include <Engine/Core/Serialize/WorldPartitionHLODMember.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 
 #include <Common/Json/Json.hpp>
@@ -76,6 +77,17 @@ namespace Desert::Core::Rules
             return Common::MakeSuccess( true );
         }
 
+        // UE UHLODBuilderSettings::GetCRC: the canonical text of the settings THIS builder reads - its typed
+        // settings struct read by ReadHLODBuilderSettings and written back (HLODBuilderSettingsKey), so key order
+        // and number spelling make no saved HLOD stale. A builder that reads none answers "". Called only with
+        // settings ValidateSettings accepted.
+        [[nodiscard]] virtual Common::ResultStr<std::string>
+        SettingsKey( const Common::Json::Value* settings ) const
+        {
+            (void)settings;
+            return Common::MakeSuccess( std::string{} );
+        }
+
         // UE UHLODBuilder::Build: the HLOD of one cell from @p gathered (BuildInstancingHLOD of its members).
         // Called only with Settings this builder accepted. An error refuses the build by name.
         [[nodiscard]] virtual Common::ResultStr<InstancingHLOD> Build( const HLODBuildContext& context,
@@ -93,6 +105,17 @@ namespace Desert::Core::Rules
         if ( !read )
             return Common::MakeError<T>( std::format( "Settings: {}", read.GetError() ) );
         return read;
+    }
+
+    // The settings @p T canonical (IHLODBuilder::SettingsKey): read strictly, written back with
+    // Common::Json::Write (one key order, one number spelling).
+    template <typename T>
+    [[nodiscard]] Common::ResultStr<std::string> HLODBuilderSettingsKey( const Common::Json::Value* settings )
+    {
+        auto read = ReadHLODBuilderSettings<T>( settings );
+        if ( !read )
+            return Common::MakeError<std::string>( read.GetError() );
+        return Common::MakeSuccess( Common::Json::Write( read.GetValue() ) );
     }
 
     // UE UHLODBuilderInstancing: the gathered batches ARE the HLOD (one instanced component per distinct mesh,

@@ -1,0 +1,68 @@
+# ANIM-BS2D-RUNTIME: a Blend Space 2D (X = Speed cm/s 0..600, Y = Crouch 0..1, Y smoothed Linear 1.5 s) runs both
+# as a pose-graph node (ProofA, x 0) and as a state-machine state (ProofB, x 150) over the same five samples:
+# Idle_Loop (0,0) Walk_Loop (150,0) Jog_Fwd_Loop (600,0) Crouch_Idle_Loop (0,1) Crouch_Fwd_Loop (150,1).
+# Both mannequins must hold the same pose in every frame. The scene is not saved.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/PawnNoController_Demo.desce
+Дано run View "View mode: Lit"
+Дано spawn Characters/Mannequin/Mannequin.skmesh 0,0,-300 --id 7700000000000000011
+Дано set 7700000000000000011 Tag.Tag ProofA
+Дано set 7700000000000000011 Animation.UpdateAnimationInEditor true
+Дано set 7700000000000000011 Animation.Graph "\"assets:Characters/Mannequin/Mannequin_BlendSpace2D.danimgraph\""
+Дано spawn Characters/Mannequin/Mannequin.skmesh 150,0,-300 --id 7700000000000000012
+Дано set 7700000000000000012 Tag.Tag ProofB
+Дано set 7700000000000000012 Animation.UpdateAnimationInEditor true
+Дано set 7700000000000000012 Animation.Graph "\"assets:Characters/Mannequin/Mannequin_BlendSpace2D_State.danimgraph\""
+Дано --subject viewport set Camera.Position 75,110,0
+Дано --subject viewport set Camera.Direction 0,-0.15,-1
+# [bs2d_idle] (0,0) = Idle_Loop.
+Когда lua "for _, n in ipairs({'ProofA','ProofB'}) do local e = World.find(n); e:setAnimParam('Speed', 0.0); e:setAnimParam('Crouch', 0.0) end"
+Когда 40 frames render
+Тогда-вид bs2d_idle both mannequins stand in Idle_Loop: upright, feet apart, arms down; same pose left and right
+# [bs2d_walk] (150,0) = Walk_Loop.
+Когда lua "for _, n in ipairs({'ProofA','ProofB'}) do World.find(n):setAnimParam('Speed', 150.0) end"
+Когда 40 frames render
+Тогда-вид bs2d_walk both walk upright (Walk_Loop): a short stride, no forward lean; clearly different from bs2d_idle
+# [bs2d_jog] (600,0) = Jog_Fwd_Loop.
+Когда lua "for _, n in ipairs({'ProofA','ProofB'}) do World.find(n):setAnimParam('Speed', 600.0) end"
+Когда 40 frames render
+Тогда-вид bs2d_jog both jog upright: a long stride and forward lean, longer than bs2d_walk
+# [bs2d_walk_jog] (375,0) on the Walk-Jog edge: Walk 0.5 + Jog 0.5, one synced cycle.
+Когда lua "for _, n in ipairs({'ProofA','ProofB'}) do World.find(n):setAnimParam('Speed', 375.0) end"
+Когда 40 frames render
+Тогда-вид bs2d_walk_jog both move with a stride between bs2d_walk and bs2d_jog; feet do not slide or double-step (one cycle)
+# [bs2d_crouch_early] Crouch jumps to 1 at Speed 0; Y is smoothed over 1.5 s, so after 10 frames the body has barely lowered.
+Когда lua "for _, n in ipairs({'ProofA','ProofB'}) do local e = World.find(n); e:setAnimParam('Speed', 0.0); e:setAnimParam('Crouch', 1.0) end"
+Когда 10 frames render
+# The shot waits for the capture, and preview time is wall time (Core::WorldTime): both clocks are held for the shot so the
+# frame shows the pose 10 frames (well under 0.5 s) after Crouch was set, not wherever the clock was when the capture landed.
+Когда set 7700000000000000011 Animation.UpdateAnimationInEditor false
+Когда set 7700000000000000012 Animation.UpdateAnimationInEditor false
+Тогда-вид bs2d_crouch_early both are still nearly upright: knees only slightly bent, far from a full crouch
+Когда set 7700000000000000011 Animation.UpdateAnimationInEditor true
+Когда set 7700000000000000012 Animation.UpdateAnimationInEditor true
+# [bs2d_crouch_idle] after the smoothing window the point is at (0,1) = Crouch_Idle_Loop.
+Когда 150 frames render
+Тогда-вид bs2d_crouch_idle both crouch in place: knees deeply bent, hips low, arms in front
+# [bs2d_crouch_walk] (150,1) = Crouch_Fwd_Loop.
+Когда lua "for _, n in ipairs({'ProofA','ProofB'}) do World.find(n):setAnimParam('Speed', 150.0) end"
+Когда 40 frames render
+Тогда-вид bs2d_crouch_walk both walk crouched: hips low and legs stepping, different from bs2d_crouch_idle and from bs2d_walk
+# [bs2d_outside] (600,1) has no sample: projected onto the Jog-CrouchFwd hull edge, CrouchFwd 0.64 + Jog 0.36.
+Когда lua "for _, n in ipairs({'ProofA','ProofB'}) do World.find(n):setAnimParam('Speed', 600.0) end"
+Когда 40 frames render
+Тогда-вид bs2d_outside both move half-crouched with a longer stride than bs2d_crouch_walk; hips between bs2d_jog and bs2d_crouch_walk; no snapping to a single sample
+# [bs2d_half_crouch] (0,0.5) on the Idle-CrouchIdle edge: Idle 0.5 + CrouchIdle 0.5.
+Когда lua "for _, n in ipairs({'ProofA','ProofB'}) do local e = World.find(n); e:setAnimParam('Speed', 0.0); e:setAnimParam('Crouch', 0.5) end"
+Когда 150 frames render
+Тогда-вид bs2d_half_crouch both stand half-crouched in place: knees half bent, hips between bs2d_idle and bs2d_crouch_idle
+# [bs2d_editor] the node's details: five sample rows, two axis rows, and the plot with three triangles and the live point.
+Когда run Open "Characters/Mannequin/Mannequin_BlendSpace2D.danimgraph"
+Когда 10 frames render
+Когда run Document "Mannequin_BlendSpace2D: Select Node 'Locomotion2D'"
+Когда 10 frames render
+Тогда bs2d_editor the canvas shows Blend Space 2D 'Locomotion2D' wired into Output Pose with its parameter pins 'Speed -> X', 'Crouch -> Y' and 'PlayRate (unbound)'; the details list axes X 0..600 and Y 0..1 (Linear 1.5 s) and five samples; the plot draws five labelled points, three triangles and the preview point; the preview shows the Mannequin and no validation warning
+# [bs2d_add] the palette adds a fresh Blend Space 2D (three samples, two axes), not saved.
+Когда run Document "Mannequin_BlendSpace2D: Add Blend Space 2D"
+Когда 10 frames render
+Тогда bs2d_add a second Blend Space 2D node is on the canvas, unwired, body "3 samples, 2 axes"
+Когда run Document "Mannequin_BlendSpace2D: Close Discard"

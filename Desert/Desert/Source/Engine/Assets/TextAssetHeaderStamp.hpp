@@ -32,6 +32,10 @@ namespace Desert::Assets
     // above are (MIGRATE-SUBSYS). v1 (PORT-SUN-ROTATION): a directional light is aimed by its Rotation (forward
     // -Z), as UE's ULightComponent::GetDirection; its Translation is only where the editor draws it.
     inline constexpr uint32_t kLightSchemaTag = Common::Content::FourCC( "LGHT" );
+    // How a PostProcessVolume's Settings state bloom and auto exposure (Core::kPostProcessVersion), counted under
+    // its own tag as the lights are (MIGRATE-SUBSYS). v1 (RENDER-BLOOM-UE): UE's Gaussian bloom and histogram
+    // eye adaptation - EnableBloom and AutoExposureSpeed are gone.
+    inline constexpr uint32_t kPostProcessSchemaTag = Common::Content::FourCC( "PPRO" );
     // A .demat: the material schema, numbered for the first time by AF6f (v1). v2 (AF7c): the payload's
     // MaterialId is gone - the header GUID is the one identity - and an instance names its parent by that
     // GUID (`Parent`), stated again as the header's Dependency. v3 (T6c): every texture and cloud-asset
@@ -141,8 +145,11 @@ namespace Desert::Assets
     // position (OutputPoseX/Y, graph and every layer graph); Tools/SceneMigrator raises v2 through
     // Migration::MigrateAnimGraphV2ToV3 at Animation::Graph::DefaultOutputPosePosition. v4 (ANIM-SKELREF): the
     // graph states its TargetSkeleton {Guid, Path} (UE UAnimBlueprint::TargetSkeleton). v5 (PAWN-MANNEQUIN): every
-    // blend sample states its RateScale (UE FBlendSample::RateScale); Migration::MigrateAnimGraphV4ToV5.
-    inline constexpr uint32_t kAnimGraphSchemaVersion = 5;
+    // blend sample states its RateScale (UE FBlendSample::RateScale); Migration::MigrateAnimGraphV4ToV5. v6
+    // (ANIM-BS2D-RUNTIME): one blend space for 1D and 2D (UE UBlendSpace) - its Axes {Min, Max, Wrap, smoothing},
+    // samples at {X, Y}, WeightEaseInOut, ScaleAxis; a state names AxisParameters;
+    // Migration::MigrateAnimGraphV5ToV6.
+    inline constexpr uint32_t kAnimGraphSchemaVersion = 6;
     // A .skeleton: the rig file layout, stated in the header since v1 (T7e). The files before it stated no
     // version at all - that generation is 0, and a file of it is refused by name. v2 (SKEL-TREE): PreviewMesh
     // and CompatibleSkeletons, as GUID references. v3 (SKEL-eng2): the dead `Import` provenance is gone (the

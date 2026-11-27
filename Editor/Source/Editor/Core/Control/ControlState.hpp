@@ -293,6 +293,19 @@ namespace Desert::Editor::Control
         bool     DepthWriteInBase = false; ///< a base-pass draw wrote depth (only the Wireframe view's twins may)
     };
 
+    /// The primary view's exposure (Graphic::ExposureReadout, SceneRenderer::GetExposureReadout): auto or manual,
+    /// the adapted and measured EV100 of the meter's read-back, the multiplier the composite applied, and the
+    /// histogram tails (%) it metered with.
+    struct ExposureSnapshot
+    {
+        bool  Auto          = false;
+        float AdaptedEV100  = 0.0f;
+        float MeasuredEV100 = 0.0f;
+        float Exposure      = 0.0f;
+        float LowPercent    = 0.0f;
+        float HighPercent   = 0.0f;
+    };
+
     /// THE EFFECTS OF EVERY LIVE SCENE (UE fx.Niagara.Debug / the Niagara debugger's per-emitter counts), as
     /// Engine::VFX::VFXWorld::GetDebugStats gives them - the one answer the Particle Debugger panel and the
     /// viewport overview read, so a number here and the overlay beside it cannot disagree. The CPU columns are
@@ -373,6 +386,8 @@ namespace Desert::Editor::Control
         uint32_t VsmPagesOverflow       = 0;
         // The primary view's forward depth prepass, as its base pass of the same frame admitted it.
         ForwardPrepassSnapshot ForwardPrepass;
+        // The primary view's exposure (render.exposure).
+        ExposureSnapshot Exposure;
         // The primary view's Shadows method this frame (Graphic::RenderMethods: requested, effective) and, under
         // Stochastic, MegaLights' visibility source (Common::Scalability::kStochasticVisibilityNames).
         std::string ShadowsRequested;
@@ -685,6 +700,14 @@ namespace Desert::Editor::Control
             forwardPrepass["depthWriteInBase"] = Common::Json::Value( prepass.DepthWriteInBase );
             Common::Json::Object render;
             render["forwardPrepass"] = Common::Json::Value( forwardPrepass );
+            Common::Json::Object exposure;
+            exposure["auto"]          = Common::Json::Value( snapshot.Exposure.Auto );
+            exposure["adaptedEV100"]  = Num( snapshot.Exposure.AdaptedEV100 );
+            exposure["measuredEV100"] = Num( snapshot.Exposure.MeasuredEV100 );
+            exposure["exposure"]      = Num( snapshot.Exposure.Exposure );
+            exposure["lowPercent"]    = Num( snapshot.Exposure.LowPercent );
+            exposure["highPercent"]   = Num( snapshot.Exposure.HighPercent );
+            render["exposure"]        = Common::Json::Value( exposure );
             Common::Json::Object shadows;
             shadows["requested"]  = Common::Json::Value( snapshot.ShadowsRequested );
             shadows["method"]     = Common::Json::Value( snapshot.ShadowsEffective );

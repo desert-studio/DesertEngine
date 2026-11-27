@@ -4068,6 +4068,9 @@ namespace Desert::Graphic::System
         // The skeletal LOD readout (WP-FAR-10): the level each skinned entity was last reported at; a submit at
         // another level logs "[SkinnedLOD]" with that level's skin work (vertices, bones, influences).
         std::unordered_map<uint32_t, uint32_t> m_SkinnedLodReported;
+        // Per skinned record, the path it was last drawn on (true = the baked vertex animation): a record that
+        // changes path logs "[SkinnedPath]" with its drawn translation and world box, the frame it changed.
+        std::unordered_map<uint32_t, bool>     m_SkinnedPathReported;
         bool                                   m_SkinnedLodNoCameraReported = false;
         // SelectSkinnedLods' scratch: each leader's record in m_SkinnedQueue by its entity, filled only on a frame
         // that queues a follower (reused, no per-frame allocation once grown).

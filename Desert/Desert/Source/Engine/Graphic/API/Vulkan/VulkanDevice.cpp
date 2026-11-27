@@ -26,22 +26,35 @@
 #include <array>
 #include <chrono>
 #include <format>
+#include <vector>
 
 namespace Desert::Graphic::API::Vulkan
 {
     namespace
     {
         // The blob is only valid for the GPU and driver that wrote it (the driver discards anything else),
-        // so they name the file: two GPUs in one machine, or a driver update, get files of their own.
-        PipelineCacheFile::DeviceIdentity PipelineIdentity( VkPhysicalDevice gpu )
+        // so they name the file: two GPUs in one machine, or a driver update, get files of their own. Which
+        // driver answered (core 1.2 driverID) decides what its blob holds: MoltenVK hands back shader source.
+        struct PipelineDriver
         {
-            VkPhysicalDeviceProperties props{};
-            vkGetPhysicalDeviceProperties( gpu, &props );
-            PipelineCacheFile::DeviceIdentity identity{ props.vendorID, props.deviceID, props.driverVersion, {} };
-            static_assert( VK_UUID_SIZE == std::tuple_size_v<decltype( identity.CacheUuid )> );
+            PipelineCacheFile::DeviceIdentity Identity;
+            PipelineCacheFile::DriverBlob     Blob = PipelineCacheFile::DriverBlob::Binary;
+        };
+
+        PipelineDriver PipelineIdentity( VkPhysicalDevice gpu )
+        {
+            VkPhysicalDeviceDriverProperties driver{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES };
+            VkPhysicalDeviceProperties2      props2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driver };
+            vkGetPhysicalDeviceProperties2( gpu, &props2 );
+            const VkPhysicalDeviceProperties& props = props2.properties;
+            PipelineDriver result{ { props.vendorID, props.deviceID, props.driverVersion, {} },
+                                   driver.driverID == VK_DRIVER_ID_MOLTENVK
+                                        ? PipelineCacheFile::DriverBlob::ShaderSource
+                                        : PipelineCacheFile::DriverBlob::Binary };
+            static_assert( VK_UUID_SIZE == std::tuple_size_v<decltype( result.Identity.CacheUuid )> );
             std::copy( std::begin( props.pipelineCacheUUID ), std::end( props.pipelineCacheUUID ),
-                       identity.CacheUuid.begin() );
-            return identity;
+                       result.Identity.CacheUuid.begin() );
+            return result;
         }
 
         // A kill -9, a crash or a lost device never reaches Destroy, and the pipelines built in that run
@@ -668,9 +681,12 @@ namespace Desert::Graphic::API::Vulkan
     {
         // Seed the cache from this user's blob for this device. It lives in the USER's directory, never in
         // the install (a protected install cannot be written, and before PSO1 a package wrote its blob into
-        // its own folder). Our header refuses another device's or a torn file with a reason; the driver's
-        // own header check stays behind it.
-        m_PipelineIdentity = PipelineIdentity( m_PhysicalDevice->GetVulkanPhysicalDevice() );
+        // its own folder). PipelineCacheFile::PlanDirectory decides which file of this GPU lives: on a binary
+        // driver this device+driver's one (every older driver's file is deleted), on MoltenVK none at all
+        // (its blob is shader source that would be Metal-compiled here, before the window). Our header
+        // refuses another device's or a torn file with a reason; the driver's own header check stays behind it.
+        const PipelineDriver pipelineDriver = PipelineIdentity( m_PhysicalDevice->GetVulkanPhysicalDevice() );
+        m_PipelineIdentity                  = pipelineDriver.Identity;
         std::string                                  initial;
         const std::optional<PipelineCacheFile::Host> host = PipelineCacheFile::DeclaredHost();
         if ( !Project::ProjectContext::HasProject() )
@@ -701,7 +717,53 @@ namespace Desert::Graphic::API::Vulkan
             }
             else
             {
-                m_PipelineCacheFile = dir / PipelineCacheFile::FileName( m_PipelineIdentity );
+                std::vector<std::filesystem::path> filesInDir;
+                for ( std::filesystem::directory_iterator it( dir, ec ), end; !ec && it != end; it.increment( ec ) )
+                {
+                    std::error_code typeEc;
+                    if ( it->is_regular_file( typeEc ) )
+                        filesInDir.push_back( it->path() );
+                }
+                if ( ec )
+                {
+                    LOG_ERROR( "[PipelineCache] cannot list '{}': {}; no stale file is deleted this run",
+                               dir.string(), ec.message() );
+                }
+                const PipelineCacheFile::DirectoryPlan plan =
+                     PipelineCacheFile::PlanDirectory( pipelineDriver.Blob, m_PipelineIdentity, dir, filesInDir );
+                for ( const PipelineCacheFile::StaleFile& stale : plan.Delete )
+                {
+                    std::error_code sizeEc;
+                    const uintmax_t bytes = std::filesystem::file_size( stale.Path, sizeEc );
+                    std::error_code removeEc;
+                    if ( std::filesystem::remove( stale.Path, removeEc ) )
+                    {
+                        if ( sizeEc )
+                        {
+                            LOG_INFO( "[PipelineCache] '{}' deleted (size unknown: {}): {}", stale.Path.string(),
+                                      sizeEc.message(), stale.Reason );
+                        }
+                        else
+                        {
+                            LOG_INFO( "[PipelineCache] '{}' deleted ({} bytes): {}", stale.Path.string(), bytes,
+                                      stale.Reason );
+                        }
+                    }
+                    else
+                    {
+                        LOG_ERROR( "[PipelineCache] '{}' is stale ({}) but cannot be deleted: {}",
+                                   stale.Path.string(), stale.Reason,
+                                   removeEc ? removeEc.message() : std::string( "it is gone" ) );
+                    }
+                }
+                if ( plan.Keep )
+                {
+                    m_PipelineCacheFile = *plan.Keep;
+                }
+                else
+                {
+                    LOG_INFO( "[PipelineCache] not persisted: {}", plan.Refusal );
+                }
             }
         }
         if ( !m_PipelineCacheFile.empty() )
@@ -753,6 +815,9 @@ namespace Desert::Graphic::API::Vulkan
         // due and hands it to a worker; the cache is internally synchronised, so pipelines keep building meanwhile
         // (a partial read is the VK_INCOMPLETE case WritePipelineCache already takes). The previous write's
         // failure is reported here, one frame late.
+        // No file on this driver (MoltenVK) or no per-user path: nothing to schedule, no job per frame.
+        if ( m_PipelineCacheFile.empty() )
+            return Common::MakeSuccess( true );
         Common::BoolResultStr previous = Common::MakeSuccess( true );
         if ( m_PersistWrite.valid() )
         {
