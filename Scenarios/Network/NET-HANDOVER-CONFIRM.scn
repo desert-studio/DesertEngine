@@ -14,7 +14,11 @@
 Роль coord server --role coordinator --region west:1:-100000,-100000,0,100000 --region east:2:0,-100000,100000,100000 --border-band 1500 --handover-margin 300 --steps 864000
 Ждать coord 60 listening for mesh peers on port
 Роль store server --role store
-Роль sim1 server --role sim --index 1 --source -1000,0,-500 --spawn -1000,92,-500 --spawn -1000,92,-300
+# The spawn points are the landscape's surface (feet, cm): sim 1's placer measured the floor 782 cm under (-1000, 92, -500)
+# and 758 cm under (-1000, 92, -300) (scn-1127-081536 sim1.log "point free, floor N cm below it"), so a pawn spawns standing.
+# The third (A2, the third pawn; MeshOfOne takes SpawnPoints[index % count]) keeps A2 out of B's capsule: its height
+# is the same slope carried 200 cm on (12 cm per 100 cm of z), within MaxStepHeight 45 cm, so the placer snaps it.
+Роль sim1 server --role sim --index 1 --source -1000,0,-500 --spawn -1000,-690,-500 --spawn -1000,-666,-300 --spawn -1000,-642,-100
 Роль sim2 server --role sim --index 2 --source 3000,0,-500 --spawn 3000,92,-500
 Роль gw server --role gateway --pawn assets:Prefabs/Pawn_Player.deprefab
 Ждать sim1 120 NetId lease held - reported ready
@@ -23,7 +27,7 @@
 # Дано: B stands on the east side and looks down at the cut from 8 m up; its frames are the judge of one capsule.
 Роль B editor account=3 --play --shot-frames 100000 --shot-every 1 --camera 300,800,1600 --look 0,-0.371,-0.928 --quality PostProcess.MotionBlurQuality=0
 Ждать B 1800 \[Net\] in session
-# Когда: A walks 2000 cm along +X from (-1000, 92, -500) through X = 0; the handover is confirmed by sim 2.
+# Когда: A walks 2000 cm along +X from (-1000, -666, -300) through X = 0; the handover is confirmed by sim 2.
 Роль A bot account=1 --seconds 900 --walk-cm 2000 --dir 0.15,0,0
 Ждать sim1 120 held and offered to sim 2 \(offer #1, epoch 1, frozen at step \d+, \d+ unacked input\(s\)\)
 Ждать sim2 30 offer \(sim 1, #1\).*accepted \(catch-up [0-2] step
