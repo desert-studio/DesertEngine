@@ -15,14 +15,19 @@
 // --lag-ms is this process's one-way send lag: two processes at 75 make a 150 ms round trip.
 // Exit codes: 0 done, 1 failure (timeout, loss, disorder, p95 >= 400 ms, bad arguments), 2 refused by the server.
 //   --mesh-peer --mesh-ca DIR --store IP:P --as-sim N [--store-index I] [--seconds S]
-//            a HOSTILE MESH PEER (NET-HANDOVER-SCN-DUP-OFFER): links to the store with sim N's CA-signed
-//            certificate beside the real sim N, holds no pawn and speaks the handover wire (Net/HandoverWire.hpp)
-//            from console lines on stdin, as a defective or hostile sender would; the store must refuse each under
-//            the key (sim N, #0), which names no offer any sender holds:
+//            a HOSTILE MESH PEER (NET-HANDOVER-SCN-DUP-OFFER, NET-HANDOVER-REFUSE): links to the store with sim
+//            N's CA-signed certificate beside the real sim N, holds no pawn and speaks the handover wire
+//            (Net/HandoverWire.hpp) from console lines on stdin, as a defective or hostile sim would. An Offer:
 //              dup <serial> <to> <net id> <epoch> <step>    an Offer under the key (sim N, #serial), one the
-//                                                           store holds open
+//                                                           store holds open: the same pawn is AlreadyOffered,
+//                                                           another pawn SerialReused (refused under (sim N, #0))
 //              undecodable <serial> <to>                    an Offer whose header (key (sim N, #serial)) decodes
-//                                                           and whose pawn record is cut short
+//                                                           and whose pawn record is cut short (Malformed)
+//            A vote, spoken by sim N about the offer (sim <from>, #serial) naming pawn <net id> (Verdict.Id), at
+//            the speaker's mesh step <step>; a receiver's vote names the SENDER's key, so <from> is not N there:
+//              accept <from> <serial> <net id> <step>
+//              withdraw <from> <serial> <net id> <step>
+//              refuse <from> <serial> <net id> <step> <reason>   <reason> is an ERefusal name (RefusalName)
 //            Several commands may share one console line, separated by ';' (sent in the same poll).
 //            Every handover message the store sends this link is logged ("probe: received ..."): a refusal that
 //            reached the probe instead of the real sim N is visible. Exit 0 after S seconds (default 900), 1 when
@@ -57,6 +62,7 @@
 #include <set>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -1166,6 +1172,15 @@ namespace
         return Handover::EncodeOffer( { { sim, serial }, epoch, to, step, 1 }, pawn );
     }
 
+    // The refusal code a console line names (RefusalName), over the whole wire range: no second list of names.
+    std::optional<Handover::ERefusal> RefusalByName( std::string_view name )
+    {
+        for ( std::uint8_t code = 0; code <= static_cast<std::uint8_t>( Handover::kLastRefusal ); ++code )
+            if ( Handover::RefusalName( static_cast<Handover::ERefusal>( code ) ) == name )
+                return static_cast<Handover::ERefusal>( code );
+        return std::nullopt;
+    }
+
     int RunMeshPeer( int argc, char** argv )
     {
         std::string   caDirectory, store;
@@ -1231,18 +1246,26 @@ namespace
                {
                    if ( !Handover::IsHandoverMessage( type ) )
                        return;
-                   const auto         message = static_cast<Handover::EMessage>( type );
-                   Handover::Decision decision;
-                   Handover::Refusal  refusal;
-                   const bool         refused = message == Handover::EMessage::Refused;
-                   if ( ( message == Handover::EMessage::Commit || message == Handover::EMessage::Committed ||
-                          refused ) &&
-                        Handover::DecodeDecision( body, decision, refused ? &refusal : nullptr ) )
+                   const auto message = static_cast<Handover::EMessage>( type );
+                   if ( Handover::IsSimMessage( message ) || message == Handover::EMessage::Offer )
+                   {
+                       // Only the store's decisions are addressed to a sim on this link; anything else is logged
+                       // by name, as received.
+                       Log( "probe: received {} ({} bytes)", Handover::MessageName( message ), body.size() );
+                       return;
+                   }
+                   Handover::Decision      decision;
+                   Handover::Refusal       refusal;
+                   const bool              refused = message == Handover::EMessage::Refused;
+                   const Handover::Decoded read =
+                        Handover::DecodeDecision( body, decision, refused ? &refusal : nullptr );
+                   if ( read )
                        Log( "probe: received {} of offer (sim {}, #{}) - pawn net id {}{}",
                             Handover::MessageName( message ), decision.Key.From, decision.Key.Serial, decision.Id,
                             refused ? " - " + Handover::Describe( refusal ) : std::string() );
                    else
-                       Log( "probe: received {} ({} bytes)", Handover::MessageName( message ), body.size() );
+                       Log( "probe: received {} that did not decode - {}", Handover::MessageName( message ),
+                            Handover::DescribeCut( read ) );
                } } );
         if ( !endpoint.ConnectTo( EMeshRole::Store, storeIndex, store, error ) )
         {
@@ -1276,9 +1299,47 @@ namespace
                     continue;
                 }
                 Handover::OfferSerial serial = 0;
-                std::uint32_t         to = 0, epoch = 0, step = 0;
+                std::uint32_t         to = 0, epoch = 0, step = 0, from = 0;
                 NetId                 id = kInvalidNetId;
-                if ( verb == "dup" && words >> serial >> to >> id >> epoch >> step )
+                std::string           reason;
+                const bool            vote = verb == "accept" || verb == "withdraw" || verb == "refuse";
+                if ( vote && words >> from >> serial >> id >> step && ( verb != "refuse" || words >> reason ) )
+                {
+                    const Handover::Verdict verdict{ { from, serial }, id, sim, step };
+                    std::vector<std::byte>  message;
+                    std::string             said;
+                    Handover::EMessage      kind = Handover::EMessage::Refuse;
+                    if ( verb == "accept" )
+                    {
+                        kind    = Handover::EMessage::Accept;
+                        message = Handover::EncodeAccept( verdict );
+                    }
+                    else if ( verb == "withdraw" )
+                    {
+                        kind    = Handover::EMessage::Withdraw;
+                        message = Handover::EncodeWithdraw( verdict );
+                    }
+                    else if ( const std::optional<Handover::ERefusal> code = RefusalByName( reason ) )
+                    {
+                        const Handover::Refusal refusal{ *code,
+                                                         std::format( "sent by DesertNetProbe --mesh-peer as "
+                                                                      "sim {}",
+                                                                      sim ) };
+                        message = Handover::EncodeRefuse( verdict, refusal );
+                        said    = " - " + Handover::Describe( refusal );
+                    }
+                    else
+                    {
+                        Log( "probe: '{}' not sent - '{}' is not a refusal code (Malformed, PawnMismatch, ...)",
+                             line, reason );
+                        continue;
+                    }
+                    endpoint.Send( *link, message );
+                    Log( "probe: sent {} of offer (sim {}, #{}) naming pawn net id {} as sim {} at step {}{} ({} "
+                         "bytes)",
+                         Handover::MessageName( kind ), from, serial, id, sim, step, said, message.size() );
+                }
+                else if ( verb == "dup" && words >> serial >> to >> id >> epoch >> step )
                 {
                     const std::vector<std::byte> offer = HostileOffer( sim, serial, to, id, epoch, step );
                     endpoint.Send( *link, offer );
@@ -1302,7 +1363,8 @@ namespace
                 }
                 else
                     Log( "probe: unknown console line '{}' (dup <serial> <to> <net id> <epoch> <step> | "
-                         "undecodable <serial> <to>)",
+                         "undecodable <serial> <to> | accept|withdraw <from> <serial> <net id> <step> | refuse "
+                         "<from> <serial> <net id> <step> <reason>)",
                          line );
             }
             std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );

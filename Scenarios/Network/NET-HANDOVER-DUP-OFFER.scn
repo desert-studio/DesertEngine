@@ -1,8 +1,10 @@
 # NET-HANDOVER-DUP-OFFER: the store refuses a hostile Offer without touching the live one (NET-HANDOVER-CONFIRM,
 # HandoverLedger.cpp Ledger::Opened). A refusal never names a key the store did not open for that message: a second
-# Offer under a key the store holds open, and an Offer that does not decode, are each refused under the key
-# (sim, #0) - serial 0, which no sender ever issues - so the real sender matches nothing, logs "holds nothing" and
-# does NOT resume its held pawn while the live offer goes on to commit once.
+# Offer of the pawn the store holds an offer open for (AlreadyOffered), and an Offer that does not decode (Malformed,
+# naming the byte it was cut at), are each refused under the key (sim, #0) - serial 0, which no sender ever issues -
+# so the real sender matches nothing, logs "holds nothing" and does NOT resume its held pawn while the live offer goes
+# on to commit once. Each refusal has its own code (NET-HANDOVER-REFUSE): Malformed is only a record that did not
+# decode, so the store's count tells a corrupt wire from a defective sender.
 # The hostile peer is DesertNetProbe --mesh-peer (role kind `probe`): it links to the store with sim 1's CA-signed
 # certificate beside the real sim 1 and speaks the handover wire (Net/HandoverWire.hpp) from its console; no engine
 # test hook. The store routes a message for sim 1 to the identity's route - the first link to say Hello as sim 1, the
@@ -53,20 +55,21 @@
 # Тогда: both hostile offers were refused under (sim 1, #0) - never under the open key (sim 1, #1).
 Запомнить pdup P probe: sent a duplicate Offer under the open key \(sim 1, #(\d+)\)
 Запомнить pbad P probe: sent an undecodable Offer: header key \(sim 1, #(\d+)\) to sim 2, pawn record cut off \((\d+) bytes\)
-Запомнить sdup store store: offer \(sim 1, #0\) of pawn net id (\d+) to sim 2 at step \d+ refused - Malformed: offer \(sim 1, #1\) names pawn net id \d+, which already has offer \(sim 1, #1\) open
-Запомнить sbad store store: offer \(sim 1, #0\) of pawn net id \d+ to sim \d+ at step \d+ refused - Malformed: the offer record from sim 1 did not decode \((\d+) bytes\)
+Запомнить sdup store store: offer \(sim 1, #0\) of pawn net id (\d+) to sim 2 at step \d+ refused - AlreadyOffered: pawn net id \d+ already has offer \(sim 1, #1\) open
+Запомнить sbad store store: offer \(sim 1, #0\) of pawn net id \d+ to sim \d+ at step \d+ refused - Malformed: the offer record from sim 1 did not decode - cut at byte (24) of (24)
 Нет store offer \(sim 1, #1\) of pawn net id \d+ .*refused -
 # Тогда: sim 1 holds nothing under (sim 1, #0) and keeps its held pawn: no resume, no withdrawal of #1.
-Запомнить s1dup sim1 sim 1: Refused of offer \(sim 1, #(0)\) - Malformed: offer \(sim 1, #1\) names pawn net id \d+, which already has offer \(sim 1, #1\) open; this sim holds nothing of it
-Запомнить s1bad sim1 sim 1: Refused of offer \(sim 1, #(0)\) - Malformed: the offer record from sim 1 did not decode \(\d+ bytes\); this sim holds nothing of it
+Запомнить s1dup sim1 sim 1: Refused of offer \(sim 1, #(0)\) - AlreadyOffered: pawn net id \d+ already has offer \(sim 1, #1\) open; this sim holds nothing of it
+Запомнить s1bad sim1 sim 1: Refused of offer \(sim 1, #(0)\) - Malformed: the offer record from sim 1 did not decode - cut at byte 24 of 24; this sim holds nothing of it
 Нет sim1 offer #1 .*Refused by the store
 Нет sim1 resumes on sim 1
 Нет sim1 Withdraw sent
 Нет sim1 adopted .*from sim 1
 Нет P probe: received
 Ждать B 60 fresh \[Shot\] recorded frame_
-Тогда B dup_refused_zero_key B's view down on the cut after the handover: ONE A capsule just east of X = 300, moving continuously along +X (about 5 px per frame), no jump back, no second A at the old place; store.log refuses both hostile offers under (sim 1, #0) - the duplicate "which already has offer (sim 1, #1) open" and the cut record "did not decode" - and never refuses (sim 1, #1); sim1.log "Refused of offer (sim 1, #0) ... this sim holds nothing of it" twice, no resume, and offer #1 "committed by the store (epoch 2)" once; P.log received no handover message
+Тогда B dup_refused_zero_key B's view down on the cut after the handover: ONE A capsule just east of X = 300, moving continuously along +X (about 5 px per frame), no jump back, no second A at the old place; store.log refuses both hostile offers under (sim 1, #0) - the duplicate "AlreadyOffered: ... already has offer (sim 1, #1) open" and the cut record "Malformed: ... did not decode - cut at byte 24 of 24" - and never refuses (sim 1, #1); sim1.log "Refused of offer (sim 1, #0) ... this sim holds nothing of it" twice, no resume, and offer #1 "committed by the store (epoch 2)" once; P.log received no handover message
 # Когда: the operator asks sim 1 for its handover counts; the store's own line follows every 300 steps.
+# The store counts refusals per code in ERefusal order (Ledger::Describe, a std::map keyed by the code).
 Консоль sim1 stat
 Ждать sim1 10 handovers: 1 offered, 1 committed, 0 adopted; refused 0 by store, 0 by receiver; 0 withdrawn; .*0 open as sender
-Ждать store 30 open offers 0, unadopted commits 0; committed 1, refused 2 \(Malformed 2\); withdrawn 0
+Ждать store 30 open offers 0, unadopted commits 0; committed 1, refused 2 \(Malformed 1, AlreadyOffered 1\); withdrawn 0
