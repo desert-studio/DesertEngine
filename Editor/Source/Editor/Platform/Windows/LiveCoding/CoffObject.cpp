@@ -21,6 +21,7 @@ namespace Desert::Editor::LiveCoding::Coff
         constexpr std::size_t   kSectionHeaderSize = 40;
         constexpr std::size_t   kRelocationSize    = 10;
         constexpr std::uint8_t  kSymClassStatic    = 3; // IMAGE_SYM_CLASS_STATIC
+        constexpr std::uint8_t  kSymClassWeakExternal = 105; // IMAGE_SYM_CLASS_WEAK_EXTERNAL
         constexpr std::uint16_t kSymDtypeFunction  = 2; // IMAGE_SYM_DTYPE_FUNCTION, in bits 4..5 of Type
 
         // {D1BAA1C7-BAEE-4ba9-AF20-FAF66AA4DCB8}, the ClassID of ANON_OBJECT_HEADER_BIGOBJ.
@@ -211,7 +212,10 @@ namespace Desert::Editor::LiveCoding::Coff
             }
             else
             {
-                symbol.Section = Read<std::int16_t>( bytes, next );
+                // Unsigned: a regular object numbers up to 65279 sections; only the two reserved values are
+                // negative (IMAGE_SYM_ABSOLUTE 0xFFFF, IMAGE_SYM_DEBUG 0xFFFE).
+                const std::uint16_t number = Read<std::uint16_t>( bytes, next );
+                symbol.Section = number == 0xFFFF ? -1 : number == 0xFFFE ? -2 : std::int32_t( number );
                 next += 2;
             }
             const std::uint16_t type    = Read<std::uint16_t>( bytes, next );
@@ -238,6 +242,12 @@ namespace Desert::Editor::LiveCoding::Coff
                 }
             }
 
+            // A weak external's first aux record names the symbol it falls back to (TagIndex, §5.5.3).
+            if ( auxCount > 0 && symbol.StorageClass == kSymClassWeakExternal && symbol.Section == 0 )
+            {
+                symbol.WeakDefault = Read<std::uint32_t>( bytes, at + symbolSize );
+            }
+
             object.m_Symbols.push_back( std::move( symbol ) );
             for ( std::uint8_t a = 0; a < auxCount && i + 1 < symbolCount; ++a )
             {
@@ -245,28 +255,45 @@ namespace Desert::Editor::LiveCoding::Coff
                 ++i;
             }
         }
+        object.ComputeExtents();
         return Common::MakeSuccess( std::move( object ) );
+    }
+
+    // Once per object: every defined symbol's (section, value) sorted, so each extent is the gap to the next
+    // larger value of its section, or to the section end.
+    void Object::ComputeExtents()
+    {
+        std::vector<std::pair<std::int32_t, std::uint32_t>> starts;
+        starts.reserve( m_Symbols.size() );
+        for ( const Symbol& symbol : m_Symbols )
+        {
+            if ( symbol.Section > 0 && std::size_t( symbol.Section ) <= m_Sections.size() )
+            {
+                starts.emplace_back( symbol.Section, symbol.Value );
+            }
+        }
+        std::sort( starts.begin(), starts.end() );
+        m_Extents.assign( m_Symbols.size(), 0 );
+        for ( std::size_t i = 0; i < m_Symbols.size(); ++i )
+        {
+            const Symbol& self = m_Symbols[i];
+            if ( self.Section <= 0 || std::size_t( self.Section ) > m_Sections.size() )
+            {
+                continue;
+            }
+            std::uint32_t end = m_Sections[std::size_t( self.Section ) - 1].Size;
+            const auto    next =
+                 std::upper_bound( starts.begin(), starts.end(), std::make_pair( self.Section, self.Value ) );
+            if ( next != starts.end() && next->first == self.Section && next->second < end )
+            {
+                end = next->second;
+            }
+            m_Extents[i] = end > self.Value ? end - self.Value : 0;
+        }
     }
 
     std::uint32_t Object::Extent( std::uint32_t symbol ) const
     {
-        if ( symbol >= m_Symbols.size() )
-        {
-            return 0;
-        }
-        const Symbol& self = m_Symbols[symbol];
-        if ( self.Section <= 0 || std::size_t( self.Section ) > m_Sections.size() )
-        {
-            return 0;
-        }
-        std::uint32_t end = m_Sections[std::size_t( self.Section ) - 1].Size;
-        for ( const Symbol& other : m_Symbols )
-        {
-            if ( other.Section == self.Section && other.Value > self.Value && other.Value < end )
-            {
-                end = other.Value;
-            }
-        }
-        return end > self.Value ? end - self.Value : 0;
+        return symbol < m_Extents.size() ? m_Extents[symbol] : 0;
     }
 } // namespace Desert::Editor::LiveCoding::Coff

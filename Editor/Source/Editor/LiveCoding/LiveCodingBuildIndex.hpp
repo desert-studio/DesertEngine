@@ -6,6 +6,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace Desert::Editor::LiveCoding
@@ -24,8 +25,9 @@ namespace Desert::Editor::LiveCoding
 
         /// The sources newer than the later of their image and their last patch (MarkPatched). Refuses when a
         /// header under the source roots is newer than the newest image (names the header: a header edit needs a
-        /// rebuild; the oldest image would be a DLL the next build does not relink, refusing forever), or when a source's BuiltObject is newer than its image (a build compiled while the editor held
-        /// the image: the objects no longer describe the running code).
+        /// rebuild; the oldest image would be a DLL the next build does not relink, refusing forever), or when a
+        /// source's BuiltObject is newer than its image (a build compiled while the editor held the image: the
+        /// objects no longer describe the running code).
         [[nodiscard]] Common::ResultStr<std::vector<std::size_t>> ChangedSources() const;
 
         /// The members of @p unitySource's batch, in the batch's order.
@@ -47,5 +49,7 @@ namespace Desert::Editor::LiveCoding
         std::vector<std::filesystem::file_time_type> m_PatchedAt; // per source; min() = never patched
         std::vector<std::filesystem::path>           m_SourceRoots; // LiveCoding.json "SourceRoots"
         std::filesystem::path                        m_PatchRoot;   // <build>/LivePatch/<pid>
+        std::unordered_map<std::string, std::size_t>              m_SourceByKey;  // folded path -> source
+        std::unordered_map<std::string, std::vector<std::size_t>> m_BatchByUnity; // folded unity file -> batch
     };
 } // namespace Desert::Editor::LiveCoding

@@ -54,6 +54,7 @@ namespace Desert::Editor::LiveCoding::Coff
         std::uint32_t Value   = 0;    // offset in the section
         std::uint8_t  StorageClass = 0; // IMAGE_SYM_CLASS_EXTERNAL / STATIC / LABEL
         bool          Function     = false; // complex type DTYPE_FUNCTION
+        std::uint32_t WeakDefault  = ~0u;   // a weak external: the symbol it resolves to when nothing defines it
     };
 
     /// One object file, regular or /bigobj, held in memory. Indices are the file's own (aux records keep a slot).
@@ -71,14 +72,17 @@ namespace Desert::Editor::LiveCoding::Coff
 
         [[nodiscard]] std::span<const Section> Sections() const { return m_Sections; } // [0] = section 1
         [[nodiscard]] std::span<const Symbol>  Symbols() const { return m_Symbols; }
-        /// Bytes from the symbol to the next symbol of its section, or to the section end.
+        /// Bytes from the symbol to the next symbol of its section, or to the section end; computed once at Load.
         [[nodiscard]] std::uint32_t Extent( std::uint32_t symbol ) const;
         [[nodiscard]] const std::filesystem::path& Path() const { return m_Path; }
 
     private:
+        void ComputeExtents();
+
         std::filesystem::path  m_Path;
         std::vector<std::byte> m_Bytes;
         std::vector<Section>   m_Sections;
         std::vector<Symbol>    m_Symbols;
+        std::vector<std::uint32_t> m_Extents; // per symbol, 0 for an undefined one or an aux slot
     };
 } // namespace Desert::Editor::LiveCoding::Coff

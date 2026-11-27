@@ -98,8 +98,13 @@ namespace Desert::Editor::LiveCoding
         class PreparedPatch final : public IPreparedPatch
         {
         public:
-            PreparedPatch( std::vector<PatchImage> images, PatchReport report )
-                 : m_Images( std::move( images ) ), m_Report( std::move( report ) )
+            /// @p imageOf: the image index of each patch; @p history: the backend's record the applied patch
+            /// extends (Prepare and Apply never overlap: the session prepares the next patch only once this one is
+            /// applied or dropped).
+            PreparedPatch( std::vector<PatchImage> images, std::vector<std::size_t> imageOf,
+                           std::map<std::size_t, PatchHistory>& history, PatchReport report )
+                 : m_Images( std::move( images ) ), m_ImageOf( std::move( imageOf ) ), m_History( history ),
+                   m_Report( std::move( report ) )
             {
             }
 
@@ -119,16 +124,32 @@ namespace Desert::Editor::LiveCoding
                     const std::span<const Redirect> own = image.Redirects();
                     redirects.insert( redirects.end(), own.begin(), own.end() );
                 }
-                const Common::BoolResultStr redirected = ApplyRedirects( redirects );
-                if ( !redirected )
-                {
-                    return Common::MakeError<PatchReport>( redirected.GetError() );
-                }
+                // New data is initialised before any entry leads into the patch: no thread can reach it yet.
                 for ( const PatchImage& image : m_Images )
                 {
                     for ( void ( *const initialiser )() : image.NewDataInitialisers() )
                     {
                         initialiser();
+                    }
+                }
+                const Common::BoolResultStr redirected = ApplyRedirects( redirects );
+                if ( !redirected )
+                {
+                    return Common::MakeError<PatchReport>( redirected.GetError() );
+                }
+                // What the patch defined is what the next patch of each image links against and redirects.
+                for ( std::size_t i = 0; i < m_Images.size(); ++i )
+                {
+                    const PatchHistory& defined = m_Images[i].Defined();
+                    PatchHistory&       history = m_History[m_ImageOf[i]];
+                    for ( const auto& [name, definition] : defined.Latest )
+                    {
+                        history.Latest[name] = definition;
+                    }
+                    for ( const auto& [name, entries] : defined.Entries )
+                    {
+                        std::vector<std::uintptr_t>& all = history.Entries[name];
+                        all.insert( all.end(), entries.begin(), entries.end() );
                     }
                 }
                 m_Report.ApplyMilliseconds =
@@ -138,9 +159,11 @@ namespace Desert::Editor::LiveCoding
             }
 
         private:
-            std::vector<PatchImage> m_Images;
-            PatchReport             m_Report;
-            bool                    m_Applied = false;
+            std::vector<PatchImage>              m_Images;
+            std::vector<std::size_t>             m_ImageOf;
+            std::map<std::size_t, PatchHistory>& m_History;
+            PatchReport                          m_Report;
+            bool                                 m_Applied = false;
         };
 
         class WindowsBackend final : public ILiveCodingBackend
@@ -151,33 +174,34 @@ namespace Desert::Editor::LiveCoding
                      const std::atomic<bool>& cancel ) noexcept override;
 
         private:
-            Common::ResultStr<const Coff::Object*> Original( const std::filesystem::path& path );
-            Common::ResultStr<const LinkerMap*>    Map( const BuildIndex& index, std::size_t image );
+            Common::ResultStr<const OriginalObject*> Original( const std::filesystem::path& path );
+            Common::ResultStr<const LinkerMap*>      Map( const BuildIndex& index, std::size_t image );
 
-            std::mutex                                                     m_Mutex;     // one Prepare at a time
-            std::unordered_map<std::string, std::unique_ptr<Coff::Object>> m_Originals; // by BuiltObject path
-            std::map<std::size_t, std::unique_ptr<LinkerMap>>              m_Maps;      // by image index
-            std::uint32_t                                                  m_NextPatch = 0;
+            std::mutex                                                       m_Mutex; // one Prepare at a time
+            std::unordered_map<std::string, std::unique_ptr<OriginalObject>> m_Originals; // by BuiltObject path
+            std::map<std::size_t, std::unique_ptr<LinkerMap>>                m_Maps;      // by image index
+            std::map<std::size_t, PatchHistory> m_History; // by image index: what the applied patches defined
+            std::uint32_t                       m_NextPatch = 0;
         };
 
         // The objects and maps the images were linked from do not change while they run (BuildIndex refuses a
         // build newer than its image), so each is read once per session.
-        Common::ResultStr<const Coff::Object*> WindowsBackend::Original( const std::filesystem::path& path )
+        Common::ResultStr<const OriginalObject*> WindowsBackend::Original( const std::filesystem::path& path )
         {
             const std::string key   = Fold( path );
             const auto        known = m_Originals.find( key );
             if ( known != m_Originals.end() )
             {
-                const Coff::Object* object = known->second.get();
+                const OriginalObject* object = known->second.get();
                 return Common::MakeSuccess( object );
             }
             Common::ResultStr<Coff::Object> loaded = Coff::Object::Load( path );
             if ( !loaded )
             {
-                return Common::MakeError<const Coff::Object*>( loaded.GetError() );
+                return Common::MakeError<const OriginalObject*>( loaded.GetError() );
             }
-            auto                owned  = std::make_unique<Coff::Object>( loaded.ExtractValue() );
-            const Coff::Object* object = owned.get();
+            auto                  owned  = std::make_unique<OriginalObject>( loaded.ExtractValue() );
+            const OriginalObject* object = owned.get();
             m_Originals.emplace( key, std::move( owned ) );
             return Common::MakeSuccess( object );
         }
@@ -217,6 +241,7 @@ namespace Desert::Editor::LiveCoding
             // 1. Scanning: per image, the edited sources and every source whose functions inlined their code (in a
             //    unity batch a later member may inline an earlier one's function; those copies run the old code).
             stage.store( PatchStage::Scanning );
+            PatchReport                                     report;
             std::map<std::size_t, std::vector<std::size_t>> compiledByImage; // image -> sources, edited first
             std::map<std::size_t, std::vector<std::size_t>> editedByImage;
             for ( const std::size_t source : edited )
@@ -227,6 +252,7 @@ namespace Desert::Editor::LiveCoding
                                                                source );
                 }
                 editedByImage[sources[source].Image].push_back( source );
+                report.Edited.push_back( sources[source].Source );
             }
             std::unordered_map<std::string, std::size_t> sourceByFolded;
             for ( std::size_t i = 0; i < sources.size(); ++i )
@@ -249,13 +275,13 @@ namespace Desert::Editor::LiveCoding
                 }
                 for ( const auto& [folded, path] : builtObjects )
                 {
-                    Common::ResultStr<const Coff::Object*> original = Original( path );
+                    Common::ResultStr<const OriginalObject*> original = Original( path );
                     if ( !original )
                     {
                         return Common::MakeError<Result>( original.GetError() );
                     }
                     Common::ResultStr<CodeView::Carriers> carriers =
-                         CodeView::FindCarriers( *original.GetValue(), editedPaths );
+                         CodeView::FindCarriers( original.GetValue()->Object(), editedPaths );
                     if ( !carriers )
                     {
                         return Common::MakeError<Result>( carriers.GetError() );
@@ -274,6 +300,7 @@ namespace Desert::Editor::LiveCoding
                              std::find( compiled.begin(), compiled.end(), inliner->second ) == compiled.end() )
                         {
                             compiled.push_back( inliner->second );
+                            report.Inliners.push_back( sources[inliner->second].Source );
                         }
                     }
                 }
@@ -320,7 +347,6 @@ namespace Desert::Editor::LiveCoding
                          results[i].ExitCode, OutputTail( results[i].Output ) );
                 }
             }
-            PatchReport report;
             report.CompileSeconds =
                  std::chrono::duration<double>( std::chrono::steady_clock::now() - compileStart ).count();
 
@@ -332,8 +358,9 @@ namespace Desert::Editor::LiveCoding
                 imageBases[i] =
                      reinterpret_cast<std::uintptr_t>( GetModuleHandleW( images[i].Image.wstring().c_str() ) );
             }
-            std::vector<PatchImage> linked;
-            std::size_t             job = 0;
+            std::vector<PatchImage>  linked;
+            std::vector<std::size_t> linkedImage;
+            std::size_t              job = 0;
             for ( const auto& [image, compiled] : compiledByImage )
             {
                 if ( imageBases[image] == 0 )
@@ -349,7 +376,7 @@ namespace Desert::Editor::LiveCoding
 
                 std::vector<Coff::Object>          objects;
                 std::vector<std::string>           mapObjects;
-                std::vector<const Coff::Object*>   originals;
+                std::vector<const OriginalObject*> originals;
                 std::vector<std::filesystem::path> compiledPaths;
                 for ( const std::size_t source : compiled )
                 {
@@ -358,7 +385,8 @@ namespace Desert::Editor::LiveCoding
                     {
                         return Common::MakeError<Result>( object.GetError() );
                     }
-                    Common::ResultStr<const Coff::Object*> original = Original( sources[source].BuiltObject );
+                    Common::ResultStr<const OriginalObject*> original =
+                         Original( sources[source].BuiltObject );
                     if ( !original )
                     {
                         return Common::MakeError<Result>( original.GetError() );
@@ -422,22 +450,27 @@ namespace Desert::Editor::LiveCoding
                 }
 
                 const std::vector<std::uintptr_t> others = LoadedModules( imageBases, imageBases[image] );
+                const auto                        history = m_History.find( image );
                 ImageSymbols                      symbols;
+                symbols.Name                        = images[image].Image.filename().string();
                 symbols.Base                        = imageBases[image];
                 symbols.Map                         = map.GetValue();
                 symbols.MapObjects                  = mapObjects;
                 symbols.Originals                   = originals;
                 symbols.OtherImages                 = others;
+                symbols.History = history != m_History.end() ? &history->second : nullptr;
                 Common::ResultStr<PatchImage> patch = PatchImage::Link( objects, symbols, carrying, report );
                 if ( !patch )
                 {
                     return Common::MakeFormattedError<Result>( "{}: {}", images[image].Target, patch.GetError() );
                 }
                 linked.push_back( patch.ExtractValue() );
+                linkedImage.push_back( image );
             }
 
             stage.store( PatchStage::Ready );
-            Result prepared = std::make_unique<PreparedPatch>( std::move( linked ), std::move( report ) );
+            Result prepared = std::make_unique<PreparedPatch>( std::move( linked ), std::move( linkedImage ),
+                                                               m_History, std::move( report ) );
             return Common::MakeSuccess( std::move( prepared ) );
         }
     } // namespace
@@ -446,5 +479,23 @@ namespace Desert::Editor::LiveCoding
     {
         std::unique_ptr<ILiveCodingBackend> backend = std::make_unique<WindowsBackend>();
         return Common::MakeSuccess( std::move( backend ) );
+    }
+
+    std::uint32_t CurrentProcessId()
+    {
+        return static_cast<std::uint32_t>( ::GetCurrentProcessId() );
+    }
+
+    bool ProcessRuns( const std::uint32_t pid )
+    {
+        const HANDLE process = ::OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid );
+        if ( process == nullptr )
+        {
+            return ::GetLastError() == ERROR_ACCESS_DENIED; // it runs, as another user
+        }
+        DWORD      exitCode = 0;
+        const BOOL read     = ::GetExitCodeProcess( process, &exitCode );
+        ::CloseHandle( process );
+        return read != FALSE && exitCode == STILL_ACTIVE;
     }
 } // namespace Desert::Editor::LiveCoding

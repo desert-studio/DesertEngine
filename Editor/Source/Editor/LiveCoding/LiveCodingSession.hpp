@@ -6,6 +6,7 @@
 #include <Editor/LiveCoding/LiveCodingBuildIndex.hpp>
 
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -31,9 +32,10 @@ namespace Desert::Editor::LiveCoding
         /// MAIN THREAD, first thing in EditorLayer::OnUpdate: applies a prepared patch, logs the report.
         void ApplyPending();
 
-        /// For Control::BackgroundWork::LiveCoding: Running while scanning/compiling/linking/ready; Progress is
-        /// kPatchStageNames; Outcome is the last report's Summary() or the last refusal, kept until the next request.
-        [[nodiscard]] Control::BackgroundReport Report() const;
+        /// MAIN THREAD, each frame. For Control::BackgroundWork::LiveCoding: Running while
+        /// scanning/compiling/linking/ready; Progress is kPatchStageNames; Outcome is the last report's Summary() or
+        /// the last refusal, kept until the next request. The outcome is copied only when it changed.
+        [[nodiscard]] const Control::BackgroundReport& Report();
 
         /// The palette's "Live Coding" group.
         void AppendCommands( std::vector<PaletteCommand>& out );
@@ -44,10 +46,13 @@ namespace Desert::Editor::LiveCoding
         std::atomic<PatchStage>                                m_Stage{ PatchStage::Idle };
         std::atomic<bool>                                      m_Cancel{ false };
         std::atomic<bool>                                      m_JobDone{ true };
-        mutable std::mutex                                     m_Mutex;   // guards the four below
+        std::mutex                                             m_Mutex;   // guards the four below
         std::unique_ptr<IPreparedPatch>                        m_Prepared;
         std::vector<std::size_t>                               m_PreparedSources;
         std::vector<std::filesystem::file_time_type>           m_PreparedAt; // their mtimes when compiled
         std::string                                            m_Outcome;
+        std::atomic<std::uint64_t> m_OutcomeVersion{ 0 }; // raised under m_Mutex with every m_Outcome write
+        std::uint64_t              m_ReportedVersion = 0; // main thread: the version m_Report holds
+        Control::BackgroundReport  m_Report;              // main thread: what Report() returns
     };
 } // namespace Desert::Editor::LiveCoding

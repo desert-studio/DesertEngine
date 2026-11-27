@@ -1,6 +1,7 @@
 # HOT-RELOAD-PANEL (owner: «hot reload тогда можно сразу добавить?»): Live Coding (Live++ / UE Live Coding) patches
-# an EditorPanels source in the running editor. The edit is HistoryPanel.cpp:17's label; the scene, the selection
-# and the camera stay as they were, the History panel draws the new label from the next frame.
+# an EditorPanels source in the running editor. Patch 1 adds to HistoryPanel.cpp a function and a global the image
+# lacks and stores the function's address in the global (a callback into patch memory); patch 2 edits that function
+# again, so the stored callback reaches the newest code. The scene, the selection and the camera stay as they were.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce
 Дано run Panel "Open Modeling"
 Дано run Panel "Open History"
@@ -17,9 +18,15 @@
 Когда run "Live Coding" "Patch changed sources"
 Когда wait-idle
 Когда state
-Тогда 1_after the History panel reads "Revision (live) N" with the same N and the same two entries; the Box is still selected at the same place, the view is the same camera; editor.log has one "[LiveCoding] patched" line naming HistoryPanel.cpp and no "[LiveCoding] refused", no scene open after the patch
+Тогда 1_after the History panel reads "Revision (live) N" with the same N and the same two entries; the Box is still selected at the same place, the view is the same camera; editor.log has one "[LiveCoding] patched" line naming HistoryPanel.cpp, "new data:" naming g_HistoryRevisionLabel, and no "[LiveCoding] refused"; no scene open after the patch
+Когда-файл apply Scenarios/Editor/HOT-RELOAD-PANEL-2.patch
+Когда run "Live Coding" "Patch changed sources"
+Когда wait-idle
+Когда state
+Тогда 2_second the History panel reads "Revision (live 2) N" (the call goes through the pointer patch 1 stored, into patch 1's copy, redirected to patch 2's); selection and camera unchanged; no "[LiveCoding] refused" in editor.log
+Когда-файл revert Scenarios/Editor/HOT-RELOAD-PANEL-2.patch
 Когда-файл revert Scenarios/Editor/HOT-RELOAD-PANEL.patch
 Когда run "Live Coding" "Patch changed sources"
 Когда wait-idle
 Когда state
-Тогда 2_reverted the History panel reads "Revision N" again (the same function patched a second time); selection and camera unchanged
+Тогда 3_reverted the History panel reads "Revision N" again (OnUIRender patched a third time); selection and camera unchanged; no "[LiveCoding] refused" in editor.log

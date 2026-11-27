@@ -3,6 +3,7 @@
 #include <Editor/LiveCoding/LiveCodingTypes.hpp>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <span>
 
@@ -40,4 +41,9 @@ namespace Desert::Editor::LiveCoding
     /// returns the PE/COFF backend; Platform/MacOS/LiveCodingMacOS.mm returns the refusal
     /// "Live Coding patches PE/COFF images; macOS images are Mach-O".
     [[nodiscard]] Common::ResultStr<std::unique_ptr<ILiveCodingBackend>> CreateLiveCodingBackend();
+
+    /// This process's id, and whether a process with @p pid runs (one that runs as another user counts): the
+    /// patch directory of a session belongs to its process while that runs. Defined beside CreateLiveCodingBackend.
+    [[nodiscard]] std::uint32_t CurrentProcessId();
+    [[nodiscard]] bool          ProcessRuns( std::uint32_t pid );
 } // namespace Desert::Editor::LiveCoding
