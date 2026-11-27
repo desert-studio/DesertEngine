@@ -1121,7 +1121,16 @@ namespace Desert::Graphic
 
     bool SceneRendererImpl::TranslucentFrontLayerRequired() const
     {
-        return TranslucentFrontLayerReflections() || RefractionIsHardwareTraced();
+        // The layer's reflections are on only where they can run: the view traces the screen with one of the
+        // three screen-trace methods (the SSR renderer's, SceneRenderer.cpp `ssr`); a preview, thumbnail or
+        // Captures view draws no layer nobody reads.
+        using Common::Scalability::ReflectionMethod;
+        const ReflectionMethod method = m_RenderMethods.Reflections.Effective;
+        const bool             screenTrace =
+             m_ViewProfile.ScreenSpaceReflections &&
+             ( method == ReflectionMethod::ScreenSpace || method == ReflectionMethod::SoftwareTraced ||
+               method == ReflectionMethod::HardwareTraced );
+        return ( screenTrace && TranslucentFrontLayerReflections() ) || RefractionIsHardwareTraced();
     }
 
     bool SceneRendererImpl::ViewRayTracingSceneRequired() const
