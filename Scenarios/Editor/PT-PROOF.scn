@@ -1,0 +1,78 @@
+# PT-PROOF: the one "path tracing on Bistro" proof - path tracer | raster pairs on one camera, one exposure, day and night, still and turning; the last step demands 0 content errors.
+# Design F:/aftmp/PT-PROOF-DESIGN.md (## Приёмка). One editor session, F:/BistroFoliageProj, default settings (machine.json without
+# Quality overrides), the window visible, run AFTER `scripts/Dev/migrate.sh --write F:/BistroFoliageProj/Content` raised the
+# project's .detex files (IMPT v4 -> v5): before that the run fails its last step (pt_log), which is the guard.
+# Reference technique: UE5 Path Tracer as the ground truth of the raster's lighting (skill desert-engine-look p.4: agreement =
+# content/material, disagreement = raster lighting). The 1024-path frame without a denoiser is the reference of its pair.
+# Order in every scene: the raster on the level's methods -> the path tracer (GI and Reflections PathTraced as a pair - the
+# tracer pairs them; PathTracing.Denoiser Off; PathTracing.SamplesPerPixel 1024) -> for the day, a camera turn over 8 frames
+# under the default denoiser. Fog, bloom and exposure are never overridden: both frames of a pair sit under the scene's own
+# auto-exposure. Waits are DesertCtl `frames N` (no click into the viewport: a click selects, and a selection outline would
+# read as the awning's "yellow contour", design D9). 1024 paths need <= 1200 frames (PT-OIDN-1: 1024 paths in 19 s).
+# Pair numbers after the run: python scripts/Dev/frames_compare.py <raster.png> <pt.png>; the owner gets reference | raster | PT.
+# `state device` / `state log` replies are kept as line_NNN_state.txt in the run folder: device.pathTracing (available,
+# active, methods) beside the PT frames; log.error (the editor's error count) before pt_log. The state has NO accumulated
+# path count yet (OidnLastPaths only moves under OIDN): day_pt's "1024 paths" is read once the state carries it.
+# play_scenario.py does not fail a run on log errors: pt_log is the error budget the acceptance reads (0), not the verdict.
+# Every Quality override is saved to machine.json: each scene clears its own, the tail checks none is left.
+# Path traced on Bistro, the other places: PT-FIELD-PROOF.scn proves the content types on FIELD_Barn (Bistro is not added there);
+# RT-WIN-PROOF.scn keeps the hardware-traced cards and points here for the path tracer.
+Проект F:/BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Day.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+# --- day: raster on the level's methods
+Когда frames 120
+Тогда-вид day_raster дневная улица на методах уровня - фасады в камне и штукатурке, брусчатка, зелёный кипарис и живая изгородь с прорезанной листвой (не белые мятые квады), цветные навесы; ни одной белой «глиняной» поверхности
+# --- day: the path tracer, 1024 paths, no denoiser
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда run Quality "Quality: PathTracing.Denoiser Off"
+Когда run Quality "Quality: PathTracing.SamplesPerPixel 1024"
+Когда frames 1200
+Когда state device
+Тогда-вид day_pt тот же кадр, PT 1024 пути без шумодава - эталон пары: те же материалы и цвета, что в day_raster; зерно мелкое (не «соль»), жёлтого контура по навесу нет; число накопленных путей в логе = 1024; средняя яркость фасада, мостовой и низа навеса в day_raster в пределах ±25 % от day_pt
+# --- day: the default denoiser while the camera turns, 2 degrees of yaw per frame for 8 frames
+Когда run Quality "Quality: PathTracing.Denoiser Level"
+Когда --subject viewport set Camera.Direction -0.572,0.05,-0.820
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.543,0.05,-0.840
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.513,0.05,-0.858
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.483,0.05,-0.876
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.452,0.05,-0.892
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.421,0.05,-0.907
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.389,0.05,-0.921
+Когда frames 1
+Когда --subject viewport set Camera.Direction -0.356,0.05,-0.934
+Когда frames 1
+Тогда-вид day_pt_turn PT с шумодавом по умолчанию после поворота камеры на 8 кадров - нет шлейфов за стульями и столбами, нет чёрных или белых пятен на открывшихся участках; края предметов на месте
+# --- day: the overrides cleared before the night scene, so its raster frame is on the level's methods
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: PathTracing.SamplesPerPixel Level"
+# --- night: raster on the level's methods, the same camera
+Когда run Scene "Open Scene GI_Bistro_Night.desce"
+Когда --subject viewport set Camera.Position -20,250,330
+Когда --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Когда frames 120
+Тогда-вид night_raster ночная улица на методах уровня - тёмное небо, тёплые пятна света под лампами, фасады читаются; среднее 8-бит ≤ 140, насыщенных пикселей ≤ 3 %
+# --- night: the path tracer, 1024 paths, no denoiser
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда run Quality "Quality: PathTracing.Denoiser Off"
+Когда run Quality "Quality: PathTracing.SamplesPerPixel 1024"
+Когда frames 1200
+Когда state device
+Тогда-вид night_pt тот же кадр, PT 1024 пути - свет ламп кончается у их радиуса, нет света сквозь стены, светлячков меньше 0.5 % пикселей; фасад, мостовая и низ навеса в night_raster в пределах ±35 % от night_pt; в логе нет DEVICE_LOST и нет «long frame» свыше 1000 ms после первого PT-кадра
+# --- tail: every override back to the level
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: PathTracing.Denoiser Level"
+Когда run Quality "Quality: PathTracing.SamplesPerPixel Level"
+Когда state log
+Тогда pt_log editor.log за весь прогон - 0 строк «states no readable identity», 0 «names texture handle», 0 «re-cook the registry», 0 VUID, 0 «did not execute»; ошибок всего 0; переопределения качества сняты

@@ -9,11 +9,41 @@
 # (Mesh/Surface/Pass_RayHit.glslh -> payload -> PathTracer.shader PathTracingMaterialOf); no PT-only material read.
 # Headless shots as C:/aftmp/moped/shot_gi_lvl.sh: F:/BistroFoliageProj, B16_Bistro_Street_mac, camera -2000,650,100 look 1300,-570,-46,
 # Quality levels Cinematic, PathTracing.Denoiser default.
-Дано F:/BistroFoliageProj, GI_Bistro_Day (B16_Bistro_Street_mac), Lit, the camera above, default machine settings (no Exposure override).
-Когда GlobalIllumination.Method 4, Reflections.Method 4 (HardwareTraced); shoot after 90 frames.
-Тогда 0_day_hw the HWRT reference; 0 errors / 0 VUID in engine_log
-Когда GlobalIllumination.Method 6, Reflections.Method 5 (PathTraced); shoot after 120 frames.
-Тогда [log] 0 VUID; "Created PathTracerResolve VulkanPipeline" in engine_log; no "[SceneRenderer] ... the path tracer refused the frame"; the last "[PreExposure] read-back" measured within x0.5..x2 of 0_day_hw's (not the histogram floor 0.000122)
-Тогда [frame] 1_day_pt: mean luminance within x0.5..x2 of 0_day_hw; the two terracotta planters at the cafe door are matte (no sharp image of the sky or the facade on them, highlight as broad as in 0_day_hw)
-Дано GI_Bistro_Night (B16 night scene), same camera and settings.
-Тогда [frame] 2_night_hw / 3_night_pt: mean luminance of 3_night_pt within x0.5..x2 of 2_night_hw (p11 10-26: 37.5 vs 38.0)
+# The prose spec this file held (kept as the criteria; the runnable steps follow - each Тогда below carries its line):
+#   Дано F:/BistroFoliageProj, GI_Bistro_Day (B16_Bistro_Street_mac), Lit, the camera above, default machine settings (no Exposure override).
+#   Когда GlobalIllumination.Method 4, Reflections.Method 4 (HardwareTraced); shoot after 90 frames.
+#   Тогда 0_day_hw the HWRT reference; 0 errors / 0 VUID in engine_log
+#   Когда GlobalIllumination.Method 6, Reflections.Method 5 (PathTraced); shoot after 120 frames.
+#   Тогда [log] 0 VUID; "Created PathTracerResolve VulkanPipeline" in engine_log; no "[SceneRenderer] ... the path tracer refused the frame"; the last "[PreExposure] read-back" measured within x0.5..x2 of 0_day_hw's (not the histogram floor 0.000122)
+#   Тогда [frame] 1_day_pt: mean luminance within x0.5..x2 of 0_day_hw; the two terracotta planters at the cafe door are matte (no sharp image of the sky or the facade on them, highlight as broad as in 0_day_hw)
+#   Дано GI_Bistro_Night (B16 night scene), same camera and settings.
+#   Тогда [frame] 2_night_hw / 3_night_pt: mean luminance of 3_night_pt within x0.5..x2 of 2_night_hw (p11 10-26: 37.5 vs 38.0)
+# Camera: Camera.Direction = normalize(look - position) of the headless shot = (3300,-1220,-146) / |.|. Method 4/6/5 of the
+# prose are the palette names HardwareTraced / PathTraced. Every Quality override is saved to machine.json: the tail clears them.
+Проект F:/BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Day.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -2000,650,100
+Дано --subject viewport set Camera.Direction 0.937,-0.346,-0.041
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда frames 90
+Тогда-вид 0_day_hw the HWRT reference; 0 errors / 0 VUID in engine_log
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда frames 120
+Тогда 1_day_log [log] 0 VUID; "Created PathTracerResolve VulkanPipeline" in engine_log; no "[SceneRenderer] ... the path tracer refused the frame"; the last "[PreExposure] read-back" measured within x0.5..x2 of 0_day_hw's (not the histogram floor 0.000122)
+Тогда-вид 1_day_pt [frame] mean luminance within x0.5..x2 of 0_day_hw; the two terracotta planters at the cafe door are matte (no sharp image of the sky or the facade on them, highlight as broad as in 0_day_hw)
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда run Scene "Open Scene GI_Bistro_Night.desce"
+Когда --subject viewport set Camera.Position -2000,650,100
+Когда --subject viewport set Camera.Direction 0.937,-0.346,-0.041
+Когда frames 90
+Тогда-вид 2_night_hw [frame] the night HWRT reference of 3_night_pt
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда frames 120
+Тогда-вид 3_night_pt [frame] mean luminance of 3_night_pt within x0.5..x2 of 2_night_hw (p11 10-26: 37.5 vs 38.0)
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Тогда dark_mirror_reset overrides cleared (machine.json without the Quality overrides)
