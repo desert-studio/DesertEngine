@@ -152,7 +152,12 @@ namespace Desert::Core
     // MigrateTubeSourceLengthV76ToV77). v78 (BISTRO-NIGHT-LOOK): UE has one exposure offset - PostProcessVolume
     // Settings.AutoExposureKey is gone, its log2(key / 0.18) added to AutoExposureBias
     // (Core/SceneUpgrade/Steps/V78ExposureBiasOnly.hpp, MigrateExposureKeyV77ToV78).
-    inline constexpr int kSceneVersion = 78;
+    // v79 (MIG-BISTRO): GIRequest Lightmaps (1), never implemented and walked down to Off by every build, is
+    // re-stated as Off (Core/SceneUpgrade/Steps/V79UnbuiltLightmaps.hpp, MigrateUnbuiltLightmapsV78ToV79).
+    // v80 (MIG-BISTRO): the WaterBody block v2 / v3 upgrade - TargetWaveMaskDepth (the depth transform derives the
+    // damping) and FallFoam (the plunge boil) are dropped (Core/SceneUpgrade/Steps/V80WaterBodyRetiredKeys.hpp,
+    // MigrateWaterBodyRetiredKeysV79ToV80).
+    inline constexpr int kSceneVersion = 80;
 
     // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
     // Core/SceneUpgrade/Steps/AssetRef1ReflectedRefs.hpp, MigrateReflectedAssetRefsV0ToV1). v1 (STATICMESH-FORMAT):
