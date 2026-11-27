@@ -20,16 +20,16 @@ namespace buildpool::daemon
         maxRunning = std::max( maxRunning, runningLeases );
         if ( memory == nullptr )
             return;
-        lowestFreeBytes    = std::min( lowestFreeBytes, FreeBytes( *memory ) );
-        physicalTotalBytes = std::max( physicalTotalBytes, memory->physicalTotal );
+        lowestFreeBytes = std::min( lowestFreeBytes, FreeBytes( *memory ) );
+        limitBytes = std::max( limitBytes, memory->commitLimit ? *memory->commitLimit : memory->physicalTotal );
     }
 
     std::string FormatRunLine( const RunRecord& run )
     {
         // A build that never saw a memory sample (shorter than one tick) reports no use and no headroom.
         const bool     sampled    = run.lowestFreeBytes != std::numeric_limits<uint64_t>::max();
-        const uint64_t lowestFree = sampled ? run.lowestFreeBytes : run.physicalTotalBytes;
-        const uint64_t used       = run.physicalTotalBytes > lowestFree ? run.physicalTotalBytes - lowestFree : 0;
+        const uint64_t lowestFree = sampled ? run.lowestFreeBytes : run.limitBytes;
+        const uint64_t used       = run.limitBytes > lowestFree ? run.limitBytes - lowestFree : 0;
 
         std::ostringstream line;
         line << run.startUnix << '\t' << run.endUnix << '\t' << run.buildRoot << '\t'
