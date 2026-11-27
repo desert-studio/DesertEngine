@@ -4,20 +4,27 @@
 // and hands it down: the main thread writes it (phases, items), the splash reads it on its own thread (Sample).
 //
 // THE MODEL, whole (nothing else decides what the splash shows):
-//  1. PLAN. Every phase has a key, a label, a count kind and an expected time: the LONGEST of its last
+//  1. PLAN. Every phase has a key, a label, a count kind and a planned time: the MEDIAN of its last
 //     kHistoryRuns starts on this machine (the host's history file), else its DefaultSeconds.
+//     PACE p of this run = the seconds of its finished phases / their planned seconds (1 before any finished).
+//     A phase's expected time is planned * p: a warm start after cold ones is scaled down by its own first
+//     phases, a cold one after warm ones up.
 //  2. COUNT. Planned: n / N, N given once by Expect before the first item, never changed. Discovered: n only
 //     (work found while it runs; no N is shown). Timed: no count.
-//  3. PHASE REMAINDER r. Planned with n >= max(3, N/50): (N - n) * elapsed / n; before that expected * (1 - n/N).
-//     Discovered with Queued > 0 and n >= 20: max(Queued * elapsed / n, expected - elapsed, reserve).
-//     Otherwise: max(expected - elapsed, reserve). reserve = max(kReserveSeconds, kReserveShare * elapsed).
-//     R = r + the expected time of every phase ahead.
-//  4. ETA (shown). E starts at R and only falls: dE/dt = -clamp(1 + (E - R) / kEtaCatchUpSeconds,
-//     kEtaMinRate, kEtaMaxRate). At kEtaMinRate a whole-second ETA changes at least every 4 s. When E reaches
-//     kEtaFloorSeconds before Finish, EtaKnown turns false for the rest of the start (the splash says
-//     "longer than expected" in place of the number); 0:01 and 0:00 are never shown while work remains.
-//  5. BAR (shown). T = elapsed / (elapsed + R). dB/dt = clamp((T - B) / kBarCatchUpSeconds, minRate, kBarMaxRate),
-//     minRate = kBarStepMargin * minVisibleStep / kBarMaxStallSeconds; B <= 1 - minVisibleStep until Finish.
+//  3. PHASE REMAINDER r, the work left. Planned with n >= max(3, N/50): (N - n) * elapsed / n; before that
+//     expected * (1 - n/N). Discovered with n >= 20: Queued * elapsed / n. Otherwise max(expected - elapsed, 0).
+//     R = r + the expected time of every phase ahead. It reaches 0 when the last phase's work is done.
+//  4. ETA (shown). Its target R' is R with the running phase's r raised to the reserve
+//     max(kReserveSeconds, kReserveShare * elapsed), so the number never claims the end while work runs.
+//     E starts at R' and only falls: dE/dt = -max(1 + (E - R') / kEtaCatchUpSeconds, kEtaMinRate), integrated
+//     exactly over the sample gap, so an over-estimate decays in a few kEtaCatchUpSeconds whatever its size.
+//     At kEtaMinRate a whole-second ETA changes at least every 4 s. When E reaches kEtaFloorSeconds before
+//     Finish, EtaKnown turns false for the rest of the start (the splash says "longer than expected" in place
+//     of the number); 0:01 and 0:00 are never shown while work remains.
+//  5. BAR (shown). T = elapsed / (elapsed + R), 1 after Finish. Per sample B moves to T by at most kBarMaxStep
+//     and by at least minRate * dt (minRate = kBarStepMargin * minVisibleStep / kBarMaxStallSeconds), so it
+//     follows the estimate without lag, never jumps, never stalls; B <= 1 - minVisibleStep until Finish, after
+//     which the same path carries it to 1.
 //  6. ITEM. While a phase runs Active is never empty: the waits, the running items oldest first, the ambient
 //     work; when there is none, the phase itself (its label, its elapsed seconds).
 // Thread-safe: one mutex.
@@ -124,14 +131,12 @@ namespace Desert::Core
         static constexpr size_t kLogShown           = 6;
         static constexpr size_t kHistoryRuns        = 5;
         static constexpr double kNoteItemSeconds    = 1.0;  // a finished item at least this long goes into the log
-        static constexpr double kReserveSeconds     = 2.0;  // rule 3
-        static constexpr double kReserveShare       = 0.15; // rule 3
+        static constexpr double kReserveSeconds     = 2.0;  // rule 4
+        static constexpr double kReserveShare       = 0.15; // rule 4
         static constexpr double kEtaCatchUpSeconds  = 5.0;  // rule 4
         static constexpr double kEtaMinRate         = 0.25; // s of ETA per s: a whole second at least every 4 s
-        static constexpr double kEtaMaxRate         = 4.0;
         static constexpr double kEtaFloorSeconds    = 2.0;
-        static constexpr double kBarCatchUpSeconds  = 3.0;  // rule 5
-        static constexpr double kBarMaxRate         = 0.02; // of the bar per second
+        static constexpr double kBarMaxStep         = 0.004; // of the bar per sample (rule 5): under a 0.5 % step
         static constexpr double kBarMaxStallSeconds = 2.0;
         static constexpr double kBarStepMargin      = 1.25;
 
@@ -175,7 +180,7 @@ namespace Desert::Core
         struct Phase
         {
             StartupPhaseSpec         Spec;
-            double                   Expected = 0.0;
+            double                   Expected = 0.0; // planned (rule 1); the run's expectation is Expected * pace
             StartupClock::time_point Begin{};
             double                   Seconds = 0.0;
             uint64_t                 Done = 0, Total = 0;
@@ -196,7 +201,9 @@ namespace Desert::Core
             StartupClock::time_point Since{};
         };
         [[nodiscard]] LiveCount CountOf( const Phase& phase, StartupClock::time_point now ) const;
-        [[nodiscard]] double    RemainingOf( const Phase& phase, const LiveCount& count, double elapsed ) const;
+        [[nodiscard]] double    PaceOf() const; // rule 1
+        [[nodiscard]] double    RemainingOf( const Phase& phase, const LiveCount& count, double elapsed,
+                                             double pace ) const;
         void                    EndCurrent( StartupClock::time_point now );
         void                    NoteLocked( double at, std::string text );
 

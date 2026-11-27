@@ -39,14 +39,17 @@ namespace Desert::Core
         };
         constexpr int kHistoryVersion = 2;
 
-        // Rule 1: the longest of the last starts. A cold disk is 12x a warm one; an over-estimate is caught up
-        // downwards, an under-estimate would run the start "longer than expected".
-        [[nodiscard]] double ExpectedOf( const StartupPhaseSpec& spec, const StartupHistory& history )
+        // Rule 1: the median of the last starts. A cold disk is 12x a warm one; which of the two this start is,
+        // the run's own pace says (PaceOf), not the history's extreme.
+        [[nodiscard]] double PlannedOf( const StartupPhaseSpec& spec, const StartupHistory& history )
         {
             const auto found = history.find( spec.Key );
             if ( found == history.end() || found->second.empty() )
                 return spec.DefaultSeconds;
-            return *std::max_element( found->second.begin(), found->second.end() );
+            std::vector<double> runs = found->second;
+            std::sort( runs.begin(), runs.end() );
+            const size_t middle = runs.size() / 2;
+            return runs.size() % 2 == 1 ? runs[middle] : 0.5 * ( runs[middle - 1] + runs[middle] );
         }
     } // namespace
 
@@ -58,7 +61,7 @@ namespace Desert::Core
         for ( StartupPhaseSpec& spec : plan )
         {
             Phase phase;
-            phase.Expected = ExpectedOf( spec, history );
+            phase.Expected = PlannedOf( spec, history );
             phase.Spec     = std::move( spec );
             m_Phases.push_back( std::move( phase ) );
         }
@@ -136,9 +139,9 @@ namespace Desert::Core
         EndCurrent( now );
         for ( Phase& phase : m_Phases )
             phase.Ended = true;
-        m_Finished      = true;
-        m_ShownFraction = 1.0;
-        m_ShownEta      = 0.0;
+        // The bar is not set here: the next samples carry it to 1 by the same per-sample limit (rule 5).
+        m_Finished = true;
+        m_ShownEta = 0.0;
 
         // THE START'S TABLE: every phase that ran, then the total. The phases are back to back from the first
         // one's begin; what ran before the first phase is the process's own start (images, the splash).
@@ -237,27 +240,23 @@ namespace Desert::Core
         view.EtaKnown        = m_EtaKnown;
         const size_t logFrom = m_Log.size() > kLogShown ? m_Log.size() - kLogShown : 0;
         view.Log.assign( m_Log.begin() + static_cast<std::ptrdiff_t>( logFrom ), m_Log.end() );
-        if ( m_Finished )
-        {
-            view.Fraction = 1.0;
-            m_LastSample  = now;
-            return view;
-        }
 
         // The running phase: the current one, or before the first BeginPhase the plan's first phase still to
         // run, which the process is already doing (the window): named from the splash's first frame, running
-        // since the process started.
+        // since the process started. After Finish there is none: R = 0 and the bar's target is 1.
         std::optional<size_t> running = m_Current;
-        if ( !running )
+        if ( !running && !m_Finished )
         {
             const auto next = std::find_if( m_Phases.begin(), m_Phases.end(),
                                             []( const Phase& phase ) { return !phase.Ended; } );
             if ( next != m_Phases.end() )
                 running = static_cast<size_t>( next - m_Phases.begin() );
         }
-        double remaining = 0.0; // R (rule 3)
+        double remaining    = 0.0; // R (rule 3): the bar's
+        double etaRemaining = 0.0; // R' (rule 4): the ETA's
         if ( running )
         {
+            const double pace    = PaceOf();
             const Phase& phase   = m_Phases[*running];
             const double elapsed = SecondsBetween( m_Current ? phase.Begin : m_ProcessStart, now );
             LiveCount    count;
@@ -271,43 +270,50 @@ namespace Desert::Core
             view.Done        = phase.Spec.Count == PhaseCountKind::Timed ? 0 : count.Done;
             view.Total       = phase.Spec.Count == PhaseCountKind::Planned && phase.TotalGiven ? phase.Total : 0;
             view.Active      = std::move( count.Active );
-            remaining        = RemainingOf( phase, count, elapsed );
+            const double work = RemainingOf( phase, count, elapsed, pace );
+            remaining         = work;
+            etaRemaining      = std::max( work, std::max( kReserveSeconds, kReserveShare * elapsed ) );
             for ( size_t ahead = *running + 1; ahead < m_Phases.size(); ++ahead )
                 if ( !m_Phases[ahead].Ended )
-                    remaining += m_Phases[ahead].Expected;
+                {
+                    remaining += m_Phases[ahead].Expected * pace;
+                    etaRemaining += m_Phases[ahead].Expected * pace;
+                }
         }
 
-        // Rules 4 and 5: the shown ETA and bar are regulators integrated over the time since the last sample,
-        // so neither stands still while work runs and neither jumps. The first sample starts them at the target.
+        // Rules 4 and 5: the shown ETA and bar follow their targets per sample, so neither stands still while
+        // work runs and neither jumps; the limits shape the motion only and never hold a wrong estimate. The
+        // first sample starts them at the target.
         const double step    = std::clamp( minVisibleStep, 1e-6, 0.1 );
-        const double barCap  = 1.0 - step;
-        const double target  = view.ElapsedSeconds + remaining > 0.0
+        const double barCap  = m_Finished ? 1.0 : 1.0 - step;
+        const double target  = m_Finished ? 1.0
+                               : view.ElapsedSeconds + remaining > 0.0
                                     ? view.ElapsedSeconds / ( view.ElapsedSeconds + remaining )
                                     : 0.0;
         const bool   sampled = m_LastSample != StartupClock::time_point{};
         const double dt      = sampled ? std::max( SecondsBetween( m_LastSample, now ), 0.0 ) : 0.0;
         if ( !sampled )
         {
-            m_ShownEta      = remaining;
+            m_ShownEta      = etaRemaining;
             m_ShownFraction = std::min( target, barCap );
         }
         else
         {
-            const double etaRate =
-                 std::clamp( 1.0 + ( m_ShownEta - remaining ) / kEtaCatchUpSeconds, kEtaMinRate, kEtaMaxRate );
-            m_ShownEta -= etaRate * dt;
+            // dE/dt = -(1 + (E - R') / kEtaCatchUpSeconds) solved over dt, at least kEtaMinRate.
+            const double gap  = m_ShownEta - etaRemaining;
+            const double fall = dt + gap * ( 1.0 - std::exp( -dt / kEtaCatchUpSeconds ) );
+            m_ShownEta -= std::max( fall, kEtaMinRate * dt );
             const double minBarRate = kBarStepMargin * step / kBarMaxStallSeconds;
-            const double barRate =
-                 std::clamp( ( target - m_ShownFraction ) / kBarCatchUpSeconds, minBarRate, kBarMaxRate );
-            m_ShownFraction = std::min( m_ShownFraction + barRate * dt, std::max( barCap, m_ShownFraction ) );
+            const double move = std::min( std::max( target - m_ShownFraction, minBarRate * dt ), kBarMaxStep );
+            m_ShownFraction   = std::min( m_ShownFraction + move, std::max( barCap, m_ShownFraction ) );
         }
         // Rule 4's floor: below it the number would be a lie while work remains; the rest of the start says
         // "longer than expected" instead.
-        if ( m_EtaKnown && m_ShownEta <= kEtaFloorSeconds )
+        if ( !m_Finished && m_EtaKnown && m_ShownEta <= kEtaFloorSeconds )
         {
             m_EtaKnown = false;
             LOG_INFO( "[Startup] the start runs longer than expected ({:.1f} s left by the plan, at {:.1f} s)",
-                      remaining, view.ElapsedSeconds );
+                      etaRemaining, view.ElapsedSeconds );
         }
         m_ShownEta      = std::max( m_ShownEta, 0.0 );
         m_LastSample    = now;
@@ -381,12 +387,26 @@ namespace Desert::Core
         return count;
     }
 
-    double StartupProgress::RemainingOf( const Phase& phase, const LiveCount& count, const double elapsed ) const
+    double StartupProgress::PaceOf() const
     {
-        // Rule 3.
-        const double reserve  = std::max( kReserveSeconds, kReserveShare * elapsed );
-        const double expected = std::max( phase.Expected - elapsed, reserve );
-        const double done     = static_cast<double>( count.Done );
+        // Rule 1: the finished phases of this run against their plan; a phase the host skipped did not run.
+        double actual = 0.0, planned = 0.0;
+        for ( const Phase& phase : m_Phases )
+            if ( phase.Ended && phase.Begin != StartupClock::time_point{} )
+            {
+                actual += phase.Seconds;
+                planned += phase.Expected;
+            }
+        return planned > 0.0 ? actual / planned : 1.0;
+    }
+
+    double StartupProgress::RemainingOf( const Phase& phase, const LiveCount& count, const double elapsed,
+                                         const double pace ) const
+    {
+        // Rule 3: the work left, measured once the phase has a rate, else the run's expectation of it.
+        const double expectedNow = phase.Expected * pace;
+        const double expected    = std::max( expectedNow - elapsed, 0.0 );
+        const double done        = static_cast<double>( count.Done );
         switch ( phase.Spec.Count )
         {
             case PhaseCountKind::Planned:
@@ -397,12 +417,12 @@ namespace Desert::Core
                         return 0.0;
                     if ( done >= std::max( 3.0, total / 50.0 ) )
                         return ( total - done ) * elapsed / done;
-                    return phase.Expected * ( 1.0 - done / total );
+                    return expectedNow * ( 1.0 - done / total );
                 }
                 return expected;
             case PhaseCountKind::Discovered:
-                if ( count.Queued > 0 && count.Done >= 20 )
-                    return std::max( static_cast<double>( count.Queued ) * elapsed / done, expected );
+                if ( count.Done >= 20 )
+                    return static_cast<double>( count.Queued ) * elapsed / done;
                 return expected;
             case PhaseCountKind::Timed:
                 break;
