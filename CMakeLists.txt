@@ -2,9 +2,9 @@
 # settings in cmake/*.cmake. The build of record on both platforms (scripts/Windows/BuildWindows.bat,
 # scripts/MacOS/BuildMacOS.sh).
 #
-#   cmake --preset windows-msvc-ninja        (from an x64 developer prompt: vcvars64)
-#   cmake --build --preset windows-msvc-ninja-debug
-#   cmake --preset macos-clang-ninja && cmake --build --preset macos-clang-ninja-release
+#   cmake --preset win-dev && cmake --build --preset win-dev      (from an x64 developer prompt: vcvars64)
+#   cmake --preset mac-dev && cmake --build --preset mac-dev
+# One configuration per tree: win-dev / win-debug / win-ship (Development, DebugGame, Shipping; cmake/DesertWorkspace.cmake).
 cmake_minimum_required(VERSION 3.28)
 
 project(Desert LANGUAGES C CXX)
@@ -51,15 +51,21 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT MSVC)
     add_compile_options("$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:SHELL:-Xclang -fno-pch-timestamp>")
 endif()
 
-# Build-cost measurement (BUILD-MOD-4): clang writes <object>.json next to every object, which
-# scripts/Dev/build_cost.sh feeds to ClangBuildAnalyzer (header parse seconds by full path). OFF by default:
-# it changes every compile line, so turning it on rebuilds the tree once.
-option(DESERT_TIME_TRACE "Compile with clang -ftime-trace for scripts/Dev/build_cost.sh" OFF)
+# Build-cost measurement (STUDIO-AUDIT B-GATES): scripts/Dev/build_cost.py reads what the compiler records. clang
+# (clang-cl too) writes <object>.json next to every object for ClangBuildAnalyzer; MSVC prints per-source front/back-end
+# seconds (/Bt+) and the slow functions of code generation (/d2cgsummary) into the build output. OFF by default: it
+# changes every compile line, so turning it on rebuilds the tree once.
+option(DESERT_TIME_TRACE "Record compile timings for scripts/Dev/build_cost.py" OFF)
 if(DESERT_TIME_TRACE)
-    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR MSVC)
-        message(FATAL_ERROR "DESERT_TIME_TRACE needs clang (not clang-cl/MSVC); compiler is ${CMAKE_CXX_COMPILER_ID}")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND MSVC)
+        add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/clang:-ftime-trace>")
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX,OBJCXX>:-ftime-trace>")
+    elseif(MSVC)
+        add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/Bt+>" "$<$<COMPILE_LANGUAGE:C,CXX>:/d2cgsummary>")
+    else()
+        message(FATAL_ERROR "DESERT_TIME_TRACE knows clang and MSVC; compiler is ${CMAKE_CXX_COMPILER_ID}")
     endif()
-    add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX,OBJCXX>:-ftime-trace>")
 endif()
 
 # The presets turn it ON (CMakePresets.json `base`); the build scripts pass it on every configure, so a
@@ -87,11 +93,12 @@ add_subdirectory(ThirdParty)
 # Tools that need nothing of the engine. The header tool is the one the server build needs: it runs before the
 # engine's codegen library compiles.
 add_subdirectory(Tools/DesertHeaderTool)
+# Writes the generated shader includes before the ShaderCompiler module compiles; the server build compiles
+# that module too.
+add_subdirectory(Tools/ShaderProtocolGen)
 if(NOT DESERT_SERVER_ONLY)
     add_subdirectory(Tools/FbxMeshSplitter)
-    add_subdirectory(Tools/DShaderTool)
     add_subdirectory(Tools/PakTool)
-    add_subdirectory(Tools/WorldGen)
     add_subdirectory(Tools/ImageStat)
     add_subdirectory(Tools/LineJump)
     add_subdirectory(Tools/ImageDiff)
@@ -104,7 +111,7 @@ endif()
 add_subdirectory(Desert)
 
 if(NOT DESERT_SERVER_ONLY)
-    # Tools that compile or link engine code.
+    # Tools that link engine code (desert_link_engine_tool / desert_link_editor_tool, never its sources).
     add_subdirectory(Tools/CloudVolumeBaker)
     add_subdirectory(Tools/CloudLayoutBaker)
     add_subdirectory(Tools/LatticePeak)
@@ -113,6 +120,8 @@ if(NOT DESERT_SERVER_ONLY)
     add_subdirectory(Tools/GamePackager)
     add_subdirectory(Tools/WorldCook)
     add_subdirectory(Tools/SceneMigrator)
+    add_subdirectory(Tools/WorldGen)
+    add_subdirectory(Tools/DShaderTool)
     add_subdirectory(Tools/TextureCook)
     add_subdirectory(Tools/DesertNetProbe)
 
@@ -122,5 +131,5 @@ endif()
 # The dedicated headless server (NET-ARCH §6): render-free, no Apple framework, built for Linux by Server/Dockerfile.
 add_subdirectory(Server)
 
-# Per-source rules (vendored warnings off, Debug runtime checks, unity opt-outs) once every target exists.
+# Per-source rules (vendored warnings off, DebugGame runtime checks, unity exclusions) once every target exists.
 cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL desert_finalize_targets)

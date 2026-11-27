@@ -3,8 +3,8 @@
 # to the tree); exit 0 / 1. Compiles every object the targets (default: Editor) are linked from -- no archive, no link
 # -- in two passes: first the branch's own sources (changed against the merge base with origin/dev, plus uncommitted
 # edits), so their errors arrive within a minute; then every other object the edits made stale (a changed header's
-# includers). Up-to-date objects are skipped, the rest mostly come from the shared compile cache (ccache_launcher.sh).
-# Waits for any other build on the machine first (16 GB: one build at a time). DEV_JOBS (default 6) compile jobs.
+# includers). Up-to-date objects are skipped, the rest mostly come from the shared compile cache (buildpool_enable).
+# Runs as one build of the machine's build pool (scripts/Dev/pool.sh run): beside other trees' builds, never queued.
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 case "${1:-}" in -h|--help) dev_help "$0"; exit 0 ;; esac
@@ -12,7 +12,6 @@ TARGETS=("$@"); [ ${#TARGETS[@]} -gt 0 ] || TARGETS=(Editor)
 LOG="$(dev_logdir compile_check)"
 start=$(date +%s)
 dev_configure "$LOG" "" || exit 1
-while pgrep -x ninja >/dev/null; do sleep 5; done
 dev_drop_foreign_pch
 cd "$DEV_BUILD" || exit 1
 
@@ -32,10 +31,10 @@ for e in json.load(open('compile_commands.json')):
         print(out)
 EOF
 
-JOBS="${DEV_JOBS:-6}"
-run_pass() {  # run_pass <name> <object list file>
+run_pass() {  # run_pass <name> <object list file>; ninja's -j is the pool's window (pool.sh run sets it)
     [ -s "$2" ] || return 0
-    xargs ninja -k 0 -j "$JOBS" < "$2" > "$LOG/$1.log" 2>&1
+    bash "$DEV_ROOT/scripts/Dev/pool.sh" run --label "compile_check $1" --\
+        sh -c 'xargs ninja -k 0 -j "$CMAKE_BUILD_PARALLEL_LEVEL" < "$1"' _ "$2" > "$LOG/$1.log" 2>&1
 }
 report() {  # report <pass log>: the first errors, paths relative to the tree
     echo "compile_check: FAILED ($1, $(( $(date +%s) - start ))s; log $LOG/$1.log). First errors:"
