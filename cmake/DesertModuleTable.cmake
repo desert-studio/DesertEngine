@@ -96,7 +96,7 @@ desert_placement(ImageCore [[Engine/Core/(Formats|IO)/]])
 desert_placement(ApplicationCore [[Engine/Core/(WindowCloseGate|Glfw|GlfwVulkan)\.|^Platform/MacOS/MacOSDisplayLuminance\.]])
 # the asset framework (CoreUObject package loading + AssetRegistry)
 # AssetEviction sweeps the feature modules' hooks (Core::ModuleHooks) and the RHI's ResourceLedger, so it is Engine's.
-desert_placement(AssetCore [[Engine/Assets/(AssetBase|AssetManager|AssetRef|AssetRefSerialization|AssetGuidRef|AssetRootPin|AssetRootSet|AssetEvents|AssetMetadata|AsyncAssetLoader|ContentRegistry|ContentRegistryCook|ContentGate|ContentWork|ContentDirectoryWatch|RegistryDiscovery|TextAssetHeader\w*|ContainerBytes|FrameRetireQueue|SyncLoadLedger|EvictionDeadline|DDCShipRegister|Common)\.|Engine/Core/WorkSink\.]])
+desert_placement(AssetCore [[Engine/Assets/(AssetBase|AssetManager|AssetRef|AssetRefSerialization|AssetGuidRef|AssetRootPin|AssetRootSet|AssetEvents|AssetMetadata|AsyncAssetLoader|ContentRegistry|ContentRegistryCook|ContentGate|ContentWork|ContentDirectoryWatch|ContentGatherWatch|RegistryDiscovery|TextAssetHeader\w*|ContainerBytes|FrameRetireQueue|SyncLoadLedger|EvictionDeadline|DDCShipRegister|Common)\.|Engine/Core/WorkSink\.]])
 desert_placement(Localization [[Engine/Localization/|Engine/Assets/StringTable(Asset|Source)\.]])
 # geometry / animation runtime cores
 desert_placement(Engine [[Engine/Geometry/(Mesh|StaticMesh|SkinnedMesh|MeshFactory|PrimitiveMeshFactory|ProceduralCharacter\w*|AutoRig|MeshAssetArrays|DynamicMesh|DynamicMeshAsset|DynamicMeshRenderConversion|RenderMeshData|LODSelection|PosedBounds)\.]])
