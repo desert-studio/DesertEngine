@@ -72,8 +72,9 @@ Shader "RayTracedTranslucency"
             // The hard bound of traced segments per path; MaxInterfaces bounds only the BENDS. A budget that ended the
             // path threw its answer away: on the Bistro shop window the fifth interface of the tier's 4 is met almost
             // everywhere, so the rays cost the pass and the glass showed the scene copy (MaxInterfaces 1 vs the tier
-            // 5.09, Composite 0 vs 1 5.42, both under the run's own noise 7.43; MaxInterfaces 8 13.81). Behind 16
-            // layers of the 0.9 a clear pane passes, the path carries under 0.9^16 = 0.18 and falls on.
+            // 5.09, Composite 0 vs 1 5.42, both under the run's own noise 7.43; MaxInterfaces 8 13.81). 16 is a COST
+            // bound (the pass's 1.0 ms at 1080p; 8 if it does not fit): 16 thin sheets of 0.9 pass under 0.9^16 = 0.18,
+            // but 8 clear solids crossed straight pass nearly all, and that light past the bound is dropped.
             const uint kRefractionMaxSegments = 16u;
 
             // UE FresnelDielectric (PathTracer.shader PathTracingFresnelDielectric): the reflectance of a smooth
@@ -290,8 +291,8 @@ Shader "RayTracedTranslucency"
                     dir    = normalize(bent);
                     origin = P - payload.Normal * offset;
                 }
-                // kRefractionMaxSegments layers in a row: the answer is the emission they gathered - what passes them
-                // all is under 0.9^16 of the end's light. A value, not a refusal.
+                // kRefractionMaxSegments interfaces in a row: the answer is the emission they gathered; the light of
+                // the path's end past the cost bound is dropped (kRefractionMaxSegments). A value, not a refusal.
                 imageStore(RefractionOutputTexture, quad, vec4(radiance, answered));
             }
         }
