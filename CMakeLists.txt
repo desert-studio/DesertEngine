@@ -30,15 +30,17 @@ if(DESERT_COMPILER_LAUNCHER)
     #                      the #line output instead, whatever the language.
     #   max_size=100G      an MSVC PCH result is ~1 GB raw / ~180 MB compressed; at 3 GB the cache evicted itself (9095
     #                      cleanups), at 20 GB still 352 cleanups and 7 % hits on a batch build (11-24).
-    #   base_dir, hash_dir=false  paths under the repository root are hashed relative to it, and the working directory
-    #                      not at all: two worktrees (S:/wt/<task>, F:/DesertEngine) share one result (STUDIO-AUDIT B-CACHE).
+    #   hash_dir=false     the working directory is not hashed. No base_dir: with base_dir ccache 4.14.1 rewrites the
+    #                      /showIncludes lines, and the CP866 lines of the Russian cl abort it (std::filesystem
+    #                      "Illegal byte sequence", code 3) on every cache miss (build #35, 11-27). Only the lead
+    #                      builds, in one tree, so nothing is lost.
     #   compiler_check=content  the compiler is identified by its contents, not its mtime: a Visual Studio update that
     #                      rewrites cl.exe without changing it keeps the cache.
     #   sloppiness         a header's ctime/mtime (a checkout touches every file), the PCH's defines, __TIME__/__DATE__
     #                      and system headers do not decide a hit; the contents do.
     if(WIN32 AND DESERT_COMPILER_LAUNCHER MATCHES "ccache(\\.exe)?$")
         set(_desert_launcher "${DESERT_COMPILER_LAUNCHER}" depend_mode=false max_size=100G
-            "base_dir=${CMAKE_SOURCE_DIR}" hash_dir=false compiler_check=content
+            hash_dir=false compiler_check=content
             "sloppiness=include_file_ctime,include_file_mtime,pch_defines,time_macros,system_headers")
     endif()
     set(CMAKE_C_COMPILER_LAUNCHER   ${_desert_launcher})
