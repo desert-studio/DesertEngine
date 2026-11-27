@@ -140,6 +140,18 @@ namespace Desert::Net
             pawn.Pending.erase( std::prev( pawn.Pending.end() ) );
     }
 
+    void PawnSimulation::ForwardedInput( PlayerId player, const InputMessage& input )
+    {
+        const auto it = m_Pawns.find( player );
+        if ( it == m_Pawns.end() )
+            return;
+        const std::size_t before = it->second.Pending.size();
+        PlayerInput( player, input );
+        Pawn& pawn = it->second;
+        if ( pawn.CatchUp && pawn.CatchUp->Adopted && pawn.Pending.size() > before )
+            pawn.CatchUp->Queued += pawn.Pending.size() - before;
+    }
+
     std::optional<ISimLink::AckedMove> PawnSimulation::LastProcessedInput( PlayerId player ) const
     {
         // An incoming pawn is not this simulation's yet: its ack is the sender's until the commit.
@@ -168,7 +180,8 @@ namespace Desert::Net
         pawn.QueuedAtStep = static_cast<std::uint8_t>( std::min<std::size_t>( pawn.Pending.size(), 255 ) );
         const NetVec3 before  = pawn.Move.Position;
         const int     consume = pawn.Pending.size() > kDrainAbove ? kMaxInputsPerStep : 1;
-        for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i )
+        int           applied = 0;
+        for ( int i = 0; i < consume && !pawn.Pending.empty(); ++i, ++applied )
         {
             const auto next = pawn.Pending.begin();
             if ( pawn.LastProcessed && next->first != *pawn.LastProcessed + 1 )
@@ -209,13 +222,16 @@ namespace Desert::Net
         if ( pawn.Placement )
             pawn.Move.Velocity = NetVec3{};
         // The resume's or the commit's catch-up, measured on every authoritative step it takes (planar, what a
-        // proxy and the client's correction see); reported once the queue is back at the sync's target.
+        // proxy and the client's correction see); reported once the queue is back at the sync's target on a step
+        // that applied an input. A starved step keeps the run open: after a commit the previous owner's backlog
+        // (ForwardedInput) may still be in flight, or the client's direct inputs wait behind it - closing there
+        // reported the commit's own queue and left the forwarded backlog to drain unmeasured.
         if ( pawn.CatchUp )
         {
             const float dx = pawn.Move.Position.X - before.X, dz = pawn.Move.Position.Z - before.Z;
             pawn.CatchUp->LargestStep = std::max( pawn.CatchUp->LargestStep, std::sqrt( dx * dx + dz * dz ) );
             ++pawn.CatchUp->Steps;
-            if ( pawn.Pending.size() <= kDrainAbove )
+            if ( applied > 0 && pawn.Pending.size() <= kDrainAbove )
             {
                 const Pawn::CatchUpRun& run = *pawn.CatchUp;
                 const std::string what =
