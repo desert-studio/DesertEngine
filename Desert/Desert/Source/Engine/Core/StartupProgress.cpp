@@ -283,15 +283,13 @@ namespace Desert::Core
             m_Shown = std::max( m_Shown, bar / planned );
         m_Shown = std::min( m_Shown, maxShown );
 
-        // THE TIME LEFT is R, never rising: each sample it is at most the last one less step * S / (S + elapsed),
-        // so it falls in every sample (faster early, slower late) and stays positive. It is not derived from the
-        // bar any more: coupling the two pushed the bar to 99.99 % while an overrun phase still ran.
+        // THE TIME LEFT is the estimate's, never rising: a remainder below the one shown is taken at once (it
+        // follows the real remainder down), one above it holds the shown value (a re-plan or an overrun does not
+        // push it back up). It is not derived from the bar: coupling the two pushed the bar to 99.99 % while an
+        // overrun phase still ran.
         double left = std::max( remaining, kRemainingFloorSeconds );
         if ( sampled )
-            left = std::min( left, std::max( m_ShownRemaining - step * m_ShownRemaining /
-                                                                    std::max( m_ShownRemaining + view.ElapsedSeconds,
-                                                                              kRemainingFloorSeconds ),
-                                             kRemainingFloorSeconds ) );
+            left = std::min( left, m_ShownRemaining );
         m_ShownRemaining      = left;
         m_LastSample          = now;
         view.Fraction         = m_Shown;

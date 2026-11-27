@@ -525,6 +525,10 @@ namespace Desert::Editor
         m_SettleBase      = finishedBefore;
         m_ContentProgress = Assets::ContentProgressNow( m_SettleBase );
         m_Content.BeginWorld( Assets::ContentWorkNow().Started );
+        // THE SETTLE IS AN ITEM OF scene.load for as long as it lasts (UE FScopedSlowTask): its tail -- the
+        // reads and engine pipelines ContentWorkNow counts -- ran 24 s on build #39 with nothing named. Closed
+        // where the gate opens (UpdateContentSettling); a later open, after the reveal, has no sink.
+        m_SettleItem.emplace( SceneLoadSink(), "Settling the scene's content: reads, engine pipelines" );
     }
 
     void EditorStartup::ReportRevealWait( const Splash::RevealState& state )
@@ -651,6 +655,7 @@ namespace Desert::Editor
             return;
         }
 
+        m_SettleItem.reset();
         LOG_INFO( "[Content] settled after {} frame(s) in {:.1f} ms; {} read(s) have gone to a worker "
                   "this session. This is the cost that used to be a boot stage, and a scene that asks "
                   "for nothing pays none of it.",

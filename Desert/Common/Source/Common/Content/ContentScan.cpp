@@ -3,6 +3,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/AssetRedirector.hpp>
 #include <Common/Content/ImportRecord.hpp>
+#include <Common/Content/ScanProgress.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 
@@ -540,6 +541,11 @@ namespace Common::Content
         //    would list no clip for any skeleton, so it is refused and rebuilt once.
         constexpr std::string_view kCacheMagic = "DesertAssetRegistryCache 7";
     } // namespace
+
+    std::map<std::string, ContentFile> ScanContentRoots()
+    {
+        return ScanContentRoots( ScanProgress{} );
+    }
 
     std::map<std::string, ContentFile> ScanContentRoots( const ScanProgress& progress )
     {

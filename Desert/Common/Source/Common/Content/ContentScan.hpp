@@ -9,7 +9,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -18,6 +17,8 @@
 
 namespace Common::Content
 {
+    struct ScanProgress; // ScanProgress.hpp
+
     // WALKING THE CONTENT ROOTS, ONCE — and comparing what is there with what the cooked registry says
     // is there.
     //
@@ -93,17 +94,9 @@ namespace Common::Content
     // shader service's engine-root rule (ShaderService::Register) ask it.
     [[nodiscard]] bool IsUnder( const std::filesystem::path& file, const std::filesystem::path& root );
 
-    // What a scan says while it runs (UE FScopedSlowTask: the walking code reports, nobody guesses from outside):
-    // the number of files it will describe, once, after the walk and before the first header is read; then each
-    // file around the read of its header, which is the slow half on a cold disk. Every member may be empty.
-    struct ScanProgress
-    {
-        std::function<void( std::size_t files )>                 Listed;
-        std::function<void( const std::filesystem::path& file )> Begin;
-        std::function<void()>                                    End;
-    };
-
-    [[nodiscard]] std::map<std::string, ContentFile> ScanContentRoots( const ScanProgress& progress = {} );
+    // The second form says what it does while it runs (ScanProgress.hpp); the first is a scan nobody watches.
+    [[nodiscard]] std::map<std::string, ContentFile> ScanContentRoots();
+    [[nodiscard]] std::map<std::string, ContentFile> ScanContentRoots( const ScanProgress& progress );
 
     // ── THE REGISTRY BUILDS ITSELF (UE: FAssetDataGatherer + CachedAssetRegistry.bin) ──────────────────
     //

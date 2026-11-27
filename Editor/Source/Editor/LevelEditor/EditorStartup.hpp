@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -190,6 +191,9 @@ namespace Desert::Editor
         bool m_SceneLoadPhase  = false; // scene.load has begun (the stages are done)
         bool m_RevealPhase     = false; // scene.reveal has begun
         bool m_StartupFinished = false; // StartupProgress::Finish was called
+        // The content settle's item in m_Startup, from BeginContentSettle until the gate opens (after m_Startup:
+        // it finishes the item, so it is destroyed first).
+        std::optional<::Desert::Core::ScopedWorkItem> m_SettleItem;
         // Reads the loader had finished when the scene load began: the settle counts only the rest.
         uint64_t                    m_SettleBase = 0;
         Assets::ContentProgressLine m_ContentProgress; // the line the settle shows now

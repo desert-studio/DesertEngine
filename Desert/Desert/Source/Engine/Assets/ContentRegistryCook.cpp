@@ -6,6 +6,7 @@
 #include <Engine/Geometry/MeshBounds.hpp>
 
 #include <Common/Content/ContentScan.hpp>
+#include <Common/Content/ScanProgress.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <format>
