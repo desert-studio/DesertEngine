@@ -108,6 +108,8 @@ namespace Desert::Net
                                                                  StepsSince( step, offer.Step ) ) } ) ) );
         }
 
+        AskInDoubt( step, storeLinked );
+
         for ( const PawnSimulation::Source& source : sim.Sources() )
         {
             if ( m_Offers.contains( source.Player ) || m_Incoming.contains( source.Player ) )
@@ -291,12 +293,36 @@ namespace Desert::Net
         }
         const std::size_t pending = pawn.Pending.size();
         sim.Expect( std::move( pawn ), header.Gateway );
-        m_Incoming[player] = Incoming{ header.Key, id, header.Key.From, header.Step };
+        m_Incoming[player] = Incoming{ header.Key, id, header.Key.From, header.Step, step };
         m_Endpoint.SendToRole( EMeshRole::Store, Handover::EncodeAccept( verdict ) );
         m_Log(
              std::format( "{} accepted (catch-up {} steps) - held as incoming with {} unacked input(s) until the "
                           "store commits",
                           name, behind, pending ) );
+    }
+
+    void SimHandover::AskInDoubt( std::uint32_t step, bool storeLinked )
+    {
+        // THE PARTICIPANT IN DOUBT ASKS THE COORDINATOR: the Accept is re-sent under the same key and the store
+        // answers with the offer's outcome (HandoverLedger.hpp); OnDecision acts on it as on the first answer.
+        // Without a link to the store no answer can come: the copy waits, and asks on the first step the link is
+        // back (the store may have committed - dropping it here could leave the pawn with no owner).
+        if ( !storeLinked )
+            return;
+        for ( auto& [player, held] : m_Incoming )
+        {
+            if ( StepsSince( step, held.AskedAt ) < Handover::kInDoubtSteps )
+                continue;
+            m_Endpoint.SendToRole( EMeshRole::Store,
+                                   Handover::EncodeAccept( Handover::Verdict{ held.Key, m_Sim, step } ) );
+            ++m_Stats.InDoubtAsks;
+            m_Log( std::format( "sim {}: offer (sim {}, #{}) of pawn net id {} (player {}) accepted at step {}, no "
+                                "Commit or Refused for {} steps - in doubt: Accept sent again, the store's answer "
+                                "decides",
+                                m_Sim, held.Key.From, held.Key.Serial, held.Id, player, held.AskedAt,
+                                StepsSince( step, held.AskedAt ) ) );
+            held.AskedAt = step;
+        }
     }
 
     // ------------------------------------------------------------------------------------- the store decides
@@ -370,16 +396,37 @@ namespace Desert::Net
                      m_Sim, decision.Key.From, decision.Key.Serial, decision.Id, decision.Epoch ) );
                 return;
             }
-            const PlayerId      player   = incoming->first;
-            const Incoming      held     = incoming->second;
-            const std::uint32_t catchUp  = StepsSince( step, held.Step );
+            const PlayerId player = incoming->first;
+            const Incoming held   = incoming->second;
+            // A decision names its key AND its subject: a Commit under this key for another pawn (a restarted
+            // sender reusing its serials) is not this copy's - the copy stays in doubt and asks again.
+            if ( decision.Id != held.Id )
+            {
+                m_Log( std::format( "sim {}: Commit of offer (sim {}, #{}) names pawn net id {} at epoch {}, but "
+                                    "the incoming copy under that key is pawn net id {} (player {}) - decision "
+                                    "dropped, the copy stays in doubt",
+                                    m_Sim, decision.Key.From, decision.Key.Serial, decision.Id, decision.Epoch,
+                                    held.Id, player ) );
+                return;
+            }
+            // THE CATCH-UP IS CAPPED as the Offer's check is (kMaxCatchUpSteps): after a long doubt the steps past
+            // the cap are not simulated in one step - the pawn goes on from its frozen state, its queued inputs
+            // applied by the steps that follow.
+            const std::uint32_t behind   = StepsSince( step, held.Step );
+            const std::uint32_t catchUp  = std::min( behind, Handover::kMaxCatchUpSteps );
             const bool          wasProxy = replica.IsProxy( held.Id );
             m_Incoming.erase( incoming );
+            if ( catchUp != behind )
+                m_Log( std::format( "sim {}: offer (sim {}, #{}) of pawn net id {} (player {}) committed {} steps "
+                                    "after it froze (step {}, this sim at step {}): catch-up capped at {} steps, "
+                                    "{} step(s) not simulated",
+                                    m_Sim, held.Key.From, held.Key.Serial, held.Id, player, behind, held.Step,
+                                    step, catchUp, behind - catchUp ) );
             const auto gateway = sim.Commit( player, catchUp );
             if ( !gateway )
             {
                 m_Log( std::format( "sim {}: offer (sim {}, #{}) of pawn net id {} (player {}) committed, but its "
-                                    "incoming pawn is gone (its player left)",
+                                    "player left while it was incoming - removed from the store, not adopted",
                                     m_Sim, held.Key.From, held.Key.Serial, held.Id, player ) );
                 return;
             }
@@ -438,9 +485,9 @@ namespace Desert::Net
     {
         return std::format(
              "handovers: {} offered, {} committed, {} adopted; refused {} by store, {} by receiver; {} "
-             "withdrawn; incoming {} refused, {} dropped; {} open as sender, {} incoming",
+             "withdrawn; incoming {} refused, {} dropped; {} open as sender, {} incoming; {} in-doubt ask(s)",
              m_Stats.Offered, m_Stats.Committed, m_Stats.Adopted, m_Stats.RefusedByStore,
              m_Stats.RefusedByReceiver, m_Stats.Withdrawn, m_Stats.IncomingRefused, m_Stats.IncomingDropped,
-             m_Offers.size(), m_Incoming.size() );
+             m_Offers.size(), m_Incoming.size(), m_Stats.InDoubtAsks );
     }
 } // namespace Desert::Net

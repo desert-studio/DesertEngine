@@ -326,7 +326,7 @@ namespace Desert::Net
     void AppendInputStepFull( std::vector<std::byte>& out, const InputStep& step )
     {
         // A step the wire does not carry (too many axes, a non-finite field) appends NOTHING: the caller sees the
-        // buffer unchanged and refuses the whole message (MeshLink.cpp EncodeHandover).
+        // buffer unchanged and refuses the whole message.
         QuantizedStep q;
         if ( !Quantize( step, q ) )
             return;

@@ -48,7 +48,17 @@ namespace Desert::Net::Handover
     bool Ledger::AdmitWrite( NetId id, std::uint32_t sim )
     {
         const auto [record, created] = m_Records.emplace( id, Authority{ sim, 1 } );
-        return created || record->second.Sim == sim;
+        if ( !created && record->second.Sim != sim )
+            return false;
+        // THE ADOPTION IS PROVEN by the new holder's first admitted write: no vote of it can be in doubt any more,
+        // so the commit it would have been answered with is forgotten (2PC: the coordinator keeps a decision until
+        // the participant acknowledges it).
+        if ( const auto last = m_CommitOfPawn.find( id ); last != m_CommitOfPawn.end() )
+        {
+            m_CommitOf.erase( last->second );
+            m_CommitOfPawn.erase( last );
+        }
+        return true;
     }
 
     bool Ledger::Remove( NetId id, std::uint32_t sim, Effects& effects )
@@ -72,6 +82,11 @@ namespace Desert::Net::Handover
         }
         if ( record != m_Records.end() )
             m_Records.erase( record );
+        if ( const auto last = m_CommitOfPawn.find( id ); last != m_CommitOfPawn.end() )
+        {
+            m_CommitOf.erase( last->second );
+            m_CommitOfPawn.erase( last );
+        }
         return true;
     }
 
@@ -175,6 +190,18 @@ namespace Desert::Net::Handover
                                             NameOf( h.Key ), id, offer.Pawn.Player, h.Gateway, h.Step, h.To, sim,
                                             h.Epoch, offer.Pawn.Pending.size() ) );
         const OfferKey key = h.Key;
+        // A KEY AND ITS PAWN: an Accept names only the key, so the commit row a vote is answered from must name the
+        // pawn the key names now. A sender that restarted numbers its offers from 1 again; a row whose key this
+        // offer reuses for another pawn could answer a vote with that other pawn - it is forgotten, and a vote
+        // under the key is Refused(OfferUnknown).
+        if ( const auto reused = m_CommitOf.find( key ); reused != m_CommitOf.end() && reused->second.Id != id )
+        {
+            effects.Log.push_back( std::format( "store: {} now names pawn net id {}; its commit of pawn net id {} "
+                                                "is forgotten (the sender reuses its offer serials)",
+                                                NameOf( key ), id, reused->second.Id ) );
+            m_CommitOfPawn.erase( reused->second.Id );
+            m_CommitOf.erase( reused );
+        }
         m_OfferOfPawn.emplace( id, key );
         m_Offers.emplace( key, std::move( offer ) );
         return effects;
@@ -190,6 +217,26 @@ namespace Desert::Net::Handover
         // Accept and Refuse come from the offer's receiver, Withdraw from its sender.
         const auto speakerOf = [type]( const Offer& o )
         { return type == EMessage::Withdraw ? o.Header.Key.From : o.Header.To; };
+
+        if ( decoded && offer == m_Offers.end() && type == EMessage::Accept && verdict.Sim == sim )
+        {
+            // THE VOTE OF A RECEIVER IN DOUBT: the offer that last moved the record to this very sim is answered
+            // with its Commit again; nothing moves, nothing is counted.
+            const auto committed = m_CommitOf.find( verdict.Key );
+            const auto record =
+                 committed != m_CommitOf.end() ? m_Records.find( committed->second.Id ) : m_Records.end();
+            if ( record != m_Records.end() && record->second.Sim == sim )
+            {
+                const Decision decision{ verdict.Key, committed->second.Id, record->second.Epoch,
+                                         committed->second.Step };
+                SendToSim( effects, sim, EncodeCommit( decision ) );
+                effects.Log.push_back( std::format(
+                     "store: accept from sim {} at its step {} of {}, which committed pawn net id {} to it (sim "
+                     "{}, epoch {}) before - Commit sent again, nothing moves",
+                     sim, verdict.Step, NameOf( verdict.Key ), decision.Id, sim, decision.Epoch ) );
+                return effects;
+            }
+        }
 
         std::optional<Refusal> refusal;
         if ( !decoded )
@@ -300,8 +347,8 @@ namespace Desert::Net::Handover
             refused += count;
             reasons += std::format( "{}{} {}", reasons.empty() ? "" : ", ", RefusalName( code ), count );
         }
-        return std::format( "records {}, open offers {}; committed {}, refused {}{}; withdrawn {}",
-                            m_Records.size(), m_Offers.size(), m_CommittedCount, refused,
+        return std::format( "records {}, open offers {}, unadopted commits {}; committed {}, refused {}{}; withdrawn {}",
+                            m_Records.size(), m_Offers.size(), m_CommitOf.size(), m_CommittedCount, refused,
                             reasons.empty() ? std::string() : std::format( " ({})", reasons ), withdrawn );
     }
 
@@ -328,6 +375,10 @@ namespace Desert::Net::Handover
         const std::uint32_t epoch = h.Epoch + 1;
         // THE ONE PLACE A RECORD MOVES: the receiver accepted an offer that was still open.
         m_Records[id] = Authority{ h.To, epoch };
+        if ( const auto last = m_CommitOfPawn.find( id ); last != m_CommitOfPawn.end() )
+            m_CommitOf.erase( last->second );
+        m_CommitOf[h.Key]  = CommittedOffer{ id, h.Step };
+        m_CommitOfPawn[id] = h.Key;
         const Decision decision{ h.Key, id, epoch, h.Step };
         SendToSim( effects, h.To, EncodeCommit( decision ) );
         SendToSim( effects, h.Key.From, EncodeCommitted( decision ) );
