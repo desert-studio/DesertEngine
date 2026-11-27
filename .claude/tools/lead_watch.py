@@ -178,7 +178,7 @@ def main():
         lines.append(f"/COMPACT: context {st['ctx']//1000}k > {CLEAR_AT//1000}k — /compact is typed AUTOMATICALLY ~6 s after this turn ends, "
                      "then a 'continue' prompt (auto_compact.py, owner 11-24). YOU decide: at a task boundary (slots full, hand-ins accepted) write "
                      "the handover and run `python3 .claude/tools/auto_compact.py --clear` — /clear is typed instead (owner: «clear тоже делай ты»). "
-                     "In this turn fill every free agent slot (limits.MAX_AGENTS) - say nothing to the owner about it (owner 11-27: compaction is automatic, no message)")
+                     "In this turn fill every free agent slot (limits.MAX_AGENTS) - and tell the owner one line which one is typed (owner 11-27: «пусть сообщает сообщением и сам делает механически ввод команды»)")
     if st["n"] - st["last_report_n"] >= REPORT_EVERY:
         st["last_report_n"] = st["n"]
         read_pct = round(100 * 0.1 * st["read"] / units) if units else 0

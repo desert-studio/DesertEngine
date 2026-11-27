@@ -17,7 +17,7 @@ process's tty and types the command there (synthetic input is allowed, owner 09-
 COOLDOWN seconds and only after the turn has ended (Stop), a few seconds later so the prompt is idle.
 Log: limits.STUDIO_HOME/auto_compact.log.  Off switch: touch <that folder>/auto_compact.off
 Windows: console_type.py writes into the input buffer of the claude.exe console (no focus needed, unlike SendKeys).
-Only /compact there: typing /clear and the continue prompt waits for the owner's word on that machine.
+Owner 11-27: both machines type /compact, /clear and the continue prompt themselves; the lead tells the owner one line.
 /clear only when the lead asked for it with --clear, after writing the handover (LEAD_PROTOCOL «Контекст лида»).
 """
 import json, os, subprocess, sys, time
@@ -139,8 +139,6 @@ def worker(tty, cmd, transcript):
     time.sleep(DELAY)
     # Two Enters: the first may only accept the slash-command completion; on an empty prompt the second does nothing.
     type_into(tty, cmd, 2)
-    if sys.platform == "win32":
-        return
     if cmd == "/compact":
         deadline = time.time() + 900
         while compactions(transcript) <= before and time.time() < deadline:
@@ -157,7 +155,11 @@ def at_boundary():
     try:
         import pipeline as P
         p = P.load()
-        building = subprocess.run(["pgrep", "-f", "build_land.sh"], capture_output=True).returncode == 0
+        if sys.platform == "win32":  # read-only process listing: a running build means ninja or MSBuild is alive
+            out = subprocess.run(["tasklist", "/NH"], capture_output=True, text=True, errors="replace").stdout.lower()
+            building = "ninja.exe" in out or "msbuild.exe" in out
+        else:
+            building = subprocess.run(["pgrep", "-f", "build_land.sh"], capture_output=True).returncode == 0
         return not P.live_runs(p) and not P.unaccepted(p) and not building
     except Exception:
         return False
@@ -179,8 +181,8 @@ def main():
     if data.get("stop_hook_active"):
         return
     ctx = context_tokens(data.get("transcript_path", ""))
-    clear = os.path.exists(CLEAR) and sys.platform == "darwin"
-    if not clear and sys.platform == "darwin" and ctx >= limits.CLEAR_AT and at_boundary():
+    clear = os.path.exists(CLEAR)
+    if not clear and ctx >= limits.CLEAR_AT and at_boundary():
         clear = True  # owner 11-27: /clear at the batch boundary (state on disk), /compact only mid-batch at THRESHOLD
     forced = clear or os.path.exists(NOW)
     cmd = "/clear" if clear else "/compact"
