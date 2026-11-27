@@ -54,7 +54,7 @@
 Ждать sim1 10 resume catch-up of \d+ queued input\(s\) done in \d+ step\(s\), at most 2 input\(s\) per step; largest step ([1-5]?\d\.\d|60\.0) cm
 Ждать A2 10 2x \] t=
 Ждать B 60 fresh \[Shot\] recorded frame_
-Тогда B resume_no_jump after the 0.5 s stall A2's pawn catches up with no single step over 60 cm (sim1.log "resume catch-up ... largest step <= 60.0 cm", the catch-up spread over at least half as many steps as inputs queued) and no snap back (A2.log own-pawn x never decreases by > 5 cm after the resume)
+Тогда B resume_no_jump after the 0.5 s stall A2's pawn catches up with no single step over 60 cm (sim1.log "resume catch-up ... largest step <= 60.0 cm", the catch-up spread over at least (Q - 4) / 2 steps: the run closes with up to kDrainAbove = 4 inputs still queued) and no snap back (A2.log own-pawn x never decreases by > 5 cm after the resume)
 Ждать B 60 fresh \[Shot\] recorded frame_
 Тогда B lost_receiver_silent B's view with sim 2 stopped: the A2 capsule east of X = 300 still walks along +X under sim 1 (one capsule; A2.log moves >= 40 cm per second after a stall <= 0.6 s, no snap back); A's capsule stands still (its sim is stopped)
 # Когда: sim 2 resumes after ~4 s stopped (about 1 s to X = 300, 0.5 s to the withdrawal, 4 lines of A2 at two a
