@@ -21,7 +21,7 @@
 //     so a stale Accept after a withdrawal never moves a record - with ONE exception: an Accept of the offer that
 //     last moved a pawn's record, from the sim that record names, is answered with that Commit again (nothing
 //     moves). A receiver IN DOUBT (it accepted and heard no decision: a Commit or Refused lost) re-sends its vote
-//     (kInDoubtSteps); the coordinator's answer to every vote is the offer's outcome - the
+//     (kInDoubtWait); the coordinator's answer to every vote is the offer's outcome - the
 //     participant-asks-the-coordinator rule of the two-phase commit.
 
 #include <Net/HandoverWire.hpp>
