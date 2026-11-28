@@ -29,9 +29,14 @@
 # _4713): the band 0.2634, the wall 0.0907, the sash 0.0346, the pane 0.1637.
 # The radiance cache (3G D3): the refraction pass requests the cells its path ends read (the cache's request table,
 # marked the next frame) - [day_probes] reads it in the radiance cache's log line.
-# Open (3H D5, D4): the band lit in place 0.10 against 0.26 of the path tracer (-61 %) is the bounce of the hit
-# (Common/GIHitLighting.glslh, the GI-TEMPORAL2 design's file), named, not held here; why the cards read black on
-# the back of a two-sided material is not needed once the card branch is gone.
+# Open, outside 3H (3H D5 = GI, S:/aftmp/3h/DESIGN_REVIEW-D5.md D1, D4): the band is black in the raster WITHOUT the
+# glass and without the refraction pass - day_rt_open 0.0016 against day_pt_open 0.27 (scn-1128-145201): the indirect
+# light of the opaque underside of the slab 4279 converges to zero, the GI task's defect, never held by a refraction
+# statement. The refraction path end reads the same light as the raster, so [day_rt] holds the band to day_rt_open.
+# The GI age of a raster frame = presented frames since GlobalIllumination.Method last came to HardwareTraced. The
+# band drifts with it long after the 256 frames that settle the opaque pixels (0.0598 at +512, 0.0083 at +1024, 0.0048
+# at +1280, 0.0016 at +2336, DESIGN_REVIEW-D5 D3), so day_rt, refr_split and day_rt_open are each taken at GI age 512
+# (the path tracer 256 frames, then HardwareTraced 512) and compared only with each other.
 # The break (3G D5): scn-1128-122309 stopped at the step after day_mute_ss (frames 256 after Reflections.Method
 # HardwareTraced came back under HardwareTraced refraction): "the editor closed the connection", run_capped exit=1
 # peak 8986 MB; no day_rt_b, refr_split, day_rt_shift - the run noise on Hardware GI was never measured. The cause is
@@ -136,7 +141,7 @@
 Когда run Quality "Quality: Translucency.Refraction HardwareTraced"
 Когда frames 256
 Когда profile-dump
-Тогда-вид day_rt day, HardwareTraced, High (Reflections.HitLighting 0, the path end lit in place, 3H D3) under Reflections.TranslucentFrontLayer 0: the preset row does not stop it - behind the glass the same surfaces as in day_pt (the underside of the slab 4279 of the empty shell), no black ceiling; the band x935-1080 y185-235 L_lin not below 0.10 (t2_hit1 0.1033; 0.0123 / 0.0086 in scn-1128-135823 / scn-1128-134820; the rest to day_pt's 0.26 is 3H D5, open); the pane x540-1260 y170-630 L_lin within ±25 % of day_pt (t2_hit1 0.1356 against 0.1637 = -17 %; 0.1273 against 0.1692 in scn-1128-135823); the wall, the right sash, the share of pane pixels at least 4x darker than day_pt and day_rt vs day_rt_mute against day_rt vs day_rt_b (mean |delta| over the pane mask) recorded; editor.log has no line "the glass refracts the scene copy"; profile-dump: "Translucency: Ray Traced Refraction" executed with a non-zero GPU time (read in editor.log, see the head), the window rule holds against the day_ss dump (GPU frame within 2x, ClearMainFramebuffer <= 0.2 ms)
+Тогда-вид day_rt day, HardwareTraced, High (Reflections.HitLighting 0, the path end lit in place, 3H D3) under Reflections.TranslucentFrontLayer 0: the preset row does not stop it - behind the glass the same surfaces as in day_pt (the underside of the slab 4279 of the empty shell), no black ceiling; the band x935-1080 y185-235 L_lin equal to the band of day_rt_open (the raster without the glass at the same GI age 512, see the head) within the band noise: |day_rt - day_rt_open| <= 0.004 (±0.002 of each frame, the head) - the refraction shows what the raster shows; the band against day_pt's 0.26 is the GI task (3H D5, the head), recorded, not held (day_rt 0.0598 at age 512 against day_rt_open 0.0016 at age 2336 in scn-1128-145201 were two GI ages); the pane x540-1260 y170-630 L_lin within ±25 % of day_pt (t2_hit1 0.1356 against 0.1637 = -17 %; 0.1273 against 0.1692 in scn-1128-135823); the wall, the right sash, the share of pane pixels at least 4x darker than day_pt and day_rt vs day_rt_mute against day_rt vs day_rt_b (mean |delta| over the pane mask) recorded; editor.log has no line "the glass refracts the scene copy"; profile-dump: "Translucency: Ray Traced Refraction" executed with a non-zero GPU time (read in editor.log, see the head), the window rule holds against the day_ss dump (GPU frame within 2x, ClearMainFramebuffer <= 0.2 ms)
 Тогда-вид day_probes day, HardwareTraced, the frame of day_rt: editor.log, the last "[RadianceCache] traced T of budget B ... stamped N" line before this capture - N greater than in the day_ss line (the refraction path ends request their cells and the cache marks them, 3G D3); T not above B
 # --- the knockout of day_rt (3C D4): the trace's answer off, then day_rt again - the camera does not move
 Когда run Quality "Quality: Translucency.RefractionComposite 0"
@@ -146,11 +151,22 @@
 Когда run Quality "Quality: Translucency.RefractionComposite Level"
 Когда frames 256
 Тогда-вид day_rt_b day, HardwareTraced again, 512 frames after day_rt (the composite back for 256 frames), the camera still: day_rt vs day_rt_b mean |delta| over the pane x540-1260 y170-630 not above 4.94 (the noise of the head), the number written down; the run reaches rt_reset (3G D5: scn-1128-122309 stopped before this frame)
-# --- one branch (3H D3): HitLighting 1 against HitLighting 0 (day_rt), the path end lit in place on both sides
+# --- one branch (3H D3): HitLighting 1 against HitLighting 0 (day_rt), the path end lit in place on both sides, at
+# the GI age of day_rt (512): the history of day_ss -> day_rt replayed - ScreenSpace refraction, the path tracer 256
+# frames, HardwareTraced 256, HardwareTraced refraction 256 (the reflection method comes back under ScreenSpace
+# refraction as at day_ss, never under HardwareTraced refraction - 3G D5)
+Когда run Quality "Quality: Translucency.Refraction ScreenSpace"
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда frames 256
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда frames 256
+Когда run Quality "Quality: Translucency.Refraction HardwareTraced"
 Когда run Quality "Quality: Reflections.HitLighting 1"
 Когда frames 256
 Когда profile-dump
-Тогда-вид refr_split day, HardwareTraced, Reflections.HitLighting 1, the camera of day_rt: the band x935-1080 y185-235 and the pane x540-1260 y170-630 equal to day_rt within the noise 4.94 (mean |delta|; the branch is one, 3H D3; 0.0038 / 0.0023 against day_rt 0.0123 / 0.0086 in scn-1128-135823 / scn-1128-134820 were two branches); the band L_lin of this frame written down (3H D5 against t_gi 0.1387); the pass "Translucency: Ray Traced Refraction" GPU time at HitLighting 0 (the day_rt dump) and at 1 (this dump) both written down from editor.log, each scaled to 1080p - one branch, so the two are equal within the window rule; black dots on the left sashes' wall and the right sash in both day_rt and this frame name the screen test's threshold (3G D7, recorded); the window rule holds against the day_rt dump; editor.log has no "did not build" and no "refused" line about SSR / SSRTrace (the reflection variant with hit lighting builds, 3B D3 - the former refl_hit)
+Тогда-вид refr_split day, HardwareTraced, Reflections.HitLighting 1, the camera of day_rt, GI age 512 as day_rt (the replay above): the band x935-1080 y185-235 and the pane x540-1260 y170-630 equal to day_rt within the noise 4.94 (mean |delta|; the branch is one, 3H D3; the GI convergence of the band 0.0598 -> 0.0016 is not in the delta - 5.11 in scn-1128-145201 was refr_split at age 1280 against day_rt at 512, DESIGN_REVIEW-D5 D3; 0.0038 / 0.0023 against day_rt 0.0123 / 0.0086 in scn-1128-135823 / scn-1128-134820 were two branches); the band L_lin of this frame written down beside day_rt's; the pass "Translucency: Ray Traced Refraction" GPU time at HitLighting 0 (the day_rt dump) and at 1 (this dump) both written down from editor.log, each scaled to 1080p - one branch, so the two are equal within the window rule; black dots on the left sashes' wall and the right sash in both day_rt and this frame name the screen test's threshold (3G D7, recorded); the window rule holds against the day_rt dump; editor.log has no "did not build" and no "refused" line about SSR / SSRTrace (the reflection variant with hit lighting builds, 3B D3 - the former refl_hit)
 Когда run Quality "Quality: Reflections.HitLighting Level"
 Когда frames 256
 # --- the shift pair (3G D4): the camera 50 cm aside, the direction kept; then back
@@ -170,15 +186,20 @@
 Тогда-вид day_mute_ss day, HardwareTraced refraction, Translucency.RefractionComposite 0, Reflections.Method ScreenSpace, the camera of day_rt_mute: record whether the grey gradient of the left column (light at the top, black at the bottom in day_rt and day_rt_mute, where day_pt shows the sky and the brick wall) stays - stays: the glass layer's own reflection whatever the method; gone: the HardwareTraced reflection of the glass layer (3E D4, 3G D9, recorded, open)
 Когда run Quality "Quality: Reflections.Method HardwareTraced"
 Когда run Quality "Quality: Translucency.RefractionComposite Level"
-# --- day without the shop window: the pair _4711 + _4875 deleted together, never one sheet (3H D7; not saved)
+# --- day without the shop window: the pair _4711 + _4875 deleted together, never one sheet (3H D7; not saved); the
+# path tracer first, then the raster at the GI age of day_rt (512 frames after the method came to HardwareTraced)
 Когда run Entity "Delete Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4711"
 Когда run Entity "Delete Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4875"
-Когда frames 256
-Тогда-вид day_rt_open day, HardwareTraced, the window pair _4711 + _4875 deleted: no green fill anywhere in the pane (one sheet left would read green, 3H D7) - the empty shell behind the window without the glass, the same shell as day_pt_open; a stop of the run at this step after day_mute_ss is the 3G D5 break again (the reflection method switched back under HardwareTraced refraction), recorded
 Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
 Когда run Quality "Quality: Reflections.Method PathTraced"
 Когда frames 256
-Тогда-вид day_pt_open day, path tracer, the window pair _4711 + _4875 deleted: no green fill anywhere in the pane (3H D7) - the empty shell behind the window without the glass; raster (day_rt_open) and path tracer show one shell, the same surfaces
+Тогда-вид day_pt_open day, path tracer, the window pair _4711 + _4875 deleted: no green fill anywhere in the pane (3H D7) - the empty shell behind the window without the glass; raster (day_rt_open) and path tracer show one shell, the same surfaces; a stop of the run at this step after day_mute_ss is the 3G D5 break again (the reflection method switched back under HardwareTraced refraction), recorded
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда frames 512
+Тогда-вид day_rt_open day, HardwareTraced, the window pair _4711 + _4875 deleted: no green fill anywhere in the pane (one sheet left would read green, 3H D7) - the empty shell behind the window without the glass, the same shell as day_pt_open; GI age 512 (HardwareTraced 512 frames after the path tracer of day_pt_open), the reference of the band of [day_rt] and [refr_split]: the band x935-1080 y185-235 L_lin and its ratio to day_pt_open written down (0.0016 / 0.2699 at age 2336 in scn-1128-145201) - the GI task's number (3H D5, D4), open
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
 # --- experiment 3D D5: inside the shell, looking back at the window wall (the pair still deleted), path tracer | raster
 Когда --subject viewport set Camera.Position 70,335,-624
 Когда --subject viewport set Camera.Direction -0.8806,0,-0.4738
