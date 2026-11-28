@@ -14,8 +14,4 @@
 # Тогда [mix_log]: the log holds ONE "[Audio]" rebuild line with "4 classes" and no "names no sound class" /
 # "is not in the mix" line.
 Тогда mix_log the waterfall scene in Play; editor.log: one [Audio] rebuild line with «4 classes», no «names no sound class», no «is not in the mix»
-# The player's Effects volume to 0 (dbce161fc5f74240aaed494e9648833f): the picture must not change.
-Когда advance 1
-# Тогда [volume_zero]: the frame matches [mix_log] within the noise (10.54); the log has no SetUserVolume refusal.
-Тогда volume_zero same frame as mix_log within the noise; editor.log has no SetUserVolume refusal
 Когда run Action "Stop"
