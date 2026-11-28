@@ -13,6 +13,7 @@ Write the design to the path in your prompt, with exactly these sections:
 - `## Архитектура` — one solution: data owner, contracts, passes/systems, what is DELETED, what it costs (ms, MB), two rejected alternatives and why. No parallel path next to the old one.
 - `## Порядок` — the parallel plan, in the machine format below.
 - `## Приёмка` — scenario file, frames and the visible statement for each («Тогда [кадр]: …»), reference side by side, numbers that must hold.
+- Before you hand in: play that scenario on the current build (`.claude/tools/play_scenario.py`, one editor at a time) and name its frame directory in `## Приёмка` as the «до» reference; play it twice and give the floor (`scripts/Dev/frames_triage.py RUN1 RUN2`). Every threshold is measured against those frames and that floor, never derived from arithmetic. A package's code never comes before its acceptance frames.
 
 `## Порядок` is read by a program (`pipeline.design_errors`); a design it refuses is returned to you at hand-in:
 ```

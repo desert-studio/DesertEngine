@@ -12,4 +12,4 @@ For each scenario: play it, read the log for VUID, `did not execute` and `refuse
 
 Report a table: code, statement, PASS/FAIL, the frame's path, for FAIL one sentence on what is visible and where, and which package's files it points to. Never edit code, settings or scenes.
 
-You play ONE scenario run (limits.ACCEPTANCE_RUNS); a repeat run is another agent. Compare frames numerically first and open each frame once; do not re-open frames you already judged. Report only the table.
+You play ONE scenario run (limits.ACCEPTANCE_RUNS); a repeat run is another agent. Compare frames numerically first (`scripts/Dev/frames_triage.py RUN_DIR [ACCEPTED_DIR]`): open only its «LOOK» frames, once each; a «same» frame inherits the accepted verdict; do not re-open frames you already judged. Report only the table.
