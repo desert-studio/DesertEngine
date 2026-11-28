@@ -129,8 +129,8 @@ namespace Desert::Graphic::SurfaceCache
              "SurfaceCache.DirectLighting", "SurfaceCache.IndirectLighting", "SurfaceCache.FinalLighting" };
 
 
-        // Programs/SurfaceCache/SurfaceCacheEmissiveLighting(Async).shader's emissive triangle blocks (GI-TEMPORAL,
-        // Common/EmissiveCardLighting.glslh: bindings 40..46).
+        // Programs/SurfaceCache/SurfaceCacheEmissiveLighting(Async).shader's emissive triangle blocks and the list's
+        // selection grid (GI-TEMPORAL2, Common/EmissiveCardLighting.glslh: bindings 40..47).
         struct SurfaceCacheEmissiveLightsShaderParameters
         {
             DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveSegmentsUB );
@@ -140,6 +140,7 @@ namespace Desert::Graphic::SurfaceCache
             DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicSegmentsUB );
             DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicTrianglesUB );
             DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicPowerUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveGridUB );
         };
         // Programs/SurfaceCache/SurfaceCacheRadiosityTrace.shader's card emission a hit leaves out (hardware
         // tracer, GI_HIT_EXCLUDES_EMISSION).
@@ -1065,6 +1066,7 @@ namespace Desert::Graphic::SurfaceCache
                           .Storage( E::EmissiveDynamicSegmentsUB, list.Dynamic.Segments, kR )
                           .Storage( E::EmissiveDynamicTrianglesUB, list.Dynamic.Triangles, kR )
                           .Storage( E::EmissiveDynamicPowerUB, list.Dynamic.Power, kR )
+                          .Storage( E::EmissiveGridUB, list.Grid, kR )
                           .PushConstants<ShaderPush::SurfaceEmissiveLightingPush>();
                      for ( const std::size_t i : kEmissiveLightingLayers )
                          block.Texture( kLayerTextures[i], layers[i], kS, all );
@@ -1097,6 +1099,7 @@ namespace Desert::Graphic::SurfaceCache
                       .Storage( E::EmissiveDynamicSegmentsUB, list.Dynamic.Segments, kR )
                       .Storage( E::EmissiveDynamicTrianglesUB, list.Dynamic.Triangles, kR )
                       .Storage( E::EmissiveDynamicPowerUB, list.Dynamic.Power, kR )
+                      .Storage( E::EmissiveGridUB, list.Grid, kR )
                       .PushConstants<ShaderPush::SurfaceEmissiveLightingPush>();
                  for ( const std::size_t i : kEmissiveLightingLayers )
                      block.Texture( kLayerTextures[i], layers[i], kS, all );

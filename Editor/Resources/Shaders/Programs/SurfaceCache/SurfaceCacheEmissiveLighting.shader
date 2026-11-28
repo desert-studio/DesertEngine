@@ -3,9 +3,11 @@
 // rule for a stochastic light estimate: it reaches its reader only after temporal accumulation,
 // MegaLightsDenoiserTemporal.usf): every page relit this frame (SceneFrame::LightingPages), ahead of the direct
 // lighting, is drawn into the EmissiveLighting atlas layer, one fragment per atlas texel. A texel takes a Monte Carlo
-// estimate of the scene's emissive triangles' light (Common/SurfaceCacheEmissiveLightingTexel.glslh), each sample
-// capped, blended with the layer's history by the pipeline (SrcAlpha / OneMinusSrcAlpha; src alpha = the estimate's
-// weight: 1 with 32 samples on a page captured this frame or after a reset, 1/32 or 1/4 with 8 samples otherwise).
+// estimate of the scene's emissive triangles' light (Common/SurfaceCacheEmissiveLightingTexel.glslh: resampled picks
+// over the candidates of the list's selection grid, EmissiveGridUB at 47, unclamped), blended with the layer's
+// history by the pipeline (SrcAlpha / OneMinusSrcAlpha; src alpha = the estimate's weight: 1 with
+// kEmissiveSamplesFirstPass picks on a page captured this frame or after a reset, 1/32 or 1/4 with
+// kEmissiveSamplesPerTexel otherwise).
 // The direct lighting reads the layer; the estimate is never a texel's value raw.
 // The program is compiled per tracer (GlobalIllumination::TracerVariant); it names none.
 Shader "SurfaceCacheEmissiveLighting"

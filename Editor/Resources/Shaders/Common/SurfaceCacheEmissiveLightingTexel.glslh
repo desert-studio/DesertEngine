@@ -3,7 +3,8 @@
 // texel of a relit page, blended with the layer's history by the pipeline) and SurfaceCacheEmissiveLightingAsync.shader
 // (compute on the async queue: one thread per texel of a listed lighting tile, the blend in the shader). The page
 // records (SurfaceCardPageBuffer, binding 0) and the relit page list (SurfaceLightingPages, binding 1) are the
-// includer's. Numbers as the direct lighting has them: 2..5, 7, 28, the tracer at 29..39, the emissive list at 40..46.
+// includer's. Numbers as the direct lighting has them: 2..5, 7, 28, the tracer at 29..39, the emissive list at 40..46
+// and its selection grid at 47.
 #ifndef SURFACE_CACHE_EMISSIVE_LIGHTING_TEXEL_GLSLH
 #define SURFACE_CACHE_EMISSIVE_LIGHTING_TEXEL_GLSLH
 #include <Common/EmissiveCardLighting.glslh>
@@ -75,6 +76,12 @@ layout(std430, binding = 46) readonly buffer EmissiveDynamicPowerUB
 {
     float emissiveDynamicPower[];
 };
+// The list's selection grid (RayTracing::EmissiveLightsFrame::Grid; rows as Common/EmissiveLightsSampling.glslh).
+layout(std430, binding = 47) readonly buffer EmissiveGridUB
+{
+    vec4 emissiveGrid[];
+};
+#define EMISSIVE_LIGHTS_GRID
 #include <Common/EmissiveLightsSampling.glslh>
 
 // A per-texel, per-frame random stream (PCG hash, as the radiosity's strata jitter).
@@ -93,56 +100,89 @@ float EmissiveRandom(inout uint state)
     return float((word >> 22u) ^ word) * (1.0 / 4294967296.0);
 }
 
+// The scalar a resampled pick is proportional to (Rec. 709 luminance, as SurfaceCacheClampLuminance weighs one).
+float EmissiveTargetLuminance(vec3 radiance)
+{
+    return dot(radiance, vec3(0.2126, 0.7152, 0.0722));
+}
+
 // The emissive triangles' irradiance at the texel (front, +N, into @p irradiance; the far side, -N, into
-// @p back on a subsurface texel): an unbiased estimate of @p samples samples, each a triangle by power and a point
-// on it by area (the path tracer's PathTracingSampleEmissive), radiance x |cos| / its solid-angle density, shadowed
-// by the tracer's visibility ray, one sample's contribution capped at kEmissiveMaxSampleIntensity (a tiny pdf
-// otherwise leaves a lone texel orders of magnitude above its neighbours). The ray stops short of the sampled point
-// by a margin (the emitter's own surface is not its occluder); emission is two-sided (EmissiveLightsNormal).
+// @p back on a subsurface texel): an unbiased estimate of @p samples resampled picks (RIS, Talbot et al. 2005; UE
+// MegaLights' candidate weighting). One pick: the selection grid's cell of the texel's position jittered by up to
+// half a cell per axis (cell seams do not print as a noise pattern), kEmissiveCandidatesPerSample candidates of that
+// cell (EmissiveGridPick: a triangle, then a point on it by area), each weighted by its unshadowed contribution
+// (EmissiveLightsRadiance's luminance x |cos| at the texel) over its exact solid-angle density (EmissiveGridPickPdf
+// of the same cell x EmissiveLightsSolidAnglePdf); the chosen candidate alone gets the tracer's visibility ray and
+// contributes radiance x |cos| x visibility / target x (weight sum / candidates). No contribution is clamped: the
+// grid's remainder gives every triangle with power a positive density in every cell. The ray stops short of the
+// sampled point by a margin (the emitter's own surface is not its occluder); emission is two-sided
+// (EmissiveLightsNormal).
 void AddEmissiveLights(vec3 worldPos, vec3 N, bool through, uvec2 seed, uint samples, inout vec3 irradiance,
                        inout vec3 back)
 {
-    if (EmissiveLightsTriangleCount(EmissiveCounts, EmissiveDynamicCounts) == 0u ||
-        EmissiveLightsTotal(EmissiveCounts, EmissiveDynamicCounts) <= 0.0)
+    const uint count = EmissiveLightsTriangleCount(EmissiveCounts, EmissiveDynamicCounts);
+    if (count == 0u || EmissiveLightsTotal(EmissiveCounts, EmissiveDynamicCounts) <= 0.0)
         return;
-    uint        rng   = EmissiveHash(uvec3(seed, EmissiveFrame.x));
-    const float scale = 1.0 / float(samples);
+    uint        rng      = EmissiveHash(uvec3(seed, EmissiveFrame.x));
+    const float scale    = 1.0 / float(samples);
+    const vec3  cellSize = emissiveGrid[1].xyz;
     for (uint s = 0u; s < samples; ++s)
     {
-        const float pick     = EmissiveRandom(rng);
-        const vec2  u        = vec2(EmissiveRandom(rng), EmissiveRandom(rng));
-        const uint  triangle = EmissiveLightsPick(pick, EmissiveCounts, EmissiveDynamicCounts);
-        if (triangle >= EmissiveLightsTriangleCount(EmissiveCounts, EmissiveDynamicCounts))
-            continue;
-        const EmissiveTriangle t       = EmissiveLightsTriangle(triangle, EmissiveCounts);
-        const vec3             toPoint = EmissiveLightsSamplePoint(t, u) - worldPos;
-        const float            dist    = length(toPoint);
-        if (dist <= 0.0)
-            continue;
-        const vec3  L     = toPoint / dist;
-        const float NdotL = dot(N, L);
-        const bool  front = NdotL > 0.0;
-        if (!front && !(through && NdotL < 0.0))
-            continue;
-        const float lightPdf = EmissiveLightsSolidAnglePdf(
-            t, EmissiveLightsPickPdf(triangle, EmissiveCounts, EmissiveDynamicCounts), dist,
-            dot(EmissiveLightsNormal(t), L));
-        if (!(lightPdf > 0.0))
-            continue;
-        const uint            row     = floatBitsToUint(t.Edge2Segment.w);
-        const EmissiveSegment segment = triangle < EmissiveCounts.x ? emissiveSegments[row]
-                                                                    : emissiveDynamicSegments[row];
-        const vec3 radiance = segment.Radiance.rgb;
-        if (max(radiance.r, max(radiance.g, radiance.b)) <= 0.0)
+        const vec3 jitter = vec3(EmissiveRandom(rng), EmissiveRandom(rng), EmissiveRandom(rng)) - 0.5;
+        const uint cell   = EmissiveGridCell(worldPos + jitter * cellSize);
+
+        float weightSum   = 0.0;
+        vec3  chosenL     = vec3(0.0);
+        float chosenDist  = 0.0;
+        vec3  chosenValue = vec3(0.0); // radiance x |cos| / target of the chosen candidate
+        bool  chosenFront = true;
+        for (uint c = 0u; c < kEmissiveCandidatesPerSample; ++c)
+        {
+            const float pick     = EmissiveRandom(rng);
+            const vec2  u        = vec2(EmissiveRandom(rng), EmissiveRandom(rng));
+            const float choose   = EmissiveRandom(rng);
+            const uint  triangle = EmissiveGridPick(cell, pick, EmissiveCounts, EmissiveDynamicCounts);
+            if (triangle >= count)
+                continue;
+            const EmissiveTriangle t       = EmissiveLightsTriangle(triangle, EmissiveCounts);
+            const vec3             toPoint = EmissiveLightsSamplePoint(t, u) - worldPos;
+            const float            dist    = length(toPoint);
+            if (dist <= 0.0)
+                continue;
+            const vec3  L     = toPoint / dist;
+            const float NdotL = dot(N, L);
+            const bool  front = NdotL > 0.0;
+            if (!front && !(through && NdotL < 0.0))
+                continue;
+            const float density = EmissiveLightsSolidAnglePdf(
+                t, EmissiveGridPickPdf(cell, triangle, EmissiveCounts, EmissiveDynamicCounts), dist,
+                dot(EmissiveLightsNormal(t), L));
+            if (!(density > 0.0))
+                continue;
+            const vec3  value  = EmissiveLightsRadiance(triangle, t, EmissiveCounts) * abs(NdotL);
+            const float target = EmissiveTargetLuminance(value);
+            if (!(target > 0.0))
+                continue;
+            const float weight = target / density;
+            weightSum += weight;
+            if (choose * weightSum < weight)
+            {
+                chosenL     = L;
+                chosenDist  = dist;
+                chosenValue = value / target;
+                chosenFront = front;
+            }
+        }
+        if (!(weightSum > 0.0))
             continue;
         // Short of the sampled point by 1 % (the emitter's own triangles do not shadow it).
-        const vec3  side       = front ? N : -N;
-        const float visibility = TracedShadow(worldPos, side, L, dist * 0.99);
+        const vec3  side       = chosenFront ? N : -N;
+        const float visibility = TracedShadow(worldPos, side, chosenL, chosenDist * 0.99);
         if (visibility <= 0.0)
             continue;
-        const vec3 contribution = SurfaceCacheClampLuminance(radiance * abs(NdotL) * visibility / lightPdf,
-                                                             kEmissiveMaxSampleIntensity) * scale;
-        if (front)
+        const vec3 contribution =
+            chosenValue * visibility * (weightSum / float(kEmissiveCandidatesPerSample)) * scale;
+        if (chosenFront)
             irradiance += contribution;
         else
             back += contribution;

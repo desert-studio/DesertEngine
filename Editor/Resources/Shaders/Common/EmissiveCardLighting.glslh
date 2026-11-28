@@ -20,21 +20,26 @@
 //   weight    1 where the page was captured this frame (SurfaceCardPage.card.z != 0) or EmissiveFrame.y != 0;
 //             EmissiveWeights.x otherwise.
 //   samples   kEmissiveSamplesFirstPass where weight == 1 (the first estimate stands alone), kEmissiveSamplesPerTexel
-//             otherwise. The random stream is seeded by ( atlas texel, EmissiveFrame.x ).
-//   clamp     one sample's contribution (radiance x cos x visibility / pdf, before the 1 / samples scale) is
-//             scaled down to luminance kEmissiveMaxSampleIntensity when above it.
+//             otherwise. One sample is one resampled pick (RIS, Talbot et al. 2005): kEmissiveCandidatesPerSample
+//             candidates from the selection grid's cell (Common/EmissiveLightsSampling.glslh, EmissiveGridPick) of
+//             the texel's position jittered by up to half a cell, weighted by their unshadowed contribution over
+//             their exact density (EmissiveGridPickPdf of that cell, EmissiveLightsSolidAnglePdf); one visibility ray
+//             to the chosen one. The radiance is EmissiveLightsRadiance. No sample is clamped: every triangle with
+//             power has a positive density in every cell, so the estimate is unbiased and keeps its energy.
+//             The random stream is seeded by ( atlas texel, EmissiveFrame.x ).
 //   reader    SurfaceCacheDirectLightingTexel.glslh: direct = albedo / PI x irradiance + subsurface / PI x back
 //             + texelFetch( AtlasEmissiveLightingTexture, atlasTexel, 0 ).rgb. It declares the texture unnumbered
 //             ("Uniform texture2D AtlasEmissiveLightingTexture;"), read through PointClampSampler. The direct
-//             lighting keeps no emissive buffer, count or seed: bindings 40..46 and LightingFlags.y leave it.
+//             lighting keeps no emissive buffer, count or seed: bindings 40..47 and LightingFlags.y leave it.
 
-// Samples of one relight of a texel with history, and of a texel without one.
-const uint  kEmissiveSamplesPerTexel    = 8u;
-const uint  kEmissiveSamplesFirstPass   = 32u;
-// The ceiling of one sample's luminance, in the cache's radiance units (UE r.LumenScene.Radiosity.MaxRayIntensity).
-const float kEmissiveMaxSampleIntensity = 40.0;
-// The same ceiling for one radiosity ray (SurfaceCacheRadiosityTraceTexel.glslh).
-const float kRadiosityMaxRayIntensity   = 40.0;
+// Resampled picks (= visibility rays) of one relight of a texel with history, and of a texel without one.
+const uint  kEmissiveSamplesPerTexel     = 2u;
+const uint  kEmissiveSamplesFirstPass    = 8u;
+// The grid candidates one resampled pick chooses from.
+const uint  kEmissiveCandidatesPerSample = 8u;
+// The ceiling of one radiosity ray's luminance, in the cache's radiance units (UE
+// r.LumenScene.Radiosity.MaxRayIntensity; SurfaceCacheRadiosityTraceTexel.glslh).
+const float kRadiosityMaxRayIntensity    = 40.0;
 
 // The pass's push block, declared by both programs exactly so (the C++ side fills ShaderPush of this name):
 //
@@ -48,9 +53,10 @@ const float kRadiosityMaxRayIntensity   = 40.0;
 //
 // The pass's resources, by name (numbers as the direct lighting has them today, SurfaceCacheDirectLightingTexel.glslh):
 // SurfaceCardBuffer, SurfaceCardPageBuffer, SurfaceLightingPages, the atlas layers Depth / Albedo / Opacity /
-// Normal / Subsurface, the tracer's resources at GI_TRACER_BINDING 32, the emissive buffers at 40..46
+// Normal / Subsurface, the tracer's resources at GI_TRACER_BINDING 29 (29..39), the emissive buffers at 40..46
 // (EmissiveSegmentsUB, EmissiveLookupUB, EmissiveTrianglesUB, EmissivePowerUB, EmissiveDynamicSegmentsUB,
-// EmissiveDynamicTrianglesUB, EmissiveDynamicPowerUB); the async program adds the lighting tile buffers of
+// EmissiveDynamicTrianglesUB, EmissiveDynamicPowerUB) and the list's selection grid at 47 (EmissiveGridUB,
+// RayTracing::EmissiveLightsFrame::Grid; EMISSIVE_LIGHTS_GRID); the async program adds the lighting tile buffers of
 // Common/SurfaceCacheLightingTiles.glslh and the storage image above. Both programs are compiled per tracer
 // (GlobalIllumination::TracerVariant), as the direct lighting is.
 

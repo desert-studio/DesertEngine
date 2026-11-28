@@ -1,0 +1,42 @@
+# GI-TEMPORAL2 acceptance: emissive light selected by world cells, no per-sample ceiling (night Bistro, hardware-traced GI).
+# Played twice after a warm-up run; pairs <name>_a / <name>_b are 64 frames apart. Before: scn-1128-132759 (noise 12.51,
+# second run scn-1128-133026); Lit reference night_pt.png of scn-1128-103343; cache reference R = scene_a of run.sh K35.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: Textures High"
+Дано run Quality "Quality: Filtering High"
+Дано run Quality "Quality: Shadows High"
+Дано run Quality "Quality: GlobalIllumination High"
+Дано run Quality "Quality: Reflections High"
+Дано run Quality "Quality: PostProcess High"
+Дано run Quality "Quality: Effects High"
+Дано run Quality "Quality: ViewDistance High"
+Дано run Quality "Quality: AntiAliasing High"
+Дано run Quality "Quality: ResolutionScale High"
+Дано run Quality "Quality: Shading High"
+Дано run Quality "Quality: PathTracing High"
+Дано run Quality "Quality: Foliage High"
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+Дано --subject viewport set Camera.Position -370,300,-861
+Дано --subject viewport set Camera.Direction 0.8806,0.07,0.4738
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure false
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run View "View mode: Lumen Scene (Lit)"
+Когда frames 1100
+Тогда-вид scene_a view Lumen Scene (Lit): walls by the garlands without a mosaic of lone bright texels; mean within 3.76 of R (the cache reference K3+K5); the right quarter not darker than the cache reference (before: 56.6 / 52.0 in columns 7-8)
+Когда frames 64
+Тогда-вид scene_b the same view 64 frames later: pair delta to scene_a at most 1.03 (K3)
+Когда run View "View mode: Indirect Lighting (GI)"
+Когда frames 256
+Тогда-вид gi_a view Indirect Lighting (GI): the side walls lit in both runs; mean of the two runs at least 23.14 (31.46 - 8.32); gi_a delta between the runs at most 2.21 (before: 8.32)
+Когда frames 64
+Тогда-вид gi_b 64 frames later: pair delta to gi_a at most 2.21
+Когда run View "View mode: Lit"
+Когда frames 256
+Тогда-вид base_a view Lit against night_pt.png of scn-1128-103343: the right wall equally bright - mean at least 95.33 (103.92 - 8.59), column 8 within 8.59 of 93.8
+Когда frames 64
+Тогда-вид base_b 64 frames later: pair delta to base_a at most 2.88
+Когда run Quality "Quality: Translucency.Refraction Level"
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure true
+Тогда-вид reset Quality rows and view mode reset, AutoExposure restored; editor.log: no VUID, no "did not execute", "RDG extracted EmissiveLights.Grid" at most 4.3 MB per list, the frames 1100 step no slower than before + 5 %

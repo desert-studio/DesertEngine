@@ -2,8 +2,9 @@
 // THE SURFACE CACHE'S EMISSIVE LIGHTING ON THE ASYNC COMPUTE QUEUE (GI-TEMPORAL; contract
 // Common/EmissiveCardLighting.glslh): every texel of the lighting tiles listed this frame
 // (Common/SurfaceCacheLightingTiles.glslh) takes the same estimate as the raster path
-// (Common/SurfaceCacheEmissiveLightingTexel.glslh), one 8x8 group per tile, ahead of the direct lighting, and blends
-// it into the EmissiveLighting layer as storage: stored = mix( loaded, estimate, weight ). Picked with the other
+// (Common/SurfaceCacheEmissiveLightingTexel.glslh, the selection grid EmissiveGridUB at 47), one 8x8 group per
+// tile, ahead of the direct lighting, and blends it into the EmissiveLighting layer as storage:
+// stored = mix( loaded, estimate, weight ). Picked with the other
 // async card passes (GlobalIllumination.SurfaceCacheAsyncRadiosity). The program is compiled per tracer.
 Shader "SurfaceCacheEmissiveLightingAsync"
 {
