@@ -26,9 +26,11 @@ struct DesertRayHitTriangle
     vec2 UV;     // interpolated; 0 when the segment has no UV stream
 };
 
-// Which triangle the closest hit is (RayTracingPayload.glslh): every closest-hit stage writes it with its material.
+// Which triangle the closest hit is (RayTracingPayload.glslh): every closest-hit stage writes it with its material,
+// AFTER it assigned payload.Flags its front-face bit (the instance's GPU-scene row goes into Flags bits 8..31).
 void DesertRayHitIdentify()
 {
+    payload.Flags          = DesertRayPayloadWithSceneRow( payload.Flags, uint( gl_InstanceCustomIndexEXT ) );
     payload.InstanceIndex  = uint( gl_InstanceID );
     payload.GeometryIndex  = uint( gl_GeometryIndexEXT );
     payload.PrimitiveIndex = uint( gl_PrimitiveID );

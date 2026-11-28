@@ -2267,13 +2267,18 @@ namespace Desert::Graphic
         return pipeline;
     }
 
-    bool SceneRendererImpl::ReflectionsHitLit() const
+    bool SceneRendererImpl::HitLightingInPlace() const
     {
         using namespace Common::Scalability;
-        return m_RenderMethods.Reflections.Effective == ReflectionMethod::HardwareTraced &&
-               QualityState::Resolved().As<int>( Parameter::ReflectionsHitLighting ) != 0 &&
+        return QualityState::Resolved().As<int>( Parameter::ReflectionsHitLighting ) != 0 &&
                CapabilityCatalog::Offers( QualityState::Catalog().RayTracingModes,
                                           RayTracingMode::RayTracingPipeline );
+    }
+
+    bool SceneRendererImpl::ReflectionsHitLit() const
+    {
+        return m_RenderMethods.Reflections.Effective == Common::Scalability::ReflectionMethod::HardwareTraced &&
+               HitLightingInPlace();
     }
 
     Common::BoolResultStr SceneRendererImpl::BuildReflectionHitGroups()
@@ -2361,9 +2366,10 @@ namespace Desert::Graphic
         return BOOLSUCCESS;
     }
 
-    Common::ResultStr<System::SSRRenderer::TracedReads> SceneRendererImpl::MakeHitLitReads(
-         RDG::Builder& graph, FrameTextures& textures, const GlobalIllumination::Pipeline& tracer,
-         const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame )
+    Common::ResultStr<System::SSRRenderer::TracedReads>
+    SceneRendererImpl::MakeHitLitReads( RDG::Builder& graph, FrameTextures& textures,
+                                        const GlobalIllumination::Pipeline& tracer, const bool hitGroups,
+                                        const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame )
     {
         using Reads = System::SSRRenderer::TracedReads;
         FrameTransients& t = textures.Transients;
@@ -2371,13 +2377,10 @@ namespace Desert::Graphic
             return Common::MakeError<Reads>( "the G-buffer has fewer than 4 colours" );
         if ( !t.Lights.WorldGridCells.IsValid() )
             return Common::MakeError<Reads>( "the world light grid was not built" );
-        // An in-place lit hit runs its surface template's closest-hit shader from this frame's table, which the
-        // caller built (BuildReflectionHitGroups) before it made the tracer's pipeline from its templates.
-        const bool inPlace = tracer.Hits == GlobalIllumination::HitLighting::InPlace;
-        if ( inPlace &&
+        if ( hitGroups &&
              m_ReflectionHitGroupsFrame != ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() )
-            return Common::MakeError<Reads>( "in-place hit lighting needs this frame's hit group table, which "
-                                             "BuildReflectionHitGroups did not build" );
+            return Common::MakeError<Reads>( "a ray tracing pipeline reader needs this frame's hit group table, "
+                                             "which BuildReflectionHitGroups did not build" );
 
         Reads reads;
         reads.Tracer     = MakeTracerFrame( graph, textures, tracer );
@@ -2427,7 +2430,17 @@ namespace Desert::Graphic
         reads.GBufferA        = gbuffer[0];
         reads.GBufferEmissive = gbuffer[3];
         reads.GBufferShadingWord = gbuffer[2];
-        reads.HitGroups       = inPlace ? &m_ReflectionHitGroups : nullptr;
+        reads.HitGroups          = hitGroups ? &m_ReflectionHitGroups : nullptr;
+        if ( tracer.Hits == GlobalIllumination::HitLighting::SurfaceCache ) // no cache: a refusal, never in place
+        {
+            if ( !m_SurfaceCacheFrame )
+                return Common::MakeError<Reads>( "the surface cache was not brought up this frame" );
+            reads.SurfaceCache = m_SurfaceCacheFrame->Hits;
+            if ( const std::string_view missing =
+                      GlobalIllumination::SurfaceCacheFrameMissing( reads.SurfaceCache );
+                 !missing.empty() )
+                return Common::MakeError<Reads>( std::string( missing ) );
+        }
         return Common::MakeSuccess( std::move( reads ) );
     }
 
@@ -2444,18 +2457,16 @@ namespace Desert::Graphic
             return std::nullopt;
         };
         const GlobalIllumination::Pipeline tracer = ReflectionsTracer();
+        const bool                         hitLit = ReflectionsHitLit();
+        using namespace Common::Scalability;
+        if ( m_RenderMethods.Reflections.Effective == ReflectionMethod::HardwareTraced && !hitLit &&
+             QualityState::Resolved().As<int>( Parameter::ReflectionsHitLighting ) != 0 &&
+             !m_ReportedHitLightingDevice )
         {
-            using namespace Common::Scalability;
-            if ( m_RenderMethods.Reflections.Effective == ReflectionMethod::HardwareTraced &&
-                 QualityState::Resolved().As<int>( Parameter::ReflectionsHitLighting ) != 0 &&
-                 !ReflectionsHitLit() && !m_ReportedHitLightingDevice )
-            {
-                m_ReportedHitLightingDevice = true;
-                LOG_WARN( "[SceneRenderer] Reflections.HitLighting is on, but the device offers no ray tracing "
-                          "pipeline: the hardware-traced reflections read the surface cache" );
-            }
+            m_ReportedHitLightingDevice = true;
+            LOG_WARN( "[SceneRenderer] Reflections.HitLighting is on, but the device offers no ray tracing "
+                      "pipeline: the hardware-traced reflections read the surface cache" );
         }
-        const bool hitLit = ReflectionsHitLit();
         if ( const auto made = ssr.EnsureTracedProgram( tracer, hitLit ); !made )
         {
             // The traced permutation serves the method of its tracer alone.
@@ -2479,20 +2490,10 @@ namespace Desert::Graphic
             }
         }
 
-        auto made = MakeHitLitReads( graph, textures, tracer, gbuffer, frame );
+        auto made = MakeHitLitReads( graph, textures, tracer, hitLit, gbuffer, frame );
         if ( !made )
             return refuse( made.GetError() );
         System::SSRRenderer::TracedReads reads = made.ExtractValue();
-        if ( tracer.Hits == GlobalIllumination::HitLighting::SurfaceCache )
-        {
-            if ( !m_SurfaceCacheFrame )
-                return refuse( "the surface cache was not brought up this frame" );
-            reads.SurfaceCache = m_SurfaceCacheFrame->Hits;
-            if ( const std::string_view missing =
-                      GlobalIllumination::SurfaceCacheFrameMissing( reads.SurfaceCache );
-                 !missing.empty() )
-                return refuse( missing );
-        }
 
         const FrameGraphRefs refs = textures.GraphRefs();
         // FPS-SSR-HIT-2: the software tracer's global-field hits take the directional lights' shadow from the

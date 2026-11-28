@@ -1290,10 +1290,14 @@ namespace Desert::Graphic
         // method): HardwareTraced walks the view's TLAS by ray query, SoftwareTraced the distance fields; hits lit
         // from the surface cache either way. Only meaningful when ReflectionsTraced().
         [[nodiscard]] GlobalIllumination::Pipeline ReflectionsTracer() const;
+        // THE one statement of the tier's hit lighting (UE Lumen: hits lit in place only on the top tier): the
+        // quality's Reflections.HitLighting is on and the device offers the ray tracing pipeline. Asked by the
+        // hardware-traced reflections (ReflectionsHitLit) and the traced refraction
+        // (System::RayTracedTranslucencyTracer), whatever the reflection method.
+        [[nodiscard]] bool HitLightingInPlace() const;
         // Whether this frame's traced reflections are HIT-LIT (UE Lumen reflections, hit lighting): the effective
-        // method is HardwareTraced, the quality's Reflections.HitLighting is on and the device offers the ray
-        // tracing pipeline. A request the device cannot honour is reported once (m_ReportedHitLightingDevice) and
-        // the reflections stay on the surface cache.
+        // method is HardwareTraced and HitLightingInPlace(). A request the device cannot honour is reported once
+        // (m_ReportedHitLightingDevice) and the reflections stay on the surface cache.
         [[nodiscard]] bool ReflectionsHitLit() const;
         // GRAPH BUILD of a hit-lit frame: m_ReflectionHitGroups from the view's ray tracing scene - each segment's
         // surface template and effective row (RayTracingHitGroupTable.hpp). An error: no default surface, or the
@@ -1314,12 +1318,14 @@ namespace Desert::Graphic
                                                        glm::uvec2 extent );
         // The hit lighting's reads of @p tracer for this frame (the one producer of a TracedReads: the reflections
         // and the traced refraction ask it): TLAS and scene reads, GI record, radiance cache (or one covering
-        // nothing), lights, EnvSpecular, G-buffer, and - for an InPlace tracer - this frame's hit group table, which
-        // the caller built first (BuildReflectionHitGroups). SurfaceCache, Shadow and ShadowCascades stay empty for
-        // the caller. The error names the missing read.
+        // nothing), lights, EnvSpecular, G-buffer; this frame's hit group table when @p hitGroups (the reader
+        // traces a ray tracing pipeline over it: the hit-lit reflections, the traced refraction under either
+        // tracer), which the caller built first (BuildReflectionHitGroups); and the surface cache's hit reads
+        // (m_SurfaceCacheFrame) when the tracer's Hits is SurfaceCache. Shadow and ShadowCascades stay empty for
+        // the caller. The error names the missing read (the surface cache not brought up this frame among them).
         [[nodiscard]] Common::ResultStr<System::SSRRenderer::TracedReads>
         MakeHitLitReads( RDG::Builder& graph, FrameTextures& textures, const GlobalIllumination::Pipeline& tracer,
-                         const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
+                         bool hitGroups, const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
         // The traced permutation's reads of SSR (System::SSRRenderer::TracedReads) for this frame; nullopt
         // (logged): a read is missing and the frame reflects the screen alone.
         [[nodiscard]] std::optional<System::SSRRenderer::TracedReads>
