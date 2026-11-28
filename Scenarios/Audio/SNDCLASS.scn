@@ -1,0 +1,21 @@
+# SNDCLASS (UE USoundClass): sound classes are `.dasset` assets (Type SoundClassDef: Parent, Volume, Pitch) under
+# Content/Audio/Classes - Master, and Music / Effects / Voice parented to it; a `.desound` (SNDW 2) names its class
+# by GUID, the player's volume is kept per class asset. Water_Falls.desce plays S_WaterfallLoop.desound (Effects).
+# Sound is not a picture: the log proof is the editor log the player keeps beside the frames (scn-latest/editor.log).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Falls.desce
+Дано run Open "Audio/Classes/Music.dasset"
+# Тогда [classes_tree]: the data asset panel shows Parent = Master, Volume 1.0, Pitch 1.0 (UE SoundClass Details).
+Тогда classes_tree Music.dasset open: Parent = Master, Volume 1.0, Pitch 1.0
+Когда run Open "Audio/Water/S_WaterfallLoop.desound"
+# Тогда [sound_class_pick]: the sound document's Class field shows Effects; its list holds the four classes.
+Тогда sound_class_pick S_WaterfallLoop.desound open: Class shows «Effects», the list holds Master, Music, Effects, Voice
+Когда run Action "Play from Here"
+Когда advance 1
+# Тогда [mix_log]: the log holds ONE "[Audio]" rebuild line with "4 classes" and no "names no sound class" /
+# "is not in the mix" line.
+Тогда mix_log the waterfall scene in Play; editor.log: one [Audio] rebuild line with «4 classes», no «names no sound class», no «is not in the mix»
+# The player's Effects volume to 0 (dbce161fc5f74240aaed494e9648833f): the picture must not change.
+Когда advance 1
+# Тогда [volume_zero]: the frame matches [mix_log] within the noise (10.54); the log has no SetUserVolume refusal.
+Тогда volume_zero same frame as mix_log within the noise; editor.log has no SetUserVolume refusal
+Когда run Action "Stop"

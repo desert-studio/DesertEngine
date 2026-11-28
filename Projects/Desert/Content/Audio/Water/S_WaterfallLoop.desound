@@ -3,11 +3,13 @@
         "Kind": "Sound",
         "Guid": "de15d90d212d47b0b3776f062f0d18f8",
         "Versions": {
-            "SNDW": 1
+            "SNDW": 2
         },
-        "Dependencies": []
+        "Dependencies": [
+            "dbce161fc5f74240aaed494e9648833f"
+        ]
     },
     "Source": "S_WaterfallLoop.wav",
-    "Class": "Effects",
+    "Class": "dbce161fc5f74240aaed494e9648833f",
     "Loading": "Resident"
 }

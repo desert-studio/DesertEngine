@@ -1,8 +1,8 @@
 # AUD-CORE (UE FActiveSound + USoundWave loading): every voice opens its clip through miniaudio's resource manager
-# over the engine FileSystem (job thread, not the game thread), plays in the class and with the loading its
-# `.desound` states (SNDW v1: Class, Loading), and a spatial emitter sounds from its WORLD position.
-# Before the run: scripts/Dev/migrate.sh --write over Mirage (every SNDW v0 `.desound` -> v1, Class Effects,
-# Loading Resident) - the editor refuses a v0 sound by name ("SNDW v0 states no Class and no Loading").
+# over the engine FileSystem (job thread, not the game thread), plays in the class asset and with the loading its
+# `.desound` states (SNDW 2: Class = the GUID of a sound class `.dasset`, Loading), and a spatial emitter sounds
+# from its WORLD position. Before the run: scripts/Dev/migrate.sh --write over Mirage (SNDW v0 -> v1 -> v2: the v1
+# Class name becomes the class asset Config/AudioSettings.json LegacyClassNames names) - the editor refuses an older sound by name.
 # Sound is not a picture: the proof is the editor log the player keeps beside the frames (scn-latest/editor.log).
 Проект ../Mirage/Mirage.deproj
 Дано run Scene "Open Scene MainMenu.desce"

@@ -27,6 +27,8 @@ namespace
     {
         fs::path                   Root;
         Common::Content::AssetGuid Guid{ 0x5151, 0x0042 };
+        // The class the sound plays in: any non-null GUID - the scene pass reads only Guid and Source.
+        Desert::Audio::SoundClassId Class{ 0x5151, 0x00C1 };
 
         SoundFixture()
         {
@@ -34,8 +36,8 @@ namespace
             fs::remove_all( Root );
             fs::create_directories( Root / "Audio" );
             std::ofstream( Root / "Audio" / "Hit.wav", std::ios::binary ) << "RIFF";
-            const auto text = Desert::Assets::SoundAsset::Write(
-                 Guid, "Hit.wav", Desert::Audio::SoundClass::Effects, Desert::Audio::SoundLoading::Resident );
+            const auto text = Desert::Assets::SoundAsset::Write( Guid, "Hit.wav", Class,
+                                                                 Desert::Audio::SoundLoading::Resident );
             EXPECT_TRUE( text );
             std::ofstream( Root / "Audio" / "Hit.desound", std::ios::binary ) << text.GetValue();
         }

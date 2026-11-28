@@ -3,11 +3,13 @@
         "Kind": "Sound",
         "Guid": "184c756ca2b741b6b228dbb306a6a145",
         "Versions": {
-            "SNDW": 1
+            "SNDW": 2
         },
-        "Dependencies": []
+        "Dependencies": [
+            "677e641bc744430e80db9f41339eeaed"
+        ]
     },
     "Source": "Tone440.wav",
-    "Class": "Effects",
+    "Class": "677e641bc744430e80db9f41339eeaed",
     "Loading": "Resident"
 }

@@ -1,0 +1,19 @@
+{
+    "Header": {
+        "Kind": "DataAsset",
+        "Guid": "dbce161fc5f74240aaed494e9648833f",
+        "Versions": {
+            "DATA": 1
+        },
+        "Dependencies": [
+            "9370f16c873e49078487bb09ab7c48e0"
+        ]
+    },
+    "Type": "SoundClassDef",
+    "TypeVersion": 1,
+    "Data": {
+        "Parent": "assets:Audio/Classes/Master.dasset",
+        "Pitch": 1.0,
+        "Volume": 1.0
+    }
+}

@@ -1,0 +1,17 @@
+{
+    "Header": {
+        "Kind": "DataAsset",
+        "Guid": "677e641bc744430e80db9f41339eeaed",
+        "Versions": {
+            "DATA": 1
+        },
+        "Dependencies": []
+    },
+    "Type": "SoundClassDef",
+    "TypeVersion": 1,
+    "Data": {
+        "Parent": "",
+        "Pitch": 1.0,
+        "Volume": 1.0
+    }
+}
