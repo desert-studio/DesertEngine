@@ -1,0 +1,93 @@
+#ifndef RADIANCE_CACHE_MARK_REQUESTS_GLSLH
+#define RADIANCE_CACHE_MARK_REQUESTS_GLSLH
+
+// THE RADIANCE CACHE'S MARK REQUESTS, GPU side (NG-RT-REFRACTION3G; the C++ statement is
+// Graphic/GlobalIllumination/RadianceCacheMarkRequests.hpp). A reader of the world radiance cache that is not a
+// G-buffer pixel (the end of a refraction path lit in place) calls RadianceCacheRequestMark for the surface point
+// it reads at; the next frame's RadianceCacheMark stamps the cells of every occupied slot and clears it.
+//
+// The includer defines RADIANCE_CACHE_MARK_REQUESTS_BINDING (a free descriptor binding of its program) before the
+// include. The table's size is the buffer's length (a power of two), never a constant of this file.
+// RadianceCacheMark's push constant `MarkRequestRows` (kMarkRequestRowsPush) is how many of its group rows walk
+// the table, one thread per slot.
+
+layout( std430, binding = RADIANCE_CACHE_MARK_REQUESTS_BINDING ) buffer RadianceCacheMarkRequestsUB
+{
+    vec4 radianceCacheMarkRequests[]; // xyz = the surface point (world, cm); w = the request word (float bits)
+};
+
+// The request word: the read point's bias direction (N * 0.2 + V * 0.8 of RadianceCacheReadPoint, normalised),
+// octahedral, 15 bits an axis, and the occupied bit. Zero = an empty slot.
+#define RC_MARK_REQUEST_OCCUPIED 0x40000000u
+#define RC_MARK_REQUEST_OCT_BITS 15u
+#define RC_MARK_REQUEST_OCT_MASK 0x7FFFu
+// The cell a point is hashed by (cm): readers of one cell share a slot, so a wall of path ends takes few slots.
+#define RC_MARK_REQUEST_CELL 50.0
+
+uint RadianceCacheMarkRequestSlots()
+{
+    return uint( radianceCacheMarkRequests.length() );
+}
+
+vec2 RadianceCacheMarkRequestOctEncode( vec3 d )
+{
+    d /= ( abs( d.x ) + abs( d.y ) + abs( d.z ) );
+    vec2 o = d.z >= 0.0 ? d.xy : ( 1.0 - abs( d.yx ) ) * vec2( d.x >= 0.0 ? 1.0 : -1.0, d.y >= 0.0 ? 1.0 : -1.0 );
+    return o * 0.5 + 0.5;
+}
+
+vec3 RadianceCacheMarkRequestOctDecode( vec2 e )
+{
+    const vec2 f = e * 2.0 - 1.0;
+    vec3       d = vec3( f, 1.0 - abs( f.x ) - abs( f.y ) );
+    const float t = clamp( -d.z, 0.0, 1.0 );
+    d.x += d.x >= 0.0 ? -t : t;
+    d.y += d.y >= 0.0 ? -t : t;
+    return normalize( d );
+}
+
+// The slot of surface point @p p.
+uint RadianceCacheMarkRequestSlot( vec3 p )
+{
+    const ivec3 cell = ivec3( floor( p / RC_MARK_REQUEST_CELL ) );
+    uint        h    = uint( cell.x ) * 73856093u ^ uint( cell.y ) * 19349663u ^ uint( cell.z ) * 83492791u;
+    h ^= h >> 15;
+    return h & ( RadianceCacheMarkRequestSlots() - 1u );
+}
+
+// THE WRITER: a reader that will interpolate the cache at surface point @p p with normal @p N seen from @p V (unit,
+// toward the viewer; the arguments of RadianceCacheIrradianceAt) asks for its cells. One vec4 store: two readers
+// of one slot leave one whole request.
+void RadianceCacheRequestMark( vec3 p, vec3 N, vec3 V )
+{
+    const vec2 oct  = RadianceCacheMarkRequestOctEncode( normalize( N * 0.2 + V * 0.8 ) );
+    const uvec2 q   = uvec2( clamp( oct, 0.0, 1.0 ) * float( RC_MARK_REQUEST_OCT_MASK ) + 0.5 );
+    const uint word = RC_MARK_REQUEST_OCCUPIED | q.x | ( q.y << RC_MARK_REQUEST_OCT_BITS );
+    radianceCacheMarkRequests[RadianceCacheMarkRequestSlot( p )] = vec4( p, uintBitsToFloat( word ) );
+}
+
+// THE READER (RadianceCacheMark only): false for an empty slot; else the request's surface point @p p and its unit
+// bias direction @p bias - the read point of clipmap c is p + bias * ( 0.3 * RadianceCacheCellSize( cache, c ) ),
+// RadianceCacheReadPoint's point for the writer's N and V up to the direction's quantisation.
+bool RadianceCacheMarkRequestRead( uint slot, out vec3 p, out vec3 bias )
+{
+    const vec4 request = radianceCacheMarkRequests[slot];
+    const uint word    = floatBitsToUint( request.w );
+    p                  = request.xyz;
+    bias               = vec3( 0.0, 0.0, 1.0 );
+    if ( ( word & RC_MARK_REQUEST_OCCUPIED ) == 0u )
+        return false;
+    const vec2 oct = vec2( float( word & RC_MARK_REQUEST_OCT_MASK ),
+                           float( ( word >> RC_MARK_REQUEST_OCT_BITS ) & RC_MARK_REQUEST_OCT_MASK ) ) /
+                     float( RC_MARK_REQUEST_OCT_MASK );
+    bias = RadianceCacheMarkRequestOctDecode( oct );
+    return true;
+}
+
+// Mark clears the slot it has stamped: a request lives one frame.
+void RadianceCacheMarkRequestClear( uint slot )
+{
+    radianceCacheMarkRequests[slot] = vec4( 0.0 );
+}
+
+#endif // RADIANCE_CACHE_MARK_REQUESTS_GLSLH
