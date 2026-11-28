@@ -51,10 +51,9 @@ namespace Desert::Graphic::System
     std::vector<Core::CookedProgramVariant> RayTracedTranslucencyRenderer::ProgramVariants()
     {
         std::vector<Core::CookedProgramVariant> variants;
-        for ( const bool inPlace : { false, true } )
-            for ( const bool reorder : { false, true } )
-                variants.push_back( { std::string( kRayTracedTranslucencyProgram ),
-                                      Variant( RayTracedTranslucencyTracer( inPlace ), reorder ) } );
+        for ( const bool reorder : { false, true } )
+            variants.push_back( { std::string( kRayTracedTranslucencyProgram ),
+                                  Variant( RayTracedTranslucencyTracer(), reorder ) } );
         return variants;
     }
 
@@ -154,11 +153,6 @@ namespace Desert::Graphic::System
         if ( const std::string_view missing = GlobalIllumination::TracerFrameMissing( in.HitLighting.Tracer );
              !missing.empty() )
             return Common::MakeFormattedError<RefractionOutputs>( "Ray traced refraction: {}", missing );
-        if ( self.Tracer.Hits == GlobalIllumination::HitLighting::SurfaceCache )
-            if ( const std::string_view missing =
-                      GlobalIllumination::SurfaceCacheFrameMissing( in.HitLighting.SurfaceCache );
-                 !missing.empty() )
-                return Common::MakeFormattedError<RefractionOutputs>( "Ray traced refraction: {}", missing );
 
         // HALF size: one texel per 2x2 quad of the front layer, its a the code of the quad's traced pixel.
         const RDG::TextureRef radiance =

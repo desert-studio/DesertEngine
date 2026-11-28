@@ -12,20 +12,18 @@
 // `MaxInterfaces` of them and lights the first opaque hit SCREEN FIRST: a hit the view sees (its projection by
 // giFrame.viewProjection lies in the frame and the G-buffer depth there is the hit within
 // GIRayBias().screenTolerance, the test Common/GIHitLighting.glslh GIHitMaterial makes) takes this frame's lit
-// scene colour from the scene copy; a hit the view does not see is lit as the reflections of the tier light
-// theirs (RayTracedTranslucencyTracer of Reflections.HitLighting): from the surface cache under 0, in place under
-// 1 (GIHitRadianceLit). The glass cell (Mesh/Surface/Pass_Forward_Translucent.glslh through
+// scene colour from the scene copy; a hit the view does not see is lit IN PLACE on every tier
+// (RayTracedTranslucencyTracer, GIHitRadianceLit), whatever Reflections.HitLighting says. The glass cell (Mesh/Surface/Pass_Forward_Translucent.glslh through
 // Mesh/Surface/TranslucencyRefraction.glslh) reads the half-size result where its fragment is the front layer;
 // where no quad around it answered for its layer the cell reads the scene copy itself (the ScreenSpace tier).
 // A hit lit in place reads the world radiance cache off screen, where no G-buffer pixel marked its cells: the pass
 // WRITES a mark request for it into the cache's request table (RadianceCacheFrame::MarkRequests,
 // GlobalIllumination/RadianceCacheMarkRequests.hpp), which the next frame's RadianceCacheMark stamps and clears.
 //
-// The pass is a ray tracing pipeline over THIS FRAME's hit group table under either tracer (the hit groups answer
-// each interface), as "Deferred: Reflections (HitLighting)" is (SSRRenderer::EnsureHitLightingPipeline /
-// RecordHitLighting): the pipeline's hit groups are the table's Templates, so it is ensured per frame, never at
-// start-up, and everything the hit groups and the hit lighting (in place or from the surface cache) read is the
-// reflections' own record, SSRRenderer::TracedReads - no field of it is repeated here.
+// The pass is a ray tracing pipeline over THIS FRAME's hit group table (the hit groups answer each interface), as
+// "Deferred: Reflections (HitLighting)" is (SSRRenderer::EnsureHitLightingPipeline / RecordHitLighting): the
+// pipeline's hit groups are the table's Templates, so it is ensured per frame, never at start-up, and everything
+// the hit groups and the in-place hit lighting read is the reflections' own record, SSRRenderer::TracedReads - no field of it is repeated here.
 //
 // Package A (the frame, CPU side) produces RayTracedTranslucencyInputs and the push and calls AddPass.
 // Package B (the pass and its shaders) implements the class (RayTracedTranslucency.cpp), the ray generation
@@ -87,18 +85,15 @@ namespace Desert::Graphic::System
         HardwareTraced = 1, // this pass
     };
 
-    // The tracer the program is compiled under and the reads are made for, a function of the quality row and the
-    // device alone (@p inPlace = SceneRendererImpl::HitLightingInPlace(): Reflections.HitLighting is on and the
-    // device offers the ray tracing pipeline), whatever Reflections.Method is this frame: the hardware tracer,
-    // hits lit in place (GlobalIllumination::kTracerPermutations[2]) or from the surface cache's cards
-    // (kTracerPermutations[1]) - the rule the hardware-traced reflections follow (UE Lumen: hit lighting only on
-    // the top tier).
-    [[nodiscard]] constexpr GlobalIllumination::Pipeline RayTracedTranslucencyTracer( const bool inPlace )
+    // The ONE tracer the program is compiled under and the reads are made for, on every tier and whatever
+    // Reflections.Method / Reflections.HitLighting are this frame: the hardware tracer, hits lit in place
+    // (GlobalIllumination::kTracerPermutations[2]) - UE Lumen translucency, one hit lighting path. The pass runs
+    // only where the device offers the ray tracing pipeline, which is what in-place hit lighting needs.
+    [[nodiscard]] constexpr GlobalIllumination::Pipeline RayTracedTranslucencyTracer()
     {
         return GlobalIllumination::Pipeline{ .Traced = true,
                                              .Tracer = GlobalIllumination::Tracer::HardwareRayQuery,
-                                             .Hits   = inPlace ? GlobalIllumination::HitLighting::InPlace
-                                                               : GlobalIllumination::HitLighting::SurfaceCache };
+                                             .Hits   = GlobalIllumination::HitLighting::InPlace };
     }
 
     // The frame's defaults of ShaderPush::RayTracedTranslucencyPush (the block has no defaults of its own).
@@ -116,9 +111,8 @@ namespace Desert::Graphic::System
     //   3. SSRShaderParameters as SSRRenderer::DeclareTracedReads binds them for the pass's tracer
     //      (RayTracedTranslucencyTracer: GIFrameUB, PointLightsUB, SpotLightsUB, LightGridParamsUB,
     //      LightGridWorldCellsUB, RadianceCache*, EnvironmentSpecularTexture, LinearClampSampler, GBufferATexture,
-    //      GBufferEmissiveTexture, GBufferShadingWordTexture, PointClampSampler), the tracer's own reads
-    //      (GlobalIllumination::DeclareTracerReads: the TLAS and its metadata, Common/GITracer.glslh) and, for the
-    //      surface cache tracer, the cards' (GlobalIllumination::DeclareSurfaceCacheReads).
+    //      GBufferEmissiveTexture, GBufferShadingWordTexture, PointClampSampler) and the tracer's own reads
+    //      (GlobalIllumination::DeclareTracerReads: the TLAS and its metadata, Common/GITracer.glslh).
     // Binding NUMBERS are the program's; nothing on the C++ side names one.
     struct RayTracedTranslucencyShaderParameters
     {
@@ -146,12 +140,12 @@ namespace Desert::Graphic::System
         // The opaque G-buffer depth of this view (not the front layer's), bound as GBufferDepthTexture.
         RDG::TextureRef OpaqueDepth;
         // The hit groups' and the hit lighting's reads, the reflections' record made for the tracer EnsurePipeline
-        // was given (RayTracedTranslucencyTracer): Tracer (the TLAS and metadata), HitGroups (NON-NULL under
-        // either tracer - the segments' Transmission / Ior come from the hit groups: this frame's table, owned by
-        // the SceneRenderer for the frame, its Templates are what EnsurePipeline was given), SceneReads (valid),
-        // GIFrame, lights, world light grid, radiance cache, EnvSpecular, G-buffer A / emissive / shading word,
-        // and SurfaceCache (complete when the tracer's Hits is SurfaceCache, empty under InPlace). ShadowCascades
-        // and Shadow stay empty (TracedReadsCascades is false for the hardware tracer).
+        // was given (RayTracedTranslucencyTracer): Tracer (the TLAS and metadata), HitGroups (NON-NULL - the
+        // segments' Transmission / Ior come from the hit groups: this frame's table, owned by the SceneRenderer for
+        // the frame, its Templates are what EnsurePipeline was given), SceneReads (valid), GIFrame, lights, world
+        // light grid, radiance cache, EnvSpecular, G-buffer A / emissive / shading word. SurfaceCache stays empty
+        // (hits are lit in place); ShadowCascades and Shadow stay empty (TracedReadsCascades is false for the
+        // hardware tracer).
         SSRRenderer::TracedReads HitLighting;
         // This frame's scene snapshot (FrameTransients::SceneColorCopy, the texture the glass node reads), bound
         // as SceneColorCopyTexture: a declared read of the pass (RDG::Access::SampledCompute).
@@ -185,12 +179,12 @@ namespace Desert::Graphic::System
         // HitLightingVariant). The one statement EnsurePipeline acquires and ProgramVariants lists.
         [[nodiscard]] static Core::ShaderVariant Variant( const GlobalIllumination::Pipeline& tracer,
                                                           bool                                reorder );
-        // Every permutation of kRayTracedTranslucencyShader (RayTracedTranslucencyTracer of either row value x
-        // reorder: 4), for the package cook (PackageCook CookShaderVariants).
+        // Every permutation of kRayTracedTranslucencyShader (RayTracedTranslucencyTracer x reorder: 2), for the
+        // package cook (PackageCook CookShaderVariants).
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
         // GRAPH BUILD, every frame the pass runs, before AddPass: the ray tracing pipeline of
-        // kRayTracedTranslucencyProgram under @p tracer (RayTracedTranslucencyTracer of this frame's row) with one
+        // kRayTracedTranslucencyProgram under @p tracer (RayTracedTranslucencyTracer) with one
         // hit group per surface template of this frame's hit group table (@p templates =
         // RayTracingHitGroupTable::Templates, each "<Template>/RayTracing.Hit"). Rebuilt only when the template
         // list or the permutation changes; the tracer it was built for is what AddPass checks the reads against.
@@ -205,7 +199,7 @@ namespace Desert::Graphic::System
         // pipeline EnsurePipeline published at this graph build (a shared_ptr), never the member a later frame may
         // republish. The error is the frame's reason for having no traced refraction: EnsurePipeline did not
         // succeed for this table's templates, the reads were made for another tracer than the pipeline's, or an
-        // input is missing (it names which; the surface cache's reads under the surface cache tracer).
+        // input is missing (it names which).
         [[nodiscard]] Common::ResultStr<RefractionOutputs> AddPass( RDG::Builder&                             graph,
                                                                     const RayTracedTranslucencyInputs&        in,
                                                                     const ShaderPush::RayTracedTranslucencyPush& push );
