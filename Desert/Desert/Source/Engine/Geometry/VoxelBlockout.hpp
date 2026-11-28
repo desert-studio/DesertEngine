@@ -272,6 +272,20 @@ namespace Desert::Geometry::VoxelBlockout
     // Corner Mode heights of the four rectangle posts, in 1/CornerDen base-cell units, OUT of the work-plane.
     using CornerHeights = std::array<int, 4>;
 
+    // Space: where post k of the selection rectangle goes when the selection turns 90 degrees, +u onto +v
+    // (CellSelection::Turned90): (uMin,vMin) -> (uMax,vMin) -> (uMax,vMax) -> (uMin,vMax) -> (uMin,vMin), in
+    // kPosts' index order. The ONE table both the post heights and the tool's picked posts turn by.
+    inline constexpr std::array<int, 4> kPostTurn90 = { 1, 3, 0, 2 };
+    // Corner Mode's bevel direction turned 90 degrees: every post hands its height to the next post round the
+    // rectangle (kPostTurn90), so a ramp that rose towards +u rises towards +v. Four turns give `h` back.
+    inline CornerHeights TurnedCorners90( const CornerHeights& h )
+    {
+        CornerHeights out{};
+        for ( int k = 0; k < 4; ++k )
+            out[static_cast<std::size_t>( kPostTurn90[static_cast<std::size_t>( k )] )] = h[static_cast<std::size_t>( k )];
+        return out;
+    }
+
     // A committed piece. Its cells and its Block Size are frozen for good: starting a new marquee commits what
     // was pushed out, so a later Resize Grid only re-scales the volume being worked on NOW.
     struct Layer

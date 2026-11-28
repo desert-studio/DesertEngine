@@ -1,0 +1,14 @@
+# CG-SELECT floor: the current build's one-rectangle CubeGrid selection and its Pull, at the CG-SELECT.scn camera.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 600,800,600
+Дано --subject viewport set Camera.Direction -0.3,-0.9,-0.3
+Дано run CubeGrid "CubeGrid tool"
+Дано run CubeGrid "Aim at the viewport centre: on"
+Дано run CubeGrid "Grid Power 5"
+Когда run CubeGrid "Select 3x3 blocks at the aim"
+Когда state
+Тогда-вид 0_rect one 3x3-block selection rectangle on the ground
+Когда run CubeGrid "Push/Pull out (E)"
+Когда state
+Тогда-вид 4_pull a 3x3-block slab one block high with the selection on its top
