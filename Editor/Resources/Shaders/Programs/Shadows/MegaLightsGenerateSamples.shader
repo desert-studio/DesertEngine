@@ -51,7 +51,8 @@ Shader "MegaLightsGenerateSamples"
         Uniform(15) texture2D HistoryCountTexture;
         #define HistoryCountTexture sampler2D(HistoryCountTexture, PointClampSampler)
 
-        // The emissive triangles a sample pixel draws per frame (UE MegaLights' emissive candidates per pixel).
+        // The emissive triangles a sample pixel draws per frame (UE MegaLights' emissive candidates per pixel), from
+        // the selection grid's cell of its world position.
         #define MEGALIGHTS_EMISSIVE_CANDIDATES 4
 
         LocalSize(8, 8, 1);
@@ -91,14 +92,16 @@ Shader "MegaLightsGenerateSamples"
         }
 
         // 1 / the density the candidate @p light was drawn with: every local light of the cell is a candidate, an
-        // emissive triangle is one of MEGALIGHTS_EMISSIVE_CANDIDATES draws from the list's power tree.
-        float InverseDensity(int light)
+        // emissive triangle is one of MEGALIGHTS_EMISSIVE_CANDIDATES draws from the selection grid's cell
+        // @p emissiveCell (Common/EmissiveLightsSampling.glslh EmissiveGridPickPdf, the exact mixture). 0: the cell
+        // never draws it.
+        float InverseDensity(int light, uint emissiveCell)
         {
         	if (!MegaLightsLightIsEmissive(light))
         		return 1.0;
         	const uint  triangle = uint(light - MegaLightsLocalLightCount());
-        	const float pick     = EmissiveLightsPickPdf(triangle, EmissiveCounts, EmissiveDynamicCounts);
-        	return 1.0 / (float(MEGALIGHTS_EMISSIVE_CANDIDATES) * pick);
+        	const float pick     = EmissiveGridPickPdf(emissiveCell, triangle, EmissiveCounts, EmissiveDynamicCounts);
+        	return pick > 0.0 ? 1.0 / (float(MEGALIGHTS_EMISSIVE_CANDIDATES) * pick) : 0.0;
         }
 
         // Whether @p light keeps its whole sampling weight: it casts no shadow, the pixel has no hash, the previous
@@ -126,8 +129,9 @@ Shader "MegaLightsGenerateSamples"
         	RisMerge streams[MEGALIGHTS_MAX_SAMPLES];
         	for (uint k = 0u; k < uint(MEGALIGHTS_MAX_SAMPLES); ++k)
         		streams[k] = RisBeginMerge();
-        	uvec4 tile   = uvec4(0u);
-        	bool  hashed = false;
+        	uvec4 tile         = uvec4(0u);
+        	bool  hashed       = false;
+        	uint  emissiveCell = 0u; // the selection grid's cell of the pixel (a chosen light implies a valid pixel)
         	if (p.Valid)
         	{
         		hashed                = LoadVisibleHash(screen, p, tile);
@@ -149,27 +153,31 @@ Shader "MegaLightsGenerateSamples"
         				RisStreamCandidate(streams[k], light, target, 1.0, MegaLightsRandom(random));
         		}
         		// THE EMISSIVE TRIANGLES (Common/MegaLights.glslh): MEGALIGHTS_EMISSIVE_CANDIDATES drawn from the
-        		// list's power tree, each streamed with the inverse of its draw density (1 / (count x pick pdf)), so
-        		// the streams' weight sums stay unbiased estimates of the sum over every light. Their OWN stream: the
-        		// local lights above drew what a frame without emissive lights draws.
+        		// selection grid's cell of the pixel's world position (EmissiveGridPick: the triangles that matter
+        		// there, and the whole list through the cell's remainder), each streamed with the inverse of its draw
+        		// density (1 / (count x EmissiveGridPickPdf)), so the streams' weight sums stay unbiased estimates of
+        		// the sum over every light. Their OWN stream: the local lights above drew what a frame without
+        		// emissive lights draws.
         		const float emissiveTotal = MegaLightsEmissiveTriangleCount() > 0
         		                                 ? EmissiveLightsTotal(EmissiveCounts, EmissiveDynamicCounts)
         		                                 : 0.0;
         		if (emissiveTotal > 0.0)
         		{
+        			emissiveCell        = EmissiveGridCell(p.Position);
         			uint emissiveRandom = MegaLightsPcg(MegaLightsSeed(pixel, 0u) ^ 0x6A09E667u);
         			for (uint j = 0u; j < uint(MEGALIGHTS_EMISSIVE_CANDIDATES); ++j)
         			{
-        				const uint  triangle =
-        				     EmissiveLightsPick(MegaLightsRandom(emissiveRandom), EmissiveCounts, EmissiveDynamicCounts);
-        				const float pick = EmissiveLightsPickPdf(triangle, EmissiveCounts, EmissiveDynamicCounts);
-        				if (int(triangle) >= MegaLightsEmissiveTriangleCount() || pick <= 0.0)
+        				const uint triangle = EmissiveGridPick(emissiveCell, MegaLightsRandom(emissiveRandom),
+        				                                       EmissiveCounts, EmissiveDynamicCounts);
+        				if (int(triangle) >= MegaLightsEmissiveTriangleCount())
         					continue;
         				const int   light  = MegaLightsLocalLightCount() + int(triangle);
         				const float target = MegaLightsTargetPdf(p, light);
         				if (target <= 0.0)
         					continue;
-        				const float inverseDensity = InverseDensity(light);
+        				const float inverseDensity = InverseDensity(light, emissiveCell);
+        				if (inverseDensity <= 0.0)
+        					continue;
         				for (uint k = 0u; k < samples; ++k)
         					RisStreamCandidate(streams[k], light, target, inverseDensity,
         					                   MegaLightsRandom(emissiveRandom));
@@ -182,7 +190,7 @@ Shader "MegaLightsGenerateSamples"
         		float              weight = 0.0;
         		if (r.Light >= 0)
         		{
-        			const float inverseDensity = InverseDensity(r.Light);
+        			const float inverseDensity = InverseDensity(r.Light, emissiveCell);
         			weight = inverseDensity * MegaLightsSelectionWeight(r.W / inverseDensity,
         			                                                    GuidedVisible(r.Light, hashed, tile), Params);
         		}

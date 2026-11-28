@@ -83,7 +83,8 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
         DESERT_SHADER_PARAMETER( Texture, HistoryCountTexture );
         DESERT_SHADER_PARAMETER( Texture, HzbTexture );
-        // The scene-lighting emissive triangles (Common/MegaLights.glslh bindings 60..66).
+        // The scene-lighting emissive triangles (Common/MegaLights.glslh bindings 60..66) and their selection grid
+        // (67, EmissiveLightsFrame::Grid).
         DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveSegmentsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveLookupUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveTrianglesUB );
@@ -91,6 +92,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveDynamicSegmentsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveDynamicTrianglesUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveDynamicPowerUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MegaLightsEmissiveGridUB );
     };
 
     inline constexpr std::string_view kMegaLightsDiffuseName  = "MegaLights.Diffuse";
@@ -209,6 +211,9 @@ namespace Desert::Graphic::System
             if ( !in.Emissive.Valid )
                 return Common::MakeError<MegaLightsLighting>(
                      "MegaLights: the frame has no scene-lighting emissive list (AddFrameSceneEmissiveLights)" );
+            if ( !in.Emissive.Grid.IsValid() )
+                return Common::MakeError<MegaLightsLighting>( "MegaLights: the scene-lighting emissive list has "
+                                                              "no selection grid (EmissiveLightsRenderer)" );
             if ( !in.Lights.GridCells.IsValid() || !in.Velocity.IsValid() )
                 return Common::MakeError<MegaLightsLighting>( std::format(
                      "MegaLights: the frame has no {}",
@@ -309,7 +314,8 @@ namespace Desert::Graphic::System
                      .Storage( P::MegaLightsEmissivePowerUB, list.Static.Power, kRead )
                      .Storage( P::MegaLightsEmissiveDynamicSegmentsUB, list.Dynamic.Segments, kRead )
                      .Storage( P::MegaLightsEmissiveDynamicTrianglesUB, list.Dynamic.Triangles, kRead )
-                     .Storage( P::MegaLightsEmissiveDynamicPowerUB, list.Dynamic.Power, kRead );
+                     .Storage( P::MegaLightsEmissiveDynamicPowerUB, list.Dynamic.Power, kRead )
+                     .Storage( P::MegaLightsEmissiveGridUB, list.Grid, kRead );
                 if ( shading )
                     block.Texture( MegaLightsShaderParameters::GBufferATexture, in.GBufferA,
                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )

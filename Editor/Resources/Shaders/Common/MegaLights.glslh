@@ -26,16 +26,17 @@
 //                        (MEGALIGHTS_SHADING too: the contact shadow reads the shading word and the subsurface
 //                        opacity of the receiver).
 // Bindings: 0 the view block, 1 depth, 2 GBufferB, 3 GBufferA, 4 the shading word, 6 / 16 the point / spot rows
-// (Mesh/PointLight.glslh, Mesh/Spotlight.glslh), 60..66 the scene-lighting emissive triangles; a pass's own inputs
-// and outputs from 10 on.
+// (Mesh/PointLight.glslh, Mesh/Spotlight.glslh), 60..66 the scene-lighting emissive triangles, 67 their selection
+// grid; a pass's own inputs and outputs from 10 on.
 //
 // THE EMISSIVE TRIANGLES AS LIGHTS (UE MegaLights' emissive-mesh lights; EMISSIVE-MEGALIGHTS): the triangles of the
 // materials with Emissive Lights Scene on (SceneRenderer::AddFrameSceneEmissiveLights - its own instance of the
 // emissive list, Common/EmissiveLights.glslh, filtered to those materials) are lights of the same index space,
 // AFTER the points and spots: light points + spots + t is triangle t of that list. A pixel's candidates draw them
-// from the list's power tree on their OWN random stream (the local lights' draws stay those of a frame without
-// them), a triangle is shaded by its vector irradiance as a rect light is (Mesh/LightSources.glslh), and its
-// shadow ray aims at a random point of it.
+// from the list's selection grid, the cell of the pixel's world position (Common/EmissiveLightsSampling.glslh
+// EmissiveGridPick, its exact pdf EmissiveGridPickPdf), on their OWN random stream (the local lights' draws stay
+// those of a frame without them); a triangle emits EmissiveLightsRadiance, is shaded by its vector irradiance as a
+// rect light is (Mesh/LightSources.glslh), and its shadow ray aims at a random point of it.
 // Sample textures are sample-pixel sized (MegaLightsSampleSize), stacked in layers; the G-buffer is render sized.
 
 #include <Common/ReconstructPosition.glslh>
@@ -54,7 +55,8 @@
 Uniform(0) MegaLightsViewUB { DESERT_MegaLightsView_MEMBERS };
 
 // The scene-lighting emissive triangles (RayTracing::EmissiveLightsFrame of SceneRenderer::
-// AddFrameSceneEmissiveLights; MegaLightsShaderParameters), bindings 60..66.
+// AddFrameSceneEmissiveLights; MegaLightsShaderParameters), bindings 60..66, and the list's selection grid
+// (EmissiveLightsFrame::Grid), binding 67.
 #include <Common/EmissiveLights.glslh>
 layout(std430, binding = 60) readonly buffer MegaLightsEmissiveSegmentsUB
 {
@@ -84,6 +86,11 @@ layout(std430, binding = 66) readonly buffer MegaLightsEmissiveDynamicPowerUB
 {
 	float emissiveDynamicPower[];
 };
+layout(std430, binding = 67) readonly buffer MegaLightsEmissiveGridUB
+{
+	vec4 emissiveGrid[];
+};
+#define EMISSIVE_LIGHTS_GRID
 #include <Common/EmissiveLightsSampling.glslh>
 
 Uniform(1) texture2D GBufferDepthTexture;  // device depth, reversed-Z (0 = far: no surface)
@@ -228,19 +235,6 @@ vec4 MegaLightsLightContactShadow(int light)
 }
 
 // ---- The emissive triangles (after the local lights) ------------------------------------------------------------
-// The radiance the triangle emits: its segment's material estimate (colour x intensity) scaled by the emissive map's
-// average over the triangle, which its power carries (power = luminance x map average x area, "EmissiveLights:
-// Build") - the same estimate the power tree picks it by.
-vec3 MegaLightsEmissiveRadiance(uint triangle, EmissiveTriangle t)
-{
-	const uint row      = floatBitsToUint(t.Edge2Segment.w);
-	const vec4 radiance = triangle < EmissiveCounts.x ? emissiveSegments[row].Radiance
-	                                                  : emissiveDynamicSegments[row].Radiance;
-	if (radiance.w <= 0.0 || t.P0Area.w <= 0.0)
-		return vec3(0.0);
-	return radiance.rgb * (t.Edge1Power.w / (t.P0Area.w * radiance.w));
-}
-
 // THE TRIANGLE AS AN AREA LIGHT (Mesh/LightSources.glslh DesertRectLightAt over three edges, Heitz et al. 2016): its
 // vector irradiance V gives L = V / |V| and Radiance = radiance x |V|, so Radiance x dot(N, L) is the triangle's
 // Lambert irradiance on a surface it lies wholly above. Emission is two-sided (EmissiveLightsNormal): V is turned
@@ -278,7 +272,7 @@ DesertLight MegaLightsEmissiveLightAt(uint triangle, vec3 worldPosition)
 	if (solidAngle <= 0.0)
 		return light;
 	light.L        = irradiance / solidAngle;
-	light.Radiance = MegaLightsEmissiveRadiance(triangle, t) * solidAngle;
+	light.Radiance = EmissiveLightsRadiance(triangle, t, EmissiveCounts) * solidAngle;
 	return light;
 }
 
