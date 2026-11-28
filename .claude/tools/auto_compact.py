@@ -28,6 +28,9 @@ import limits
 THRESHOLD = 130_000
 COOLDOWN = 900
 DELAY = 6
+IDLE_S = 5      # transcript quiet this long = no turn running
+CONFIRM_S = 20  # a slash command that has not run by then gets another Enter
+RETRIES = 6
 CLEAR_LINES = 8
 HOME = limits.STUDIO_HOME
 os.makedirs(HOME, exist_ok=True)
@@ -80,12 +83,12 @@ def claude_tty():
     return None
 
 
-def type_into(tty, text, enters):
-    """Select the Terminal tab on @p tty, type @p text and press Enter @p enters times."""
+def type_into(tty, text, enters, wipe=True):
+    """Select the Terminal tab on @p tty, type @p text and press Enter @p enters times (@p wipe: empty the box first)."""
     if sys.platform == "win32":
         import console_type
         try:
-            console_type.type_into(int(tty), text, enters, CLEAR_LINES)
+            console_type.type_into(int(tty), text, enters, CLEAR_LINES if wipe else 0)
             log(f"{text[:40]!r}: typed into pid {tty}")
         except OSError as e:
             log(f"{text[:40]!r}: {e}")
@@ -133,19 +136,60 @@ def compactions(path):
         return 0
 
 
+def quiet_for(path, seconds):
+    """The transcript has not grown for @p seconds: no turn is running, the prompt box accepts a slash command."""
+    try:
+        return time.time() - os.path.getmtime(path) >= seconds
+    except OSError:
+        return True
+
+
+def wait_quiet(path, deadline):
+    while not quiet_for(path, IDLE_S) and time.time() < deadline:
+        time.sleep(1)
+    return quiet_for(path, IDLE_S)
+
+
+def cleared(path, since):
+    """/clear ran: a newer transcript appeared beside @p path."""
+    d = os.path.dirname(path)
+    try:
+        return any(n.endswith(".jsonl") and os.path.join(d, n) != path and os.path.getmtime(os.path.join(d, n)) > since
+                   for n in os.listdir(d))
+    except OSError:
+        return False
+
+
 def worker(tty, cmd, transcript):
-    """Type @p cmd, wait until it has run, then type the continue prompt (owner 11-24: no idle after it)."""
-    before = compactions(transcript)
+    """Type @p cmd when the session is idle, re-press Enter until it has run, then type the continue prompt.
+
+    Owner 11-28: «/compact написал, но не отправил». A background agent's notification starts a new turn within DELAY
+    of Stop; a slash command typed into a busy session stays in the box and Enter does not submit it. So the typing
+    waits for a quiet transcript, and the command is confirmed (compact_boundary / a new transcript) or Enter is
+    pressed again on the next quiet moment, up to RETRIES times."""
+    before, start = compactions(transcript), time.time()
+    deadline = start + 900
     time.sleep(DELAY)
+    wait_quiet(transcript, deadline)
     # Two Enters: the first may only accept the slash-command completion; on an empty prompt the second does nothing.
     type_into(tty, cmd, 2)
+    done = (lambda: compactions(transcript) > before) if cmd == "/compact" else (lambda: cleared(transcript, start))
+    for attempt in range(RETRIES):
+        t = time.time() + CONFIRM_S
+        while not done() and time.time() < t:
+            time.sleep(2)
+        if done():
+            break
+        if not wait_quiet(transcript, deadline):
+            break
+        type_into(tty, "", 1, wipe=False)
+        log(f"{cmd}: not run yet, Enter again ({attempt + 1}/{RETRIES})")
     if cmd == "/compact":
-        deadline = time.time() + 900
-        while compactions(transcript) <= before and time.time() < deadline:
+        while not done() and time.time() < deadline:
             time.sleep(3)
-        if compactions(transcript) <= before:
-            log("no compact_boundary within 15 min: continue prompt not typed")
-            return
+    if not done():
+        log(f"{cmd} did not run within 15 min: continue prompt not typed")
+        return
     time.sleep(4)
     type_into(tty, RESUME[cmd], 2)
 
