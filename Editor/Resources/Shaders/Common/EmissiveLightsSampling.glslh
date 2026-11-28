@@ -34,6 +34,7 @@
 //   [kEmissiveGridHeaderRows + cell * kEmissiveGridSlots / 2 + slot / 2], .xy for an even slot, .zw for an odd one:
 //       x = cluster (floatBitsToUint; kEmissiveNone = the remainder), y = the slot's upper bound in the cell's CDF.
 //   The bounds do not decrease along the slots; the last slot's bound is 1; a slot of zero width is never picked.
+//   Pick and pdf read the slots through one walk (EmissiveGridSlotRange), which holds those three to the rows.
 //   A cluster is named by at most one slot of a cell. Cluster k < [3].y is node k of the static tree's level [2].w;
 //   the others are node k - [3].y of the dynamic tree's level [3].x. An empty list has one cell: the remainder.
 
@@ -128,16 +129,18 @@ EmissiveTriangle EmissiveLightsTriangle(uint triangle, uvec4 s)
     return triangle < s.x ? emissiveTriangles[triangle] : emissiveDynamicTriangles[triangle - s.x];
 }
 
-// The radiance @p triangle (row @p t) emits: its segment's material estimate (colour x intensity) scaled by the
-// emissive map's average over the triangle, which its power carries (power = luminance x map average x area,
-// "EmissiveLights: Build"). The one value for the surface cache, MegaLights and the radiance cache.
+// The radiance @p triangle (row @p t) emits: the rgb "EmissiveLights: Build" stored in the row's Edge2Segment.w
+// (EmissivePackRadiance: the material's colour x intensity times the emissive map's rgb average over the triangle;
+// its power is that rgb's luminance x area). The one value for the surface cache, MegaLights and the radiance
+// cache. @p triangle and @p s name the row's part for every reader of the list; the row alone holds the value.
 vec3 EmissiveLightsRadiance(uint triangle, EmissiveTriangle t, uvec4 s)
 {
-    const uint row      = floatBitsToUint(t.Edge2Segment.w);
-    const vec4 radiance = triangle < s.x ? emissiveSegments[row].Radiance : emissiveDynamicSegments[row].Radiance;
-    if (radiance.w <= 0.0 || t.P0Area.w <= 0.0)
+    const uint packed = floatBitsToUint(t.Edge2Segment.w);
+    const uint biased = packed >> 24u;
+    if (biased == 0u)
         return vec3(0.0);
-    return radiance.rgb * (t.Edge1Power.w / (t.P0Area.w * radiance.w));
+    const vec3 mantissa = vec3(uvec3(packed, packed >> 8u, packed >> 16u) & uvec3(0xFFu));
+    return mantissa * exp2(float(int(biased) - 136));
 }
 
 // The list's triangle a hit met (gl_InstanceID, gl_GeometryIndexEXT, gl_PrimitiveID of the hit), or kEmissiveNone
@@ -205,6 +208,28 @@ vec2 EmissiveGridSlot(uint cell, uint slot)
     return (slot & 1u) == 0u ? row.xy : row.zw;
 }
 
+// THE ONE WALK over a cell's slots, for the pick and its pdf alike: slot @p slot owns [@p lower, @p upper) of the
+// cell's CDF, @p lower = the previous slot's @p upper (0 for slot 0). The upper is the stored bound held to
+// [lower, 1], and the last slot's is 1, so the slots partition [0, 1) whatever the rows hold. Returns the cluster
+// the slot names (kEmissiveNone = the remainder).
+uint EmissiveGridSlotRange(uint cell, uint slot, float lower, out float upper)
+{
+    const vec2 entry = EmissiveGridSlot(cell, slot);
+    upper            = slot + 1u == kEmissiveGridSlots ? 1.0 : clamp(entry.y, lower, 1.0);
+    return floatBitsToUint(entry.x);
+}
+
+// A triangle of the cluster @p named (or of the whole list for the remainder), @p u in [0, 1) consumed.
+uint EmissiveGridDescend(uint named, float u, uvec4 s, uvec4 d)
+{
+    const uint staticClusters = floatBitsToUint(emissiveGrid[3].y);
+    if (named == kEmissiveNone)
+        return EmissiveLightsPick(u, s, d);
+    if (named < staticClusters)
+        return EmissiveLightsDescendFrom(false, s, named, floatBitsToUint(emissiveGrid[2].w), u);
+    return s.x + EmissiveLightsDescendFrom(true, d, named - staticClusters, floatBitsToUint(emissiveGrid[3].x), u);
+}
+
 // The probability the GRID sampler picks @p triangle for a receiver in @p cell (the exact mixture).
 float EmissiveGridPickPdf(uint cell, uint triangle, uvec4 s, uvec4 d)
 {
@@ -217,18 +242,19 @@ float EmissiveGridPickPdf(uint cell, uint triangle, uvec4 s, uvec4 d)
     const uvec4 part           = dynamicPart ? d : s;
     const float power          = EmissivePowerAt(dynamicPart, local);
     const float clusterPower   = EmissivePowerAt(dynamicPart, EmissivePowerLevelOffset(part.y, level) + node);
+    // Every slot that can return the triangle adds its width x the triangle's share of it.
     float pdf   = 0.0;
     float lower = 0.0;
     for (uint slot = 0u; slot < kEmissiveGridSlots; ++slot)
     {
-        const vec2  entry  = EmissiveGridSlot(cell, slot);
-        const float weight = entry.y - lower;
-        lower              = entry.y;
-        const uint  named  = floatBitsToUint(entry.x);
+        float      upper;
+        const uint named  = EmissiveGridSlotRange(cell, slot, lower, upper);
+        const float width = upper - lower;
+        lower             = upper;
         if (named == kEmissiveNone)
-            pdf += weight * EmissiveLightsPickPdf(triangle, s, d);
+            pdf += width * EmissiveLightsPickPdf(triangle, s, d);
         else if (named == cluster && clusterPower > 0.0)
-            pdf += weight * power / clusterPower;
+            pdf += width * power / clusterPower;
     }
     return pdf;
 }
@@ -237,25 +263,19 @@ float EmissiveGridPickPdf(uint cell, uint triangle, uvec4 s, uvec4 d)
 // EmissiveGridPickPdf(cell, result, s, d). The list's total must be > 0.
 uint EmissiveGridPick(uint cell, float u, uvec4 s, uvec4 d)
 {
-    const uint staticClusters = floatBitsToUint(emissiveGrid[3].y);
-    float      lower          = 0.0;
-    for (uint slot = 0u; slot < kEmissiveGridSlots; ++slot)
+    // The slot whose [lower, upper) holds u; the slots partition [0, 1), so the last one closes the walk.
+    float lower = 0.0;
+    for (uint slot = 0u; slot + 1u < kEmissiveGridSlots; ++slot)
     {
-        const vec2 entry = EmissiveGridSlot(cell, slot);
-        if (u < entry.y && entry.y > lower)
-        {
-            const float inside = min((u - lower) / (entry.y - lower), 0.99999994);
-            const uint  named  = floatBitsToUint(entry.x);
-            if (named == kEmissiveNone)
-                return EmissiveLightsPick(inside, s, d);
-            if (named < staticClusters)
-                return EmissiveLightsDescendFrom(false, s, named, floatBitsToUint(emissiveGrid[2].w), inside);
-            return s.x + EmissiveLightsDescendFrom(true, d, named - staticClusters,
-                                                   floatBitsToUint(emissiveGrid[3].x), inside);
-        }
-        lower = max(lower, entry.y);
+        float      upper;
+        const uint named = EmissiveGridSlotRange(cell, slot, lower, upper);
+        if (u < upper)
+            return EmissiveGridDescend(named, min((u - lower) / (upper - lower), 0.99999994), s, d);
+        lower = upper;
     }
-    return EmissiveLightsPick(u, s, d); // unreachable under the contract (the last bound is 1): the global pick
+    float      upper;
+    const uint named = EmissiveGridSlotRange(cell, kEmissiveGridSlots - 1u, lower, upper);
+    return EmissiveGridDescend(named, min((u - lower) / max(upper - lower, 1e-30), 0.99999994), s, d);
 }
 #endif // EMISSIVE_LIGHTS_GRID
 

@@ -108,6 +108,23 @@ Shader "EmissiveLights"
                 return max(SampleBindlessLod(map, (uv0 + uv1 + uv2) / 3.0, lod).rgb, vec3(0.0));
             }
 
+            // The triangle's emitted radiance in the row's Edge2Segment.w: a shared 8-bit exponent (bias 136 with the
+            // mantissas) over three 8-bit mantissas, the HDR range of a float at 1/256 of the brightest channel.
+            // Decoded by EmissiveLightsRadiance (Common/EmissiveLightsSampling.glslh); 0 = no emission.
+            uint EmissivePackRadiance(vec3 radiance)
+            {
+                const float brightest = max(radiance.r, max(radiance.g, radiance.b));
+                if (!(brightest > 1e-30))
+                    return 0u;
+                int exponent;
+                frexp(brightest, exponent); // brightest = f x 2^exponent, f in [0.5, 1)
+                const int biased = exponent + 128;
+                if (biased <= 0)
+                    return 0u;
+                const uvec3 m = uvec3(min(round(radiance * exp2(float(8 - exponent))), vec3(255.0)));
+                return m.r | (m.g << 8u) | (m.b << 16u) | (uint(min(biased, 255)) << 24u);
+            }
+
             // The segment whose triangle range holds @p triangle: the rows are end to end in ascending FirstTriangle.
             uint EmissiveSegmentOf(uint triangle)
             {
@@ -164,12 +181,14 @@ Shader "EmissiveLights"
                 const vec3            e1          = EmissivePosition(s, v1) - p0;
                 const vec3            e2          = EmissivePosition(s, v2) - p0;
                 const float           area        = 0.5 * length(cross(e1, e2));
+                // The triangle's ONE radiance: the material's colour x intensity times the emissive map's rgb
+                // average over the triangle; its power (the tree's weight) is that same rgb's luminance x area.
                 const vec3            emitted     = s.Radiance.rgb * EmissiveTexelAverage(s, v0, v1, v2);
                 const float           power       = dot(emitted, vec3(0.2126, 0.7152, 0.0722)) * area;
                 EmissiveTriangle      t;
                 t.P0Area                  = vec4(p0, area);
                 t.Edge1Power              = vec4(e1, power);
-                t.Edge2Segment            = vec4(e2, uintBitsToFloat(row));
+                t.Edge2Segment            = vec4(e2, uintBitsToFloat(EmissivePackRadiance(emitted)));
                 emissiveTriangles[leaf]   = t;
                 emissivePower[leaf]       = power;
             }
@@ -505,11 +524,14 @@ Shader "EmissiveLights"
                 for (uint slot = 0u; slot < held; ++slot)
                     top += EmissiveReadSlot(cell, slot).y;
                 const float remainder = total > 0.0 ? max(Weights.x, (total - top) / total) : 1.0;
+                // Each held cluster once, its bound the running sum: nondecreasing by construction, held to
+                // 1 - remainder against rounding, so the remainder's width is never below its floor.
+                const float heldTop  = 1.0 - remainder;
                 float       bound     = 0.0;
                 for (uint slot = 0u; slot < held; ++slot)
                 {
                     const vec2 entry = EmissiveReadSlot(cell, slot);
-                    bound += (1.0 - remainder) * entry.y / top;
+                    bound = slot + 1u == held ? heldTop : min(bound + heldTop * entry.y / top, heldTop);
                     EmissiveWriteSlot(cell, slot, vec2(entry.x, bound));
                 }
                 // Unused slots: zero width at the last bound (never picked, no pdf).
