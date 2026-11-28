@@ -40,8 +40,10 @@
 # The break (3G D5): scn-1128-122309 stopped at the step after day_mute_ss (frames 256 after Reflections.Method
 # HardwareTraced came back under HardwareTraced refraction): "the editor closed the connection", run_capped exit=1
 # peak 8986 MB; no day_rt_b, refr_split, day_rt_shift - the run noise on Hardware GI was never measured. The cause is
-# not proven, so day_mute_ss is the last step with the glass: every frame a statement reads stands before it, and
-# only the recorded experiments (the glass deleted) come after it.
+# not proven, so day_mute_ss is the last step with the glass: every frame a statement reads stands before it, except
+# day_rt_open (the reference of [day_rt]); the refraction goes to ScreenSpace right after day_mute_ss, so the reflection
+# method never comes back under HardwareTraced refraction there, and the pair deleted, the refraction method does not
+# touch the open frames. Only day_rt_open and the recorded experiments (the glass deleted) come after day_mute_ss.
 # One branch (3H D3): the end of a refraction path is lit in place at every tier (GIHitRadianceLit +
 # RadianceCacheRequestMark), whatever Reflections.HitLighting says - the row now selects the reflection hits only.
 # day_rt is HitLighting 0 (High), refr_split HitLighting 1 (Cinematic) of one camera: the band and the pane of the
@@ -172,7 +174,7 @@
 # --- the shift pair (3G D4): the camera 50 cm aside, the direction kept; then back
 Когда --subject viewport set Camera.Position -346,300,-905
 Когда frames 256
-Тогда-вид day_rt_shift day, HardwareTraced, the camera of day_pt_shift (-346,300,-905, the same direction), 256 frames after the move: behind the glass the same surfaces as in day_pt_shift, no black underside; the band x1085-1230 y185-235 of THIS frame (the underside of the slab 4279 behind the upper right sash, the window ~150 px right of day_rt) L_lin not below 0.10 - the day_rt rule at this camera, its ratio to the same rectangle x1085-1230 y185-235 of day_pt_shift written down (3G D4; the rest to the path tracer is 3H D5, open)
+Тогда-вид day_rt_shift day, HardwareTraced, the camera of day_pt_shift (-346,300,-905, the same direction), 256 frames after the move: behind the glass the same surfaces as in day_pt_shift; the band x1085-1230 y185-235 of THIS frame (the underside of the slab 4279 behind the upper right sash, the window ~150 px right of day_rt) L_lin and its ratio to the same rectangle x1085-1230 y185-235 of day_pt_shift written down, not held - the band's level is the GI task (3H D5, the head; no raster frame without the glass at this camera), recorded (3G D4)
 Когда --subject viewport set Camera.Position -370,300,-861
 Когда --subject viewport set Camera.Direction 0.9940,0.07,0.1094
 Когда frames 32
@@ -184,6 +186,7 @@
 Когда run Quality "Quality: Reflections.Method ScreenSpace"
 Когда frames 256
 Тогда-вид day_mute_ss day, HardwareTraced refraction, Translucency.RefractionComposite 0, Reflections.Method ScreenSpace, the camera of day_rt_mute: record whether the grey gradient of the left column (light at the top, black at the bottom in day_rt and day_rt_mute, where day_pt shows the sky and the brick wall) stays - stays: the glass layer's own reflection whatever the method; gone: the HardwareTraced reflection of the glass layer (3E D4, 3G D9, recorded, open)
+Когда run Quality "Quality: Translucency.Refraction ScreenSpace"
 Когда run Quality "Quality: Reflections.Method HardwareTraced"
 Когда run Quality "Quality: Translucency.RefractionComposite Level"
 # --- day without the shop window: the pair _4711 + _4875 deleted together, never one sheet (3H D7; not saved); the
@@ -193,7 +196,7 @@
 Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
 Когда run Quality "Quality: Reflections.Method PathTraced"
 Когда frames 256
-Тогда-вид day_pt_open day, path tracer, the window pair _4711 + _4875 deleted: no green fill anywhere in the pane (3H D7) - the empty shell behind the window without the glass; raster (day_rt_open) and path tracer show one shell, the same surfaces; a stop of the run at this step after day_mute_ss is the 3G D5 break again (the reflection method switched back under HardwareTraced refraction), recorded
+Тогда-вид day_pt_open day, path tracer, the window pair _4711 + _4875 deleted: no green fill anywhere in the pane (3H D7) - the empty shell behind the window without the glass; raster (day_rt_open) and path tracer show one shell, the same surfaces; a stop of the run at this step after day_mute_ss is a break the 3G D5 cause does not explain (the reflection method came back under ScreenSpace refraction), recorded
 Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
 Когда run Quality "Quality: Reflections.Method HardwareTraced"
 Когда frames 512
