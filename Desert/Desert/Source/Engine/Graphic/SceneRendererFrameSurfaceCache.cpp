@@ -387,6 +387,16 @@ namespace Desert::Graphic
                 LOG_ERROR( "[SceneRenderer] Surface Cache: {}", tiles.GetError() );
                 return;
             }
+        // The scene's one emissive triangle list (the path tracer's, built from the scene's meshes), once per graph:
+        // the cards' direct lighting samples it when this view updates them, and the radiance cache's probes read it
+        // from the record in every view (GI-TEMPORAL2 D4, RadianceCacheUpdateInputs::Emissive).
+        auto emissiveList = AddFrameEmissiveLights( graph );
+        if ( !emissiveList )
+        {
+            LOG_ERROR( "[SceneRenderer] Surface Cache: the emissive lights: {}", emissiveList.GetError() );
+            return;
+        }
+        const RayTracing::EmissiveLightsFrame emissive = emissiveList.GetValue();
         if ( updated )
         {
             const FrameGraphRefs                                     refs = textures.GraphRefs();
@@ -414,17 +424,8 @@ namespace Desert::Graphic
             lighting.Light1Color  = light1.ColorIntensity;
             // The shadow rays of the texels the view's maps do not hold: the active GI tracer's visibility.
             lighting.Tracer = MakeTracerFrame( graph, textures, SurfaceCacheTracer() );
-            // The emissive surfaces as lights (GI-EMISSIVE-LIGHTS): either tracer's program samples the scene's one
-            // emissive triangle list (the path tracer's), built from the scene's meshes.
-            {
-                auto emissive = AddFrameEmissiveLights( graph );
-                if ( !emissive )
-                {
-                    LOG_ERROR( "[SceneRenderer] Surface Cache: the emissive lights: {}", emissive.GetError() );
-                    return;
-                }
-                lighting.Emissive = emissive.GetValue();
-            }
+            // The emissive surfaces as lights (GI-EMISSIVE-LIGHTS): either tracer's program samples the list.
+            lighting.Emissive = emissive;
             // The traced GI relights the pages' indirect term after its radiance cache update (AddFrameTracedGI).
             lighting.IndirectLighting = RadianceCacheRuns();
             lighting.VirtualLocalShadows = LocalLightsReadVirtualPages();
@@ -464,6 +465,10 @@ namespace Desert::Graphic
         record.Buffers = records;
         record.Hits    = cache->HitReads( import, records );
         record.Updated = updated;
+        // What the radiance cache's probe hits take their emission from (GI_HIT_EXCLUDES_EMISSION): the list, and
+        // the cards' Emissive layer a card hit subtracts (the atlas layer "SurfaceCache.Emissive").
+        record.Emissive      = emissive;
+        record.EmissiveLayer = cache->EmissiveLayer( import );
         m_SurfaceCacheFrame.emplace( std::move( record ) );
     }
 

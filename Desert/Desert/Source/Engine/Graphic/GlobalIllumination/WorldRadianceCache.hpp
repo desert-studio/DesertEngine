@@ -6,6 +6,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/Systems/RayTracing/EmissiveLightsFrame.hpp>
 
 #include <glm/glm.hpp>
 
@@ -83,6 +84,12 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::TextureRef   EnvSpecular;  // the sky's radiance cube (or the system black cube)
         TracerFrame       Tracer;       // the active tracer and its reads (GITracing.hpp)
         SurfaceCacheFrame SurfaceCache; // the surface cache a hit reads first (GITracing.hpp)
+        // A probe ray's hit reads its lighting without its own emission (GI_HIT_EXCLUDES_EMISSION): the listed
+        // emitters reach the probe by sampling this list instead (RadianceCacheTrace's candidates). Required.
+        RayTracing::EmissiveLightsFrame Emissive;
+        // The surface cache's Emissive layer (the cards' emission a card hit subtracts); required when the hits
+        // read the cards.
+        RDG::TextureRef SurfaceCacheEmissive;
         RDG::BufferRef    PointLights;
         RDG::BufferRef    SpotLights;
         // The light function atlas the rows' tiles name (ViewLightBuffers::LightFunctionAtlas); invalid = none.
@@ -251,7 +258,7 @@ namespace Desert::Graphic::GlobalIllumination
         };
 
         // std430 RadianceCachePush (WorldRadianceCache.cpp, Common/RadianceCacheState.glslh), carried as bytes.
-        static constexpr size_t kPushBytes = 48;
+        static constexpr size_t kPushBytes = 80;
         // One update's graph resources and dispatch shapes, from AddUpdatePasses to its AddFilterPass.
         struct UpdateDeclaration
         {

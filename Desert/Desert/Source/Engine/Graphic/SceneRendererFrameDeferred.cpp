@@ -606,10 +606,10 @@ namespace Desert::Graphic
         inputs.GBufferShadingWord = gbuffer[2];
         inputs.EnvSpecular     = SceneViewInputsOf( refs ).EnvSpecular;
         inputs.Tracer          = MakeTracerFrame( graph, textures, m_GIPipeline );
-        // The cards a hit reads first (AddFrameSurfaceCache, earlier in this graph); a frame without them is
-        // refused by the consumers (SurfaceCacheFrameMissing), never traced against stale records.
-        if ( m_SurfaceCacheFrame )
-            inputs.SurfaceCache = m_SurfaceCacheFrame->Hits;
+        // The cards, the emissive list and the cards' Emissive layer (AddFrameSurfaceCache); none = refused, not stale.
+        inputs.SurfaceCache         = m_SurfaceCacheFrame ? m_SurfaceCacheFrame->Hits : GlobalIllumination::SurfaceCacheFrame{};
+        inputs.Emissive             = m_SurfaceCacheFrame ? m_SurfaceCacheFrame->Emissive : RayTracing::EmissiveLightsFrame{};
+        inputs.SurfaceCacheEmissive = m_SurfaceCacheFrame ? m_SurfaceCacheFrame->EmissiveLayer : RDG::TextureRef{};
         inputs.PointLights     = t.Lights.Point;
         inputs.SpotLights      = t.Lights.Spot;
         inputs.LightFunctionAtlas = t.Lights.LightFunctionAtlas;

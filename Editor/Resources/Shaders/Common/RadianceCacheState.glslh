@@ -216,6 +216,10 @@ PushConstant RadianceCachePush
     uint  MarkFallback;     // 1: Mark stamps the clipmap past the coarse end (the screen probes' fallback)
     uint  RefreshMinFrames; // RadianceCache::kProbeRefreshMinFrames: an event-less probe's frames between traces
     uint  RefreshBudget;    // FPS-RC-BUDGET: the most event-less (age) probes Select lists a frame (the budget on a full update)
+    // The scene emissive list's params (RayTracing::EmissiveLightsFrame::StaticParams / DynamicParams) the Trace
+    // pass samples its candidates with (Common/EmissiveLightsSampling.glslh s / d); zero in the other passes.
+    uvec4 EmissiveCounts;
+    uvec4 EmissiveDynamicCounts;
 };
 
 // THE ATLAS UNDER PRESSURE (PROBE-TURN-1; not in UE, which keeps an unread probe NumFramesToKeepCachedProbes frames

@@ -73,6 +73,51 @@ Shader "RadianceCacheTrace"
         #include <Common/RadianceCache.glslh>
         #define GI_TRACER_BINDING 32
         #include <Common/GITracer.glslh>
+        // GI-TEMPORAL2 D4: a probe ray's hit reads its lighting WITHOUT its own emission (the radiosity's rule): the
+        // scene's listed emitters reach the probe only through the candidates below (main), sampled from the scene
+        // emissive list's grid (RayTracing::EmissiveLightsFrame, WorldRadianceCache.cpp binds 44..51), so a lamp
+        // smaller than a texel gives the texel its mean every update instead of its full radiance on a lucky ray.
+        #define GI_HIT_EXCLUDES_EMISSION
+        #define EMISSIVE_LIGHTS_GRID
+        #include <Common/EmissiveLights.glslh>
+        layout(std430, binding = 44) readonly buffer EmissiveSegmentsUB
+        {
+            EmissiveSegment emissiveSegments[];
+        };
+        layout(std430, binding = 45) readonly buffer EmissiveLookupUB
+        {
+            uint emissiveLookup[];
+        };
+        layout(std430, binding = 46) readonly buffer EmissiveTrianglesUB
+        {
+            EmissiveTriangle emissiveTriangles[];
+        };
+        layout(std430, binding = 47) readonly buffer EmissivePowerUB
+        {
+            float emissivePower[];
+        };
+        layout(std430, binding = 48) readonly buffer EmissiveDynamicSegmentsUB
+        {
+            EmissiveSegment emissiveDynamicSegments[];
+        };
+        layout(std430, binding = 49) readonly buffer EmissiveDynamicTrianglesUB
+        {
+            EmissiveTriangle emissiveDynamicTriangles[];
+        };
+        layout(std430, binding = 50) readonly buffer EmissiveDynamicPowerUB
+        {
+            float emissiveDynamicPower[];
+        };
+        layout(std430, binding = 51) readonly buffer EmissiveGridUB
+        {
+            vec4 emissiveGrid[];
+        };
+        #include <Common/EmissiveLightsSampling.glslh>
+        #if !defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
+        // The cards' Emissive layer a card hit subtracts (Common/SurfaceCacheSampling.glslh, GI_HIT_EXCLUDES_EMISSION).
+        Uniform(31) texture2D SurfaceCacheEmissiveTexture;
+        #define SurfaceCacheEmissiveTexture sampler2D(SurfaceCacheEmissiveTexture, PointClampSampler)
+        #endif
         #define GI_SURFACE_CACHE_BINDING 24
         // FPS-GI-VOXEL-LIGHT-3: a software probe ray's global-field hit takes its directional shadow from the global
         // field's voxel lighting at 43 (Common/GIHitLighting.glslh declares it on software tracers only;
@@ -91,6 +136,59 @@ Shader "RadianceCacheTrace"
             v ^= v >> 16u;
             v.x += v.y * v.z; v.y += v.z * v.x;
             return vec2( v.xy & 0xFFFFu ) / 65536.0;
+        }
+
+        // The probe's emitter candidates: one per thread of the 8x8 group (every group tracing the probe draws the
+        // same 64 from the probe and the frame), each with the oct texel its direction falls in (no jitter) and its
+        // contribution to that texel's mean radiance.
+        #define RC_EMISSIVE_CANDIDATES 64u
+        shared vec4 rcCandidateDirDist[RC_EMISSIVE_CANDIDATES]; // xyz: unit direction, w: distance (cm); 0 = none
+        shared vec4 rcCandidateContrib[RC_EMISSIVE_CANDIDATES]; // rgb: texel radiance, w: texel row index (bits)
+
+        uvec3 CandidateHash( uint probe, uint frame, uint candidate )
+        {
+            uvec3 v = uvec3( probe, frame, candidate ^ 0x9E3779B9u ) * 1664525u + 1013904223u;
+            v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+            v ^= v >> 16u;
+            v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+            return v;
+        }
+
+        // Candidate @p candidate of the probe at @p position: a triangle from the probe's grid cell (EmissiveGridPick,
+        // pdf EmissiveGridPickPdf), a point uniform on it, and its estimate of the mean radiance of the oct texel its
+        // direction falls in: L |cos_light| A / (d^2 pdf N Omega_texel). Omega_texel is the texel's solid angle at
+        // that direction: the oct map's (2 / traceRes)^2 of map area times dOmega / dA_map = (|x| + |y| + |z|)^3 of
+        // the unit direction. No clamp: the grid's pdf is positive for every triangle with power (the contract's
+        // remainder), and the history averages the rest.
+        void EmissiveCandidate( uint probe, vec3 position, uint traceRes, uint candidate )
+        {
+            rcCandidateDirDist[candidate] = vec4( 0.0 );
+            rcCandidateContrib[candidate] = vec4( 0.0 );
+            if ( EmissiveLightsTotal( EmissiveCounts, EmissiveDynamicCounts ) <= 0.0 )
+                return;
+            const uvec3 h        = CandidateHash( probe, FrameIndex, candidate );
+            const vec3  u        = vec3( h & 0xFFFFFFu ) / 16777216.0;
+            const uint  cell     = EmissiveGridCell( position );
+            const uint  triangle = EmissiveGridPick( cell, u.x, EmissiveCounts, EmissiveDynamicCounts );
+            if ( triangle == kEmissiveNone )
+                return;
+            const float            pdf = EmissiveGridPickPdf( cell, triangle, EmissiveCounts, EmissiveDynamicCounts );
+            const EmissiveTriangle tri = EmissiveLightsTriangle( triangle, EmissiveCounts );
+            const vec3             toLight  = EmissiveLightsSamplePoint( tri, u.yz ) - position;
+            const float            distance = length( toLight );
+            if ( pdf <= 0.0 || distance <= 1e-3 || tri.P0Area.w <= 0.0 )
+                return;
+            const vec3  dir   = toLight / distance;
+            const float cosL  = abs( dot( EmissiveLightsNormal( tri ), dir ) );
+            const float l1    = abs( dir.x ) + abs( dir.y ) + abs( dir.z );
+            const float omega = 4.0 / float( traceRes * traceRes ) * l1 * l1 * l1;
+            const vec3  value = EmissiveLightsRadiance( triangle, tri, EmissiveCounts ) * ( cosL * tri.P0Area.w ) /
+                               ( distance * distance * pdf * float( RC_EMISSIVE_CANDIDATES ) * omega );
+            const ivec2 texel = min( ivec2( ( RadianceCacheOctEncode( dir ) * 0.5 + 0.5 ) * float( traceRes ) ),
+                                     ivec2( int( traceRes ) - 1 ) );
+            rcCandidateDirDist[candidate] = vec4( dir, distance );
+            rcCandidateContrib[candidate] =
+                 vec4( value, uintBitsToFloat( uint( texel.y ) * traceRes + uint( texel.x ) ) );
         }
 
         void main()
@@ -130,6 +228,10 @@ Shader "RadianceCacheTrace"
             const uvec2 square  = uvec2( tile % tilesPerSide, tile / tilesPerSide );
             const ivec2 t       = ivec2( square * 8u + gl_LocalInvocationID.xy );
             const uint  quarter = ( gl_LocalInvocationID.y / 4u ) * 2u + gl_LocalInvocationID.x / 4u;
+            // Every thread of the group draws one candidate before any leaves (the return above is the group's);
+            // the texel threads read all 64 after the barrier.
+            EmissiveCandidate( probe, position, traceRes, gl_LocalInvocationIndex );
+            barrier();
             if ( t.x < int( traceRes ) && t.y < int( traceRes ) && ( ( skip >> quarter ) & 1u ) == 0u )
             {
                 // The texel's row-order index: its jitter sequence (the same ray whatever the tile shape).
@@ -147,7 +249,18 @@ Shader "RadianceCacheTrace"
                 ray.farTMin   = 0.0; // a probe in free space leaves no surface
                 float      hitDistance;
                 // The far field alone (UE TraceFromProbesCS: the global SDF, no mesh SDFs; GIRayRadianceFarField).
-                const vec3 radiance = GIRayRadianceFarField( ray, hitDistance );
+                vec3       radiance = GIRayRadianceFarField( ray, hitDistance );
+                // The emitters' share of this texel: the candidates whose direction falls in it, each behind the
+                // tracer's coarse-field shadow ray to its point (x 0.99: the emitter's own surface is no occluder).
+                for ( uint c = 0u; c < RC_EMISSIVE_CANDIDATES; ++c )
+                {
+                    const vec4 dirDist = rcCandidateDirDist[c];
+                    const vec4 contrib = rcCandidateContrib[c];
+                    if ( dirDist.w <= 0.0 || floatBitsToUint( contrib.w ) != texel )
+                        continue;
+                    radiance += contrib.rgb *
+                                GITraceVisibilityGlobalField( position, dirDist.xyz, 0.0, dirDist.w * 0.99 );
+                }
                 const vec4 traced   = vec4( radiance, hitDistance );
                 // The atlas texels the ray stands for: itself, or its 2x2 or 4x4 block (the last row and column of
                 // blocks of a res that is no multiple of the block is cut at the probe's edge).

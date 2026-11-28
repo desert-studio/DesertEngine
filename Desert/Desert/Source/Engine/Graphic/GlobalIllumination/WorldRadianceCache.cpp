@@ -54,6 +54,17 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheMarkPointsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheUpdateCountsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheDispatchArgsUB );
+        // The scene emissive list the Trace pass samples (RayTracing::EmissiveLightsFrame,
+        // Common/EmissiveLightsSampling.glslh) and the cards' Emissive layer a card hit subtracts.
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveSegmentsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveLookupUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveTrianglesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissivePowerUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicSegmentsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicTrianglesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicPowerUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveGridUB );
+        DESERT_SHADER_PARAMETER( Texture, SurfaceCacheEmissiveTexture );
     };
 } // namespace
 
@@ -331,6 +342,16 @@ namespace Desert::Graphic::GlobalIllumination
         if ( const std::string_view missing = SurfaceCacheFrameMissing( inputs.SurfaceCache );
              readsCards && !missing.empty() )
             return Common::MakeFormattedError<RadianceCacheFrame>( "radiance cache: {}", missing );
+        // GI-TEMPORAL2 D4: a probe ray's hit reads its lighting without its own emission (GI_HIT_EXCLUDES_EMISSION,
+        // RadianceCacheTrace.shader); the listed emitters reach the probe only through the list's candidates.
+        if ( !inputs.Emissive.Valid )
+            return Common::MakeError<RadianceCacheFrame>(
+                 "radiance cache: the probe hits leave emission to light sampling (GI_HIT_EXCLUDES_EMISSION) and the "
+                 "frame built no emissive list (RadianceCacheUpdateInputs::Emissive)" );
+        if ( readsCards && !inputs.SurfaceCacheEmissive.IsValid() )
+            return Common::MakeError<RadianceCacheFrame>(
+                 "radiance cache: a card hit subtracts the cards' emission and the frame gave no surface cache "
+                 "Emissive layer (RadianceCacheUpdateInputs::SurfaceCacheEmissive)" );
         // FPS-GI-VOXEL-LIGHT-3: a software hit that reads the cards shadows its directional lights from the voxel
         // lighting (GIHitLighting.glslh GI_HIT_VOXEL_LIGHTING); the Trace pass binds it under the same rule.
         if ( const std::string_view missing = VoxelLightingMissing( inputs.Tracer );
@@ -425,6 +446,9 @@ namespace Desert::Graphic::GlobalIllumination
         push.RefreshMinFrames = RadianceCache::kProbeRefreshMinFrames;
         push.RefreshBudget    = fullUpdate ? traced
                                            : std::max( 1u, shape.ProbesPerFrame / RadianceCache::kRefreshBudgetDivisor );
+        // The Trace pass's candidates (DeclarePass zeroes them in the passes that sample no light).
+        push.EmissiveCounts        = inputs.Emissive.StaticParams();
+        push.EmissiveDynamicCounts = inputs.Emissive.DynamicParams();
         m_Reset            = false;
 
         const uint32_t   grid      = shape.GridResolution;
@@ -539,6 +563,11 @@ namespace Desert::Graphic::GlobalIllumination
         const RDG::BufferRef  frame        = update.GIFrame;
         ShaderPush::RadianceCachePush     push;
         std::memcpy( &push, update.Push.data(), sizeof( push ) );
+        if ( pass != Trace )
+        {
+            push.EmissiveCounts        = glm::uvec4( 0u );
+            push.EmissiveDynamicCounts = glm::uvec4( 0u );
+        }
         {
             ComputePipeline* const pipeline = m_Pipelines[pass].get();
             const glm::uvec3       count    = update.Groups[pass];
@@ -595,7 +624,26 @@ namespace Desert::Graphic::GlobalIllumination
                      {
                          DeclareTracerReads( block, inputs->Tracer );
                          if ( readsCards )
+                         {
                              DeclareSurfaceCacheReads( block, inputs->SurfaceCache );
+                             block.Texture( WorldRadianceCacheShaderParameters::SurfaceCacheEmissiveTexture,
+                                            inputs->SurfaceCacheEmissive, kS, all );
+                         }
+                         const RayTracing::EmissiveLightsFrame& emissive = inputs->Emissive;
+                         block.Storage( WorldRadianceCacheShaderParameters::EmissiveSegmentsUB,
+                                        emissive.Static.Segments, kR )
+                              .Storage( WorldRadianceCacheShaderParameters::EmissiveLookupUB, emissive.Lookup, kR )
+                              .Storage( WorldRadianceCacheShaderParameters::EmissiveTrianglesUB,
+                                        emissive.Static.Triangles, kR )
+                              .Storage( WorldRadianceCacheShaderParameters::EmissivePowerUB, emissive.Static.Power,
+                                        kR )
+                              .Storage( WorldRadianceCacheShaderParameters::EmissiveDynamicSegmentsUB,
+                                        emissive.Dynamic.Segments, kR )
+                              .Storage( WorldRadianceCacheShaderParameters::EmissiveDynamicTrianglesUB,
+                                        emissive.Dynamic.Triangles, kR )
+                              .Storage( WorldRadianceCacheShaderParameters::EmissiveDynamicPowerUB,
+                                        emissive.Dynamic.Power, kR )
+                              .Storage( WorldRadianceCacheShaderParameters::EmissiveGridUB, emissive.Grid, kR );
                          if ( readsVoxelLighting )
                              DeclareVoxelLightingReads( block, inputs->Tracer, kS );
                          block.Texture( WorldRadianceCacheShaderParameters::EnvironmentSpecularTexture,
