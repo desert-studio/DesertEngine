@@ -1,0 +1,58 @@
+# GI-TEMPORAL3 acceptance, day half (design S:/aftmp/GI-TEMPORAL3-DESIGN.md, «## Приёмка»; from the experiment
+# S:/aftmp/GI-TEMPORAL3/GT3-DAY.scn without its replay). B16_Bistro_Street, the shop window glass of the two
+# building bottoms deleted, refraction ScreenSpace: the slab underside behind the upper right sash seen bare.
+# One editor session, one pass: GI and Reflections are set HardwareTraced once and never replayed - a
+# PathTraced -> HardwareTraced replay does not reset GI (D6: one nominal age 512 gave the band 0.0785 in the first
+# pass and 0.0048 after the replay), so day_rt_open is the true GI age 512 from the editor start and day_rt_late
+# the true age 1536 of the same pass.
+# Reference: day_pt_open.png of S:/DesertEngine-scratch/GT3-DAY/frames/scn-1128-155558 (band x935-1080 y185-235
+# L_lin 0.2698, wall 0.0965) and pt_up.png of the same run (the slab underside from inside, camera 190,600,-402).
+# Before: the same run (day_rt_open band 0.0785, day_rt_late 0.0017); the day noise is not measured yet (one before
+# run) - the acceptance plays the second run.
+# Side by side: day_pt_open | Before | After, one camera, one exposure.
+# Open and named, recorded here, not judged: D5 (black slab underside), D7 (black day cache). cards_open and cards_up
+# are the experiments: Lumen Scene (Cards) is the card albedo - black = the texel was never captured, coloured =
+# captured and not lit.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: Textures High"
+Дано run Quality "Quality: Filtering High"
+Дано run Quality "Quality: Shadows High"
+Дано run Quality "Quality: GlobalIllumination High"
+Дано run Quality "Quality: Reflections High"
+Дано run Quality "Quality: PostProcess High"
+Дано run Quality "Quality: Effects High"
+Дано run Quality "Quality: ViewDistance High"
+Дано run Quality "Quality: AntiAliasing High"
+Дано run Quality "Quality: ResolutionScale High"
+Дано run Quality "Quality: Shading High"
+Дано run Quality "Quality: PathTracing High"
+Дано run Quality "Quality: Foliage High"
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+Дано --subject viewport set Camera.Position -370,300,-861
+Дано --subject viewport set Camera.Direction 0.8806,0.07,0.4738
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure false
+Когда run Quality "Quality: Translucency.Refraction ScreenSpace"
+Когда run Entity "Delete Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4711"
+Когда run Entity "Delete Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4875"
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда frames 512
+Тогда-вид day_rt_open view Lit, true GI age 512: band x935-1080 y185-235 and wall L_lin recorded beside day_pt_open (0.2698 / 0.0965); D5 open (before: band 0.0785)
+Когда frames 1024
+Тогда-вид day_rt_late 1024 frames later in the same pass, no replay: band L_lin recorded (before: 0.0017)
+Когда run View "View mode: Lumen Scene (Cards)"
+Когда frames 8
+Тогда-вид cards_open view Lumen Scene (Cards), the scenario camera: which surfaces hold cards - the brick wall across the street, the pavement, the slab (experiment D7; before cache_open black but the lamp and a piece of pavement)
+Когда --subject viewport set Camera.Position 190,600,-402
+Когда --subject viewport set Camera.Direction 0.2,0.96,0.2
+Когда frames 128
+Тогда-вид cards_up view Lumen Scene (Cards) from 190,600,-402 looking up: the slab underside black (texel not captured) or concrete (captured, not lit) (experiment D5; the slab is concrete in alb_up / pt_up of scn-1128-155558)
+Когда run View "View mode: Lit"
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Translucency.Refraction Level"
+Когда run Quality "Quality: Resolution.Percent Level"
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure true
+Тогда-вид reset view and Quality rows reset, AutoExposure restored; editor.log: no VUID, no "did not execute", every "RDG extracted EmissiveLights.Grid" line not above before (scn-1128-155558), the frames 512 step (editor.log stamps) no slower than before + 5 %

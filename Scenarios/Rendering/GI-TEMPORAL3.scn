@@ -1,0 +1,51 @@
+# GI-TEMPORAL3 acceptance, night half (design S:/aftmp/GI-TEMPORAL3-DESIGN.md, «## Приёмка»): emissive light
+# carries the colour of its emissive map in the surface cache, the grid pick and its pdf walk one slot range
+# (night Bistro, hardware-traced GI). Replaces GI-TEMPORAL2.scn.
+# One editor session, one pass: the GI age counts from the editor start, the method is set once and never replayed
+# (a PathTraced -> HardwareTraced replay does not reset GI, D6), so every pair <name>_a / <name>_b is two frames of
+# the same pass, 64 frames apart.
+# Before: S:/DesertEngine-scratch/GI-TEMPORAL2/frames/scn-1128-154420; noise 11.97 (second run scn-1128-160242).
+# Lit reference: night_pt.png of S:/DesertEngine-scratch/NG-RT-REFRACTION-NIGHT/frames/scn-1128-103343
+# (columns 126.4 123.1 126.6 152.5 138.1 116.3 108.6 93.8; walls by the garlands orange).
+# Side by side: night_pt | Before | After, one camera, one exposure.
+# Open and named, not judged here: D3 (static cache mosaic), D4 (gi_b brighter than gi_a), D8, D9.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: Textures High"
+Дано run Quality "Quality: Filtering High"
+Дано run Quality "Quality: Shadows High"
+Дано run Quality "Quality: GlobalIllumination High"
+Дано run Quality "Quality: Reflections High"
+Дано run Quality "Quality: PostProcess High"
+Дано run Quality "Quality: Effects High"
+Дано run Quality "Quality: ViewDistance High"
+Дано run Quality "Quality: AntiAliasing High"
+Дано run Quality "Quality: ResolutionScale High"
+Дано run Quality "Quality: Shading High"
+Дано run Quality "Quality: PathTracing High"
+Дано run Quality "Quality: Foliage High"
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+Дано --subject viewport set Camera.Position -370,300,-861
+Дано --subject viewport set Camera.Direction 0.8806,0.07,0.4738
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure false
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run View "View mode: Lumen Scene (Lit)"
+Когда frames 1100
+Тогда-вид scene_a view Lumen Scene (Lit): the walls by the garlands orange, as in night_pt - in the right region x1500-1787 y100-600 mean R > G > B (before: 120,126,96)
+Когда frames 64
+Тогда-вид scene_b the same view 64 frames later in the same pass: pair delta to scene_a at most 3.47 (the larger of the two before pairs: 2.76, 3.47)
+Когда run View "View mode: Indirect Lighting (GI)"
+Когда frames 256
+Тогда-вид gi_a view Indirect Lighting (GI): mean at most 37.10 (the smaller before run 49.07 minus noise 11.97; before: 54.50 / 49.07)
+Когда frames 64
+Тогда-вид gi_b 64 frames later in the same pass: pair delta to gi_a recorded as a number (D4 open, not judged)
+Когда run View "View mode: Lit"
+Когда frames 256
+Тогда-вид base_a view Lit against night_pt: column 8 at most 105.77 (reference 93.8 + noise 11.97; before 142.5 / 135.9); column 7 at most 120.57, recorded (before 134.4 / 120.2, within the noise); the right wall orange
+Когда frames 64
+Тогда-вид base_b 64 frames later in the same pass: pair delta to base_a at most 4.41 (the before pair of the second run)
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Resolution.Percent Level"
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure true
+Тогда-вид reset view Lit, GI method and resolution rows reset, AutoExposure restored; editor.log: no VUID, no "did not execute", every "RDG extracted EmissiveLights.Grid" line not above before, the frames 1100 step (editor.log stamps) no slower than before + 5 %
