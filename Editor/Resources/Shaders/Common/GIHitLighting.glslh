@@ -297,15 +297,25 @@ vec3 GIHitDirectionalGlobalField( GIHitSurface surface, vec3 P, vec3 N, vec3 V, 
 // that lets light through, its far side's on the light it lets through, as the cards take it
 // (Common/SurfaceCacheIndirectLightingTexel.glslh).
 // The read's .a is its validity (RadianceCache.glslh): 1 = a traced probe answered, 0 = none of the eight cells holds
-// one yet, -1 = past the coarsest clipmap. Zero light and "no data" differ: where the interpolated read has no data
-// the smooth read answers (UE LumenRadianceCacheInterpolation: the next clipmap covers), blended over every covering
-// clipmap; where that has none either the bounce is zero this frame, not a substitute.
+// one yet, -1 = past the coarsest clipmap. Zero light and "no data" differ: where the read's clipmap has no traced
+// probe around P, the next coarser clipmap that has one answers (UE's radiance cache fallback), read trilinearly at
+// P itself (RadianceCacheMark stamps those cells for an off-screen reader's request); where none has, the bounce is
+// zero this frame, not a substitute.
 vec3 GIHitBounceIrradiance( vec3 P, vec3 N, vec3 V )
 {
-    vec4 irradiance = RadianceCacheIrradianceAt( P, N, V, 0.5 );
-    if ( irradiance.a <= 0.0 )
-        irradiance = RadianceCacheSmoothIrradianceAt( P, N );
-    return max( irradiance.rgb, vec3( 0.0 ) );
+    const vec4 irradiance = RadianceCacheIrradianceAt( P, N, V, 0.5 );
+    if ( irradiance.a > 0.0 )
+        return max( irradiance.rgb, vec3( 0.0 ) );
+    if ( irradiance.a < 0.0 )
+        return vec3( 0.0 );
+    for ( uint clipmap = RadianceCacheClipmapAt( radianceCache, P, 0.5 ) + 1u; clipmap < radianceCache.shape.x;
+          ++clipmap )
+    {
+        const vec4 coarser = RadianceCacheTrilinearIrradianceAt( P, N, clipmap );
+        if ( coarser.a > 0.0 )
+            return max( coarser.rgb, vec3( 0.0 ) );
+    }
+    return vec3( 0.0 );
 }
 
 vec3 GIHitBounce( GIHitSurface surface, vec3 P, vec3 N, vec3 V )

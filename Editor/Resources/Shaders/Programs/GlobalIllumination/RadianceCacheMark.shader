@@ -256,8 +256,8 @@ Shader "RadianceCacheMark"
 
         // THE REQUESTS (RadianceCacheMarkRequests.glslh): the occupied slot @p slot is stamped as a pixel at its point
         // would be - the eight cells around the read point in each clipmap of the dither (MarkClipmap, the read's own
-        // point: V = N = the request's bias direction gives RadianceCacheReadPoint's point) - and around the point
-        // itself (zero bias), where the smooth read GIHitBounce falls back to interpolates; then it is cleared.
+        // point: V = N = the request's bias direction gives RadianceCacheReadPoint's point) - and, around the point
+        // itself (zero bias), the coarser clipmaps GIHitBounceIrradiance falls back to; then it is cleared.
         void MarkRequest( const uint slot )
         {
             vec3 p, bias;
@@ -267,15 +267,17 @@ Shader "RadianceCacheMark"
             const uint  fine   = ends.x;
             const uint  coarse = ends.y;
             if ( fine < radianceCache.shape.x )
-            {
                 MarkClipmap( p, bias, bias, fine, RC_STAMP_COVERAGE );
-                MarkClipmap( p, vec3( 0.0 ), vec3( 0.0 ), fine, RC_STAMP_COVERAGE );
-            }
             if ( coarse != fine && coarse < radianceCache.shape.x )
             {
                 MarkClipmap( p, bias, bias, coarse, RC_STAMP_COVERAGE );
-                MarkClipmap( p, vec3( 0.0 ), vec3( 0.0 ), coarse, RC_STAMP_COVERAGE );
+                // A read in the fine end falls back to the coarse end (GIHitBounceIrradiance, unbiased point).
+                MarkClipmap( p, vec3( 0.0 ), vec3( 0.0 ), coarse, RC_STAMP_FALLBACK );
             }
+            // The next coarser clipmap, as a pixel's RC_MARK_LEVEL_FALLBACK: stamped apart from the coverage, so its
+            // new probes do not take the coverage's budget.
+            if ( coarse + 1u < radianceCache.shape.x )
+                MarkClipmap( p, vec3( 0.0 ), vec3( 0.0 ), coarse + 1u, RC_STAMP_FALLBACK );
             RadianceCacheMarkRequestClear( slot );
         }
 
