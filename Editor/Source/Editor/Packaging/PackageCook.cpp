@@ -224,8 +224,8 @@ namespace Desert::Editor
         // ShippedByCook refuses the miss by name):
         //   the tracing consumers   under every tracer permutation (GlobalIllumination::kTracerPermutations):
         //                           WorldRadianceCache, SurfaceCacheRenderer, SSRRenderer ProgramVariants;
-        //   the traced refraction   RayTracedTranslucencyRenderer ProgramVariants (its one tracer, both
-        //                           reorder values);
+        //   the traced refraction   RayTracedTranslucencyRenderer ProgramVariants (RayTracedTranslucencyTracer
+        //                           of either Reflections.HitLighting value x both reorder values);
         //   the untraced systems    DeferredLightingRenderer, TemporalAA, TemporalSuperResolution,
         //                           TerrainRenderer, VolumetricFogRenderer ProgramVariants
         //                           (and SSR's untraced front layer in SSRRenderer's);
