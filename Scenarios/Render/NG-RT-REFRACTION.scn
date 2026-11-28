@@ -58,7 +58,7 @@
 # inside the room back at the window wall (the glass still deleted), path tracer | raster | raster Albedo: the wall
 # the path tracer sees from inside and the raster does not is the raster's own primary visibility culling the back
 # faces of a one-sided shell, not a refraction ray (3E D3) - a separate feature (draw state and content), open.
-# refl_hit: Reflections.HitLighting 1 (the Cinematic value) builds - the reflection method does not refuse.
+# refr_split also proves Reflections.HitLighting 1 (the Cinematic value) builds - the reflection method does not refuse.
 # Frame wait: `frames N` (N presented frames). Every capture stands >= 256 frames after the last
 # GlobalIllumination.Method switch (GI accumulation converged; else the opaque pixels drift).
 # The camera faces the cafe shop window Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4711
@@ -120,23 +120,18 @@
 Когда run Quality "Quality: Reflections.HitLighting 1"
 Когда frames 256
 Когда profile-dump
-Тогда-вид refr_split day, HardwareTraced, Reflections.HitLighting 1 (the path end lit in place), the camera of day_rt: the pass "Translucency: Ray Traced Refraction" GPU time at HitLighting 0 (the day_rt dump) and at 1 (this dump) both written down from editor.log, each scaled to 1080p; their difference is named the share of the visibility rays of the path end (3E D1); the band x935-1080 y185-235 L_lin at 0 (day_rt) and at 1 (this frame) - black at 1 only: the cause of D2 is the radiance cache read of the end lit in place; the pane L_lin at 0 and at 1 against day_pt (3E D5: closer at 0 than -21 % names the same cause); the window rule holds against the day_rt dump
+Тогда-вид refr_split day, HardwareTraced, Reflections.HitLighting 1 (the path end lit in place), the camera of day_rt: the pass "Translucency: Ray Traced Refraction" GPU time at HitLighting 0 (the day_rt dump) and at 1 (this dump) both written down from editor.log, each scaled to 1080p; their difference is named the share of the visibility rays of the path end (3E D1); the band x935-1080 y185-235 L_lin at 0 (day_rt) and at 1 (this frame) - black at 1 only: the cause of D2 is the radiance cache read of the end lit in place; the pane L_lin at 0 and at 1 against day_pt (3E D5: closer at 0 than -21 % names the same cause); the window rule holds against the day_rt dump; editor.log has no "did not build" and no "refused" line about SSR / SSRTrace and mean L of the glass area not below day_rt (the reflection variant with hit lighting builds, 3B D3 - the former refl_hit)
 Когда run Quality "Quality: Reflections.HitLighting Level"
 Когда frames 256
 # --- experiment 3D D6: the camera 50 cm aside, the direction kept; then back
 Когда --subject viewport set Camera.Position -346,300,-905
 Когда frames 64
-Тогда-вид day_rt_shift day, HardwareTraced, the camera 50 cm aside (-346,300,-905, the same direction): no black torn band on any frame - the ceiling behind the upper right sash (the rectangle moves with the window; in scn-1128-102658 the band moved with it and stayed black, 3E D2) L_lin within ±25 % of day_pt over x935-1080 y185-235 (0.2522 in scn-1128-102658); day_rt and refr_split are held to the same rule
+Тогда-вид day_rt_shift day, HardwareTraced, the camera 50 cm aside (-346,300,-905, the same direction): no black torn band - the ceiling behind the upper right sash, in THIS frame's coordinates x860-1005 y185-235 (the sash moved ~75 px left with the window: x935-1080 in day_rt, x860-1005 in day_rt_shift of scn-1128-102658, where the band moved with it and stayed black, 3E D2), L_lin within ±25 % of the same ceiling in day_pt over x935-1080 y185-235 (0.2522 in scn-1128-102658; the same ceiling 50 cm aside, no path tracer frame is taken at this camera); the rule holds for the HitLighting 0 frames day_rt and day_rt_shift, refr_split (HitLighting 1) only records the band
 Когда --subject viewport set Camera.Position -370,300,-861
 Когда --subject viewport set Camera.Direction 0.9940,0.07,0.1094
 Когда frames 32
 Тогда-вид day_rt_edge day, HardwareTraced, camera yawed 22 degrees: the window at the frame's edge - the interior beyond the frame's edge is seen through the glass (under ScreenSpace that is a stretched edge)
 Когда --subject viewport set Camera.Direction 0.8806,0.07,0.4738
-# --- reflections with hit lighting (3B D3): the variant builds, the glass is not darker than day_rt
-Когда run Quality "Quality: Reflections.HitLighting 1"
-Когда frames 256
-Тогда-вид refl_hit day, HardwareTraced, Reflections.HitLighting 1: editor.log has no "did not build" and no "refused" line about SSR / SSRTrace; mean L of the glass area not below day_rt
-Когда run Quality "Quality: Reflections.HitLighting Level"
 # --- day without the shop window: the frames of experiment 3D D5 (the scene is not saved)
 Когда run Entity "Delete Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4711"
 Когда frames 256
