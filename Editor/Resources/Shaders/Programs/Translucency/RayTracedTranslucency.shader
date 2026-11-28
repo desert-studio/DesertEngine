@@ -15,16 +15,16 @@ Shader "RayTracedTranslucency"
     // (the glass cell weighs its own first interface by its Fresnel); every later one is crossed STRAIGHT (direction
     // kept, no Fresnel). Either way a thin sheet (Ior 1) tints per crossing and solid glass absorbs by Beer's law
     // between its faces (PathTracer.shader, the same statement). Every layer behind the first adds its own emission,
-    // weighed by the transmittance in front of it. kRefractionMaxSegments bounds the segments; a path that reaches it
-    // answers with the emission it gathered. The first opaque hit is lit SCREEN FIRST: a hit the view sees (projected by
-    // giFrame.viewProjection into the frame, the opaque depth there within GIRayBias().screenTolerance of it - the
-    // test of Common/GIHitLighting.glslh GIHitMaterial) takes this frame's lit scene colour from the scene copy;
-    // any other is lit in place as the hit-lit reflections light theirs (GIHitRadianceLit, its emission included);
+    // weighed by the transmittance in front of it. kRefractionMaxSegments (8) bounds the segments; a path that reaches
+    // it answers with the emission it gathered. The first opaque hit is lit SCREEN FIRST: a hit the view sees
+    // (projected by giFrame.viewProjection into the frame, the opaque depth there within GIRayBias().screenTolerance
+    // of it - the test of Common/GIHitLighting.glslh GIHitMaterial) takes this frame's lit scene colour from the scene
+    // copy; any other is lit in place as the hit-lit reflections light theirs (GIHitRadianceLit, its emission included);
     // a miss is the sky. A rough front layer bends by one GGX visible normal per frame (the temporal upscaler sums
     // them). Output (one texel per quad): rgb = the layers' pre-exposed emission + the end's pre-exposed radiance x
     // transmittance; a = 1 + the traced pixel's index in the quad - every started trace answers. a = 0 only where no
-    // trace starts (a quad without a front layer, or rougher than MaxRoughness) and under Composite 0 (the same rays,
-    // no answer) - the glass cell (Mesh/Surface/TranslucencyRefraction.glslh) reads the scene copy itself there.
+    // trace starts (a quad without a front layer, or rougher than MaxRoughness) and under Composite 0 (no ray is
+    // traced) - the glass cell (Mesh/Surface/TranslucencyRefraction.glslh) reads the scene copy itself there.
     Pass "Trace"
     {
         RayGen
@@ -72,10 +72,12 @@ Shader "RayTracedTranslucency"
             // The hard bound of traced segments per path; MaxInterfaces bounds only the BENDS. A budget that ended the
             // path threw its answer away: on the Bistro shop window the fifth interface of the tier's 4 is met almost
             // everywhere, so the rays cost the pass and the glass showed the scene copy (MaxInterfaces 1 vs the tier
-            // 5.09, Composite 0 vs 1 5.42, both under the run's own noise 7.43; MaxInterfaces 8 13.81). 16 is a COST
-            // bound (the pass's 1.0 ms at 1080p; 8 if it does not fit): 16 thin sheets of 0.9 pass under 0.9^16 = 0.18,
-            // but 8 clear solids crossed straight pass nearly all, and that light past the bound is dropped.
-            const uint kRefractionMaxSegments = 16u;
+            // 5.09, Composite 0 vs 1 5.42, both under the run's own noise 7.43; MaxInterfaces 8 13.81). 8 is a COST
+            // bound against the pass's 1.0 ms at 1080p: at 16 the pass cost 1.391 ms by day and 1.443 ms by night at
+            // 1.17 Mpx (2.46 / 2.55 ms at 1080p), nearly every path reaching an opaque end lit in place. 8 is nearer
+            // UE's bound (r.RayTracing.Translucency.MaxRefractionRays 3): 8 thin sheets of 0.9 pass 0.9^8 = 0.43,
+            // 8 clear solids crossed straight pass nearly all, and the light of an end past the bound is dropped.
+            const uint kRefractionMaxSegments = 8u;
 
             // UE FresnelDielectric (PathTracer.shader PathTracingFresnelDielectric): the reflectance of a smooth
             // dielectric for the incident cosine cosI and eta = n(incident) / n(transmitted); 1 past the critical angle.
@@ -192,6 +194,12 @@ Shader "RayTracedTranslucency"
                 const ivec2 quad = ivec2(gl_LaunchIDEXT.xy);
                 if (any(greaterThanEqual(quad, imageSize(RefractionOutputTexture))))
                     return;
+                // Composite 0: no answer and no ray traced; the glass cell reads the scene copy itself.
+                if (Composite == 0u)
+                {
+                    imageStore(RefractionOutputTexture, quad, vec4(0.0));
+                    return;
+                }
                 const ivec2 full = textureSize(FrontLayerNormalTexture, 0);
                 // The quad's pixel this frame, or its first traceable one; none: no answer for the quad.
                 uint index = FrameIndex & 3u;
@@ -212,8 +220,8 @@ Shader "RayTracedTranslucency"
                         return;
                     }
                 }
-                // a of an answer: the pixel of the quad the ray started at (the glass cell's code); 0 under Composite 0.
-                const float answered = Composite != 0u ? 1.0 + float(index) : 0.0;
+                // a of an answer: 1 + the pixel of the quad the ray started at (the glass cell's code).
+                const float answered = 1.0 + float(index);
                 const ivec2 pixel    = RefractionQuadPixel(quad, index);
                 const float rough    = texelFetch(FrontLayerNormalTexture, pixel, 0).a;
 
