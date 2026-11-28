@@ -16,6 +16,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
+#include <algorithm>
 #include <cstring>
 #include <format>
 #include <limits>
@@ -377,7 +378,7 @@ namespace Desert::Graphic::SurfaceCache
             if ( !m_EmissiveLighting )
                 return Common::MakeFormattedError<bool>( "surface cache: atlas layer {} ({}²) not created",
                                                          EmissiveLighting::kLayerName, budget.AtlasSize );
-            m_ResetEmissive = true;
+            m_EmissiveResetPasses = std::max( m_EmissiveResetPasses, 1u );
         }
         m_AtlasSize = budget.AtlasSize;
         return BOOLSUCCESS;
@@ -436,8 +437,8 @@ namespace Desert::Graphic::SurfaceCache
             if ( m_LitBy )
                 m_Scene.InvalidateLighting();
             m_LitBy          = lighting;
-            m_ResetRadiosity = true;
-            m_ResetEmissive  = true;
+            m_ResetRadiosity      = true;
+            m_EmissiveResetPasses = std::max( m_EmissiveResetPasses, 1u );
         }
         // THE LOCAL LIGHTS (UE Lumen: the cards a changed light touches are relit): the regions of the point and
         // spot lights switched, moved, recoloured or re-aimed since their last relight are relit this frame
@@ -1003,21 +1004,28 @@ namespace Desert::Graphic::SurfaceCache
     {
         // THE HISTORY'S KEY (an event, not a poll of the triangles): another emissive list - its triangle, leaf
         // or level counts, static or dynamic - drops the layer's history; so do a new layer and a full relight
-        // (m_ResetEmissive). A static emitter moved at the same counts keeps it and settles within
+        // (m_EmissiveResetPasses). A static emitter moved at the same counts keeps it and settles within
         // kStaticRelightsAccumulated relights of its pages.
+        // The key is read here, after this frame's pages were chosen: the change relights every visible page in
+        // the next frame (InvalidateLighting), and the history stays dropped through that frame's pass - this
+        // frame's pages and the next frame's full relight, so no page blends the new list into the old history.
         const std::pair<glm::uvec4, glm::uvec4> key{ inputs.Emissive.StaticParams(), inputs.Emissive.DynamicParams() };
         if ( m_EmissiveKey != key )
         {
-            m_EmissiveKey   = key;
-            m_ResetEmissive = true;
+            if ( m_EmissiveKey )
+            {
+                m_Scene.InvalidateLighting();
+                m_EmissiveResetPasses = 2u;
+            }
+            m_EmissiveKey = key;
         }
         ShaderPush::SurfaceEmissiveLightingPush push;
         push.EmissiveFrame.x       = m_FrameUpdate ? static_cast<uint32_t>( m_FrameUpdate->Frame ) : 0u;
-        push.EmissiveFrame.y       = m_ResetEmissive ? 1u : 0u;
+        push.EmissiveFrame.y       = m_EmissiveResetPasses > 0u ? 1u : 0u;
         push.EmissiveWeights.x     = EmissiveLighting::SampleWeight( key.second.x );
         push.EmissiveCounts        = key.first;
         push.EmissiveDynamicCounts = key.second;
-        m_ResetEmissive            = false;
+        m_EmissiveResetPasses      = m_EmissiveResetPasses > 0u ? m_EmissiveResetPasses - 1u : 0u;
 
         std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
         for ( const std::size_t i : kEmissiveLightingLayers )

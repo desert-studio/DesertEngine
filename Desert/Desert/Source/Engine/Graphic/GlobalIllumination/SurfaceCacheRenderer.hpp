@@ -399,9 +399,12 @@ namespace Desert::Graphic::SurfaceCache
         // pass), one reader (the direct lighting). Its history is dropped on an event: a new layer (Configure),
         // the full relight that resets the radiosity, and another emissive list (m_EmissiveKey).
         std::shared_ptr<Image2D> m_EmissiveLighting;
-        bool                     m_ResetEmissive = true;
+        // The emissive passes still to run without history (push EmissiveFrame.y = 1): one for an event whose full
+        // relight is in the same frame, two for another emissive list (its full relight is the next frame's).
+        uint32_t                 m_EmissiveResetPasses = 1u;
         // The emissive list the layer's history was accumulated under (EmissiveLightsFrame::StaticParams,
-        // DynamicParams: the list keeps no revision of its own); empty until the first pass.
+        // DynamicParams; not EmissiveLightsFrame::Hash, which also hashes the dynamic rows' poses and the TLAS
+        // order and would drop the history every frame); empty until the first pass.
         std::optional<std::pair<glm::uvec4, glm::uvec4>> m_EmissiveKey;
         std::shared_ptr<Framebuffer>                                          m_CaptureBuffer;
         std::shared_ptr<Shader>                                               m_CopyShader;
