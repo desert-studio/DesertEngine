@@ -86,7 +86,7 @@
 Когда run Quality "Quality: Translucency.RefractionComposite Level"
 # --- the knockout of night_rt (3C D1): HardwareTraced again (the run noise), then the interface budget at 1
 Когда frames 256
-Тогда-вид night_rt_b night, HardwareTraced again after night_rt_mute, the camera still: night_rt vs night_rt_b (mean |delta| over the pane mask) is the run noise [night_rt] is held to on the glass, and the second repeat bounding its opaque pixels
+Тогда-вид night_rt_b night, HardwareTraced again after night_rt_mute, the camera still: night_rt vs night_rt_b (mean |delta| over the pane mask) is the run noise [night_rt] is held to on the glass; |night_rt − night_rt_b| over the opaque pixels (7.81 in scn-1128-095738) is the second repeat bounding its opaque pixels
 Когда run Quality "Quality: Translucency.RefractionMaxInterfaces 1"
 Когда frames 256
 Тогда-вид night_rt_mi1 night, HardwareTraced, Translucency.RefractionMaxInterfaces 1: the glass differs from night_rt_mute not less than night_rt does (mean |delta| over the pane mask) - the trace answers whatever the interface budget
