@@ -15,7 +15,8 @@ Shader "RayTracedTranslucency"
     // own first interface by its Fresnel). The first opaque hit is lit SCREEN FIRST: a hit the view sees (projected by
     // giFrame.viewProjection into the frame, the opaque depth there within GIRayBias().screenTolerance of it - the
     // test of Common/GIHitLighting.glslh GIHitMaterial) takes this frame's lit scene colour from the scene copy;
-    // any other is lit in place as the hit-lit reflections light theirs (GIHitRadianceLit, its emission included);
+    // any other is lit in place as the hit-lit reflections light theirs (GIHitRadianceLit, its emission included),
+    // and leaves a mark request for the radiance cache cells its bounce reads (RadianceCacheMarkRequests.glslh);
     // a miss is the sky. A rough front layer bends by one GGX visible normal per frame (the temporal upscaler sums
     // them). Output (one texel per quad): rgb = pre-exposed radiance x transmittance; a = 1 + the traced pixel's index
     // in the quad where the trace answered (0 under Composite 0: the same rays, no answer), 0 past MaxRoughness or
@@ -56,6 +57,10 @@ Shader "RayTracedTranslucency"
             #include <Common/ReconstructPosition.glslh>
             #include <Common/MonteCarlo.glslh>
             #include <Common/RayTracedTranslucencyPush.glslh> // InvJitteredViewProjection ... Composite
+            // The cache's request table (kMarkRequestsBinding): a path end lit in place reads the cache where no pixel
+            // marked; 49 is past every slot above (the tracer's 23..33, the surface cache's 34..40, the atlas 41).
+            #define RADIANCE_CACHE_MARK_REQUESTS_BINDING 49
+            #include <Common/RadianceCacheMarkRequests.glslh>
 
             layout(location = 0) rayPayloadEXT DesertRayPayload payload;
 
@@ -143,6 +148,8 @@ Shader "RayTracedTranslucency"
                 hit.velocity     = vec3(0.0);
                 hit.motionKnown  = false;
                 hit.globalField  = false;
+                // GIHitBounce reads the radiance cache here, off screen: ask for its cells (next frame's Mark).
+                RadianceCacheRequestMark(P, payload.Normal, -dir);
                 const vec3 lit = GIHitRadianceLit(
                     hit, dir,
                     GIHitSurface(payload.BaseColor, payload.Metallic, payload.Roughness, payload.Emissive, true,
