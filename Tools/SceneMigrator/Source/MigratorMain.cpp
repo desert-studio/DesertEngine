@@ -2155,13 +2155,14 @@ namespace Desert::Migration
             ++texturesStaleFrom[stated.GetValue()];
         }
 
-        // THE SOUNDS (AUD-CORE): SNDW 0 -> 1 states the Class every voice plays in and the Loading (Resident /
-        // Streamed). The step is the engine's own SoundAsset::Upgrade (one statement of the format): nullopt =
-        // already current, a file it cannot read FAILS by name and is left untouched.
+        // THE SOUNDS (AUD-CORE, AUDIO-SOUNDCLASS): SNDW v0 -> v1 -> v2 states the class asset every voice plays
+        // in and the Loading. The step is the engine's own SoundAsset::Upgrade under the project's
+        // LegacyClassNames (UpgradeSoundText): nullopt = already current, a file it cannot raise FAILS by name and
+        // is left untouched.
         int soundsRaised = 0;
         for ( const auto& path : sounds )
         {
-            const auto raised = Desert::Assets::SoundAsset::Upgrade( ReadAll( path ) );
+            const auto raised = Desert::Migration::UpgradeSoundText( path, ReadAll( path ) );
             if ( !raised )
             {
                 err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
@@ -2171,7 +2172,7 @@ namespace Desert::Migration
             if ( !raised.GetValue() )
                 continue;
             ++soundsRaised;
-            out << ( check ? "would raise " : "raised " ) << path.string() << " SNDW 0 -> "
+            out << ( check ? "would raise " : "raised " ) << path.string() << " to SNDW "
                 << Desert::Assets::kSoundSchemaVersion << "\n";
             if ( check )
                 continue;

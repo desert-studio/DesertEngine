@@ -38,6 +38,7 @@
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/SoundAsset.hpp>
+#include <Engine/Audio/ProjectAudioSettings.hpp>
 #include <functional>
 #include "UILift.hpp"
 #include "ClipInterpShift.hpp"
@@ -812,6 +813,75 @@ namespace Desert::Migration
         return report;
     }
 
+    Common::ResultStr<std::optional<std::string>> UpgradeSoundText( const std::filesystem::path& desoundPath,
+                                                                    std::string_view             text )
+    {
+        using Result    = std::optional<std::string>;
+        using LegacyMap = std::map<std::string, Common::Content::AssetGuid, std::less<>>;
+        LegacyMap   legacy;
+        std::string settingsRefusal;
+
+        // The project that owns the file states what its v1 Class names became: Config/AudioSettings.json of
+        // the nearest folder above it (a project root, or a test data tree that is its own root).
+        std::error_code             ec;
+        const std::filesystem::path absolute = std::filesystem::absolute( desoundPath, ec ).lexically_normal();
+        std::filesystem::path       settingsFile;
+        for ( auto dir = absolute.parent_path(); !ec && !dir.empty(); dir = dir.parent_path() )
+        {
+            const auto candidate = dir / "Config" / "AudioSettings.json";
+            if ( std::filesystem::is_regular_file( candidate, ec ) )
+            {
+                settingsFile = candidate;
+                break;
+            }
+            if ( dir == dir.parent_path() )
+                break;
+        }
+        if ( ec )
+            settingsRefusal = std::format( "'{}' cannot be searched for Config/AudioSettings.json: {}",
+                                           desoundPath.string(), ec.message() );
+        else if ( settingsFile.empty() )
+            settingsRefusal =
+                 std::format( "no folder above '{}' holds Config/AudioSettings.json", desoundPath.string() );
+        else if ( const auto settings = Audio::ProjectAudioSettings::Read( settingsFile ); !settings )
+            settingsRefusal = std::format( "'{}': {}", settingsFile.string(), settings.GetError() );
+        else
+        {
+            for ( const auto& [name, guidText] : settings.GetValue().LegacyClassNames )
+            {
+                const auto guid = Common::Content::AssetGuidFromText( guidText );
+                if ( !guid || guid.GetValue().IsNull() )
+                {
+                    settingsRefusal = std::format( "'{}': LegacyClassNames '{}' = '{}' is not a sound class GUID",
+                                                   settingsFile.string(), name, guidText );
+                    legacy.clear();
+                    break;
+                }
+                legacy.emplace( name, guid.GetValue() );
+            }
+        }
+
+        Assets::SoundAsset::LegacyClasses classes;
+        // What SNDW v0 -> v1 stated for a file with no Class: every v0 voice played in Effects. A fact of the
+        // format's history, resolved to an asset through the project's LegacyClassNames like any v1 name.
+        classes.V0Name = "Effects";
+        if ( settingsRefusal.empty() )
+        {
+            classes.User    = &legacy;
+            classes.ForName = []( std::string_view v1Name, const void* user ) -> Audio::SoundClassId
+            {
+                const auto& names = *static_cast<const LegacyMap*>( user );
+                const auto  found = names.find( v1Name );
+                return found == names.end() ? Audio::SoundClassId{} : found->second;
+            };
+        }
+
+        auto raised = Assets::SoundAsset::Upgrade( text, classes );
+        if ( !raised && !settingsRefusal.empty() )
+            return Common::MakeFormattedError<Result>( "{} ({})", raised.GetError(), settingsRefusal );
+        return raised;
+    }
+
     Common::ResultStr<std::pair<Common::Content::AssetGuid, std::filesystem::path>>
     SoundForAudioFile( const std::filesystem::path& audioFile )
     {
@@ -826,9 +896,9 @@ namespace Desert::Migration
             std::ifstream      in( entry.path(), std::ios::binary );
             std::ostringstream text;
             text << in.rdbuf();
-            // Any generation names its file: a SNDW v0 `.desound` is read through its upgrade (the sound pass
+            // Any generation names its file: an older `.desound` is read through its upgrade (the sound pass
             // raises the file itself).
-            const auto raised = Assets::SoundAsset::Upgrade( text.str() );
+            const auto raised = UpgradeSoundText( entry.path(), text.str() );
             if ( !raised )
                 return Common::MakeFormattedError<Found>( "'{}': {}", entry.path().string(), raised.GetError() );
             const auto parsed = Assets::SoundAsset::Parse( raised.GetValue() ? *raised.GetValue() : text.str() );

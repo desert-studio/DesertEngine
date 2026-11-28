@@ -22,7 +22,9 @@
 // needs the tree's type, and a second copy of that struct is a format that can silently fork.
 #include <Engine/Animation/SkeletonReference.hpp>
 #include <filesystem>
+#include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/SceneUpgrade/SceneUpgrade.hpp>
@@ -758,6 +760,13 @@ namespace Desert::Migration
         std::size_t              Sections = 0; // sequence Audio sections whose Sound path became a GUID
         std::vector<std::string> Refused;      // one line per reference with no `.desound`; nothing written
     };
+
+    // THE SNDW MIGRATION of one `.desound` (@p text, read from @p desoundPath): SoundAsset::Upgrade under the
+    // project's LegacyClassNames - Config/AudioSettings.json of the nearest folder above the file that holds
+    // one. nullopt = current already. A settings file that is missing or unreadable is named in the refusal of
+    // a file that needed it; a current file passes whatever the settings say.
+    Common::ResultStr<std::optional<std::string>> UpgradeSoundText( const std::filesystem::path& desoundPath,
+                                                                    std::string_view             text );
 
     // The `.desound` whose Source names the audio file @p audioFile (absolute): searched beside it, the way
     // UE keeps the imported source beside its asset. Refuses none and more than one, by name.
