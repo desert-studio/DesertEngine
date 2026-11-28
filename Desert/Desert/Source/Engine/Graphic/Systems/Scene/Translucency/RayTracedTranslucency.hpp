@@ -13,9 +13,10 @@
 // giFrame.viewProjection lies in the frame and the G-buffer depth there is the hit within
 // GIRayBias().screenTolerance, the test Common/GIHitLighting.glslh GIHitMaterial makes) takes this frame's lit
 // scene colour from the scene copy; a hit the view does not see is lit IN PLACE on every tier
-// (RayTracedTranslucencyTracer, GIHitRadianceLit), whatever Reflections.HitLighting says. The glass cell (Mesh/Surface/Pass_Forward_Translucent.glslh through
-// Mesh/Surface/TranslucencyRefraction.glslh) reads the half-size result where its fragment is the front layer;
-// where no quad around it answered for its layer the cell reads the scene copy itself (the ScreenSpace tier).
+// (RayTracedTranslucencyTracer, GIHitRadianceLit), whatever Reflections.HitLighting says. The glass cell
+// (Mesh/Surface/Pass_Forward_Translucent.glslh through Mesh/Surface/TranslucencyRefraction.glslh) reads the
+// half-size result where its fragment is the front layer; where no quad around it answered for its layer the
+// cell reads the scene copy itself (the ScreenSpace tier).
 // A hit lit in place reads the world radiance cache off screen, where no G-buffer pixel marked its cells: the pass
 // WRITES a mark request for it into the cache's request table (RadianceCacheFrame::MarkRequests,
 // GlobalIllumination/RadianceCacheMarkRequests.hpp), which the next frame's RadianceCacheMark stamps and clears.
@@ -23,7 +24,8 @@
 // The pass is a ray tracing pipeline over THIS FRAME's hit group table (the hit groups answer each interface), as
 // "Deferred: Reflections (HitLighting)" is (SSRRenderer::EnsureHitLightingPipeline / RecordHitLighting): the
 // pipeline's hit groups are the table's Templates, so it is ensured per frame, never at start-up, and everything
-// the hit groups and the in-place hit lighting read is the reflections' own record, SSRRenderer::TracedReads - no field of it is repeated here.
+// the hit groups and the in-place hit lighting read is the reflections' own record, SSRRenderer::TracedReads -
+// no field of it is repeated here.
 //
 // Package A (the frame, CPU side) produces RayTracedTranslucencyInputs and the push and calls AddPass.
 // Package B (the pass and its shaders) implements the class (RayTracedTranslucency.cpp), the ray generation
