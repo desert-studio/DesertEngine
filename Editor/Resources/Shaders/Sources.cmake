@@ -26,6 +26,7 @@ set(DESERT_SOURCES
     "Common/DistanceFieldShadowGlobalTrace.glslh"
     "Common/DistanceFieldShared.glslh"
     "Common/EmissiveLights.glslh"
+    "Common/EmissiveLightsGridBuild.glslh"
     "Common/EmissiveLightsSampling.glslh"
     "Common/FilmToneMap.glslh"
     "Common/FogParams.glslh"
