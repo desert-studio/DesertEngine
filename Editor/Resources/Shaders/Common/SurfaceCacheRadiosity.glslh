@@ -13,8 +13,10 @@
 //              within the stratum per frame, through the GI ray contract (the same tracer as every GI ray; a hit reads
 //              the cards' FinalLighting, a miss the sky) - SurfaceCacheRadiosityTrace.shader, into the radiosity
 //              trace atlas, blended with its history (UE's temporal accumulation, MaxFramesAccumulated);
+//   filter     a probe's stratum is the mean of its own trace and the same stratum of its four neighbouring probes on
+//              the page that stand on its plane (UE r.LumenScene.Radiosity.SpatialFilterProbes, plane weight);
 //   integrate  a texel bilinearly interpolates the four nearest probes of its page (UE IntegrateProbes), each
-//              probe's 16 strata cosine-weighted about the TEXEL's normal - SurfaceCacheIndirectLighting.shader.
+//              probe's 16 filtered strata cosine-weighted about the TEXEL's normal - SurfaceCacheIndirectLighting.shader.
 //
 // The strata are equal solid angle (uniform in cos theta, uniform in phi), so the irradiance over pi of a probe at
 // normal n is (2 / count) x sum( L_i max( dot( n, w_i ), 0 ) ) - the units of the cache's irradiance (already / PI).
@@ -80,6 +82,15 @@ vec3 RadiosityTexelWorldPosition( SurfaceCard card, vec4 cardUVRect, ivec4 page,
     const vec3  origin    = vec3( card.worldToLocal[0].w, card.worldToLocal[1].w, card.worldToLocal[2].w );
     return origin + card.worldToLocal[0].xyz * local.x + card.worldToLocal[1].xyz * local.y +
            card.worldToLocal[2].xyz * ( card.localExtent.z - depth * 2.0 * card.localExtent.z );
+}
+
+// The world distance between two neighbouring probes of @p card's pages: RADIOSITY_PROBE_SPACING card texels along
+// the card's coarser axis (a card texel spans 2 x localExtent / resolution).
+float RadiosityProbeSpacingWorld( SurfaceCard card )
+{
+    const vec2 res = vec2( uvec2( 1u << ( card.info.x & 0xFFu ), 1u << ( ( card.info.x >> 8u ) & 0xFFu ) ) );
+    const vec2 texel = 2.0 * card.localExtent.xy / res;
+    return float( RADIOSITY_PROBE_SPACING ) * max( texel.x, texel.y );
 }
 
 // The direction of hemisphere point @p u in [0, 1)² about @p N: equal solid angle per stratum (cos theta = 1 - u.x,

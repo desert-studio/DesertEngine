@@ -62,4 +62,12 @@ uint MeshCardsFacing( MeshCards mesh, uint direction )
     return direction < 4u ? mesh.cardLookup[0][direction] : mesh.cardLookup[1][direction - 4u];
 }
 
+// @p radiance scaled down, hue kept, to luminance (Rec. 709) @p ceiling when brighter (UE Lumen's MaxRayIntensity
+// clamp): the ceiling of one Monte Carlo sample of the cache's light (Common/EmissiveCardLighting.glslh).
+vec3 SurfaceCacheClampLuminance( vec3 radiance, float ceiling )
+{
+    const float luminance = dot( radiance, vec3( 0.2126, 0.7152, 0.0722 ) );
+    return luminance > ceiling ? radiance * ( ceiling / luminance ) : radiance;
+}
+
 #endif // SURFACE_CACHE_GLSLH

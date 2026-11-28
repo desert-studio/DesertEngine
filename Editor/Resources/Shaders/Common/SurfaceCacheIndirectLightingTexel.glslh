@@ -53,16 +53,41 @@ Uniform(15) texture2D RadiosityTraceTexture;
 #define RADIOSITY_OPACITY AtlasOpacityTexture
 #include <Common/SurfaceCacheRadiosity.glslh>
 
+// The probe of page tile @p tileId (of @p tiles): its tile (@p tile), normal and world position; false when the tile
+// lies off the page or holds no probe.
+bool RadiosityProbeOfTile( SurfaceCard card, vec4 cardUVRect, ivec4 page, ivec2 tiles, ivec2 tileId, out ivec4 tile,
+                           out vec3 probeN, out vec3 probePos )
+{
+    tile     = ivec4( 0 );
+    probeN   = vec3( 0.0, 0.0, 1.0 );
+    probePos = vec3( 0.0 );
+    if ( any( lessThan( tileId, ivec2( 0 ) ) ) || any( greaterThanEqual( tileId, tiles ) ) )
+        return false;
+    tile = RadiosityTileOf( tileId, page.zw );
+    ivec2 probeTexel;
+    if ( !RadiosityProbeTexel( page.xy + tile.xy, tile.zw, probeTexel ) )
+        return false;
+    probeN   = RadiosityOctahedronToUnitVector( texelFetch( AtlasNormalTexture, probeTexel, 0 ).rg * 2.0 - 1.0 );
+    probePos = RadiosityTexelWorldPosition( card, cardUVRect, page, probeTexel,
+                                            texelFetch( AtlasDepthTexture, probeTexel, 0 ).r );
+    return true;
+}
+
 // The irradiance over pi at the texel of normal @p N from the probes of its page (UE IntegrateProbes):
 // the four nearest tiles' probes, bilinear by the texel's place among the tile centres, a probe facing
-// away from N (dot <= 0) left out; each probe's strata cosine-weighted about N.
-vec3 RadiosityIrradiance( ivec4 page, ivec2 atlasTexel, vec3 N )
+// away from N (dot <= 0) left out; each probe's strata cosine-weighted about N. A stratum's radiance is first
+// filtered over the probe's four neighbouring probes on the page (UE SpatialFilterProbes): the same stratum of each
+// neighbour that has a probe, faces the probe's side (dot of the normals > 0), lies within one probe step of the
+// probe's plane and has the probe's stratum grid (a clipped edge tile has another), averaged with the probe's own.
+vec3 RadiosityIrradiance( SurfaceCard card, vec4 cardUVRect, ivec4 page, ivec2 atlasTexel, vec3 N )
 {
     const ivec2 inPage = atlasTexel - page.xy;
     const ivec2 tiles  = ( page.zw + RADIOSITY_PROBE_SPACING - 1 ) / RADIOSITY_PROBE_SPACING;
     const vec2  t      = ( vec2( inPage ) + 0.5 ) / float( RADIOSITY_PROBE_SPACING ) - 0.5;
     const ivec2 t0     = ivec2( floor( t ) );
     const vec2  f      = t - vec2( t0 );
+    const float planeReach = RadiosityProbeSpacingWorld( card );
+    const ivec2 neighbourOffsets[4] = ivec2[4]( ivec2( -1, 0 ), ivec2( 1, 0 ), ivec2( 0, -1 ), ivec2( 0, 1 ) );
     vec3  sum    = vec3( 0.0 );
     float weight = 0.0;
     for ( int corner = 0; corner < 4; ++corner )
@@ -73,23 +98,45 @@ vec3 RadiosityIrradiance( ivec4 page, ivec2 atlasTexel, vec3 N )
         const float w      = b.x * b.y;
         if ( w <= 0.0 )
             continue;
-        const ivec4 tile = RadiosityTileOf( tileId, page.zw );
-        ivec2       probeTexel;
-        if ( !RadiosityProbeTexel( page.xy + tile.xy, tile.zw, probeTexel ) )
+        ivec4 tile;
+        vec3  probeN;
+        vec3  probePos;
+        if ( !RadiosityProbeOfTile( card, cardUVRect, page, tiles, tileId, tile, probeN, probePos ) )
             continue;
-        const vec3 probeN =
-             RadiosityOctahedronToUnitVector( texelFetch( AtlasNormalTexture, probeTexel, 0 ).rg * 2.0 - 1.0 );
         if ( dot( probeN, N ) <= 0.0 )
             continue;
+        // The neighbours that filter this probe (UE SpatialFilterProbes' plane weight, 0 or 1 here).
+        ivec2 neighbourOrigin[4];
+        bool  neighbourTaken[4];
+        float taken = 1.0;
+        for ( int n = 0; n < 4; ++n )
+        {
+            ivec4 other;
+            vec3  otherN;
+            vec3  otherPos;
+            neighbourOrigin[n] = ivec2( 0 );
+            neighbourTaken[n] =
+                 RadiosityProbeOfTile( card, cardUVRect, page, tiles, tileId + neighbourOffsets[n], other, otherN,
+                                       otherPos ) &&
+                 all( equal( other.zw, tile.zw ) ) && dot( probeN, otherN ) > 0.0 &&
+                 abs( dot( otherPos - probePos, probeN ) ) <= planeReach;
+            if ( neighbourTaken[n] )
+            {
+                neighbourOrigin[n] = page.xy + other.xy;
+                taken += 1.0;
+            }
+        }
         vec3 e = vec3( 0.0 );
         for ( int y = 0; y < tile.w; ++y )
             for ( int x = 0; x < tile.z; ++x )
             {
                 const vec3 direction =
                      RadiosityHemisphereDirection( ( vec2( x, y ) + 0.5 ) / vec2( tile.zw ), probeN );
-                const vec3 radiance =
-                     texelFetch( RadiosityTraceTexture, page.xy + tile.xy + ivec2( x, y ), 0 ).rgb;
-                e += radiance * max( dot( N, direction ), 0.0 );
+                vec3 radiance = texelFetch( RadiosityTraceTexture, page.xy + tile.xy + ivec2( x, y ), 0 ).rgb;
+                for ( int n = 0; n < 4; ++n )
+                    if ( neighbourTaken[n] )
+                        radiance += texelFetch( RadiosityTraceTexture, neighbourOrigin[n] + ivec2( x, y ), 0 ).rgb;
+                e += ( radiance / taken ) * max( dot( N, direction ), 0.0 );
             }
         sum += w * e * ( 2.0 / float( tile.z * tile.w ) );
         weight += w;
@@ -116,7 +163,7 @@ void IndirectLightingTexel( ivec2 atlasTexel, uint cardIndex, vec4 cardUVRect, v
          RadiosityOctahedronToUnitVector( texelFetch( AtlasNormalTexture, atlasTexel, 0 ).rg * 2.0 - 1.0 );
 
     const vec3 albedo   = texelFetch( AtlasAlbedoTexture, atlasTexel, 0 ).rgb;
-    vec3       indirect = albedo * RadiosityIrradiance( page, atlasTexel, N );
+    vec3       indirect = albedo * RadiosityIrradiance( card, cardUVRect, page, atlasTexel, N );
     // The far side of a leaf, from the world radiance cache at -N.
     const vec3 subsurface = texelFetch(AtlasSubsurfaceTexture, atlasTexel, 0).rgb;
     if (max(subsurface.r, max(subsurface.g, subsurface.b)) > 0.0)

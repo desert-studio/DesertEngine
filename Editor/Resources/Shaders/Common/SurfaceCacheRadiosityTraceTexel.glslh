@@ -8,6 +8,7 @@
 #ifndef SURFACE_CACHE_RADIOSITY_TRACE_TEXEL_GLSLH
 #define SURFACE_CACHE_RADIOSITY_TRACE_TEXEL_GLSLH
 #include <Common/GIFrame.glslh>
+#include <Common/EmissiveCardLighting.glslh> // kRadiosityMaxRayIntensity
 #include <Mesh/LightSources.glslh>
 #include <Mesh/LightGrid.glslh>
 
@@ -75,8 +76,8 @@ Uniform(8) texture2D AtlasNormalTexture;
 // 0..6: the cards a hit reads first - and the card records, Depth and Opacity the probes stand on. Included
 // ahead of the hit lighting so that a permutation lighting hits in place still declares them.
 #define GI_SURFACE_CACHE_BINDING 0
-// GI-EMISSIVE-LIGHTS: under either tracer the direct lighting samples the emissive triangles as
-// lights (SurfaceCacheDirectLighting.shader), so the hits here leave their emission out - the card's
+// GI-EMISSIVE-LIGHTS: under either tracer the emissive lighting pass samples the emissive triangles as
+// lights (SurfaceCacheEmissiveLighting.shader, read by the direct lighting), so the hits here leave their emission out - the card's
 // Emissive layer (binding 23) subtracted from its FinalLighting, a hit lit in place without its emissive.
 #define GI_HIT_EXCLUDES_EMISSION
 layout(binding = 23) uniform texture2D SurfaceCacheEmissiveTexture;
@@ -143,10 +144,11 @@ vec4 RadiosityTraceTexel( ivec2 atlasTexel, uint cardIndex, vec4 cardUVRect, vec
     ray.flags     = 0u;
     ray.farTMin   = GIFarFieldTMin( bias, N, direction );
     vec3 radiance = GIRayRadiance( ray );
-    // A NaN or negative sample would stay in the history for good.
+    // A NaN or negative sample would stay in the history for good; one too bright (a hit on a lone hot texel)
+    // would light the probe's stratum for its whole history: capped (UE r.LumenScene.Radiosity.MaxRayIntensity).
     if ( any( isnan( radiance ) ) || any( isinf( radiance ) ) )
         radiance = vec3( 0.0 );
-    return vec4( max( radiance, vec3( 0.0 ) ), weight );
+    return vec4( SurfaceCacheClampLuminance( max( radiance, vec3( 0.0 ) ), kRadiosityMaxRayIntensity ), weight );
 }
 
 #endif
