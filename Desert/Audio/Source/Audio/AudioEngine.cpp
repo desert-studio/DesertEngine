@@ -1,6 +1,7 @@
 #include "AudioEngine.hpp"
 #include "AudioMix.hpp"
 
+#include <Common/Content/AssetGuid.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -8,11 +9,12 @@
 #include <miniaudio/miniaudio.h>
 
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <limits>
+#include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -169,9 +171,12 @@ namespace Desert::Audio
         ma_engine  Engine{};
         bool       Initialized = false;
         bool       InitFailed  = false;
-        // One group per SoundClass, each sound is created INTO its class's group; AudioMix's class volume is
-        // the group's volume and its master the engine's (PushMix).
-        std::array<ma_sound_group, kSoundClassCount> Groups{};
+        // One group per class of AudioMix::Classes(), at the same index (parents first), each output into its
+        // parent's group (a root into the endpoint); every sound is created INTO its class's group. A group's
+        // volume is the class's authored volume times the player's, its pitch the authored one, and the node
+        // graph multiplies both down the hierarchy; the master is the engine's (PushMix). Heap-held: a group is
+        // a graph node other nodes point at, so it never moves while it lives. Empty when the last build failed.
+        std::vector<std::unique_ptr<ma_sound_group>> Groups;
 
         // THE VOICE TABLE: slot index + generation (VoiceHandle). A released slot's generation moves on and
         // the slot is reused, so the table never grows past the most voices alive at once.
@@ -199,8 +204,78 @@ namespace Desert::Audio
         {
             const AudioMix& mix = AudioMix::Get();
             ma_engine_set_volume( &Engine, mix.MasterVolume() );
-            for ( std::size_t i = 0; i < kSoundClassCount; ++i )
-                ma_sound_group_set_volume( &Groups[i], mix.ClassVolume( static_cast<SoundClass>( i ) ) );
+            const std::span<const SoundClassDesc> classes = mix.Classes();
+            for ( std::size_t i = 0; i < Groups.size(); ++i )
+            {
+                ma_sound_group_set_volume( Groups[i].get(), classes[i].Volume * mix.UserVolume( classes[i].Id ) );
+                ma_sound_group_set_pitch( Groups[i].get(), classes[i].Pitch );
+            }
+        }
+
+        // Children before parents, so no group is torn down while a live one still outputs into it.
+        void DestroyGroups()
+        {
+            for ( auto group = Groups.rbegin(); group != Groups.rend(); ++group )
+                ma_sound_group_uninit( group->get() );
+            Groups.clear();
+        }
+
+        // The groups of the current class set, parent first. A failure leaves no group and names the class:
+        // every voice is then refused by VoiceFor rather than played outside its class.
+        [[nodiscard]] bool BuildGroups()
+        {
+            const std::span<const SoundClassDesc> classes = AudioMix::Get().Classes();
+            Groups.reserve( classes.size() );
+            for ( const SoundClassDesc& desc : classes )
+            {
+                ma_sound_group* parent = nullptr;
+                if ( !desc.Parent.IsNull() )
+                    parent = GroupOf( desc.Parent ); // sorted parents first: always built already
+                // A group is a mix bus, not an emitter: miniaudio spatializes a group by default (at the origin),
+                // which a nested hierarchy would apply once per level. The voice alone is placed in the world.
+                auto group = std::make_unique<ma_sound_group>();
+                if ( ma_sound_group_init( &Engine, MA_SOUND_FLAG_NO_SPATIALIZATION, parent, group.get() ) !=
+                     MA_SUCCESS )
+                {
+                    LOG_ERROR( "[Audio] the sound group of class {} was not created — no class plays",
+                               Common::Content::AssetGuidToText( desc.Id ) );
+                    DestroyGroups();
+                    return false;
+                }
+                Groups.push_back( std::move( group ) );
+            }
+            LOG_INFO( "[Audio] sound class groups built: {} classes, {} B per group (sizeof ma_sound_group)",
+                      Groups.size(), sizeof( ma_sound_group ) );
+            PushMix();
+            return true;
+        }
+
+        // The group of @p id: its index in AudioMix::Classes(). nullptr when the set does not hold it or the
+        // last build failed.
+        [[nodiscard]] ma_sound_group* GroupOf( const SoundClassId& id ) const
+        {
+            const std::span<const SoundClassDesc> classes = AudioMix::Get().Classes();
+            for ( std::size_t i = 0; i < classes.size() && i < Groups.size(); ++i )
+                if ( classes[i].Id == id )
+                    return Groups[i].get();
+            return nullptr;
+        }
+
+        // The one listener of AudioMix. A new class set replaces the graph: every voice plays into a group
+        // that is about to die, so all are stopped first (AudioEngine::StopAll), then the groups are rebuilt.
+        void OnMixChanged( MixChange change )
+        {
+            if ( change == MixChange::Volumes )
+            {
+                PushMix();
+                return;
+            }
+            ReleaseAll();
+            DestroyGroups();
+            if ( !BuildGroups() )
+                LOG_ERROR( "[Audio] the mix of version {} has no groups: every voice is refused until the next "
+                           "class set",
+                           AudioMix::Get().Version() );
         }
 
         [[nodiscard]] Voice* Find( VoiceHandle handle ) const
@@ -252,6 +327,13 @@ namespace Desert::Audio
         // MA_SOUND_FLAG_STREAM — paged decode, a stream per voice.
         std::unique_ptr<Voice> VoiceFor( const SoundSource& source, bool loop, bool spatial, float volume )
         {
+            ma_sound_group* const group = GroupOf( source.Class );
+            if ( group == nullptr )
+            {
+                LOG_WARN( "[Audio] {}: sound class {} is not in the mix — not played", source.Clip,
+                          Common::Content::AssetGuidToText( source.Class ) );
+                return nullptr;
+            }
             const auto path = ResolveClipPath( source.Clip );
             if ( path.empty() )
             {
@@ -269,9 +351,8 @@ namespace Desert::Audio
 
             auto voice  = std::make_unique<Voice>();
             voice->Clip = source.Clip;
-            if ( ma_sound_init_from_file( &Engine, utf8.c_str(), flags,
-                                          &Groups[static_cast<std::size_t>( source.Class )], nullptr,
-                                          &voice->Sound ) != MA_SUCCESS )
+            if ( ma_sound_init_from_file( &Engine, utf8.c_str(), flags, group, nullptr, &voice->Sound ) !=
+                 MA_SUCCESS )
             {
                 LOG_WARN( "[Audio] Failed to create a voice of {} ({})", source.Clip,
                           SoundLoadingName( source.Loading ) );
@@ -301,15 +382,20 @@ namespace Desert::Audio
         if ( m_Impl->Initialized )
         {
             AudioMix::Get().SetListener( {} );
-            for ( ma_sound_group& group : m_Impl->Groups )
-                ma_sound_group_uninit( &group );
+            m_Impl->DestroyGroups();
             ma_engine_uninit( &m_Impl->Engine );
         }
     }
 
-    ma_sound* AudioEngine::GetClassGroup( SoundClass soundClass )
+    ma_sound* AudioEngine::GetClassGroup( const SoundClassId& soundClass )
     {
-        return EnsureInitialized() ? &m_Impl->Groups[static_cast<std::size_t>( soundClass )] : nullptr;
+        if ( !EnsureInitialized() )
+            return nullptr;
+        ma_sound_group* const group = m_Impl->GroupOf( soundClass );
+        if ( group == nullptr )
+            LOG_WARN( "[Audio] a producer asked for sound class {}, which is not in the mix",
+                      Common::Content::AssetGuidToText( soundClass ) );
+        return group;
     }
 
     ma_engine* AudioEngine::GetNativeEngine()
@@ -338,22 +424,16 @@ namespace Desert::Audio
         }
         LOG_INFO( "[Audio] miniaudio engine initialized ({} Hz)",
                   ma_engine_get_sample_rate( &m_Impl->Engine ) );
-        for ( std::size_t i = 0; i < kSoundClassCount; ++i )
+        // The class set and the mix the player set before there was a device are the ones it starts with; later
+        // changes follow through the listener (a new set rebuilds, a volume is pushed).
+        if ( !m_Impl->BuildGroups() )
         {
-            if ( ma_sound_group_init( &m_Impl->Engine, 0, nullptr, &m_Impl->Groups[i] ) != MA_SUCCESS )
-            {
-                LOG_ERROR( "[Audio] the sound group of class {} was not created — sound disabled", i );
-                for ( std::size_t made = 0; made < i; ++made )
-                    ma_sound_group_uninit( &m_Impl->Groups[made] );
-                ma_engine_uninit( &m_Impl->Engine );
-                m_Impl->InitFailed = true;
-                return false;
-            }
+            ma_engine_uninit( &m_Impl->Engine );
+            m_Impl->InitFailed = true;
+            return false;
         }
         m_Impl->Initialized = true;
-        // The mix the player set before there was a device is the one it starts with; later changes follow.
-        m_Impl->PushMix();
-        AudioMix::Get().SetListener( [impl = m_Impl.get()] { impl->PushMix(); } );
+        AudioMix::Get().SetListener( [impl = m_Impl.get()]( MixChange change ) { impl->OnMixChanged( change ); } );
         return true;
     }
 
