@@ -56,11 +56,13 @@ Shader "RayTracedTranslucency"
             #include <Common/CameraUB.glslh> // the view block the hit groups read
             #include <Common/RayTracingSceneReads.glslh> // the world's table and rain occlusion the hits' weather reads
             #include <Common/GIHitLitReads.glslh>
-            // The surface cache's seven bindings 34..40 (GIHitLighting.glslh's includer statement, as SSRTrace.glslh;
-            // the tracer holds 23..33, the radiance atlas 41), bound by SSRRenderer::DeclareTracedReads through
-            // DeclareSurfaceCacheReads in the surface cache's variant. The program's unnumbered resources are
-            // numbered past its highest explicit binding (ShaderMapBuild.cpp AssignProgramBindings), never into them.
-            #define GI_SURFACE_CACHE_BINDING 34
+            // The surface cache's seven bindings 42..48 (GIHitLighting.glslh's includer statement), bound by name by
+            // DeclareSurfaceCacheReads in the surface cache's variant. Not SSRTrace.glslh's 34: this ray generation
+            // also declares the hit groups' scene reads (RayTracingSceneReads.glslh: the world's table and rain
+            // occlusion at 35..37, ShaderGraphBindings.hpp), the tracer holds 23..33 and the radiance atlas 41, so the
+            // range starts past them all. The program's unnumbered resources are numbered past its highest explicit
+            // binding (ShaderMapBuild.cpp AssignProgramBindings), never into them.
+            #define GI_SURFACE_CACHE_BINDING 42
             #include <Common/GIHitLighting.glslh>
             #include <Common/RayTracingPayload.glslh>
             #include <Common/ReconstructPosition.glslh>
