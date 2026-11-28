@@ -255,23 +255,25 @@ TEST( VoxelBlockout, RescaleSelectionKeepsTheMarqueeInPlaceAndBlockAligned )
 {
     WorkPlane  plane{ 1, 1, 4 };
     glm::ivec2 anchor{ 2, 3 };
-    Rect       sel{ 2, 5, -2, 1 };
+    CellSelection sel( Rect{ 2, 5, -2, 1 } );
     RescaleSelection( plane, anchor, sel, 50.0f, 25.0f, 2 );
     EXPECT_EQ( plane.Cell, 8 );
     EXPECT_EQ( anchor, glm::ivec2( 4, 6 ) );
-    EXPECT_EQ( sel.UMin, 4 );
-    EXPECT_EQ( sel.UMax, 11 );
-    EXPECT_EQ( sel.VMin, -4 );
-    EXPECT_EQ( sel.VMax, 3 );
+    ASSERT_TRUE( sel.AsRect().has_value() );
+    EXPECT_EQ( sel.Bounds().UMin, 4 );
+    EXPECT_EQ( sel.Bounds().UMax, 11 );
+    EXPECT_EQ( sel.Bounds().VMin, -4 );
+    EXPECT_EQ( sel.Bounds().VMax, 3 );
 
     // Coarsening re-snaps outward to whole blocks of K.
-    Rect fine{ 3, 4, -1, -1 };
+    CellSelection fine( Rect{ 3, 4, -1, -1 } );
     RescaleSelection( plane, anchor, fine, 25.0f, 100.0f, 1 );
     EXPECT_EQ( plane.Cell, 2 );
-    EXPECT_EQ( fine.UMin, 0 );
-    EXPECT_EQ( fine.UMax, 1 );
-    EXPECT_EQ( fine.VMin, -1 );
-    EXPECT_EQ( fine.VMax, -1 );
+    ASSERT_TRUE( fine.AsRect().has_value() );
+    EXPECT_EQ( fine.Bounds().UMin, 0 );
+    EXPECT_EQ( fine.Bounds().UMax, 1 );
+    EXPECT_EQ( fine.Bounds().VMin, -1 );
+    EXPECT_EQ( fine.Bounds().VMax, -1 );
 }
 
 // --- M9: Quick Materials (per-face material IDs, Shift+B), Shift+E/Q slide, Ctrl+drag push/pull ---
