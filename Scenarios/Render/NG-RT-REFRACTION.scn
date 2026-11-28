@@ -1,11 +1,22 @@
 # NG-RT-REFRACTION: ray-traced refraction of glass and shop windows, day half (designs
-# F:/aftmp/NG-RT-REFRACTION3D-DESIGN.md, F:/aftmp/NG-RT-REFRACTION3C-DESIGN.md, F:/aftmp/NG-RT-REFRACTION3B-DESIGN.md
-# and F:/aftmp/NG-RT-REFRACTION3-DESIGN.md, «## Приёмка»; physics F:/aftmp/NG-RT-REFRACTION2-DESIGN.md). One editor
-# session in F:/BistroFoliageProj, B16_Bistro_Street: frames of the shop window - path tracer | Translucency.Refraction
-# ScreenSpace | HardwareTraced | HardwareTraced with Translucency.RefractionComposite 0 | HardwareTraced again | the
-# same with the camera 50 cm aside | HardwareTraced with Reflections.HitLighting 1 | HardwareTraced and path tracer
-# with the shop window deleted | from inside the room looking back at the window wall, path tracer | raster - one
-# camera (except the two experiments, 3D D5 / D6), one exposure, one time, one tier.
+# S:/aftmp/NG-RT-REFRACTION3E-DESIGN.md, F:/aftmp/NG-RT-REFRACTION3D-DESIGN.md, F:/aftmp/NG-RT-REFRACTION3C-DESIGN.md,
+# F:/aftmp/NG-RT-REFRACTION3B-DESIGN.md and F:/aftmp/NG-RT-REFRACTION3-DESIGN.md, «## Приёмка»; physics
+# F:/aftmp/NG-RT-REFRACTION2-DESIGN.md). One editor session in F:/BistroFoliageProj, B16_Bistro_Street: frames of
+# the shop window - path tracer | Translucency.Refraction ScreenSpace | HardwareTraced | HardwareTraced with
+# Translucency.RefractionComposite 0, the same with Reflections.Method ScreenSpace | HardwareTraced again | the same
+# with Reflections.HitLighting 1 | the same with the camera 50 cm aside | HardwareTraced and path tracer with the shop
+# window deleted | from inside the room looking back at the window wall, path tracer | raster | raster Albedo - one
+# camera (except the experiments, 3D D5 / D6, 3E D2 / D3), one exposure, one time, one tier.
+# The pass cost (3E D1): "Translucency: Ray Traced Refraction" read 1.292 ms day (editor.log:16794 of
+# scn-1128-102658) and 1.595 ms night (editor.log:7526 of scn-1128-103343) at 8 segments, 1787x657 = 1.17 Mpx,
+# = 2.29 / 2.82 ms at 1080p against the budget 1.0; 16 -> 8 segments moved it inside the run noise, without rays
+# (Composite 0) it costs 0.022 / 0.033 ms - the whole cost is the traces. The pass numbers are read from editor.log
+# of the run folder: the reply files line_NNN_profile-dump.txt are empty ({"id":1,"ok":true}).
+# The split (3E D1, D2, D5): the end of a refraction path is lit as a reflection hit of the same tier -
+# Reflections.HitLighting 0 (High: from the surface cache cards, no visibility ray) or 1 (Cinematic: lit in place,
+# a visibility ray per sun / moon and per shadow-casting light of the grid cell). day_rt is the HitLighting 0 side,
+# refr_split the HitLighting 1 side of one camera: the difference of the two pass times is the share of the
+# visibility rays; the black torn band (x935-1080 y185-235) and the panel L_lin are read on both sides.
 # The knockout of [day_rt] (3C D4). "day_rt differs from day_ss" is not a statement: the hit the camera sees reads
 # the same scene copy, a thin sheet does not bend the ray, the tint is the same BaseColor - day_rt / day_ss 2.71
 # against a run noise of 3.86. The trace is proven by switching its answer off in the same session instead:
@@ -35,14 +46,19 @@
 # 0.0338, +325 %) and is not a measure. The day compares L_lin = mean of the sRGB-decoded (R+G+B)/3 (0..1) over the
 # pane mask (x540-1260 y170-630, pixels where day_pt > 8): day_rt within ±25 % of day_pt (0.1851 against 0.2342 =
 # -21 % in scn-1128-094916); the night the same (night_rt to night_pt, -11.6 %).
-# The experiments (3D D5, D6), recorded, not judged: day_rt_shift is day_rt with the camera 50 cm aside (the same
-# direction) - whether the black torn band in the upper right sash (x935-1080 y185-235) moves with the camera
-# (screen-space test, D6 a) or stays in the world (world cache cells, D6 b); the band stays a named open defect.
+# The experiments (3D D5, D6; 3E D2, D3, D4), recorded, not judged unless the statement says so: day_rt_shift is
+# day_rt with the camera 50 cm aside (the same direction) - in scn-1128-102658 the black torn band of the upper
+# right sash moved with the window and the ceiling behind the glass stayed black: the band is in the world, not
+# the screen-space test (3E D2); now the band is a statement on every frame. day_mute_ss is day_rt_mute with
+# Reflections.Method ScreenSpace: whether the grey gradient of the left column (light at the top, black at the
+# bottom, where day_pt shows the sky and the brick wall; also in day_rt_mute, absent in day_rt_open) stays - the
+# glass's own reflection layer, not the refraction trace (3E D4, open).
 # day_rt_open / day_pt_open delete the entity _4711 (Entity "Delete"; the scene is never saved) and show the scene
-# behind the window without the glass, raster | path tracer; in_back_pt / in_back_rt look from inside the room back
-# at the window wall, path tracer | raster: a wall the path tracer sees from inside and the raster does not is a
-# back face (D5).
-# refl_hit: Reflections.HitLighting 1 (the Cinematic value) builds - the reflection method does not refuse.
+# behind the window without the glass, raster | path tracer; in_back_pt / in_back_rt / in_back_base look from
+# inside the room back at the window wall (the glass still deleted), path tracer | raster | raster Albedo: the wall
+# the path tracer sees from inside and the raster does not is the raster's own primary visibility culling the back
+# faces of a one-sided shell, not a refraction ray (3E D3) - a separate feature (draw state and content), open.
+# refr_split also proves Reflections.HitLighting 1 (the Cinematic value) builds - the reflection method does not refuse.
 # Frame wait: `frames N` (N presented frames). Every capture stands >= 256 frames after the last
 # GlobalIllumination.Method switch (GI accumulation converged; else the opaque pixels drift).
 # The camera faces the cafe shop window Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4711
@@ -86,29 +102,36 @@
 Когда run Quality "Quality: Translucency.Refraction HardwareTraced"
 Когда frames 256
 Когда profile-dump
-Тогда-вид day_rt day, HardwareTraced under Reflections.TranslucentFrontLayer 0: the preset row does not stop it - the refracted interior behind the shop window, day_rt vs day_rt_mute on the glass at least 2x day_rt vs day_rt_b (mean |delta| over the pane mask, see the head); editor.log has no line "the glass refracts the scene copy"; profile-dump: "Translucency: Ray Traced Refraction" executed with a non-zero GPU time, the window rule holds against the day_ss dump (GPU frame within 2x, ClearMainFramebuffer <= 0.2 ms); the knockout 56.97 against 3.57 in scn-1128-094916
+Тогда-вид day_rt day, HardwareTraced under Reflections.TranslucentFrontLayer 0 (Reflections.HitLighting 0 at High: the path end from the cards, the HitLighting 0 side of [refr_split]): the preset row does not stop it - the refracted interior behind the shop window; the band x935-1080 y185-235 (the ceiling of the upper right sash): L_lin within ±25 % of day_pt (0.0157 against 0.2522 in scn-1128-102658, the black torn band, 3E D2); day_rt vs day_rt_mute on the glass at least 2x day_rt vs day_rt_b (mean |delta| over the pane mask, see the head); editor.log has no line "the glass refracts the scene copy"; profile-dump: "Translucency: Ray Traced Refraction" executed with a non-zero GPU time (read in editor.log, see the head), the window rule holds against the day_ss dump (GPU frame within 2x, ClearMainFramebuffer <= 0.2 ms); the knockout 56.97 against 3.57 in scn-1128-094916
 # --- the knockout of day_rt (3C D4): the trace's answer off, then day_rt again - the camera does not move
 Когда run Quality "Quality: Translucency.RefractionComposite 0"
 Когда frames 256
 Когда profile-dump
 Тогда-вид day_rt_mute day, HardwareTraced, Translucency.RefractionComposite 0: the glass cell ignores the trace and shows the screen copy - the knockout side of [day_rt]; profile-dump: the pass "Translucency: Ray Traced Refraction" GPU time under 0.1 ms (no ray is traced)
+# --- experiment 3E D4: the same knockout frame with screen-space reflections; then back
+Когда run Quality "Quality: Reflections.Method ScreenSpace"
+Когда frames 256
+Тогда-вид day_mute_ss day, HardwareTraced refraction, Translucency.RefractionComposite 0, Reflections.Method ScreenSpace: record whether the grey gradient of the left column (light at the top, black at the bottom in day_rt and day_rt_mute, where day_pt shows the sky and the brick wall) stays - stays: the glass layer's own reflection whatever the method; gone: the HardwareTraced reflection of the glass layer (3E D4, recorded, open)
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
 Когда run Quality "Quality: Translucency.RefractionComposite Level"
 Когда frames 256
-Тогда-вид day_rt_b day, HardwareTraced again, 512 frames after day_rt, the camera still: day_rt vs day_rt_b (mean |delta| over the pane mask) is the run noise [day_rt] is held to
+Тогда-вид day_rt_b day, HardwareTraced again, 768 frames after day_rt (Reflections HardwareTraced again for 256 frames), the camera still: day_rt vs day_rt_b (mean |delta| over the pane mask) is the run noise [day_rt] is held to
+# --- the split of the pass (3E D1, D2, D5): the path end lit in place (HitLighting 1) against the cards (day_rt)
+Когда run Quality "Quality: Reflections.HitLighting 1"
+Когда frames 256
+Когда profile-dump
+Тогда-вид refr_split day, HardwareTraced, Reflections.HitLighting 1 (the path end lit in place), the camera of day_rt: the pass "Translucency: Ray Traced Refraction" GPU time at HitLighting 0 (the day_rt dump) and at 1 (this dump) both written down from editor.log, each scaled to 1080p; their difference is named the share of the visibility rays of the path end (3E D1); the band x935-1080 y185-235 L_lin at 0 (day_rt) and at 1 (this frame) - black at 1 only: the cause of D2 is the radiance cache read of the end lit in place; the pane L_lin at 0 and at 1 against day_pt (3E D5: closer at 0 than -21 % names the same cause); the window rule holds against the day_rt dump; editor.log has no "did not build" and no "refused" line about SSR / SSRTrace and mean L of the glass area not below day_rt (the reflection variant with hit lighting builds, 3B D3 - the former refl_hit)
+Когда run Quality "Quality: Reflections.HitLighting Level"
+Когда frames 256
 # --- experiment 3D D6: the camera 50 cm aside, the direction kept; then back
 Когда --subject viewport set Camera.Position -346,300,-905
 Когда frames 64
-Тогда-вид day_rt_shift day, HardwareTraced, the camera 50 cm aside (-346,300,-905, the same direction): record whether the black torn band of the upper right sash (x935-1080 y185-235 in day_rt) moves with the camera (D6 a, the screen-space test) or stays in the world (D6 b, the world cache cells); the band stays a named open defect (3D D6)
+Тогда-вид day_rt_shift day, HardwareTraced, the camera 50 cm aside (-346,300,-905, the same direction): no black torn band - the ceiling behind the upper right sash, in THIS frame's coordinates x860-1005 y185-235 (the sash moved ~75 px left with the window: x935-1080 in day_rt, x860-1005 in day_rt_shift of scn-1128-102658, where the band moved with it and stayed black, 3E D2), L_lin within ±25 % of the same ceiling in day_pt over x935-1080 y185-235 (0.2522 in scn-1128-102658; the same ceiling 50 cm aside, no path tracer frame is taken at this camera); the rule holds for the HitLighting 0 frames day_rt and day_rt_shift, refr_split (HitLighting 1) only records the band
 Когда --subject viewport set Camera.Position -370,300,-861
 Когда --subject viewport set Camera.Direction 0.9940,0.07,0.1094
 Когда frames 32
 Тогда-вид day_rt_edge day, HardwareTraced, camera yawed 22 degrees: the window at the frame's edge - the interior beyond the frame's edge is seen through the glass (under ScreenSpace that is a stretched edge)
 Когда --subject viewport set Camera.Direction 0.8806,0.07,0.4738
-# --- reflections with hit lighting (3B D3): the variant builds, the glass is not darker than day_rt
-Когда run Quality "Quality: Reflections.HitLighting 1"
-Когда frames 256
-Тогда-вид refl_hit day, HardwareTraced, Reflections.HitLighting 1: editor.log has no "did not build" and no "refused" line about SSR / SSRTrace; mean L of the glass area not below day_rt
-Когда run Quality "Quality: Reflections.HitLighting Level"
 # --- day without the shop window: the frames of experiment 3D D5 (the scene is not saved)
 Когда run Entity "Delete Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4711"
 Когда frames 256
@@ -121,11 +144,16 @@
 Когда --subject viewport set Camera.Position 70,335,-624
 Когда --subject viewport set Camera.Direction -0.8806,0,-0.4738
 Когда frames 256
-Тогда-вид in_back_pt day, path tracer, inside the room at 70,335,-624 looking back (-0.8806,0,-0.4738): record whether the wall with the window is seen from inside (3D D5)
+Тогда-вид in_back_pt day, path tracer, inside the room at 70,335,-624 looking back (-0.8806,0,-0.4738), the glass _4711 deleted: the green wall with the window and the lit frames, seen from inside (the reference of in_back_rt)
 Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
 Когда run Quality "Quality: Reflections.Method HardwareTraced"
 Когда frames 256
-Тогда-вид in_back_rt day, HardwareTraced, the same camera as in_back_pt: record whether the raster sees the wall with the window from inside; a wall in in_back_pt that is missing here is a back face - the cause of D5 (3D D5)
+Тогда-вид in_back_rt day, HardwareTraced, the same camera as in_back_pt: EXPECTED RED - the green wall around the window is missing (the street and the GALERIE sign show left and right of it) and the frames are black; with the glass deleted this is the raster's primary visibility culling the back faces of a one-sided shell, not the refraction ray (3E D3): the brief's "the trace sees the same wall" is not met by this feature, the defect stays open and named
+# --- experiment 3E D3: the same camera without lighting - whether the raster draws the frames and the wall at all
+Когда run View "View mode: Albedo"
+Когда frames 32
+Тогда-вид in_back_base day, View mode Albedo, the same camera as in_back_rt: record whether the window frames and the green wall are in the raster without lighting - frames present and black in in_back_rt: their lighting; absent: the raster does not draw them from this side (3E D3 b: whether the shell's material is two-sided is content, recorded)
+Когда run View "View mode: Lit"
 Когда --subject viewport set Camera.Position -370,300,-861
 Когда --subject viewport set Camera.Direction 0.8806,0.07,0.4738
 Тогда refr_pt L_lin over the pane mask (x540-1260 y170-630, pixels where day_pt > 8; L_lin = mean of the sRGB-decoded (R+G+B)/3, 0..1): day_rt within ±25 % of day_pt (−21 % in scn-1128-094916); night_rt within ±25 % of night_pt (−11.6 % in scn-1128-095738; NG-RT-REFRACTION-NIGHT.scn of the same build); scripts/Dev/frames_compare.py
