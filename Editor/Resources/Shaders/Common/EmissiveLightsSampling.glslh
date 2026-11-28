@@ -7,9 +7,45 @@
 // (RayTracing::EmissiveLightsFrame::StaticParams / DynamicParams): @p s = (static triangles, leaves, levels, TLAS
 // instances of the lookup), @p d = (dynamic triangles, leaves, levels, 0). A triangle index below s.x is static,
 // the rest are dynamic (index - s.x).
+//
+// THE CONTRACT OF GI-TEMPORAL2 (written by the architect; no package edits this file).
+// ONE SELECTION SOURCE. Two distributions over the same triangles, both exact:
+//   global  EmissiveLightsPick / EmissiveLightsPickPdf: a triangle by its power over the whole list. The path
+//           tracer's (the reference renderer keeps the estimator its reference frames were shot with).
+//   grid    EmissiveGridPick / EmissiveGridPickPdf: a triangle for a receiver in a world cell (the surface cache's
+//           emissive layer, MegaLights, the world radiance cache). A cell holds kEmissiveGridSlots slots: clusters
+//           (one node of a part's power tree at the cluster level = a run of triangles) with the probability the
+//           cell gives each, and one REMAINDER slot (cluster kEmissiveNone) = the global distribution. The pdf of a
+//           triangle is the mixture  sum over the cell's slots naming its cluster of
+//           slot weight x power / cluster power  +  remainder weight x global pdf;  the remainder weight is never
+//           below kEmissiveGridRemainderMin, so every triangle with power has a positive pdf in every cell and the
+//           estimate needs no clamp. The grid is built by EmissiveLightsRenderer ("EmissiveLights: Grid"), is
+//           deterministic, and is rebuilt only when the list it was built from moved.
+// ONE RADIANCE. EmissiveLightsRadiance is what a listed triangle emits for every consumer that does not evaluate
+// the material at the hit: the triangle's average of the material emission the path tracer reads at a point.
+//
+// A grid consumer declares an EIGHTH buffer and defines EMISSIVE_LIGHTS_GRID before including this header:
+//   ReadBuffer(n) EmissiveGridUB { vec4 emissiveGrid[]; };      // RayTracing::EmissiveLightsFrame::Grid
+// Rows of emissiveGrid:
+//   [0] xyz = world position of the grid's minimum corner (cm)
+//   [1] xyz = one cell's size per axis (cm, > 0)
+//   [2] xyz = cells per axis (floatBitsToUint, each >= 1), w = cluster level of the static part (floatBitsToUint)
+//   [3] x = cluster level of the dynamic part, y = clusters of the static part (floatBitsToUint both)
+//   [kEmissiveGridHeaderRows + cell * kEmissiveGridSlots / 2 + slot / 2], .xy for an even slot, .zw for an odd one:
+//       x = cluster (floatBitsToUint; kEmissiveNone = the remainder), y = the slot's upper bound in the cell's CDF.
+//   The bounds do not decrease along the slots; the last slot's bound is 1; a slot of zero width is never picked.
+//   A cluster is named by at most one slot of a cell. Cluster k < [3].y is node k of the static tree's level [2].w;
+//   the others are node k - [3].y of the dynamic tree's level [3].x. An empty list has one cell: the remainder.
 
 #include <Common/EmissiveLights.glslh>
 
+const uint  kEmissiveGridHeaderRows   = 4u;
+const uint  kEmissiveGridSlots        = 16u;
+// Cells per axis at most, and the cluster level asked for (a part with fewer levels uses its root).
+const uint  kEmissiveGridMaxCells     = 32u;
+const uint  kEmissiveGridClusterLevel = 4u;
+// The least weight of a cell's remainder slot.
+const float kEmissiveGridRemainderMin = 0.0625;
 
 // Node @p index of a part's power tree.
 float EmissivePowerAt(bool dynamicPart, uint index)
@@ -35,7 +71,7 @@ uint EmissiveLightsTriangleCount(uvec4 s, uvec4 d)
     return s.x + d.x;
 }
 
-// The probability the sampler picks @p triangle.
+// The probability the GLOBAL sampler picks @p triangle.
 float EmissiveLightsPickPdf(uint triangle, uvec4 s, uvec4 d)
 {
     const float total = EmissiveLightsTotal(s, d);
@@ -45,11 +81,10 @@ float EmissiveLightsPickPdf(uint triangle, uvec4 s, uvec4 d)
     return EmissivePowerAt(dynamicPart, dynamicPart ? triangle - s.x : triangle) / total;
 }
 
-// One leaf of a part's tree in proportion to its power, by descending from the root; @p u in [0, 1).
-uint EmissiveLightsDescend(bool dynamicPart, uvec4 part, float u)
+// One leaf under node @p node of level @p level of a part's tree, in proportion to its power; @p u in [0, 1).
+uint EmissiveLightsDescendFrom(bool dynamicPart, uvec4 part, uint node, uint level, float u)
 {
-    uint node = 0u;
-    for (uint level = part.z - 1u; level > 0u; --level)
+    for (; level > 0u; --level)
     {
         const uint  below = EmissivePowerLevelOffset(part.y, level - 1u) + 2u * node;
         const float left  = EmissivePowerAt(dynamicPart, below);
@@ -70,9 +105,14 @@ uint EmissiveLightsDescend(bool dynamicPart, uvec4 part, float u)
     return node;
 }
 
-// One triangle in proportion to its power: the part by the two roots, then down that part's tree. @p u in [0, 1)
-// is consumed (each choice rescales it into the branch taken, so one number drives the whole descent). The total
-// must be > 0.
+// One leaf of a part's tree in proportion to its power, by descending from the root; @p u in [0, 1).
+uint EmissiveLightsDescend(bool dynamicPart, uvec4 part, float u)
+{
+    return EmissiveLightsDescendFrom(dynamicPart, part, 0u, part.z - 1u, u);
+}
+
+// GLOBAL: one triangle in proportion to its power: the part by the two roots, then down that part's tree. @p u in
+// [0, 1) is consumed. The total must be > 0.
 uint EmissiveLightsPick(float u, uvec4 s, uvec4 d)
 {
     const float staticTotal = EmissiveLightsPartTotal(false, s);
@@ -86,6 +126,18 @@ uint EmissiveLightsPick(float u, uvec4 s, uvec4 d)
 EmissiveTriangle EmissiveLightsTriangle(uint triangle, uvec4 s)
 {
     return triangle < s.x ? emissiveTriangles[triangle] : emissiveDynamicTriangles[triangle - s.x];
+}
+
+// The radiance @p triangle (row @p t) emits: its segment's material estimate (colour x intensity) scaled by the
+// emissive map's average over the triangle, which its power carries (power = luminance x map average x area,
+// "EmissiveLights: Build"). The one value for the surface cache, MegaLights and the radiance cache.
+vec3 EmissiveLightsRadiance(uint triangle, EmissiveTriangle t, uvec4 s)
+{
+    const uint row      = floatBitsToUint(t.Edge2Segment.w);
+    const vec4 radiance = triangle < s.x ? emissiveSegments[row].Radiance : emissiveDynamicSegments[row].Radiance;
+    if (radiance.w <= 0.0 || t.P0Area.w <= 0.0)
+        return vec3(0.0);
+    return radiance.rgb * (t.Edge1Power.w / (t.P0Area.w * radiance.w));
 }
 
 // The list's triangle a hit met (gl_InstanceID, gl_GeometryIndexEXT, gl_PrimitiveID of the hit), or kEmissiveNone
@@ -135,5 +187,76 @@ float EmissiveLightsSolidAnglePdf(EmissiveTriangle t, float pickPdf, float dista
         return 0.0;
     return pickPdf * distance * distance / (c * t.P0Area.w);
 }
+
+#if defined(EMISSIVE_LIGHTS_GRID)
+// The cell of world position @p p; a position outside the grid takes the nearest cell (its distribution is valid
+// everywhere: the remainder covers the whole list).
+uint EmissiveGridCell(vec3 p)
+{
+    const uvec3 dims = floatBitsToUint(emissiveGrid[2].xyz);
+    const ivec3 c    = clamp(ivec3(floor((p - emissiveGrid[0].xyz) / emissiveGrid[1].xyz)), ivec3(0), ivec3(dims) - 1);
+    return (uint(c.z) * dims.y + uint(c.y)) * dims.x + uint(c.x);
+}
+
+// Slot @p slot of @p cell: x = cluster (bits), y = upper CDF bound.
+vec2 EmissiveGridSlot(uint cell, uint slot)
+{
+    const vec4 row = emissiveGrid[kEmissiveGridHeaderRows + cell * (kEmissiveGridSlots / 2u) + slot / 2u];
+    return (slot & 1u) == 0u ? row.xy : row.zw;
+}
+
+// The probability the GRID sampler picks @p triangle for a receiver in @p cell (the exact mixture).
+float EmissiveGridPickPdf(uint cell, uint triangle, uvec4 s, uvec4 d)
+{
+    const bool  dynamicPart    = triangle >= s.x;
+    const uint  local          = dynamicPart ? triangle - s.x : triangle;
+    const uint  level          = floatBitsToUint(dynamicPart ? emissiveGrid[3].x : emissiveGrid[2].w);
+    const uint  staticClusters = floatBitsToUint(emissiveGrid[3].y);
+    const uint  node           = local >> level;
+    const uint  cluster        = dynamicPart ? staticClusters + node : node;
+    const uvec4 part           = dynamicPart ? d : s;
+    const float power          = EmissivePowerAt(dynamicPart, local);
+    const float clusterPower   = EmissivePowerAt(dynamicPart, EmissivePowerLevelOffset(part.y, level) + node);
+    float pdf   = 0.0;
+    float lower = 0.0;
+    for (uint slot = 0u; slot < kEmissiveGridSlots; ++slot)
+    {
+        const vec2  entry  = EmissiveGridSlot(cell, slot);
+        const float weight = entry.y - lower;
+        lower              = entry.y;
+        const uint  named  = floatBitsToUint(entry.x);
+        if (named == kEmissiveNone)
+            pdf += weight * EmissiveLightsPickPdf(triangle, s, d);
+        else if (named == cluster && clusterPower > 0.0)
+            pdf += weight * power / clusterPower;
+    }
+    return pdf;
+}
+
+// GRID: one triangle for a receiver in @p cell; @p u in [0, 1) is consumed. Its probability is
+// EmissiveGridPickPdf(cell, result, s, d). The list's total must be > 0.
+uint EmissiveGridPick(uint cell, float u, uvec4 s, uvec4 d)
+{
+    const uint staticClusters = floatBitsToUint(emissiveGrid[3].y);
+    float      lower          = 0.0;
+    for (uint slot = 0u; slot < kEmissiveGridSlots; ++slot)
+    {
+        const vec2 entry = EmissiveGridSlot(cell, slot);
+        if (u < entry.y && entry.y > lower)
+        {
+            const float inside = min((u - lower) / (entry.y - lower), 0.99999994);
+            const uint  named  = floatBitsToUint(entry.x);
+            if (named == kEmissiveNone)
+                return EmissiveLightsPick(inside, s, d);
+            if (named < staticClusters)
+                return EmissiveLightsDescendFrom(false, s, named, floatBitsToUint(emissiveGrid[2].w), inside);
+            return s.x + EmissiveLightsDescendFrom(true, d, named - staticClusters,
+                                                   floatBitsToUint(emissiveGrid[3].x), inside);
+        }
+        lower = max(lower, entry.y);
+    }
+    return EmissiveLightsPick(u, s, d); // unreachable under the contract (the last bound is 1): the global pick
+}
+#endif // EMISSIVE_LIGHTS_GRID
 
 #endif
