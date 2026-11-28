@@ -64,6 +64,8 @@ def brief_text(code, letter, pk, design, contract, then, base):
         f"Код: {code}-{letter}", f"Дерево: {pk['tree']} (ветка {pk['branch']}, от коммита контракта {base[:9]})",
         "Файлы: " + ", ".join(pk["files"]),
         "Закрывает: " + ", ".join(pk.get("closes") or []),
+        *(["Читает (только эти строки): " + ", ".join(f"{f}:" + ";".join(f"{a}-{b}" for a, b in r) for f, r in pk["reads"].items())]
+          if pk.get("reads") else []),
         "Контракт (не править): " + (", ".join(contract) if contract else "нет общих заголовков"), "",
         "## Сценарий", *then, "", *SPEND(),
         "## Сделать",
@@ -119,7 +121,7 @@ def cmd_plan(args):
         refuse(f"на диске {limits.WORKTREE_ROOT} свободно {free_gb():.1f} ГБ < limits.MIN_FREE_DISK_GB")
     packages = {}
     for letter, p in sorted(d["packages"].items()):
-        packages[letter] = {"name": p["name"], "files": p["files"], "closes": p["closes"], "tree": f"{limits.WORKTREE_ROOT}/{code}-{letter}",
+        packages[letter] = {"name": p["name"], "files": p["files"], "closes": p["closes"], "reads": p.get("reads") or {}, "tree": f"{limits.WORKTREE_ROOT}/{code}-{letter}",
                             "branch": f"task/{code}-{letter}", "brief": f"{limits.BRIEFS}/{code}-{letter}-BRIEF.md",
                             "state": "planned", "head": "", "stall": 0, "strays": []}
     if dry:
