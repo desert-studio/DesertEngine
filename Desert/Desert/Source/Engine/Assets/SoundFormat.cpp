@@ -2,6 +2,7 @@
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
+#include <Common/Content/AssetGuid.hpp>
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
@@ -15,14 +16,26 @@
 #include <Common/Json/ReadWrite.hpp>
 
 // The `.desound` TEXT, apart from the asset: Parse and Write touch no registry and no AssetBase, so the
-// SceneMigrator (which raises Clip paths to Sound GUIDs) compiles this file and not SoundAsset.cpp.
+// SceneMigrator (which raises Clip paths to Sound GUIDs and SNDW generations) compiles this file and not
+// SoundAsset.cpp.
 namespace Desert::Assets
 {
     namespace
     {
-        // SNDW v1 (AUD-CORE): Source, Class, Loading. Class and Loading are written by their enumerator's name
-        // (Audio/SoundProperties.hpp), so the file reads as what it means and a typo is refused, not defaulted.
+        // SNDW v2 (AUDIO-SOUNDCLASS): Source, Class, Loading. Class is the GUID text of the sound class asset,
+        // stated again as the header's one Dependency; Loading is its enumerator's name
+        // (Audio/SoundProperties.hpp), so a typo is refused, not defaulted.
         struct SoundDocument
+        {
+            Common::Content::TextAssetHeaderSerialized Header;
+            std::string                                Source;
+            std::string                                Class;
+            std::string                                Loading;
+        };
+
+        // SNDW v1 (AUD-CORE): the same members, Class an enumerator name (Music / Effects / Voice) and no
+        // Dependencies. Read by Upgrade alone.
+        struct SoundDocumentV1
         {
             Common::Content::TextAssetHeaderSerialized Header;
             std::string                                Source;
@@ -78,6 +91,19 @@ namespace Desert::Assets
             return Common::MakeSuccess(
                  Result{ header, Common::Content::TextHeaderVersion( header, kSoundSchemaTag ).value_or( 0 ) } );
         }
+
+        // The class GUID a v2 Class states: well-formed and not null.
+        Common::ResultStr<Audio::SoundClassId> ReadClassGuid( std::string_view text )
+        {
+            const auto guid = Common::Content::AssetGuidFromText( text );
+            if ( !guid )
+                return Common::MakeFormattedError<Audio::SoundClassId>(
+                     "Class '{}' is not the GUID of a sound class asset: {}", text, guid.GetError() );
+            if ( guid.GetValue().IsNull() )
+                return Common::MakeError<Audio::SoundClassId>(
+                     "Class is the null GUID; a sound plays in the class asset it names" );
+            return Common::MakeSuccess( guid.GetValue() );
+        }
     } // namespace
 
     Common::ResultStr<SoundAsset::Parsed> SoundAsset::Parse( std::string_view text )
@@ -85,11 +111,11 @@ namespace Desert::Assets
         const auto header = ReadSoundHeader( text );
         if ( !header )
             return Common::MakeError<Parsed>( header.GetError() );
-        if ( header.GetValue().second == 0 )
+        if ( const uint32_t stated = header.GetValue().second; stated < kSoundSchemaVersion )
             return Common::MakeFormattedError<Parsed>(
-                 "SNDW v0 states no Class and no Loading; this build reads SNDW v{}: run SceneMigrator "
-                 "(scripts/Dev/migrate.sh --write) over it once",
-                 kSoundSchemaVersion );
+                 "SNDW v{} names its Class {}; this build reads SNDW v{} (Class = a sound class asset's GUID): "
+                 "run SceneMigrator (scripts/Dev/migrate.sh --write) over it once",
+                 stated, stated == 0 ? "nowhere" : "by an enumerator name", kSoundSchemaVersion );
         const auto document = Common::Json::Read<SoundDocument>( text );
         if ( !document )
             return Common::MakeFormattedError<Parsed>( "not a .desound document: {}", document.GetError() );
@@ -99,26 +125,33 @@ namespace Desert::Assets
                                                SoundTextSubsystems() );
              !checked )
             return Common::MakeFormattedError<Parsed>( "sound {}", checked.GetError() );
-        if ( !data.Header.Dependencies.empty() )
-            return Common::MakeFormattedError<Parsed>(
-                 "the header states {} Dependencies; a sound references no asset",
-                 data.Header.Dependencies.size() );
         if ( data.Source.empty() )
             return Common::MakeError<Parsed>(
                  "Source is empty; a sound names the audio file it was imported from" );
-        const auto soundClass = Audio::SoundClassNamed( data.Class );
+        const auto soundClass = ReadClassGuid( data.Class );
         if ( !soundClass )
-            return Common::MakeFormattedError<Parsed>( "Class '{}' names no sound class (Music, Effects, Voice)",
-                                                       data.Class );
+            return Common::MakeError<Parsed>( soundClass.GetError() );
+        // The class asset is the sound's one reference: the header states it, and only it, so the content
+        // graph (cook, redirectors, reference viewer) sees what every voice of it needs.
+        if ( data.Header.Dependencies.size() != 1 )
+            return Common::MakeFormattedError<Parsed>(
+                 "the header states {} Dependencies; a sound states exactly one, its Class {}",
+                 data.Header.Dependencies.size(), data.Class );
+        const auto dependency = Common::Content::AssetGuidFromText( data.Header.Dependencies.front() );
+        if ( !dependency || dependency.GetValue() != soundClass.GetValue() )
+            return Common::MakeFormattedError<Parsed>(
+                 "the header's Dependency '{}' is not the Class {}; a sound depends on its class asset alone",
+                 data.Header.Dependencies.front(), data.Class );
         const auto loading = Audio::SoundLoadingNamed( data.Loading );
         if ( !loading )
             return Common::MakeFormattedError<Parsed>( "Loading '{}' names no loading (Resident, Streamed)",
                                                        data.Loading );
         const auto guid = Common::Content::AssetGuidFromText( data.Header.Guid );
-        return Common::MakeSuccess( Parsed{ guid.GetValue(), data.Source, *soundClass, *loading } );
+        return Common::MakeSuccess( Parsed{ guid.GetValue(), data.Source, soundClass.GetValue(), *loading } );
     }
 
-    Common::ResultStr<std::optional<std::string>> SoundAsset::Upgrade( std::string_view text )
+    Common::ResultStr<std::optional<std::string>> SoundAsset::Upgrade( std::string_view     text,
+                                                                       const LegacyClasses& classes )
     {
         using Result      = std::optional<std::string>;
         const auto header = ReadSoundHeader( text );
@@ -131,35 +164,74 @@ namespace Desert::Assets
                 return Common::MakeError<Result>( current.GetError() );
             return Common::MakeSuccess( Result{} );
         }
-        if ( stated != 0 )
+        if ( stated > kSoundSchemaVersion )
             return Common::MakeFormattedError<Result>(
                  "SNDW v{} is not a version this build knows (it writes v{})", stated, kSoundSchemaVersion );
-        const auto document = Common::Json::Read<SoundDocumentV0>( text );
-        if ( !document )
-            return Common::MakeFormattedError<Result>( "not a SNDW v0 .desound: {}", document.GetError() );
-        const auto guid = Common::Content::AssetGuidFromText( document.GetValue().Header.Guid );
-        // v0 named a file and nothing else: every voice of it played in Effects, decoded whole on play.
-        auto raised = Write( guid.GetValue(), document.GetValue().Source, Audio::SoundClass::Effects,
-                             Audio::SoundLoading::Resident );
+
+        // v0 -> v1: v0 named a file and nothing else; v1 stated the class every voice of it had played in (the
+        // migration's V0Name) and Resident, decoded whole on play.
+        SoundDocumentV1 v1;
+        if ( stated == 0 )
+        {
+            auto document = Common::Json::Read<SoundDocumentV0>( text );
+            if ( !document )
+                return Common::MakeFormattedError<Result>( "not a SNDW v0 .desound: {}", document.GetError() );
+            if ( classes.V0Name.empty() )
+                return Common::MakeError<Result>(
+                     "SNDW v0 -> v1: the migration states no V0Name, the class a v0 sound played in" );
+            SoundDocumentV0 v0 = document.ExtractValue();
+            v1.Header          = std::move( v0.Header );
+            v1.Source          = std::move( v0.Source );
+            v1.Class           = std::string( classes.V0Name );
+            v1.Loading         = std::string( Audio::SoundLoadingName( Audio::SoundLoading::Resident ) );
+        }
+        else
+        {
+            auto document = Common::Json::Read<SoundDocumentV1>( text );
+            if ( !document )
+                return Common::MakeFormattedError<Result>( "not a SNDW v1 .desound: {}", document.GetError() );
+            v1 = document.ExtractValue();
+        }
+
+        // v1 -> v2: the enumerator name becomes the class asset the project states for it.
+        if ( classes.ForName == nullptr )
+            return Common::MakeError<Result>(
+                 "SNDW v1 -> v2: the migration states no LegacyClasses::ForName to name the class assets" );
+        const Audio::SoundClassId soundClass = classes.ForName( v1.Class, classes.User );
+        if ( soundClass.IsNull() )
+            return Common::MakeFormattedError<Result>(
+                 "SNDW v1 -> v2: Class '{}' names no sound class asset of the project (its LegacyClassNames)",
+                 v1.Class );
+        const auto loading = Audio::SoundLoadingNamed( v1.Loading );
+        if ( !loading )
+            return Common::MakeFormattedError<Result>(
+                 "SNDW v1 -> v2: Loading '{}' names no loading (Resident, Streamed)", v1.Loading );
+        const auto guid   = Common::Content::AssetGuidFromText( v1.Header.Guid );
+        auto       raised = Write( guid.GetValue(), v1.Source, soundClass, *loading );
         if ( !raised )
             return Common::MakeError<Result>( raised.GetError() );
         return Common::MakeSuccess( Result{ raised.ExtractValue() } );
     }
 
     Common::ResultStr<std::string> SoundAsset::Write( const Common::Content::AssetGuid& guid,
-                                                      std::string_view source, Audio::SoundClass soundClass,
-                                                      Audio::SoundLoading loading )
+                                                      std::string_view                  source,
+                                                      const Audio::SoundClassId&        soundClass,
+                                                      Audio::SoundLoading               loading )
     {
         if ( guid.IsNull() )
             return Common::MakeError<std::string>( "a .desound needs a GUID; the null GUID names no sound" );
         if ( source.empty() )
             return Common::MakeError<std::string>( "a .desound names its source audio file; none was given" );
+        if ( soundClass.IsNull() )
+            return Common::MakeError<std::string>(
+                 "a .desound names the sound class asset it plays in; the null GUID names none" );
         SoundDocument data;
         data.Header =
              Common::Content::MakeTextHeader( Common::Content::ContentKind::Sound, guid, SoundTextSubsystems() );
-        data.Source  = std::string( source );
-        data.Class   = std::string( Audio::SoundClassName( soundClass ) );
-        data.Loading = std::string( Audio::SoundLoadingName( loading ) );
+        data.Source              = std::string( source );
+        data.Class               = Common::Content::AssetGuidToText( soundClass );
+        data.Header.Dependencies = { data.Class };
+        data.Loading             = std::string( Audio::SoundLoadingName( loading ) );
         return Common::Content::CanonicalJsonTextOfWriterOutput( Common::Json::Write( data ) );
     }
 } // namespace Desert::Assets

@@ -90,7 +90,7 @@ namespace Desert::Assets
 
     Common::BoolResultStr SoundAsset::Save( const Common::Filepath&           filepath,
                                             const Common::Content::AssetGuid& guid, std::string_view source,
-                                            Audio::SoundClass soundClass, Audio::SoundLoading loading )
+                                            const Audio::SoundClassId& soundClass, Audio::SoundLoading loading )
     {
         const auto text = Write( guid, source, soundClass, loading );
         if ( !text )
