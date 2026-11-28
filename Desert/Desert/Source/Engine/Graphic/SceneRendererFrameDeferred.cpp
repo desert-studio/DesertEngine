@@ -16,11 +16,9 @@
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRendererInternal.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
-
 #include <Common/Core/Units.hpp>
 
 #include <Common/Core/Profiler.hpp>
-
 
 #include <algorithm>
 #include <array>
@@ -2411,9 +2409,9 @@ namespace Desert::Graphic
                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( RadianceCache::RadianceCacheParamsPayload ) },
                                      "Reflections.RadianceCacheNone" );
             graph.QueueBufferClear( none, 0u ); // FPS-CPU-UPLOAD: zeroed on the GPU, no CPU payload.
-            const RDG::BufferRef noRequests = graph.CreateBuffer(
-                 RDG::BufferDesc{ GlobalIllumination::kMarkRequestBytes },
-                 "Reflections.RadianceCacheMarkRequestsNone" );
+            const RDG::BufferRef noRequests =
+                 graph.CreateBuffer( RDG::BufferDesc{ GlobalIllumination::kMarkRequestBytes },
+                                     "Reflections.RadianceCacheMarkRequestsNone" );
             reads.RadianceCache = GlobalIllumination::RadianceCacheFrame{ .Params      = none,
                                                                           .Indirection = none,
                                                                           .Probes      = none,
