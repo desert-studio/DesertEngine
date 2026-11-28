@@ -43,8 +43,11 @@
 //     zero row per buffer, root power 0, uploaded once): nothing is uploaded or dispatched for it.
 // Per part "EmissiveLights: Build" expands the segments into world triangles and leaf powers (the emissive map's
 // footprint average included), one "EmissiveLights: Reduce" per tree level sums them - over the runs of nodes the
-// CPU names (EmissiveDirtyRuns: the whole tree, or a moved row's leaves and their parents). Every consumer (the path tracer now, MegaLights next) reads
-// the same EmissiveLightsFrame and picks a part by the two roots.
+// CPU names (EmissiveDirtyRuns: the whole tree, or a moved row's leaves and their parents). Every consumer (the
+// path tracer now, MegaLights next) reads the same EmissiveLightsFrame and picks a part by the two roots, or a
+// cell's clusters from the list's SELECTION GRID (EmissiveLightsFrame::Grid: "EmissiveLights: Clusters", "Grid
+// Bounds", "Grid"), rebuilt in the frames the static part was rebuilt or moved and in every frame with a dynamic
+// part, kept between them like the static tree.
 //
 // LIFETIME. A rebuilt static part's previous buffers are PARKED (Assets::FrameRetireQueue), not dropped: the
 // frames recorded before the rebuild may still be reading them on the GPU, and the graph pool frees a leased
@@ -93,20 +96,62 @@ namespace Desert::Graphic::RayTracing
     inline constexpr std::string_view kEmissiveMovePassName          = "EmissiveLights: Move";
     inline constexpr std::string_view kEmissiveBuildMovedPassName    = "EmissiveLights: Build Moved";
     inline constexpr std::string_view kEmissiveReduceMovedPassName   = "EmissiveLights: Reduce Moved";
+    inline constexpr std::string_view kEmissiveClustersName          = "EmissiveLights.Clusters";
+    inline constexpr std::string_view kEmissiveGridName              = "EmissiveLights.Grid";
+    inline constexpr std::string_view kEmissiveClustersPassName      = "EmissiveLights: Clusters";
+    inline constexpr std::string_view kEmissiveGridBoundsPassName    = "EmissiveLights: Grid Bounds";
+    inline constexpr std::string_view kEmissiveGridPassName          = "EmissiveLights: Grid";
+
+    // Common/EmissiveLightsGridBuild.glslh's EmissiveCluster: two vec4 (the rows "Clusters" hands the grid
+    // passes).
+    inline constexpr uint64_t kEmissiveClusterBytes = 2u * sizeof( glm::vec4 );
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct EmissiveLightsClustersShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveTrianglesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicTrianglesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveClustersUB );
+    };
+
+    // The slot names the grid's two passes bind ("GridBounds" and "Cells"), spelled once
+    // (RDGShaderParameters.hpp).
+    struct EmissiveLightsGridShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveClustersUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveGridUB );
+    };
 
     class EmissiveLightsRenderer
     {
     public:
         [[nodiscard]] Common::BoolResultStr Initialize()
         {
-            if ( m_BuildPipeline && m_ReducePipeline && m_MovePipeline )
+            if ( PipelinesMade() )
                 return BOOLSUCCESS;
-            m_BuildShader  = Runtime::FindShader( "EmissiveLights/Build" );
-            m_ReduceShader = Runtime::FindShader( "EmissiveLights/Reduce" );
-            m_MoveShader   = Runtime::FindShader( "EmissiveLights/Move" );
-            if ( !m_BuildShader || !m_ReduceShader || !m_MoveShader )
-                return Common::MakeError( "EmissiveLights: the programs 'EmissiveLights/Build' / "
-                                          "'EmissiveLights/Reduce' / 'EmissiveLights/Move' are not registered" );
+            m_BuildShader      = Runtime::FindShader( "EmissiveLights/Build" );
+            m_ReduceShader     = Runtime::FindShader( "EmissiveLights/Reduce" );
+            m_MoveShader       = Runtime::FindShader( "EmissiveLights/Move" );
+            m_ClustersShader   = Runtime::FindShader( "EmissiveLights/Clusters" );
+            m_GridBoundsShader = Runtime::FindShader( "EmissiveLights/GridBounds" );
+            m_CellsShader      = Runtime::FindShader( "EmissiveLights/Cells" );
+            if ( !m_BuildShader || !m_ReduceShader || !m_MoveShader || !m_ClustersShader || !m_GridBoundsShader ||
+                 !m_CellsShader )
+                return Common::MakeError(
+                     "EmissiveLights: the programs 'EmissiveLights/Build' / 'Reduce' / 'Move' / "
+                     "'Clusters' / 'GridBounds' / 'Cells' are not registered" );
+            const auto clusters =
+                 ComputePipeline::Create( { .Shader = m_ClustersShader, .DebugName = "EmissiveLightsClusters" } );
+            if ( !clusters )
+                return Common::MakeError( clusters.GetError() );
+            const auto gridBounds = ComputePipeline::Create(
+                 { .Shader = m_GridBoundsShader, .DebugName = "EmissiveLightsGridBounds" } );
+            if ( !gridBounds )
+                return Common::MakeError( gridBounds.GetError() );
+            const auto cells =
+                 ComputePipeline::Create( { .Shader = m_CellsShader, .DebugName = "EmissiveLightsCells" } );
+            if ( !cells )
+                return Common::MakeError( cells.GetError() );
             const auto build =
                  ComputePipeline::Create( { .Shader = m_BuildShader, .DebugName = "EmissiveLightsBuild" } );
             if ( !build )
@@ -121,24 +166,59 @@ namespace Desert::Graphic::RayTracing
             m_BuildPipeline  = build.GetValue();
             m_ReducePipeline = reduce.GetValue();
             m_MovePipeline   = move.GetValue();
+            m_ClustersPipeline   = clusters.GetValue();
+            m_GridBoundsPipeline = gridBounds.GetValue();
+            m_CellsPipeline      = cells.GetValue();
             return BOOLSUCCESS;
         }
 
-        // GRAPH BUILD: this frame's list in @p graph. The static part, against what the view keeps on the GPU:
-        //   * list.StructureHash moved (an emitter added, removed or re-materialled), or nothing kept: uploaded and
-        //     expanded whole (Build over every leaf, Reduce over every node), extracted for the next frames;
+        // How often the static part was expanded whole / updated for moved rows (a still scene: 1 / 0; a moving
+        // emitter: 1 / one per frame it moves).
+        [[nodiscard]] uint64_t GetStaticRebuildCount() const
+        {
+            return m_StaticRebuilds;
+        }
+        [[nodiscard]] uint64_t GetStaticMoveCount() const
+        {
+            return m_StaticMoves;
+        }
+        // How many Move frames' graphs did not execute (no ack): their rows were moved again on the next frame.
+        [[nodiscard]] uint64_t GetStaticMoveRetryCount() const
+        {
+            return m_StaticMoveRetries;
+        }
+
+        // GRAPH BUILD: this frame's list in @p graph (AddList) and its selection grid (AddGrid).
+        [[nodiscard]] Common::ResultStr<EmissiveLightsFrame> AddPasses( RDG::Builder&               graph,
+                                                                        const EmissiveTriangleList& list )
+        {
+            if ( !PipelinesMade() )
+                return Common::MakeError<EmissiveLightsFrame>(
+                     "EmissiveLights: the pipelines were not made (Initialize)" );
+            EmissiveLightsFrame frame = AddList( graph, list );
+            AddGrid( graph, frame );
+            return Common::MakeSuccess( frame );
+        }
+
+    private:
+        [[nodiscard]] bool PipelinesMade() const
+        {
+            return m_BuildPipeline && m_ReducePipeline && m_MovePipeline && m_ClustersPipeline &&
+                   m_GridBoundsPipeline && m_CellsPipeline;
+        }
+
+        // This frame's list in @p graph. The static part, against what the view keeps on the GPU:
+        //   * list.StructureHash moved (an emitter added, removed or re-materialled), or nothing kept:
+        //     uploaded and expanded whole (Build over every leaf, Reduce over every node), extracted for the next
+        //     frames;
         //   * else, the rows whose transform moved, IN PLACE in the kept buffers: "EmissiveLights: Move" writes
         //     their transforms, Build re-expands their leaves only and Reduce sums their path to the root
         //     (EmissiveDirtyRuns) - a moving emitter costs its own triangles, a still scene nothing;
         //   * else registered as kept.
-        // The lookup is re-uploaded alone when list.LookupHash moved. The dynamic part is built whole in this graph
-        // from list.DynamicPositions, which must be registered in @p graph.
-        [[nodiscard]] Common::ResultStr<EmissiveLightsFrame> AddPasses( RDG::Builder&               graph,
-                                                                        const EmissiveTriangleList& list )
+        // The lookup is re-uploaded alone when list.LookupHash moved. The dynamic part is built whole in this
+        // graph from list.DynamicPositions, which must be registered in @p graph.
+        [[nodiscard]] EmissiveLightsFrame AddList( RDG::Builder& graph, const EmissiveTriangleList& list )
         {
-            if ( !m_BuildPipeline || !m_ReducePipeline || !m_MovePipeline )
-                return Common::MakeError<EmissiveLightsFrame>(
-                     "EmissiveLights: the pipelines were not made (Initialize)" );
             const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
             m_Retiring.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
             ResolvePendingMoves( frames.GetAbsoluteFrameCount() );
@@ -219,7 +299,7 @@ namespace Desert::Graphic::RayTracing
                     m_PendingMoves.emplace_back( static_cast<uint32_t>( row ), segment.ObjectToWorld );
                 }
                 if ( moves.empty() )
-                    return Common::MakeSuccess( frame );
+                    return frame;
                 DESERT_PROFILE_SCOPE( "EmissiveLights: Move" );
                 AddMove( graph, frame.Static.Segments, moves );
                 // The moved rows count as held by the GPU only once this graph executed: its ack arrives on
@@ -232,7 +312,7 @@ namespace Desert::Graphic::RayTracing
                          EmissiveDirtyRuns( std::move( leafRuns ), frame.Static.Levels ),
                          { kEmissiveMovedRunsName, kEmissiveBuildMovedPassName, kEmissiveReduceMovedPassName } );
                 ++m_StaticMoves;
-                return Common::MakeSuccess( frame );
+                return frame;
             }
 
             // ---- Static, structure changed: rebuilt whole. ----
@@ -269,26 +349,143 @@ namespace Desert::Graphic::RayTracing
             graph.Extract( frame.Static.Triangles, m_Kept.Triangles, RDG::Access::StorageRead );
             graph.Extract( frame.Static.Power, m_Kept.Power, RDG::Access::StorageRead );
             ++m_StaticRebuilds;
-            return Common::MakeSuccess( frame );
+            return frame;
         }
 
-        // How often the static part was expanded whole / updated for moved rows (a still scene: 1 / 0; a moving
-        // emitter: 1 / one per frame it moves).
-        [[nodiscard]] uint64_t GetStaticRebuildCount() const
+        // THE SELECTION GRID of @p frame's list (Common/EmissiveLightsSampling.glslh), always made: "Clusters"
+        // bounds each cluster, "GridBounds" lays the cells, "Cells" fills them. Built in the frames whose static
+        // part was rebuilt or moved (m_StaticRebuilds / m_StaticMoves moved since the kept grid) and in every
+        // frame with a dynamic part (its triangles are this frame's: that grid is not kept); else the kept grid of
+        // the static part alone. An empty list's grid is the header and one cell (its remainder): one cell per
+        // axis at most.
+        void AddGrid( RDG::Builder& graph, EmissiveLightsFrame& frame )
         {
-            return m_StaticRebuilds;
-        }
-        [[nodiscard]] uint64_t GetStaticMoveCount() const
-        {
-            return m_StaticMoves;
-        }
-        // How many Move frames' graphs did not execute (no ack): their rows were moved again on the next frame.
-        [[nodiscard]] uint64_t GetStaticMoveRetryCount() const
-        {
-            return m_StaticMoveRetries;
+            const bool staticOnly = frame.Dynamic.TriangleCount == 0;
+            if ( staticOnly && m_Kept.Grid.Physical && m_Kept.GridRebuilds == m_StaticRebuilds &&
+                 m_Kept.GridMoves == m_StaticMoves )
+            {
+                frame.Grid = graph.RegisterExternal( m_Kept.Grid, kEmissiveGridName );
+                return;
+            }
+            DESERT_PROFILE_SCOPE( "EmissiveLights: Grid" );
+            const uint32_t staticLevel    = ClusterLevel( frame.Static );
+            const uint32_t dynamicLevel   = ClusterLevel( frame.Dynamic );
+            const uint32_t staticClusters = frame.Static.Leaves >> staticLevel;
+            const uint32_t clusters       = staticClusters + ( frame.Dynamic.Leaves >> dynamicLevel );
+            const uint32_t axisCells =
+                 frame.Static.TriangleCount + frame.Dynamic.TriangleCount == 0 ? 1u : kEmissiveGridMaxCells;
+            const uint32_t cells = axisCells * axisCells * axisCells;
+
+            const RDG::BufferRef clusterRows =
+                 graph.CreateBuffer( RDG::BufferDesc{ static_cast<uint64_t>( clusters ) * kEmissiveClusterBytes },
+                                     kEmissiveClustersName );
+            frame.Grid = graph.CreateBuffer(
+                 RDG::BufferDesc{
+                      ( kEmissiveGridHeaderRows + static_cast<uint64_t>( cells ) * ( kEmissiveGridSlots / 2u ) ) *
+                      sizeof( glm::vec4 ) },
+                 kEmissiveGridName );
+            const RDG::BufferRef grid = frame.Grid;
+
+            const ShaderPush::EmissiveLights_Clusters clusterPush{
+                 .StaticPart = glm::uvec4( frame.Static.TriangleCount, staticLevel, staticClusters, 0u ),
+                 .DynamicPart =
+                      glm::uvec4( frame.Dynamic.TriangleCount, dynamicLevel, clusters - staticClusters, 0u ) };
+            graph.AddPass(
+                 kEmissiveClustersPassName, RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.Bindings( m_ClustersLayout.Get( m_ClustersShader ),
+                                    Renderer::GetPipelineRouteFill( *m_ClustersPipeline ) )
+                          .Storage( EmissiveLightsClustersShaderParameters::EmissiveTrianglesUB,
+                                    frame.Static.Triangles, RDG::Access::StorageRead )
+                          .Storage( EmissiveLightsClustersShaderParameters::EmissiveDynamicTrianglesUB,
+                                    frame.Dynamic.Triangles, RDG::Access::StorageRead )
+                          .Storage( EmissiveLightsClustersShaderParameters::EmissiveClustersUB, clusterRows,
+                                    RDG::Access::StorageWrite )
+                          .PushConstants<ShaderPush::EmissiveLights_Clusters>();
+                 },
+                 [this, clusterPush, clusters]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS_DYNAMIC( kEmissiveClustersPassName.data() );
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( clusterPush );
+                     return Renderer::GetInstance().DispatchCompute( bindings, *m_ClustersPipeline,
+                                                                     Groups( clusters ), 1, 1 );
+                 } );
+
+            const ShaderPush::EmissiveLights_GridBounds boundsPush{
+                 .Clusters = glm::uvec4( staticClusters, clusters, staticLevel, dynamicLevel ),
+                 .Layout   = glm::uvec4( axisCells, 0u, 0u, 0u ) };
+            graph.AddPass(
+                 kEmissiveGridBoundsPassName, RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.Bindings( m_GridBoundsLayout.Get( m_GridBoundsShader ),
+                                    Renderer::GetPipelineRouteFill( *m_GridBoundsPipeline ) )
+                          .Storage( EmissiveLightsGridShaderParameters::EmissiveClustersUB, clusterRows,
+                                    RDG::Access::StorageRead )
+                          .Storage( EmissiveLightsGridShaderParameters::EmissiveGridUB, grid,
+                                    RDG::Access::StorageWrite )
+                          .PushConstants<ShaderPush::EmissiveLights_GridBounds>();
+                 },
+                 [this, boundsPush]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS_DYNAMIC( kEmissiveGridBoundsPassName.data() );
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( boundsPush );
+                     // LocalSize(1, 1, 1): one thread lays the whole grid.
+                     return Renderer::GetInstance().DispatchCompute( bindings, *m_GridBoundsPipeline, 1, 1, 1 );
+                 } );
+
+            const ShaderPush::EmissiveLights_Cells cellsPush{
+                 .Layout  = glm::uvec4( kEmissiveGridHeaderRows, kEmissiveGridSlots, clusters, 0u ),
+                 .Weights = glm::vec4( kEmissiveGridRemainderMin, 0.0f, 0.0f, 0.0f ) };
+            graph.AddPass(
+                 kEmissiveGridPassName, RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     pass.Bindings( m_CellsLayout.Get( m_CellsShader ),
+                                    Renderer::GetPipelineRouteFill( *m_CellsPipeline ) )
+                          .Storage( EmissiveLightsGridShaderParameters::EmissiveClustersUB, clusterRows,
+                                    RDG::Access::StorageRead )
+                          .Storage( EmissiveLightsGridShaderParameters::EmissiveGridUB, grid,
+                                    RDG::Access::StorageWrite )
+                          .PushConstants<ShaderPush::EmissiveLights_Cells>();
+                 },
+                 [this, cellsPush, cells]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS_DYNAMIC( kEmissiveGridPassName.data() );
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( cellsPush );
+                     // One thread per cell the grid may hold; the cells past this grid's layout return at once.
+                     return Renderer::GetInstance().DispatchCompute( bindings, *m_CellsPipeline, Groups( cells ),
+                                                                     1, 1 );
+                 } );
+
+            if ( !staticOnly )
+                return;
+            // Kept for the next frames like the tree; the replaced grid waits out the frames in flight. The
+            // Physical buffer arrives on Execute: a graph that fails leaves it empty and the next frame builds it
+            // again.
+            if ( m_Kept.Grid.Physical )
+            {
+                Kept replaced;
+                replaced.Grid = std::move( m_Kept.Grid );
+                m_Retiring.Park( std::move( replaced ),
+                                 ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+            }
+            m_Kept.Grid         = {};
+            m_Kept.GridRebuilds = m_StaticRebuilds;
+            m_Kept.GridMoves    = m_StaticMoves;
+            graph.Extract( frame.Grid, m_Kept.Grid, RDG::Access::StorageRead );
         }
 
-    private:
+        // A part's cluster level: kEmissiveGridClusterLevel, or its root's when it has fewer levels.
+        static uint32_t ClusterLevel( const EmissiveLightsPart& part )
+        {
+            return std::min( kEmissiveGridClusterLevel, part.Levels - 1u );
+        }
+
         // A FAILED FRAME MARKS ITS MOVED EMITTERS DIRTY AGAIN. The rows the last Move frame wrote enter
         // m_KeptTransforms only when its graph executed (m_MoveAck arrived on Execute); a graph that failed or never
         // ran after declaring the Move leaves them at what the GPU holds, so this frame's comparison moves them
@@ -324,8 +521,11 @@ namespace Desert::Graphic::RayTracing
             RDG::ExternalBuffer Triangles;
             RDG::ExternalBuffer Power;
             RDG::ExternalBuffer MoveAck; // only ever parked (ResolvePendingMoves)
+            RDG::ExternalBuffer Grid;
             uint64_t            StructureHash = 0;
             uint64_t            LookupHash    = 0;
+            uint64_t            GridRebuilds  = 0; // m_StaticRebuilds / m_StaticMoves the kept grid was built at
+            uint64_t            GridMoves     = 0;
         };
 
         // The empty dynamic part every consumer binds when no deformed emitter is in the list: never written, so
@@ -374,7 +574,7 @@ namespace Desert::Graphic::RayTracing
 
         static uint32_t Groups( const uint32_t threads )
         {
-            return ( threads + 63u ) / 64u; // LocalSize(64, 1, 1) in every pass
+            return ( threads + 63u ) / 64u; // LocalSize(64, 1, 1) in every pass but GridBounds (one thread)
         }
 
         static EmissiveLightsPart DescribePart( const uint32_t triangles )
@@ -513,12 +713,21 @@ namespace Desert::Graphic::RayTracing
         std::shared_ptr<Shader>          m_BuildShader;
         std::shared_ptr<Shader>          m_ReduceShader;
         std::shared_ptr<Shader>          m_MoveShader;
+        std::shared_ptr<Shader>          m_ClustersShader;
+        std::shared_ptr<Shader>          m_GridBoundsShader;
+        std::shared_ptr<Shader>          m_CellsShader;
         std::shared_ptr<ComputePipeline> m_BuildPipeline;
         std::shared_ptr<ComputePipeline> m_ReducePipeline;
         std::shared_ptr<ComputePipeline> m_MovePipeline;
+        std::shared_ptr<ComputePipeline> m_ClustersPipeline;
+        std::shared_ptr<ComputePipeline> m_GridBoundsPipeline;
+        std::shared_ptr<ComputePipeline> m_CellsPipeline;
         mutable ShaderBindingLayoutCache m_BuildLayout;
         mutable ShaderBindingLayoutCache m_ReduceLayout;
         mutable ShaderBindingLayoutCache m_MoveLayout;
+        mutable ShaderBindingLayoutCache m_ClustersLayout;
+        mutable ShaderBindingLayoutCache m_GridBoundsLayout;
+        mutable ShaderBindingLayoutCache m_CellsLayout;
         Kept                             m_Kept;
         // The transform of each kept static row as the GPU holds it (what a move is measured against).
         std::vector<std::array<glm::vec4, 3>> m_KeptTransforms;
