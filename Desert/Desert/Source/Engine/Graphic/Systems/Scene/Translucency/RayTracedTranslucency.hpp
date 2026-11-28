@@ -108,8 +108,7 @@ namespace Desert::Graphic::System
     //   1. this struct: the output image, the view block the hit groups read, the hit groups' scene reads
     //      (Common/CameraUB.glslh, Common/RayTracingSceneReads.glslh);
     //   2. SSRFrontLayerShaderParameters: FrontLayerNormalTexture (rgb normal, a roughness),
-    //   FrontLayerDepthTexture,
-    //      PointClampSampler;
+    //      FrontLayerDepthTexture, PointClampSampler;
     //   3. SSRShaderParameters as SSRRenderer::DeclareTracedReads binds them for the pass's tracer
     //      (RayTracedTranslucencyTracer: GIFrameUB, PointLightsUB, SpotLightsUB, LightGridParamsUB,
     //      LightGridWorldCellsUB, RadianceCache*, EnvironmentSpecularTexture, LinearClampSampler, GBufferATexture,
