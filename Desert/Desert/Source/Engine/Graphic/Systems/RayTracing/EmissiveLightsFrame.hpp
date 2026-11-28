@@ -7,9 +7,17 @@
 #include <cstdint>
 
 // The emissive triangle list of one frame as the graph sees it - what a consumer (the path tracer, the surface
-// cache's GI) reads. Kept apart from EmissiveLightsRenderer.hpp so a consumer does not compile the renderer.
+// cache's GI, MegaLights, the world radiance cache) reads. Kept apart from EmissiveLightsRenderer.hpp so a consumer
+// does not compile the renderer. CONTRACT OF GI-TEMPORAL2: written by the architect, no package edits it.
 namespace Desert::Graphic::RayTracing
 {
+    // The selection grid's numbers, the same as Common/EmissiveLightsSampling.glslh (kEmissiveGrid*).
+    inline constexpr uint32_t kEmissiveGridHeaderRows   = 4;
+    inline constexpr uint32_t kEmissiveGridSlots        = 16;
+    inline constexpr uint32_t kEmissiveGridMaxCells     = 32;
+    inline constexpr uint32_t kEmissiveGridClusterLevel = 4;
+    inline constexpr float    kEmissiveGridRemainderMin = 0.0625f;
+
     // One part of the list as the graph sees it.
     struct EmissiveLightsPart
     {
@@ -30,6 +38,10 @@ namespace Desert::Graphic::RayTracing
         EmissiveLightsPart Static;
         EmissiveLightsPart Dynamic;
         RDG::BufferRef     Lookup;
+        // The selection grid of THIS list (EmissiveGridUB, vec4 rows, Common/EmissiveLightsSampling.glslh): valid
+        // whenever Valid is; an empty list holds the header and one cell whose only weight is the remainder's.
+        // A grid consumer binds it as the eighth buffer and defines EMISSIVE_LIGHTS_GRID.
+        RDG::BufferRef     Grid;
         uint32_t           InstanceCount = 0; // the TLAS instances the lookup was built for
         uint64_t           Hash          = 0; // EmissiveTriangleList::Hash
 

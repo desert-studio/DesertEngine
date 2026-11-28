@@ -1,0 +1,17 @@
+#ifndef DESERT_EMISSIVE_LIGHTS_GRID_BUILD_GLSLH
+#define DESERT_EMISSIVE_LIGHTS_GRID_BUILD_GLSLH
+
+// The rows the selection grid's builder passes hand each other (Programs/EmissiveLights/EmissiveLights.shader:
+// "Clusters" writes them, "GridBounds" and "Cells" read them; RayTracing::EmissiveLightsRenderer sizes the buffer).
+// Private to the builder: a grid CONSUMER reads only EmissiveGridUB (Common/EmissiveLightsSampling.glslh).
+// One row per cluster of the grid's numbering (the static part's clusters first, then the dynamic part's).
+struct EmissiveCluster
+{
+    vec4 Sphere; // xyz: power-weighted centre of the cluster's triangles (cm); w: radius over their corners (cm)
+    vec4 Power;  // x: the sum of the cluster's leaf powers; 0 = no triangle with power (never a candidate)
+};
+
+// The cell edge the grid aims for (cm): cells per axis = clamp(ceil(extent / this), 1, kEmissiveGridMaxCells).
+const float kEmissiveGridCellTarget = 200.0;
+
+#endif
