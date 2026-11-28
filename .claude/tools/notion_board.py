@@ -4,6 +4,9 @@
   notion_board.py check                       token works, the board's property names and types
   notion_board.py counts                      open cards by «Статус»
   notion_board.py queue [STATUS]              Windows cards of a status (default «Готово к старту»): code, age
+  notion_board.py card CODE                   one card: every property and the page text
+  notion_board.py find TEXT                   cards whose «Код» or title contains TEXT: code, status, title
+  notion_board.py sync                        refresh the board mirror limits.BOARD_STATE from every open card
   notion_board.py apply FILE.json             batch of updates: [{"code":..,"status":..,"line":..,"props":{..}}]
                                               a missing «Код» is created as «КОД · line», «Кто ведёт» = Windows · лид
 
@@ -177,6 +180,64 @@ def cmd_queue(status):
     print(f"{len(rows)} card(s)")
 
 
+def page_text(page_id):
+    out, cursor = [], None
+    while True:
+        r = call("GET", f"/blocks/{page_id}/children?page_size=100" + (f"&start_cursor={cursor}" if cursor else ""))
+        for b in r["results"]:
+            v = b.get(b["type"], {})
+            line = "".join(x.get("plain_text", "") for x in v.get("rich_text", []))
+            if line:
+                out.append(("- " if "list_item" in b["type"] else "") + line)
+        if not r.get("has_more"):
+            return out
+        cursor = r["next_cursor"]
+
+
+def cmd_card(code):
+    sch = schema()
+    found = query(code_filter(sch, code))
+    if not found:
+        fail(f"no card «{code}»")
+    for pg in found:
+        for n in sorted(pg["properties"]):
+            v = text_of(pg["properties"][n])
+            if v:
+                print(f"{n}: {v}")
+        print(pg["url"])
+        for line in page_text(pg["id"]):
+            print(line)
+
+
+def cmd_find(text):
+    sch = schema()
+    tname = title_name(sch)
+    key = "title" if sch["Код"]["type"] == "title" else "rich_text"
+    filt = {"or": [{"property": "Код", key: {"contains": text}}, {"property": tname, "title": {"contains": text}}]}
+    rows = query(filt)
+    for pg in rows:
+        pr = pg["properties"]
+        print(f"{text_of(pr.get('Код'))}  [{text_of(pr.get('Статус'))}]  {text_of(pr.get(tname))[:70]}")
+    print(f"{len(rows)} card(s)")
+
+
+def cmd_sync():
+    """The mirror board_guard keeps (code -> status, zone, priority, who, updated), from every open card at once."""
+    import board_guard
+    sch = schema()
+    rows = []
+    for st in OPEN:
+        for pg in query(status_filter(sch, st)):
+            pr = pg["properties"]
+            rows.append({"url": pg["url"], "Код": text_of(pr.get("Код")), "Статус": st,
+                         "Зона": text_of(pr.get("Зона")), "Приоритет": text_of(pr.get("Приоритет")),
+                         "who": text_of(pr.get("Кто ведёт"))[:60], "upd": pg["last_edited_time"][:10]})
+    s = board_guard.load()
+    board_guard.ingest_rows(s, [json.dumps({"results": rows}, ensure_ascii=False)], full=True)
+    board_guard.save(s)
+    print(f"mirror: {len(rows)} open card(s) -> {board_guard.limits.BOARD_STATE}")
+
+
 def cmd_apply(path):
     batch = json.load(open(path, encoding="utf-8"))
     sch = schema()
@@ -224,6 +285,12 @@ def main(argv):
         cmd_counts()
     elif c == "queue":
         cmd_queue(argv[1] if len(argv) > 1 else "Готово к старту")
+    elif c == "card" and len(argv) == 2:
+        cmd_card(argv[1])
+    elif c == "find" and len(argv) == 2:
+        cmd_find(argv[1])
+    elif c == "sync":
+        cmd_sync()
     elif c == "apply" and len(argv) == 2:
         cmd_apply(argv[1])
     else:

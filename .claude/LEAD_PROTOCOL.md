@@ -90,7 +90,7 @@
 
 ## Доска
 
-- Notion читает и пишет только `Agent(board)`; лид не грузит схемы Notion в свой контекст.
+- Notion: запись — `studio.py board` (REST, `notion_board.py`, без агента); чтение — `notion_board.py card|find|queue|counts|sync`; только Вики — `Agent(board)`; лид не грузит схемы Notion в свой контекст.
 - Доска — не шлагбаум запуска. Источник истины о том, что идёт, — `pipeline.json`; доска — его отражение для владельца.
 - Записи копятся: `accept`, `merge`, `passed`, `landed`, `drop` ставят строку в очередь. `python .claude/tools/studio.py board`
   печатает ОДИН запрос на всю очередь — он и уходит агенту board. Stop блокируется при `limits.BOARD_BATCH` записях
