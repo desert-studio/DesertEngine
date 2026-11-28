@@ -5,6 +5,7 @@
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheEmissiveLighting.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheScene.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -112,7 +113,8 @@ namespace Desert::Graphic::SurfaceCache
             glm::vec4                       Light1Color{ 0.0f };
             GlobalIllumination::TracerFrame Tracer;
             // The scene's emissive triangles as lights (GI-EMISSIVE-LIGHTS; RayTracing::EmissiveLightsFrame, the
-            // path tracer's one list): required (Valid) under either GI tracer, whose programs sample them;
+            // path tracer's one list): required (Valid) under either GI tracer, whose emissive lighting pass
+            // (GI-TEMPORAL, EmissiveLighting::kPassName) samples them into its layer ahead of the direct lighting;
             // the list is built from the scene's meshes, a TLAS only adds its hit lookup.
             RayTracing::EmissiveLightsFrame Emissive;
             // The indirect lighting runs this frame (AddIndirectLightingPass after the radiance cache update): a
@@ -286,6 +288,8 @@ namespace Desert::Graphic::SurfaceCache
         [[nodiscard]] Common::BoolResultStr AddLightingTilesPass( RDG::Builder& graph, const ImportImage& import,
                                                                   const SceneFrame& frame, FrameBuffers& buffers );
         // UE LumenSceneDirectLighting: the frame's LightingPages relit into DirectLighting and FinalLighting.
+        // Recorded first, on the same queue (GI-TEMPORAL): the emissive lighting pass (EmissiveLighting::kPassName),
+        // the emissive triangles' estimate blended into its own layer's history, which the direct lighting reads.
         [[nodiscard]] Common::BoolResultStr AddDirectLightingPass( RDG::Builder& graph, const ImportImage& import,
                                                                    const SceneFrame&           frame,
                                                                    const FrameBuffers&         buffers,
@@ -321,13 +325,23 @@ namespace Desert::Graphic::SurfaceCache
         // the raster one, or with @p async the compute one (SurfaceCacheRadiosityTraceAsync.shader).
         [[nodiscard]] Common::BoolResultStr EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer,
                                                                     bool                                async );
-        // Every variant EnsureLightingProgram and EnsureRadiosityProgram can acquire (GlobalIllumination::
-        // TracerProgramVariants of SurfaceCacheDirectLighting, SurfaceCacheDirectLightingAsync,
-        // SurfaceCacheRadiosityTrace and SurfaceCacheRadiosityTraceAsync), cooked by the package (PackageCook
-        // CookShaderVariants).
+        // The emissive lighting's program and pipeline for @p tracer's permutation (its shadow rays), built on the
+        // first call for it: the raster one (EmissiveLighting::kShaderName), or with @p async the compute one
+        // (kAsyncShaderName). EnsureLightingProgram asks it, so a permutation that does not build refuses the
+        // methods it serves as the direct lighting's does.
+        [[nodiscard]] Common::BoolResultStr EnsureEmissiveProgram( const GlobalIllumination::Pipeline& tracer,
+                                                                   bool                                async );
+        // Every variant EnsureLightingProgram, EnsureEmissiveProgram and EnsureRadiosityProgram can acquire
+        // (GlobalIllumination::TracerProgramVariants of SurfaceCacheDirectLighting, SurfaceCacheDirectLightingAsync,
+        // SurfaceCacheEmissiveLighting, SurfaceCacheEmissiveLightingAsync, SurfaceCacheRadiosityTrace and
+        // SurfaceCacheRadiosityTraceAsync), cooked by the package (PackageCook CookShaderVariants).
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
     private:
+        // The emissive lighting pass over the frame's LightingPages (AddDirectLightingPass records it first; its
+        // checks and programs are that pass's): the estimate blended into m_EmissiveLighting.
+        void AddEmissiveLightingPass( RDG::Builder& graph, const ImportImage& import, const SceneFrame& frame,
+                                      const FrameBuffers& buffers, const DirectLightingInputs& inputs );
         [[nodiscard]] Common::ResultStr<std::shared_ptr<GraphicsPipeline>>
         ViewPipeline( std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>>& cache,
                       const std::shared_ptr<Shader>& shader, Core::Formats::ImageFormat format, uint32_t samples,
@@ -380,6 +394,15 @@ namespace Desert::Graphic::SurfaceCache
         // The lighting history key (lights and sky) changed this frame (a full relight): the radiosity keeps no
         // history.
         bool                     m_ResetRadiosity = true;
+        // THE EMISSIVE LIGHTING LAYER (GI-TEMPORAL, EmissiveLighting::kLayerName; RGBA16F, the atlas' side): the
+        // emissive triangles' light on each texel, accumulated over relights. One writer (the emissive lighting
+        // pass), one reader (the direct lighting). Its history is dropped on an event: a new layer (Configure),
+        // the full relight that resets the radiosity, and another emissive list (m_EmissiveKey).
+        std::shared_ptr<Image2D> m_EmissiveLighting;
+        bool                     m_ResetEmissive = true;
+        // The emissive list the layer's history was accumulated under (EmissiveLightsFrame::StaticParams,
+        // DynamicParams: the list keeps no revision of its own); empty until the first pass.
+        std::optional<std::pair<glm::uvec4, glm::uvec4>> m_EmissiveKey;
         std::shared_ptr<Framebuffer>                                          m_CaptureBuffer;
         std::shared_ptr<Shader>                                               m_CopyShader;
         std::shared_ptr<ComputePipeline>                                      m_CopyPipeline;
@@ -419,6 +442,15 @@ namespace Desert::Graphic::SurfaceCache
         mutable ShaderBindingLayoutCache                                      m_RadiosityAsyncLayout;
         std::shared_ptr<ComputePipeline>                                      m_RadiosityAsyncPipeline;
         GlobalIllumination::Pipeline                                          m_RadiosityAsyncProgramFor{};
+        // The emissive lighting (EnsureEmissiveProgram): the raster program and its compute twin, per tracer.
+        std::shared_ptr<Shader>                                               m_EmissiveShader;
+        mutable ShaderBindingLayoutCache                                      m_EmissiveLayout;
+        std::shared_ptr<GraphicsPipeline>                                     m_EmissivePipeline;
+        GlobalIllumination::Pipeline                                          m_EmissiveProgramFor{};
+        std::shared_ptr<Shader>                                               m_EmissiveAsyncShader;
+        mutable ShaderBindingLayoutCache                                      m_EmissiveAsyncLayout;
+        std::shared_ptr<ComputePipeline>                                      m_EmissiveAsyncPipeline;
+        GlobalIllumination::Pipeline                                          m_EmissiveAsyncProgramFor{};
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_AtlasViewPipelines;
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_SceneViewPipelines;
     };

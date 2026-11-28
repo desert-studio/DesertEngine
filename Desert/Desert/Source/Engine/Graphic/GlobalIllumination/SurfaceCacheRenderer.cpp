@@ -128,7 +128,8 @@ namespace Desert::Graphic::SurfaceCache
              "SurfaceCache.DirectLighting", "SurfaceCache.IndirectLighting", "SurfaceCache.FinalLighting" };
 
 
-        // Programs/SurfaceCache/SurfaceCacheDirectLighting.shader's emissive triangle blocks (hardware tracer).
+        // Programs/SurfaceCache/SurfaceCacheEmissiveLighting(Async).shader's emissive triangle blocks (GI-TEMPORAL,
+        // Common/EmissiveCardLighting.glslh: bindings 40..46).
         struct SurfaceCacheEmissiveLightsShaderParameters
         {
             DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveSegmentsUB );
@@ -142,6 +143,14 @@ namespace Desert::Graphic::SurfaceCache
         // Programs/SurfaceCache/SurfaceCacheRadiosityTrace.shader's card emission a hit leaves out (hardware
         // tracer, GI_HIT_EXCLUDES_EMISSION).
         constexpr RDG::TextureParameter kRadiosityExcludedEmissive{ "SurfaceCacheEmissiveTexture" };
+
+        // The emissive lighting layer by the names its programs bind it (SurfaceCacheEmissiveLighting.hpp): the
+        // direct lighting samples it, the async emissive pass stores it.
+        constexpr RDG::TextureParameter        kEmissiveLightingTexture{ EmissiveLighting::kSampledParameter };
+        constexpr RDG::StorageTextureParameter kEmissiveLightingImage{ EmissiveLighting::kStorageParameter };
+        // The captured layers the emissive lighting reads (Common/EmissiveCardLighting.glslh: Depth, Albedo,
+        // Opacity, Normal, Subsurface - kCapturedLayers' indices; the emission itself is not light on a texel).
+        constexpr std::array<std::size_t, 5> kEmissiveLightingLayers{ 0u, 1u, 2u, 3u, 5u };
 
         // The tracers whose programs sample the emissive triangles as lights (GI-EMISSIVE-LIGHTS): both - the list
         // is built from the scene's meshes (EmissiveLights.hpp), and each tracer shadows a sample by its own
@@ -349,6 +358,27 @@ namespace Desert::Graphic::SurfaceCache
                                                          kRadiosityTraceName, budget.AtlasSize );
             m_ResetRadiosity = true;
         }
+        {
+            // The emissive lighting layer: a colour target of the raster emissive pass (blended with its history),
+            // a storage image of the async one, sampled by the direct lighting.
+            const Core::Formats::Image2DSpecification spec{
+                 .Tag        = std::string( EmissiveLighting::kLayerName ),
+                 .Width      = budget.AtlasSize,
+                 .Height     = budget.AtlasSize,
+                 .Format     = Core::Formats::ImageFormat::RGBA16F,
+                 .Mips       = 1,
+                 .Samples    = 1,
+                 .Data       = Core::Formats::EmptyPixelData{},
+                 .Usage      = Core::Formats::Image2DUsage::Attachment,
+                 .Properties = Core::Formats::Storage | Core::Formats::Sample,
+                 .InitialContent = Core::Formats::ImageInitialContent::Zero,
+            };
+            m_EmissiveLighting = Image2D::Create( spec );
+            if ( !m_EmissiveLighting )
+                return Common::MakeFormattedError<bool>( "surface cache: atlas layer {} ({}²) not created",
+                                                         EmissiveLighting::kLayerName, budget.AtlasSize );
+            m_ResetEmissive = true;
+        }
         m_AtlasSize = budget.AtlasSize;
         return BOOLSUCCESS;
     }
@@ -407,6 +437,7 @@ namespace Desert::Graphic::SurfaceCache
                 m_Scene.InvalidateLighting();
             m_LitBy          = lighting;
             m_ResetRadiosity = true;
+            m_ResetEmissive  = true;
         }
         // THE LOCAL LIGHTS (UE Lumen: the cards a changed light touches are relit): the regions of the point and
         // spot lights switched, moved, recoloured or re-aimed since their last relight are relit this frame
@@ -731,6 +762,10 @@ namespace Desert::Graphic::SurfaceCache
             variants.push_back( std::move( variant ) );
         for ( auto& variant : GlobalIllumination::TracerProgramVariants( kRadiosityAsyncShaderName ) )
             variants.push_back( std::move( variant ) );
+        for ( auto& variant : GlobalIllumination::TracerProgramVariants( EmissiveLighting::kShaderName ) )
+            variants.push_back( std::move( variant ) );
+        for ( auto& variant : GlobalIllumination::TracerProgramVariants( EmissiveLighting::kAsyncShaderName ) )
+            variants.push_back( std::move( variant ) );
         return variants;
     }
 
@@ -793,11 +828,65 @@ namespace Desert::Graphic::SurfaceCache
         return BOOLSUCCESS;
     }
 
+    Common::BoolResultStr SurfaceCacheRenderer::EnsureEmissiveProgram( const GlobalIllumination::Pipeline& tracer,
+                                                                       const bool                          async )
+    {
+        const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
+        const std::string_view name = async ? EmissiveLighting::kAsyncShaderName : EmissiveLighting::kShaderName;
+        if ( async ? ( m_EmissiveAsyncPipeline && tracer == m_EmissiveAsyncProgramFor )
+                   : ( m_EmissivePipeline && tracer == m_EmissiveProgramFor ) )
+            return BOOLSUCCESS;
+        auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+             std::string( name ), GlobalIllumination::TracerVariant( tracer ) );
+        if ( !acquired )
+            return Common::MakeFormattedError<bool>( "surface cache: shader {} ({}) was refused: {}", name,
+                                                     GlobalIllumination::TracerDefine( tracer.Tracer ),
+                                                     acquired.GetError() );
+        auto shader = acquired.ExtractValue();
+        if ( async )
+        {
+            ComputePipelineSpecification spec;
+            spec.Shader    = shader;
+            spec.DebugName = std::format( "{} ({})", name, GlobalIllumination::TracerDefine( tracer.Tracer ) );
+            const auto pipeline = ComputePipeline::Create( spec );
+            if ( !pipeline )
+                return Common::MakeError<bool>( pipeline.GetError() );
+            m_EmissiveAsyncShader     = std::move( shader );
+            m_EmissiveAsyncPipeline   = pipeline.GetValue();
+            m_EmissiveAsyncProgramFor = tracer;
+            return BOOLSUCCESS;
+        }
+        // One quad per relit page into the emissive layer, blended with its history by the estimate's weight
+        // (src alpha; Common/EmissiveCardLighting.glslh: weight 1 replaces it).
+        GraphicsPipelineSpecification spec;
+        spec.DebugName = std::format( "{} ({})", name, GlobalIllumination::TracerDefine( tracer.Tracer ) );
+        spec.TargetLayout        = RenderTargetLayout{ .ColorFormats = { Core::Formats::ImageFormat::RGBA16F },
+                                                       .DepthFormat  = std::nullopt,
+                                                       .Samples      = 1 };
+        spec.Shader              = shader;
+        spec.DepthTestEnabled    = false;
+        spec.DepthWriteEnabled   = false;
+        spec.BlendEnable         = true;
+        spec.SrcColorBlendFactor = BlendFactor::SrcAlpha;
+        spec.DstColorBlendFactor = BlendFactor::OneMinusSrcAlpha;
+        const auto pipeline      = GraphicsPipeline::Create( spec );
+        if ( !pipeline )
+            return Common::MakeError<bool>( pipeline.GetError() );
+        m_EmissiveShader     = std::move( shader );
+        m_EmissivePipeline   = pipeline.GetValue();
+        m_EmissiveProgramFor = tracer;
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr SurfaceCacheRenderer::EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer,
                                                                        const bool virtualLocalShadows,
                                                                        const bool async )
     {
         const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
+        // The emissive lighting the direct lighting reads (GI-TEMPORAL): its program refuses the same methods.
+        if ( SamplesEmissiveLights( tracer ) )
+            if ( const auto emissive = EnsureEmissiveProgram( tracer, async ); !emissive )
+                return emissive;
         if ( async )
         {
             if ( m_LightingAsyncPipeline && tracer == m_LightingAsyncProgramFor &&
@@ -908,6 +997,114 @@ namespace Desert::Graphic::SurfaceCache
         return BOOLSUCCESS;
     }
 
+    void SurfaceCacheRenderer::AddEmissiveLightingPass( RDG::Builder& graph, const ImportImage& import,
+                                                        const SceneFrame& frame, const FrameBuffers& buffers,
+                                                        const DirectLightingInputs& inputs )
+    {
+        // THE HISTORY'S KEY (an event, not a poll of the triangles): another emissive list - its triangle, leaf
+        // or level counts, static or dynamic - drops the layer's history; so do a new layer and a full relight
+        // (m_ResetEmissive). A static emitter moved at the same counts keeps it and settles within
+        // kStaticRelightsAccumulated relights of its pages.
+        const std::pair<glm::uvec4, glm::uvec4> key{ inputs.Emissive.StaticParams(), inputs.Emissive.DynamicParams() };
+        if ( m_EmissiveKey != key )
+        {
+            m_EmissiveKey   = key;
+            m_ResetEmissive = true;
+        }
+        ShaderPush::SurfaceEmissiveLightingPush push;
+        push.EmissiveFrame.x       = m_FrameUpdate ? static_cast<uint32_t>( m_FrameUpdate->Frame ) : 0u;
+        push.EmissiveFrame.y       = m_ResetEmissive ? 1u : 0u;
+        push.EmissiveWeights.x     = EmissiveLighting::SampleWeight( key.second.x );
+        push.EmissiveCounts        = key.first;
+        push.EmissiveDynamicCounts = key.second;
+        m_ResetEmissive            = false;
+
+        std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
+        for ( const std::size_t i : kEmissiveLightingLayers )
+            layers[i] = import( m_Layers[i], kLayerNames[i] );
+        const RDG::TextureRef emissive = import( m_EmissiveLighting, EmissiveLighting::kLayerName );
+        const uint32_t        count    = static_cast<uint32_t>( frame.LightingPages.size() );
+        const auto            all      = RDG::SubresourceRange::All();
+        const std::string     name     = std::format( "{} ({} pages)", EmissiveLighting::kPassName, count );
+        using P                        = SurfaceCacheDirectLightingShaderParameters;
+        using E                        = SurfaceCacheEmissiveLightsShaderParameters;
+        constexpr RDG::Access kR       = RDG::Access::StorageRead;
+        const auto&           list     = inputs.Emissive;
+        if ( inputs.Async )
+        {
+            // The direct lighting's queue and tiles: the async compute queue over the frame's lighting tiles.
+            constexpr RDG::Access  kS   = RDG::Access::SampledCompute;
+            ComputePipeline* const pipe = m_EmissiveAsyncPipeline.get();
+            const RDG::BufferRef   args = buffers.LightingTileArgs;
+            graph.AddPass(
+                 name, RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     auto block = pass.Bindings( m_EmissiveAsyncLayout.Get( m_EmissiveAsyncShader ),
+                                                 Renderer::GetPipelineRouteFill( *pipe ) );
+                     pass.Read( args, RDG::Access::IndirectArgs );
+                     block.Storage( P::SurfaceCardBuffer, buffers.Cards, kR )
+                          .Storage( P::SurfaceCardPageBuffer, buffers.Pages, kR )
+                          .Storage( P::SurfaceLightingPages, buffers.LightingPages, kR )
+                          .Storage( kTileArgs, args, kR )
+                          .Storage( kTileList, buffers.LightingTiles, kR )
+                          .Storage( kEmissiveLightingImage, emissive, RDG::Access::StorageWrite )
+                          .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                          .Storage( E::EmissiveSegmentsUB, list.Static.Segments, kR )
+                          .Storage( E::EmissiveLookupUB, list.Lookup, kR )
+                          .Storage( E::EmissiveTrianglesUB, list.Static.Triangles, kR )
+                          .Storage( E::EmissivePowerUB, list.Static.Power, kR )
+                          .Storage( E::EmissiveDynamicSegmentsUB, list.Dynamic.Segments, kR )
+                          .Storage( E::EmissiveDynamicTrianglesUB, list.Dynamic.Triangles, kR )
+                          .Storage( E::EmissiveDynamicPowerUB, list.Dynamic.Power, kR )
+                          .PushConstants<ShaderPush::SurfaceEmissiveLightingPush>();
+                     for ( const std::size_t i : kEmissiveLightingLayers )
+                         block.Texture( kLayerTextures[i], layers[i], kS, all );
+                     // The tracer's reads: each sample's visibility ray (TracedShadow).
+                     GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, kS );
+                 },
+                 [pipe, push, args]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( push );
+                     return Renderer::DispatchComputeIndirect( bindings, *pipe, args, 0u );
+                 } );
+            return;
+        }
+        constexpr RDG::Access   kS  = RDG::Access::SampledGraphics;
+        GraphicsPipeline* const raw = m_EmissivePipeline.get();
+        graph.AddPass(
+             name, RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 auto block = pass.Bindings( m_EmissiveLayout.Get( m_EmissiveShader ), RDG::NoOtherRouteFill() );
+                 block.Storage( P::SurfaceCardBuffer, buffers.Cards, kR )
+                      .Storage( P::SurfaceCardPageBuffer, buffers.Pages, kR )
+                      .Storage( P::SurfaceLightingPages, buffers.LightingPages, kR )
+                      .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                      .Storage( E::EmissiveSegmentsUB, list.Static.Segments, kR )
+                      .Storage( E::EmissiveLookupUB, list.Lookup, kR )
+                      .Storage( E::EmissiveTrianglesUB, list.Static.Triangles, kR )
+                      .Storage( E::EmissivePowerUB, list.Static.Power, kR )
+                      .Storage( E::EmissiveDynamicSegmentsUB, list.Dynamic.Segments, kR )
+                      .Storage( E::EmissiveDynamicTrianglesUB, list.Dynamic.Triangles, kR )
+                      .Storage( E::EmissiveDynamicPowerUB, list.Dynamic.Power, kR )
+                      .PushConstants<ShaderPush::SurfaceEmissiveLightingPush>();
+                 for ( const std::size_t i : kEmissiveLightingLayers )
+                     block.Texture( kLayerTextures[i], layers[i], kS, all );
+                 // The tracer's reads (each sample's visibility ray), sampled in the fragment stage.
+                 GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, kS );
+                 pass.ColorTarget( 0, emissive, RDG::LoadOp::Load() );
+             },
+             [raw, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 bindings.PushConstants( push );
+                 // Six vertices per relit page (its atlas rectangle), one instance per page.
+                 return Renderer::DrawProcedural( bindings, *raw, nullptr, 6u, count );
+             } );
+    }
+
     Common::BoolResultStr SurfaceCacheRenderer::AddDirectLightingPass( RDG::Builder&               graph,
                                                                        const ImportImage&          import,
                                                                        const SceneFrame&           frame,
@@ -938,7 +1135,7 @@ namespace Desert::Graphic::SurfaceCache
                  "surface cache direct lighting: {} (its shadow rays off the view's shadow maps)", missing );
         const bool emissiveLights = SamplesEmissiveLights( inputs.Tracer.Pipeline );
         if ( emissiveLights && !inputs.Emissive.Valid )
-            return Common::MakeError<bool>( "surface cache direct lighting: the GI tracer samples the emissive "
+            return Common::MakeError<bool>( "surface cache emissive lighting: the GI tracer samples the emissive "
                                             "triangles, and the frame built no list (AddFrameEmissiveLights)" );
         if ( inputs.Async && ( !buffers.LightingTileArgs.IsValid() || !buffers.LightingTiles.IsValid() ) )
             return Common::MakeError<bool>( "surface cache direct lighting: the async path runs over the frame's "
@@ -947,9 +1144,14 @@ namespace Desert::Graphic::SurfaceCache
                   EnsureLightingProgram( inputs.Tracer.Pipeline, virtualLocalShadows, inputs.Async );
              !program )
             return program;
+        // The emissive triangles' light, ahead of the direct lighting that reads it (EnsureLightingProgram built
+        // its program for this tracer and path).
+        if ( emissiveLights )
+            AddEmissiveLightingPass( graph, import, frame, buffers, inputs );
         std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
         for ( std::size_t i = 0; i < layers.size(); ++i )
             layers[i] = import( m_Layers[i], kLayerNames[i] );
+        const RDG::TextureRef emissive = import( m_EmissiveLighting, EmissiveLighting::kLayerName );
         const RDG::TextureRef direct   = import( m_LitLayers[0], kLitLayerNames[0] );
         const RDG::TextureRef indirect = import( m_LitLayers[1], kLitLayerNames[1] );
         const RDG::TextureRef finalLit = import( m_LitLayers[2], kLitLayerNames[2] );
@@ -963,13 +1165,7 @@ namespace Desert::Graphic::SurfaceCache
         push.LightColor               = inputs.LightColor;
         push.Light1Direction          = inputs.Light1Dir;
         push.Light1Color              = inputs.Light1Color;
-        push.LightingFlags.x                  = inputs.IndirectLighting ? 1u : 0u;
-        push.LightingFlags.y                  = m_FrameUpdate ? static_cast<uint32_t>( m_FrameUpdate->Frame ) : 0u;
-        if ( emissiveLights )
-        {
-            push.EmissiveCounts        = inputs.Emissive.StaticParams();
-            push.EmissiveDynamicCounts = inputs.Emissive.DynamicParams();
-        }
+        push.LightingFlags.x          = inputs.IndirectLighting ? 1u : 0u;
         const uint32_t count = static_cast<uint32_t>( frame.LightingPages.size() );
         if ( inputs.Async )
         {
@@ -1017,20 +1213,9 @@ namespace Desert::Graphic::SurfaceCache
                      for ( std::size_t i = 0; i < layers.size(); ++i )
                          block.Texture( kLayerTextures[i], layers[i], kS, all )
                               .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() );
-                     block.Texture( P::AtlasIndirectLightingTexture, indirect, kS, all );
+                     block.Texture( P::AtlasIndirectLightingTexture, indirect, kS, all )
+                          .Texture( kEmissiveLightingTexture, emissive, kS, all );
                      GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, kS );
-                     if ( emissiveLights )
-                     {
-                         using E          = SurfaceCacheEmissiveLightsShaderParameters;
-                         const auto& list = inputs.Emissive;
-                         block.Storage( E::EmissiveSegmentsUB, list.Static.Segments, kR )
-                              .Storage( E::EmissiveLookupUB, list.Lookup, kR )
-                              .Storage( E::EmissiveTrianglesUB, list.Static.Triangles, kR )
-                              .Storage( E::EmissivePowerUB, list.Static.Power, kR )
-                              .Storage( E::EmissiveDynamicSegmentsUB, list.Dynamic.Segments, kR )
-                              .Storage( E::EmissiveDynamicTrianglesUB, list.Dynamic.Triangles, kR )
-                              .Storage( E::EmissiveDynamicPowerUB, list.Dynamic.Power, kR );
-                     }
                      // The cascades, the cloud map and the local shadow atlas, sampled by the compute stage.
                      if ( layout )
                          SceneViewDetail::BindWhere(
@@ -1090,19 +1275,9 @@ namespace Desert::Graphic::SurfaceCache
                                 RDG::SamplerDesc::PointClamp() );
                  // The active tracer's reads (its visibility rays), sampled in the fragment stage.
                  GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, RDG::Access::SampledGraphics );
-                 if ( emissiveLights )
-                 {
-                     using E                    = SurfaceCacheEmissiveLightsShaderParameters;
-                     constexpr RDG::Access kR   = RDG::Access::StorageRead;
-                     const auto&           list = inputs.Emissive;
-                     block.Storage( E::EmissiveSegmentsUB, list.Static.Segments, kR )
-                          .Storage( E::EmissiveLookupUB, list.Lookup, kR )
-                          .Storage( E::EmissiveTrianglesUB, list.Static.Triangles, kR )
-                          .Storage( E::EmissivePowerUB, list.Static.Power, kR )
-                          .Storage( E::EmissiveDynamicSegmentsUB, list.Dynamic.Segments, kR )
-                          .Storage( E::EmissiveDynamicTrianglesUB, list.Dynamic.Triangles, kR )
-                          .Storage( E::EmissiveDynamicPowerUB, list.Dynamic.Power, kR );
-                 }
+                 // The emissive triangles' light the emissive lighting pass accumulated (GI-TEMPORAL).
+                 block.Texture( kEmissiveLightingTexture, emissive, RDG::Access::SampledGraphics,
+                                RDG::SubresourceRange::All() );
                  // The cascades, the cloud map and the local shadow atlas, with the composite's samplers; the
                  // light grid read is the world grid bound above, not the view's.
                  // (BindSceneViewInputs would bind the view's grid under the same block name a second time.)
