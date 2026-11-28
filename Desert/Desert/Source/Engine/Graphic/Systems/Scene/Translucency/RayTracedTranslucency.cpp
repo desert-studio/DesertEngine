@@ -125,6 +125,11 @@ namespace Desert::Graphic::System
             return Common::MakeError<RefractionOutputs>( "Ray traced refraction: no CameraUB" );
         if ( !in.OpaqueDepth.IsValid() )
             return Common::MakeError<RefractionOutputs>( "Ray traced refraction: no opaque G-buffer depth" );
+        // A path end lit in place asks the cache for the cells it reads (RadianceCacheMarkRequests.hpp).
+        if ( !in.HitLighting.RadianceCache.MarkRequests.IsValid() )
+            return Common::MakeError<RefractionOutputs>(
+                 "Ray traced refraction: the radiance cache's mark request table is not in this frame's hit "
+                 "lighting reads" );
         if ( !in.SceneCopy.IsValid() )
             return Common::MakeError<RefractionOutputs>(
                  "Ray traced refraction: no scene copy (the radiance of a hit the view sees)" );
@@ -173,6 +178,8 @@ namespace Desert::Graphic::System
                       .Uniform( RayTracedTranslucencyShaderParameters::CameraUB, in.Camera )
                       .Texture( RayTracedTranslucencyShaderParameters::GBufferDepthTexture, in.OpaqueDepth,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Storage( RayTracedTranslucencyShaderParameters::RadianceCacheMarkRequestsUB,
+                                in.HitLighting.RadianceCache.MarkRequests, RDG::Access::StorageWrite )
                       .PushConstants<ShaderPush::RayTracedTranslucencyPush>();
                  RayTracing::BindRayTracingSceneReads<RayTracedTranslucencyShaderParameters>(
                       block, in.HitLighting.SceneReads );

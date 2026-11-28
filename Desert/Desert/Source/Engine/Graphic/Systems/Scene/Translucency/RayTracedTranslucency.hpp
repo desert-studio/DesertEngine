@@ -17,6 +17,9 @@
 // 1 (GIHitRadianceLit). The glass cell (Mesh/Surface/Pass_Forward_Translucent.glslh through
 // Mesh/Surface/TranslucencyRefraction.glslh) reads the half-size result where its fragment is the front layer;
 // where no quad around it answered for its layer the cell reads the scene copy itself (the ScreenSpace tier).
+// A hit lit in place reads the world radiance cache off screen, where no G-buffer pixel marked its cells: the pass
+// WRITES a mark request for it into the cache's request table (RadianceCacheFrame::MarkRequests,
+// GlobalIllumination/RadianceCacheMarkRequests.hpp), which the next frame's RadianceCacheMark stamps and clears.
 //
 // The pass is a ray tracing pipeline over THIS FRAME's hit group table under either tracer (the hit groups answer
 // each interface), as "Deferred: Reflections (HitLighting)" is (SSRRenderer::EnsureHitLightingPipeline /
@@ -37,6 +40,7 @@
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Generated/ShaderPushConstants.gen.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
+#include <Engine/Graphic/GlobalIllumination/RadianceCacheMarkRequests.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneReads.hpp>
@@ -125,6 +129,10 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( UniformBuffer, CameraUB );
         // The OPAQUE scene depth: Common/GIHitLighting.glslh (GIHitMaterial) checks a hit against the screen with it.
         DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        // The radiance cache's mark request table (HitLighting.RadianceCache.MarkRequests), WRITTEN: one request
+        // per path end lit in place. Named by the contract (GlobalIllumination::kMarkRequestsBinding).
+        static constexpr RDG::ShaderParameterOf<RDG::ShaderResourceKind::StorageBuffer> RadianceCacheMarkRequestsUB{
+             GlobalIllumination::kMarkRequestsBinding };
         DESERT_RAY_TRACING_SCENE_READ_PARAMETERS;
     };
 

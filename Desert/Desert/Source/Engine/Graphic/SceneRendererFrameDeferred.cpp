@@ -2402,24 +2402,25 @@ namespace Desert::Graphic
                  AddFrameGIRecord( graph, frame, sun.Direction, sun.ColorIntensity,
                                    glm::uvec2( desc.GetValue().Size.Width, desc.GetValue().Size.Height ) );
         }
-        // The radiance cache's read: the GI's when it runs (an in-place lit hit takes its bounce), otherwise one
-        // that covers nothing (no clipmap: RadianceCacheIrradianceAt answers "no coverage", the hit keeps its
-        // direct light).
+        // The radiance cache's read: the GI's when it runs (a lit hit takes its bounce), else one that is empty.
         if ( m_TracedFrameShared.RadianceCache )
             reads.RadianceCache = *m_TracedFrameShared.RadianceCache;
         else
         {
-            // FPS-CPU-UPLOAD: zeroed on the GPU in the graph's upload batch (QueueBufferClear), no CPU payload.
             const RDG::BufferRef none =
                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( RadianceCache::RadianceCacheParamsPayload ) },
                                      "Reflections.RadianceCacheNone" );
-            graph.QueueBufferClear( none, 0u );
+            graph.QueueBufferClear( none, 0u ); // FPS-CPU-UPLOAD: zeroed on the GPU, no CPU payload.
+            const RDG::BufferRef noRequests = graph.CreateBuffer(
+                 RDG::BufferDesc{ GlobalIllumination::kMarkRequestBytes },
+                 "Reflections.RadianceCacheMarkRequestsNone" );
             reads.RadianceCache = GlobalIllumination::RadianceCacheFrame{ .Params      = none,
                                                                           .Indirection = none,
                                                                           .Probes      = none,
                                                                           .Irradiance  = refs.System.Black,
                                                                           .Depth       = refs.System.Black,
-                                                                          .Radiance    = refs.System.Black };
+                                                                          .Radiance    = refs.System.Black,
+                                                                          .MarkRequests = noRequests };
         }
         reads.PointLights     = t.Lights.Point;
         reads.SpotLights      = t.Lights.Spot;

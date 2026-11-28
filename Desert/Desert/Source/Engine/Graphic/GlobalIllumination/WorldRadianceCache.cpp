@@ -54,6 +54,9 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheMarkPointsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheUpdateCountsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheDispatchArgsUB );
+        // The mark request table, by the contract's name (RadianceCacheMarkRequests.hpp).
+        static constexpr Desert::Graphic::RDG::ShaderParameterOf<Desert::Graphic::RDG::ShaderResourceKind::StorageBuffer>
+             RadianceCacheMarkRequestsUB{ Desert::Graphic::GlobalIllumination::kMarkRequestsBinding };
     };
 } // namespace
 
@@ -222,7 +225,11 @@ namespace Desert::Graphic::GlobalIllumination
         m_FreeList =
              // The count, the slots, and the two failed-allocation words (RadianceCacheState.glslh).
              ShaderResources::StorageBuffer::Create( "RadianceCache.FreeList", ( 3u + maxProbes ) * 4u, 4, true );
-        if ( !m_Indirection || !m_LastUsed || !m_Probes || !m_FreeList )
+        // The mark request table: 4096 vec4 slots, its contents undefined until the next registration zeroes it.
+        m_MarkRequests = ShaderResources::StorageBuffer::Create(
+             "RadianceCache.MarkRequests", static_cast<uint32_t>( kMarkRequestBytes ), 5, true );
+        m_MarkRequestsZeroed = false;
+        if ( !m_Indirection || !m_LastUsed || !m_Probes || !m_FreeList || !m_MarkRequests )
             return Common::MakeError<bool>( "radiance cache: a state buffer could not be created" );
 
         const uint32_t probes = shape.ProbeAtlasResolutionInProbes;
@@ -249,7 +256,8 @@ namespace Desert::Graphic::GlobalIllumination
               { std::tuple{ &m_Indirection, &m_IndirectionImport, "RadianceCache.Indirection" },
                 std::tuple{ &m_LastUsed, &m_LastUsedImport, "RadianceCache.LastUsed" },
                 std::tuple{ &m_Probes, &m_ProbesImport, "RadianceCache.Probes" },
-                std::tuple{ &m_FreeList, &m_FreeListImport, "RadianceCache.FreeList" } } )
+                std::tuple{ &m_FreeList, &m_FreeListImport, "RadianceCache.FreeList" },
+                std::tuple{ &m_MarkRequests, &m_MarkRequestsImport, "RadianceCache.MarkRequests" } } )
             if ( const auto imported = Renderer::ImportBuffer( *buffer, *external ); !imported )
                 return Common::MakeFormattedError<GraphResources>( "radiance cache: {}: {}", name,
                                                                    imported.GetError() );
@@ -261,6 +269,14 @@ namespace Desert::Graphic::GlobalIllumination
         registered.Frame.Radiance    = import( m_RadianceAtlas, "RadianceCache.Radiance" );
         registered.Frame.Irradiance  = import( m_IrradianceAtlas, "RadianceCache.Irradiance" );
         registered.Frame.Depth       = import( m_DepthAtlas, "RadianceCache.Depth" );
+        registered.Frame.MarkRequests =
+             graph.RegisterExternal( m_MarkRequestsImport, "RadianceCache.MarkRequests" );
+        // A new table is zeroed (every slot empty) by the first graph that registers it, before any writer or Mark.
+        if ( !m_MarkRequestsZeroed )
+        {
+            graph.QueueBufferClear( registered.Frame.MarkRequests, 0u );
+            m_MarkRequestsZeroed = true;
+        }
         return Common::MakeSuccess( registered );
     }
 
@@ -436,9 +452,13 @@ namespace Desert::Graphic::GlobalIllumination
         const uint32_t markColumns   = std::max( 1u, DivideRoundUp( DivideRoundUp( inputs.Extent.x, 2u ), 8u ) );
         const uint32_t markPixelRows = std::max( 1u, DivideRoundUp( DivideRoundUp( inputs.Extent.y, 2u ), 8u ) );
         const uint32_t markFreeRows  = DivideRoundUp( DivideRoundUp( push.MaxProbes, kMarkGroupThreads ), markColumns );
+        // ... then the rows of the request table, one thread per slot (RadianceCacheMarkRequests.hpp).
+        const uint32_t markRequestRows =
+             DivideRoundUp( DivideRoundUp( kMarkRequestSlots, kMarkGroupThreads ), markColumns );
+        push.MarkRequestRows = markRequestRows; // kMarkRequestRowsPush
         UpdateDeclaration update;
         update.Groups = {
-             glm::uvec3( markColumns, markPixelRows + markFreeRows, 1u ), entryGroups,
+             glm::uvec3( markColumns, markPixelRows + markFreeRows + markRequestRows, 1u ), entryGroups,
              // Select: one thread per probe slot (LocalSize 64). Trace and Filter dispatch indirect from Select's
              // arguments; these are their budget's bound.
              glm::uvec3( DivideRoundUp( push.MaxProbes, 64u ), 1u, 1u ), glm::uvec3( traceTiles, traced, 1u ),
@@ -448,7 +468,8 @@ namespace Desert::Graphic::GlobalIllumination
                                                   .Probes      = probes,
                                                   .Irradiance  = irradiance,
                                                   .Depth       = depth,
-                                                  .Radiance    = radiance };
+                                                  .Radiance    = radiance,
+                                                  .MarkRequests = registered->Frame.MarkRequests };
         update.LastUsed     = lastUsed;
         update.FreeList     = freeList;
         update.Schedule     = schedule;
@@ -575,7 +596,10 @@ namespace Desert::Graphic::GlobalIllumination
                               .Sampler( WorldRadianceCacheShaderParameters::PointClampSampler,
                                         RDG::SamplerDesc::PointClamp() )
                               .Storage( WorldRadianceCacheShaderParameters::RadianceCacheMarkPointsUB,
-                                        markPoints, kR );
+                                        markPoints, kR )
+                              // Read, stamped and cleared: the requests the off-screen readers wrote.
+                              .Storage( WorldRadianceCacheShaderParameters::RadianceCacheMarkRequestsUB,
+                                        update.Frame.MarkRequests, kRW );
                      if ( pass == Allocate || pass == Trace )
                          block.Storage( WorldRadianceCacheShaderParameters::PointLightsUB, inputs->PointLights, kR )
                               .Storage( WorldRadianceCacheShaderParameters::SpotLightsUB, inputs->SpotLights, kR )
