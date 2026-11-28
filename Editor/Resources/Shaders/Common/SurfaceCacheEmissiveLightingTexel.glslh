@@ -13,10 +13,8 @@ ReadBuffer(2) SurfaceCardBuffer
 {
     SurfaceCard surfaceCards[];
 };
-#ifndef DESERT_SHARED_LINEAR_REPEAT_SAMPLER
-#define DESERT_SHARED_LINEAR_REPEAT_SAMPLER
-Uniform sampler LinearRepeatSampler;
-#endif
+// No LinearRepeatSampler here: no read of the texel goes through it; the software tracer declares it for its own
+// clipmap reads (Common/GITracer.glslh), so the hardware variant carries none.
 Uniform sampler PointClampSampler;
 Uniform(3) texture2D AtlasDepthTexture;
 #define AtlasDepthTexture sampler2D(AtlasDepthTexture, PointClampSampler)
