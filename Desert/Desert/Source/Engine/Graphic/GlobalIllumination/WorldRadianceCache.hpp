@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
 #include <Engine/Graphic/GlobalIllumination/RadianceCache.hpp>
+#include <Engine/Graphic/GlobalIllumination/RadianceCacheMarkRequests.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
@@ -22,11 +23,15 @@
 // UE Lumen's LumenRadianceCache.cpp / LumenRadianceCacheUpdate.usf / LumenRadianceCache.usf. Five compute passes
 // a frame (Programs/GlobalIllumination/RadianceCache*.shader); UE's seven steps, the short ones riding the pass
 // before them on the async chain (FPS-RADIANCE-CACHE):
-//   Mark      the cells this frame's readers interpolate are stamped "used": the G-buffer pixels, which are where
-//             the screen probes sit (UE marks from the screen probes; every probe is a G-buffer pixel). Its group
-//             rows past the pixels FREE (UE UpdateCacheForUsedProbes), one thread per probe slot, not per
+//   Mark      the cells this frame's readers interpolate are stamped "used", from three markers (UE marks from
+//             every reader, LumenRadianceCacheMarkCommon.ush): the G-buffer pixels, which are where the screen
+//             probes sit (every screen probe is a G-buffer pixel); MarkPoints, the reflection captures' points read
+//             in the six axis directions; and the MARK REQUESTS the off-screen readers wrote last frame
+//             (RadianceCacheMarkRequests.hpp: the end of a refraction path lit in place), read and cleared here.
+//             Its group rows past the pixels FREE (UE UpdateCacheForUsedProbes), one thread per probe slot, not per
 //             indirection entry: a live probe whose cell the clipmap scrolled past, or whose entry went unread for
-//             kProbeUnusedFramesBeforeFree frames, gives its slot back.
+//             kProbeUnusedFramesBeforeFree frames, gives its slot back; the rows past those walk the request
+//             table, one thread per slot (MarkRequestRows).
 //   Allocate  used empty entries take a slot; every used probe is ranked (new of the coverage, new of the
 //             fallback, lights changed, then age of its last trace) into the priority histogram.
 //   Select    the histogram is cut at ProbesPerFrame; the probes above the cut are this frame's trace list, and
@@ -118,6 +123,9 @@ namespace Desert::Graphic::GlobalIllumination
         // a screen probe ray that leaves the cache's minimum trace distance without a hit
         // (RadianceCacheRadianceAt).
         RDG::TextureRef Radiance; // "RadianceCacheRadianceAtlasTexture"
+        // kMarkRequestsBinding, written by off-screen readers, read and cleared by next frame's Mark
+        // (RadianceCacheMarkRequests.hpp): the cache's persistent request table, registered with the frame.
+        RDG::BufferRef MarkRequests;
     };
 
     // PROBE-TRACE-COST-3: one frame's radiance cache update in counts - RC_COUNT_* of
@@ -251,7 +259,7 @@ namespace Desert::Graphic::GlobalIllumination
         };
 
         // std430 RadianceCachePush (WorldRadianceCache.cpp, Common/RadianceCacheState.glslh), carried as bytes.
-        static constexpr size_t kPushBytes = 48;
+        static constexpr size_t kPushBytes = 52;
         // One update's graph resources and dispatch shapes, from AddUpdatePasses to its AddFilterPass.
         struct UpdateDeclaration
         {
@@ -288,10 +296,14 @@ namespace Desert::Graphic::GlobalIllumination
         std::shared_ptr<ShaderResources::StorageBuffer> m_LastUsed;
         std::shared_ptr<ShaderResources::StorageBuffer> m_Probes;
         std::shared_ptr<ShaderResources::StorageBuffer> m_FreeList;
+        // The mark request table (kMarkRequestBytes; RadianceCacheFrame::MarkRequests), made with the state
+        // buffers and zeroed by the first graph that registers it (m_MarkRequestsZeroed).
+        std::shared_ptr<ShaderResources::StorageBuffer> m_MarkRequests;
         RDG::ExternalBuffer                             m_IndirectionImport;
         RDG::ExternalBuffer                             m_LastUsedImport;
         RDG::ExternalBuffer                             m_ProbesImport;
         RDG::ExternalBuffer                             m_FreeListImport;
+        RDG::ExternalBuffer                             m_MarkRequestsImport;
         std::shared_ptr<Image2D>                        m_RadianceAtlas;
         std::shared_ptr<Image2D>                        m_IrradianceAtlas;
         std::shared_ptr<Image2D>                        m_DepthAtlas;
@@ -299,6 +311,7 @@ namespace Desert::Graphic::GlobalIllumination
         RadianceCache::RadianceCacheInputs m_Shape{};
         bool                               m_HasShape   = false;
         bool                               m_Reset      = true;
+        bool                               m_MarkRequestsZeroed = false; // a graph has cleared m_MarkRequests
         uint32_t                           m_FrameIndex = 0;
         // The lighting history key (lights and sky) of the last full update (empty until the first update after a
         // reset).

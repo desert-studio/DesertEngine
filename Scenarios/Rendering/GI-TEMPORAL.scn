@@ -1,0 +1,65 @@
+# GI-TEMPORAL acceptance: the surface cache holds still under a still camera (night Bistro, hardware-traced GI).
+# Pairs <name>_a / <name>_b are 64 frames apart after an 1100-frame warm-up (32 relights of a page); measure each pair
+# with scripts/Dev/frames_compare.py against scn-1128-110039 (before) and night_pt.png of scn-1128-103343 (reference).
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: Textures High"
+Дано run Quality "Quality: Filtering High"
+Дано run Quality "Quality: Shadows High"
+Дано run Quality "Quality: GlobalIllumination High"
+Дано run Quality "Quality: Reflections High"
+Дано run Quality "Quality: PostProcess High"
+Дано run Quality "Quality: Effects High"
+Дано run Quality "Quality: ViewDistance High"
+Дано run Quality "Quality: AntiAliasing High"
+Дано run Quality "Quality: ResolutionScale High"
+Дано run Quality "Quality: Shading High"
+Дано run Quality "Quality: PathTracing High"
+Дано run Quality "Quality: Foliage High"
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+Дано --subject viewport set Camera.Position -370,300,-861
+Дано --subject viewport set Camera.Direction 0.8806,0.07,0.4738
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure false
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда run Quality "Quality: Translucency.Refraction ScreenSpace"
+Когда run View "View mode: Lumen Scene (Lit)"
+Когда frames 1100
+Тогда-вид scene_a view Lumen Scene (Lit): walls without lone white or coloured texels, the lamps' light lies in pools, not a checkerboard
+Когда frames 64
+Тогда-вид scene_b the same 64 frames later: mean delta to scene_a at most 4.0/255 (was 39.72)
+Когда run View "View mode: Lumen Scene (Cards)"
+Когда frames 64
+Тогда-вид layout_a view Lumen Scene (Cards): the cards' albedo, no light
+Когда frames 64
+Тогда-вид layout_b the same 64 frames later: delta to layout_a 0 (experiment D6; not 0 = a separate task with the number, does not fail acceptance)
+Когда run View "View mode: Indirect Lighting (GI)"
+Когда frames 256
+Тогда-вид gi_a view Indirect Lighting (GI): walls without drifting blotches
+Когда frames 64
+Тогда-вид gi_b the same 64 frames later: mean delta to gi_a at most 1.0/255 (was 2.82)
+Когда run Quality "Quality: GlobalIllumination.HitLighting 0"
+Когда frames 256
+Тогда-вид nohit_a GI view, GlobalIllumination.HitLighting 0: hits read the surface cache
+Когда frames 64
+Тогда-вид nohit_b the same 64 frames later: mean delta to nohit_a at most 1.3/255 (was 3.77)
+Когда run Quality "Quality: GlobalIllumination.HitLighting Level"
+Когда run Quality "Quality: GlobalIllumination.DirectLightingUpdateFactor 1"
+Когда run Quality "Quality: GlobalIllumination.RadiosityUpdateFactor 1"
+Когда run Quality "Quality: GlobalIllumination.SurfaceCacheAsyncRadiosity 0"
+Когда frames 256
+Тогда-вид cards_a GI view, DirectLightingUpdateFactor 1, RadiosityUpdateFactor 1, SurfaceCacheAsyncRadiosity 0: the raster path, every card relit each frame
+Когда frames 64
+Тогда-вид cards_b the same 64 frames later: mean delta to cards_a at most 1.5/255 (was 5.48; experiment D5: compare with the gi pair)
+Когда run Quality "Quality: GlobalIllumination.DirectLightingUpdateFactor Level"
+Когда run Quality "Quality: GlobalIllumination.RadiosityUpdateFactor Level"
+Когда run Quality "Quality: GlobalIllumination.SurfaceCacheAsyncRadiosity Level"
+Когда run View "View mode: Lit"
+Когда frames 256
+Тогда-вид base_a view Lit, HardwareTraced: not darker than before - mean brightness at least 95 % of base_a of scn-1128-110039 (103.8)
+Когда frames 64
+Тогда-вид base_b the same 64 frames later: mean delta to base_a at most 1.5/255 (was 3.23)
+Когда run Quality "Quality: Translucency.Refraction Level"
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure true
+Тогда-вид reset Quality rows and view mode reset, AutoExposure restored; editor.log: no VUID, no "did not execute", the GI tracer line reads Hardware

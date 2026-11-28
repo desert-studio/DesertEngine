@@ -216,6 +216,7 @@ PushConstant RadianceCachePush
     uint  MarkFallback;     // 1: Mark stamps the clipmap past the coarse end (the screen probes' fallback)
     uint  RefreshMinFrames; // RadianceCache::kProbeRefreshMinFrames: an event-less probe's frames between traces
     uint  RefreshBudget;    // FPS-RC-BUDGET: the most event-less (age) probes Select lists a frame (the budget on a full update)
+    uint  MarkRequestRows;  // kMarkRequestRowsPush: Mark's group rows walking the request table (after the pixel and free rows)
 };
 
 // THE ATLAS UNDER PRESSURE (PROBE-TURN-1; not in UE, which keeps an unread probe NumFramesToKeepCachedProbes frames

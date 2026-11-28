@@ -4,22 +4,30 @@ Shader "RayTracedTranslucency"
     // RAY-TRACED REFRACTION (Translucency.Refraction HardwareTraced; UE RayTracedTranslucency, MaxPrimaryHitEvents;
     // System::RayTracedTranslucencyRenderer, the pass "Translucency: Ray Traced Refraction"). HALF resolution: one ray
     // per 2x2 quad of the translucent front layer (Mesh/Surface/Pass_FrontLayer.glslh: rgb = world normal, a =
-    // roughness; zero = no translucent surface). The quad traces its pixel FrameIndex & 3 (index = x + 2 * y inside
-    // the quad), or its first pixel that holds a traceable front layer when that one does not; a quad without one
-    // writes zero. The ray starts just before that pixel's front layer depth on the camera ray, so its first hit is
-    // that glass, whose closest hit (Mesh/Surface/Pass_RayHit.glslh) gives Transmission, Ior and the shading normal.
-    // Every dielectric interface (Transmission > 0) bends the ray by Snell - entering or leaving by the payload's front
-    // face - or mirrors it past the critical angle (total internal reflection); a thin sheet (Ior 1) tints per
-    // crossing, solid glass absorbs by Beer's law between its faces (PathTracer.shader, the same statement), and the
-    // smooth Fresnel transmission of every interface after the first multiplies the path (the glass cell weighs its
-    // own first interface by its Fresnel). The first opaque hit is lit SCREEN FIRST: a hit the view sees (projected by
-    // giFrame.viewProjection into the frame, the opaque depth there within GIRayBias().screenTolerance of it - the
-    // test of Common/GIHitLighting.glslh GIHitMaterial) takes this frame's lit scene colour from the scene copy;
-    // any other is lit in place as the hit-lit reflections light theirs (GIHitRadianceLit, its emission included);
-    // a miss is the sky. A rough front layer bends by one GGX visible normal per frame (the temporal upscaler sums
-    // them). Output (one texel per quad): rgb = pre-exposed radiance x transmittance; a = 1 + the traced pixel's index
-    // in the quad where the trace answered (0 under Composite 0: the same rays, no answer), 0 past MaxRoughness or
-    // MaxInterfaces - the glass cell (Mesh/Surface/TranslucencyRefraction.glslh) reads the scene copy itself there.
+    // roughness; zero = no translucent surface). The quad traces its pixel FrameIndex & 3 (index = x + 2 * y inside the
+    // quad), or its first pixel that holds a traceable front layer when that one does not; a quad without one writes
+    // zero. The ray starts just before that pixel's front layer depth on the camera ray, so its first hit is that
+    // glass, whose closest hit (Mesh/Surface/Pass_RayHit.glslh) gives Transmission, Ior and the shading normal. The
+    // path goes through EVERY translucent layer to the first opaque hit or a miss (UE: the refraction ray crosses all
+    // translucent layers). The first MaxInterfaces dielectric interfaces (Transmission > 0) BEND the ray by Snell -
+    // entering or leaving by the payload's front face - or mirror it past the critical angle (total internal
+    // reflection), and the smooth Fresnel transmission of every bending interface after the first multiplies the path
+    // (the glass cell weighs its own first interface by its Fresnel); every later one is crossed STRAIGHT (direction
+    // kept, no Fresnel). Either way a thin sheet (Ior 1) tints per crossing and solid glass absorbs by Beer's law
+    // between its faces (PathTracer.shader, the same statement). Every layer behind the first adds its own emission,
+    // weighed by the transmittance in front of it. kRefractionMaxSegments (8) bounds the segments; a path that reaches
+    // it answers with the emission it gathered. The first opaque hit is lit SCREEN FIRST: a hit the view sees
+    // (projected by giFrame.viewProjection into the frame, the opaque depth there within GIRayBias().screenTolerance of
+    // it - the test of Common/GIHitLighting.glslh GIHitMaterial) takes this frame's lit scene colour from the scene
+    // copy; a hit the view does not see is lit as the reflections of the tier light theirs: from the surface cache
+    // under Reflections.HitLighting 0 (black behind one-sided geometry, in place where no card holds it), in place
+    // under 1 (GIHitRadianceLit with the payload's material, its emission included); an in-place lit hit leaves
+    // a mark request for the radiance cache cells its bounce reads (RadianceCacheMarkRequests.glslh); a miss is the sky. A rough front
+    // layer bends by one GGX visible normal per frame (the temporal upscaler sums them). Output (one texel per quad):
+    // rgb = the layers' pre-exposed emission + the end's pre-exposed radiance x transmittance; a = 1 + the traced
+    // pixel's index in the quad - every started trace answers. a = 0 only where no trace starts (a quad without a front
+    // layer, or rougher than MaxRoughness) and under Composite 0 (no ray is traced) - the glass cell
+    // (Mesh/Surface/TranslucencyRefraction.glslh) reads the scene copy itself there.
     Pass "Trace"
     {
         RayGen
@@ -38,24 +46,33 @@ Shader "RayTracedTranslucency"
             Uniform texture2D SceneColorCopyTexture;      // this frame's opaque lit scene, pre-exposed: a seen hit's radiance
             #define SceneColorCopyTexture sampler2D(SceneColorCopyTexture, LinearClampSampler)
 
-            // The program exists only as the hardware tracer lit in place (RayTracedTranslucencyRenderer::Variant =
-            // TracerVariant(kRayTracedTranslucencyTracer) defines both). The boot compile has no variant defines and is
-            // that same program, so it registers the pass the renderer acquires its variant from.
+            // The program is the hardware tracer in two variants of the tier (RayTracedTranslucencyRenderer::Variant =
+            // TracerVariant(RayTracedTranslucencyTracer(inPlace))): the surface cache's under Reflections.HitLighting
+            // 0, and DESERT_GI_HIT_LIGHTING_IN_PLACE, which only the variant defines, under 1. The boot compile has no
+            // variant defines and is the surface cache's variant, so it registers the pass the renderer acquires its
+            // variant from.
             #ifndef DESERT_GI_TRACER_HARDWARE
             #define DESERT_GI_TRACER_HARDWARE
-            #endif
-            #ifndef DESERT_GI_HIT_LIGHTING_IN_PLACE
-            #define DESERT_GI_HIT_LIGHTING_IN_PLACE
             #endif
             #include <Common/CameraUB.glslh> // the view block the hit groups read
             #include <Common/RayTracingSceneReads.glslh> // the world's table and rain occlusion the hits' weather reads
             #include <Common/GIHitLitReads.glslh>
-            #define GI_SURFACE_CACHE_BINDING 34 // GIHitLighting.glslh's includer statement; unread in place
+            // The surface cache's seven bindings 42..48 (GIHitLighting.glslh's includer statement), bound by name by
+            // DeclareSurfaceCacheReads in the surface cache's variant. Not SSRTrace.glslh's 34: this ray generation
+            // also declares the hit groups' scene reads (RayTracingSceneReads.glslh: the world's table and rain
+            // occlusion at 35..37, ShaderGraphBindings.hpp), the tracer holds 23..33 and the radiance atlas 41, so the
+            // range starts past them all. The program's unnumbered resources are numbered past its highest explicit
+            // binding (ShaderMapBuild.cpp AssignProgramBindings), never into them.
+            #define GI_SURFACE_CACHE_BINDING 42
             #include <Common/GIHitLighting.glslh>
             #include <Common/RayTracingPayload.glslh>
             #include <Common/ReconstructPosition.glslh>
             #include <Common/MonteCarlo.glslh>
             #include <Common/RayTracedTranslucencyPush.glslh> // InvJitteredViewProjection ... Composite
+            // The cache's request table (kMarkRequestsBinding): a path end lit in place reads the cache where no pixel
+            // marked; 49 is past every slot above (the tracer's 23..33, the surface cache's 34..40, the atlas 41).
+            #define RADIANCE_CACHE_MARK_REQUESTS_BINDING 49
+            #include <Common/RadianceCacheMarkRequests.glslh>
 
             layout(location = 0) rayPayloadEXT DesertRayPayload payload;
 
@@ -64,6 +81,15 @@ Shader "RayTracedTranslucency"
             const float kRefractionAbsorptionDistance = 100.0;
             // How far before the front layer's depth the ray starts (cm), so the glass is its first hit.
             const float kRefractionStartBackoff = 1.0;
+            // The hard bound of traced segments per path; MaxInterfaces bounds only the BENDS. A budget that ended the
+            // path threw its answer away: on the Bistro shop window the fifth interface of the tier's 4 is met almost
+            // everywhere, so the rays cost the pass and the glass showed the scene copy (MaxInterfaces 1 vs the tier
+            // 5.09, Composite 0 vs 1 5.42, both under the run's own noise 7.43; MaxInterfaces 8 13.81). 8 is a COST
+            // bound against the pass's 1.0 ms at 1080p: at 16 the pass cost 1.391 ms by day and 1.443 ms by night at
+            // 1.17 Mpx (2.46 / 2.55 ms at 1080p), nearly every path reaching an opaque end lit in place. 8 is nearer
+            // UE's bound (r.RayTracing.Translucency.MaxRefractionRays 3): 8 thin sheets of 0.9 pass 0.9^8 = 0.43,
+            // 8 clear solids crossed straight pass nearly all, and the light of an end past the bound is dropped.
+            const uint kRefractionMaxSegments = 8u;
 
             // UE FresnelDielectric (PathTracer.shader PathTracingFresnelDielectric): the reflectance of a smooth
             // dielectric for the incident cosine cosI and eta = n(incident) / n(transmitted); 1 past the critical angle.
@@ -76,6 +102,14 @@ Shader "RayTracedTranslucency"
                 const float rs   = (eta * cosI - cosT) / (eta * cosI + cosT);
                 const float rp   = (cosI - eta * cosT) / (cosI + eta * cosT);
                 return 0.5 * (rs * rs + rp * rp);
+            }
+
+            // Beer's law inside solid glass (1/cm): entering by the front face starts the absorption that reaches the
+            // payload's Transmission after kRefractionAbsorptionDistance, leaving ends it.
+            vec3 RefractionAbsorption(vec3 transmission, bool frontFace)
+            {
+                return frontFace ? -log(clamp(transmission, vec3(1.0e-4), vec3(1.0))) / kRefractionAbsorptionDistance
+                                 : vec3(0.0);
             }
 
             // The material ray of the hit groups: every instance (translucent ones included), one record per segment.
@@ -115,7 +149,10 @@ Shader "RayTracedTranslucency"
 
             // The pre-exposed radiance of the first opaque hit at @p P (the payload's hit), SCREEN FIRST: the scene copy
             // where the view sees that very point (GIHitMaterial's test: giFrame.viewProjection, the opaque depth within
-            // the tracer's tolerance; the copy is already pre-exposed), lit in place otherwise.
+            // the tracer's tolerance; the copy is already pre-exposed); a hit the view does not see is lit as the
+            // reflections of the tier light theirs (GIHitLighting.glslh: cards first, black behind one-sided geometry,
+            // in place where no card holds it - with the payload's material, never GIHitMaterial's G-buffer guess),
+            // in place alone under DESERT_GI_HIT_LIGHTING_IN_PLACE (Reflections.HitLighting 1).
             vec3 RefractionOpaqueRadiance(vec3 P, vec3 dir)
             {
                 const vec4 clip = giFrame.viewProjection * vec4(P, 1.0);
@@ -143,12 +180,27 @@ Shader "RayTracedTranslucency"
                 hit.velocity     = vec3(0.0);
                 hit.motionKnown  = false;
                 hit.globalField  = false;
-                const vec3 lit = GIHitRadianceLit(
-                    hit, dir,
+                const GIHitSurface surface =
                     GIHitSurface(payload.BaseColor, payload.Metallic, payload.Roughness, payload.Emissive, true,
                                  payload.ShadingWord,
                                  DesertSubsurfaceColor(DesertShadingModelIndex(payload.ShadingWord),
-                                                       DesertUnpackPayload(payload.ShadingWord))));
+                                                       DesertUnpackPayload(payload.ShadingWord)));
+#if defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
+                // GIHitBounce reads the radiance cache here, off screen: ask for its cells (next frame's Mark).
+                RadianceCacheRequestMark(P, payload.Normal, -dir);
+                const vec3 lit = GIHitRadianceLit(hit, dir, surface);
+#else
+                // The hit's surface cache row from its TLAS custom index (the payload's Flags bits 8..31, its
+                // GPU-scene row), as the ray query tracer finds it (GITraceRayQuery.glslh); meshCards stays unknown
+                // there too, the row's cards are walked by SurfaceCacheHitLighting.
+                hit.instance = GISurfaceCacheRowForInstance(DesertRayPayloadSceneRow(payload.Flags));
+                vec3 lit;
+                if (SurfaceCacheHitLighting(hit, GIHitSurfaceCacheBias(hit), lit) == SURFACE_CACHE_HIT_UNCOVERED)
+                {
+                    RadianceCacheRequestMark(P, payload.Normal, -dir); // the in-place light's bounce reads these cells
+                    lit = GIHitRadianceLit(hit, dir, surface);
+                }
+#endif
                 return lit * CameraPosition.w;
             }
 
@@ -172,6 +224,12 @@ Shader "RayTracedTranslucency"
                 const ivec2 quad = ivec2(gl_LaunchIDEXT.xy);
                 if (any(greaterThanEqual(quad, imageSize(RefractionOutputTexture))))
                     return;
+                // Composite 0: no answer and no ray traced; the glass cell reads the scene copy itself.
+                if (Composite == 0u)
+                {
+                    imageStore(RefractionOutputTexture, quad, vec4(0.0));
+                    return;
+                }
                 const ivec2 full = textureSize(FrontLayerNormalTexture, 0);
                 // The quad's pixel this frame, or its first traceable one; none: no answer for the quad.
                 uint index = FrameIndex & 3u;
@@ -192,8 +250,8 @@ Shader "RayTracedTranslucency"
                         return;
                     }
                 }
-                // a of an answer: the pixel of the quad the ray started at (the glass cell's code); 0 under Composite 0.
-                const float answered = Composite != 0u ? 1.0 + float(index) : 0.0;
+                // a of an answer: 1 + the pixel of the quad the ray started at (the glass cell's code).
+                const float answered = 1.0 + float(index);
                 const ivec2 pixel    = RefractionQuadPixel(quad, index);
                 const float rough    = texelFetch(FrontLayerNormalTexture, pixel, 0).a;
 
@@ -208,15 +266,16 @@ Shader "RayTracedTranslucency"
 
                 vec3 transmittance = vec3(1.0);
                 vec3 absorption    = vec3(0.0); // 1/cm inside the solid the path is in
-                // One trace per segment: MaxInterfaces dielectric interfaces are followed, and the segment past the
-                // last of them is still traced to whatever it meets.
-                for (uint crossing = 0u; crossing <= MaxInterfaces; ++crossing)
+                vec3 radiance      = vec3(0.0); // pre-exposed emission of the layers behind the first
+                // One trace per segment, up to kRefractionMaxSegments: the first MaxInterfaces dielectric interfaces
+                // bend the ray, every later one is crossed straight; the path ends at an opaque hit or a miss.
+                for (uint crossing = 0u; crossing < kRefractionMaxSegments; ++crossing)
                 {
                     RefractionTrace(origin, dir, coneWidth, spread);
                     if (payload.HitT < 0.0)
                     {
                         imageStore(RefractionOutputTexture, quad,
-                                   vec4(GIMissRadiance(dir) * transmittance * CameraPosition.w, answered));
+                                   vec4(radiance + GIMissRadiance(dir) * transmittance * CameraPosition.w, answered));
                         return;
                     }
                     const vec3 P = origin + dir * payload.HitT;
@@ -224,27 +283,38 @@ Shader "RayTracedTranslucency"
                     coneWidth += spread * payload.HitT;
                     if (all(lessThanEqual(payload.Transmission, vec3(0.0))))
                     {
-                        // The first opaque surface: the scene copy where the view sees it, lit in place otherwise.
+                        // The first opaque surface: the scene copy where the view sees it, lit as the tier's
+                        // reflections light theirs otherwise (RefractionOpaqueRadiance).
                         imageStore(RefractionOutputTexture, quad,
-                                   vec4(RefractionOpaqueRadiance(P, dir) * transmittance, answered));
+                                   vec4(radiance + RefractionOpaqueRadiance(P, dir) * transmittance, answered));
                         return;
                     }
-                    // A dielectric interface. The payload's normal faces the ray. One beyond the budget: no answer.
-                    if (crossing == MaxInterfaces)
-                        break;
+                    // A dielectric interface; the payload's normal faces the ray. A layer behind the first adds its
+                    // own emission (a lamp's glass, a lit bottle) through what lies in front of it, before its tint;
+                    // the first is the glass cell's own surface, which shades its emission itself.
+                    if (crossing > 0u)
+                        radiance += transmittance * payload.Emissive * CameraPosition.w;
                     const bool  frontFace = (payload.Flags & kDesertRayPayloadFrontFace) != 0u;
-                    const bool  thin      = payload.Ior <= 1.0;
-                    const float eta       = frontFace ? 1.0 / payload.Ior : payload.Ior;
-                    vec3        N         = payload.Normal;
-                    if (crossing == 0u && rough > 0.0)
-                        N = RefractionRoughNormal(N, -dir, rough, pixel);
-                    const float offset = 0.05 + 1.0e-5 * distance(P, eye);
-                    if (thin)
+                    const float offset    = 0.05 + 1.0e-5 * distance(P, eye);
+                    if (payload.Ior <= 1.0)
                     {
+                        // A thin sheet tints per crossing and never bends; it ends no solid's absorption it lies in.
                         transmittance *= payload.Transmission;
                         origin = P - payload.Normal * offset;
                         continue;
                     }
+                    if (crossing >= MaxInterfaces)
+                    {
+                        // Past the budget of bends: solid glass is crossed straight, absorbing between its faces as a
+                        // bent path does; no Fresnel, as a thin sheet.
+                        absorption = RefractionAbsorption(payload.Transmission, frontFace);
+                        origin     = P - payload.Normal * offset;
+                        continue;
+                    }
+                    const float eta = frontFace ? 1.0 / payload.Ior : payload.Ior;
+                    vec3        N   = payload.Normal;
+                    if (crossing == 0u && rough > 0.0)
+                        N = RefractionRoughNormal(N, -dir, rough, pixel);
                     const float cosI = clamp(dot(N, -dir), 0.0, 1.0);
                     const vec3  bent = refract(dir, N, eta);
                     if (dot(bent, bent) <= 0.0)
@@ -256,15 +326,13 @@ Shader "RayTracedTranslucency"
                     }
                     if (crossing > 0u)
                         transmittance *= 1.0 - RefractionFresnelDielectric(cosI, eta);
-                    absorption = frontFace ? -log(clamp(payload.Transmission, vec3(1.0e-4), vec3(1.0))) /
-                                                 kRefractionAbsorptionDistance
-                                           : vec3(0.0);
+                    absorption = RefractionAbsorption(payload.Transmission, frontFace);
                     dir    = normalize(bent);
                     origin = P - payload.Normal * offset;
                 }
-                // A dielectric interface past the budget of MaxInterfaces: the trace did not answer (a = 0); the glass
-                // cell reads the scene copy itself.
-                imageStore(RefractionOutputTexture, quad, vec4(0.0));
+                // kRefractionMaxSegments interfaces in a row: the answer is the emission they gathered; the light of
+                // the path's end past the cost bound is dropped (kRefractionMaxSegments). A value, not a refusal.
+                imageStore(RefractionOutputTexture, quad, vec4(radiance, answered));
             }
         }
 

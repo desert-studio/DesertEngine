@@ -28,6 +28,8 @@ namespace Desert::Graphic::System
         ShaderBindingLayoutCache            Layout;
         std::shared_ptr<RayTracingPipeline> Pipeline;
         std::vector<std::string>            Templates;
+        // The tracer the published pipeline was built under, and its variant's hash (tracer x reorder).
+        GlobalIllumination::Pipeline        Tracer;
         uint64_t                            VariantHash = 0;
     };
 
@@ -37,9 +39,10 @@ namespace Desert::Graphic::System
 
     RayTracedTranslucencyRenderer::~RayTracedTranslucencyRenderer() = default;
 
-    Core::ShaderVariant RayTracedTranslucencyRenderer::Variant( const bool reorder )
+    Core::ShaderVariant RayTracedTranslucencyRenderer::Variant( const GlobalIllumination::Pipeline& tracer,
+                                                                const bool                          reorder )
     {
-        Core::ShaderVariant variant = GlobalIllumination::TracerVariant( kRayTracedTranslucencyTracer );
+        Core::ShaderVariant variant = GlobalIllumination::TracerVariant( tracer );
         if ( reorder )
             variant.Defines.emplace_back( kRayTracingReorderDefine );
         return variant;
@@ -48,16 +51,19 @@ namespace Desert::Graphic::System
     std::vector<Core::CookedProgramVariant> RayTracedTranslucencyRenderer::ProgramVariants()
     {
         std::vector<Core::CookedProgramVariant> variants;
-        for ( const bool reorder : { false, true } )
-            variants.push_back( { std::string( kRayTracedTranslucencyProgram ), Variant( reorder ) } );
+        for ( const bool inPlace : { false, true } )
+            for ( const bool reorder : { false, true } )
+                variants.push_back( { std::string( kRayTracedTranslucencyProgram ),
+                                      Variant( RayTracedTranslucencyTracer( inPlace ), reorder ) } );
         return variants;
     }
 
     Common::BoolResultStr
-    RayTracedTranslucencyRenderer::EnsurePipeline( const std::vector<std::string>& templates )
+    RayTracedTranslucencyRenderer::EnsurePipeline( const GlobalIllumination::Pipeline& tracer,
+                                                   const std::vector<std::string>&     templates )
     {
         const bool                reorder = RayTracingReorderOffered();
-        const Core::ShaderVariant variant = Variant( reorder );
+        const Core::ShaderVariant variant = Variant( tracer, reorder );
         const uint64_t            hash    = variant.Hash();
         Impl&                     self    = *m_Impl;
         if ( self.Pipeline && templates == self.Templates && self.VariantHash == hash )
@@ -91,6 +97,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<RayTracingPipeline> outgoing = std::exchange( self.Pipeline, pipeline.GetValue() );
         RayTracingPipeline::Retire( std::move( outgoing ) );
         self.Templates   = templates;
+        self.Tracer      = tracer;
         self.VariantHash = hash;
         return BOOLSUCCESS;
     }
@@ -118,6 +125,11 @@ namespace Desert::Graphic::System
             return Common::MakeError<RefractionOutputs>( "Ray traced refraction: no CameraUB" );
         if ( !in.OpaqueDepth.IsValid() )
             return Common::MakeError<RefractionOutputs>( "Ray traced refraction: no opaque G-buffer depth" );
+        // A path end lit in place asks the cache for the cells it reads (RadianceCacheMarkRequests.hpp).
+        if ( !in.HitLighting.RadianceCache.MarkRequests.IsValid() )
+            return Common::MakeError<RefractionOutputs>(
+                 "Ray traced refraction: the radiance cache's mark request table is not in this frame's hit "
+                 "lighting reads" );
         if ( !in.SceneCopy.IsValid() )
             return Common::MakeError<RefractionOutputs>(
                  "Ray traced refraction: no scene copy (the radiance of a hit the view sees)" );
@@ -133,13 +145,20 @@ namespace Desert::Graphic::System
                  RayTracedTranslucencyLaunchSize( in.FullHeight ) );
         // The permutation statement, not the record's fields (GITracing.hpp: a consumer hands the frame on).
         if ( GlobalIllumination::TracerVariant( in.HitLighting.Tracer.Pipeline ).Hash() !=
-             GlobalIllumination::TracerVariant( kRayTracedTranslucencyTracer ).Hash() )
-            return Common::MakeError<RefractionOutputs>(
-                 "Ray traced refraction: the hit lighting reads were made for another tracer than "
-                 "kRayTracedTranslucencyTracer (hardware, hits lit in place)" );
+             GlobalIllumination::TracerVariant( self.Tracer ).Hash() )
+            return Common::MakeFormattedError<RefractionOutputs>(
+                 "Ray traced refraction: the hit lighting reads were made for another tracer than the one the "
+                 "pipeline was built under (hardware, hits lit {})",
+                 self.Tracer.Hits == GlobalIllumination::HitLighting::InPlace ? "in place"
+                                                                              : "from the surface cache" );
         if ( const std::string_view missing = GlobalIllumination::TracerFrameMissing( in.HitLighting.Tracer );
              !missing.empty() )
             return Common::MakeFormattedError<RefractionOutputs>( "Ray traced refraction: {}", missing );
+        if ( self.Tracer.Hits == GlobalIllumination::HitLighting::SurfaceCache )
+            if ( const std::string_view missing =
+                      GlobalIllumination::SurfaceCacheFrameMissing( in.HitLighting.SurfaceCache );
+                 !missing.empty() )
+                return Common::MakeFormattedError<RefractionOutputs>( "Ray traced refraction: {}", missing );
 
         // HALF size: one texel per 2x2 quad of the front layer, its a the code of the quad's traced pixel.
         const RDG::TextureRef radiance =
@@ -159,6 +178,8 @@ namespace Desert::Graphic::System
                       .Uniform( RayTracedTranslucencyShaderParameters::CameraUB, in.Camera )
                       .Texture( RayTracedTranslucencyShaderParameters::GBufferDepthTexture, in.OpaqueDepth,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Storage( RayTracedTranslucencyShaderParameters::RadianceCacheMarkRequestsUB,
+                                in.HitLighting.RadianceCache.MarkRequests, RDG::Access::StorageWrite )
                       .PushConstants<ShaderPush::RayTracedTranslucencyPush>();
                  RayTracing::BindRayTracingSceneReads<RayTracedTranslucencyShaderParameters>(
                       block, in.HitLighting.SceneReads );

@@ -808,8 +808,8 @@ def self_check():
     DRY = True
     tmp = tempfile.mkdtemp(prefix="agent_guard_selfcheck_").replace("\\", "/")
     write = lambda name, text: (open(f"{tmp}/{name}", "w", encoding="utf-8").write(text), f"{tmp}/{name}")[1]
-    sections = "## Эталон\nx\n## Отличия\n- **D1.** a — `A.cpp:1`\n- **D2.** b — `B.cpp:1`\n## Архитектура\nx\n"
-    accept = "## Приёмка\nСценарий: Scenarios/F/F.scn\nТогда [f]: x\n"
+    sections = "## Эталон\nx\n## Отличия\n- **D1.** a — `A.cpp:1`\n- **D2.** b — `B.cpp:1`\n## Вопросы\n- нет\n## Архитектура\nx\n"
+    accept = f"## Приёмка\nСценарий: Scenarios/F/F.scn\nДо: {tmp}\nШум: 1.0\nТогда [f]: x\n"
     pa, pb = "### Пакет A — a\nФайлы: Desert/A/\nЗакрывает: D1\n", "### Пакет B — b\nФайлы: Desert/B/, Scenarios/F/F.scn\nЗакрывает: D2\n"
     good = write("GOOD-DESIGN.md", sections + "## Порядок\n" + pa + pb + accept)
     lost = write("LOST-DESIGN.md", sections + "## Порядок\n" + pa + pb.replace("Закрывает: D2\n", "Закрывает: D1\n") + accept)
