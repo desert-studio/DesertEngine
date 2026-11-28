@@ -1,0 +1,57 @@
+#ifndef EMISSIVE_CARD_LIGHTING_GLSLH
+#define EMISSIVE_CARD_LIGHTING_GLSLH
+
+// THE CONTRACT OF THE SURFACE CACHE'S EMISSIVE LIGHTING PASS (GI-TEMPORAL). Written by the architect; no package
+// edits it. C++ twin: Engine/Graphic/GlobalIllumination/SurfaceCacheEmissiveLighting.hpp (the same numbers).
+//
+// The emissive triangles' light on a card texel is a Monte Carlo estimate. It is no longer taken inside the direct
+// lighting and written as the texel's value; it is taken by its own pass ("SurfaceCache.EmissiveLighting", programs
+// SurfaceCacheEmissiveLighting / SurfaceCacheEmissiveLightingAsync) into its own atlas layer, blended with the
+// layer's history, and the direct lighting only READS the layer.
+//
+//   layer     AtlasEmissiveLightingTexture, RGBA16F, the surface cache atlas' size. rgb = the diffuse radiance the
+//             texel leaves from the emissive triangles: albedo / PI x front irradiance + subsurface / PI x back
+//             irradiance (the units of DirectLighting, so the reader adds it as it is). a is not read.
+//   pass      runs over SceneFrame::LightingPages, ahead of the direct lighting of the same frame.
+//             raster: one colour target, blend SrcAlpha / OneMinusSrcAlpha, the fragment returns
+//                     vec4( estimate, weight );
+//             async:  the layer as a storage image AtlasEmissiveLightingImage (rgba16f),
+//                     stored = mix( loaded, estimate, weight ).
+//   weight    1 where the page was captured this frame (SurfaceCardPage.card.z != 0) or EmissiveFrame.y != 0;
+//             EmissiveWeights.x otherwise.
+//   samples   kEmissiveSamplesFirstPass where weight == 1 (the first estimate stands alone), kEmissiveSamplesPerTexel
+//             otherwise. The random stream is seeded by ( atlas texel, EmissiveFrame.x ).
+//   clamp     one sample's contribution (radiance x cos x visibility / pdf, before the 1 / samples scale) is
+//             scaled down to luminance kEmissiveMaxSampleIntensity when above it.
+//   reader    SurfaceCacheDirectLightingTexel.glslh: direct = albedo / PI x irradiance + subsurface / PI x back
+//             + texelFetch( AtlasEmissiveLightingTexture, atlasTexel, 0 ).rgb. It declares the texture unnumbered
+//             ("Uniform texture2D AtlasEmissiveLightingTexture;"), read through PointClampSampler. The direct
+//             lighting keeps no emissive buffer, count or seed: bindings 40..46 and LightingFlags.y leave it.
+
+// Samples of one relight of a texel with history, and of a texel without one.
+const uint  kEmissiveSamplesPerTexel    = 8u;
+const uint  kEmissiveSamplesFirstPass   = 32u;
+// The ceiling of one sample's luminance, in the cache's radiance units (UE r.LumenScene.Radiosity.MaxRayIntensity).
+const float kEmissiveMaxSampleIntensity = 40.0;
+// The same ceiling for one radiosity ray (SurfaceCacheRadiosityTraceTexel.glslh).
+const float kRadiosityMaxRayIntensity   = 40.0;
+
+// The pass's push block, declared by both programs exactly so (the C++ side fills ShaderPush of this name):
+//
+//   PushConstant SurfaceEmissiveLightingPush
+//   {
+//       uvec4 EmissiveFrame;         // x = frame index (the seed), y = 1: no history (weight 1 everywhere)
+//       vec4  EmissiveWeights;       // x = the new estimate's weight against the history
+//       uvec4 EmissiveCounts;        // RayTracing::EmissiveLightsFrame::StaticParams()
+//       uvec4 EmissiveDynamicCounts; // RayTracing::EmissiveLightsFrame::DynamicParams()
+//   };
+//
+// The pass's resources, by name (numbers as the direct lighting has them today, SurfaceCacheDirectLightingTexel.glslh):
+// SurfaceCardBuffer, SurfaceCardPageBuffer, SurfaceLightingPages, the atlas layers Depth / Albedo / Opacity /
+// Normal / Subsurface, the tracer's resources at GI_TRACER_BINDING 32, the emissive buffers at 40..46
+// (EmissiveSegmentsUB, EmissiveLookupUB, EmissiveTrianglesUB, EmissivePowerUB, EmissiveDynamicSegmentsUB,
+// EmissiveDynamicTrianglesUB, EmissiveDynamicPowerUB); the async program adds the lighting tile buffers of
+// Common/SurfaceCacheLightingTiles.glslh and the storage image above. Both programs are compiled per tracer
+// (GlobalIllumination::TracerVariant), as the direct lighting is.
+
+#endif // EMISSIVE_CARD_LIGHTING_GLSLH
