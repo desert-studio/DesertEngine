@@ -1,0 +1,74 @@
+# GI-NEXTGEN: per-layer surface cache views (DirectLighting / IndirectLighting / RadiosityTrace) beside Lit and FinalLighting,
+# and the view-order experiment for D4 (does switching to cache views shift the rt_open band?). Header and "Дано" verbatim from
+# GI-TEMPORAL3B.scn:4-28. GI age: rt_first 512, rt_second 1024, five cache views x8 = 1064, rt_after 1536, rt_after_late 2048;
+# then GI method SoftwareTraced, rt_sw 512 frames after the switch, and the same four cache views under it.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: Textures High"
+Дано run Quality "Quality: Filtering High"
+Дано run Quality "Quality: Shadows High"
+Дано run Quality "Quality: GlobalIllumination High"
+Дано run Quality "Quality: Reflections High"
+Дано run Quality "Quality: PostProcess High"
+Дано run Quality "Quality: Effects High"
+Дано run Quality "Quality: ViewDistance High"
+Дано run Quality "Quality: AntiAliasing High"
+Дано run Quality "Quality: ResolutionScale High"
+Дано run Quality "Quality: Shading High"
+Дано run Quality "Quality: PathTracing High"
+Дано run Quality "Quality: Foliage High"
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+Дано --subject viewport set Camera.Position -370,300,-861
+Дано --subject viewport set Camera.Direction 0.8806,0.07,0.4738
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure false
+Когда run Quality "Quality: Translucency.Refraction ScreenSpace"
+Когда run Entity "Delete Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4711"
+Когда run Entity "Delete Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4875"
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда frames 512
+Тогда-вид rt_first Lit, возраст 512, до видов кэша — полоса записана (в До 0.0967).
+Когда frames 512
+Тогда-вид rt_second Lit, возраст 1024, без видов кэша — mean|d| к rt_first записан; выше 0.82 = полоса плывёт с возрастом сама.
+Когда run View "View mode: Lumen Scene (Cards)"
+Когда frames 8
+Тогда-вид cards_open альбедо карт той же камеры — совпадает с До (mean|d| не выше 0.82).
+Когда run View "View mode: Lumen Scene (Lit)"
+Когда frames 8
+Тогда-вид cache_open FinalLighting карт — плафон светится, стена за окном записана (в 3B: доля нечёрных 0.0616, стена 0.0002).
+Когда run View "View mode: Lumen Scene (Direct Lighting)"
+Когда frames 8
+Тогда-вид direct_open слой DirectLighting — плафон НЕ светится (собственной эмиссии в слое нет, SurfaceCacheDirectLightingTexel.glslh:359-365), этим кадр отличим от cache_open; яркость стены на солнце записана. Чёрная стена на солнце = C5.
+Когда run View "View mode: Lumen Scene (Indirect Lighting)"
+Когда frames 8
+Тогда-вид indirect_open слой IndirectLighting — яркость стены и мостовой записана. Direct есть, Indirect чёрный здесь и не чёрный в indirect_open_sw = C3.
+Когда run View "View mode: Lumen Scene (Radiosity Trace)"
+Когда frames 8
+Тогда-вид trace_open слой RadiosityTrace — яркость стены записана; чёрный при светлом небе в rt_first = лучи радиосити не доходят до неба и света (C3), не чёрный при чёрном indirect_open = теряет интеграция.
+Когда run View "View mode: Lit"
+Когда frames 472
+Тогда-вид rt_after Lit после пяти видов кэша, возраст 1536 — mean|d| к rt_second записан; выше 0.82 при rt_second в шуме = полосу сдвигает переключение видов (C6).
+Когда frames 512
+Тогда-вид rt_after_late Lit 512 кадров спустя — вернулась ли полоса к rt_second; записано.
+Когда run Quality "Quality: GlobalIllumination.Method SoftwareTraced"
+Когда frames 512
+Тогда-вид rt_sw Lit под SoftwareTraced, 512 кадров после смены метода — полоса записана рядом с rt_first.
+Когда run View "View mode: Lumen Scene (Lit)"
+Когда frames 8
+Тогда-вид cache_open_sw FinalLighting под программным трассировщиком — доля нечёрных рядом с cache_open.
+Когда run View "View mode: Lumen Scene (Direct Lighting)"
+Когда frames 8
+Тогда-вид direct_open_sw DirectLighting под программным — рядом с direct_open; расхождение выше 0.82 = прямой свет карт зависит от трассировщика теней.
+Когда run View "View mode: Lumen Scene (Indirect Lighting)"
+Когда frames 8
+Тогда-вид indirect_open_sw IndirectLighting под программным — рядом с indirect_open (решение C3).
+Когда run View "View mode: Lumen Scene (Radiosity Trace)"
+Когда frames 8
+Тогда-вид trace_open_sw RadiosityTrace под программным — рядом с trace_open.
+Когда run View "View mode: Lit"
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Translucency.Refraction Level"
+Когда run Quality "Quality: Resolution.Percent Level"
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure true
