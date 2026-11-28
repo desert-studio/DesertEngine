@@ -211,7 +211,8 @@ def scenario_gaps(feat):
         return []
     have, gaps = set(), []
     for scn in d["scenarios"]:
-        tree = next((p["tree"] for p in feat["packages"].values() if any(matches(scn, f) for f in p["files"])), "")
+        tree = next((p["tree"] for p in feat["packages"].values()
+                     if p["state"] != "dropped" and any(matches(scn, f) for f in p["files"])), limits.LAND_TREE)
         try:
             with open(os.path.join(tree, scn), encoding="utf-8", errors="replace") as f:
                 have.update(w for pair in _SCN_STEP.findall(f.read()) for w in pair if w)
