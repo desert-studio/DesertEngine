@@ -19,17 +19,12 @@ namespace Desert::Assets
     /**
      * @brief A SOUND (`.desound`) — UE's USoundWave: the identity every sound reference names.
      *
-     * THE FILE: a text asset header (Kind "Sound", the GUID, SNDW version), `Source` — the imported audio file's
-     * name RELATIVE TO THE `.desound` (UE keeps the imported source beside the asset the same way) — `Class`,
-     * the SoundClass every voice of it plays in (UE USoundBase::SoundClassObject), and `Loading`, how its PCM
-     * reaches the mix (Resident or Streamed; UE ESoundWaveLoadingBehavior / bStreaming). A track or a component
-     * names the GUID; path, class and loading live here and nowhere else, so moving the pair moves no reference
-     * and every player of the sound plays it in the same class.
-     * The bytes are not read at load: AudioEngine opens the source on its resource manager's job thread when a
-     * voice starts (decoded once and shared when Resident, page by page when Streamed).
+     * THE FILE: header (Kind "Sound", GUID, SNDW version, Dependencies = the class GUID), `Source` — the audio
+     * file relative to the `.desound` — `Class`, the GUID text of the sound class asset every voice of it plays
+     * in (UE USoundBase::SoundClassObject), and `Loading`.
      *
-     * SNDW v1 (AUD-CORE) added Class and Loading; a v0 file (no SNDW version) is refused by name and raised by
-     * Tools/SceneMigrator (Upgrade) to Class Effects + Loading Resident — what every sound played as before.
+     * SNDW v2 (AUDIO-SOUNDCLASS): Class is a class asset's GUID. v1 wrote an enumerator name, v0 nothing; both
+     * are refused by name and raised by Tools/SceneMigrator through Upgrade.
      */
     class SoundAsset final : public AssetBase
     {
@@ -55,7 +50,7 @@ namespace Desert::Assets
             return m_SourceFile;
         }
 
-        [[nodiscard]] Audio::SoundClass Class() const
+        [[nodiscard]] const Audio::SoundClassId& Class() const
         {
             return m_Class;
         }
@@ -74,49 +69,60 @@ namespace Desert::Assets
         {
             Common::Content::AssetGuid Guid;
             std::string                Source; ///< as written: relative to the `.desound`
-            Audio::SoundClass          Class;
+            Audio::SoundClassId        Class;
             Audio::SoundLoading        Loading;
         };
 
-        /// Refuses a header of another kind or SNDW version, a null/malformed GUID, an empty Source and a Class or
-        /// Loading that names no enumerator, by name. A v0 file is refused with the migrator's name.
+        /// Refuses a header of another kind or SNDW version, a null/malformed GUID, an empty Source, a Class that
+        /// is not a non-null GUID, Dependencies that are not exactly that GUID, and a Loading that names no
+        /// enumerator, by name. An older file is refused with the migrator's name. Text only: whether the class
+        /// asset exists is Resolve's and the voice's question.
         [[nodiscard]] static Common::ResultStr<Parsed> Parse( std::string_view text );
 
-        /// THE SNDW MIGRATION (Tools/SceneMigrator): the current text of an older `.desound`, nullopt when @p text
-        /// is current already. v0 -> v1 states Class Effects and Loading Resident, what every voice played as
-        /// before the asset carried them. Refuses a document that is not a `.desound` and a version this build
-        /// does not know, by name.
-        [[nodiscard]] static Common::ResultStr<std::optional<std::string>> Upgrade( std::string_view text );
+        /// What SNDW v1's Class names and v0's silence become: the class asset of each. The migrator fills it
+        /// from the project (the class asset whose file stem is the v1 name); the format names no content.
+        struct LegacyClasses
+        {
+            /// The GUID for a v1 `Class` name, or the null GUID when the project has no such class asset.
+            Audio::SoundClassId ( *ForName )( std::string_view v1Name, const void* user ) = nullptr;
+            const void*         User                                                      = nullptr;
+            /// The name a v0 file (no Class at all) is raised under: what v0 -> v1 stated.
+            std::string_view    V0Name;
+        };
 
-        /// Reads and parses the `.desound` at @p desound. Refuses an unreadable file and every Parse refusal.
+        /// THE SNDW MIGRATION (Tools/SceneMigrator): the current text of an older `.desound`, nullopt when @p text
+        /// is current already. v0 -> v1 -> v2 in one call, each step naming its two versions. Refuses a document
+        /// that is not a `.desound`, a version this build does not know, and a v1 Class name for which
+        /// @p classes answers the null GUID (naming the Class).
+        [[nodiscard]] static Common::ResultStr<std::optional<std::string>> Upgrade( std::string_view     text,
+                                                                                   const LegacyClasses& classes );
+
+        /// Reads and parses the `.desound` at @p desound.
         [[nodiscard]] static Common::ResultStr<Parsed> ReadFile( const std::filesystem::path& desound );
 
         /// The `.desound` text naming @p source under @p guid, played in @p soundClass with @p loading. Refuses a
-        /// null GUID and an empty source.
+        /// null GUID, an empty source and a null class.
         [[nodiscard]] static Common::ResultStr<std::string> Write( const Common::Content::AssetGuid& guid,
                                                                    std::string_view                  source,
-                                                                   Audio::SoundClass                 soundClass,
+                                                                   const Audio::SoundClassId&        soundClass,
                                                                    Audio::SoundLoading               loading );
 
-        /// What a voice of the sound @p guid plays (Audio::SoundSource): the registry row of the GUID (through
-        /// redirectors), its `.desound` read and parsed, its Source resolved beside it, its Class and Loading.
-        /// Refuses an unknown GUID and every Parse refusal, by name. What a sound REFERENCE resolves through —
-        /// the path is never stored by a user.
+        /// What a voice of the sound @p guid plays. Refuses an unknown GUID and every Parse refusal, by name.
         [[nodiscard]] static Common::ResultStr<Audio::SoundSource>
         Resolve( const Common::Content::AssetGuid& guid );
 
-        /// The same, for a reference held as the GUID's handle (`AudioSourceData::Sound`).
+        /// The same, for a reference held as the GUID's handle.
         [[nodiscard]] static Common::ResultStr<Audio::SoundSource> Resolve( AssetHandle handle );
 
-        /// Writes a `.desound` beside its source (creating the directory). Static: saving is what CREATES one.
+        /// Writes a `.desound` beside its source (creating the directory).
         static Common::BoolResultStr Save( const Common::Filepath&           filepath,
                                            const Common::Content::AssetGuid& guid, std::string_view source,
-                                           Audio::SoundClass soundClass, Audio::SoundLoading loading );
+                                           const Audio::SoundClassId& soundClass, Audio::SoundLoading loading );
 
     private:
         Common::Content::AssetGuid m_Guid;
         std::filesystem::path      m_SourceFile;
-        Audio::SoundClass          m_Class   = Audio::SoundClass::Effects; // overwritten by every LoadFromFile
+        Audio::SoundClassId        m_Class; // null until LoadFromFile
         Audio::SoundLoading        m_Loading = Audio::SoundLoading::Resident;
         bool                       m_Ready   = false;
     };
