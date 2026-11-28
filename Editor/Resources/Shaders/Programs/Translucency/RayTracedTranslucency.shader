@@ -4,12 +4,12 @@ Shader "RayTracedTranslucency"
     // RAY-TRACED REFRACTION (Translucency.Refraction HardwareTraced; UE RayTracedTranslucency, MaxPrimaryHitEvents;
     // System::RayTracedTranslucencyRenderer, the pass "Translucency: Ray Traced Refraction"). HALF resolution: one ray
     // per 2x2 quad of the translucent front layer (Mesh/Surface/Pass_FrontLayer.glslh: rgb = world normal, a =
-    // roughness; zero = no translucent surface). The quad traces its pixel FrameIndex & 3 (index = x + 2 * y inside
-    // the quad), or its first pixel that holds a traceable front layer when that one does not; a quad without one
-    // writes zero. The ray starts just before that pixel's front layer depth on the camera ray, so its first hit is
-    // that glass, whose closest hit (Mesh/Surface/Pass_RayHit.glslh) gives Transmission, Ior and the shading normal.
-    // The path goes through EVERY translucent layer to the first opaque hit or a miss (UE: the refraction ray crosses
-    // all translucent layers). The first MaxInterfaces dielectric interfaces (Transmission > 0) BEND the ray by Snell -
+    // roughness; zero = no translucent surface). The quad traces its pixel FrameIndex & 3 (index = x + 2 * y inside the
+    // quad), or its first pixel that holds a traceable front layer when that one does not; a quad without one writes
+    // zero. The ray starts just before that pixel's front layer depth on the camera ray, so its first hit is that
+    // glass, whose closest hit (Mesh/Surface/Pass_RayHit.glslh) gives Transmission, Ior and the shading normal. The
+    // path goes through EVERY translucent layer to the first opaque hit or a miss (UE: the refraction ray crosses all
+    // translucent layers). The first MaxInterfaces dielectric interfaces (Transmission > 0) BEND the ray by Snell -
     // entering or leaving by the payload's front face - or mirror it past the critical angle (total internal
     // reflection), and the smooth Fresnel transmission of every bending interface after the first multiplies the path
     // (the glass cell weighs its own first interface by its Fresnel); every later one is crossed STRAIGHT (direction
@@ -17,15 +17,16 @@ Shader "RayTracedTranslucency"
     // between its faces (PathTracer.shader, the same statement). Every layer behind the first adds its own emission,
     // weighed by the transmittance in front of it. kRefractionMaxSegments (8) bounds the segments; a path that reaches
     // it answers with the emission it gathered. The first opaque hit is lit SCREEN FIRST: a hit the view sees
-    // (projected by giFrame.viewProjection into the frame, the opaque depth there within GIRayBias().screenTolerance
-    // of it - the test of Common/GIHitLighting.glslh GIHitMaterial) takes this frame's lit scene colour from the scene
+    // (projected by giFrame.viewProjection into the frame, the opaque depth there within GIRayBias().screenTolerance of
+    // it - the test of Common/GIHitLighting.glslh GIHitMaterial) takes this frame's lit scene colour from the scene
     // copy; a hit the view does not see is lit as the reflections of the tier light theirs: from the surface cache
     // under Reflections.HitLighting 0 (black behind one-sided geometry, in place where no card holds it), in place
     // under 1 (GIHitRadianceLit with the payload's material, its emission included); a miss is the sky. A rough front
     // layer bends by one GGX visible normal per frame (the temporal upscaler sums them). Output (one texel per quad):
     // rgb = the layers' pre-exposed emission + the end's pre-exposed radiance x transmittance; a = 1 + the traced
-    // pixel's index in the quad - every started trace answers. a = 0 only where no trace starts (a quad without a
-    // front layer, or rougher than MaxRoughness) and under Composite 0 (no ray is traced) - the glass cell (Mesh/Surface/TranslucencyRefraction.glslh) reads the scene copy itself there.
+    // pixel's index in the quad - every started trace answers. a = 0 only where no trace starts (a quad without a front
+    // layer, or rougher than MaxRoughness) and under Composite 0 (no ray is traced) - the glass cell
+    // (Mesh/Surface/TranslucencyRefraction.glslh) reads the scene copy itself there.
     Pass "Trace"
     {
         RayGen
