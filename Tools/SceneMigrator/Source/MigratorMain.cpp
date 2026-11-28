@@ -2172,11 +2172,13 @@ namespace Desert::Migration
             if ( !raised.GetValue() )
                 continue;
             ++soundsRaised;
-            out << ( check ? "would raise " : "raised " ) << path.string() << " to SNDW "
-                << Desert::Assets::kSoundSchemaVersion << "\n";
+            const Desert::Migration::SoundUpgrade& upgrade = *raised.GetValue();
+            out << ( check ? "would raise " : "raised " ) << path.string() << " SNDW " << upgrade.From << " -> "
+                << Desert::Assets::kSoundSchemaVersion << ", " << upgrade.FieldCount
+                << " field(s): " << upgrade.Fields << "\n";
             if ( check )
                 continue;
-            if ( const auto written = Common::Content::WriteCanonicalJsonFileAtomic( path, *raised.GetValue() );
+            if ( const auto written = Common::Content::WriteCanonicalJsonFileAtomic( path, upgrade.Text );
                  !written )
             {
                 err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";

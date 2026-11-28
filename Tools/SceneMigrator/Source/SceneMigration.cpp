@@ -38,6 +38,7 @@
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/SoundAsset.hpp>
+#include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Audio/ProjectAudioSettings.hpp>
 #include <functional>
 #include "UILift.hpp"
@@ -813,25 +814,67 @@ namespace Desert::Migration
         return report;
     }
 
-    Common::ResultStr<std::optional<std::string>> UpgradeSoundText( const std::filesystem::path& desoundPath,
-                                                                    std::string_view             text )
+    Common::ResultStr<std::optional<SoundUpgrade>> UpgradeSoundText( const std::filesystem::path& desoundPath,
+                                                                     std::string_view             text )
     {
-        using Result    = std::optional<std::string>;
+        using Result    = std::optional<SoundUpgrade>;
         using LegacyMap = std::map<std::string, Common::Content::AssetGuid, std::less<>>;
-        LegacyMap   legacy;
-        std::string settingsRefusal;
+        const auto raisedFrom = []( Common::ResultStr<std::optional<std::string>> raised, uint32_t from,
+                                     const std::string& settingsRefusal ) -> Common::ResultStr<Result>
+        {
+            if ( !raised )
+                return settingsRefusal.empty()
+                            ? Common::MakeError<Result>( raised.GetError() )
+                            : Common::MakeFormattedError<Result>( "{} ({})", raised.GetError(), settingsRefusal );
+            if ( !raised.GetValue() )
+                return Common::MakeSuccess( Result{} );
+            SoundUpgrade upgrade;
+            upgrade.From = from;
+            // v0 -> v1 stated Class and Loading; v1 -> v2 made Class a class asset GUID and its one Dependency.
+            upgrade.Fields     = from == 0 ? std::string_view( "Class, Loading, Dependencies" )
+                                           : std::string_view( "Class, Dependencies" );
+            upgrade.FieldCount = from == 0 ? 3 : 2;
+            upgrade.Text       = std::move( *raised.ExtractValue() );
+            return Common::MakeSuccess( Result{ std::move( upgrade ) } );
+        };
+
+        // The version the file states (v0 states none). A header that cannot be read, a current or a newer file
+        // is Upgrade's to answer, without the project's settings.
+        std::istringstream headerIn{ std::string( text ) };
+        const auto         headerText = Common::Content::ReadTextHeaderObject( headerIn );
+        const auto         header     = headerText ? Common::Content::ParseTextHeaderObject( headerText.GetValue() )
+                                                   : Common::MakeError<Common::Content::TextAssetHeaderSerialized>(
+                                                          headerText.GetError() );
+        if ( !header )
+            return raisedFrom( Assets::SoundAsset::Upgrade( text, {} ), 0, {} );
+        const uint32_t from =
+             Common::Content::TextHeaderVersion( header.GetValue(), Assets::kSoundSchemaTag ).value_or( 0 );
+        if ( from >= Assets::kSoundSchemaVersion )
+            return raisedFrom( Assets::SoundAsset::Upgrade( text, {} ), from, {} );
 
         // The project that owns the file states what its v1 Class names became: Config/AudioSettings.json of
-        // the nearest folder above it (a project root, or a test data tree that is its own root).
+        // the nearest folder above it. The search stops at the project - a folder with a `.deproj` or a
+        // `Config/` (a test data tree is its own root) - so another project's settings never answer.
+        LegacyMap                   legacy;
+        std::string                 settingsRefusal;
         std::error_code             ec;
         const std::filesystem::path absolute = std::filesystem::absolute( desoundPath, ec ).lexically_normal();
         std::filesystem::path       settingsFile;
+        std::filesystem::path       project;
         for ( auto dir = absolute.parent_path(); !ec && !dir.empty(); dir = dir.parent_path() )
         {
             const auto candidate = dir / "Config" / "AudioSettings.json";
             if ( std::filesystem::is_regular_file( candidate, ec ) )
             {
                 settingsFile = candidate;
+                break;
+            }
+            bool isProject = !ec && std::filesystem::is_directory( dir / "Config", ec );
+            for ( const auto& entry : std::filesystem::directory_iterator( dir, ec ) )
+                isProject = isProject || entry.path().extension() == ".deproj";
+            if ( isProject && !ec )
+            {
+                project = dir;
                 break;
             }
             if ( dir == dir.parent_path() )
@@ -841,8 +884,11 @@ namespace Desert::Migration
             settingsRefusal = std::format( "'{}' cannot be searched for Config/AudioSettings.json: {}",
                                            desoundPath.string(), ec.message() );
         else if ( settingsFile.empty() )
-            settingsRefusal =
-                 std::format( "no folder above '{}' holds Config/AudioSettings.json", desoundPath.string() );
+            settingsRefusal = project.empty()
+                                   ? std::format( "no folder above '{}' holds Config/AudioSettings.json",
+                                                  desoundPath.string() )
+                                   : std::format( "its project '{}' holds no Config/AudioSettings.json",
+                                                  project.string() );
         else if ( const auto settings = Audio::ProjectAudioSettings::Read( settingsFile ); !settings )
             settingsRefusal = std::format( "'{}': {}", settingsFile.string(), settings.GetError() );
         else
@@ -875,11 +921,7 @@ namespace Desert::Migration
                 return found == names.end() ? Audio::SoundClassId{} : found->second;
             };
         }
-
-        auto raised = Assets::SoundAsset::Upgrade( text, classes );
-        if ( !raised && !settingsRefusal.empty() )
-            return Common::MakeFormattedError<Result>( "{} ({})", raised.GetError(), settingsRefusal );
-        return raised;
+        return raisedFrom( Assets::SoundAsset::Upgrade( text, classes ), from, settingsRefusal );
     }
 
     Common::ResultStr<std::pair<Common::Content::AssetGuid, std::filesystem::path>>
@@ -901,7 +943,7 @@ namespace Desert::Migration
             const auto raised = UpgradeSoundText( entry.path(), text.str() );
             if ( !raised )
                 return Common::MakeFormattedError<Found>( "'{}': {}", entry.path().string(), raised.GetError() );
-            const auto parsed = Assets::SoundAsset::Parse( raised.GetValue() ? *raised.GetValue() : text.str() );
+            const auto parsed = Assets::SoundAsset::Parse( raised.GetValue() ? raised.GetValue()->Text : text.str() );
             if ( !parsed )
                 return Common::MakeFormattedError<Found>( "'{}': {}", entry.path().string(), parsed.GetError() );
             if ( ( dir / parsed.GetValue().Source ).lexically_normal() == audioFile.lexically_normal() )

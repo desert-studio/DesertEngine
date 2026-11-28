@@ -21,6 +21,8 @@
 // saver writes it and its loader parses it; read here because a migration whose input is "the parsed tree"
 // needs the tree's type, and a second copy of that struct is a format that can silently fork.
 #include <Engine/Animation/SkeletonReference.hpp>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -761,12 +763,22 @@ namespace Desert::Migration
         std::vector<std::string> Refused;      // one line per reference with no `.desound`; nothing written
     };
 
+    // What UpgradeSoundText raised one `.desound` from: its SNDW version and the fields the steps stated.
+    struct SoundUpgrade
+    {
+        uint32_t         From = 0; // the SNDW the file stated (v0 stated none)
+        std::string_view Fields;   // the fields the raise stated, comma-separated
+        std::size_t      FieldCount = 0;
+        std::string      Text;     // the current text
+    };
+
     // THE SNDW MIGRATION of one `.desound` (@p text, read from @p desoundPath): SoundAsset::Upgrade under the
     // project's LegacyClassNames - Config/AudioSettings.json of the nearest folder above the file that holds
-    // one. nullopt = current already. A settings file that is missing or unreadable is named in the refusal of
-    // a file that needed it; a current file passes whatever the settings say.
-    Common::ResultStr<std::optional<std::string>> UpgradeSoundText( const std::filesystem::path& desoundPath,
-                                                                    std::string_view             text );
+    // one; the search stops at the project (a folder with a `.deproj` or a `Config/`). nullopt = current
+    // already. Only an older file reads the settings; settings that are missing or unreadable are named in its
+    // refusal.
+    Common::ResultStr<std::optional<SoundUpgrade>> UpgradeSoundText( const std::filesystem::path& desoundPath,
+                                                                     std::string_view             text );
 
     // The `.desound` whose Source names the audio file @p audioFile (absolute): searched beside it, the way
     // UE keeps the imported source beside its asset. Refuses none and more than one, by name.
