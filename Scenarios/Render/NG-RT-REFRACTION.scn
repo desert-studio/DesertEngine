@@ -67,7 +67,8 @@
 # faces of a one-sided shell, not a refraction ray (3E D3, 3G D10) - a separate feature (draw state and content), open.
 # refr_split also proves Reflections.HitLighting 1 (the Cinematic value) builds - the reflection method does not refuse.
 # Frame wait: `frames N` (N presented frames). Every capture stands >= 256 frames after the last
-# GlobalIllumination.Method switch or camera move (GI accumulation converged; else the opaque pixels drift).
+# GlobalIllumination.Method switch or camera position move (GI accumulation converged; else the opaque pixels
+# drift); day_rt_edge alone is a turn taken after 32 frames, recorded, never compared with a still frame.
 # The camera faces the cafe shop window Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4711
 # (MASTER_Glass_Exterior, StaticMeshGlass; pane pivot -108,197,-719, centre ~y 320) from 3 m out on the terrace.
 # One exposure: AutoExposure off (at the scene's own ManualExposureEV100), back on in the tail. The night half is
