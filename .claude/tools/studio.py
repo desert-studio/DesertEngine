@@ -338,7 +338,7 @@ def cmd_merge(args):
             feat = s["features"].get(code)
             if not feat or feat["stage"] not in ("code", "review"):
                 refuse(f"{code}: нет такой фичи на стадии code/review")
-            waiting = [l for l, p in feat["packages"].items() if p["state"] != "accepted"]
+            waiting = [l for l, p in feat["packages"].items() if p["state"] not in ("accepted", "dropped")]
             if waiting:
                 refuse(f"{code}: пакеты не приняты: {' '.join(waiting)} — studio.py accept {code}-<ПАКЕТ>")
             for letter in sorted(feat["packages"]):
@@ -353,6 +353,8 @@ def cmd_merge(args):
         for code in args:
             feat = s["features"][code]
             for letter, pk in sorted(feat["packages"].items()):
+                if pk["state"] == "dropped":
+                    continue
                 rc, out = P.git(land, "merge", "--no-ff", "--no-edit", pk["branch"])
                 if rc:
                     print(f"[studio] слияние {pk['branch']} остановилось: {out[-400:]}\nвлиты: {' '.join(merged) or 'ничего'}. "
@@ -398,8 +400,8 @@ def cmd_landed(args):
         if not feat:
             refuse("studio.py landed CODE")
         P.git(land, "fetch", "origin", "dev", "--quiet")
-        out_of_dev = [pk["branch"] for pk in feat["packages"].values()
-                      if P.git(land, "merge-base", "--is-ancestor", pk["branch"], limits.TRUNK)[0] != 0]
+        out_of_dev = [pk["branch"] for pk in feat["packages"].values() if pk["state"] != "dropped"
+                      and P.git(land, "merge-base", "--is-ancestor", pk["branch"], limits.TRUNK)[0] != 0]
         if out_of_dev:
             refuse(f"{args[0]}: не в {limits.TRUNK}: {' '.join(out_of_dev)} — посадка не закончена")
         _, sha = P.git(land, "rev-parse", "--short=9", limits.TRUNK)
