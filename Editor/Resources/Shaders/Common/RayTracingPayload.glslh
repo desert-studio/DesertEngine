@@ -13,6 +13,14 @@
 //        facing the ray) and Flags bit0 = the ray met the front face; which triangle it is: the TLAS instance
 //        (gl_InstanceID), the geometry index in its BLAS and the primitive (Common/RayTracingHitTriangle.glslh
 //        DesertRayHitIdentify), what a light list keyed by triangle looks a hit up by (Common/EmissiveLights.glslh).
+//        Flags bits 8..31 = the hit instance's TLAS CUSTOM INDEX (gl_InstanceCustomIndexEXT, the 24 bits of
+//        VkAccelerationStructureInstanceKHR::instanceCustomIndex): its GPU-scene row (C++ RayTracingInstance::
+//        CustomIndex = RayTracingPrimitive::GpuSceneRow; kDesertRayPayloadNoSceneRow = C++ kNoGpuSceneRow for an
+//        instance with none). NOT InstanceIndex: gl_InstanceID is the instance's place in the TLAS, which skips
+//        untraceable primitives and keeps a row's instances contiguous. The row is what a table keyed by GPU-scene
+//        row looks a hit up by - the surface cache's (Common/GITraceRayQuery.glslh GISurfaceCacheRowForInstance(
+//        DesertRayPayloadSceneRow( payload.Flags ) )). DesertRayHitIdentify writes it; a closest hit assigns
+//        Flags its bit 0 BEFORE it calls DesertRayHitIdentify, and readers test bit 0 by mask, never by equality.
 //   in/out Transmission / Ior: the ray generation clears Transmission to 0 before a material ray (an opaque hit
 //        writes neither); a BlendMode Translucent surface's closest hit (Mesh/Surface/Pass_RayHit.glslh) writes its
 //        own translucent inputs, as the raster's glass pass reads them (Pass_Forward_Translucent.glslh): the
@@ -45,6 +53,21 @@ struct DesertRayPayload
 };
 
 const uint kDesertRayPayloadFrontFace = 1u;
+// Flags bits 8..31: the hit instance's TLAS custom index (its GPU-scene row), see the header above.
+const uint kDesertRayPayloadSceneRowShift = 8u;
+const uint kDesertRayPayloadNoSceneRow    = 0xFFFFFFu; // C++ RayTracing::kNoGpuSceneRow
+
+// Flags with the TLAS custom index @p customIndex in bits 8..31; bits 0..7 of @p flags kept.
+uint DesertRayPayloadWithSceneRow( uint flags, uint customIndex )
+{
+    return ( flags & 0xFFu ) | ( ( customIndex & kDesertRayPayloadNoSceneRow ) << kDesertRayPayloadSceneRowShift );
+}
+
+// The hit instance's GPU-scene row (TLAS custom index) of a closest hit's Flags; kDesertRayPayloadNoSceneRow = none.
+uint DesertRayPayloadSceneRow( uint flags )
+{
+    return flags >> kDesertRayPayloadSceneRowShift;
+}
 
 // THE ROUGHNESS FLOOR of every ray-traced GGX lobe is the raster's, kDesertMinRoughness of the shading model contract
 // (one value for raster and ray tracing, as UE): the surface hit group writes the payload's Roughness floored by it
