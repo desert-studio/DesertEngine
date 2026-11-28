@@ -576,6 +576,8 @@ set(DESERT_SOURCES
     "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.cpp"
     "Editor/Panels/SkyboxViewer/SkyboxViewerDocument.hpp"
     "Editor/Panels/SkyboxViewer/SkyboxViewerIdentity.hpp"
+    "Editor/Panels/Sound/SoundDocument.cpp"
+    "Editor/Panels/Sound/SoundDocument.hpp"
     "Editor/Panels/StaticMeshViewer/StaticMeshStats.hpp"
     "Editor/Panels/StaticMeshViewer/StaticMeshViewerDocument.cpp"
     "Editor/Panels/StaticMeshViewer/StaticMeshViewerDocument.hpp"
