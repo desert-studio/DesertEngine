@@ -2,7 +2,6 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
-#include <Engine/Graphic/DebugViewState.hpp>
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
@@ -29,6 +28,7 @@
 namespace Desert::Graphic
 {
     class ComputePipeline;
+    enum class SurfaceCacheViewLayer : int; // Engine/Graphic/DebugViewState.hpp
     class Framebuffer;
     class GraphicsPipeline;
     class Image;
