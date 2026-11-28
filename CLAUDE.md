@@ -26,4 +26,4 @@ C++20 / Vulkan game engine: EnTT ECS, RDG renderer, ImGui editor, Lua, its own s
 - No exceptions in tasks or destructors; errors are values.
 - Never commit frames, generated projects (`*.vcxproj*`), `Editor/Resources/Assets/`, `ThirdParty/*` extras, autosaves.
 - Never kill a process by image name. Never `sed -i` on a CRLF file.
-- Notion only through `Agent(subagent_type: "board")`. Tasks and contracts live there, not in `Docs/`.
+- Notion board writes go through `python .claude/tools/studio.py board` (REST via `.claude/tools/notion_board.py`, token in `~/.claude/notion_token`); reads and Wiki through `Agent(subagent_type: "board")`. Tasks and contracts live there, not in `Docs/`.

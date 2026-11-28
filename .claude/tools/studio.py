@@ -433,19 +433,24 @@ def cmd_drop(args):
 
 # ---- board / night / wait / report / migrate ------------------------------------------------------------------------
 def cmd_board(_args):
+    """The queue goes straight to Notion through notion_board.py (REST, zero model tokens); a sent item leaves the queue."""
+    import notion_board
     with P.locked() as s:
-        q = s["board_queue"]
-        if not q:
-            print("[studio] очередь доски пуста")
-            return
-        now = time.time()
-        for x in q:
-            x["sent"] = now
-        lines = [f"- {x['code']}: Статус «{x['status']}»; {x['line']}" for x in q]
-    print('Agent(subagent_type: "board", prompt: ниже) — ОДИН запуск на всю пачку:\n'
-          "Обнови карточки доски «Задачи» одной пачкой; карточки с таким «Код» нет — создай (заголовок «КОД · …», "
-          "«Кто ведёт»: Windows · лид). Для «Сделано» запиши «Коммит» и «В dev» в том же вызове. Ответ: по строке на код.\n" +
-          "\n".join(lines))
+        q = list(s["board_queue"])
+    if not q:
+        print("[studio] очередь доски пуста")
+        return
+    path = os.path.join(limits.STUDIO_HOME, "board_batch.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump([{"code": x["code"], "status": x["status"], "line": x["line"]} for x in q], f, ensure_ascii=False)
+    try:
+        notion_board.cmd_apply(path)
+    except SystemExit:
+        refuse("доска не обновлена (строка notion_board выше); очередь оставлена")
+    sent = {(x["code"], x["t"]) for x in q}
+    with P.locked() as s:
+        s["board_queue"] = [x for x in s["board_queue"] if (x["code"], x["t"]) not in sent]
+    print(f"[studio] доска: обновлено {len(q)}")
 
 
 def cmd_night(args):
