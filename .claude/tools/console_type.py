@@ -59,8 +59,8 @@ def type_into(pid, text, enters, wipe_lines):
     if h == w.HANDLE(-1).value:
         raise ctypes.WinError(ctypes.get_last_error())
 
-    def press(vk, ch, ctrl=0):
-        recs = (InputRecord * 2)(*[InputRecord(1, KeyEvent(d, 1, vk, 0, ch, ctrl)) for d in (1, 0)])
+    def press(vk, ch, ctrl=0, scan=0):
+        recs = (InputRecord * 2)(*[InputRecord(1, KeyEvent(d, 1, vk, scan, ch, ctrl)) for d in (1, 0)])
         n = w.DWORD()
         if not k.WriteConsoleInputW(h, recs, 2, ctypes.byref(n)) or n.value != 2:
             raise ctypes.WinError(ctypes.get_last_error())
@@ -76,7 +76,7 @@ def type_into(pid, text, enters, wipe_lines):
             press(0, c)
         for _ in range(enters):
             time.sleep(0.7)
-            press(0x0D, chr(13))
+            press(0x0D, chr(13), scan=0x1C)
     finally:
         k.CloseHandle(h)
         k.FreeConsole()
