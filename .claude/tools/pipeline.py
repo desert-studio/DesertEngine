@@ -48,6 +48,7 @@ _PKG = re.compile(r"^### Пакет ([A-Z])\b[ \t]*(?:[—:–-][ \t]*)?([^\n]*)
 _CONTRACT = re.compile(r"^### Контракт[^\n]*\n(.*?)(?=^### |^## |\Z)", re.S | re.M)
 _FILES = re.compile(r"^\s*Файлы:\s*(.+)$", re.M)
 _CLOSES = re.compile(r"^\s*Закрывает:\s*(.+)$", re.M)
+_READS = re.compile(r"^\s*Читает:\s*(.+)$", re.M)
 _ID_RANGE = re.compile(r"([A-ZА-ЯЁ]{1,3})(\d{1,3})(?:\s*[-–—]\s*(?:[A-ZА-ЯЁ]{1,3})?(\d{1,3}))?")
 _DIFF = re.compile(r"^\s*(?:[-*]\s+|\|\s*|#{3,4}\s+)?\*{0,2}([A-ZА-ЯЁ]{1,3}\d{1,3})\b[^\n]*$", re.M)
 _SCN = re.compile(r"Scenarios/[\w./-]+\.scn")
@@ -69,6 +70,17 @@ SERIAL = [re.compile(p, re.I) for p in (
 def section(text, name):
     m = re.search(rf"^## {name}[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
     return m.group(1) if m else None
+
+
+def parse_reads(body):
+    """«Читает: path:a-b;c-d, path2:e-f» - the line ranges an engineer reads of an owned file too long to read whole."""
+    m, reads = _READS.search(body), {}
+    for entry in (m.group(1).split(",") if m else []):
+        path, _, spans = entry.strip().strip("`").rpartition(":")
+        got = [[int(a), int(b)] for a, b in re.findall(r"(\d+)-(\d+)", spans)]
+        if path and got:
+            reads.setdefault(norm_pat(path), []).extend(got)
+    return reads
 
 
 def norm_pat(p):
@@ -129,7 +141,7 @@ def parse_design(path):
         files = [norm_pat(x) for x in fm.group(1).split(",") if norm_pat(x)] if fm else []
         cm = _CLOSES.search(body)
         packages[letter] = {"name": name.strip(), "files": files, "body": body.strip(),
-                            "closes": expand_ids(cm.group(1)) if cm else []}
+                            "closes": expand_ids(cm.group(1)) if cm else [], "reads": parse_reads(body)}
     accept = section(text, "Приёмка") or ""
     diffs = {}
     for m in _DIFF.finditer(section(text, "Отличия") or ""):
