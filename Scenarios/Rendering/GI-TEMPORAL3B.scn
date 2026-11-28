@@ -1,0 +1,59 @@
+# GI-TEMPORAL3B: day experiments on the surface cache cards, two GI ages of one pass, no PathTraced (true GI age).
+# Header and camera from GT3-DAY (design GI-TEMPORAL3B, D11): cards view vs lit cards view at the scenario camera and
+# inside looking up at the slab underside, at age 512 and 1024 frames later.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: Textures High"
+Дано run Quality "Quality: Filtering High"
+Дано run Quality "Quality: Shadows High"
+Дано run Quality "Quality: GlobalIllumination High"
+Дано run Quality "Quality: Reflections High"
+Дано run Quality "Quality: PostProcess High"
+Дано run Quality "Quality: Effects High"
+Дано run Quality "Quality: ViewDistance High"
+Дано run Quality "Quality: AntiAliasing High"
+Дано run Quality "Quality: ResolutionScale High"
+Дано run Quality "Quality: Shading High"
+Дано run Quality "Quality: PathTracing High"
+Дано run Quality "Quality: Foliage High"
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+Дано --subject viewport set Camera.Position -370,300,-861
+Дано --subject viewport set Camera.Direction 0.8806,0.07,0.4738
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure false
+Когда run Quality "Quality: Translucency.Refraction ScreenSpace"
+Когда run Entity "Delete Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4711"
+Когда run Entity "Delete Bistro_Research_Exterior_Paris_Building_01_paris_building_01_bottom_4875"
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда frames 512
+Тогда-вид rt_open day Lit, true GI age 512: band x935-1080 y185-235 L_lin recorded beside the reference 0.2698 (before 0.0785)
+Когда run View "View mode: Lumen Scene (Cards)"
+Когда frames 8
+Тогда-вид cards_open card albedo at the scenario camera: which surfaces hold cards; non-black pixel share recorded
+Когда run View "View mode: Lumen Scene (Lit)"
+Когда frames 8
+Тогда-вид cache_open lit cards at the same camera: non-black pixel share recorded beside cards_open (before: wall 0.0002)
+Когда --subject viewport set Camera.Position 190,600,-402
+Когда --subject viewport set Camera.Direction 0.2,0.96,0.2
+Когда run View "View mode: Lumen Scene (Cards)"
+Когда frames 128
+Тогда-вид cards_up card albedo inside looking up: black (no underside card) or concrete (a card); recorded
+Когда run View "View mode: Lumen Scene (Lit)"
+Когда frames 8
+Тогда-вид cache_up lit cards inside looking up (before: black)
+Когда run View "View mode: Lit"
+Когда frames 1024
+Тогда-вид rt_up_late Lit inside looking up 1024 frames later: slab brightness recorded
+Когда run View "View mode: Lumen Scene (Cards)"
+Когда frames 8
+Тогда-вид cards_up_late card albedo 1024 frames later: a difference from cards_up above the noise 0.88 means cards were recaptured
+Когда run View "View mode: Lumen Scene (Lit)"
+Когда frames 8
+Тогда-вид cache_up_late lit cards 1024 frames later: recorded
+Когда run View "View mode: Lit"
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Translucency.Refraction Level"
+Когда run Quality "Quality: Resolution.Percent Level"
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure true
