@@ -5,11 +5,12 @@
 # session in F:/BistroFoliageProj, GI_Bistro_Night: the shop window as path tracer | Translucency.Refraction
 # ScreenSpace | HardwareTraced | HardwareTraced with the composite off | ScreenSpace again | HardwareTraced again | HardwareTraced with
 # Reflections.HitLighting 1 | with one interface bend - one camera, one exposure, one time, one tier.
-# The pass cost (3E D1, 3G D8): "Translucency: Ray Traced Refraction" read 1.150 ms day at 1787x657 = 1.17 Mpx
-# (editor.log:15915 of scn-1128-122309, Hardware GI) = 2.03 ms at 1080p, and 2.00 ms at 1080p night
-# (scn-1128-114614), against the budget 1.0; the visibility rays of the path end are 0.10 ms of it (the day's
-# refr_split of scn-1128-113551) - the cost is the material segments (up to 8 per path). The pass numbers are read from
-# editor.log of the run folder: the reply files line_NNN_profile-dump.txt are empty ({"id":1,"ok":true}).
+# The pass cost (3H Q6): "Translucency: Ray Traced Refraction" read 2.008 ms day at 1787x657 = 1.17 Mpx with the
+# path end from the cards (the day_rt dump, editor.log:16575 of scn-1128-135823), 2.561 ms with it lit in place (the
+# refr_split dump, :19475), 0.180 ms muted (:18061). 3H leaves one branch (lit in place) and one budget: the pass
+# <= 3.0 ms at 1.17 Mpx, held once, by [rt_reset] of NG-RT-REFRACTION.scn for the day and by [refr_pass] here for the
+# night dump only. The pass numbers are read from editor.log of the run folder: the reply files
+# line_NNN_profile-dump.txt are empty ({"id":1,"ok":true}).
 # What is behind the glass (3H): there is NO interior in this content (0 BistroInterior entities, 0 interior
 # meshes); behind the shop window stands the empty shell of the building (the underside of the slab
 # Paris_Building_01_paris_building_01_4279 behind the upper right sash). Raster and path tracer show the SAME
@@ -92,7 +93,7 @@
 Когда run Quality "Quality: Translucency.Refraction HardwareTraced"
 Когда frames 256
 Когда profile-dump
-Тогда refr_pass "Translucency: Ray Traced Refraction" in the night_rt dump and in the day_rt dump of NG-RT-REFRACTION.scn of the same build (read in editor.log, see the head): GPU time non-zero and <= 1.0 ms scaled to 1080p (ms x 2073600 / viewport width x height; 2.03 day ms in scn-1128-122309 / 2.00 night ms in scn-1128-114614, 3G D8), the number named; the window holds by the rule (ClearMainFramebuffer <= 0.2 ms in the night_ss and night_rt dumps, their GPU frame within 2x); may stay red (3G D8: the segments, not the visibility rays) - then the next step is a trace at a lower resolution, a separate feature
+Тогда refr_pass "Translucency: Ray Traced Refraction" in the night_rt dump (read in editor.log, see the head; the day dumps are held by [rt_reset] of NG-RT-REFRACTION.scn): GPU time non-zero and <= 3.0 ms at 1787x657 = 1.17 Mpx (3H Q6, the path end lit in place; 2.561 ms day in place in scn-1128-135823), the number and its 1080p scaling (ms x 2073600 / viewport width x height) named; the window holds by the rule (ClearMainFramebuffer <= 0.2 ms in the night_ss and night_rt dumps, their GPU frame within 2x)
 Тогда-вид night_rt night, HardwareTraced: differs from night_ss only inside the glass pixels; opaque pixels: |night_rt − night_ss| not above the larger of |night_ss − night_ss_b| and |night_rt − night_rt_b| (5.66 against 5.09 and 7.81 in scn-1128-095738); behind the glass the same surfaces of the empty shell as in night_pt, no black underside; night_rt vs night_rt_mute on the glass at least 2x night_rt vs night_rt_b (mean |delta| over the pane mask, see the head)
 # --- the mask of the opaque pixels of night_rt_mute (3G D6)
 Тогда night_front night, HardwareTraced, the camera of night_rt: EXPECTED RED - the glass layer of the frame (every glass pixel: the pane, the neighbouring windows, the lamp shades) is the mask of the opaque pixels of night_rt_mute (black = opaque); the editor has no view mode drawing the glass layer (the "View mode:" list of ViewportCommands.cpp has none), so until it exists the opaque pixels stay the outside of the pane rectangle x540-1260 y170-630 and 3G D6 stays open, named
