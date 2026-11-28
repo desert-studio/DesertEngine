@@ -1,4 +1,5 @@
-# NG-RT-REFRACTION-NIGHT: the night half of NG-RT-REFRACTION.scn (designs S:/aftmp/NG-RT-REFRACTION3G-DESIGN.md,
+# NG-RT-REFRACTION-NIGHT: the night half of NG-RT-REFRACTION.scn (designs S:/aftmp/NG-RT-REFRACTION3H-DESIGN.md,
+# S:/aftmp/NG-RT-REFRACTION3G-DESIGN.md,
 # S:/aftmp/NG-RT-REFRACTION3E-DESIGN.md, F:/aftmp/NG-RT-REFRACTION3D-DESIGN.md, F:/aftmp/NG-RT-REFRACTION3C-DESIGN.md
 # and F:/aftmp/NG-RT-REFRACTION3-DESIGN.md, «## Приёмка»; physics F:/aftmp/NG-RT-REFRACTION2-DESIGN.md). One editor
 # session in F:/BistroFoliageProj, GI_Bistro_Night: the shop window as path tracer | Translucency.Refraction
@@ -9,10 +10,15 @@
 # (scn-1128-114614), against the budget 1.0; the visibility rays of the path end are 0.10 ms of it (the day's
 # refr_split of scn-1128-113551) - the cost is the material segments (up to 8 per path). The pass numbers are read from
 # editor.log of the run folder: the reply files line_NNN_profile-dump.txt are empty ({"id":1,"ok":true}).
-# The split (3E D1, D5): night_rt is the Reflections.HitLighting 0 side (High: the path end from the surface cache
-# cards, no visibility ray), refr_split the HitLighting 1 side (lit in place: a visibility ray per moon and per
-# shadow-casting lamp of the grid cell) of one camera; the difference of the two pass times is the share of the
-# visibility rays.
+# What is behind the glass (3H): there is NO interior in this content (0 BistroInterior entities, 0 interior
+# meshes); behind the shop window stands the empty shell of the building (the underside of the slab
+# Paris_Building_01_paris_building_01_4279 behind the upper right sash). Raster and path tracer show the SAME
+# surfaces behind the glass - never "an interior". The window is the closed pair _4711 (outward) + _4875 (inward);
+# the duplicate _4713 is gone from the content (3H D1). This half deletes no glass; a step that ever does deletes
+# the pair together, never one sheet (one sheet reads green over the whole pane, 3H D7).
+# One branch (3H D3): the end of a refraction path is lit in place at every tier, whatever Reflections.HitLighting
+# says; night_rt is HitLighting 0 (High), refr_split HitLighting 1 of one camera - the two are equal within the run
+# noise (night_rt vs night_rt_b), and so are their pass times.
 # The path tracer is the reference: GlobalIllumination + Reflections PathTraced (the tracer pairs them). The raster
 # frames keep Reflections / GI HardwareTraced; only the Translucency rows change between night_ss, night_rt and
 # night_rt_mute.
@@ -76,7 +82,7 @@
 Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
 Когда run Quality "Quality: Reflections.Method PathTraced"
 Когда frames 256
-Тогда-вид night_pt night, path tracer: the reference - the interior lamps behind the glass, the second glass / bottles behind the window
+Тогда-вид night_pt night, path tracer, the duplicate sheet _4713 gone from the scene: the reference - behind the glass the empty shell of the building (the underside of the slab 4279 behind the upper right sash) as the night light reaches it
 Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
 Когда run Quality "Quality: Reflections.Method HardwareTraced"
 Когда run Quality "Quality: Translucency.Refraction ScreenSpace"
@@ -87,7 +93,7 @@
 Когда frames 256
 Когда profile-dump
 Тогда refr_pass "Translucency: Ray Traced Refraction" in the night_rt dump and in the day_rt dump of NG-RT-REFRACTION.scn of the same build (read in editor.log, see the head): GPU time non-zero and <= 1.0 ms scaled to 1080p (ms x 2073600 / viewport width x height; 2.03 day ms in scn-1128-122309 / 2.00 night ms in scn-1128-114614, 3G D8), the number named; the window holds by the rule (ClearMainFramebuffer <= 0.2 ms in the night_ss and night_rt dumps, their GPU frame within 2x); may stay red (3G D8: the segments, not the visibility rays) - then the next step is a trace at a lower resolution, a separate feature
-Тогда-вид night_rt night, HardwareTraced: differs from night_ss only inside the glass pixels; opaque pixels: |night_rt − night_ss| not above the larger of |night_ss − night_ss_b| and |night_rt − night_rt_b| (5.66 against 5.09 and 7.81 in scn-1128-095738); the interior lamps behind the glass in place, the second glass / bottles behind the window visible; night_rt vs night_rt_mute on the glass at least 2x night_rt vs night_rt_b (mean |delta| over the pane mask, see the head)
+Тогда-вид night_rt night, HardwareTraced: differs from night_ss only inside the glass pixels; opaque pixels: |night_rt − night_ss| not above the larger of |night_ss − night_ss_b| and |night_rt − night_rt_b| (5.66 against 5.09 and 7.81 in scn-1128-095738); behind the glass the same surfaces of the empty shell as in night_pt, no black underside; night_rt vs night_rt_mute on the glass at least 2x night_rt vs night_rt_b (mean |delta| over the pane mask, see the head)
 # --- the mask of the opaque pixels of night_rt_mute (3G D6)
 Тогда night_front night, HardwareTraced, the camera of night_rt: EXPECTED RED - the glass layer of the frame (every glass pixel: the pane, the neighbouring windows, the lamp shades) is the mask of the opaque pixels of night_rt_mute (black = opaque); the editor has no view mode drawing the glass layer (the "View mode:" list of ViewportCommands.cpp has none), so until it exists the opaque pixels stay the outside of the pane rectangle x540-1260 y170-630 and 3G D6 stays open, named
 Когда run Quality "Quality: Translucency.RefractionComposite 0"
@@ -103,11 +109,11 @@
 Когда run Quality "Quality: Translucency.Refraction HardwareTraced"
 Когда frames 256
 Тогда-вид night_rt_b night, HardwareTraced again after night_rt_mute and night_ss_b, the camera still: night_rt vs night_rt_b (mean |delta| over the pane mask) is the run noise [night_rt] is held to on the glass; |night_rt − night_rt_b| over the opaque pixels (7.81 in scn-1128-095738) is the second repeat bounding its opaque pixels
-# --- the split of the pass (3E D1, D5): the path end lit in place (HitLighting 1) against the cards (night_rt)
+# --- one branch (3H D3): HitLighting 1 against HitLighting 0 (night_rt), the path end lit in place on both sides
 Когда run Quality "Quality: Reflections.HitLighting 1"
 Когда frames 256
 Когда profile-dump
-Тогда-вид refr_split night, HardwareTraced, Reflections.HitLighting 1 (the path end lit in place), the camera of night_rt: the pass "Translucency: Ray Traced Refraction" GPU time at HitLighting 0 (the night_rt dump) and at 1 (this dump) both written down from editor.log, each scaled to 1080p; their difference is named the share of the visibility rays of the path end at night (3E D1); the pane L_lin at 0 and at 1 against night_pt (3E D5); the window rule holds against the night_rt dump
+Тогда-вид refr_split night, HardwareTraced, Reflections.HitLighting 1, the camera of night_rt: the pane x540-1260 y170-630 equal to night_rt within the run noise night_rt vs night_rt_b (mean |delta|; the branch is one, 3H D3); the pane L_lin against night_pt written down; the pass "Translucency: Ray Traced Refraction" GPU time at HitLighting 0 (the night_rt dump) and at 1 (this dump) both written down from editor.log, each scaled to 1080p - one branch, so the two are equal within the window rule; the window rule holds against the night_rt dump
 Когда run Quality "Quality: Reflections.HitLighting Level"
 Когда frames 256
 Когда run Quality "Quality: Translucency.RefractionMaxInterfaces 1"
