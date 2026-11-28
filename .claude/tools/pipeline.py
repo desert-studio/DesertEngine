@@ -33,7 +33,7 @@ import time
 
 import limits
 
-DESIGN_KEYS = ("Эталон", "Отличия", "Архитектура", "Порядок", "Приёмка")
+DESIGN_KEYS = ("Эталон", "Отличия", "Вопросы", "Архитектура", "Порядок", "Приёмка")
 STAGES = ("design", "code", "review", "build", "accept", "land", "done", "dropped")
 NEXT = {"design": "studio.py plan {c} <design.md>",
         "code": "запусти пакеты (studio.py launch {c}); на сдачу — studio.py accept {c}-<ПАКЕТ>",
@@ -185,6 +185,52 @@ def trace_errors(d):
     return errs
 
 
+# Spec Kit `clarify`, ours: a design is planned only when nothing in it is still a guess (GI-TEMPORAL 11-28 went to code
+# with «thresholds unmeasured»; REFR3B..3D failed acceptance on budgets nobody measured before the code).
+_QUESTION = re.compile(r"^\s*[-*]\s+(.+)$", re.M)
+_ANSWERED = re.compile(r"(?:→|->)\s*\S.*\(([^()]*\S[^()]*)\)\s*$")
+_OPEN = re.compile(r"NEEDS CLARIFICATION|TBD|unmeasured|not measured|unread|не\s?замер\w*|не\s?измер\w*|"
+                   r"не\s?прочит\w*|не\s?проверен\w*|уточнить|\?\?", re.I)
+_BEFORE = re.compile(r"^\s*(?:[-*]\s*)?\*{0,2}До:\*{0,2}\s*`?([^`\s]+)`?", re.M)
+_FLOOR = re.compile(r"^\s*(?:[-*]\s*)?\*{0,2}Шум:\*{0,2}[^\n\d]*\d", re.M)
+
+
+def clarify_errors(d):
+    """Every question of «## Вопросы» is answered with its source; no guess is left in the plan or the acceptance."""
+    errs = []
+    for q in _QUESTION.findall(section(d["text"], "Вопросы") or ""):
+        if q.strip().lower() in ("нет", "нет.", "none"):
+            continue
+        if not _ANSWERED.search(q):
+            errs.append(f"открытый вопрос: «{q.strip()[:120]}» — ответь «→ ответ (источник: file:line, замер, кадр)» "
+                        "до плана; вопрос владельцу не задаётся, решение — вариант эталона")
+    for key in ("Архитектура", "Порядок", "Приёмка"):
+        for line in (section(d["text"], key) or "").splitlines():
+            m = _OPEN.search(line)
+            if m:
+                errs.append(f"«## {key}» оставляет догадку («{m.group(0)}»: {line.strip()[:100]}) — замерь или прочитай "
+                            "до плана, ответ в «## Вопросы»")
+    return errs
+
+
+def floor_errors(d):
+    """A visible design is planned against frames already shot on the current build and their measured noise floor."""
+    if all(f.startswith(TOOLING) for p in d["packages"].values() for f in p["files"]):
+        return []
+    accept, errs = section(d["text"], "Приёмка") or "", []
+    m = _BEFORE.search(accept)
+    if not m:
+        errs.append("в «## Приёмка» нет строки «До: <папка кадров>» — сценарий сыгран на текущей сборке до кода")
+    else:
+        path = m.group(1).rstrip(".,;")
+        if not (os.path.isdir(path) or os.path.isdir(os.path.join(limits.LAND_TREE, path))):
+            errs.append(f"«До: {path}» — папки кадров нет: сыграй сценарий (play_scenario.py) и назови её")
+    if not _FLOOR.search(accept):
+        errs.append("в «## Приёмка» нет строки «Шум: <число>» — два прогона, scripts/Dev/frames_triage.py RUN1 RUN2; "
+                    "каждый порог мерится от этого шума")
+    return errs
+
+
 def scenario_errors(d):
     """OpenSpec ties a scenario to its requirement; ours is an executable file, so the tie is a path with one owner."""
     pk = d["packages"]
@@ -276,7 +322,7 @@ def design_errors(path):
         errs.append(f"заголовки контракта не написаны целиком в {cdir}/: " + ", ".join(gone[:4]))
     if not d["then"]:
         errs.append("в «## Приёмка» нет строки «Тогда [кадр]: что видно»")
-    return errs + trace_errors(d) + scenario_errors(d)
+    return errs + trace_errors(d) + scenario_errors(d) + clarify_errors(d) + floor_errors(d)
 
 
 # ---- state ----------------------------------------------------------------------------------------------------------

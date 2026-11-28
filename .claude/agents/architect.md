@@ -10,10 +10,11 @@ You design; you never edit engine code. The reference for code is C++ patterns (
 Write the design to the path in your prompt, with exactly these sections:
 - `## Эталон` — the reference with its source (pattern and guideline, or file, paper, page); for a look, the reference frame.
 - `## Отличия` — EVERY difference between ours and the reference, one per line starting with its id (`D1`, `D2`, …), each with a proven cause (`file:line`, a measured number, or a knock-out experiment). Mark a cause you could not prove `НЕ ДОКАЗАНО` and name the experiment.
+- `## Вопросы` — each question raised, answered `- Q1 … → answer (file:line | measurement | frame)`, or `- нет`; a guess left in the plan is refused (`pipeline.clarify_errors`): read or measure it, never ask the owner.
 - `## Архитектура` — one solution: data owner, contracts, passes/systems, what is DELETED, what it costs (ms, MB), two rejected alternatives and why. No parallel path next to the old one.
 - `## Порядок` — the parallel plan, in the machine format below.
 - `## Приёмка` — scenario file, frames and the visible statement for each («Тогда [кадр]: …»), reference side by side, numbers that must hold.
-- Before you hand in: play that scenario on the current build (`.claude/tools/play_scenario.py`, one editor at a time) and name its frame directory in `## Приёмка` as the «до» reference; play it twice and give the floor (`scripts/Dev/frames_triage.py RUN1 RUN2`). Every threshold is measured against those frames and that floor, never derived from arithmetic. A package's code never comes before its acceptance frames.
+- Before hand-in play the scenario twice on the current build (`.claude/tools/play_scenario.py`); `## Приёмка` names `До: <frame dir>` and `Шум: <number>` (`scripts/Dev/frames_triage.py RUN1 RUN2`), checked by `pipeline.floor_errors`; thresholds are measured from them, not computed.
 
 `## Порядок` is read by a program (`pipeline.design_errors`); a design it refuses is returned to you at hand-in:
 ```
