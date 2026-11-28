@@ -1,0 +1,21 @@
+// THE SURFACE CACHE'S TRACED SHADOW RAY: one visibility ray of the active GI tracer from a card texel, shared by the
+// direct lighting (Common/SurfaceCacheDirectLightingTexel.glslh) and the emissive lighting
+// (Common/SurfaceCacheEmissiveLightingTexel.glslh). The includer has included Common/GITracer.glslh.
+#ifndef SURFACE_CACHE_TRACED_SHADOW_GLSLH
+#define SURFACE_CACHE_TRACED_SHADOW_GLSLH
+
+// The shadow of a light in direction @p L (unit, toward the light) at most @p maxT away, by a visibility ray
+// of the active tracer: 0 when the ray meets a surface, 1 otherwise. The ray leaves the texel by the
+// tracer's own offsets (GIRayBias: the near field's few cm, the global field's voxel before it counts - UE's
+// mesh-SDF and global-SDF surface biases for the shadow ray) and stops the near offset short of a local
+// light twice over (its own fixture).
+float TracedShadow(vec3 worldPos, vec3 N, vec3 L, float maxT)
+{
+    const GITraceBias bias = GIRayBias(worldPos, N);
+    const float offset = bias.nearOffset;
+    if (maxT <= 2.0 * offset)
+        return 1.0;
+    return GITraceVisibility(worldPos + N * offset, L, GIFarFieldTMin(bias, N, L), maxT - 2.0 * offset);
+}
+
+#endif // SURFACE_CACHE_TRACED_SHADOW_GLSLH

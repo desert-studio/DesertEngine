@@ -51,14 +51,16 @@
 // (Mesh/LightGrid.glslh LightGridWorldLightsAt - the radiance cache clipmap cells around the camera, built by
 // "LightGridWorld" from the same point/spot buffers), not every light of the view.
 //
-// THE EMISSIVE SURFACES AS LIGHTS (GI-EMISSIVE-LIGHTS; NVIDIA RTXDI's emissive triangles in one light list, the
-// path tracer's next event estimation): under either GI tracer a texel also receives the scene's emissive
-// triangles (Common/EmissiveLights.glslh, the ONE list RayTracing::EmissiveLightsFrame the path tracer samples):
-// kEmissiveSamplesPerTexel triangles picked by power, a point on each by area, the segment's radiance estimate
-// over the solid-angle density, shadowed by the tracer's visibility ray. A lamp's glowing shade lights the wall
-// beside it in the cache, so every GI ray that meets that wall carries the lamp's bounce - not only the rays that
-// happen to meet the small shade itself (UE Lumen's noise of small emitters: its cards take the emissive only as
-// the emitter's own radiance).
+// THE EMISSIVE SURFACES AS LIGHTS (GI-EMISSIVE-LIGHTS, GI-TEMPORAL; NVIDIA RTXDI's emissive triangles in one light
+// list, the path tracer's next event estimation): under either GI tracer a texel also receives the scene's emissive
+// triangles (Common/EmissiveLights.glslh, the ONE list RayTracing::EmissiveLightsFrame the path tracer samples). That
+// light is a Monte Carlo estimate, so it is not taken here: SurfaceCacheEmissiveLighting.shader (and its async twin)
+// samples the triangles ahead of this pass, each sample capped, into the EmissiveLighting atlas layer blended with
+// its history (contract Common/EmissiveCardLighting.glslh), and this pass only READS that layer, one texel, and adds
+// it to DirectLighting as it is - a texel's direct light does not change from frame to frame while the light stands
+// still (UE LumenSceneDirectLighting: deterministic). A lamp's glowing shade lights the wall beside it in the cache,
+// so every GI ray that meets that wall carries the lamp's bounce - not only the rays that happen to meet the small
+// shade itself (UE Lumen's noise of small emitters: its cards take the emissive only as the emitter's own radiance).
 // The radiosity (SurfaceCacheRadiosityTrace.shader) leaves the emission of the cards its rays meet out under the
 // same tracer (GI_HIT_EXCLUDES_EMISSION): the emitter -> texel path is counted here, once.
 // WHERE THIS DIFFERS FROM UE (for the owner): UE has no emissive light sampling in Lumen; MegaLights' emissive
