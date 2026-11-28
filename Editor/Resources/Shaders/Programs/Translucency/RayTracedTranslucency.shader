@@ -4,12 +4,12 @@ Shader "RayTracedTranslucency"
     // RAY-TRACED REFRACTION (Translucency.Refraction HardwareTraced; UE RayTracedTranslucency, MaxPrimaryHitEvents;
     // System::RayTracedTranslucencyRenderer, the pass "Translucency: Ray Traced Refraction"). HALF resolution: one ray
     // per 2x2 quad of the translucent front layer (Mesh/Surface/Pass_FrontLayer.glslh: rgb = world normal, a =
-    // roughness; zero = no translucent surface). The quad traces its pixel FrameIndex & 3 (index = x + 2 * y inside
-    // the quad), or its first pixel that holds a traceable front layer when that one does not; a quad without one
-    // writes zero. The ray starts just before that pixel's front layer depth on the camera ray, so its first hit is
-    // that glass, whose closest hit (Mesh/Surface/Pass_RayHit.glslh) gives Transmission, Ior and the shading normal.
-    // The path goes through EVERY translucent layer to the first opaque hit or a miss (UE: the refraction ray crosses
-    // all translucent layers). The first MaxInterfaces dielectric interfaces (Transmission > 0) BEND the ray by Snell -
+    // roughness; zero = no translucent surface). The quad traces its pixel FrameIndex & 3 (index = x + 2 * y inside the
+    // quad), or its first pixel that holds a traceable front layer when that one does not; a quad without one writes
+    // zero. The ray starts just before that pixel's front layer depth on the camera ray, so its first hit is that
+    // glass, whose closest hit (Mesh/Surface/Pass_RayHit.glslh) gives Transmission, Ior and the shading normal. The
+    // path goes through EVERY translucent layer to the first opaque hit or a miss (UE: the refraction ray crosses all
+    // translucent layers). The first MaxInterfaces dielectric interfaces (Transmission > 0) BEND the ray by Snell -
     // entering or leaving by the payload's front face - or mirror it past the critical angle (total internal
     // reflection), and the smooth Fresnel transmission of every bending interface after the first multiplies the path
     // (the glass cell weighs its own first interface by its Fresnel); every later one is crossed STRAIGHT (direction
@@ -17,14 +17,16 @@ Shader "RayTracedTranslucency"
     // between its faces (PathTracer.shader, the same statement). Every layer behind the first adds its own emission,
     // weighed by the transmittance in front of it. kRefractionMaxSegments (8) bounds the segments; a path that reaches
     // it answers with the emission it gathered. The first opaque hit is lit SCREEN FIRST: a hit the view sees
-    // (projected by giFrame.viewProjection into the frame, the opaque depth there within GIRayBias().screenTolerance
-    // of it - the test of Common/GIHitLighting.glslh GIHitMaterial) takes this frame's lit scene colour from the scene
-    // copy; any other is lit in place as the hit-lit reflections light theirs (GIHitRadianceLit, its emission included);
-    // a miss is the sky. A rough front layer bends by one GGX visible normal per frame (the temporal upscaler sums
-    // them). Output (one texel per quad): rgb = the layers' pre-exposed emission + the end's pre-exposed radiance x
-    // transmittance; a = 1 + the traced pixel's index in the quad - every started trace answers. a = 0 only where no
-    // trace starts (a quad without a front layer, or rougher than MaxRoughness) and under Composite 0 (no ray is
-    // traced) - the glass cell (Mesh/Surface/TranslucencyRefraction.glslh) reads the scene copy itself there.
+    // (projected by giFrame.viewProjection into the frame, the opaque depth there within GIRayBias().screenTolerance of
+    // it - the test of Common/GIHitLighting.glslh GIHitMaterial) takes this frame's lit scene colour from the scene
+    // copy; a hit the view does not see is lit as the reflections of the tier light theirs: from the surface cache
+    // under Reflections.HitLighting 0 (black behind one-sided geometry, in place where no card holds it), in place
+    // under 1 (GIHitRadianceLit with the payload's material, its emission included); a miss is the sky. A rough front
+    // layer bends by one GGX visible normal per frame (the temporal upscaler sums them). Output (one texel per quad):
+    // rgb = the layers' pre-exposed emission + the end's pre-exposed radiance x transmittance; a = 1 + the traced
+    // pixel's index in the quad - every started trace answers. a = 0 only where no trace starts (a quad without a front
+    // layer, or rougher than MaxRoughness) and under Composite 0 (no ray is traced) - the glass cell
+    // (Mesh/Surface/TranslucencyRefraction.glslh) reads the scene copy itself there.
     Pass "Trace"
     {
         RayGen
@@ -43,19 +45,24 @@ Shader "RayTracedTranslucency"
             Uniform texture2D SceneColorCopyTexture;      // this frame's opaque lit scene, pre-exposed: a seen hit's radiance
             #define SceneColorCopyTexture sampler2D(SceneColorCopyTexture, LinearClampSampler)
 
-            // The program exists only as the hardware tracer lit in place (RayTracedTranslucencyRenderer::Variant =
-            // TracerVariant(kRayTracedTranslucencyTracer) defines both). The boot compile has no variant defines and is
-            // that same program, so it registers the pass the renderer acquires its variant from.
+            // The program is the hardware tracer in two variants of the tier (RayTracedTranslucencyRenderer::Variant =
+            // TracerVariant(RayTracedTranslucencyTracer(inPlace))): the surface cache's under Reflections.HitLighting
+            // 0, and DESERT_GI_HIT_LIGHTING_IN_PLACE, which only the variant defines, under 1. The boot compile has no
+            // variant defines and is the surface cache's variant, so it registers the pass the renderer acquires its
+            // variant from.
             #ifndef DESERT_GI_TRACER_HARDWARE
             #define DESERT_GI_TRACER_HARDWARE
-            #endif
-            #ifndef DESERT_GI_HIT_LIGHTING_IN_PLACE
-            #define DESERT_GI_HIT_LIGHTING_IN_PLACE
             #endif
             #include <Common/CameraUB.glslh> // the view block the hit groups read
             #include <Common/RayTracingSceneReads.glslh> // the world's table and rain occlusion the hits' weather reads
             #include <Common/GIHitLitReads.glslh>
-            #define GI_SURFACE_CACHE_BINDING 34 // GIHitLighting.glslh's includer statement; unread in place
+            // The surface cache's seven bindings 42..48 (GIHitLighting.glslh's includer statement), bound by name by
+            // DeclareSurfaceCacheReads in the surface cache's variant. Not SSRTrace.glslh's 34: this ray generation
+            // also declares the hit groups' scene reads (RayTracingSceneReads.glslh: the world's table and rain
+            // occlusion at 35..37, ShaderGraphBindings.hpp), the tracer holds 23..33 and the radiance atlas 41, so the
+            // range starts past them all. The program's unnumbered resources are numbered past its highest explicit
+            // binding (ShaderMapBuild.cpp AssignProgramBindings), never into them.
+            #define GI_SURFACE_CACHE_BINDING 42
             #include <Common/GIHitLighting.glslh>
             #include <Common/RayTracingPayload.glslh>
             #include <Common/ReconstructPosition.glslh>
@@ -137,7 +144,10 @@ Shader "RayTracedTranslucency"
 
             // The pre-exposed radiance of the first opaque hit at @p P (the payload's hit), SCREEN FIRST: the scene copy
             // where the view sees that very point (GIHitMaterial's test: giFrame.viewProjection, the opaque depth within
-            // the tracer's tolerance; the copy is already pre-exposed), lit in place otherwise.
+            // the tracer's tolerance; the copy is already pre-exposed); a hit the view does not see is lit as the
+            // reflections of the tier light theirs (GIHitLighting.glslh: cards first, black behind one-sided geometry,
+            // in place where no card holds it - with the payload's material, never GIHitMaterial's G-buffer guess),
+            // in place alone under DESERT_GI_HIT_LIGHTING_IN_PLACE (Reflections.HitLighting 1).
             vec3 RefractionOpaqueRadiance(vec3 P, vec3 dir)
             {
                 const vec4 clip = giFrame.viewProjection * vec4(P, 1.0);
@@ -165,12 +175,22 @@ Shader "RayTracedTranslucency"
                 hit.velocity     = vec3(0.0);
                 hit.motionKnown  = false;
                 hit.globalField  = false;
-                const vec3 lit = GIHitRadianceLit(
-                    hit, dir,
+                const GIHitSurface surface =
                     GIHitSurface(payload.BaseColor, payload.Metallic, payload.Roughness, payload.Emissive, true,
                                  payload.ShadingWord,
                                  DesertSubsurfaceColor(DesertShadingModelIndex(payload.ShadingWord),
-                                                       DesertUnpackPayload(payload.ShadingWord))));
+                                                       DesertUnpackPayload(payload.ShadingWord)));
+#if defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
+                const vec3 lit = GIHitRadianceLit(hit, dir, surface);
+#else
+                // The hit's surface cache row from its TLAS custom index (the payload's Flags bits 8..31, its
+                // GPU-scene row), as the ray query tracer finds it (GITraceRayQuery.glslh); meshCards stays unknown
+                // there too, the row's cards are walked by SurfaceCacheHitLighting.
+                hit.instance = GISurfaceCacheRowForInstance(DesertRayPayloadSceneRow(payload.Flags));
+                vec3 lit;
+                if (SurfaceCacheHitLighting(hit, GIHitSurfaceCacheBias(hit), lit) == SURFACE_CACHE_HIT_UNCOVERED)
+                    lit = GIHitRadianceLit(hit, dir, surface);
+#endif
                 return lit * CameraPosition.w;
             }
 
@@ -253,7 +273,8 @@ Shader "RayTracedTranslucency"
                     coneWidth += spread * payload.HitT;
                     if (all(lessThanEqual(payload.Transmission, vec3(0.0))))
                     {
-                        // The first opaque surface: the scene copy where the view sees it, lit in place otherwise.
+                        // The first opaque surface: the scene copy where the view sees it, lit as the tier's
+                        // reflections light theirs otherwise (RefractionOpaqueRadiance).
                         imageStore(RefractionOutputTexture, quad,
                                    vec4(radiance + RefractionOpaqueRadiance(P, dir) * transmittance, answered));
                         return;
