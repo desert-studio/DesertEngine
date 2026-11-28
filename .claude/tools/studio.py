@@ -445,6 +445,7 @@ def cmd_board(_args):
         json.dump([{"code": x["code"], "status": x["status"], "line": x["line"]} for x in q], f, ensure_ascii=False)
     try:
         notion_board.cmd_apply(path)
+        notion_board.cmd_sync()
     except SystemExit:
         refuse("доска не обновлена (строка notion_board выше); очередь оставлена")
     sent = {(x["code"], x["t"]) for x in q}
