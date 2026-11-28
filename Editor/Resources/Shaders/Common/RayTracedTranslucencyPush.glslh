@@ -15,7 +15,7 @@ PushConstant RayTracedTranslucencyPush
 	float MaxRoughness;              // a front layer rougher than this is not traced: a = 0
 	uint  MaxInterfaces;             // dielectric interfaces followed before the path stops: a = 0 when exhausted
 	uint  FrameIndex;                // the rough lobe's GGX sample sequence; & 3 = the quad's pixel traced this frame
-	uint  Composite;                 // Translucency.RefractionComposite: 0 = same rays, the answer's a is written 0
+	uint  Composite;                 // Translucency.RefractionComposite: 0 = no ray is traced, a = 0
 	uint  Pad0;                      // the block's size in whole vec4s, spelled out for the generated C++ twin
 	uint  Pad1;
 	uint  Pad2;
