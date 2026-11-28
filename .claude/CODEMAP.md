@@ -99,7 +99,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Graphic/StaticLighting` — 2 files, 235 lines: BakeProgress, ILightmassBake, LightmapRowGpu, LightmassSettings, StaticLightingFrame, StaticLightingRenderer
 - `Graphic/SubsurfaceProfiles` — 3 files, 268 lines: SubsurfaceProfileRegistry
 - `Graphic/Systems` — 1 files, 38 lines: RenderSystem
-- `Graphic/Systems/RayTracing` — 33 files, 7,672 lines: EmissiveLevelRuns, EmissiveLightsBuildShaderParameters, EmissiveLightsFrame, EmissiveLightsMoveShaderParameters, EmissiveLightsPart, EmissiveLightsReduceShaderParameters, EmissiveLightsRenderer, EmissiveMaterialEstimate, EmissiveMaterialTable, EmissiveTreeRuns, EmissiveTriangleList, EmissiveTriangleListCache, … (+72)
+- `Graphic/Systems/RayTracing` — 33 files, 7,893 lines: EmissiveLevelRuns, EmissiveLightsBuildShaderParameters, EmissiveLightsClustersShaderParameters, EmissiveLightsFrame, EmissiveLightsGridShaderParameters, EmissiveLightsMoveShaderParameters, EmissiveLightsPart, EmissiveLightsReduceShaderParameters, EmissiveLightsRenderer, EmissiveMaterialEstimate, EmissiveMaterialTable, EmissiveTreeRuns, … (+74)
 - `Graphic/Systems/Scene` — 5 files, 510 lines: CausticsFrame, CausticsInputs, ISceneFXSystem, IShadowCaster, ISingleLayerWaterPass, LocalShadowCasterLight, ParticleViewEmitterCull, ShadowCasterEntry, ShadowSignatureHash, VirtualShadowCasterDraw, WaterFrameImports, WaterFrameRefs
 - `Graphic/Systems/Scene/Clouds` — 2 files, 3,964 lines: CloudMarchCounters, FrameResult, MediumPipelineSet, PendingUpload, VolumetricCloudCompositeShaderParameters, VolumetricCloudRenderer
 - `Graphic/Systems/Scene/Debug` — 2 files, 508 lines: DebugDrawRenderer
@@ -312,7 +312,7 @@ Per directory: files, lines, the classes its headers declare.
 - `.` — 8 files, 3,039 lines: ContentMountResult, CrashTestRequest, MovieRenderRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
-- `Common` — 159 files, 25,058 lines
+- `Common` — 160 files, 25,218 lines
 - `Deformation` — 4 files, 164 lines
 - `Editor` — 1 files, 135 lines
 - `Generated` — 3 files, 205 lines
@@ -331,7 +331,7 @@ Per directory: files, lines, the classes its headers declare.
 - `Programs/Denoise` — 6 files, 878 lines
 - `Programs/DepthOfField` — 6 files, 371 lines
 - `Programs/DistanceField` — 6 files, 645 lines
-- `Programs/EmissiveLights` — 1 files, 266 lines
+- `Programs/EmissiveLights` — 1 files, 544 lines
 - `Programs/FXAA` — 1 files, 80 lines
 - `Programs/Fog` — 4 files, 465 lines
 - `Programs/GlobalIllumination` — 20 files, 6,154 lines
