@@ -6,6 +6,7 @@
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheScene.hpp>
+#include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RenderMethods.hpp>
@@ -75,6 +76,15 @@ namespace Desert::Graphic::SurfaceCache
         // The captured layers this renderer owns (SurfaceCache::Layer Depth..Subsurface).
         static constexpr std::array<Layer, 6> kCapturedLayers{ Layer::Depth,  Layer::Albedo,   Layer::Opacity,
                                                                Layer::Normal, Layer::Emissive, Layer::Subsurface };
+        // The Emissive layer's slot in kCapturedLayers (and so in m_Layers).
+        static constexpr std::size_t kEmissiveLayerSlot = []
+        {
+            for ( std::size_t i = 0; i < kCapturedLayers.size(); ++i )
+                if ( kCapturedLayers[i] == Layer::Emissive )
+                    return i;
+            return kCapturedLayers.size();
+        }();
+        static_assert( kEmissiveLayerSlot < kCapturedLayers.size(), "the Emissive layer is a captured layer" );
         // The lit layers: the direct lighting (GI-SURFACE-CACHE-4), the indirect lighting off the world radiance
         // cache (GI-CARD-LOOKUP) and their combine. The radiosity count arrives with the radiosity probes.
         static constexpr std::array<Layer, 3> kLitLayers{ Layer::DirectLighting, Layer::IndirectLighting,
@@ -279,6 +289,16 @@ namespace Desert::Graphic::SurfaceCache
         // What a traced hit reads of this frame's cache (GIHitRadiance): @p buffers and the atlas layers.
         [[nodiscard]] GlobalIllumination::SurfaceCacheFrame HitReads( const ImportImage&  import,
                                                                       const FrameBuffers& buffers ) const;
+        // The captured Emissive layer as a graph import, under the layer's own Tag ("SurfaceCache.Emissive"): what
+        // a radiance cache probe's card hit subtracts when its emission comes from the listed emitters
+        // (GI-TEMPORAL2 D). Not configured: no layer, as HitReads (SurfaceCacheFrameMissing names it).
+        [[nodiscard]] RDG::TextureRef EmissiveLayer( const ImportImage& import ) const
+        {
+            if ( m_AtlasSize == 0 )
+                return {};
+            const std::shared_ptr<Image2D>& layer = m_Layers[kEmissiveLayerSlot];
+            return import( layer, layer->GetImageSpecification().Tag );
+        }
         // UE LumenSceneDirectLighting's card tiles (SpliceCardPagesIntoTiles): the 8x8 tiles of the frame's
         // LightingPages that hold a captured texel, listed on the async compute queue into @p buffers'
         // LightingTileArgs / LightingTiles, which the three async lighting passes dispatch over. The async path

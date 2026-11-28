@@ -586,6 +586,10 @@ namespace Desert::Graphic
             SurfaceCache::SceneFrame                         Scene;
             SurfaceCache::SurfaceCacheRenderer::FrameBuffers Buffers;
             GlobalIllumination::SurfaceCacheFrame            Hits;
+            // What the radiance cache's probe hits take their emission from (GI_HIT_EXCLUDES_EMISSION): this
+            // frame's emitter list and the cards' Emissive layer a card hit subtracts (SurfaceCacheRenderer).
+            RayTracing::EmissiveLightsFrame Emissive;
+            RDG::TextureRef                 EmissiveLayer;
             // This view's call updated the cache this frame (SurfaceCacheRenderer::UpdateScene): it records the
             // passes that write the atlases; false - a lent cache another view updated this frame - only reads.
             bool Updated = false;
