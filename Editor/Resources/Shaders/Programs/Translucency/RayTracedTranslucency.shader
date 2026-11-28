@@ -19,11 +19,12 @@ Shader "RayTracedTranslucency"
     // it answers with the emission it gathered. The first opaque hit is lit SCREEN FIRST: a hit the view sees
     // (projected by giFrame.viewProjection into the frame, the opaque depth there within GIRayBias().screenTolerance of
     // it - the test of Common/GIHitLighting.glslh GIHitMaterial) takes this frame's lit scene colour from the scene
-    // copy; a hit the view does not see is lit as the reflections of the tier light theirs: from the surface cache
-    // under Reflections.HitLighting 0 (black behind one-sided geometry, in place where no card holds it), in place
-    // under 1 (GIHitRadianceLit with the payload's material, its emission included); an in-place lit hit leaves
-    // a mark request for the radiance cache cells its bounce reads (RadianceCacheMarkRequests.glslh); a miss is the sky. A rough front
-    // layer bends by one GGX visible normal per frame (the temporal upscaler sums them). Output (one texel per quad):
+    // copy; a hit the view does not see is lit IN PLACE on every tier, whatever Reflections.HitLighting is
+    // (GIHitRadianceLit with the payload's material, its emission included; UE RT Translucency lights its hits in
+    // place and reads no surface cache for the primary visible path - the cards' black back of one-sided geometry
+    // stays a rule of the GI rays only) and leaves a mark request for the radiance cache cells its bounce reads
+    // (RadianceCacheMarkRequests.glslh); a miss is the sky. A rough front layer bends by one GGX visible normal per
+    // frame (the temporal upscaler sums them). Output (one texel per quad):
     // rgb = the layers' pre-exposed emission + the end's pre-exposed radiance x transmittance; a = 1 + the traced
     // pixel's index in the quad - every started trace answers. a = 0 only where no trace starts (a quad without a front
     // layer, or rougher than MaxRoughness) and under Composite 0 (no ray is traced) - the glass cell
@@ -46,31 +47,27 @@ Shader "RayTracedTranslucency"
             Uniform texture2D SceneColorCopyTexture;      // this frame's opaque lit scene, pre-exposed: a seen hit's radiance
             #define SceneColorCopyTexture sampler2D(SceneColorCopyTexture, LinearClampSampler)
 
-            // The program is the hardware tracer in two variants of the tier (RayTracedTranslucencyRenderer::Variant =
-            // TracerVariant(RayTracedTranslucencyTracer(inPlace))): the surface cache's under Reflections.HitLighting
-            // 0, and DESERT_GI_HIT_LIGHTING_IN_PLACE, which only the variant defines, under 1. The boot compile has no
-            // variant defines and is the surface cache's variant, so it registers the pass the renderer acquires its
-            // variant from.
+            // The program exists only as the hardware tracer lit in place, on every tier (RayTracedTranslucencyRenderer::
+            // Variant = TracerVariant(RayTracedTranslucencyTracer), whose Hits is InPlace, defines both). The boot
+            // compile has no variant defines and is that same program, so it registers the pass the renderer acquires
+            // its variant from. In place, GIHitLighting.glslh includes no surface cache (SurfaceCacheSampling.glslh),
+            // so this program declares none of its bindings and needs no GI_SURFACE_CACHE_BINDING.
             #ifndef DESERT_GI_TRACER_HARDWARE
             #define DESERT_GI_TRACER_HARDWARE
+            #endif
+            #ifndef DESERT_GI_HIT_LIGHTING_IN_PLACE
+            #define DESERT_GI_HIT_LIGHTING_IN_PLACE
             #endif
             #include <Common/CameraUB.glslh> // the view block the hit groups read
             #include <Common/RayTracingSceneReads.glslh> // the world's table and rain occlusion the hits' weather reads
             #include <Common/GIHitLitReads.glslh>
-            // The surface cache's seven bindings 42..48 (GIHitLighting.glslh's includer statement), bound by name by
-            // DeclareSurfaceCacheReads in the surface cache's variant. Not SSRTrace.glslh's 34: this ray generation
-            // also declares the hit groups' scene reads (RayTracingSceneReads.glslh: the world's table and rain
-            // occlusion at 35..37, ShaderGraphBindings.hpp), the tracer holds 23..33 and the radiance atlas 41, so the
-            // range starts past them all. The program's unnumbered resources are numbered past its highest explicit
-            // binding (ShaderMapBuild.cpp AssignProgramBindings), never into them.
-            #define GI_SURFACE_CACHE_BINDING 42
             #include <Common/GIHitLighting.glslh>
             #include <Common/RayTracingPayload.glslh>
             #include <Common/ReconstructPosition.glslh>
             #include <Common/MonteCarlo.glslh>
             #include <Common/RayTracedTranslucencyPush.glslh> // InvJitteredViewProjection ... Composite
             // The cache's request table (kMarkRequestsBinding): a path end lit in place reads the cache where no pixel
-            // marked; 49 is past every slot above (the tracer's 23..33, the surface cache's 34..40, the atlas 41).
+            // marked; 49 is past every slot above (the tracer's 23..33, the scene reads 35..37, the atlas 41).
             #define RADIANCE_CACHE_MARK_REQUESTS_BINDING 49
             #include <Common/RadianceCacheMarkRequests.glslh>
 
@@ -149,10 +146,10 @@ Shader "RayTracedTranslucency"
 
             // The pre-exposed radiance of the first opaque hit at @p P (the payload's hit), SCREEN FIRST: the scene copy
             // where the view sees that very point (GIHitMaterial's test: giFrame.viewProjection, the opaque depth within
-            // the tracer's tolerance; the copy is already pre-exposed); a hit the view does not see is lit as the
-            // reflections of the tier light theirs (GIHitLighting.glslh: cards first, black behind one-sided geometry,
-            // in place where no card holds it - with the payload's material, never GIHitMaterial's G-buffer guess),
-            // in place alone under DESERT_GI_HIT_LIGHTING_IN_PLACE (Reflections.HitLighting 1).
+            // the tracer's tolerance; the copy is already pre-exposed); a hit the view does not see is lit IN PLACE on
+            // every tier (GIHitRadianceLit with the payload's material, never GIHitMaterial's G-buffer guess, nor the
+            // surface cache's cards: the primary visible path is not GI, so it never reads the cards' black back of
+            // one-sided geometry - UE RT Translucency lights its hits in place).
             vec3 RefractionOpaqueRadiance(vec3 P, vec3 dir)
             {
                 const vec4 clip = giFrame.viewProjection * vec4(P, 1.0);
@@ -185,22 +182,9 @@ Shader "RayTracedTranslucency"
                                  payload.ShadingWord,
                                  DesertSubsurfaceColor(DesertShadingModelIndex(payload.ShadingWord),
                                                        DesertUnpackPayload(payload.ShadingWord)));
-#if defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
                 // GIHitBounce reads the radiance cache here, off screen: ask for its cells (next frame's Mark).
                 RadianceCacheRequestMark(P, payload.Normal, -dir);
                 const vec3 lit = GIHitRadianceLit(hit, dir, surface);
-#else
-                // The hit's surface cache row from its TLAS custom index (the payload's Flags bits 8..31, its
-                // GPU-scene row), as the ray query tracer finds it (GITraceRayQuery.glslh); meshCards stays unknown
-                // there too, the row's cards are walked by SurfaceCacheHitLighting.
-                hit.instance = GISurfaceCacheRowForInstance(DesertRayPayloadSceneRow(payload.Flags));
-                vec3 lit;
-                if (SurfaceCacheHitLighting(hit, GIHitSurfaceCacheBias(hit), lit) == SURFACE_CACHE_HIT_UNCOVERED)
-                {
-                    RadianceCacheRequestMark(P, payload.Normal, -dir); // the in-place light's bounce reads these cells
-                    lit = GIHitRadianceLit(hit, dir, surface);
-                }
-#endif
                 return lit * CameraPosition.w;
             }
 
