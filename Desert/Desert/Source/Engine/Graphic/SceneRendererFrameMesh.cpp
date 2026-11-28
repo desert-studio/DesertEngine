@@ -1169,13 +1169,16 @@ namespace Desert::Graphic
             return {};
         if ( !sceneCopy.IsValid() )
             return refuse( "a hit the view sees is lit from this frame's scene copy, which this frame did not make" );
+        // The tier's hit lighting, as the reflections': from the surface cache under Reflections.HitLighting 0, in
+        // place under 1. The pass traces a ray tracing pipeline over the hit group table under either.
+        const GlobalIllumination::Pipeline tracer = System::RayTracedTranslucencyTracer( HitLightingInPlace() );
         if ( const Common::BoolResultStr built = BuildReflectionHitGroups(); !built )
             return refuse( built.GetError() );
         if ( const Common::BoolResultStr made =
-                  m_RayTracedTranslucency.EnsurePipeline( m_ReflectionHitGroups.Templates );
+                  m_RayTracedTranslucency.EnsurePipeline( tracer, m_ReflectionHitGroups.Templates );
              !made )
             return refuse( made.GetError() );
-        auto reads = MakeHitLitReads( graph, textures, System::kRayTracedTranslucencyTracer, gbuffer, frame );
+        auto reads = MakeHitLitReads( graph, textures, tracer, true, gbuffer, frame );
         if ( !reads )
             return refuse( reads.GetError() );
         const auto desc = graph.GetTextureDesc( gbuffer[0] ); // MakeHitLitReads checked the G-buffer's size
