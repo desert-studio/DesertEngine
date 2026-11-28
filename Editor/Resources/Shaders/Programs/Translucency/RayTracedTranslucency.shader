@@ -24,8 +24,8 @@ Shader "RayTracedTranslucency"
     // under 1 (GIHitRadianceLit with the payload's material, its emission included); a miss is the sky. A rough front
     // layer bends by one GGX visible normal per frame (the temporal upscaler sums them). Output (one texel per quad):
     // rgb = the layers' pre-exposed emission + the end's pre-exposed radiance x transmittance; a = 1 + the traced
-    // pixel's index in the quad - every started trace answers. a = 0 only where no trace starts (a quad without a front layer, or rougher than MaxRoughness) and under Composite 0 (no ray is
-    // traced) - the glass cell (Mesh/Surface/TranslucencyRefraction.glslh) reads the scene copy itself there.
+    // pixel's index in the quad - every started trace answers. a = 0 only where no trace starts (a quad without a
+    // front layer, or rougher than MaxRoughness) and under Composite 0 (no ray is traced) - the glass cell (Mesh/Surface/TranslucencyRefraction.glslh) reads the scene copy itself there.
     Pass "Trace"
     {
         RayGen
