@@ -2,6 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
+#include <Engine/Graphic/DebugViewState.hpp>
 #include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
@@ -300,11 +301,13 @@ namespace Desert::Graphic::SurfaceCache
         [[nodiscard]] Common::BoolResultStr AddAtlasViewPass( RDG::Builder& graph, const ImportImage& import,
                                                               RDG::TextureRef target );
         // "Lumen Scene": the scene drawn from its cards alone - every captured card's surface (its depth layer
-        // placed back into the world) shaded with its albedo, or with its FinalLighting when @p lit ("Lumen Scene
-        // (Lit)", scaled by the view's @p preExposure as scene colour is), depth-tested against the other cards.
+        // placed back into the world) shaded with the cache layer @p layer, depth-tested against the other cards.
+        // Albedo is shown as is; the four radiance layers (FinalLighting, DirectLighting, IndirectLighting,
+        // RadiosityTrace) raw, scaled by the view's @p preExposure as scene colour is (UE LumenVisualize.usf reads
+        // the layer's atlas the same way). A layer outside the enumeration is refused by name.
         [[nodiscard]] Common::BoolResultStr AddSceneViewPass( RDG::Builder& graph, const ImportImage& import,
                                                               RDG::TextureRef target, const SceneFrame& frame,
-                                                              const FrameBuffers& buffers, bool lit,
+                                                              const FrameBuffers& buffers, SurfaceCacheViewLayer layer,
                                                               const glm::mat4& viewProjection,
                                                               const glm::vec3& cameraPosition, float preExposure );
 

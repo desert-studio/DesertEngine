@@ -925,8 +925,7 @@ namespace Desert::Graphic
         // view mode lights the cards).
         const DeferredDebugMode mode = m_DebugView.DeferredDebug;
         return m_RenderPath == Core::RenderPath::Deferred &&
-               ( mode == DeferredDebugMode::LightGridWorld || mode == DeferredDebugMode::SurfaceCacheAtlas ||
-                 mode == DeferredDebugMode::SurfaceCacheScene || mode == DeferredDebugMode::SurfaceCacheSceneLit );
+               ( mode == DeferredDebugMode::LightGridWorld || IsSurfaceCacheView( mode ) );
 #else
         return false;
 #endif // DESERT_DEV_INSTRUMENTS

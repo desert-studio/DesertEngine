@@ -38,9 +38,7 @@ namespace Desert::Graphic
             return true;
 #if DESERT_DEV_INSTRUMENTS
         // Its views bring it up on their own (and light its cards) under any GI method.
-        const DeferredDebugMode mode = m_DebugView.DeferredDebug;
-        return mode == DeferredDebugMode::SurfaceCacheAtlas || mode == DeferredDebugMode::SurfaceCacheScene ||
-               mode == DeferredDebugMode::SurfaceCacheSceneLit;
+        return IsSurfaceCacheView( m_DebugView.DeferredDebug );
 #else
         return false;
 #endif // DESERT_DEV_INSTRUMENTS
@@ -471,11 +469,11 @@ namespace Desert::Graphic
     void SceneRendererImpl::AddFrameSurfaceCacheView( RDG::Builder& graph, FrameTextures& textures,
                                                       const ViewFrame& frame, const RDG::TextureRef target )
     {
-        const bool atlasView = m_DebugView.DeferredDebug == DeferredDebugMode::SurfaceCacheAtlas;
-        const bool sceneView = m_DebugView.DeferredDebug == DeferredDebugMode::SurfaceCacheScene;
-        const bool litView   = m_DebugView.DeferredDebug == DeferredDebugMode::SurfaceCacheSceneLit;
+        const DeferredDebugMode mode      = m_DebugView.DeferredDebug;
+        const bool              atlasView = mode == DeferredDebugMode::SurfaceCacheAtlas;
+        const auto              layer     = SurfaceCacheSceneViewLayer( mode );
         // Like the G-buffer view modes, Deferred only: on Forward the mode draws the lit frame.
-        if ( ( !atlasView && !sceneView && !litView ) || m_RenderPath != Core::RenderPath::Deferred )
+        if ( ( !atlasView && !layer ) || m_RenderPath != Core::RenderPath::Deferred )
             return;
         SurfaceCache::SurfaceCacheRenderer* const cache = ReadSurfaceCache();
         if ( cache == nullptr || !m_SurfaceCacheFrame || !target.IsValid() )
@@ -490,9 +488,8 @@ namespace Desert::Graphic
         const SurfaceCacheFrameRecord& record = *m_SurfaceCacheFrame;
         const auto                     drawn =
              atlasView ? cache->AddAtlasViewPass( graph, import, target )
-                                           : cache->AddSceneViewPass( graph, import, target, record.Scene, record.Buffers,
-                                                                               litView, frame.ViewProjection, frame.CameraPosition,
-                                                                               frame.PreExposure );
+                       : cache->AddSceneViewPass( graph, import, target, record.Scene, record.Buffers, *layer,
+                                                  frame.ViewProjection, frame.CameraPosition, frame.PreExposure );
         if ( !drawn )
             LOG_ERROR( "[SceneRenderer] Debug: Surface Cache: {}", drawn.GetError() );
         // The record's graph buffers die with this graph.

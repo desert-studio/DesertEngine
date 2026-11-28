@@ -80,7 +80,54 @@ namespace Desert::Graphic
         // surface pixel's world X, Z looked up in the clipmap - blue = sink, red = rim over a grey metre checker
         // (lighter where level 0 answers). Drawn after the temporal resolve, every path.
         DeformationField = 20,
+        // The Lumen Scene drawn with one lighting layer of the cards instead of FinalLighting (UE
+        // r.Lumen.Visualize 12 "Direct lighting" / 13 "Indirect lighting", LumenVisualize.cpp:44-45, and the
+        // radiosity trace the indirect layer integrates): the layer is shown raw - its stored radiance times
+        // pre-exposure, no normalisation, so the frame is a measurement. Behave as SurfaceCacheSceneLit in every
+        // other respect.
+        SurfaceCacheSceneDirect         = 21,
+        SurfaceCacheSceneIndirect       = 22,
+        SurfaceCacheSceneRadiosityTrace = 23,
     };
+
+    // The surface-cache layer a Lumen Scene view draws its cards with (SurfaceCacheRenderer::AddSceneViewPass).
+    enum class SurfaceCacheViewLayer : int
+    {
+        Albedo,
+        FinalLighting,
+        DirectLighting,
+        IndirectLighting,
+        RadiosityTrace,
+    };
+
+    // The one map from a view mode to the surface-cache layer its Lumen Scene view shows; nullopt = not a Lumen
+    // Scene view.
+    [[nodiscard]] constexpr std::optional<SurfaceCacheViewLayer>
+    SurfaceCacheSceneViewLayer( const DeferredDebugMode mode )
+    {
+        switch ( mode )
+        {
+            case DeferredDebugMode::SurfaceCacheScene:
+                return SurfaceCacheViewLayer::Albedo;
+            case DeferredDebugMode::SurfaceCacheSceneLit:
+                return SurfaceCacheViewLayer::FinalLighting;
+            case DeferredDebugMode::SurfaceCacheSceneDirect:
+                return SurfaceCacheViewLayer::DirectLighting;
+            case DeferredDebugMode::SurfaceCacheSceneIndirect:
+                return SurfaceCacheViewLayer::IndirectLighting;
+            case DeferredDebugMode::SurfaceCacheSceneRadiosityTrace:
+                return SurfaceCacheViewLayer::RadiosityTrace;
+            default:
+                return std::nullopt;
+        }
+    }
+
+    // A surface-cache view: the atlas, or a Lumen Scene view of any layer. The one list every surface-cache branch
+    // of the frame asks.
+    [[nodiscard]] constexpr bool IsSurfaceCacheView( const DeferredDebugMode mode )
+    {
+        return mode == DeferredDebugMode::SurfaceCacheAtlas || SurfaceCacheSceneViewLayer( mode ).has_value();
+    }
 
     // A G-buffer view (UE Buffer Visualization: BaseColor, WorldNormal, Metallic, Roughness, AO, ShadingModel, and
     // the sun-shadow receive bit) shows the stored surface value: no height fog or cloud layer is composited over it

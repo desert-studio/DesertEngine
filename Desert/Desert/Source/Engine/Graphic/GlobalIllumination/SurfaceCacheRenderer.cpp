@@ -541,11 +541,42 @@ namespace Desert::Graphic::SurfaceCache
     Common::BoolResultStr SurfaceCacheRenderer::AddSceneViewPass( RDG::Builder& graph, const ImportImage& import,
                                                                   const RDG::TextureRef target,
                                                                   const SceneFrame&     frame,
-                                                                  const FrameBuffers& buffers, const bool lit,
+                                                                  const FrameBuffers&         buffers,
+                                                                  const SurfaceCacheViewLayer layer,
                                                                   const glm::mat4& viewProjection,
                                                                   const glm::vec3& cameraPosition,
                                                                   const float      preExposure )
     {
+        // The colour input is the layer the view asked for; every layer but Albedo is radiance.
+        std::optional<std::size_t> litLayer;
+        bool                       radiosityTrace = false;
+        std::string_view           passName;
+        switch ( layer )
+        {
+            case SurfaceCacheViewLayer::Albedo:
+                passName = "Debug: Lumen Scene (surface cache cards)";
+                break;
+            case SurfaceCacheViewLayer::FinalLighting:
+                litLayer = 2;
+                passName = "Debug: Lumen Scene (lit surface cache cards)";
+                break;
+            case SurfaceCacheViewLayer::DirectLighting:
+                litLayer = 0;
+                passName = "Debug: Lumen Scene (direct lighting layer)";
+                break;
+            case SurfaceCacheViewLayer::IndirectLighting:
+                litLayer = 1;
+                passName = "Debug: Lumen Scene (indirect lighting layer)";
+                break;
+            case SurfaceCacheViewLayer::RadiosityTrace:
+                radiosityTrace = true;
+                passName       = "Debug: Lumen Scene (radiosity trace layer)";
+                break;
+            default:
+                return Common::MakeError<bool>( std::format(
+                     "SurfaceCacheRenderer::AddSceneViewPass: surface cache view layer {} is not a layer of the cache",
+                     static_cast<int>( layer ) ) );
+        }
         const auto desc = graph.GetTextureDesc( target );
         if ( !desc )
             return Common::MakeError<bool>( desc.GetError() );
@@ -563,28 +594,29 @@ namespace Desert::Graphic::SurfaceCache
         RDG::TextureRef       albedo, depthLayer, opacity;
         for ( std::size_t i = 0; i < kCapturedLayers.size(); ++i )
         {
-            const RDG::TextureRef layer = import( m_Layers[i], kLayerNames[i] );
+            const RDG::TextureRef captured = import( m_Layers[i], kLayerNames[i] );
             if ( kCapturedLayers[i] == Layer::Albedo )
-                albedo = layer;
+                albedo = captured;
             else if ( kCapturedLayers[i] == Layer::Depth )
-                depthLayer = layer;
+                depthLayer = captured;
             else if ( kCapturedLayers[i] == Layer::Opacity )
-                opacity = layer;
+                opacity = captured;
         }
-        // The Lit view shows the cards' FinalLighting where the Cards view shows their albedo.
-        const RDG::TextureRef color = lit ? import( m_LitLayers[2], kLitLayerNames[2] ) : albedo;
+        const RDG::TextureRef color = litLayer         ? import( m_LitLayers[*litLayer], kLitLayerNames[*litLayer] )
+                                      : radiosityTrace ? import( m_RadiosityTrace, kRadiosityTraceName )
+                                                       : albedo;
         ShaderPush::SurfaceCacheSceneView         push;
         push.ViewProjection = viewProjection;
         push.CameraPosition = glm::vec4( cameraPosition, 1.0f );
         const uint32_t cardCount = static_cast<uint32_t>( frame.Records->Cards.size() );
         push.Counts              = glm::uvec4( m_AtlasSize, cardCount, 0u, 0u );
-        // FinalLighting is radiance; the target is scene colour, stored at radiance x pre-exposure. Albedo is shown as is.
-        push.ColorScale     = glm::vec4( lit ? preExposure : 1.0f, 0.0f, 0.0f, 0.0f );
+        // The lighting layers are radiance; the target is scene colour, stored at radiance x pre-exposure. Albedo is
+        // shown as is.
+        push.ColorScale = glm::vec4( layer == SurfaceCacheViewLayer::Albedo ? 1.0f : preExposure, 0.0f, 0.0f, 0.0f );
         GraphicsPipeline* const raw   = pipeline.GetValue().get();
         const uint32_t          count = cardCount;
         graph.AddPass(
-             lit ? "Debug: Lumen Scene (lit surface cache cards)" : "Debug: Lumen Scene (surface cache cards)",
-             RDG::PassFlags::Raster,
+             passName, RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( m_SceneViewLayout.Get( m_SceneViewShader ), RDG::NoOtherRouteFill() )

@@ -1,10 +1,12 @@
 // DesertAsset {"Kind":"Shader","Guid":"0a23be01087042de982924054b779f98","Versions":{"SHDR":1},"Dependencies":[]}
-// The "Lumen Scene" view mode (DeferredDebugMode::SurfaceCacheScene; UE r.Lumen.Visualize "Lumen Scene"): the
+// The "Lumen Scene" view modes (DeferredDebugMode::SurfaceCacheScene..., DebugViewState.hpp
+// SurfaceCacheSceneViewLayer; UE r.Lumen.Visualize "Lumen Scene", 12 "Direct lighting", 13 "Indirect lighting"): the
 // world as the surface cache holds it - nothing but the cards. Every captured card draws its front quad (the
 // card plane, facing its direction); each fragment reads the card's texel through the page table, discards where
 // the capture saw no surface, and moves its depth back to the captured surface (the card's depth layer), so the
-// cards depth-test into the shape they captured; the colour is the card's albedo, or in the Lit view its
-// FinalLighting (SurfaceCacheDirectLighting.shader). Where the cards miss a surface
+// cards depth-test into the shape they captured; the colour is the cache layer the view chose
+// (SurfaceCacheRenderer::AddSceneViewPass binds it): the card's albedo, or one of its radiance layers -
+// FinalLighting, DirectLighting, IndirectLighting, RadiosityTrace - shown raw. Where the cards miss a surface
 // (a hole, a too-thin card) the background shows - which is the point of the view.
 Shader "SurfaceCacheSceneView"
 {
@@ -20,7 +22,7 @@ Shader "SurfaceCacheSceneView"
             mat4  ViewProjection;
             vec4  CameraPosition;
             uvec4 Counts; // x = atlas side, y = card count
-            vec4  ColorScale; // x = the scale of the colour: the view's pre-exposure for FinalLighting (radiance), 1 for albedo
+            vec4  ColorScale; // x = the scale of the colour: the view's pre-exposure for a radiance layer, 1 for albedo
         };
         Out(0) vec2 v_Local;                                    // card space, [-1, 1]² over the card
         Out(1) vec4 v_Clip;                                     // clip position on the card plane
@@ -60,7 +62,7 @@ Shader "SurfaceCacheSceneView"
             SurfaceCardPage surfaceCardPages[];
         };
         Uniform sampler PointClampSampler;
-        Uniform(2) texture2D AtlasColorTexture; // albedo ("Lumen Scene (Cards)") or FinalLighting ("(Lit)")
+        Uniform(2) texture2D AtlasColorTexture; // the layer the view chose: albedo, or a radiance layer
         #define AtlasColorTexture sampler2D(AtlasColorTexture, PointClampSampler)
         Uniform(3) texture2D AtlasDepthTexture;
         #define AtlasDepthTexture sampler2D(AtlasDepthTexture, PointClampSampler)

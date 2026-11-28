@@ -202,10 +202,14 @@ namespace Desert::Editor
             { "View mode: Surface Cache Atlas", Graphic::DeferredDebugMode::SurfaceCacheAtlas },
             { "View mode: Lumen Scene (Cards)", Graphic::DeferredDebugMode::SurfaceCacheScene },
             { "View mode: Lumen Scene (Lit)", Graphic::DeferredDebugMode::SurfaceCacheSceneLit },
+            { "View mode: Lumen Scene (Direct Lighting)", Graphic::DeferredDebugMode::SurfaceCacheSceneDirect },
+            { "View mode: Lumen Scene (Indirect Lighting)", Graphic::DeferredDebugMode::SurfaceCacheSceneIndirect },
+            { "View mode: Lumen Scene (Radiosity Trace)", Graphic::DeferredDebugMode::SurfaceCacheSceneRadiosityTrace },
             { "View mode: Reflections", Graphic::DeferredDebugMode::Reflections },
             { "View mode: Local Exposure", Graphic::DeferredDebugMode::LocalExposure },
         };
-        static_assert( std::size( kBufferViews ) == static_cast<size_t>( Graphic::DeferredDebugMode::DeformationField ),
+        static_assert( std::size( kBufferViews ) ==
+                            static_cast<size_t>( Graphic::DeferredDebugMode::SurfaceCacheSceneRadiosityTrace ),
                        "a DeferredDebugMode without a View mode command cannot be photographed over the channel" );
         for ( const auto& row : kBufferViews )
         {
