@@ -2411,12 +2411,16 @@ namespace Desert::Graphic
                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( RadianceCache::RadianceCacheParamsPayload ) },
                                      "Reflections.RadianceCacheNone" );
             graph.QueueBufferClear( none, 0u );
-            reads.RadianceCache = GlobalIllumination::RadianceCacheFrame{ .Params      = none,
-                                                                          .Indirection = none,
-                                                                          .Probes      = none,
-                                                                          .Irradiance  = refs.System.Black,
-                                                                          .Depth       = refs.System.Black,
-                                                                          .Radiance    = refs.System.Black };
+            reads.RadianceCache = GlobalIllumination::RadianceCacheFrame{
+                 .Params      = none,
+                 .Indirection = none,
+                 .Probes      = none,
+                 .Irradiance  = refs.System.Black,
+                 .Depth       = refs.System.Black,
+                 .Radiance    = refs.System.Black,
+                 // No Mark reads it: the traced refraction's requests land in a table nobody consumes.
+                 .MarkRequests = graph.CreateBuffer( RDG::BufferDesc{ GlobalIllumination::kMarkRequestBytes },
+                                                     "Reflections.RadianceCacheMarkRequestsNone" ) };
         }
         reads.PointLights     = t.Lights.Point;
         reads.SpotLights      = t.Lights.Spot;
