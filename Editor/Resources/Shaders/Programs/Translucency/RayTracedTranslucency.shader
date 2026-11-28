@@ -21,7 +21,8 @@ Shader "RayTracedTranslucency"
     // it - the test of Common/GIHitLighting.glslh GIHitMaterial) takes this frame's lit scene colour from the scene
     // copy; a hit the view does not see is lit as the reflections of the tier light theirs: from the surface cache
     // under Reflections.HitLighting 0 (black behind one-sided geometry, in place where no card holds it), in place
-    // under 1 (GIHitRadianceLit with the payload's material, its emission included); a miss is the sky. A rough front
+    // under 1 (GIHitRadianceLit with the payload's material, its emission included); an in-place lit hit leaves
+    // a mark request for the radiance cache cells its bounce reads (RadianceCacheMarkRequests.glslh); a miss is the sky. A rough front
     // layer bends by one GGX visible normal per frame (the temporal upscaler sums them). Output (one texel per quad):
     // rgb = the layers' pre-exposed emission + the end's pre-exposed radiance x transmittance; a = 1 + the traced
     // pixel's index in the quad - every started trace answers. a = 0 only where no trace starts (a quad without a front
@@ -68,6 +69,10 @@ Shader "RayTracedTranslucency"
             #include <Common/ReconstructPosition.glslh>
             #include <Common/MonteCarlo.glslh>
             #include <Common/RayTracedTranslucencyPush.glslh> // InvJitteredViewProjection ... Composite
+            // The cache's request table (kMarkRequestsBinding): a path end lit in place reads the cache where no pixel
+            // marked; 49 is past every slot above (the tracer's 23..33, the surface cache's 34..40, the atlas 41).
+            #define RADIANCE_CACHE_MARK_REQUESTS_BINDING 49
+            #include <Common/RadianceCacheMarkRequests.glslh>
 
             layout(location = 0) rayPayloadEXT DesertRayPayload payload;
 
@@ -181,6 +186,8 @@ Shader "RayTracedTranslucency"
                                  DesertSubsurfaceColor(DesertShadingModelIndex(payload.ShadingWord),
                                                        DesertUnpackPayload(payload.ShadingWord)));
 #if defined( DESERT_GI_HIT_LIGHTING_IN_PLACE )
+                // GIHitBounce reads the radiance cache here, off screen: ask for its cells (next frame's Mark).
+                RadianceCacheRequestMark(P, payload.Normal, -dir);
                 const vec3 lit = GIHitRadianceLit(hit, dir, surface);
 #else
                 // The hit's surface cache row from its TLAS custom index (the payload's Flags bits 8..31, its
@@ -189,7 +196,10 @@ Shader "RayTracedTranslucency"
                 hit.instance = GISurfaceCacheRowForInstance(DesertRayPayloadSceneRow(payload.Flags));
                 vec3 lit;
                 if (SurfaceCacheHitLighting(hit, GIHitSurfaceCacheBias(hit), lit) == SURFACE_CACHE_HIT_UNCOVERED)
+                {
+                    RadianceCacheRequestMark(P, payload.Normal, -dir); // the in-place light's bounce reads these cells
                     lit = GIHitRadianceLit(hit, dir, surface);
+                }
 #endif
                 return lit * CameraPosition.w;
             }

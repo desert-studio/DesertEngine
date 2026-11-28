@@ -6,6 +6,8 @@
 // pixel marks within four frames — inside the eight a probe stays allocated unread.
 // The other readers are the REFLECTION CAPTURES' points (ReflectionCaptureDiffuse.shader reads the cache there in
 // the six axis directions): one thread stamps them every frame, since a capture hangs in the air where no pixel reads.
+// The third are the off-screen readers' REQUESTS (RadianceCacheMarkRequests.glslh: a refraction path's end lit in
+// place): the last MarkRequestRows group rows stamp last frame's occupied slots and clear them.
 // THE FREE (UE UpdateCacheForUsedProbes, LumenRadianceCacheUpdate.usf), in the same dispatch: the group rows past the
 // pixels' run one thread per PROBE SLOT (FPS-RADIANCE-CACHE: was its own pass, one thread per indirection entry -
 // 48^3 x 4 = 442k threads for at most 16k live slots, and one more pass on the async chain). A live slot (the entry
@@ -38,6 +40,10 @@ Shader "RadianceCacheMark"
             uvec4 MarkPointHeader; // x = the number of points
             vec4  MarkPointsData[];    // xyz = world cm
         };
+        // The cache's request table (WorldRadianceCache: RadianceCacheFrame::MarkRequests), written last frame by the
+        // readers off screen; read and cleared here.
+        #define RADIANCE_CACHE_MARK_REQUESTS_BINDING 16
+        #include <Common/RadianceCacheMarkRequests.glslh>
 
         // A pixel's stamps, one BOX KEY per RC_MARK_LEVEL_* (the coverage's two dither ends, the fallback),
         // RC_MARK_NONE where it stamps none - kept per thread for the group's de-duplication below. A level's eight
@@ -248,11 +254,46 @@ Shader "RadianceCacheMark"
             FlushFrees( why, push, slot );
         }
 
+        // THE REQUESTS (RadianceCacheMarkRequests.glslh): the occupied slot @p slot is stamped as a pixel at its point
+        // would be - the eight cells around the read point in each clipmap of the dither (MarkClipmap, the read's own
+        // point: V = N = the request's bias direction gives RadianceCacheReadPoint's point) - and, around the point
+        // itself (zero bias), the coarser clipmaps GIHitBounceIrradiance falls back to; then it is cleared.
+        void MarkRequest( const uint slot )
+        {
+            vec3 p, bias;
+            if ( slot >= RadianceCacheMarkRequestSlots() || !RadianceCacheMarkRequestRead( slot, p, bias ) )
+                return;
+            const uvec2 ends   = MarkDitherEnds( p );
+            const uint  fine   = ends.x;
+            const uint  coarse = ends.y;
+            if ( fine < radianceCache.shape.x )
+                MarkClipmap( p, bias, bias, fine, RC_STAMP_COVERAGE );
+            if ( coarse != fine && coarse < radianceCache.shape.x )
+            {
+                MarkClipmap( p, bias, bias, coarse, RC_STAMP_COVERAGE );
+                // A read in the fine end falls back to the coarse end (GIHitBounceIrradiance, unbiased point).
+                MarkClipmap( p, vec3( 0.0 ), vec3( 0.0 ), coarse, RC_STAMP_FALLBACK );
+            }
+            // The next coarser clipmap, as a pixel's RC_MARK_LEVEL_FALLBACK: stamped apart from the coverage, so its
+            // new probes do not take the coverage's budget.
+            if ( coarse + 1u < radianceCache.shape.x )
+                MarkClipmap( p, vec3( 0.0 ), vec3( 0.0 ), coarse + 1u, RC_STAMP_FALLBACK );
+            RadianceCacheMarkRequestClear( slot );
+        }
+
         void main()
         {
             // The group rows past the pixels' (WorldRadianceCache: Mark's dispatch) free the probe slots, one a
-            // thread. A frame that initialises the state (Reset, RadianceCacheAllocate.shader) frees nothing.
-            const uint pixelRows = max( 1u, ( ( Height + 1u ) / 2u + 7u ) / 8u );
+            // thread; the last MarkRequestRows rows walk the request table, one slot a thread. A frame that
+            // initialises the state (Reset, RadianceCacheAllocate.shader) frees nothing.
+            const uint pixelRows   = max( 1u, ( ( Height + 1u ) / 2u + 7u ) / 8u );
+            const uint requestRow0 = gl_NumWorkGroups.y - MarkRequestRows;
+            if ( gl_WorkGroupID.y >= requestRow0 )
+            {
+                const uint group = ( gl_WorkGroupID.y - requestRow0 ) * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+                MarkRequest( group * 64u + gl_LocalInvocationIndex );
+                return;
+            }
             if ( gl_WorkGroupID.y >= pixelRows )
             {
                 if ( Reset != 0u ) // a push constant: the whole group returns here, before any barrier
