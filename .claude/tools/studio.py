@@ -11,7 +11,7 @@
   studio.py passed CODE                    acceptance passed -> stage `land`
   studio.py landed CODE                    the branches are in dev: trees and branches removed, the design archived
                                            (limits.ARCHIVE), card queued as done with the Wiki line
-  studio.py drop CODE "reason"             take a feature out of flight honestly
+  studio.py drop CODE[-PKG] "reason"       take a feature (or one not started package) out of flight honestly
   studio.py board                          ONE batched request for the board agent (all queued card updates)
   studio.py night on [HH:MM] | off         night mode (ceiling and floor from limits)
   studio.py wait FILE [--marker TEXT]      block <= limits.WAIT_SLICE s on a background job's output file
@@ -311,10 +311,10 @@ def cmd_accept(args):
                 out.append(f"вне плана владения ({len(stray)}): " + ", ".join(stray[:6]) + " — впиши владельца в дизайн или верни")
             pk["state"] = "accepted" if outcome == "done" and clean else "planned"
             feat = s["features"][feat_code]
-            if all(p["state"] == "accepted" for p in feat["packages"].values()) and feat["stage"] == "code":
+            if all(p["state"] in ("accepted", "dropped") for p in feat["packages"].values()) and feat["stage"] == "code":
                 feat["stage"] = "review"
                 out.append(f"{feat_code}: все пакеты приняты (ревью прошло в цепочке пакета) → один Agent(lander) на пачку: merge, сборка, приёмка, посадка")
-            left = [l for l, p in feat["packages"].items() if p["state"] != "accepted"]
+            left = [l for l, p in feat["packages"].items() if p["state"] not in ("accepted", "dropped")]
             P.queue_board(s, feat_code, CARD_OF_STAGE[feat["stage"]],
                           f"пакет {letter} {outcome}" + (f"; осталось пакетов: {' '.join(left)}" if left else "; код весь, ждёт ревью/сборки"))
         else:
@@ -423,6 +423,17 @@ def cmd_drop(args):
         refuse('studio.py drop CODE "причина"')
     with P.locked() as s:
         feat = s["features"].get(args[0])
+        code, _, letter = args[0].rpartition("-")
+        if not feat and code in s["features"] and letter in s["features"][code]["packages"]:
+            feat, pk = s["features"][code], s["features"][code]["packages"][letter]  # one package, its work closed elsewhere
+            if pk["state"] != "planned":
+                refuse(f"{args[0]}: пакет {pk['state']} — снимается только не начатый")
+            pk["state"], pk["note"] = "dropped", " ".join(args[1:])[:200]
+            if all(p["state"] in ("accepted", "dropped") for p in feat["packages"].values()) and feat["stage"] == "code":
+                feat["stage"] = "review"
+            event("dropped", args[0])
+            print(f"[studio] пакет {args[0]} снят: {pk['note']}; фича {code} -> {feat['stage']}")
+            return
         if not feat:
             refuse(f"{args[0]}: такой фичи нет")
         feat["stage"], feat["note"] = "dropped", " ".join(args[1:])[:200]
